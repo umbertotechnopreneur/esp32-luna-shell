@@ -968,15 +968,10 @@ esp_err_t sample_microphone(const char *phase)
     });
     if (error == ESP_OK) {
         ESP_LOGI(TAG, "Microphones ES7210 %s: ch0=%lu/%lu ch1=%lu/%lu",
-<<<<<<< HEAD
-                 phase, static_cast<unsigned long>(absolute_sum[0] / frame_count),
-                 static_cast<unsigned long>(peak[0]), static_cast<unsigned long>(absolute_sum[1] / frame_count),
-=======
                  phase,
                  static_cast<unsigned long>(absolute_sum[0] / frame_count),
                  static_cast<unsigned long>(peak[0]),
                  static_cast<unsigned long>(absolute_sum[1] / frame_count),
->>>>>>> 71cffeb (Use real audio channels and IMU calibration diagnostics)
                  static_cast<unsigned long>(peak[1]));
     } else {
         ESP_LOGW(TAG, "Microphones ES7210: %s capture failed (%s)",
