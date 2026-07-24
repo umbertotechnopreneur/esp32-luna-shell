@@ -61,12 +61,12 @@ void makeMetric(Navigation::Metric &metric, const LvObject *parent, const char *
                 uint32_t color)
 {
     metric.card = std::make_unique<LvContainer>(parent);
-    metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 36));
+    metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 40));
     metric.card->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
     metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
-    metric.label = makeLabel(metric.card.get(), name, 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
-    metric.value = makeLabel(metric.card.get(), "--", 116, 9, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -10, 3);
+    metric.label = makeLabel(metric.card.get(), name, 100, 8, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
+    metric.value = makeLabel(metric.card.get(), "--", 116, 12, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -10, 1);
     metric.bar = std::make_unique<AppProgressBar>(metric.card.get());
     metric.bar->setRange(0, 100);
     metric.bar->setValue(0);
@@ -74,7 +74,7 @@ void makeMetric(Navigation::Metric &metric, const LvObject *parent, const char *
     metric.bar->setHeight(8);
     metric.bar->setBackgroundColor(StyleColor::COLOR(kTrack));
     metric.bar->setIndicatorGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
-    metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 23});
+    metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 27});
 }
 
 const char *health(qsee::DeviceHealth value)
@@ -115,11 +115,11 @@ bool Navigation::begin()
     _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 232));
     _welcome->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 54});
     makeMetric(_ram, _welcome.get(), "RAM FREE", 0, kTeal);
-    makeMetric(_sd, _welcome.get(), "SD STORAGE", 44, kBlue);
-    makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 88, kTeal);
-    makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 132, kBlue);
+    makeMetric(_sd, _welcome.get(), "SD STORAGE", 43, kBlue);
+    makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 86, kTeal);
+    makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 129, kBlue);
     _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
-                              STYLE_ALIGN_TYPE_TOP_MID, 0, 181);
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 177);
 
     _open_logs = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Logs); });
     _open_logs->setText("LIVE LOGS");
@@ -141,10 +141,10 @@ bool Navigation::begin()
     _logs->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
     _log_box = std::make_unique<AppTextBox>(_logs.get());
     _log_box->setWidth(kWidth);
-    _log_box->setHeight(236);
+    _log_box->setHeight(214);
     _log_box->setFont(StyleFont::SIZE(10));
-    _log_box->setTextColor(StyleColor::COLOR(kNavy));
-    _log_box->setBackgroundColor(StyleColor::COLOR(0xEAF1F6));
+    _log_box->setTextColor(StyleColor::COLOR(0xEAF1F6));
+    _log_box->setBackgroundColor(StyleColor::COLOR(0x12263A));
     _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
 
     _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
@@ -154,6 +154,13 @@ bool Navigation::begin()
     _logs_pause->setText("PAUSE");
     buttonStyle(*_logs_pause, 82, 26, kSlate);
     _logs_pause->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -2});
+    _logs_clear = std::make_unique<AppButton>(_logs.get(), [this]() {
+        qsee_logger_clear();
+        _log_box->setText("", false);
+    });
+    _logs_clear->setText("CLEAR");
+    buttonStyle(*_logs_clear, 70, 26, kBlue);
+    _logs_clear->align({STYLE_ALIGN_TYPE_BOTTOM_MID, -4, -2});
     _logs_follow = std::make_unique<AppButton>(_logs.get(), [this]() {
         _logs_follow_latest = !_logs_follow_latest;
         _logs_follow->setText(_logs_follow_latest ? "FOLLOW ON" : "FOLLOW OFF");
@@ -161,6 +168,8 @@ bool Navigation::begin()
     _logs_follow->setText("FOLLOW ON");
     buttonStyle(*_logs_follow, 92, 26, kBlue);
     _logs_follow->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -2});
+    _logs_live = makeLabel(_logs.get(), "● LIVE", 70, 9, kTeal,
+                           STYLE_ALIGN_TYPE_TOP_RIGHT, -4, -28);
 
     _hardware = std::make_unique<LvContainer>(_surface.get());
     _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 280));
@@ -170,14 +179,23 @@ bool Navigation::begin()
         "DISPLAY", "TOUCH", "SPEAKER", "MIC", "SD CARD"
     };
     for (size_t i = 0; i < sizeof(hardware_names) / sizeof(hardware_names[0]); ++i) {
-        auto item = makeLabel(_hardware.get(), hardware_names[i], 112, 9, kMuted,
+        auto card = std::make_unique<LvContainer>(_hardware.get());
+        card->setStyleAttribute(StyleSize::RECT(128, 32));
+        const bool left = (i % 2U) == 0U;
+        const int row = static_cast<int>(i / 2U);
+        card->setStyleAttribute({left ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
+                                 left ? 4 : -4, row * 35});
+        card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+        card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
+        auto item = makeLabel(card.get(), hardware_names[i], 112, 8, kMuted,
                               (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
-                              (i % 2 == 0) ? 8 : -8, static_cast<int>((i / 2) * 30));
+                              (i % 2 == 0) ? 8 : -8, 3);
         _hardware_labels.push_back(std::move(item));
-        auto state = makeLabel(_hardware.get(), "--", 112, 10, kNavy,
+        auto state = makeLabel(card.get(), "--", 112, 10, kNavy,
                                (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
-                               (i % 2 == 0) ? 8 : -8, static_cast<int>((i / 2) * 30 + 11));
+                               (i % 2 == 0) ? 8 : -8, 14);
         _hardware_labels.push_back(std::move(state));
+        _hardware_cards.push_back(std::move(card));
     }
     _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 9, kMuted,
                                   STYLE_ALIGN_TYPE_TOP_MID, 0, 184);
@@ -303,7 +321,10 @@ void Navigation::shutdown()
     _hardware_summary.reset();
     _format_sd.reset();
     _logs_pause.reset();
+    _logs_clear.reset();
     _logs_follow.reset();
+    _logs_live.reset();
+    _hardware_cards.clear();
     _dialog_title.reset();
     _dialog_text.reset();
     _dialog_progress.reset();
@@ -333,7 +354,7 @@ void Navigation::shutdown()
 void Navigation::updateMetric(Metric &metric, const char *value, int progress)
 {
     metric.value->setText(value);
-    metric.bar->setValue(progress < 0 ? 0 : progress > 100 ? 100 : progress);
+    metric.bar->setValue(progress < 0 ? 0 : progress > 100 ? 100 : progress, true);
 }
 
 void Navigation::refresh()
@@ -341,9 +362,9 @@ void Navigation::refresh()
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
     char value[64];
     const int ram_progress = snapshot.memory.heap_free_bytes > 0
-        ? static_cast<int>((snapshot.memory.heap_free_bytes / 1000000U) > 100U ? 100U : snapshot.memory.heap_free_bytes / 10000U)
+        ? static_cast<int>((snapshot.memory.heap_free_bytes / 10000U) > 100U ? 100U : snapshot.memory.heap_free_bytes / 10000U)
         : 0;
-    std::snprintf(value, sizeof(value), "%lu KB", static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U));
+    std::snprintf(value, sizeof(value), "%lu KB  %d%%", static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U), ram_progress);
     updateMetric(_ram, value, ram_progress);
 
     if (snapshot.storage.health == DeviceHealth::Ready && snapshot.storage.capacity_bytes > 0) {
@@ -351,9 +372,10 @@ void Navigation::refresh()
             ? snapshot.storage.capacity_bytes - snapshot.storage.free_bytes : 0;
         const int used_percent = static_cast<int>((used_bytes * 100ULL) /
                                                    snapshot.storage.capacity_bytes);
-        std::snprintf(value, sizeof(value), "%llu / %llu MB free",
+        std::snprintf(value, sizeof(value), "%llu / %llu MB  %s",
                       static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
-                      static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)));
+                      static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)),
+                      snapshot.storage.logger_mirror_enabled ? "MIRROR" : "NO MIRROR");
         updateMetric(_sd, value, 100 - used_percent);
     } else if (snapshot.storage.format_required) {
         updateMetric(_sd, "format required", 0);
@@ -362,9 +384,15 @@ void Navigation::refresh()
     } else {
         updateMetric(_sd, "not mounted", 0);
     }
-    _sd.value->setTextColor(StyleColor::COLOR(healthColor(snapshot.storage.health)));
-    updateMetric(_cpu0, "not sampled", 0);
-    updateMetric(_cpu1, "not sampled", 0);
+    const uint32_t sd_color = snapshot.storage.format_required ? 0xD97706 :
+                              !snapshot.storage.card_present ? kMuted :
+                              snapshot.storage.health == DeviceHealth::Ready ? kTeal : 0xD97706;
+    _sd.value->setTextColor(StyleColor::COLOR(sd_color));
+    _sd.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(sd_color));
+    updateMetric(_cpu0, "CPU data unavailable", -1);
+    updateMetric(_cpu1, "CPU data unavailable", -1);
+    _cpu0.value->setTextColor(StyleColor::COLOR(kMuted));
+    _cpu1.value->setTextColor(StyleColor::COLOR(kMuted));
 
     std::snprintf(value, sizeof(value), "WiFi %s   BLE %s   GPS %s",
                   health(snapshot.radios.wifi.health), health(snapshot.radios.ble.health), health(snapshot.gps.health));
@@ -372,7 +400,7 @@ void Navigation::refresh()
     if (_current == Screen::Logs && !_logs_paused) {
         char logs[8192];
         qsee_logger_snapshot(logs, sizeof(logs), 32);
-        _log_box->setText(logs, _logs_follow_latest);
+        _log_box->setText(logs, _logs_follow_latest && _log_box->isAtBottom());
     } else if (_current == Screen::Hardware) {
         updateHardwareText();
         const bool needs_format = snapshot.storage.format_required;
@@ -391,14 +419,20 @@ void Navigation::updateHardwareText()
     };
     for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
         auto &state = _hardware_labels[i * 2 + 1];
-        state->setText(health(states[i]));
-        state->setTextColor(StyleColor::COLOR(healthColor(states[i])));
+        const bool format_required = i == 10U && snapshot.storage.format_required;
+        state->setText(format_required ? "FORMAT" : health(states[i]));
+        state->setTextColor(StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i])));
+        _hardware_cards[i]->setStyleAttribute(
+            StyleColorItem::STYLE_COLOR_ITEM_BORDER,
+            StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i]))
+        );
     }
     char summary[96];
-    std::snprintf(summary, sizeof(summary), "Snapshot #%lu | SD %llu / %llu MB",
+    std::snprintf(summary, sizeof(summary), "Snapshot #%lu | SD %llu / %llu MB | %s",
                   static_cast<unsigned long>(snapshot.sequence),
                   static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
-                  static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)));
+                  static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)),
+                  snapshot.storage.logger_mirror_enabled ? "MIRROR ON" : "MIRROR OFF");
     _hardware_summary->setText(summary);
 }
 

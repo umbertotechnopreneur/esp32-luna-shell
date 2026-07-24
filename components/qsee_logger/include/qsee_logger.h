@@ -46,6 +46,9 @@ void qsee_logger_disable_sd(void);
  */
 size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines);
 
+/** Clear only the in-memory UI ring; serial and SD logging continue. */
+void qsee_logger_clear(void);
+
 bool qsee_logger_sd_enabled(void);
 
 #ifdef __cplusplus

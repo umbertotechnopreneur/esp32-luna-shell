@@ -69,13 +69,14 @@ void App::syncStatusBar()
 
     const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
     if (!_status_text_added) {
-        _status_text_added = status_bar->addText("BLE --  GPS --  SD --", 0, kStatusTextId);
+        _status_text_added = status_bar->addText("BT --  Wi --  GP --  SD --", 0, kStatusTextId);
     }
-    char status_text[48];
+    char status_text[64];
     const char *sd_status = snapshot.storage.format_required ? "FMT" :
                             statusWord(snapshot.storage.health);
-    std::snprintf(status_text, sizeof(status_text), "BLE %s  GPS %s  SD %s",
+    std::snprintf(status_text, sizeof(status_text), "BT %s  Wi %s  GP %s  SD %s",
                   statusWord(snapshot.radios.ble.health),
+                  statusWord(snapshot.radios.wifi.health),
                   statusWord(snapshot.gps.health),
                   sd_status);
     if (_status_text_added) {

@@ -43,13 +43,16 @@ private:
     std::unique_ptr<esp_brookesia::gui::LvContainer> _welcome;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _logs;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
+    std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_cards;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_logs;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_hardware;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
     std::unique_ptr<esp_brookesia::gui::AppButton> _back;
     std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_pause;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _logs_clear;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_follow;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _logs_live;
     std::unique_ptr<esp_brookesia::gui::AppTextBox> _log_box;
     std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _hardware_labels;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _hardware_summary;

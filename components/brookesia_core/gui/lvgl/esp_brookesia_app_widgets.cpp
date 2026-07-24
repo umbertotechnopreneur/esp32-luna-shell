@@ -126,12 +126,12 @@ bool AppProgressBar::setRange(int minimum, int maximum)
     return true;
 }
 
-bool AppProgressBar::setValue(int value)
+bool AppProgressBar::setValue(int value, bool animated)
 {
     if (!isValid()) {
         return false;
     }
-    lv_bar_set_value(getNativeHandle(), value, LV_ANIM_OFF);
+    lv_bar_set_value(getNativeHandle(), value, animated ? LV_ANIM_ON : LV_ANIM_OFF);
     return true;
 }
 
@@ -192,6 +192,11 @@ bool AppTextBox::setText(const char *text, bool follow_latest)
         lv_textarea_set_cursor_pos(getNativeHandle(), LV_TEXTAREA_CURSOR_LAST);
     }
     return true;
+}
+
+bool AppTextBox::isAtBottom() const
+{
+    return isValid() && lv_obj_get_scroll_bottom(getNativeHandle()) <= 2;
 }
 
 bool AppTextBox::setWidth(int width)

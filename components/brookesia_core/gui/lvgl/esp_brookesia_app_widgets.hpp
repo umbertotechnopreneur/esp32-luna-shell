@@ -51,7 +51,7 @@ public:
     explicit AppProgressBar(const LvObject *parent);
 
     bool setRange(int minimum, int maximum);
-    bool setValue(int value);
+    bool setValue(int value, bool animated = true);
     bool setWidth(int width);
     bool setHeight(int height);
     bool setIndicatorColor(const StyleColor &color);
@@ -65,6 +65,7 @@ public:
     explicit AppTextBox(const LvObject *parent);
 
     bool setText(const char *text, bool follow_latest = true);
+    bool isAtBottom() const;
     bool setWidth(int width);
     bool setHeight(int height);
     bool setFont(const StyleFont &font);

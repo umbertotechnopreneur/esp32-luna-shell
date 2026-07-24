@@ -296,6 +296,15 @@ void qsee_logger_disable_sd(void)
     s_sd_enabled = false;
 }
 
+void qsee_logger_clear(void)
+{
+    portENTER_CRITICAL(&s_ring_lock);
+    memset(s_ring, 0, sizeof(s_ring));
+    s_ring_head = 0U;
+    s_ring_count = 0U;
+    portEXIT_CRITICAL(&s_ring_lock);
+}
+
 size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines)
 {
     if (buffer == NULL || buffer_size == 0U || max_lines == 0U) {
