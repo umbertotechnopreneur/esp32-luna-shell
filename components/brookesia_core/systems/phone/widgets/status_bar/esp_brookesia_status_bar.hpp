@@ -42,6 +42,8 @@ public:
             gui::StyleColor background_color;
             gui::StyleFont text_font;
             gui::StyleColor text_color;
+            gui::StyleColor background_gradient_color;
+            bool enable_background_gradient;
         } main;
         struct {
             uint8_t num;
@@ -98,6 +100,8 @@ public:
     bool addIcon(const StatusBarIcon::Data &data, uint8_t area_index, int id);
     bool removeIcon(int id);
     bool setIconState(int id, int state) const;
+    bool addText(const char *text, uint8_t area_index, int id);
+    bool setText(int id, const char *text) const;
 
     // Battery
     bool setBatteryPercent(bool charge_flag, int percent) const;
@@ -157,6 +161,7 @@ private:
     ESP_Brookesia_LvObj_t _main_obj;
     std::vector<ESP_Brookesia_LvObj_t> _area_objs;
     std::map <int, std::shared_ptr<StatusBarIcon>> _id_icon_map;
+    std::map <int, lv_obj_t *> _id_text_map;
     // Battery
     int _battery_id = -1;
     bool _is_battery_initialed = false;

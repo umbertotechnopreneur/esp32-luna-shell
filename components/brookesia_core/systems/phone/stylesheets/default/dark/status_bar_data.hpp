@@ -28,17 +28,20 @@ constexpr StatusBar::Data STYLESHEET_DEFAULT_DARK_STATUS_BAR_DATA = {
         .background_color = gui::StyleColor::COLOR(0x38393A),
         .text_font = gui::StyleFont::HEIGHT_PERCENT(60),
         .text_color = gui::StyleColor::COLOR(0xFFFFFF),
+        .background_gradient_color = gui::StyleColor::COLOR(0x0F9D83),
+        .enable_background_gradient = true,
     },
     .area = {
-        .num = 2,
+        .num = 3,
         .data = {
-            STYLESHEET_DEFAULT_DARK_STATUS_BAR_AREA_DATA(50, StatusBar::AreaAlign::START),
-            STYLESHEET_DEFAULT_DARK_STATUS_BAR_AREA_DATA(50, StatusBar::AreaAlign::END),
+            STYLESHEET_DEFAULT_DARK_STATUS_BAR_AREA_DATA(40, StatusBar::AreaAlign::START),
+            STYLESHEET_DEFAULT_DARK_STATUS_BAR_AREA_DATA(20, StatusBar::AreaAlign::CENTER),
+            STYLESHEET_DEFAULT_DARK_STATUS_BAR_AREA_DATA(40, StatusBar::AreaAlign::END),
         },
     },
     .icon_common_size = gui::StyleSize::SQUARE_PERCENT(60),
     .battery = {
-        .area_index = 1,
+        .area_index = 2,
         .icon_data = {
             .icon = {
                 .image_num = 5,
@@ -53,7 +56,7 @@ constexpr StatusBar::Data STYLESHEET_DEFAULT_DARK_STATUS_BAR_DATA = {
         },
     },
     .wifi = {
-        .area_index = 1,
+        .area_index = 2,
         .icon_data = {
             .icon = {
                 .image_num = 4,
@@ -67,7 +70,7 @@ constexpr StatusBar::Data STYLESHEET_DEFAULT_DARK_STATUS_BAR_DATA = {
         },
     },
     .clock = {
-        .area_index = 0,
+        .area_index = 1,
     },
     .flags = {
         .enable_main_size_min = 1,

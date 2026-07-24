@@ -152,13 +152,25 @@ static void writer_task(void *arg)
 
     while (true) {
         if (!s_sd_enabled) {
+            if (file != NULL) {
+                (void)fclose(file);
+                file = NULL;
+                lines_since_flush = 0;
+            }
+            while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
+                /* Drop queued SD copies while the card is unavailable. */
+            }
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
         if (xQueueReceive(s_write_queue, &line, pdMS_TO_TICKS(500)) != pdTRUE) {
             if (file != NULL && lines_since_flush > 0U) {
-                fflush(file);
+                if (fflush(file) != 0) {
+                    (void)fclose(file);
+                    file = NULL;
+                    s_sd_enabled = false;
+                }
                 lines_since_flush = 0;
             }
             continue;
@@ -170,18 +182,39 @@ static void writer_task(void *arg)
                 s_sd_enabled = false;
                 continue;
             }
-            fseek(file, 0, SEEK_END);
+            if (fseek(file, 0, SEEK_END) != 0) {
+                (void)fclose(file);
+                file = NULL;
+                s_sd_enabled = false;
+                continue;
+            }
         }
 
-        fputs(line.text, file);
+        if (fputs(line.text, file) == EOF) {
+            (void)fclose(file);
+            file = NULL;
+            s_sd_enabled = false;
+            continue;
+        }
         const size_t length = strlen(line.text);
         if (length == 0U || line.text[length - 1U] != '\n') {
-            fputc('\n', file);
+            if (fputc('\n', file) == EOF) {
+                (void)fclose(file);
+                file = NULL;
+                s_sd_enabled = false;
+                continue;
+            }
         }
 
         lines_since_flush++;
         if (lines_since_flush >= 8U) {
-            fflush(file);
+            if (fflush(file) != 0) {
+                (void)fclose(file);
+                file = NULL;
+                s_sd_enabled = false;
+                lines_since_flush = 0;
+                continue;
+            }
             lines_since_flush = 0;
             rotate_log_if_needed(&file);
         }
@@ -256,6 +289,11 @@ esp_err_t qsee_logger_enable_sd(const char *mount_point)
     s_sd_enabled = true;
     ESP_LOGI(TAG, "SD mirror enabled: %s", s_log_path);
     return ESP_OK;
+}
+
+void qsee_logger_disable_sd(void)
+{
+    s_sd_enabled = false;
 }
 
 size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines)

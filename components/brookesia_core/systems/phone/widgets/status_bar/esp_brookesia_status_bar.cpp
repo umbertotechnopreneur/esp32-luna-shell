@@ -156,6 +156,28 @@ bool StatusBar::setIconState(int id, int state) const
     return true;
 }
 
+bool StatusBar::addText(const char *text, uint8_t area_index, int id)
+{
+    ESP_UTILS_CHECK_FALSE_RETURN(checkMainInitialized(), false, "Status bar is not initialized");
+    ESP_UTILS_CHECK_FALSE_RETURN(area_index < _area_objs.size(), false, "Invalid status bar area");
+    ESP_UTILS_CHECK_FALSE_RETURN(_id_text_map.find(id) == _id_text_map.end(), false, "Text id already exists");
+
+    lv_obj_t *label = lv_label_create(_area_objs[area_index].get());
+    ESP_UTILS_CHECK_NULL_RETURN(label, false, "Create status bar text failed");
+    lv_obj_add_style(label, _system_context.getDisplay().getCoreContainerStyle(), 0);
+    lv_label_set_text(label, text != nullptr ? text : "");
+    _id_text_map[id] = label;
+    return true;
+}
+
+bool StatusBar::setText(int id, const char *text) const
+{
+    auto it = _id_text_map.find(id);
+    ESP_UTILS_CHECK_FALSE_RETURN(it != _id_text_map.end(), false, "Status bar text id not found");
+    lv_label_set_text(it->second, text != nullptr ? text : "");
+    return true;
+}
+
 bool StatusBar::checkVisible(void) const
 {
     ESP_UTILS_CHECK_FALSE_RETURN(checkMainInitialized(), false, "Not initialized");
@@ -335,6 +357,11 @@ bool StatusBar::updateMainByNewData(void)
     lv_obj_set_style_text_opa(_main_obj.get(), _data.main.text_color.opacity, 0);
     lv_obj_set_style_bg_color(_main_obj.get(), lv_color_hex(_data.main.background_color.color), 0);
     lv_obj_set_style_bg_opa(_main_obj.get(), _data.main.background_color.opacity, 0);
+    if (_data.main.enable_background_gradient) {
+        lv_obj_set_style_bg_grad_color(_main_obj.get(),
+                                       lv_color_hex(_data.main.background_gradient_color.color), 0);
+        lv_obj_set_style_bg_grad_dir(_main_obj.get(), LV_GRAD_DIR_HOR, 0);
+    }
 
     lv_flex_align_t main_align = LV_FLEX_ALIGN_START;
     for (size_t i = 0; i < _area_objs.size(); i++) {
@@ -372,6 +399,7 @@ bool StatusBar::delMain(void)
 
     _main_obj.reset();
     _area_objs.clear();
+    _id_text_map.clear();
 
     return true;
 }

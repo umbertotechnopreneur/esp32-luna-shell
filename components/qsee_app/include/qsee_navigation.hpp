@@ -1,83 +1,79 @@
-/*
- * QSEE.AI
- * Clear signals. Confident decisions.
- *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
- */
-
 #pragma once
 
-#include <functional>
-#include <string>
+#include <memory>
 #include <vector>
 
-#include "lvgl.h"
-#include "qsee_device_snapshot.hpp"
+#include "gui/lvgl/esp_brookesia_app_widgets.hpp"
 
 namespace qsee {
 
-class Navigation {
+class Navigation final {
 public:
-    enum class Screen {
-        Home,
-        Confirmation,
-        Result,
+    enum class Screen { Welcome, Logs, Hardware, About };
+
+    struct Metric {
+        std::unique_ptr<esp_brookesia::gui::LvContainer> card;
+        std::unique_ptr<esp_brookesia::gui::AppLabel> label;
+        std::unique_ptr<esp_brookesia::gui::AppLabel> value;
+        std::unique_ptr<esp_brookesia::gui::AppProgressBar> bar;
     };
 
-    bool begin(lv_obj_t *root);
-    void presentConfirmation(
-        const char *title,
-        const char *message,
-        std::function<void()> on_confirm,
-        std::function<void()> on_cancel
-    );
+    bool begin();
     bool back();
+    void shutdown();
 
 private:
-    struct Route {
-        Screen screen{Screen::Home};
-        std::string title;
-        std::string description;
-        bool primary_visible{false};
-        std::function<void()> on_confirm;
-        std::function<void()> on_cancel;
-    };
+    void show(Screen screen);
+    void showWelcome();
+    void showLogs();
+    void showHardware();
+    void showAbout();
+    void refresh();
+    void setVisible(esp_brookesia::gui::LvObject &object, bool visible);
+    void updateMetric(Metric &metric, const char *value, int progress);
+    void updateHardwareText();
+    void showFormatDialog();
+    void closeDialog();
+    void requestFormat();
 
-    static void primaryEvent(lv_event_t *event);
-    static void confirmEvent(lv_event_t *event);
-    static void cancelEvent(lv_event_t *event);
-    static void statusTimer(lv_timer_t *timer);
-
-    static const char *screenName(Screen screen);
-    void navigate(Route route, bool push_current);
-    void render();
-    void renderStatus();
-    void showHome();
-    void showConfirmation();
-    void showResult(const char *message);
-    void setActionButtons(bool visible);
-    lv_obj_t *makeActionButton(const char *text, int x, lv_event_cb_t callback);
-
-    lv_obj_t *_root{};
-    lv_obj_t *_safe_area{};
-    lv_obj_t *_status_bar{};
-    lv_obj_t *_bluetooth_status{};
-    lv_obj_t *_wifi_status{};
-    lv_obj_t *_gps_status{};
-    lv_obj_t *_battery_status{};
-    lv_obj_t *_title{};
-    lv_obj_t *_description{};
-    lv_obj_t *_primary{};
-    lv_obj_t *_cancel{};
-    lv_obj_t *_confirm{};
-    Route _current;
-    std::vector<Route> _history;
-    lv_timer_t *_status_timer{};
+    std::unique_ptr<esp_brookesia::gui::AppScreen> _screen;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _surface;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _page_title;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _page_subtitle;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _welcome;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _logs;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_logs;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_hardware;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _back;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _logs_pause;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _logs_follow;
+    std::unique_ptr<esp_brookesia::gui::AppTextBox> _log_box;
+    std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _hardware_labels;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _hardware_summary;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _about;
+    std::unique_ptr<esp_brookesia::gui::AppImage> _about_logo;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _about_tagline;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _about_website;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _about_email;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _about_copyright;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _dialog;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _dialog_title;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _dialog_text;
+    std::unique_ptr<esp_brookesia::gui::AppProgressBar> _dialog_progress;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _dialog_confirm;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _dialog_cancel;
+    Metric _ram;
+    Metric _sd;
+    Metric _cpu0;
+    Metric _cpu1;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _radio_status;
+    std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
+    bool _logs_paused = false;
+    bool _logs_follow_latest = true;
+    Screen _current{Screen::Welcome};
 };
 
-} // namespace qsee
+}  // namespace qsee

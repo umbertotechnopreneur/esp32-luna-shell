@@ -37,6 +37,11 @@ esp_err_t qsee_logger_init(void);
 esp_err_t qsee_logger_enable_sd(const char *mount_point);
 
 /**
+ * Stop SD mirroring safely. Serial output and the RAM ring remain active.
+ */
+void qsee_logger_disable_sd(void);
+
+/**
  * Copy the newest complete log lines into a caller-owned text buffer.
  */
 size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines);

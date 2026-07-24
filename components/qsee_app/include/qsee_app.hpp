@@ -12,7 +12,10 @@
 
 #pragma once
 
+#include <memory>
+
 #include "systems/phone/esp_brookesia_phone_app.hpp"
+#include "gui/lvgl/esp_brookesia_app_widgets.hpp"
 
 namespace qsee {
 
@@ -25,9 +28,12 @@ protected:
     App();
     bool run() override;
     bool back() override;
+    void syncStatusBar();
 
 private:
     static App *_instance;
+    std::unique_ptr<esp_brookesia::gui::AppTimer> _status_timer;
+    bool _status_text_added = false;
 };
 
 } // namespace qsee

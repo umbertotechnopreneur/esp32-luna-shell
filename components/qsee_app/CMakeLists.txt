@@ -5,6 +5,7 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES
         brookesia_core
+        qsee_boot
         qsee_logger
         qsee_platform
     WHOLE_ARCHIVE

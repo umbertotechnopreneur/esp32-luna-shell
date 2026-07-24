@@ -1,369 +1,437 @@
-/*
- * QSEE.AI
- * Clear signals. Confident decisions.
- *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
- */
-
 #include "qsee_navigation.hpp"
 
 #include <cstdio>
 #include <cstring>
 
 #include "esp_log.h"
-#include "qsee_palette.hpp"
+#include "qsee_device_snapshot.hpp"
+#include "qsee_logger.h"
+#include "qsee_platform.h"
 
 namespace {
-constexpr int kDisplaySize = 466;
-constexpr int kSafeOrigin = 73;
-constexpr int kSafeSize = 320;
-constexpr uint32_t kBlue = 0x2F80ED;
-constexpr uint32_t kNavy = 0x071A2C;
-constexpr uint32_t kMuted = 0x69849C;
-constexpr uint32_t kStatusActive = 0x168A5A;
-constexpr uint32_t kStatusInactive = 0x9AA8B5;
-constexpr uint32_t kStatusWarning = 0xC97800;
-const char *TAG = "qsee_nav";
+using namespace esp_brookesia::gui;
 
-lv_obj_t *makeStatusLabel(lv_obj_t *parent, const char *text, int width)
+extern const uint8_t qsee_boot_rgb565_start[] asm("_binary_qsee_boot_rgb565_start");
+extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
+
+constexpr uint32_t kBackground = 0xF4F8FC;
+constexpr uint32_t kSurface = 0xFFFFFF;
+constexpr uint32_t kNavy = 0x102A43;
+constexpr uint32_t kMuted = 0x627D98;
+constexpr uint32_t kTeal = 0x0F9D83;
+constexpr uint32_t kBlue = 0x3478C8;
+constexpr uint32_t kSlate = 0x52697D;
+constexpr uint32_t kTrack = 0xDCE7F0;
+constexpr uint32_t kWhite = 0xFFFFFF;
+constexpr int kWidth = 272;
+constexpr int kRowWidth = 236;
+
+void surface(LvObject &object)
 {
-    lv_obj_t *label = lv_label_create(parent);
-    lv_obj_set_width(label, width);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_10, 0);
-    lv_label_set_text(label, text);
+    object.setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+}
+
+void labelStyle(AppLabel &label, int width, int size, uint32_t color, StyleAlignType align, int x, int y)
+{
+    label.setWidth(width);
+    label.setFont(StyleFont::SIZE(size));
+    label.setTextColor(StyleColor::COLOR(color));
+    label.align({align, x, y});
+}
+
+void buttonStyle(AppButton &button, int width, int height, uint32_t color)
+{
+    button.setWidth(width);
+    button.setHeight(height);
+    button.setFont(StyleFont::SIZE(10));
+    button.setTextColor(StyleColor::COLOR(kWhite));
+    button.setBackgroundGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
+}
+
+std::unique_ptr<AppLabel> makeLabel(const LvObject *parent, const char *text, int width, int size,
+                                    uint32_t color, StyleAlignType align, int x, int y)
+{
+    auto label = std::make_unique<AppLabel>(parent);
+    label->setText(text);
+    labelStyle(*label, width, size, color, align, x, y);
     return label;
 }
 
-void applyButtonGradient(
-    lv_obj_t *button,
-    uint32_t top,
-    uint32_t bottom,
-    uint32_t pressed_top,
-    uint32_t pressed_bottom
-)
+void makeMetric(Navigation::Metric &metric, const LvObject *parent, const char *name, int y,
+                uint32_t color)
 {
-    lv_obj_set_style_bg_color(button, lv_color_hex(top), 0);
-    lv_obj_set_style_bg_grad_color(button, lv_color_hex(bottom), 0);
-    lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, 0);
-    lv_obj_set_style_bg_color(button, lv_color_hex(pressed_top), LV_STATE_PRESSED);
-    lv_obj_set_style_bg_grad_color(button, lv_color_hex(pressed_bottom), LV_STATE_PRESSED);
-    lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, LV_STATE_PRESSED);
+    metric.card = std::make_unique<LvContainer>(parent);
+    metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 36));
+    metric.card->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
+    metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+    metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
+    metric.label = makeLabel(metric.card.get(), name, 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
+    metric.value = makeLabel(metric.card.get(), "--", 116, 9, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -10, 3);
+    metric.bar = std::make_unique<AppProgressBar>(metric.card.get());
+    metric.bar->setRange(0, 100);
+    metric.bar->setValue(0);
+    metric.bar->setWidth(kRowWidth);
+    metric.bar->setHeight(8);
+    metric.bar->setBackgroundColor(StyleColor::COLOR(kTrack));
+    metric.bar->setIndicatorGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
+    metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 23});
 }
 
-void setStatusColor(lv_obj_t *label, qsee::DeviceHealth health)
+const char *health(qsee::DeviceHealth value)
 {
-    const uint32_t color = health == qsee::DeviceHealth::Ready
-        ? kStatusActive
-        : health == qsee::DeviceHealth::Degraded ? kStatusWarning : kStatusInactive;
-    lv_obj_set_style_text_color(label, lv_color_hex(color), 0);
+    return qsee::deviceHealthName(value);
 }
 
-void setIndicator(lv_obj_t *label, const char *name, qsee::DeviceHealth health)
+uint32_t healthColor(qsee::DeviceHealth value)
 {
-    const char *state = health == qsee::DeviceHealth::Ready
-        ? "ON"
-        : health == qsee::DeviceHealth::Degraded ? "?" : "--";
-    char text[12];
-    std::snprintf(text, sizeof(text), "%s %s", name, state);
-    lv_label_set_text(label, text);
-    setStatusColor(label, health);
+    switch (value) {
+    case qsee::DeviceHealth::Ready: return kTeal;
+    case qsee::DeviceHealth::Degraded: return 0xD97706;
+    case qsee::DeviceHealth::Missing: return kSlate;
+    case qsee::DeviceHealth::Unknown:
+    default: return kMuted;
+    }
 }
+
 }
 
 namespace qsee {
 
-bool Navigation::begin(lv_obj_t *root)
+bool Navigation::begin()
 {
-    if (root == nullptr) {
-        return false;
+    _screen = std::make_unique<AppScreen>(AppScreen::active());
+    if (_screen == nullptr || !_screen->isValid()) return false;
+
+    _screen->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kBackground));
+    _surface = std::make_unique<LvContainer>(_screen.get());
+    _surface->setStyleAttribute(StyleSize::RECT(320, 320));
+    _surface->setStyleAttribute({STYLE_ALIGN_TYPE_CENTER, 0, 0});
+    surface(*_surface);
+
+    _page_title = makeLabel(_surface.get(), "WELCOME", kWidth, 20, kNavy, STYLE_ALIGN_TYPE_TOP_MID, 0, 10);
+    _page_subtitle = makeLabel(_surface.get(), "QSee device console", kWidth, 10, kMuted, STYLE_ALIGN_TYPE_TOP_MID, 0, 34);
+
+    _welcome = std::make_unique<LvContainer>(_surface.get());
+    _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+    _welcome->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 54});
+    makeMetric(_ram, _welcome.get(), "RAM FREE", 0, kTeal);
+    makeMetric(_sd, _welcome.get(), "SD STORAGE", 44, kBlue);
+    makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 88, kTeal);
+    makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 132, kBlue);
+    _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 181);
+
+    _open_logs = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Logs); });
+    _open_logs->setText("LIVE LOGS");
+    buttonStyle(*_open_logs, 112, 34, kSlate);
+    _open_logs->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 18, -14});
+    _open_hardware = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Hardware); });
+    _open_hardware->setText("HARDWARE");
+    buttonStyle(*_open_hardware, 86, 34, kTeal);
+    _open_hardware->align({STYLE_ALIGN_TYPE_BOTTOM_MID, 0, -14});
+    _open_logs->setWidth(86);
+    _open_logs->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -14});
+    _open_about = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::About); });
+    _open_about->setText("ABOUT");
+    buttonStyle(*_open_about, 86, 34, kBlue);
+    _open_about->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -14});
+
+    _logs = std::make_unique<LvContainer>(_surface.get());
+    _logs->setStyleAttribute(StyleSize::RECT(kWidth, 280));
+    _logs->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _log_box = std::make_unique<AppTextBox>(_logs.get());
+    _log_box->setWidth(kWidth);
+    _log_box->setHeight(236);
+    _log_box->setFont(StyleFont::SIZE(10));
+    _log_box->setTextColor(StyleColor::COLOR(kNavy));
+    _log_box->setBackgroundColor(StyleColor::COLOR(0xEAF1F6));
+    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
+
+    _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
+        _logs_paused = !_logs_paused;
+        _logs_pause->setText(_logs_paused ? "RESUME" : "PAUSE");
+    });
+    _logs_pause->setText("PAUSE");
+    buttonStyle(*_logs_pause, 82, 26, kSlate);
+    _logs_pause->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -2});
+    _logs_follow = std::make_unique<AppButton>(_logs.get(), [this]() {
+        _logs_follow_latest = !_logs_follow_latest;
+        _logs_follow->setText(_logs_follow_latest ? "FOLLOW ON" : "FOLLOW OFF");
+    });
+    _logs_follow->setText("FOLLOW ON");
+    buttonStyle(*_logs_follow, 92, 26, kBlue);
+    _logs_follow->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -2});
+
+    _hardware = std::make_unique<LvContainer>(_surface.get());
+    _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 280));
+    _hardware->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    const char *hardware_names[] = {
+        "BATTERY", "RTC", "IMU", "GPS", "WIFI", "BLE",
+        "DISPLAY", "TOUCH", "SPEAKER", "MIC", "SD CARD"
+    };
+    for (size_t i = 0; i < sizeof(hardware_names) / sizeof(hardware_names[0]); ++i) {
+        auto item = makeLabel(_hardware.get(), hardware_names[i], 112, 9, kMuted,
+                              (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
+                              (i % 2 == 0) ? 8 : -8, static_cast<int>((i / 2) * 30));
+        _hardware_labels.push_back(std::move(item));
+        auto state = makeLabel(_hardware.get(), "--", 112, 10, kNavy,
+                               (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
+                               (i % 2 == 0) ? 8 : -8, static_cast<int>((i / 2) * 30 + 11));
+        _hardware_labels.push_back(std::move(state));
     }
-    _root = root;
-    lv_obj_remove_style_all(_root);
-    lv_obj_set_size(_root, kDisplaySize, kDisplaySize);
-    lv_obj_set_style_bg_color(_root, lv_color_hex(0xF7FBFF), 0);
-    lv_obj_set_style_bg_opa(_root, LV_OPA_COVER, 0);
-    lv_obj_clear_flag(_root, LV_OBJ_FLAG_SCROLLABLE);
+    _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 9, kMuted,
+                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 184);
 
-    _safe_area = lv_obj_create(_root);
-    lv_obj_set_pos(_safe_area, kSafeOrigin, kSafeOrigin);
-    lv_obj_set_size(_safe_area, kSafeSize, kSafeSize);
-    lv_obj_set_style_radius(_safe_area, 28, 0);
-    lv_obj_set_style_bg_color(_safe_area, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_border_width(_safe_area, 1, 0);
-    lv_obj_set_style_border_color(_safe_area, lv_color_hex(0xD9E9F7), 0);
-    lv_obj_set_style_pad_all(_safe_area, 24, 0);
-    lv_obj_clear_flag(_safe_area, LV_OBJ_FLAG_SCROLLABLE);
+    _format_sd = std::make_unique<AppButton>(_hardware.get(), [this]() { showFormatDialog(); });
+    _format_sd->setText("FORMAT SD");
+    buttonStyle(*_format_sd, 108, 30, kBlue);
+    _format_sd->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, 0, -2});
 
-    _status_bar = lv_obj_create(_safe_area);
-    lv_obj_remove_style_all(_status_bar);
-    lv_obj_set_size(_status_bar, 272, 22);
-    lv_obj_align(_status_bar, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_clear_flag(_status_bar, LV_OBJ_FLAG_SCROLLABLE);
+    _about = std::make_unique<LvContainer>(_surface.get());
+    _about->setStyleAttribute(StyleSize::RECT(kWidth, 260));
+    _about->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    _about_logo = std::make_unique<AppImage>(_about.get());
+    _about_logo->setRawRgb565(
+        qsee_boot_rgb565_start,
+        466,
+        466,
+        static_cast<size_t>(qsee_boot_rgb565_end - qsee_boot_rgb565_start)
+    );
+    _about_logo->setWidth(118);
+    _about_logo->setHeight(118);
+    _about_logo->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
+    _about_tagline = makeLabel(_about.get(), "QSee.ai device console", kWidth, 12, kNavy,
+                               STYLE_ALIGN_TYPE_TOP_MID, 0, 126);
+    _about_website = makeLabel(_about.get(), "qsee.ai", kWidth, 10, kBlue,
+                               STYLE_ALIGN_TYPE_TOP_MID, 0, 148);
+    _about_email = makeLabel(_about.get(), "hello@qsee.ai", kWidth, 10, kBlue,
+                             STYLE_ALIGN_TYPE_TOP_MID, 0, 170);
+    _about_copyright = makeLabel(_about.get(), "Copyright (c) QSee.ai — all rights reserved", kWidth, 9, kMuted,
+                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 196);
 
-    _bluetooth_status = makeStatusLabel(_status_bar, "BT --", 46);
-    lv_obj_align(_bluetooth_status, LV_ALIGN_LEFT_MID, 0, 0);
-    _wifi_status = makeStatusLabel(_status_bar, "WIFI --", 58);
-    lv_obj_align(_wifi_status, LV_ALIGN_LEFT_MID, 36, 0);
-    _gps_status = makeStatusLabel(_status_bar, "GPS --", 52);
-    lv_obj_align(_gps_status, LV_ALIGN_LEFT_MID, 80, 0);
-    _battery_status = makeStatusLabel(_status_bar, "BAT --", 58);
-    lv_obj_align(_battery_status, LV_ALIGN_RIGHT_MID, 0, 0);
+    _back = std::make_unique<AppButton>(_surface.get(), [this]() { (void)back(); });
+    _back->setText("BACK");
+    buttonStyle(*_back, 90, 32, kSlate);
+    _back->align({STYLE_ALIGN_TYPE_BOTTOM_MID, 0, -8});
 
-    _title = lv_label_create(_safe_area);
-    lv_obj_set_width(_title, 128);
-    lv_obj_set_style_text_align(_title, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(_title, lv_color_hex(kNavy), 0);
-    lv_obj_set_style_text_font(_title, &lv_font_montserrat_14, 0);
-    lv_label_set_long_mode(_title, LV_LABEL_LONG_DOT);
-    lv_obj_align(_title, LV_ALIGN_TOP_MID, 0, 32);
+    _dialog = std::make_unique<LvContainer>(_surface.get());
+    _dialog->setStyleAttribute(StyleSize::RECT(252, 142));
+    _dialog->setStyleAttribute({STYLE_ALIGN_TYPE_CENTER, 0, 0});
+    surface(*_dialog);
+    _dialog_title = makeLabel(_dialog.get(), "FORMAT SD?", 220, 16, kNavy,
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 14);
+    _dialog_text = makeLabel(_dialog.get(), "This erases the card. Are you sure?", 220, 10, kMuted,
+                             STYLE_ALIGN_TYPE_TOP_MID, 0, 46);
+    _dialog_progress = std::make_unique<AppProgressBar>(_dialog.get());
+    _dialog_progress->setRange(0, 100);
+    _dialog_progress->setValue(0);
+    _dialog_progress->setWidth(190);
+    _dialog_progress->setHeight(8);
+    _dialog_progress->setBackgroundColor(StyleColor::COLOR(kTrack));
+    _dialog_progress->setIndicatorGradient(StyleColor::COLOR(kTeal), StyleColor::COLOR(0x08745F));
+    _dialog_progress->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 76});
+    setVisible(*_dialog_progress, false);
+    _dialog_confirm = std::make_unique<AppButton>(_dialog.get(), [this]() { requestFormat(); });
+    _dialog_confirm->setText("YES");
+    buttonStyle(*_dialog_confirm, 78, 30, kTeal);
+    _dialog_confirm->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 28, -14});
+    _dialog_cancel = std::make_unique<AppButton>(_dialog.get(), [this]() { closeDialog(); });
+    _dialog_cancel->setText("NO");
+    buttonStyle(*_dialog_cancel, 78, 30, kSlate);
+    _dialog_cancel->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -28, -14});
 
-    _description = lv_label_create(_safe_area);
-    lv_obj_set_width(_description, 258);
-    lv_obj_set_style_text_align(_description, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_set_style_text_color(_description, lv_color_hex(kMuted), 0);
-    lv_obj_set_style_text_font(_description, &lv_font_montserrat_16, 0);
-    lv_label_set_long_mode(_description, LV_LABEL_LONG_WRAP);
-    lv_obj_align(_description, LV_ALIGN_CENTER, 0, 14);
-
-    _primary = lv_button_create(_safe_area);
-    lv_obj_set_size(_primary, 196, 52);
-    lv_obj_align(_primary, LV_ALIGN_BOTTOM_MID, 0, -18);
-    lv_obj_set_style_radius(_primary, 26, 0);
-    lv_obj_set_style_bg_color(_primary, lv_color_hex(kBlue), 0);
-    lv_obj_set_style_bg_color(_primary, lv_color_hex(0x1E66BC), LV_STATE_PRESSED);
-    lv_obj_set_style_transform_width(_primary, 0, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_height(_primary, 0, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(_primary, primaryEvent, LV_EVENT_CLICKED, this);
-    lv_obj_t *primary_label = lv_label_create(_primary);
-    lv_obj_set_style_text_color(primary_label, lv_color_hex(0xFFFFFF), 0);
-    lv_obj_set_style_text_font(primary_label, &lv_font_montserrat_16, 0);
-    lv_label_set_text(primary_label, "OPEN CONFIRMATION");
-    lv_obj_center(primary_label);
-
-    _cancel = makeActionButton("CANCEL", 6, cancelEvent);
-    _confirm = makeActionButton("OK", 398, confirmEvent);
-    _history.clear();
-    _status_timer = lv_timer_create(statusTimer, 2000, this);
-    showHome();
+    _refresh_timer = std::make_unique<AppTimer>(1000, [this]() { refresh(); });
+    show(Screen::Welcome);
     return true;
 }
 
-lv_obj_t *Navigation::makeActionButton(const char *text, int x, lv_event_cb_t callback)
+void Navigation::setVisible(LvObject &object, bool visible)
 {
-    lv_obj_t *button = lv_button_create(_root);
-    lv_obj_set_pos(button, x, 190);
-    lv_obj_set_size(button, 62, 86);
-    lv_obj_set_style_radius(button, 30, 0);
-    const bool is_cancel = text != nullptr && std::strcmp(text, "CANCEL") == 0;
-    applyButtonGradient(
-        button,
-        is_cancel ? palette::kNeutralTop : palette::kTealTop,
-        is_cancel ? palette::kNeutralBottom : palette::kTealBottom,
-        is_cancel ? palette::kNeutralPressedTop : palette::kTealPressedTop,
-        is_cancel ? palette::kNeutralPressedBottom : palette::kTealPressedBottom
-    );
-    lv_obj_set_style_transform_width(button, 0, LV_STATE_PRESSED);
-    lv_obj_set_style_transform_height(button, 0, LV_STATE_PRESSED);
-    lv_obj_add_event_cb(button, callback, LV_EVENT_CLICKED, this);
-
-    lv_obj_t *label = lv_label_create(button);
-    lv_obj_set_style_text_color(label, lv_color_hex(palette::kButtonText), 0);
-    lv_obj_set_style_text_font(label, &lv_font_montserrat_10, 0);
-    lv_label_set_text(label, text);
-    lv_obj_center(label);
-    return button;
+    object.setStyleAttribute(StyleFlag::STYLE_FLAG_HIDDEN, !visible);
 }
 
-void Navigation::setActionButtons(bool visible)
+void Navigation::show(Screen screen)
 {
-    if (visible) {
-        lv_obj_remove_flag(_cancel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_remove_flag(_confirm, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(_cancel, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(_confirm, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void Navigation::showHome()
-{
-    navigate(
-        {
-            .screen = Screen::Home,
-            .title = "QSee.ai",
-            .description = "Device ready.\nAll essential content stays inside the 320 x 320 safe area.",
-            .primary_visible = true,
-        },
-        false
-    );
-}
-
-void Navigation::presentConfirmation(
-    const char *title,
-    const char *message,
-    std::function<void()> on_confirm,
-    std::function<void()> on_cancel
-)
-{
-    navigate(
-        {
-            .screen = Screen::Confirmation,
-            .title = title,
-        .description = message,
-            .primary_visible = false,
-            .on_confirm = std::move(on_confirm),
-            .on_cancel = std::move(on_cancel),
-        },
-        true
-    );
-}
-
-void Navigation::showConfirmation()
-{
-    presentConfirmation(
-        "Confirm action?",
-        "The side margins are reserved for deterministic Cancel and OK actions.",
-        [this]() {
-            ESP_LOGI(TAG, "Confirmation accepted");
-            showResult("Confirmed");
-        },
-        []() {
-            ESP_LOGI(TAG, "Confirmation cancelled");
-        }
-    );
-}
-
-void Navigation::showResult(const char *message)
-{
-    navigate(
-        {
-            .screen = Screen::Result,
-            .title = "QSee.ai",
-            .description = message,
-            .primary_visible = true,
-        },
-        false
-    );
+    _current = screen;
+    setVisible(*_welcome, screen == Screen::Welcome);
+    setVisible(*_logs, screen == Screen::Logs);
+    setVisible(*_hardware, screen == Screen::Hardware);
+    setVisible(*_open_logs, screen == Screen::Welcome);
+    setVisible(*_open_hardware, screen == Screen::Welcome);
+    setVisible(*_open_about, screen == Screen::Welcome);
+    setVisible(*_back, screen != Screen::Welcome);
+    setVisible(*_format_sd, false);
+    setVisible(*_dialog, false);
+    setVisible(*_about, screen == Screen::About);
+    _page_title->setText(screen == Screen::Welcome ? "WELCOME" : screen == Screen::Logs ? "LIVE LOGS" :
+                         screen == Screen::Hardware ? "HARDWARE" : "ABOUT");
+    _page_subtitle->setText(screen == Screen::Welcome ? "QSee device console" :
+                            screen == Screen::Logs ? "RAM ring, newest lines" :
+                            screen == Screen::Hardware ? "Component inventory" : "About this device");
+    refresh();
 }
 
 bool Navigation::back()
 {
-    if (_history.empty()) {
-        return false;
-    }
-
-    if (_current.screen == Screen::Confirmation && _current.on_cancel) {
-        _current.on_cancel();
-    }
-
-    const Screen from = _current.screen;
-    _current = std::move(_history.back());
-    _history.pop_back();
-    render();
-    ESP_LOGI(
-        TAG,
-        "History pop: %s -> %s, depth=%u",
-        screenName(from),
-        screenName(_current.screen),
-        static_cast<unsigned>(_history.size())
-    );
+    if (_current == Screen::Welcome) return false;
+    show(Screen::Welcome);
     return true;
 }
 
-const char *Navigation::screenName(Screen screen)
+void Navigation::shutdown()
 {
-    switch (screen) {
-    case Screen::Home:
-        return "home";
-    case Screen::Confirmation:
-        return "confirmation";
-    case Screen::Result:
-        return "result";
-    }
-    return "unknown";
+    // Stop callbacks before Brookesia releases the app screen and its widgets.
+    _refresh_timer.reset();
+    _ram.bar.reset();
+    _ram.value.reset();
+    _ram.label.reset();
+    _ram.card.reset();
+    _sd.bar.reset();
+    _sd.value.reset();
+    _sd.label.reset();
+    _sd.card.reset();
+    _cpu0.bar.reset();
+    _cpu0.value.reset();
+    _cpu0.label.reset();
+    _cpu0.card.reset();
+    _cpu1.bar.reset();
+    _cpu1.value.reset();
+    _cpu1.label.reset();
+    _cpu1.card.reset();
+    _log_box.reset();
+    _hardware_labels.clear();
+    _hardware_summary.reset();
+    _format_sd.reset();
+    _logs_pause.reset();
+    _logs_follow.reset();
+    _dialog_title.reset();
+    _dialog_text.reset();
+    _dialog_progress.reset();
+    _dialog_confirm.reset();
+    _dialog_cancel.reset();
+    _dialog.reset();
+    _page_title.reset();
+    _page_subtitle.reset();
+    _open_logs.reset();
+    _open_hardware.reset();
+    _open_about.reset();
+    _back.reset();
+    _radio_status.reset();
+    _welcome.reset();
+    _logs.reset();
+    _hardware.reset();
+    _about_logo.reset();
+    _about_tagline.reset();
+    _about_website.reset();
+    _about_email.reset();
+    _about_copyright.reset();
+    _about.reset();
+    _surface.reset();
+    _screen.reset();
 }
 
-void Navigation::navigate(Route route, bool push_current)
+void Navigation::updateMetric(Metric &metric, const char *value, int progress)
 {
-    const Screen from = _current.screen;
-    if (push_current) {
-        _history.push_back(std::move(_current));
-    }
-    _current = std::move(route);
-    render();
-    ESP_LOGI(
-        TAG,
-        "History %s: %s -> %s, depth=%u",
-        push_current ? "push" : "replace",
-        screenName(from),
-        screenName(_current.screen),
-        static_cast<unsigned>(_history.size())
-    );
+    metric.value->setText(value);
+    metric.bar->setValue(progress < 0 ? 0 : progress > 100 ? 100 : progress);
 }
 
-void Navigation::render()
-{
-    lv_label_set_text(_title, _current.title.c_str());
-    lv_label_set_text(_description, _current.description.c_str());
-    renderStatus();
-    if (_current.primary_visible) {
-        lv_obj_remove_flag(_primary, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_obj_add_flag(_primary, LV_OBJ_FLAG_HIDDEN);
-    }
-    setActionButtons(_current.screen == Screen::Confirmation);
-}
-
-void Navigation::renderStatus()
+void Navigation::refresh()
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-    setIndicator(_bluetooth_status, "BT", snapshot.radios.ble.health);
-    setIndicator(_wifi_status, "WIFI", snapshot.radios.wifi.health);
-    setIndicator(_gps_status, "GPS", snapshot.gps.health);
+    char value[64];
+    const int ram_progress = snapshot.memory.heap_free_bytes > 0
+        ? static_cast<int>((snapshot.memory.heap_free_bytes / 1000000U) > 100U ? 100U : snapshot.memory.heap_free_bytes / 10000U)
+        : 0;
+    std::snprintf(value, sizeof(value), "%lu KB", static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U));
+    updateMetric(_ram, value, ram_progress);
 
-    if (!snapshot.battery.battery_present || snapshot.battery.level_percent < 0) {
-        lv_label_set_text(_battery_status, snapshot.battery.usb_present ? "USB" : "BAT --");
+    if (snapshot.storage.health == DeviceHealth::Ready && snapshot.storage.capacity_bytes > 0) {
+        const uint64_t used_bytes = snapshot.storage.capacity_bytes > snapshot.storage.free_bytes
+            ? snapshot.storage.capacity_bytes - snapshot.storage.free_bytes : 0;
+        const int used_percent = static_cast<int>((used_bytes * 100ULL) /
+                                                   snapshot.storage.capacity_bytes);
+        std::snprintf(value, sizeof(value), "%llu / %llu MB free",
+                      static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
+                      static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)));
+        updateMetric(_sd, value, 100 - used_percent);
+    } else if (snapshot.storage.format_required) {
+        updateMetric(_sd, "format required", 0);
+    } else if (!snapshot.storage.card_present) {
+        updateMetric(_sd, "card absent", 0);
     } else {
-        char battery[24];
-        std::snprintf(battery, sizeof(battery), "BAT %d%%%s", snapshot.battery.level_percent,
-                      std::strcmp(snapshot.battery.power_state, "charging") == 0 ? "+" : "");
-        lv_label_set_text(_battery_status, battery);
+        updateMetric(_sd, "not mounted", 0);
     }
-    setStatusColor(_battery_status, snapshot.battery.health);
-}
+    _sd.value->setTextColor(StyleColor::COLOR(healthColor(snapshot.storage.health)));
+    updateMetric(_cpu0, "not sampled", 0);
+    updateMetric(_cpu1, "not sampled", 0);
 
-void Navigation::statusTimer(lv_timer_t *timer)
-{
-    auto *navigation = static_cast<Navigation *>(lv_timer_get_user_data(timer));
-    if (navigation != nullptr) {
-        navigation->renderStatus();
-    }
-}
-
-void Navigation::primaryEvent(lv_event_t *event)
-{
-    auto *navigation = static_cast<Navigation *>(lv_event_get_user_data(event));
-    navigation->showConfirmation();
-}
-
-void Navigation::confirmEvent(lv_event_t *event)
-{
-    auto *navigation = static_cast<Navigation *>(lv_event_get_user_data(event));
-    if (navigation->_current.on_confirm) {
-        navigation->_current.on_confirm();
+    std::snprintf(value, sizeof(value), "WiFi %s   BLE %s   GPS %s",
+                  health(snapshot.radios.wifi.health), health(snapshot.radios.ble.health), health(snapshot.gps.health));
+    _radio_status->setText(value);
+    if (_current == Screen::Logs && !_logs_paused) {
+        char logs[8192];
+        qsee_logger_snapshot(logs, sizeof(logs), 32);
+        _log_box->setText(logs, _logs_follow_latest);
+    } else if (_current == Screen::Hardware) {
+        updateHardwareText();
+        const bool needs_format = snapshot.storage.format_required;
+        setVisible(*_format_sd, needs_format);
     }
 }
 
-void Navigation::cancelEvent(lv_event_t *event)
+void Navigation::updateHardwareText()
 {
-    auto *navigation = static_cast<Navigation *>(lv_event_get_user_data(event));
-    (void)navigation->back();
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    const DeviceHealth states[] = {
+        snapshot.battery.health, snapshot.rtc.health, snapshot.imu.health,
+        snapshot.gps.health, snapshot.radios.wifi.health, snapshot.radios.ble.health,
+        snapshot.ui.display.health, snapshot.ui.touch.health, snapshot.audio.speaker.health,
+        snapshot.audio.microphone.health, snapshot.storage.health
+    };
+    for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
+        auto &state = _hardware_labels[i * 2 + 1];
+        state->setText(health(states[i]));
+        state->setTextColor(StyleColor::COLOR(healthColor(states[i])));
+    }
+    char summary[96];
+    std::snprintf(summary, sizeof(summary), "Snapshot #%lu | SD %llu / %llu MB",
+                  static_cast<unsigned long>(snapshot.sequence),
+                  static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
+                  static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)));
+    _hardware_summary->setText(summary);
 }
 
-} // namespace qsee
+void Navigation::showFormatDialog()
+{
+    if (_current != Screen::Hardware) return;
+    setVisible(*_dialog, true);
+    _dialog_title->setText("FORMAT SD?");
+    _dialog_text->setText("This erases the card. Are you sure?");
+    setVisible(*_dialog_confirm, true);
+    setVisible(*_dialog_cancel, true);
+    setVisible(*_dialog_progress, false);
+}
+
+void Navigation::closeDialog()
+{
+    setVisible(*_dialog, false);
+}
+
+void Navigation::requestFormat()
+{
+    setVisible(*_dialog_confirm, false);
+    setVisible(*_dialog_cancel, false);
+    setVisible(*_dialog_progress, true);
+    _dialog_progress->setValue(10);
+    _dialog_title->setText("FORMATTING SD");
+    _dialog_text->setText("Storage service is preparing the operation...");
+    const esp_err_t result = qsee_storage_request_format();
+    if (result != ESP_OK) {
+        _dialog_progress->setValue(0);
+        _dialog_title->setText("FORMAT UNAVAILABLE");
+        _dialog_text->setText("The hardware storage service does not expose formatting yet.");
+    }
+}
+
+}  // namespace qsee

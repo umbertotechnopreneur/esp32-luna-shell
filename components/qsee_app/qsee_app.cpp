@@ -12,12 +12,24 @@
 
 #include "qsee_app.hpp"
 
+#include <cstdio>
 #include <memory>
 
 #include "esp_brookesia.hpp"
 #include "esp_lib_utils.h"
 #include "esp_log.h"
+#include "qsee_device_snapshot.hpp"
 #include "qsee_navigation.hpp"
+
+namespace {
+constexpr int kStatusTextId = 0x5141;
+
+const char *statusWord(qsee::DeviceHealth health)
+{
+    return health == qsee::DeviceHealth::Ready ? "ON" :
+           health == qsee::DeviceHealth::Missing ? "--" : "!";
+}
+}
 
 #define APP_NAME "QSee.ai"
 
@@ -38,14 +50,49 @@ App *App::requestInstance()
 }
 
 App::App():
-    esp_brookesia::systems::phone::App(APP_NAME, nullptr, true, false, false)
+    esp_brookesia::systems::phone::App(APP_NAME, nullptr, true, true, false)
 {
 }
 
 bool App::run()
 {
     ESP_LOGI("qsee_app", "QSee.ai app started");
-    return s_navigation.begin(lv_screen_active());
+    _status_timer = std::make_unique<esp_brookesia::gui::AppTimer>(1000, [this]() { syncStatusBar(); });
+    syncStatusBar();
+    return s_navigation.begin();
+}
+
+void App::syncStatusBar()
+{
+    auto *status_bar = getSystem()->getDisplay().getStatusBar();
+    if (status_bar == nullptr) return;
+
+    const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
+    if (!_status_text_added) {
+        _status_text_added = status_bar->addText("BLE --  GPS --  SD --", 0, kStatusTextId);
+    }
+    char status_text[48];
+    const char *sd_status = snapshot.storage.format_required ? "FMT" :
+                            statusWord(snapshot.storage.health);
+    std::snprintf(status_text, sizeof(status_text), "BLE %s  GPS %s  SD %s",
+                  statusWord(snapshot.radios.ble.health),
+                  statusWord(snapshot.gps.health),
+                  sd_status);
+    if (_status_text_added) {
+        (void)status_bar->setText(kStatusTextId, status_text);
+    }
+    if (snapshot.battery.level_percent >= 0) {
+        (void)status_bar->showBatteryPercent();
+        (void)status_bar->setBatteryPercent(snapshot.battery.usb_present,
+                                            snapshot.battery.level_percent);
+    } else {
+        (void)status_bar->hideBatteryPercent();
+    }
+
+    const auto wifi_state = snapshot.radios.wifi.health == qsee::DeviceHealth::Ready
+        ? esp_brookesia::systems::phone::StatusBar::WifiState::SIGNAL_3
+        : esp_brookesia::systems::phone::StatusBar::WifiState::DISCONNECTED;
+    (void)status_bar->setWifiIconState(wifi_state);
 }
 
 bool App::back()
@@ -56,6 +103,9 @@ bool App::back()
     }
 
     ESP_LOGI("qsee_app", "Returning to ESP-Brookesia launcher");
+    _status_timer.reset();
+    _status_text_added = false;
+    s_navigation.shutdown();
     return notifyCoreClosed();
 }
 
