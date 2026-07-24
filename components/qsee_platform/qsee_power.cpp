@@ -182,7 +182,7 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
     }
 #endif
 
-    s_inputs.wakeup_cause = static_cast<uint32_t>(esp_sleep_get_wakeup_cause());
+    s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
     set_input_component(s_inputs.boot_button, true, ESP_OK);
     set_input_component(s_inputs.power_button, true, ESP_OK);
     const esp_io_expander_handle_t expander = bsp_io_expander_init();
@@ -206,7 +206,7 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
     }
     ESP_LOGI(
         TAG,
-        "Input inventory: BOOT=GPIO0 PWR=GPIO41 TCA9554=%s wake-cause=%lu",
+        "Input inventory: BOOT=GPIO0 PWR=GPIO41 TCA9554=%s wake-causes=0x%08lx",
         expander != nullptr ? "ready" : "missing",
         static_cast<unsigned long>(s_inputs.wakeup_cause)
     );
@@ -222,9 +222,9 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     ESP_LOGI(TAG, "Entering light sleep: BOOT wake + timer=%llu us",
              static_cast<unsigned long long>(wake_after_us));
     const esp_err_t sleep_result = esp_light_sleep_start();
-    s_inputs.wakeup_cause = static_cast<uint32_t>(esp_sleep_get_wakeup_cause());
+    s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
     publish_inputs();
-    ESP_LOGI(TAG, "Light sleep exited: result=%s cause=%lu",
+    ESP_LOGI(TAG, "Light sleep exited: result=%s causes=0x%08lx",
              esp_err_to_name(sleep_result),
              static_cast<unsigned long>(s_inputs.wakeup_cause));
     return sleep_result;

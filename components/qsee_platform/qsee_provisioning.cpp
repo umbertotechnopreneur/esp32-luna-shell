@@ -8,8 +8,8 @@
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "lwip/inet.h"
-#include "wifi_provisioning/manager.h"
-#include "wifi_provisioning/scheme_ble.h"
+#include "network_provisioning/manager.h"
+#include "network_provisioning/scheme_ble.h"
 
 namespace {
 constexpr char kTag[] = "qsee_prov";
@@ -32,19 +32,19 @@ esp_err_t ProvisioningService::initialize()
 
     rebuildIdentity();
 
-    wifi_prov_mgr_config_t config = {
-        .scheme = wifi_prov_scheme_ble,
-        .scheme_event_handler = WIFI_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
+    network_prov_mgr_config_t config = {
+        .scheme = network_prov_scheme_ble,
+        .scheme_event_handler = NETWORK_PROV_SCHEME_BLE_EVENT_HANDLER_FREE_BTDM,
         .app_event_handler = {
             .event_cb = &ProvisioningService::onEvent,
             .user_data = this,
         },
-        .wifi_prov_conn_cfg = {
+        .network_prov_wifi_conn_cfg = {
             .wifi_conn_attempts = 5,
         },
     };
 
-    const esp_err_t err = wifi_prov_mgr_init(config);
+    const esp_err_t err = network_prov_mgr_init(config);
     if (err != ESP_OK) {
         ESP_LOGE(kTag, "manager init failed: %s", esp_err_to_name(err));
         return err;
@@ -66,14 +66,14 @@ esp_err_t ProvisioningService::start()
         return ESP_OK;
     }
     if (_running) {
-        wifi_prov_mgr_stop_provisioning();
+        network_prov_mgr_stop_provisioning();
         _running = false;
     }
 
     rebuildIdentity();
     _state = ProvisioningState::Starting;
-    const esp_err_t err = wifi_prov_mgr_start_provisioning(
-        WIFI_PROV_SECURITY_1,
+    const esp_err_t err = network_prov_mgr_start_provisioning(
+        NETWORK_PROV_SECURITY_1,
         nullptr,
         _service_name,
         nullptr);
@@ -96,7 +96,7 @@ esp_err_t ProvisioningService::stop()
         return ESP_OK;
     }
 
-    wifi_prov_mgr_stop_provisioning();
+    network_prov_mgr_stop_provisioning();
     _running = false;
     _state = ProvisioningState::Stopped;
     return ESP_OK;
@@ -111,7 +111,7 @@ esp_err_t ProvisioningService::isProvisioned(bool *provisioned) const
     if (!_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    return wifi_prov_mgr_is_provisioned(provisioned);
+    return network_prov_mgr_is_wifi_provisioned(provisioned);
 }
 
 esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_size) const
@@ -159,7 +159,7 @@ const char *ProvisioningService::qrPayload() const
     return _qr_payload;
 }
 
-void ProvisioningService::onEvent(void *user_data, wifi_prov_cb_event_t event, void *event_data)
+void ProvisioningService::onEvent(void *user_data, network_prov_cb_event_t event, void *event_data)
 {
     auto *service = static_cast<ProvisioningService *>(user_data);
     if (service != nullptr) {
@@ -167,28 +167,28 @@ void ProvisioningService::onEvent(void *user_data, wifi_prov_cb_event_t event, v
     }
 }
 
-void ProvisioningService::handleEvent(wifi_prov_cb_event_t event, void *event_data)
+void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event_data)
 {
     (void)event_data;
     std::lock_guard<std::mutex> guard(_mutex);
     switch (event) {
-    case WIFI_PROV_START:
+    case NETWORK_PROV_START:
         _state = ProvisioningState::WaitingForApp;
         break;
-    case WIFI_PROV_CRED_RECV:
+    case NETWORK_PROV_WIFI_CRED_RECV:
         _state = ProvisioningState::CredentialsReceived;
         break;
-    case WIFI_PROV_SET_STA_CONFIG:
+    case NETWORK_PROV_SET_WIFI_STA_CONFIG:
         _state = ProvisioningState::Connecting;
         break;
-    case WIFI_PROV_CRED_SUCCESS:
+    case NETWORK_PROV_WIFI_CRED_SUCCESS:
         _state = ProvisioningState::Success;
         _running = false;
         break;
-    case WIFI_PROV_CRED_FAIL:
+    case NETWORK_PROV_WIFI_CRED_FAIL:
         _state = ProvisioningState::Failed;
         break;
-    case WIFI_PROV_END:
+    case NETWORK_PROV_END:
         _running = false;
         if (_state != ProvisioningState::Success) {
             _state = ProvisioningState::Stopped;

@@ -4,7 +4,7 @@
 #include <mutex>
 
 #include "esp_err.h"
-#include "wifi_provisioning/manager.h"
+#include "network_provisioning/manager.h"
 
 namespace qsee {
 
@@ -19,7 +19,7 @@ enum class ProvisioningState {
     Stopped,
 };
 
-/** BLE-only Espressif Wi-Fi provisioning facade. */
+/** BLE-only Espressif network provisioning facade for Wi-Fi credentials. */
 class ProvisioningService final {
 public:
     static ProvisioningService &instance();
@@ -39,8 +39,8 @@ private:
     ProvisioningService(const ProvisioningService &) = delete;
     ProvisioningService &operator=(const ProvisioningService &) = delete;
 
-    static void onEvent(void *user_data, wifi_prov_cb_event_t event, void *event_data);
-    void handleEvent(wifi_prov_cb_event_t event, void *event_data);
+    static void onEvent(void *user_data, network_prov_cb_event_t event, void *event_data);
+    void handleEvent(network_prov_cb_event_t event, void *event_data);
     void rebuildIdentity();
 
     mutable std::mutex _mutex;

@@ -24,7 +24,7 @@ idf_component_register(
         spi_flash
         nvs_flash
         bt
-        wifi_provisioning
+        network_provisioning
         esp_codec_dev
         qmi8658
         qsee_logger
