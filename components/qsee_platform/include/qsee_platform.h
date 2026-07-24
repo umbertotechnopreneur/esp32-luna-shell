@@ -36,7 +36,7 @@ typedef struct {
  * Probe and initialize hardware attached to the Waveshare BSP I2C bus.
  *
  * Every peripheral is fail-open: a missing optional sensor is logged but does
- * not prevent the UI from starting.
+ * not prevent the application from starting.
  */
 esp_err_t qsee_hardware_init(void);
 
@@ -44,6 +44,13 @@ esp_err_t qsee_hardware_init(void);
  * Refresh the canonical hardware snapshot once. No background polling occurs.
  */
 esp_err_t qsee_hardware_refresh(const char *reason);
+
+/**
+ * Run an explicit stationary QMI8658 calibration.
+ *
+ * The call rejects moving sample sets and keeps the previous valid calibration.
+ */
+esp_err_t qsee_imu_calibrate(void);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
 esp_err_t qsee_rtc_read(qsee_calendar_time_t *time);

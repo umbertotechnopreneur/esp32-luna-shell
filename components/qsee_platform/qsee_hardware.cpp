@@ -43,6 +43,7 @@
 
 #define I2C_TIMEOUT_MS 100
 #define GPS_MAX_PAYLOAD 4096
+#define GPS_MAX_PENDING_BYTES (1024U * 1024U)
 
 #define AXP2101_ADDRESS 0x34
 
@@ -53,7 +54,6 @@
 
 #define LC76G_WRITE_ADDRESS 0x50
 #define LC76G_READ_ADDRESS 0x54
-#define LC76G_DATA_WRITE_ADDRESS 0x58
 
 namespace {
 
@@ -63,7 +63,6 @@ i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
 i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
-i2c_master_dev_handle_t s_gps_data_write;
 qmi8658_dev_t s_imu;
 XPowersPMU s_power;
 
@@ -72,6 +71,10 @@ bool s_pmu_ready;
 bool s_rtc_ready;
 bool s_imu_ready;
 bool s_imu_calibrated;
+bool s_imu_calibration_stationary;
+uint16_t s_imu_calibration_samples;
+float s_imu_calibration_accel_max_span;
+float s_imu_calibration_gyro_max_span;
 float s_accel_bias[3];
 float s_gyro_bias[3];
 bool s_gps_ready;
@@ -81,6 +84,8 @@ bool s_microphone_ready;
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
 SemaphoreHandle_t s_snapshot_mutex;
+StaticSemaphore_t s_refresh_mutex_control;
+SemaphoreHandle_t s_refresh_mutex;
 
 StaticTask_t s_microphone_task_control;
 StackType_t s_microphone_task_stack[4096];
@@ -93,6 +98,14 @@ SemaphoreHandle_t ensure_snapshot_mutex()
         s_snapshot_mutex = xSemaphoreCreateMutexStatic(&s_snapshot_mutex_control);
     }
     return s_snapshot_mutex;
+}
+
+SemaphoreHandle_t ensure_refresh_mutex()
+{
+    if (s_refresh_mutex == nullptr) {
+        s_refresh_mutex = xSemaphoreCreateMutexStatic(&s_refresh_mutex_control);
+    }
+    return s_refresh_mutex;
 }
 
 qsee::DeviceHealth health_for(bool ready, esp_err_t error)
@@ -416,6 +429,13 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         if (error == ESP_OK) {
             qmi8658_set_accel_unit_mps2(&s_imu, true);
             qmi8658_set_gyro_unit_dps(&s_imu, true);
+            // Let the first filtered samples settle before calibration.
+            vTaskDelay(pdMS_TO_TICKS(150));
+            for (unsigned discard = 0; discard < 16; ++discard) {
+                qmi8658_data_t ignored = {};
+                (void)qmi8658_read_sensor_data(&s_imu, &ignored);
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
             s_imu_ready = true;
             ESP_LOGI(
                 TAG,
@@ -440,10 +460,14 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
 
 esp_err_t calibrate_imu()
 {
-    constexpr uint16_t sample_count = 64;
+    constexpr uint16_t sample_count = 96;
     constexpr float gravity = 9.80665F;
     float accel_sum[3] = {};
     float gyro_sum[3] = {};
+    float accel_min[3] = {1000.0F, 1000.0F, 1000.0F};
+    float accel_max[3] = {-1000.0F, -1000.0F, -1000.0F};
+    float gyro_min[3] = {10000.0F, 10000.0F, 10000.0F};
+    float gyro_max[3] = {-10000.0F, -10000.0F, -10000.0F};
 
     for (uint16_t index = 0; index < sample_count; ++index) {
         qmi8658_data_t data = {};
@@ -451,23 +475,45 @@ esp_err_t calibrate_imu()
         if (error != ESP_OK) {
             return error;
         }
-        accel_sum[0] += data.accelX;
-        accel_sum[1] += data.accelY;
-        accel_sum[2] += data.accelZ;
-        gyro_sum[0] += data.gyroX;
-        gyro_sum[1] += data.gyroY;
-        gyro_sum[2] += data.gyroZ;
+        const float acceleration[3] = {data.accelX, data.accelY, data.accelZ};
+        const float angular_velocity[3] = {data.gyroX, data.gyroY, data.gyroZ};
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            accel_sum[axis] += acceleration[axis];
+            gyro_sum[axis] += angular_velocity[axis];
+            if (acceleration[axis] < accel_min[axis]) {
+                accel_min[axis] = acceleration[axis];
+            }
+            if (acceleration[axis] > accel_max[axis]) {
+                accel_max[axis] = acceleration[axis];
+            }
+            if (angular_velocity[axis] < gyro_min[axis]) {
+                gyro_min[axis] = angular_velocity[axis];
+            }
+            if (angular_velocity[axis] > gyro_max[axis]) {
+                gyro_max[axis] = angular_velocity[axis];
+            }
+        }
         vTaskDelay(pdMS_TO_TICKS(5));
     }
 
     float accel_mean[3] = {};
     float gyro_mean[3] = {};
     float magnitude_squared = 0.0F;
+    float accel_max_span = 0.0F;
+    float gyro_max_span = 0.0F;
     unsigned gravity_axis = 0;
     for (unsigned axis = 0; axis < 3; ++axis) {
         accel_mean[axis] = accel_sum[axis] / sample_count;
         gyro_mean[axis] = gyro_sum[axis] / sample_count;
         magnitude_squared += accel_mean[axis] * accel_mean[axis];
+        const float accel_span = accel_max[axis] - accel_min[axis];
+        const float gyro_span = gyro_max[axis] - gyro_min[axis];
+        if (accel_span > accel_max_span) {
+            accel_max_span = accel_span;
+        }
+        if (gyro_span > gyro_max_span) {
+            gyro_max_span = gyro_span;
+        }
         const float axis_acceleration =
             accel_mean[axis] < 0.0F ? -accel_mean[axis] : accel_mean[axis];
         const float gravity_acceleration =
@@ -479,17 +525,19 @@ esp_err_t calibrate_imu()
         }
     }
     const float magnitude = __builtin_sqrtf(magnitude_squared);
-    const float gyro_x_abs = gyro_mean[0] < 0.0F ? -gyro_mean[0] : gyro_mean[0];
-    const float gyro_y_abs = gyro_mean[1] < 0.0F ? -gyro_mean[1] : gyro_mean[1];
-    const float gyro_z_abs = gyro_mean[2] < 0.0F ? -gyro_mean[2] : gyro_mean[2];
-    if (magnitude < 8.0F || magnitude > 12.0F ||
-        gyro_x_abs > 5.0F ||
-        gyro_y_abs > 5.0F ||
-        gyro_z_abs > 5.0F) {
+    s_imu_calibration_samples = sample_count;
+    s_imu_calibration_accel_max_span = accel_max_span;
+    s_imu_calibration_gyro_max_span = gyro_max_span;
+    s_imu_calibration_stationary =
+        magnitude >= 8.0F && magnitude <= 12.0F &&
+        accel_max_span <= 0.75F && gyro_max_span <= 8.0F;
+    if (!s_imu_calibration_stationary) {
         ESP_LOGW(
             TAG,
-            "IMU calibration deferred: device not stationary (|a|=%.2f gyro=[%.2f %.2f %.2f])",
+            "IMU calibration deferred: unstable sample set (|a|=%.2f accel-span=%.3f gyro-span=%.3f gyro-mean=[%.2f %.2f %.2f])",
             magnitude,
+            accel_max_span,
+            gyro_max_span,
             gyro_mean[0],
             gyro_mean[1],
             gyro_mean[2]
@@ -505,7 +553,10 @@ esp_err_t calibrate_imu()
     s_imu_calibrated = true;
     ESP_LOGI(
         TAG,
-        "IMU stationary calibration ready: accel-bias=[%.3f %.3f %.3f] gyro-bias=[%.3f %.3f %.3f]",
+        "IMU stationary calibration ready: samples=%u accel-span=%.3f gyro-span=%.3f accel-bias=[%.3f %.3f %.3f] gyro-bias=[%.3f %.3f %.3f]",
+        sample_count,
+        accel_max_span,
+        gyro_max_span,
         s_accel_bias[0],
         s_accel_bias[1],
         s_accel_bias[2],
@@ -524,7 +575,10 @@ esp_err_t sample_imu(const char *phase)
     set_component(sample, error == ESP_OK, error);
     if (error == ESP_OK) {
         sample.calibrated = s_imu_calibrated;
-        sample.calibration_samples = s_imu_calibrated ? 64 : 0;
+        sample.calibration_stationary = s_imu_calibration_stationary;
+        sample.calibration_samples = s_imu_calibration_samples;
+        sample.calibration_accel_max_span_mps2 = s_imu_calibration_accel_max_span;
+        sample.calibration_gyro_max_span_dps = s_imu_calibration_gyro_max_span;
         const float acceleration[] = {data.accelX, data.accelY, data.accelZ};
         const float angular_velocity[] = {data.gyroX, data.gyroY, data.gyroZ};
         for (unsigned axis = 0; axis < 3; ++axis) {
@@ -557,29 +611,6 @@ esp_err_t sample_imu(const char *phase)
     return ESP_OK;
 }
 
-esp_err_t recover_gps_bridge()
-{
-    // LC76G recovery from an interrupted read: announce one outbound byte on
-    // 0x50, then write that byte through the dedicated 0x58 data endpoint.
-    static const uint8_t write_one_byte_command[] = {
-        0x00, 0x10, 0x53, 0xAA, 0x01, 0x00, 0x00, 0x00,
-    };
-    static const uint8_t dummy = 0x00;
-    esp_err_t error = i2c_master_transmit(
-        s_gps_control,
-        write_one_byte_command,
-        sizeof(write_one_byte_command),
-        1000
-    );
-    if (error == ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(10));
-        error = i2c_master_transmit(s_gps_data_write, &dummy, 1, 1000);
-    }
-    vTaskDelay(pdMS_TO_TICKS(20));
-    ESP_LOGI(TAG, "GPS LC76G bridge recovery: %s", esp_err_to_name(error));
-    return error;
-}
-
 esp_err_t init_gps(i2c_master_bus_handle_t bus)
 {
     esp_err_t error = add_i2c_device(bus, LC76G_WRITE_ADDRESS, 100000, &s_gps_control);
@@ -587,28 +618,12 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
         error = add_i2c_device(bus, LC76G_READ_ADDRESS, 100000, &s_gps_read);
     }
     if (error == ESP_OK) {
-        error = add_i2c_device(
-            bus,
-            LC76G_DATA_WRITE_ADDRESS,
-            100000,
-            &s_gps_data_write
-        );
-    }
-    if (error == ESP_OK) {
         const esp_err_t write_probe = i2c_master_probe(bus, LC76G_WRITE_ADDRESS, I2C_TIMEOUT_MS);
-        esp_err_t read_probe = i2c_master_probe(bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS);
         ESP_LOGI(
             TAG,
-            "GPS LC76G endpoints: write(0x50)=%s read(0x54)=%s",
-            esp_err_to_name(write_probe),
-            esp_err_to_name(read_probe)
+            "GPS LC76G control endpoint 0x50: %s; read endpoint 0x54 is command-gated",
+            esp_err_to_name(write_probe)
         );
-        if (write_probe == ESP_OK && read_probe != ESP_OK) {
-            (void)recover_gps_bridge();
-            read_probe = i2c_master_probe(bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS);
-            ESP_LOGI(TAG, "GPS LC76G read endpoint after recovery: %s",
-                     esp_err_to_name(read_probe));
-        }
         if (write_probe != ESP_OK) {
             error = ESP_ERR_NOT_FOUND;
         }
@@ -623,7 +638,7 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
     }
     ESP_LOGI(
         TAG,
-        "GPS LC76G: control=0x50 read=0x54 data-write=0x58 configured"
+        "GPS LC76G: Waveshare bridge protocol configured (control=0x50 read=0x54)"
     );
     return ESP_OK;
 }
@@ -656,15 +671,11 @@ esp_err_t gps_exchange(
         }
         ESP_LOGW(
             TAG,
-            "GPS LC76G: %s exchange attempt %u/3 failed (%s), read endpoint=%s",
+            "GPS LC76G: %s exchange attempt %u/3 failed (%s)",
             step,
             attempt,
-            esp_err_to_name(error),
-            esp_err_to_name(
-                i2c_master_probe(s_i2c_bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS)
-            )
+            esp_err_to_name(error)
         );
-        (void)recover_gps_bridge();
         vTaskDelay(pdMS_TO_TICKS(200));
     }
     return error;
@@ -815,25 +826,47 @@ esp_err_t sample_gps(const char *phase)
         (static_cast<uint32_t>(length_bytes[2]) << 16) |
         (static_cast<uint32_t>(length_bytes[3]) << 24);
     sample.pending_nmea_bytes = data_length;
+    const uint32_t read_length =
+        data_length < GPS_MAX_PAYLOAD ? data_length : GPS_MAX_PAYLOAD;
 
-    if (error == ESP_OK && data_length > GPS_MAX_PAYLOAD) {
+    if (error == ESP_OK && data_length > GPS_MAX_PENDING_BYTES) {
+        ESP_LOGW(
+            TAG,
+            "GPS LC76G: invalid pending length=%lu raw=[%02x %02x %02x %02x]",
+            static_cast<unsigned long>(data_length),
+            length_bytes[0],
+            length_bytes[1],
+            length_bytes[2],
+            length_bytes[3]
+        );
         error = ESP_ERR_INVALID_SIZE;
     }
-    if (error == ESP_OK && data_length > 0) {
+    if (error == ESP_OK && data_length > GPS_MAX_PAYLOAD) {
+        ESP_LOGI(
+            TAG,
+            "GPS LC76G: %lu bytes pending; draining a bounded %u-byte chunk",
+            static_cast<unsigned long>(data_length),
+            GPS_MAX_PAYLOAD
+        );
+    }
+    if (error == ESP_OK && read_length > 0) {
         const uint8_t request[8] = {
             0x00, 0x20, 0x51, 0xAA,
-            length_bytes[0], length_bytes[1], length_bytes[2], length_bytes[3],
+            static_cast<uint8_t>(read_length),
+            static_cast<uint8_t>(read_length >> 8),
+            static_cast<uint8_t>(read_length >> 16),
+            static_cast<uint8_t>(read_length >> 24),
         };
         error = gps_exchange(
             request,
             sizeof(request),
             reinterpret_cast<uint8_t *>(s_gps_payload),
-            data_length,
+            read_length,
             "payload"
         );
         if (error == ESP_OK) {
-            s_gps_payload[data_length] = '\0';
-            parse_nmea_payload(s_gps_payload, data_length, sample);
+            s_gps_payload[read_length] = '\0';
+            parse_nmea_payload(s_gps_payload, read_length, sample);
         }
     }
 
@@ -843,13 +876,14 @@ esp_err_t sample_gps(const char *phase)
         ESP_LOGW(TAG, "GPS LC76G: %s sample failed (%s)", phase, esp_err_to_name(error));
         return error;
     }
-    if (data_length == 0) {
+    if (read_length == 0) {
         ESP_LOGI(TAG, "GPS LC76G %s: transport online, no NMEA bytes waiting", phase);
     } else {
         ESP_LOGI(
             TAG,
-            "GPS LC76G %s: %lu byte(s), fix=%s quality=%u sats=%u lat=%.6f lon=%.6f alt=%.1fm speed=%.2fm/s hdop=%.1f first=\"%s\"",
+            "GPS LC76G %s: read=%lu pending-before=%lu byte(s), fix=%s quality=%u sats=%u lat=%.6f lon=%.6f alt=%.1fm speed=%.2fm/s hdop=%.1f first=\"%s\"",
             phase,
+            static_cast<unsigned long>(read_length),
             static_cast<unsigned long>(data_length),
             sample.has_fix ? "yes" : "no",
             sample.fix_quality,
@@ -966,11 +1000,12 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
     );
     ESP_LOGI(
         TAG,
-        "Memory: heap=%luB min=%luB internal=%luB largest=%luB PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
+        "Memory: heap=%luB min=%luB internal=%luB largest=%luB pressure=%s PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
         static_cast<unsigned long>(snapshot.memory.heap_free_bytes),
         static_cast<unsigned long>(snapshot.memory.heap_minimum_free_bytes),
         static_cast<unsigned long>(snapshot.memory.internal_free_bytes),
         static_cast<unsigned long>(snapshot.memory.internal_largest_block_bytes),
+        snapshot.memory.internal_memory_pressure ? "high" : "normal",
         static_cast<unsigned long>(snapshot.memory.psram_used_bytes),
         static_cast<unsigned long>(snapshot.memory.psram_free_bytes),
         static_cast<unsigned long>(snapshot.memory.psram_heap_total_bytes),
@@ -1042,6 +1077,9 @@ void sample_system_state()
     memory.internal_free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     memory.internal_largest_block_bytes =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    memory.internal_memory_pressure =
+        memory.internal_free_bytes < 32768U ||
+        memory.internal_largest_block_bytes < 16384U;
     memory.psram_capacity_bytes = static_cast<uint32_t>(esp_psram_get_size());
     memory.psram_heap_total_bytes =
         static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
@@ -1106,6 +1144,9 @@ esp_err_t DeviceSnapshotService::initialize()
     if (ensure_snapshot_mutex() == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    if (ensure_refresh_mutex() == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
 
     i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
     if (bus == nullptr) {
@@ -1155,6 +1196,14 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGW(TAG, "Hardware refresh rejected: another refresh is still running");
+        return ESP_ERR_TIMEOUT;
+    }
     const char *phase = reason != nullptr && reason[0] != '\0' ? reason : "manual";
     esp_err_t aggregate = ESP_OK;
 
@@ -1181,6 +1230,7 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
         strlcpy(snapshot.reason, phase, sizeof(snapshot.reason));
     });
     log_summary(snapshot());
+    xSemaphoreGive(refresh_mutex);
     return aggregate;
 }
 
@@ -1249,11 +1299,13 @@ void DeviceSnapshotService::reportBle(
     uint16_t connection_handle,
     uint32_t connection_count,
     uint32_t disconnection_count,
-    const char *device_name
+    const char *device_name,
+    bool provisioning
 )
 {
     update_snapshot([=](DeviceSnapshot &snapshot) {
         set_component(snapshot.radios.ble, ready, error);
+        snapshot.radios.ble.provisioning = provisioning;
         snapshot.radios.ble.advertising = advertising;
         snapshot.radios.ble.connected = connected;
         snapshot.radios.ble.connection_handle = connection_handle;
@@ -1301,6 +1353,26 @@ extern "C" esp_err_t qsee_hardware_init(void)
 extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
 {
     return qsee::DeviceSnapshotService::instance().refresh(reason);
+}
+
+extern "C" esp_err_t qsee_imu_calibrate(void)
+{
+    if (!s_initialized || !s_imu_ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    const esp_err_t result = calibrate_imu();
+    if (result == ESP_OK) {
+        (void)sample_imu("post-calibration");
+    }
+    xSemaphoreGive(refresh_mutex);
+    return result;
 }
 
 extern "C" void qsee_hardware_report_speaker(bool ready, esp_err_t error)

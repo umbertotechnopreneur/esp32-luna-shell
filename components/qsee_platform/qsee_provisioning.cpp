@@ -11,7 +11,9 @@
  */
 
 #include "qsee_platform.h"
+#include "qsee_device_snapshot.hpp"
 
+#include <atomic>
 #include <cstdio>
 
 #include "esp_event.h"
@@ -25,23 +27,54 @@
 namespace {
 
 const char *TAG = "qsee_provision";
-bool s_initialized;
-bool s_active;
+std::atomic_bool s_initialized;
+std::atomic_bool s_active;
+std::atomic_bool s_cleanup_task_started;
 esp_event_handler_instance_t s_event_instance;
 char s_service_name[20];
 char s_proof_of_possession[20];
 
-void start_telemetry_ble_task(void *argument)
+void publish_provisioning_snapshot(bool ready, esp_err_t error, bool active)
+{
+    qsee::DeviceSnapshotService::instance().reportBle(
+        ready,
+        error,
+        active,
+        false,
+        0xFFFF,
+        0,
+        0,
+        s_service_name,
+        true
+    );
+}
+
+void cleanup_and_start_telemetry_ble_task(void *argument)
 {
     (void)argument;
-    // Let the provisioning transport release its NimBLE host first.
-    vTaskDelay(pdMS_TO_TICKS(250));
+    // Leave the event callback before unregistering it and releasing NimBLE.
+    vTaskDelay(pdMS_TO_TICKS(100));
+    if (s_event_instance != nullptr) {
+        (void)esp_event_handler_instance_unregister(
+            WIFI_PROV_EVENT,
+            ESP_EVENT_ANY_ID,
+            s_event_instance
+        );
+        s_event_instance = nullptr;
+    }
+    wifi_prov_mgr_deinit();
+    s_initialized.store(false, std::memory_order_release);
+    publish_provisioning_snapshot(false, ESP_OK, false);
+
+    // Let the provisioning transport release its NimBLE host before telemetry.
+    vTaskDelay(pdMS_TO_TICKS(150));
     const esp_err_t result = qsee_ble_init();
     ESP_LOGI(
         TAG,
         "BLE transition from provisioning to telemetry: %s",
         esp_err_to_name(result)
     );
+    s_cleanup_task_started.store(false, std::memory_order_release);
     vTaskDelete(nullptr);
 }
 
@@ -59,7 +92,8 @@ void provisioning_event_handler(
 
     switch (event_id) {
     case WIFI_PROV_START:
-        s_active = true;
+        s_active.store(true, std::memory_order_release);
+        publish_provisioning_snapshot(true, ESP_OK, true);
         ESP_LOGI(
             TAG,
             "Secure BLE provisioning started: service=%s PoP=%s",
@@ -95,19 +129,21 @@ void provisioning_event_handler(
         ESP_LOGI(TAG, "Provisioning credentials accepted and persisted by ESP-IDF");
         break;
     case WIFI_PROV_END:
-        s_active = false;
-        wifi_prov_mgr_deinit();
-        s_initialized = false;
+        s_active.store(false, std::memory_order_release);
+        publish_provisioning_snapshot(true, ESP_OK, false);
         ESP_LOGI(TAG, "Provisioning transport stopped");
-        if (xTaskCreate(
-                start_telemetry_ble_task,
-                "qsee_ble_transition",
-                4096,
-                nullptr,
-                5,
-                nullptr
-            ) != pdPASS) {
-            ESP_LOGE(TAG, "Unable to start BLE telemetry transition task");
+        if (!s_cleanup_task_started.exchange(true, std::memory_order_acq_rel)) {
+            if (xTaskCreate(
+                    cleanup_and_start_telemetry_ble_task,
+                    "qsee_ble_transition",
+                    4096,
+                    nullptr,
+                    5,
+                    nullptr
+                ) != pdPASS) {
+                s_cleanup_task_started.store(false, std::memory_order_release);
+                ESP_LOGE(TAG, "Unable to start BLE telemetry transition task");
+            }
         }
         break;
     default:
@@ -140,8 +176,11 @@ void make_identity()
 
 extern "C" esp_err_t qsee_provisioning_init(void)
 {
-    if (s_initialized) {
+    if (s_initialized.load(std::memory_order_acquire)) {
         return ESP_OK;
+    }
+    if (s_cleanup_task_started.load(std::memory_order_acquire)) {
+        return ESP_ERR_INVALID_STATE;
     }
     make_identity();
 
@@ -155,6 +194,7 @@ extern "C" esp_err_t qsee_provisioning_init(void)
     };
     esp_err_t result = wifi_prov_mgr_init(configuration);
     if (result != ESP_OK) {
+        publish_provisioning_snapshot(false, result, false);
         ESP_LOGW(TAG, "Provisioning manager initialization failed: %s",
                  esp_err_to_name(result));
         return result;
@@ -168,6 +208,7 @@ extern "C" esp_err_t qsee_provisioning_init(void)
     );
     if (result != ESP_OK) {
         wifi_prov_mgr_deinit();
+        publish_provisioning_snapshot(false, result, false);
         return result;
     }
 
@@ -184,23 +225,25 @@ extern "C" esp_err_t qsee_provisioning_init(void)
         );
         s_event_instance = nullptr;
         wifi_prov_mgr_deinit();
+        publish_provisioning_snapshot(false, result, false);
         return result;
     }
 
-    s_initialized = true;
+    s_initialized.store(true, std::memory_order_release);
+    publish_provisioning_snapshot(true, ESP_OK, false);
     ESP_LOGI(TAG, "Provisioning manager ready: Security 1 with proof of possession");
     return ESP_OK;
 }
 
 extern "C" esp_err_t qsee_provisioning_start(void)
 {
-    if (!s_initialized) {
+    if (!s_initialized.load(std::memory_order_acquire)) {
         const esp_err_t result = qsee_provisioning_init();
         if (result != ESP_OK) {
             return result;
         }
     }
-    if (s_active) {
+    if (s_active.load(std::memory_order_acquire)) {
         return ESP_OK;
     }
 
@@ -221,32 +264,35 @@ extern "C" esp_err_t qsee_provisioning_start(void)
         nullptr
     );
     if (result == ESP_OK) {
-        s_active = true;
+        s_active.store(true, std::memory_order_release);
+        publish_provisioning_snapshot(true, ESP_OK, true);
         ESP_LOGI(
             TAG,
             "Provision with ESP SoftAP app: service=%s transport=ble PoP=%s",
             s_service_name,
             s_proof_of_possession
         );
+    } else {
+        publish_provisioning_snapshot(false, result, false);
     }
     return result;
 }
 
 extern "C" esp_err_t qsee_provisioning_stop(void)
 {
-    if (!s_initialized) {
+    if (!s_initialized.load(std::memory_order_acquire)) {
         return ESP_OK;
     }
-    if (s_active) {
+    if (s_active.load(std::memory_order_acquire)) {
         wifi_prov_mgr_stop_provisioning();
-        s_active = false;
+        s_active.store(false, std::memory_order_release);
     }
     return ESP_OK;
 }
 
 extern "C" bool qsee_provisioning_active(void)
 {
-    return s_active;
+    return s_active.load(std::memory_order_acquire);
 }
 
 extern "C" const char *qsee_provisioning_service_name(void)

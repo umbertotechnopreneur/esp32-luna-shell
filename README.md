@@ -72,7 +72,8 @@ See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 The service refreshes only on explicit request. Future sensor fusion should
 consume one immutable snapshot instead of polling drivers independently. The
 memory and processor readings use native ESP-IDF and FreeRTOS APIs. See
-[device-snapshot.md](docs/architecture/device-snapshot.md).
+[device-snapshot.md](docs/architecture/device-snapshot.md) and
+[hardware-api.md](docs/architecture/hardware-api.md).
 
 ## Navigation
 
@@ -219,9 +220,11 @@ audible, and Wi-Fi scans complete with 8-10 access points detected. PMU, RTC,
 IMU, BLE advertising, ES8311 playback, and ES7210 microphone sampling have also
 been observed without reboot, draw, or SPI DMA-allocation failures.
 
-The 8 GB card still returns an SDMMC OCR transport timeout before FAT parsing,
-so it cannot yet be formatted by firmware. The LC76G control endpoint responds,
-but a GPS fix and sustained NMEA reads remain unproven; the current build adds
-the Quectel bridge recovery sequence for the read endpoint. Flash/PSRAM metrics
-are now captured through native ESP-IDF APIs in every explicit hardware
-snapshot.
+The microSD is currently removed; firmware reports the SDMMC OCR timeout,
+keeps retrying asynchronously, and never formats automatically. LC76G bridge
+transport and bounded NMEA reads are physically verified: the device drained
+two 4096-byte chunks and parsed the module version and GSV sentences. The
+indoor pass had no satellite fix, so positioning remains environment-dependent.
+QMI8658 warm-up and stationary bias calibration are verified, including the
+board-specific gyro offset. Flash/PSRAM metrics and internal-memory pressure
+are captured through native ESP-IDF APIs in every explicit hardware snapshot.

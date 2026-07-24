@@ -9,7 +9,7 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 | Touch | CST9217, two-point capacitive touch | Initialized by `bsp_display_start()` |
 | Power | AXP2101 PMU at I2C `0x34` | Probed; battery presence, charging state, percent, and voltage logged |
 | IMU | QMI8658 at I2C `0x6B` or `0x6A` | Probed and initialized for accelerometer + gyroscope |
-| GPS / GNSS | LC76G GPS variant, external ceramic antenna | I2C transport at write `0x50`, read `0x54`; non-blocking, no-fix is allowed |
+| GPS / GNSS | LC76G GPS variant, external ceramic antenna | Command-gated I2C bridge at control `0x50`, read `0x54`; bounded NMEA chunks, no-fix is allowed |
 | Storage | User-added 8 GB microSD | SDMMC 1-bit; mount only, never auto-format |
 | Audio out | ES8311 codec + speaker amplifier | Embedded 22.05 kHz mono PCM16 boot SFX |
 | Audio in | Dual microphones / ES7210 path | Delayed 22.05 kHz mono PCM16 initialization and bounded level sample |
@@ -36,9 +36,9 @@ I2C driver.
 
 ## SD preparation
 
-The 8 GB card is currently considered unformatted. Format it as FAT32 with an
-MBR partition before device validation. Runtime mount failures are logged and
-shown on the boot console; they never trigger an implicit format.
+The 8 GB card is currently removed. When reinserted, prepare it as FAT32 with
+an MBR partition before device validation. Runtime mount failures are logged;
+they never trigger an implicit format.
 
 Expected runtime path:
 
@@ -54,13 +54,13 @@ the still-required FAT32 formatting.
 
 ## Runtime inventory evidence
 
-The physical board on `COM12` has confirmed PMU, RTC, IMU, display, touch,
-Wi-Fi, BLE advertising, ES8311 speaker playback, and ES7210 initialization.
-The LVGL profile uses one 10-row internal DMA-capable buffer; the 2026-07-25
-validation had no bitmap or SPI DMA-allocation failures. The LC76G acknowledges
-its I2C write/read addresses, while its first NMEA transaction currently
-reports a degraded state. The 8 GB SD card currently times out during SDMMC
-initialization.
+The physical board on `COM12` has confirmed PMU, RTC, calibrated IMU, display,
+touch, Wi-Fi, BLE provisioning advertising, ES8311 speaker playback, and
+ES7210 capture. The 2026-07-25 validation removed a redundant post-start
+brightness command that raced the first panel flush. The LC76G command-gated
+bridge has returned and parsed real NMEA traffic in two bounded chunks; the
+indoor pass had no fix. With the card removed, SDMMC correctly reports an OCR
+timeout and schedules a non-blocking retry.
 
 The platform snapshot also records native ESP-IDF heap and PSRAM metrics,
 largest allocatable blocks, chip core count, and FreeRTOS task/stack state for

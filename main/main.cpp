@@ -88,7 +88,6 @@ extern "C" void app_main(void)
         return;
     }
     qsee::DeviceSnapshotService::instance().reportDisplay(true, ESP_OK);
-    ESP_ERROR_CHECK_WITHOUT_ABORT(bsp_display_backlight_on());
 
     if (qsee_boot_ui_show() != ESP_OK) {
         ESP_LOGE(TAG, "Boot UI: initialization failed");

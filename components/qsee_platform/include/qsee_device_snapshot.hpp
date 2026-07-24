@@ -46,7 +46,10 @@ struct ImuSnapshot : ComponentSnapshot {
     float angular_velocity_dps[3] = {};
     float temperature_c = 0.0F;
     bool calibrated = false;
+    bool calibration_stationary = false;
     uint16_t calibration_samples = 0;
+    float calibration_accel_max_span_mps2 = 0.0F;
+    float calibration_gyro_max_span_dps = 0.0F;
     float acceleration_bias_mps2[3] = {};
     float angular_velocity_bias_dps[3] = {};
 };
@@ -108,6 +111,7 @@ struct WifiSnapshot : ComponentSnapshot {
 };
 
 struct BleSnapshot : ComponentSnapshot {
+    bool provisioning = false;
     bool advertising = false;
     bool connected = false;
     uint16_t connection_handle = 0xFFFF;
@@ -157,6 +161,7 @@ struct MemorySnapshot {
     uint32_t heap_minimum_free_bytes = 0;
     uint32_t internal_free_bytes = 0;
     uint32_t internal_largest_block_bytes = 0;
+    bool internal_memory_pressure = false;
     uint32_t psram_capacity_bytes = 0;
     uint32_t psram_heap_total_bytes = 0;
     uint32_t psram_free_bytes = 0;
@@ -232,7 +237,8 @@ public:
         uint16_t connection_handle = 0xFFFF,
         uint32_t connection_count = 0,
         uint32_t disconnection_count = 0,
-        const char *device_name = nullptr
+        const char *device_name = nullptr,
+        bool provisioning = false
     );
     void reportTime(
         bool system_time_valid,

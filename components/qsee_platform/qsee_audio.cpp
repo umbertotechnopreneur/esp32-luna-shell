@@ -13,6 +13,7 @@
 #include "qsee_platform.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "bsp/esp-bsp.h"
 #include "esp_codec_dev.h"
@@ -24,10 +25,11 @@
 namespace {
 
 const char *TAG = "qsee_audio";
+constexpr uint32_t AUDIO_LOCK_TIMEOUT_MS = 5000;
 esp_codec_dev_handle_t s_speaker;
 esp_codec_dev_handle_t s_microphone;
 uint32_t s_sample_rate_hz;
-bool s_initialized;
+std::atomic_bool s_initialized;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
 
@@ -76,14 +78,18 @@ esp_err_t configure_streams(uint32_t sample_rate_hz)
 
 extern "C" esp_err_t qsee_audio_init(void)
 {
+    // Initialization is immutable after success; avoid waiting behind playback.
+    if (s_initialized.load(std::memory_order_acquire)) {
+        return ESP_OK;
+    }
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) {
         return ESP_ERR_NO_MEM;
     }
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
-    if (s_initialized) {
+    if (s_initialized.load(std::memory_order_relaxed)) {
         xSemaphoreGive(mutex);
         return ESP_OK;
     }
@@ -102,7 +108,7 @@ extern "C" esp_err_t qsee_audio_init(void)
             error = ESP_FAIL;
         }
     }
-    s_initialized = error == ESP_OK;
+    s_initialized.store(error == ESP_OK, std::memory_order_release);
     xSemaphoreGive(mutex);
 
     if (error == ESP_OK) {
@@ -128,7 +134,7 @@ extern "C" esp_err_t qsee_audio_play_pcm16(
         return error;
     }
     SemaphoreHandle_t mutex = audio_mutex();
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 
@@ -182,7 +188,7 @@ extern "C" esp_err_t qsee_audio_capture_pcm16(
         return error;
     }
     SemaphoreHandle_t mutex = audio_mutex();
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
 

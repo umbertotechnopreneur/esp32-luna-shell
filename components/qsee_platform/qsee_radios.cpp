@@ -77,7 +77,8 @@ static void publish_ble_snapshot(esp_err_t error = ESP_OK)
         s_connection_handle,
         s_connection_count,
         s_disconnection_count,
-        s_device_name
+        s_device_name,
+        false
     );
 }
 
@@ -334,7 +335,6 @@ extern "C" esp_err_t qsee_ble_init(void)
 esp_err_t qsee_radios_init(void)
 {
     const esp_err_t wifi = qsee_wifi_init();
-    const esp_err_t provisioning = qsee_provisioning_init();
     qsee_wifi_status_t wifi_status = {};
     qsee_wifi_get_status(&wifi_status);
     const esp_err_t ble = wifi_status.credentials_configured
@@ -353,9 +353,6 @@ esp_err_t qsee_radios_init(void)
         );
     } else {
         ESP_LOGI(TAG, "Radio inventory: Wi-Fi + BLE telemetry GATT ready");
-    }
-    if (provisioning != ESP_OK) {
-        ESP_LOGW(TAG, "Provisioning manager unavailable: %s", esp_err_to_name(provisioning));
     }
     return ESP_OK;
 }
