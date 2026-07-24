@@ -38,3 +38,8 @@ the firmware page reads memory, task, priority, stack watermark, and audio
 health from `DeviceSnapshotService`. CPU utilization remains explicitly
 unavailable because runtime statistics are disabled in the current
 configuration.
+
+The firmware audio snapshot now carries two interleaved ES7210 channel levels,
+while the firmware IMU page consumes calibrated QMI8658 acceleration,
+gyroscope, temperature, bias, and calibration-sample fields. The simulator
+continues to use deterministic synthetic values.

@@ -227,7 +227,11 @@ extern "C" esp_err_t qsee_audio_capture_pcm16_channels(
         return error;
     }
     SemaphoreHandle_t mutex = audio_mutex();
+<<<<<<< HEAD
     if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+=======
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+>>>>>>> 71cffeb (Use real audio channels and IMU calibration diagnostics)
         return ESP_ERR_TIMEOUT;
     }
     error = configure_streams(sample_rate_hz, channel_count);

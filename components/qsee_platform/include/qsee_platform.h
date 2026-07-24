@@ -53,6 +53,9 @@ esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
  *
  * The call rejects moving sample sets and keeps the previous valid calibration.
  */
+/** Enable or disable the background monitor used by diagnostic screens. */
+esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/** Run the explicit stationary IMU calibration sequence. */
 esp_err_t qsee_imu_calibrate(void);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
