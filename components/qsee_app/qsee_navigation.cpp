@@ -2,6 +2,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <algorithm>
 
 #include "esp_log.h"
 #include "qsee_device_snapshot.hpp"
@@ -76,6 +77,19 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
     metric.bar->setBackgroundColor(StyleColor::COLOR(kTrack));
     metric.bar->setIndicatorGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
     metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 27});
+}
+
+std::unique_ptr<AppProgressBar> makeDiagnosticBar(const LvObject *parent, int y, uint32_t top, uint32_t bottom)
+{
+    auto bar = std::make_unique<AppProgressBar>(parent);
+    bar->setRange(0, 100);
+    bar->setValue(0);
+    bar->setWidth(kRowWidth);
+    bar->setHeight(12);
+    bar->setBackgroundColor(StyleColor::COLOR(kTrack));
+    bar->setIndicatorGradient(StyleColor::COLOR(top), StyleColor::COLOR(bottom));
+    bar->align({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
+    return bar;
 }
 
 const char *health(qsee::DeviceHealth value)
@@ -183,6 +197,14 @@ bool Navigation::begin()
     _sd_action->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 43});
     _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
                               STYLE_ALIGN_TYPE_TOP_MID, 0, 177);
+    _open_audio = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Audio); });
+    _open_audio->setText("AUDIO SCOPE");
+    buttonStyle(*_open_audio, 112, 28, kBlue);
+    _open_audio->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 202});
+    _open_imu = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Imu); });
+    _open_imu->setText("IMU LEVEL");
+    buttonStyle(*_open_imu, 112, 28, kTeal);
+    _open_imu->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 202});
 
     _open_logs = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Logs); });
     _open_logs->setText("LIVE LOGS");
@@ -293,6 +315,34 @@ bool Navigation::begin()
     _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 9, kMuted,
                                   STYLE_ALIGN_TYPE_TOP_MID, 0, 184);
 
+    _audio = std::make_unique<LvContainer>(_surface.get());
+    _audio->setStyleAttribute(StyleSize::RECT(kWidth, 270));
+    _audio->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 38});
+    _audio_status = makeLabel(_audio.get(), "MICROPHONES --", kRowWidth, 11, kMuted,
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 8);
+    makeLabel(_audio.get(), "CHANNEL 0", 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 44);
+    _audio_mic0 = makeDiagnosticBar(_audio.get(), 62, kTeal, 0x08745F);
+    makeLabel(_audio.get(), "CHANNEL 1", 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 92);
+    _audio_mic1 = makeDiagnosticBar(_audio.get(), 110, kBlue, 0x2A5E9B);
+    _audio_channels = makeLabel(_audio.get(), "PCM -- | -- Hz", kRowWidth, 10, kNavy,
+                                STYLE_ALIGN_TYPE_TOP_MID, 0, 146);
+    makeLabel(_audio.get(), "Canonical hardware snapshot", kRowWidth, 8, kMuted,
+              STYLE_ALIGN_TYPE_TOP_MID, 0, 174);
+
+    _imu = std::make_unique<LvContainer>(_surface.get());
+    _imu->setStyleAttribute(StyleSize::RECT(kWidth, 270));
+    _imu->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 38});
+    _imu_status = makeLabel(_imu.get(), "QMI8658 --", kRowWidth, 11, kMuted,
+                            STYLE_ALIGN_TYPE_TOP_MID, 0, 8);
+    _imu_accel = makeLabel(_imu.get(), "ACC X -- Y -- Z -- m/s2", kRowWidth, 10, kNavy,
+                           STYLE_ALIGN_TYPE_TOP_MID, 0, 52);
+    _imu_gyro = makeLabel(_imu.get(), "GYRO X -- Y -- Z -- dps", kRowWidth, 10, kNavy,
+                          STYLE_ALIGN_TYPE_TOP_MID, 0, 86);
+    _imu_temperature = makeLabel(_imu.get(), "TEMP -- C", kRowWidth, 10, kBlue,
+                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 120);
+    _imu_calibration = makeLabel(_imu.get(), "CALIBRATION --", kRowWidth, 9, kMuted,
+                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 158);
+
     _format_sd = std::make_unique<AppButton>(_hardware.get(), [this]() { showFormatDialog(); });
     _format_sd->setText("FORMAT SD");
     buttonStyle(*_format_sd, 108, 30, kBlue);
@@ -364,9 +414,13 @@ void Navigation::setVisible(LvObject &object, bool visible)
 void Navigation::show(Screen screen)
 {
     _current = screen;
+    const bool diagnostic = screen == Screen::Audio || screen == Screen::Imu;
+    (void)qsee_hardware_set_diagnostic_monitor(diagnostic);
     setVisible(*_welcome, screen == Screen::Welcome);
     setVisible(*_logs, screen == Screen::Logs);
     setVisible(*_hardware, screen == Screen::Hardware);
+    setVisible(*_audio, screen == Screen::Audio);
+    setVisible(*_imu, screen == Screen::Imu);
     setVisible(*_open_logs, screen == Screen::Welcome);
     setVisible(*_open_hardware, screen == Screen::Welcome);
     setVisible(*_open_about, screen == Screen::Welcome);
@@ -375,10 +429,13 @@ void Navigation::show(Screen screen)
     setVisible(*_dialog, false);
     setVisible(*_about, screen == Screen::About);
     _page_title->setText(screen == Screen::Welcome ? "WELCOME" : screen == Screen::Logs ? "LIVE LOGS" :
-                         screen == Screen::Hardware ? "HARDWARE" : "ABOUT");
+                         screen == Screen::Hardware ? "HARDWARE" : screen == Screen::Audio ? "AUDIO SCOPE" :
+                         screen == Screen::Imu ? "IMU LEVEL" : "ABOUT");
     _page_subtitle->setText(screen == Screen::Welcome ? "QSee device console" :
                             screen == Screen::Logs ? "RAM ring, newest lines" :
-                            screen == Screen::Hardware ? "Component inventory" : "About this device");
+                            screen == Screen::Hardware ? "Component inventory" :
+                            screen == Screen::Audio ? "ES7210 microphone diagnostics" :
+                            screen == Screen::Imu ? "QMI8658 orientation and calibration" : "About this device");
     refresh();
 }
 
@@ -393,6 +450,7 @@ void Navigation::shutdown()
 {
     // Stop callbacks before Brookesia releases the app screen and its widgets.
     _refresh_timer.reset();
+    (void)qsee_hardware_set_diagnostic_monitor(false);
     _ram.bar.reset();
     _ram.value.reset();
     _ram.label.reset();
@@ -410,6 +468,15 @@ void Navigation::shutdown()
     _cpu1.label.reset();
     _cpu1.card.reset();
     _log_box.reset();
+    _audio_mic0.reset();
+    _audio_mic1.reset();
+    _audio_status.reset();
+    _audio_channels.reset();
+    _imu_status.reset();
+    _imu_accel.reset();
+    _imu_gyro.reset();
+    _imu_temperature.reset();
+    _imu_calibration.reset();
     _hardware_labels.clear();
     _hardware_summary.reset();
     _format_sd.reset();
@@ -432,12 +499,16 @@ void Navigation::shutdown()
     _page_subtitle.reset();
     _open_logs.reset();
     _open_hardware.reset();
+    _open_audio.reset();
+    _open_imu.reset();
     _open_about.reset();
     _back.reset();
     _radio_status.reset();
     _welcome.reset();
     _logs.reset();
     _hardware.reset();
+    _audio.reset();
+    _imu.reset();
     _about_logo.reset();
     _about_tagline.reset();
     _about_website.reset();

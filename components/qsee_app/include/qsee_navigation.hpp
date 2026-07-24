@@ -11,7 +11,7 @@ namespace qsee {
 
 class Navigation final {
 public:
-    enum class Screen { Welcome, Logs, Hardware, About };
+    enum class Screen { Welcome, Logs, Hardware, Audio, Imu, About };
 
     struct Metric {
         std::unique_ptr<esp_brookesia::gui::LvContainer> card;
@@ -29,6 +29,8 @@ private:
     void showWelcome();
     void showLogs();
     void showHardware();
+    void showAudio();
+    void showImu();
     void showAbout();
     void refresh();
     void setVisible(esp_brookesia::gui::LvObject &object, bool visible);
@@ -39,6 +41,7 @@ private:
     void showFormatDialog();
     void closeDialog();
     void requestFormat();
+    void updateDiagnosticViews();
 
     std::unique_ptr<esp_brookesia::gui::AppScreen> _screen;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _surface;
@@ -47,10 +50,14 @@ private:
     std::unique_ptr<esp_brookesia::gui::LvContainer> _welcome;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _logs;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _audio;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _imu;
     std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_cards;
     std::vector<std::unique_ptr<esp_brookesia::gui::AppButton>> _hardware_actions;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_logs;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_hardware;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_audio;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_imu;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
     std::unique_ptr<esp_brookesia::gui::AppButton> _back;
     std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
@@ -81,6 +88,15 @@ private:
     Metric _cpu0;
     Metric _cpu1;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _radio_status;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _audio_status;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _audio_channels;
+    std::unique_ptr<esp_brookesia::gui::AppProgressBar> _audio_mic0;
+    std::unique_ptr<esp_brookesia::gui::AppProgressBar> _audio_mic1;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_status;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_accel;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_gyro;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_temperature;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_calibration;
     std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
     bool _logs_paused = false;
     bool _logs_follow_latest = true;
