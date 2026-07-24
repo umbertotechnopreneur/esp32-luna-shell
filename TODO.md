@@ -1,5 +1,16 @@
 # TODO
 
+## BLE Wi-Fi pairing task
+
+- [x] BLE-only Espressif provisioning flow; no SoftAP and no PIN/PoP.
+- [x] Full-screen device QR and Google Play fallback QR.
+- [x] Wizard routes for Bluetooth, app installation, QR scanning, retry and result.
+- [x] Global reusable settings singleton with NVS persistence.
+- [x] Provisioning lifecycle bridge for the hardware foundation.
+- [x] Hardware-free static verification: scripts/verify_pairing.py.
+- [ ] Validate the QR and credential flow with the physical radio and the Espressif mobile app.
+- [ ] Verify reboot persistence, repeated pairing, timeout and BLE shutdown on hardware.
+
 ## ESP-Brookesia integration
 
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
