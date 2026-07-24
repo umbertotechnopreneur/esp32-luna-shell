@@ -58,12 +58,12 @@ std::unique_ptr<AppLabel> makeLabel(const LvObject *parent, const char *text, in
     return label;
 }
 
-void makeMetric(Navigation::Metric &metric, const LvObject *parent, const char *name, int y,
+void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const char *name, int y,
                 uint32_t color)
 {
     metric.card = std::make_unique<LvContainer>(parent);
     metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 40));
-    metric.card->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
+    metric.card->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
     metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
     metric.label = makeLabel(metric.card.get(), name, 100, 8, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
@@ -102,6 +102,53 @@ bool storageFormatRequired(const qsee::StorageSnapshot &storage)
            (storage.last_error == ESP_FAIL || storage.format_attempted);
 }
 
+const char *logFilterName(uint8_t mode)
+{
+    switch (mode) {
+    case 1: return "WARN";
+    case 2: return "ERROR";
+    case 3: return "INFO";
+    default: return "ALL";
+    }
+}
+
+bool logLineMatches(const char *line, const char *query, uint8_t filter_mode)
+{
+    const char *first = line;
+    while (*first == ' ' || *first == '\t') ++first;
+    if (filter_mode == 1 && (*first != 'W' && *first != 'w')) return false;
+    if (filter_mode == 2 && (*first != 'E' && *first != 'e')) return false;
+    if (filter_mode == 3 && (*first != 'I' && *first != 'i')) return false;
+    return query == nullptr || query[0] == '\0' || std::strstr(line, query) != nullptr;
+}
+
+void filterLogs(const char *source, const char *query, uint8_t filter_mode,
+                char *output, size_t output_size)
+{
+    if (output == nullptr || output_size == 0) return;
+    output[0] = '\0';
+    size_t used = 0;
+    const char *cursor = source != nullptr ? source : "";
+    while (*cursor != '\0' && used + 1 < output_size) {
+        const char *line_end = std::strchr(cursor, '\n');
+        const size_t raw_length = line_end != nullptr
+            ? static_cast<size_t>(line_end - cursor) : std::strlen(cursor);
+        const size_t line_length = raw_length < 255U ? raw_length : 255U;
+        char line[256];
+        std::memcpy(line, cursor, line_length);
+        line[line_length] = '\0';
+        if (logLineMatches(line, query, filter_mode)) {
+            const size_t copy_length = line_length < output_size - used - 1U
+                ? line_length : output_size - used - 1U;
+            std::memcpy(output + used, line, copy_length);
+            used += copy_length;
+            if (used + 1U < output_size) output[used++] = '\n';
+            output[used] = '\0';
+        }
+        cursor = line_end != nullptr ? line_end + 1 : cursor + raw_length;
+    }
+}
+
 }
 
 namespace qsee {
@@ -114,7 +161,7 @@ bool Navigation::begin()
     _screen->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kBackground));
     _surface = std::make_unique<LvContainer>(_screen.get());
     _surface->setStyleAttribute(StyleSize::RECT(320, 320));
-    _surface->setStyleAttribute({STYLE_ALIGN_TYPE_CENTER, 0, 0});
+    _surface->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
     surface(*_surface);
 
     _page_title = makeLabel(_surface.get(), "WELCOME", kWidth, 20, kNavy, STYLE_ALIGN_TYPE_TOP_MID, 0, 10);
@@ -122,11 +169,18 @@ bool Navigation::begin()
 
     _welcome = std::make_unique<LvContainer>(_surface.get());
     _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 232));
-    _welcome->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 54});
+    _welcome->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 54});
     makeMetric(_ram, _welcome.get(), "RAM FREE", 0, kTeal);
     makeMetric(_sd, _welcome.get(), "SD STORAGE", 43, kBlue);
     makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 86, kTeal);
     makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 129, kBlue);
+    _sd_action = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Hardware); });
+    _sd_action->setText("");
+    _sd_action->setWidth(kRowWidth);
+    _sd_action->setHeight(40);
+    _sd_action->setBackgroundGradient(StyleColor::COLOR_WITH_OPACITY(kSurface, 0),
+                                      StyleColor::COLOR_WITH_OPACITY(kSurface, 0));
+    _sd_action->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 43});
     _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
                               STYLE_ALIGN_TYPE_TOP_MID, 0, 177);
 
@@ -147,14 +201,33 @@ bool Navigation::begin()
 
     _logs = std::make_unique<LvContainer>(_surface.get());
     _logs->setStyleAttribute(StyleSize::RECT(kWidth, 280));
-    _logs->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _log_search = std::make_unique<AppTextBox>(_logs.get());
+    _log_search->setWidth(164);
+    _log_search->setHeight(28);
+    _log_search->setOneLine();
+    _log_search->setPlaceholder("Search logs");
+    _log_search->setFont(StyleFont::SIZE(8));
+    _log_search->setTextColor(StyleColor::COLOR(kNavy));
+    _log_search->setBackgroundColor(StyleColor::COLOR(kSurface));
+    _log_search->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 0});
+    _log_filter = std::make_unique<AppButton>(_logs.get(), [this]() {
+        _log_filter_mode = static_cast<uint8_t>((_log_filter_mode + 1U) % 4U);
+        char filter[24];
+        std::snprintf(filter, sizeof(filter), "FILTER %s", logFilterName(_log_filter_mode));
+        _log_filter->setText(filter);
+        updateLogView();
+    });
+    _log_filter->setText("FILTER ALL");
+    buttonStyle(*_log_filter, 96, 26, kBlue);
+    _log_filter->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 1});
     _log_box = std::make_unique<AppRichText>(_logs.get());
     _log_box->setWidth(kWidth);
-    _log_box->setHeight(214);
+    _log_box->setHeight(180);
     _log_box->setFont(StyleFont::SIZE(10));
     _log_box->setTextColor(StyleColor::COLOR(0xEAF1F6));
     _log_box->setBackgroundColor(StyleColor::COLOR(0x12263A));
-    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
+    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 32});
 
     _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
         _logs_paused = !_logs_paused;
@@ -182,7 +255,7 @@ bool Navigation::begin()
 
     _hardware = std::make_unique<LvContainer>(_surface.get());
     _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 280));
-    _hardware->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _hardware->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
     const char *hardware_names[] = {
         "[B] BATTERY", "[R] RTC", "[M] IMU", "[G] GPS", "[W] WIFI", "[B] BLE",
         "[D] DISPLAY", "[T] TOUCH", "[S] SPEAKER", "[M] MIC", "[S] SD CARD"
@@ -192,8 +265,11 @@ bool Navigation::begin()
         card->setStyleAttribute(StyleSize::RECT(128, 32));
         const bool left = (i % 2U) == 0U;
         const int row = static_cast<int>(i / 2U);
-        card->setStyleAttribute({left ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
-                                 left ? 4 : -4, row * 35});
+        card->setStyleAttribute(StyleAlign{
+            left ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
+            left ? 4 : -4,
+            row * 35
+        });
         card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
         card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
         auto item = makeLabel(card.get(), hardware_names[i], 112, 8, kMuted,
@@ -204,6 +280,14 @@ bool Navigation::begin()
                                (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
                                (i % 2 == 0) ? 8 : -8, 14);
         _hardware_labels.push_back(std::move(state));
+        auto action = std::make_unique<AppButton>(card.get(), [this, i]() { showComponentDetails(i); });
+        action->setText("");
+        action->setWidth(128);
+        action->setHeight(32);
+        action->setBackgroundGradient(StyleColor::COLOR_WITH_OPACITY(kSurface, 0),
+                                       StyleColor::COLOR_WITH_OPACITY(kSurface, 0));
+        action->align({STYLE_ALIGN_TYPE_CENTER, 0, 0});
+        _hardware_actions.push_back(std::move(action));
         _hardware_cards.push_back(std::move(card));
     }
     _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 9, kMuted,
@@ -216,7 +300,7 @@ bool Navigation::begin()
 
     _about = std::make_unique<LvContainer>(_surface.get());
     _about->setStyleAttribute(StyleSize::RECT(kWidth, 260));
-    _about->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    _about->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
     _about_logo = std::make_unique<AppImage>(_about.get());
     _about_logo->setRawRgb565(
         qsee_boot_rgb565_start,
@@ -243,7 +327,7 @@ bool Navigation::begin()
 
     _dialog = std::make_unique<LvContainer>(_surface.get());
     _dialog->setStyleAttribute(StyleSize::RECT(252, 142));
-    _dialog->setStyleAttribute({STYLE_ALIGN_TYPE_CENTER, 0, 0});
+    _dialog->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
     surface(*_dialog);
     _dialog_title = makeLabel(_dialog.get(), "FORMAT SD?", 220, 16, kNavy,
                               STYLE_ALIGN_TYPE_TOP_MID, 0, 14);
@@ -329,9 +413,13 @@ void Navigation::shutdown()
     _hardware_labels.clear();
     _hardware_summary.reset();
     _format_sd.reset();
+    _sd_action.reset();
+    _hardware_actions.clear();
     _logs_pause.reset();
     _logs_clear.reset();
     _logs_follow.reset();
+    _log_search.reset();
+    _log_filter.reset();
     _logs_live.reset();
     _hardware_cards.clear();
     _dialog_title.reset();
@@ -407,14 +495,63 @@ void Navigation::refresh()
                   health(snapshot.radios.wifi.health), health(snapshot.radios.ble.health), health(snapshot.gps.health));
     _radio_status->setText(value);
     if (_current == Screen::Logs && !_logs_paused) {
-        char logs[8192];
-        qsee_logger_snapshot(logs, sizeof(logs), 32);
-        _log_box->setText(logs, _logs_follow_latest && _log_box->isAtBottom());
+        updateLogView();
     } else if (_current == Screen::Hardware) {
         updateHardwareText();
         const bool needs_format = storageFormatRequired(snapshot.storage);
         setVisible(*_format_sd, needs_format);
     }
+}
+
+void Navigation::updateLogView()
+{
+    if (_log_box == nullptr) return;
+    char logs[8192];
+    char filtered[8192];
+    qsee_logger_snapshot(logs, sizeof(logs), 64);
+    const char *query = _log_search != nullptr ? _log_search->getText() : "";
+    filterLogs(logs, query, _log_filter_mode, filtered, sizeof(filtered));
+    _log_box->setText(filtered, _logs_follow_latest && _log_box->isAtBottom());
+}
+
+void Navigation::showComponentDetails(size_t index)
+{
+    if (_current != Screen::Hardware || index >= _hardware_cards.size()) return;
+    static constexpr const char *names[] = {
+        "BATTERY", "RTC", "IMU", "GPS", "WIFI", "BLE",
+        "DISPLAY", "TOUCH", "SPEAKER", "MICROPHONE", "SD CARD"
+    };
+    if (index >= sizeof(names) / sizeof(names[0])) return;
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    const DeviceHealth states[] = {
+        snapshot.battery.health, snapshot.rtc.health, snapshot.imu.health,
+        snapshot.gps.health, snapshot.radios.wifi.health, snapshot.radios.ble.health,
+        snapshot.ui.display.health, snapshot.ui.touch.health, snapshot.audio.speaker.health,
+        snapshot.audio.microphone.health, snapshot.storage.health
+    };
+    const esp_err_t errors[] = {
+        snapshot.battery.last_error, snapshot.rtc.last_error, snapshot.imu.last_error,
+        snapshot.gps.last_error, snapshot.radios.wifi.last_error, snapshot.radios.ble.last_error,
+        snapshot.ui.display.last_error, snapshot.ui.touch.last_error,
+        snapshot.audio.speaker.last_error, snapshot.audio.microphone.last_error,
+        snapshot.storage.last_error
+    };
+    _selected_component = index;
+    char title[40];
+    char details[180];
+    std::snprintf(title, sizeof(title), "%s STATUS", names[index]);
+    std::snprintf(details, sizeof(details), "State: %s\nError: %s\nTap CLOSE to return.",
+                  index == 10U && storageFormatRequired(snapshot.storage)
+                      ? "FORMAT REQUIRED" : health(states[index]),
+                  esp_err_to_name(errors[index]));
+    setVisible(*_dialog, true);
+    _dialog_title->setText(title);
+    _dialog_text->setText(details);
+    setVisible(*_dialog_progress, false);
+    setVisible(*_dialog_confirm, false);
+    setVisible(*_dialog_cancel, true);
+    _dialog_cancel->setText("CLOSE");
+    _dialog_text->setTextColor(StyleColor::COLOR(healthColor(states[index], errors[index])));
 }
 
 void Navigation::updateHardwareText()
@@ -461,6 +598,8 @@ void Navigation::showFormatDialog()
     setVisible(*_dialog_confirm, true);
     setVisible(*_dialog_cancel, true);
     setVisible(*_dialog_progress, false);
+    _dialog_cancel->setText("NO");
+    _dialog_text->setTextColor(StyleColor::COLOR(kMuted));
 }
 
 void Navigation::closeDialog()

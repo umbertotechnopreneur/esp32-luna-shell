@@ -11,7 +11,11 @@ param(
 
     [string]$BuildDir = "build",
 
-    [int]$WaitSeconds = 30
+    [int]$WaitSeconds = 30,
+
+    # The workstation has 16 cores and 32 GB RAM; allow overriding for CI or
+    # constrained machines while keeping the local default fully parallel.
+    [int]$Jobs = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -181,13 +185,41 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
 }
 
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
-    & $PythonExe $IdfPy -B $RequestedBuildDir reconfigure
-    if ($LASTEXITCODE -ne 0) {
-        throw "Reconfigure failed"
+    $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
+    $reconfigure = -not (Test-Path $buildNinja)
+
+    if (-not $reconfigure) {
+        $trackedBuildInputs = @(
+            Get-ChildItem -Path $ProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
+                Where-Object {
+                    $_.FullName -notlike "$(Join-Path $ProjectRoot $RequestedBuildDir)\*" -and
+                    ($_.Name -eq "CMakeLists.txt" -or $_.Name -eq "sdkconfig" -or $_.Name -eq "sdkconfig.defaults")
+                }
+        )
+        $latestInput = $trackedBuildInputs |
+            Sort-Object LastWriteTimeUtc -Descending |
+            Select-Object -First 1
+        $reconfigure = $null -ne $latestInput -and
+            $latestInput.LastWriteTimeUtc -gt (Get-Item $buildNinja).LastWriteTimeUtc
     }
 
-    # Keep the Windows cross-compiler process count bounded and deterministic.
-    & ninja -C $RequestedBuildDir -j 2 all
+    if ($reconfigure) {
+        Write-Host "Build configuration changed; running ESP-IDF reconfigure."
+        & $PythonExe $IdfPy -B $RequestedBuildDir reconfigure
+        if ($LASTEXITCODE -ne 0) {
+            throw "Reconfigure failed"
+        }
+    } else {
+        Write-Host "Using incremental build; skipping reconfigure."
+    }
+
+    $parallelJobs = if ($Jobs -gt 0) {
+        $Jobs
+    } else {
+        [Math]::Max(2, [Math]::Min(16, [Environment]::ProcessorCount))
+    }
+    Write-Host "Building with Ninja parallelism: -j $parallelJobs"
+    & ninja -C $RequestedBuildDir -j $parallelJobs all
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed"
     }

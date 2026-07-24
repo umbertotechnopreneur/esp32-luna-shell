@@ -206,10 +206,8 @@ extern "C" esp_err_t qsee_time_init(const char *timezone)
         return netif_result;
     }
 
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(
-        2,
-        ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.google.com")
-    );
+    // The target SDK is configured with one SNTP server slot.
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
     config.start = false;
     config.sync_cb = sntp_sync_callback;
     const esp_err_t sntp_result = esp_netif_sntp_init(&config);

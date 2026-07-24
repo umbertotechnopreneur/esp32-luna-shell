@@ -65,6 +65,9 @@ public:
     explicit AppTextBox(const LvObject *parent);
 
     bool setText(const char *text, bool follow_latest = true);
+    const char *getText() const;
+    bool setPlaceholder(const char *text);
+    bool setOneLine(bool one_line = true);
     bool isAtBottom() const;
     bool setWidth(int width);
     bool setHeight(int height);

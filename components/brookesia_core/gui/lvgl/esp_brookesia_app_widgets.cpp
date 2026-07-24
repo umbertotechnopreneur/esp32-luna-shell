@@ -195,6 +195,25 @@ bool AppTextBox::setText(const char *text, bool follow_latest)
     return true;
 }
 
+const char *AppTextBox::getText() const
+{
+    return isValid() ? lv_textarea_get_text(getNativeHandle()) : "";
+}
+
+bool AppTextBox::setPlaceholder(const char *text)
+{
+    if (!isValid()) return false;
+    lv_textarea_set_placeholder_text(getNativeHandle(), text != nullptr ? text : "");
+    return true;
+}
+
+bool AppTextBox::setOneLine(bool one_line)
+{
+    if (!isValid()) return false;
+    lv_textarea_set_one_line(getNativeHandle(), one_line);
+    return true;
+}
+
 bool AppTextBox::isAtBottom() const
 {
     return isValid() && lv_obj_get_scroll_bottom(getNativeHandle()) <= 2;
@@ -272,7 +291,7 @@ bool AppRichText::setText(const char *text, bool follow_latest)
         if (span == nullptr) return false;
         lv_span_set_text(span, line.c_str());
         lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(color));
-        lv_style_set_text_font(lv_span_get_style(span), &lv_font_montserrat_10);
+        lv_style_set_text_font(lv_span_get_style(span), &lv_font_unscii_8);
         if (line_end >= length) break;
         line_start = line_end + 1U;
     }

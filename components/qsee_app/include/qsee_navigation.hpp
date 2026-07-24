@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <vector>
 
@@ -32,6 +34,8 @@ private:
     void setVisible(esp_brookesia::gui::LvObject &object, bool visible);
     void updateMetric(Metric &metric, const char *value, int progress);
     void updateHardwareText();
+    void updateLogView();
+    void showComponentDetails(size_t index);
     void showFormatDialog();
     void closeDialog();
     void requestFormat();
@@ -44,14 +48,18 @@ private:
     std::unique_ptr<esp_brookesia::gui::LvContainer> _logs;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
     std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_cards;
+    std::vector<std::unique_ptr<esp_brookesia::gui::AppButton>> _hardware_actions;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_logs;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_hardware;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
     std::unique_ptr<esp_brookesia::gui::AppButton> _back;
     std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _sd_action;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_pause;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_clear;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_follow;
+    std::unique_ptr<esp_brookesia::gui::AppTextBox> _log_search;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _log_filter;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _logs_live;
     std::unique_ptr<esp_brookesia::gui::AppRichText> _log_box;
     std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _hardware_labels;
@@ -76,6 +84,8 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
     bool _logs_paused = false;
     bool _logs_follow_latest = true;
+    uint8_t _log_filter_mode = 0;
+    size_t _selected_component = 0;
     Screen _current{Screen::Welcome};
 };
 
