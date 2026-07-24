@@ -23,6 +23,16 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 4.2.0
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.7.19~2
   espressif/cmake_utilities:
     component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
     dependencies:
@@ -34,15 +44,15 @@ dependencies:
       type: service
     version: 0.5.3
   espressif/esp-boost:
-    component_hash: faf0cf16385575da381cde57989c14a82538ef90665fe7f7cec459a738c88fec
+    component_hash: 332946a64356203e9443a3bae9cec93ef8aab6df37de2f61270c972f238f9b3f
     dependencies:
     - name: idf
       require: private
-      version: '>=5.3'
+      version: '>=5.5'
     source:
       registry_url: https://components.espressif.com/
       type: service
-    version: 0.3.1
+    version: 0.6.0
   espressif/esp-lib-utils:
     component_hash: 4ea629fce1e7e8a92d347d94b0e9dbb854ca3ecdf384ca6aa02677df9b4db735
     dependencies:
@@ -294,6 +304,22 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.6.58
+  espressif/network_provisioning:
+    component_hash: 72d27784e3daf807418a34fb00be136ec50c6db49d989ce981d22e031fc0e7f8
+    dependencies:
+    - name: espressif/cjson
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: idf_version >= 6.0
+      version: ^1.7.19
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.4
   espressif/qrcode:
     component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
     dependencies: []
@@ -301,6 +327,23 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.1.0~2
+  espressif/usb:
+    component_hash: 6c2cff118141dbbca181d0d27d71801fdddfc78f7ac03ae43f6e5a8cbd89cb99
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32h4
+    - linux
+    version: 1.5.0
   espressif/zlib:
     component_hash: 64ea2fd6754c5a05951f1ddb312ac835cd782e68cb5bd9dfcd1c3a107c8fbfbc
     dependencies:
@@ -328,7 +371,7 @@ dependencies:
   idf:
     source:
       type: idf
-    version: 5.5.4
+    version: 6.0.2
   lvgl/lvgl:
     component_hash: 17e68bfd21f0edf4c3ee838e2273da840bf3930e5dbc3bfa6c1190c3aed41f9f
     dependencies: []
@@ -362,6 +405,7 @@ dependencies:
     version: 2.0.0
 direct_dependencies:
 - cube32esp/xpowerslib
+- espressif/cjson
 - espressif/cmake_utilities
 - espressif/esp-boost
 - espressif/esp-lib-utils
@@ -371,12 +415,14 @@ direct_dependencies:
 - espressif/esp_lcd_panel_io_additions
 - espressif/esp_lvgl_adapter
 - espressif/esp_mmap_assets
+- espressif/network_provisioning
 - espressif/qrcode
+- espressif/usb
 - espressif2022/image_player
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/qmi8658
-manifest_hash: 697fcda180503a2d2225ccc6506ee823a9e9a170f7dcc668e54bdf7b0e8b8826
+manifest_hash: 5330ec060b8fc45e34fde9dc1cbbe0649aa3761bd0050db47806c295340978ee
 target: esp32s3
-version: 2.0.0
+version: 3.0.0

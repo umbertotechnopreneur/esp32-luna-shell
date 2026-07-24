@@ -127,15 +127,6 @@ endif()
 # Register Component
 #
 set(BROOKESIA_REQUIRES esp_netif esp_wifi nvs_flash)
-if(CONFIG_ESP_BROOKESIA_ENABLE_AI_FRAMEWORK)
-    set(BROOKESIA_JSON_COMPONENT json)
-    if(DEFINED IDF_VERSION_MAJOR)
-        if(IDF_VERSION_MAJOR GREATER_EQUAL 6)
-            set(BROOKESIA_JSON_COMPONENT espressif__cjson)
-        endif()
-    endif()
-    list(APPEND BROOKESIA_REQUIRES ${BROOKESIA_JSON_COMPONENT})
-endif()
 
 idf_component_register(
     SRCS ${SRCS_C} ${SRCS_CPP}
