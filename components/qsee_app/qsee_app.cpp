@@ -29,6 +29,12 @@ const char *statusGlyph(qsee::DeviceHealth health)
     return health == qsee::DeviceHealth::Ready ? "●" :
            health == qsee::DeviceHealth::Missing ? "○" : "!";
 }
+
+bool storageFormatRequired(const qsee::StorageSnapshot &storage)
+{
+    return storage.card_present && !storage.formatted &&
+           (storage.last_error == ESP_FAIL || storage.format_attempted);
+}
 }
 
 #define APP_NAME "QSee.ai"
@@ -76,7 +82,7 @@ void App::syncStatusBar()
                   statusGlyph(snapshot.radios.ble.health),
                   statusGlyph(snapshot.radios.wifi.health),
                   statusGlyph(snapshot.gps.health),
-                  snapshot.storage.format_required ? "!" :
+                  storageFormatRequired(snapshot.storage) ? "!" :
                   statusGlyph(snapshot.storage.health));
     if (_status_text_added) {
         (void)status_bar->setText(kStatusTextId, status_text);

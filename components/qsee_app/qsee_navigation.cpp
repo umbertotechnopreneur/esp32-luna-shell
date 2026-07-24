@@ -96,6 +96,12 @@ uint32_t healthColor(qsee::DeviceHealth value, esp_err_t error = ESP_OK)
     }
 }
 
+bool storageFormatRequired(const qsee::StorageSnapshot &storage)
+{
+    return storage.card_present && !storage.formatted &&
+           (storage.last_error == ESP_FAIL || storage.format_attempted);
+}
+
 }
 
 namespace qsee {
@@ -380,14 +386,14 @@ void Navigation::refresh()
                       static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)),
                       snapshot.storage.logger_mirror_enabled ? "MIRROR" : "NO MIRROR");
         updateMetric(_sd, value, 100 - used_percent);
-    } else if (snapshot.storage.format_required) {
+    } else if (storageFormatRequired(snapshot.storage)) {
         updateMetric(_sd, "format required", 0);
     } else if (!snapshot.storage.card_present) {
         updateMetric(_sd, "card absent", 0);
     } else {
         updateMetric(_sd, "not mounted", 0);
     }
-    const uint32_t sd_color = snapshot.storage.format_required ? 0xD97706 :
+    const uint32_t sd_color = storageFormatRequired(snapshot.storage) ? 0xD97706 :
                               !snapshot.storage.card_present ? kMuted :
                               healthColor(snapshot.storage.health, snapshot.storage.last_error);
     _sd.value->setTextColor(StyleColor::COLOR(sd_color));
@@ -406,7 +412,7 @@ void Navigation::refresh()
         _log_box->setText(logs, _logs_follow_latest && _log_box->isAtBottom());
     } else if (_current == Screen::Hardware) {
         updateHardwareText();
-        const bool needs_format = snapshot.storage.format_required;
+        const bool needs_format = storageFormatRequired(snapshot.storage);
         setVisible(*_format_sd, needs_format);
     }
 }
@@ -422,7 +428,7 @@ void Navigation::updateHardwareText()
     };
     for (size_t i = 0; i < sizeof(states) / sizeof(states[0]); ++i) {
         auto &state = _hardware_labels[i * 2 + 1];
-        const bool format_required = i == 10U && snapshot.storage.format_required;
+        const bool format_required = i == 10U && storageFormatRequired(snapshot.storage);
         state->setText(format_required ? "FORMAT" : health(states[i]));
         const esp_err_t errors[] = {
             snapshot.battery.last_error, snapshot.rtc.last_error, snapshot.imu.last_error,

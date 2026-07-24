@@ -119,12 +119,6 @@ esp_err_t qsee_audio_capture_pcm16(
 esp_err_t qsee_radios_init(void);
 esp_err_t qsee_ble_init(void);
 
-/** Start the fail-open hot-plug SD storage service. */
-esp_err_t qsee_storage_start(void);
-
-/** Request formatting through the storage service, never directly from UI. */
-esp_err_t qsee_storage_request_format(void);
-
 #define QSEE_WIFI_MAX_NETWORKS 16
 #define QSEE_WIFI_SSID_MAX_LEN 32
 
