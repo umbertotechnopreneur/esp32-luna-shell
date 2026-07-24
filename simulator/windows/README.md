@@ -28,3 +28,13 @@ Build the standalone Windows executable:
 
 The build script creates an isolated `.venv-simulator` environment and writes
 the executable to `simulator/windows/dist/QSeeDeviceSimulator.exe`.
+
+## Audio scope demo
+
+After the synthetic boot completes, click `OPEN AUDIO SCOPE`. The page is a
+black, high-refresh preview of the two-microphone layout. Press `Esc` to
+return. The simulator bars and CPU percentages are deliberately synthetic;
+the firmware page reads memory, task, priority, stack watermark, and audio
+health from `DeviceSnapshotService`. CPU utilization remains explicitly
+unavailable because runtime statistics are disabled in the current
+configuration.
