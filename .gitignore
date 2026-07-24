@@ -1,0 +1,25 @@
+# ESP-IDF build output
+build/
+build-*/
+managed_components/
+runtime-logs/
+sdkconfig
+sdkconfig.old
+
+# Editor and local tooling
+.vscode/
+.idea/
+*.user
+
+# PowerShell runtime logs
+scripts/logs/
+
+# Generated inspection intermediates
+tmp/
+
+# Python tooling cache
+__pycache__/
+*.pyc
+.venv-simulator/
+simulator/windows/build/
+simulator/windows/dist/

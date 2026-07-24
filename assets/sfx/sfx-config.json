@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "target": {
+    "container": "wav",
+    "codec": "pcm_s16le",
+    "sample_rate_hz": 22050,
+    "channels": 1
+  },
+  "normalization": {
+    "integrated_lufs": -18,
+    "true_peak_db": -2,
+    "loudness_range": 5
+  },
+  "assets": [
+    {
+      "id": "qsee_boot",
+      "purpose": "Played once while the QSee.ai boot screen is visible.",
+      "source": "source/boot/soft-chime.original.wav",
+      "output": "generated/qsee-boot.wav",
+      "trim_start_s": 0.0,
+      "duration_s": 1.8,
+      "fade_in_s": 0.02,
+      "fade_out_s": 0.45
+    }
+  ]
+}

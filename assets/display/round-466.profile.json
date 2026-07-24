@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "display": {
+    "shape": "circle",
+    "width_px": 466,
+    "height_px": 466,
+    "center_px": {
+      "x": 233,
+      "y": 233
+    },
+    "radius_px": 233
+  },
+  "safe_content": {
+    "x_px": 73,
+    "y_px": 73,
+    "width_px": 320,
+    "height_px": 320,
+    "rule": "All mandatory content and controls must remain fully understandable inside this square."
+  },
+  "action_caps": {
+    "top": {
+      "x_px": 169,
+      "y_px": 12,
+      "width_px": 128,
+      "height_px": 56,
+      "default_role": "context"
+    },
+    "right": {
+      "x_px": 398,
+      "y_px": 169,
+      "width_px": 56,
+      "height_px": 128,
+      "default_role": "next_or_ok"
+    },
+    "bottom": {
+      "x_px": 169,
+      "y_px": 398,
+      "width_px": 128,
+      "height_px": 56,
+      "default_role": "contextual_primary"
+    },
+    "left": {
+      "x_px": 12,
+      "y_px": 169,
+      "width_px": 56,
+      "height_px": 128,
+      "default_role": "back_or_cancel"
+    }
+  },
+  "interaction": {
+    "minimum_visual_short_side_px": 48,
+    "minimum_touch_short_side_px": 64,
+    "maximum_actions_per_cap": 1,
+    "allow_touch_target_to_overlap_safe_gutter_px": 8
+  },
+  "brand": {
+    "primary_blue_rgb": [
+      35,
+      121,
+      222
+    ],
+    "primary_blue_hex": "#2379DE"
+  }
+}

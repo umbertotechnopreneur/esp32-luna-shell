@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "assets/branding/qsee/source/qsee-ai-logo.pdf",
+    "sha256": "0117b6040c19798026a0177a3336fd86c124c02c9ab71e14c55e16329c6bb677"
+  },
+  "outputs": [
+    {
+      "path": "assets/branding/qsee/generated/qsee-boot-466x466.png",
+      "format": "PNG RGB888",
+      "width_px": 466,
+      "height_px": 466,
+      "sha256": "ce64fa84e4c983ff04aa8c656d26c02b7bb4cb661183dec25154caa5650af509"
+    },
+    {
+      "path": "assets/branding/qsee/generated/qsee-boot-466x466.rgb565le.bin",
+      "format": "headerless RGB565 little-endian",
+      "width_px": 466,
+      "height_px": 466,
+      "bytes": 434312,
+      "sha256": "7d43d0058a7c8af9ef93bbb86acf7a392657b0e264b3f19fefbb208bceea2a07"
+    },
+    {
+      "path": "assets/branding/qsee/generated/round-466-safe-area-guide.png",
+      "format": "PNG RGB888 inspection guide",
+      "width_px": 466,
+      "height_px": 466,
+      "sha256": "a1913f55199ce97ca107bedf2c947f1a6cc674fa12254d467522697be90f01cd"
+    }
+  ]
+}

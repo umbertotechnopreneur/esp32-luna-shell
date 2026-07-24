@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "target": "Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS",
+  "display": {
+    "controller": "CO5300",
+    "width_px": 466,
+    "height_px": 466,
+    "shape": "round",
+    "safe_area": {
+      "x": 73,
+      "y": 73,
+      "width": 320,
+      "height": 320
+    }
+  },
+  "devices": [
+    {"name": "CST9217", "role": "touch", "owner": "Waveshare BSP"},
+    {"name": "AXP2101", "role": "power management", "i2c_address": "0x34"},
+    {"name": "QMI8658", "role": "IMU", "i2c_addresses": ["0x6B", "0x6A"]},
+    {"name": "LC76G", "role": "GPS/GNSS", "i2c_addresses": ["0x50", "0x54"], "antenna": "external ceramic"},
+    {"name": "PCF85063", "role": "RTC"},
+    {"name": "TCA9554", "role": "I/O expander", "i2c_address": "0x20"},
+    {"name": "ES8311", "role": "speaker codec"},
+    {"name": "ES7210", "role": "microphone ADC"}
+  ],
+  "storage": {
+    "type": "microSD",
+    "capacity_gb": 8,
+    "user_added": true,
+    "current_state": "requires formatting",
+    "required_filesystem": "FAT32",
+    "runtime_auto_format": false
+  },
+  "radios": {
+    "wifi": "2.4 GHz 802.11 b/g/n",
+    "bluetooth": "BLE via NimBLE"
+  }
+}
