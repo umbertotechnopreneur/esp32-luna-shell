@@ -6,6 +6,7 @@ idf_component_register(
     REQUIRES
         brookesia_core
         qsee_logger
+        qsee_platform
     WHOLE_ARCHIVE
 )
 

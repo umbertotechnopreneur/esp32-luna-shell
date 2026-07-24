@@ -1,9 +1,22 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #include <new>
 #include <vector>
 
 #include "bsp/esp-bsp.h"
 #include "esp_brookesia.hpp"
 #include "esp_log.h"
+#include "esp_vfs_fat.h"
 #include "qsee_app.hpp"
 #include "qsee_boot.h"
 #include "qsee_device_snapshot.hpp"
@@ -16,6 +29,52 @@ using esp_brookesia::systems::phone::Phone;
 
 namespace {
 const char *TAG = "qsee_main";
+
+void mount_sdcard()
+{
+    ESP_LOGI(TAG, "SD: mounting 1-bit SDMMC at %s", BSP_SD_MOUNT_POINT);
+    const esp_err_t sd_result = bsp_sdcard_mount();
+    if (sd_result != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportStorage(false, 0, 0, 0, false, sd_result);
+        ESP_LOGW(
+            TAG,
+            "SD: mount failed (%s); OCR/transport failures happen before FAT formatting",
+            esp_err_to_name(sd_result)
+        );
+        return;
+    }
+
+    const uint64_t sd_capacity =
+        static_cast<uint64_t>(bsp_sdcard->csd.capacity) * bsp_sdcard->csd.sector_size;
+    ESP_LOGI(TAG, "SD: mounted, capacity=%llu MB",
+             static_cast<unsigned long long>(sd_capacity / (1024ULL * 1024ULL)));
+    uint64_t filesystem_total = 0;
+    uint64_t filesystem_free = 0;
+    const esp_err_t space_result =
+        esp_vfs_fat_info(BSP_SD_MOUNT_POINT, &filesystem_total, &filesystem_free);
+    if (space_result == ESP_OK) {
+        ESP_LOGI(
+            TAG,
+            "SD: filesystem total=%llu MB free=%llu MB",
+            static_cast<unsigned long long>(filesystem_total / (1024ULL * 1024ULL)),
+            static_cast<unsigned long long>(filesystem_free / (1024ULL * 1024ULL))
+        );
+    } else {
+        ESP_LOGW(TAG, "SD: filesystem space query failed (%s)", esp_err_to_name(space_result));
+    }
+    const esp_err_t mirror_result = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
+    qsee::DeviceSnapshotService::instance().reportStorage(
+        true,
+        sd_capacity,
+        filesystem_total,
+        filesystem_free,
+        mirror_result == ESP_OK,
+        ESP_OK
+    );
+    if (mirror_result != ESP_OK) {
+        ESP_LOGW(TAG, "SD: logger mirror unavailable (%s)", esp_err_to_name(mirror_result));
+    }
+}
 
 bool start_brookesia()
 {
@@ -69,28 +128,6 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "QSee.ai firmware boot");
     ESP_LOGI(TAG, "Display contract: round 466x466, safe square 320x320 at (73,73)");
 
-    ESP_LOGI(TAG, "SD: mounting 1-bit SDMMC at %s without auto-format", BSP_SD_MOUNT_POINT);
-    const esp_err_t sd_result = bsp_sdcard_mount();
-    if (sd_result == ESP_OK) {
-        const uint64_t sd_capacity =
-            static_cast<uint64_t>(bsp_sdcard->csd.capacity) * bsp_sdcard->csd.sector_size;
-        ESP_LOGI(TAG, "SD: mounted, capacity=%llu MB",
-                 static_cast<unsigned long long>(sd_capacity / (1024ULL * 1024ULL)));
-        const esp_err_t mirror_result = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
-        qsee::DeviceSnapshotService::instance().reportStorage(
-            true,
-            sd_capacity,
-            mirror_result == ESP_OK,
-            ESP_OK
-        );
-        if (mirror_result != ESP_OK) {
-            ESP_LOGW(TAG, "SD: logger mirror unavailable (%s)", esp_err_to_name(mirror_result));
-        }
-    } else {
-        qsee::DeviceSnapshotService::instance().reportStorage(false, 0, false, sd_result);
-        ESP_LOGW(TAG, "SD: mount failed (%s); card may need FAT32 formatting", esp_err_to_name(sd_result));
-    }
-
     ESP_LOGI(TAG, "Display: starting official Waveshare BSP");
     if (bsp_display_start() == nullptr) {
         qsee::DeviceSnapshotService::instance().reportDisplay(false, ESP_FAIL);
@@ -111,10 +148,13 @@ extern "C" void app_main(void)
         touch != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND
     );
     ESP_LOGI(TAG, "Touch CST9217: %s", touch != nullptr ? "ready" : "unavailable");
-    ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
 
     (void)qsee_hardware_init();
+    ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
+    mount_sdcard();
     (void)qsee_radios_init();
+    const esp_err_t wifi_scan_result = qsee_wifi_start_scan();
+    ESP_LOGI(TAG, "Wi-Fi: boot scan request %s", esp_err_to_name(wifi_scan_result));
     (void)qsee_hardware_refresh("post-radio");
 
     qsee_boot_ui_mark_ready();

@@ -163,7 +163,9 @@ esp_err_t bsp_sdcard_mount(void)
         .max_files = 5,
         .allocation_unit_size = 16 * 1024};
 
-    const sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    // The removable 1-bit bus is more reliable with conservative runtime clocking.
+    host.max_freq_khz = 10000;
     const sdmmc_slot_config_t slot_config = {
         .clk = BSP_SD_CLK,
         .cmd = BSP_SD_CMD,
@@ -178,7 +180,7 @@ esp_err_t bsp_sdcard_mount(void)
         .cd = SDMMC_SLOT_NO_CD,
         .wp = SDMMC_SLOT_NO_WP,
         .width = 1,
-        .flags = 0,
+        .flags = SDMMC_SLOT_FLAG_INTERNAL_PULLUP,
     };
 
 #if !CONFIG_FATFS_LONG_FILENAMES

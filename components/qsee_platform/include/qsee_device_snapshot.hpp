@@ -1,3 +1,15 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #pragma once
 
 #include <cstdint>
@@ -47,6 +59,16 @@ struct RtcSnapshot : ComponentSnapshot {
 
 struct GpsSnapshot : ComponentSnapshot {
     uint32_t pending_nmea_bytes = 0;
+    bool has_fix = false;
+    uint8_t fix_quality = 0;
+    uint8_t satellites = 0;
+    double latitude_degrees = 0.0;
+    double longitude_degrees = 0.0;
+    float altitude_m = 0.0F;
+    float speed_mps = 0.0F;
+    float course_degrees = 0.0F;
+    float hdop = 0.0F;
+    char utc_time[11] = {};
     char first_sentence[181] = {};
 };
 
@@ -57,13 +79,34 @@ struct AudioSnapshot {
     uint32_t microphone_peak_level = 0;
 };
 
+struct WifiSnapshot : ComponentSnapshot {
+    bool started = false;
+    bool credentials_configured = false;
+    bool connect_requested = false;
+    bool connected = false;
+    bool ip_acquired = false;
+    bool reconnect_pending = false;
+    int8_t rssi = 0;
+    uint8_t channel = 0;
+    uint16_t last_disconnect_reason = 0;
+    uint32_t event_sequence = 0;
+    uint32_t connect_attempt_count = 0;
+    uint32_t reconnect_attempt_count = 0;
+    uint32_t disconnect_count = 0;
+    char ssid[33] = {};
+    char ip_address[16] = {};
+    char mac_address[18] = {};
+};
+
 struct RadioSnapshot {
-    ComponentSnapshot wifi;
+    WifiSnapshot wifi;
     ComponentSnapshot ble;
 };
 
 struct StorageSnapshot : ComponentSnapshot {
     uint64_t capacity_bytes = 0;
+    uint64_t filesystem_total_bytes = 0;
+    uint64_t free_bytes = 0;
     bool logger_mirror_enabled = false;
 };
 
@@ -73,11 +116,17 @@ struct UiHardwareSnapshot {
 };
 
 struct MemorySnapshot {
+    uint32_t flash_capacity_bytes = 0;
+    uint32_t app_partition_bytes = 0;
+    uint32_t firmware_image_bytes = 0;
     uint32_t heap_free_bytes = 0;
     uint32_t heap_minimum_free_bytes = 0;
     uint32_t internal_free_bytes = 0;
     uint32_t internal_largest_block_bytes = 0;
+    uint32_t psram_capacity_bytes = 0;
+    uint32_t psram_heap_total_bytes = 0;
     uint32_t psram_free_bytes = 0;
+    uint32_t psram_used_bytes = 0;
     uint32_t psram_largest_block_bytes = 0;
 };
 
@@ -124,11 +173,18 @@ public:
     esp_err_t refresh(const char *reason = "manual");
     DeviceSnapshot snapshot() const;
 
-    void reportStorage(bool mounted, uint64_t capacity_bytes, bool logger_mirror, esp_err_t error);
+    void reportStorage(
+        bool mounted,
+        uint64_t capacity_bytes,
+        uint64_t filesystem_total_bytes,
+        uint64_t free_bytes,
+        bool logger_mirror,
+        esp_err_t error
+    );
     void reportDisplay(bool ready, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);
-    void reportWifi(bool ready, esp_err_t error);
+    void reportWifi(const WifiSnapshot &wifi);
     void reportBle(bool ready, esp_err_t error);
 
 private:

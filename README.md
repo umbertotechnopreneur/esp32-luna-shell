@@ -29,14 +29,14 @@ complete geometry.
 ## Canonical startup order
 
 1. install the logger;
-2. mount the SD card without automatic formatting;
-3. start display and touch through the BSP;
-4. show the QSee.ai boot console and live logger messages;
+2. start display and touch through the BSP;
+3. show the QSee.ai boot console and live logger messages;
+4. initialize PMU, RTC, IMU, GPS, and the delayed ES7210 microphone worker;
 5. play the boot SFX through the ES8311 speaker path;
-6. initialize PMU, RTC, IMU, GPS, Wi-Fi, BLE, and the delayed ES7210 microphone
-   worker;
-7. create an explicit hardware snapshot and log memory/core state;
-8. wait for touch, then launch ESP-Brookesia and the QSee.ai application.
+6. mount the SD card without automatic formatting;
+7. initialize Wi-Fi and BLE, then request the boot Wi-Fi scan;
+8. create an explicit hardware snapshot and log memory/core state;
+9. wait for touch, then launch ESP-Brookesia and the QSee.ai application.
 
 Every optional device is fail-open: a missing or degraded sensor is visible in
 the log and snapshot but does not make the application reboot.
@@ -55,14 +55,17 @@ See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 
 `qsee::DeviceSnapshotService` is the single coherent view of:
 
-- battery, USB power, and AXP2101 state;
+- battery, USB power, AXP2101 charge policy, ADC telemetry, and latched events;
 - PCF85063 RTC;
 - QMI8658 accelerometer, gyroscope, and temperature;
-- LC76G transport and pending NMEA data;
+- LC76G transport plus parsed GGA/RMC fix, position, altitude, speed, course,
+  satellite count, and HDOP;
 - ES8311 speaker and ES7210 microphone levels;
-- SD capacity and logger mirroring;
-- display, touch, Wi-Fi, and BLE health;
-- free heap, minimum free heap, internal RAM, PSRAM, and largest blocks;
+- SD card capacity, filesystem free space, and logger mirroring;
+- display, touch, event-driven Wi-Fi lifecycle/scan/IP state, and BLE health;
+- physical flash capacity, running firmware image size, and app partition size;
+- free heap, minimum free heap, internal RAM, and PSRAM
+  capacity/total/used/free/largest-block values;
 - ESP32 core count and the current task, priority, and stack watermark sampled
   for each core.
 
@@ -99,6 +102,17 @@ The SD card must be prepared as FAT32 with an MBR partition. Firmware never
 formats it implicitly. An SDMMC OCR timeout occurs before filesystem parsing
 and therefore is not proof that formatting alone will fix the card.
 
+The PMU integration uses XPowersLib on the BSP's shared ESP-IDF 5 I2C bus,
+matching the Waveshare AXP2101 example. Charging is configured for 50 mA
+precharge, 400 mA constant current, 25 mA termination, and a 4.20 V target.
+TS-pin measurement is disabled because this board does not expose a battery
+NTC on that input.
+
+The audio layer owns one shared ES8311/ES7210/I2S route. Both boot playback and
+microphone snapshots use that layer, which serializes format changes and never
+creates a competing I2S driver. Successful PCM submission is logged separately
+from physical audibility.
+
 ## Firmware toolchain
 
 This checkout is configured for ESP-IDF 5.5.4 on Windows. PowerShell 7, Python,
@@ -123,8 +137,10 @@ Capture a bounded diagnostic log:
 pwsh -NoProfile -File .\scripts\capture-serial.ps1 -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
 ```
 
-Always pass the port explicitly before flashing. Build success is not hardware
-proof; keep serial evidence separate from compiler evidence.
+Always pass the port explicitly before flashing. The device helper terminates
+stale monitor processes scoped to that port and fails the command if flashing
+or erasing fails. Build success is not hardware proof; keep serial evidence
+separate from compiler evidence.
 
 ## Windows simulator
 
@@ -152,6 +168,20 @@ pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
 Generated outputs include the 466 x 466 PNG, a headerless little-endian RGB565
 frame, a 22.05 kHz mono PCM16 boot sound, and SHA-256 manifests. Never modify
 the preserved source assets to create a derivative.
+
+## Source ownership banner
+
+Owned C and C++ sources use the canonical QSee.ai copyright/contact banner.
+Preview or apply it with:
+
+```powershell
+pwsh -NoProfile -File .\scripts\add-source-banner.ps1
+pwsh -NoProfile -File .\scripts\add-source-banner.ps1 -Apply
+```
+
+The script is idempotent, supports `-Remove -Apply`, and intentionally excludes
+the Waveshare BSP, ESP-Brookesia, managed components, build output, generated
+files, and other third-party code. Contact: `hello@qsee.ai`.
 
 ## Repository map
 
@@ -182,13 +212,16 @@ the preserved source assets to create a derivative.
 
 ## Last physical-device validation
 
-The dedicated board is visible on `COM12`. The 2026-07-25 runtime pass confirmed
-a stable boot without the former `esp_timer` stack overflow. The LVGL display
-uses a 10-row, single internal DMA-capable buffer; the validation capture had
-zero draw or SPI DMA-allocation failures. PMU, RTC, IMU, display, touch, Wi-Fi,
-BLE advertising, ES8311 playback, and ES7210 initialization were ready.
+The 2026-07-25 runtime pass on the dedicated `COM12` device confirmed a stable
+boot without the former `esp_timer` stack overflow. The display and branded
+live-log boot UI are stable, touch is responsive, the boot SFX is physically
+audible, and Wi-Fi scans complete with 8-10 access points detected. PMU, RTC,
+IMU, BLE advertising, ES8311 playback, and ES7210 microphone sampling have also
+been observed without reboot, draw, or SPI DMA-allocation failures.
 
-The card still returned an SDMMC OCR timeout. The LC76G acknowledged its I2C
-transport addresses but its NMEA read remained degraded. Consult the newest
-ignored file under `runtime-logs/` rather than treating this dated note as
-permanent truth.
+The 8 GB card still returns an SDMMC OCR transport timeout before FAT parsing,
+so it cannot yet be formatted by firmware. The LC76G control endpoint responds,
+but a GPS fix and sustained NMEA reads remain unproven; the current build adds
+the Quectel bridge recovery sequence for the read endpoint. Flash/PSRAM metrics
+are now captured through native ESP-IDF APIs in every explicit hardware
+snapshot.

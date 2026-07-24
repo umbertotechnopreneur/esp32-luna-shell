@@ -1,7 +1,20 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
 
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 
 #include "bsp/esp-bsp.h"
@@ -11,7 +24,11 @@
 #include "esp_codec_dev.h"
 #include "esp_cpu.h"
 #include "esp_heap_caps.h"
+#include "esp_image_format.h"
 #include "esp_log.h"
+#include "esp_ota_ops.h"
+#include "esp_psram.h"
+#include "esp_flash.h"
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -20,17 +37,13 @@
 #include "freertos/task.h"
 #include "qmi8658.h"
 
+#define XPOWERS_CHIP_AXP2101
+#include "XPowersLib.h"
+
 #define I2C_TIMEOUT_MS 100
 #define GPS_MAX_PAYLOAD 4096
 
 #define AXP2101_ADDRESS 0x34
-#define AXP2101_REG_STATUS1 0x00
-#define AXP2101_REG_STATUS2 0x01
-#define AXP2101_REG_CHIP_ID 0x03
-#define AXP2101_REG_ADC_CONTROL 0x30
-#define AXP2101_REG_ADC_DATA 0x34
-#define AXP2101_REG_BATTERY_PERCENT 0xA4
-#define AXP2101_EXPECTED_CHIP_ID 0x4A
 
 #define PCF85063_ADDRESS 0x51
 #define PCF85063_REG_CTRL1 0x00
@@ -39,17 +52,19 @@
 
 #define LC76G_WRITE_ADDRESS 0x50
 #define LC76G_READ_ADDRESS 0x54
+#define LC76G_DATA_WRITE_ADDRESS 0x58
 
 namespace {
 
 const char *TAG = "qsee_snapshot";
 
-i2c_master_dev_handle_t s_pmu;
+i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
-i2c_master_dev_handle_t s_gps_write;
+i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
+i2c_master_dev_handle_t s_gps_data_write;
 qmi8658_dev_t s_imu;
-esp_codec_dev_handle_t s_microphone;
+XPowersPMU s_power;
 
 bool s_initialized;
 bool s_pmu_ready;
@@ -57,12 +72,11 @@ bool s_rtc_ready;
 bool s_imu_ready;
 bool s_gps_ready;
 bool s_microphone_worker_started;
+bool s_microphone_ready;
 
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
 SemaphoreHandle_t s_snapshot_mutex;
-StaticSemaphore_t s_microphone_mutex_control;
-SemaphoreHandle_t s_microphone_mutex;
 
 StaticTask_t s_microphone_task_control;
 StackType_t s_microphone_task_stack[4096];
@@ -112,6 +126,8 @@ esp_err_t add_i2c_device(
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = address,
         .scl_speed_hz = frequency_hz,
+        .scl_wait_us = 20000,
+        .flags = {},
     };
     return i2c_master_bus_add_device(bus, &config, device);
 }
@@ -140,21 +156,8 @@ uint8_t bcd_to_decimal(uint8_t value)
 esp_err_t sample_pmu(const char *phase)
 {
     qsee::BatterySnapshot sample;
-    uint8_t status1 = 0;
-    uint8_t status2 = 0;
-    uint8_t percent = 0xFF;
-    uint8_t adc[10] = {};
-
-    esp_err_t error = read_register(s_pmu, AXP2101_REG_STATUS1, &status1, 1);
-    if (error == ESP_OK) {
-        error = read_register(s_pmu, AXP2101_REG_STATUS2, &status2, 1);
-    }
-    if (error == ESP_OK) {
-        error = read_register(s_pmu, AXP2101_REG_BATTERY_PERCENT, &percent, 1);
-    }
-    if (error == ESP_OK) {
-        error = read_register(s_pmu, AXP2101_REG_ADC_DATA, adc, sizeof(adc));
-    }
+    const esp_err_t error =
+        i2c_master_probe(s_i2c_bus, AXP2101_ADDRESS, I2C_TIMEOUT_MS);
 
     set_component(sample, error == ESP_OK, error);
     if (error != ESP_OK) {
@@ -163,17 +166,36 @@ esp_err_t sample_pmu(const char *phase)
         return error;
     }
 
-    sample.battery_present = (status1 & BIT(3)) != 0;
-    sample.usb_present = (status1 & BIT(5)) != 0 && (status2 & BIT(3)) == 0;
-    sample.level_percent = percent <= 100 ? percent : -1;
-    sample.battery_mv = ((adc[0] & 0x1F) << 8) | adc[1];
-    sample.usb_mv = ((adc[4] & 0x3F) << 8) | adc[5];
-    sample.system_mv = ((adc[6] & 0x3F) << 8) | adc[7];
-    const int temperature_raw = ((adc[8] & 0x3F) << 8) | adc[9];
-    sample.die_temperature_c = 22.0F + (7274.0F - temperature_raw) / 20.0F;
-    const char *power_state =
-        (status2 >> 5) == 1 ? "charging" : ((status2 >> 5) == 2 ? "discharging" : "standby");
+    sample.battery_present = s_power.isBatteryConnect();
+    sample.usb_present = s_power.isVbusIn();
+    const uint8_t percent = s_power.getBatteryPercent();
+    sample.level_percent = sample.battery_present && percent <= 100 ? percent : -1;
+    sample.battery_mv = s_power.getBattVoltage();
+    sample.usb_mv = s_power.getVbusVoltage();
+    sample.system_mv = s_power.getSystemVoltage();
+    sample.die_temperature_c = s_power.getTemperature();
+    const char *power_state = s_power.isCharging()
+                                  ? "charging"
+                                  : (s_power.isDischarge() ? "discharging" : "standby");
     strlcpy(sample.power_state, power_state, sizeof(sample.power_state));
+
+    const uint64_t irq_status = s_power.getIrqStatus();
+    if (irq_status != 0) {
+        ESP_LOGI(
+            TAG,
+            "PMU AXP2101 events: raw=0x%llx bat+%d bat-%d usb+%d usb-%d key-short=%d key-long=%d charge-start=%d charge-done=%d",
+            static_cast<unsigned long long>(irq_status),
+            s_power.isBatInsertIrq(),
+            s_power.isBatRemoveIrq(),
+            s_power.isVbusInsertIrq(),
+            s_power.isVbusRemoveIrq(),
+            s_power.isPekeyShortPressIrq(),
+            s_power.isPekeyLongPressIrq(),
+            s_power.isBatChargeStartIrq(),
+            s_power.isBatChargeDoneIrq()
+        );
+        s_power.clearIrqStatus();
+    }
     update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) { snapshot.battery = sample; });
 
     ESP_LOGI(
@@ -194,38 +216,52 @@ esp_err_t sample_pmu(const char *phase)
 
 esp_err_t init_pmu(i2c_master_bus_handle_t bus)
 {
-    esp_err_t error = add_i2c_device(bus, AXP2101_ADDRESS, 400000, &s_pmu);
-    uint8_t chip_id = 0;
-    if (error == ESP_OK) {
-        error = read_register(s_pmu, AXP2101_REG_CHIP_ID, &chip_id, 1);
-    }
-    if (error == ESP_OK && chip_id != AXP2101_EXPECTED_CHIP_ID) {
-        error = ESP_ERR_NOT_FOUND;
+    esp_err_t error = i2c_master_probe(bus, AXP2101_ADDRESS, I2C_TIMEOUT_MS);
+    if (error == ESP_OK && !s_power.begin(bus, AXP2101_ADDRESS)) {
+        error = ESP_FAIL;
     }
     if (error != ESP_OK) {
         update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
             set_component(snapshot.battery, false, error);
         });
-        ESP_LOGW(TAG, "PMU AXP2101: not detected (id=0x%02x, %s)", chip_id, esp_err_to_name(error));
+        ESP_LOGW(TAG, "PMU AXP2101: not detected (%s)", esp_err_to_name(error));
         return error;
     }
 
-    uint8_t adc_control = 0;
-    error = read_register(s_pmu, AXP2101_REG_ADC_CONTROL, &adc_control, 1);
-    if (error == ESP_OK) {
-        adc_control |= BIT(0) | BIT(2) | BIT(3) | BIT(4);
-        adc_control &= static_cast<uint8_t>(~BIT(1));
-        error = write_register(s_pmu, AXP2101_REG_ADC_CONTROL, adc_control);
-    }
-    s_pmu_ready = error == ESP_OK;
-    update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
-        set_component(snapshot.battery, error == ESP_OK, error);
+    s_power.enableVbusVoltageMeasure();
+    s_power.enableBattVoltageMeasure();
+    s_power.enableSystemVoltageMeasure();
+    s_power.enableTemperatureMeasure();
+    // The board has no battery NTC on TS; leaving TS measurement enabled can inhibit charging.
+    s_power.disableTSPinMeasure();
+
+    s_power.disableIRQ(XPOWERS_AXP2101_ALL_IRQ);
+    s_power.clearIrqStatus();
+    s_power.enableIRQ(
+        XPOWERS_AXP2101_BAT_INSERT_IRQ |
+        XPOWERS_AXP2101_BAT_REMOVE_IRQ |
+        XPOWERS_AXP2101_VBUS_INSERT_IRQ |
+        XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
+        XPOWERS_AXP2101_PKEY_SHORT_IRQ |
+        XPOWERS_AXP2101_PKEY_LONG_IRQ |
+        XPOWERS_AXP2101_BAT_CHG_DONE_IRQ |
+        XPOWERS_AXP2101_BAT_CHG_START_IRQ
+    );
+    s_power.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
+    s_power.setChargerConstantCurr(XPOWERS_AXP2101_CHG_CUR_400MA);
+    s_power.setChargerTerminationCurr(XPOWERS_AXP2101_CHG_ITERM_25MA);
+    s_power.setChargeTargetVoltage(XPOWERS_AXP2101_CHG_VOL_4V2);
+    // ADC channels need one conversion interval before their first coherent sample.
+    vTaskDelay(pdMS_TO_TICKS(50));
+
+    s_pmu_ready = true;
+    update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+        set_component(snapshot.battery, true, ESP_OK);
     });
-    if (!s_pmu_ready) {
-        ESP_LOGW(TAG, "PMU AXP2101: ADC enable failed (%s)", esp_err_to_name(error));
-        return error;
-    }
-    ESP_LOGI(TAG, "PMU AXP2101: detected id=0x%02x; power ADC enabled", chip_id);
+    ESP_LOGI(
+        TAG,
+        "PMU AXP2101: ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
+    );
     return ESP_OK;
 }
 
@@ -313,10 +349,35 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         std::memset(&s_imu, 0, sizeof(s_imu));
         error = qmi8658_init(&s_imu, bus, addresses[i]);
         if (error == ESP_OK) {
+            error = qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_8G);
+        }
+        if (error == ESP_OK) {
+            error = qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_500HZ);
+        }
+        if (error == ESP_OK) {
+            error = qmi8658_set_gyro_range(&s_imu, QMI8658_GYRO_RANGE_512DPS);
+        }
+        if (error == ESP_OK) {
+            error = qmi8658_set_gyro_odr(&s_imu, QMI8658_GYRO_ODR_500HZ);
+        }
+        if (error == ESP_OK) {
+            error = qmi8658_write_register(&s_imu, QMI8658_CTRL5, 0x03);
+        }
+        if (error == ESP_OK) {
+            error = qmi8658_enable_sensors(
+                &s_imu,
+                QMI8658_ENABLE_ACCEL | QMI8658_ENABLE_GYRO
+            );
+        }
+        if (error == ESP_OK) {
             qmi8658_set_accel_unit_mps2(&s_imu, true);
             qmi8658_set_gyro_unit_dps(&s_imu, true);
             s_imu_ready = true;
-            ESP_LOGI(TAG, "IMU QMI8658: ready at 0x%02x; accelerometer + gyroscope enabled", addresses[i]);
+            ESP_LOGI(
+                TAG,
+                "IMU QMI8658: ready at 0x%02x; accel=8g/500Hz gyro=512dps/500Hz LPF enabled",
+                addresses[i]
+            );
             break;
         }
         if (s_imu.dev_handle != nullptr) {
@@ -368,15 +429,59 @@ esp_err_t sample_imu(const char *phase)
     return ESP_OK;
 }
 
+esp_err_t recover_gps_bridge()
+{
+    // LC76G recovery from an interrupted read: announce one outbound byte on
+    // 0x50, then write that byte through the dedicated 0x58 data endpoint.
+    static const uint8_t write_one_byte_command[] = {
+        0x00, 0x10, 0x53, 0xAA, 0x01, 0x00, 0x00, 0x00,
+    };
+    static const uint8_t dummy = 0x00;
+    esp_err_t error = i2c_master_transmit(
+        s_gps_control,
+        write_one_byte_command,
+        sizeof(write_one_byte_command),
+        1000
+    );
+    if (error == ESP_OK) {
+        vTaskDelay(pdMS_TO_TICKS(10));
+        error = i2c_master_transmit(s_gps_data_write, &dummy, 1, 1000);
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+    ESP_LOGI(TAG, "GPS LC76G bridge recovery: %s", esp_err_to_name(error));
+    return error;
+}
+
 esp_err_t init_gps(i2c_master_bus_handle_t bus)
 {
-    esp_err_t write_error = add_i2c_device(bus, LC76G_WRITE_ADDRESS, 100000, &s_gps_write);
-    esp_err_t read_error = add_i2c_device(bus, LC76G_READ_ADDRESS, 100000, &s_gps_read);
-    esp_err_t error = write_error != ESP_OK ? write_error : read_error;
+    esp_err_t error = add_i2c_device(bus, LC76G_WRITE_ADDRESS, 100000, &s_gps_control);
+    if (error == ESP_OK) {
+        error = add_i2c_device(bus, LC76G_READ_ADDRESS, 100000, &s_gps_read);
+    }
+    if (error == ESP_OK) {
+        error = add_i2c_device(
+            bus,
+            LC76G_DATA_WRITE_ADDRESS,
+            100000,
+            &s_gps_data_write
+        );
+    }
     if (error == ESP_OK) {
         const esp_err_t write_probe = i2c_master_probe(bus, LC76G_WRITE_ADDRESS, I2C_TIMEOUT_MS);
-        const esp_err_t read_probe = i2c_master_probe(bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS);
-        if (write_probe != ESP_OK && read_probe != ESP_OK) {
+        esp_err_t read_probe = i2c_master_probe(bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS);
+        ESP_LOGI(
+            TAG,
+            "GPS LC76G endpoints: write(0x50)=%s read(0x54)=%s",
+            esp_err_to_name(write_probe),
+            esp_err_to_name(read_probe)
+        );
+        if (write_probe == ESP_OK && read_probe != ESP_OK) {
+            (void)recover_gps_bridge();
+            read_probe = i2c_master_probe(bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS);
+            ESP_LOGI(TAG, "GPS LC76G read endpoint after recovery: %s",
+                     esp_err_to_name(read_probe));
+        }
+        if (write_probe != ESP_OK) {
             error = ESP_ERR_NOT_FOUND;
         }
     }
@@ -388,8 +493,150 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
         ESP_LOGW(TAG, "GPS LC76G: initialization failed (%s)", esp_err_to_name(error));
         return error;
     }
-    ESP_LOGI(TAG, "GPS LC76G: write=0x50 read=0x54 detected; NMEA available on demand");
+    ESP_LOGI(
+        TAG,
+        "GPS LC76G: control=0x50 read=0x54 data-write=0x58 configured"
+    );
     return ESP_OK;
+}
+
+esp_err_t gps_write(const uint8_t *data, size_t length)
+{
+    if (data == nullptr || length == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return i2c_master_transmit(s_gps_control, data, length, 1000);
+}
+
+esp_err_t gps_receive(uint8_t *data, size_t length, const char *step)
+{
+    esp_err_t error = ESP_FAIL;
+    for (unsigned attempt = 1; attempt <= 3; ++attempt) {
+        error = i2c_master_receive(s_gps_read, data, length, 1000);
+        if (error == ESP_OK) {
+            return ESP_OK;
+        }
+        ESP_LOGW(
+            TAG,
+            "GPS LC76G: %s receive attempt %u/3 failed (%s), read endpoint=%s",
+            step,
+            attempt,
+            esp_err_to_name(error),
+            esp_err_to_name(
+                i2c_master_probe(s_i2c_bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS)
+            )
+        );
+        if (attempt == 2) {
+            (void)recover_gps_bridge();
+        }
+        vTaskDelay(pdMS_TO_TICKS(200));
+    }
+    return error;
+}
+
+double nmea_coordinate(const char *value, char hemisphere)
+{
+    if (value == nullptr || value[0] == '\0') {
+        return 0.0;
+    }
+    const double encoded = std::strtod(value, nullptr);
+    const int degrees = static_cast<int>(encoded / 100.0);
+    double result = static_cast<double>(degrees) + (encoded - degrees * 100.0) / 60.0;
+    if (hemisphere == 'S' || hemisphere == 'W') {
+        result = -result;
+    }
+    return result;
+}
+
+void parse_nmea_sentence(const char *sentence, size_t length, qsee::GpsSnapshot &sample)
+{
+    if (sentence == nullptr || length == 0) {
+        return;
+    }
+
+    char line[192] = {};
+    const size_t copy_length = length < sizeof(line) - 1U ? length : sizeof(line) - 1U;
+    std::memcpy(line, sentence, copy_length);
+
+    char *fields[20] = {line};
+    size_t field_count = 1;
+    for (size_t index = 0; index < copy_length &&
+                           field_count < sizeof(fields) / sizeof(fields[0]);
+         ++index) {
+        if (line[index] == ',') {
+            line[index] = '\0';
+            fields[field_count++] = &line[index + 1U];
+        }
+    }
+    if (field_count < 2 || fields[0] == nullptr) {
+        return;
+    }
+
+    const size_t type_length = std::strlen(fields[0]);
+    const char *type = type_length >= 3 ? fields[0] + type_length - 3 : fields[0];
+    if (std::strcmp(type, "GGA") == 0 && field_count >= 10) {
+        strlcpy(sample.utc_time, fields[1], sizeof(sample.utc_time));
+        sample.latitude_degrees = nmea_coordinate(
+            fields[2],
+            fields[3] != nullptr ? fields[3][0] : '\0'
+        );
+        sample.longitude_degrees = nmea_coordinate(
+            fields[4],
+            fields[5] != nullptr ? fields[5][0] : '\0'
+        );
+        sample.fix_quality = static_cast<uint8_t>(std::strtoul(fields[6], nullptr, 10));
+        sample.satellites = static_cast<uint8_t>(std::strtoul(fields[7], nullptr, 10));
+        sample.hdop = std::strtof(fields[8], nullptr);
+        sample.altitude_m = std::strtof(fields[9], nullptr);
+        sample.has_fix = sample.fix_quality > 0;
+    } else if (std::strcmp(type, "RMC") == 0 && field_count >= 9) {
+        strlcpy(sample.utc_time, fields[1], sizeof(sample.utc_time));
+        const bool valid = fields[2] != nullptr && fields[2][0] == 'A';
+        if (valid) {
+            sample.latitude_degrees = nmea_coordinate(
+                fields[3],
+                fields[4] != nullptr ? fields[4][0] : '\0'
+            );
+            sample.longitude_degrees = nmea_coordinate(
+                fields[5],
+                fields[6] != nullptr ? fields[6][0] : '\0'
+            );
+            sample.speed_mps = std::strtof(fields[7], nullptr) * 0.514444F;
+            sample.course_degrees = std::strtof(fields[8], nullptr);
+            sample.has_fix = true;
+        }
+    }
+}
+
+void parse_nmea_payload(const char *payload, size_t length, qsee::GpsSnapshot &sample)
+{
+    size_t cursor = 0;
+    bool copied_first = false;
+    while (cursor < length) {
+        while (cursor < length && payload[cursor] != '$') {
+            ++cursor;
+        }
+        const size_t start = cursor;
+        while (cursor < length && payload[cursor] != '\r' && payload[cursor] != '\n') {
+            ++cursor;
+        }
+        if (start < cursor) {
+            const size_t sentence_length = cursor - start;
+            if (!copied_first) {
+                const size_t output_length =
+                    sentence_length < sizeof(sample.first_sentence) - 1U
+                        ? sentence_length
+                        : sizeof(sample.first_sentence) - 1U;
+                std::memcpy(sample.first_sentence, payload + start, output_length);
+                sample.first_sentence[output_length] = '\0';
+                copied_first = true;
+            }
+            parse_nmea_sentence(payload + start, sentence_length, sample);
+        }
+        while (cursor < length && (payload[cursor] == '\r' || payload[cursor] == '\n')) {
+            ++cursor;
+        }
+    }
 }
 
 esp_err_t sample_gps(const char *phase)
@@ -398,10 +645,13 @@ esp_err_t sample_gps(const char *phase)
     qsee::GpsSnapshot sample;
     uint8_t length_bytes[4] = {};
 
-    esp_err_t error = i2c_master_transmit(s_gps_write, length_command, sizeof(length_command), 1000);
+    esp_err_t error = gps_write(length_command, sizeof(length_command));
+    if (error != ESP_OK) {
+        ESP_LOGW(TAG, "GPS LC76G: length command failed (%s)", esp_err_to_name(error));
+    }
     if (error == ESP_OK) {
         vTaskDelay(pdMS_TO_TICKS(100));
-        error = i2c_master_receive(s_gps_read, length_bytes, sizeof(length_bytes), 1000);
+        error = gps_receive(length_bytes, sizeof(length_bytes), "length");
     }
     const uint32_t data_length =
         static_cast<uint32_t>(length_bytes[0]) |
@@ -418,30 +668,21 @@ esp_err_t sample_gps(const char *phase)
             0x00, 0x20, 0x51, 0xAA,
             length_bytes[0], length_bytes[1], length_bytes[2], length_bytes[3],
         };
-        error = i2c_master_transmit(s_gps_write, request, sizeof(request), 1000);
+        error = gps_write(request, sizeof(request));
+        if (error != ESP_OK) {
+            ESP_LOGW(TAG, "GPS LC76G: payload request failed (%s)", esp_err_to_name(error));
+        }
         if (error == ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(100));
-            error = i2c_master_receive(
-                s_gps_read,
+            error = gps_receive(
                 reinterpret_cast<uint8_t *>(s_gps_payload),
                 data_length,
-                1000
+                "payload"
             );
         }
         if (error == ESP_OK) {
             s_gps_payload[data_length] = '\0';
-            const char *start = std::strchr(s_gps_payload, '$');
-            if (start == nullptr) {
-                start = s_gps_payload;
-            }
-            size_t output = 0;
-            while (start[output] != '\0' && start[output] != '\r' && start[output] != '\n' &&
-                   output < sizeof(sample.first_sentence) - 1U) {
-                const unsigned char byte = static_cast<unsigned char>(start[output]);
-                sample.first_sentence[output] = byte >= 0x20 && byte <= 0x7E ? static_cast<char>(byte) : '.';
-                ++output;
-            }
-            sample.first_sentence[output] = '\0';
+            parse_nmea_payload(s_gps_payload, data_length, sample);
         }
     }
 
@@ -456,9 +697,17 @@ esp_err_t sample_gps(const char *phase)
     } else {
         ESP_LOGI(
             TAG,
-            "GPS LC76G %s: %lu NMEA byte(s), first=\"%s\"",
+            "GPS LC76G %s: %lu byte(s), fix=%s quality=%u sats=%u lat=%.6f lon=%.6f alt=%.1fm speed=%.2fm/s hdop=%.1f first=\"%s\"",
             phase,
             static_cast<unsigned long>(data_length),
+            sample.has_fix ? "yes" : "no",
+            sample.fix_quality,
+            sample.satellites,
+            sample.latitude_degrees,
+            sample.longitude_degrees,
+            sample.altitude_m,
+            sample.speed_mps,
+            sample.hdop,
             sample.first_sentence
         );
     }
@@ -467,15 +716,12 @@ esp_err_t sample_gps(const char *phase)
 
 esp_err_t sample_microphone(const char *phase)
 {
-    if (s_microphone == nullptr || s_microphone_mutex == nullptr) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (xSemaphoreTake(s_microphone_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
-    const int result = esp_codec_dev_read(s_microphone, s_microphone_samples, sizeof(s_microphone_samples));
-    xSemaphoreGive(s_microphone_mutex);
-    const esp_err_t error = result == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
+    const esp_err_t error = qsee_audio_capture_pcm16(
+        s_microphone_samples,
+        sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]),
+        22050,
+        24.0F
+    );
 
     uint32_t absolute_sum = 0;
     uint32_t peak = 0;
@@ -499,7 +745,8 @@ esp_err_t sample_microphone(const char *phase)
         ESP_LOGI(TAG, "Microphones ES7210 %s: mean=%lu peak=%lu",
                  phase, static_cast<unsigned long>(mean), static_cast<unsigned long>(peak));
     } else {
-        ESP_LOGW(TAG, "Microphones ES7210: %s capture failed (%d)", phase, result);
+        ESP_LOGW(TAG, "Microphones ES7210: %s capture failed (%s)",
+                 phase, esp_err_to_name(error));
     }
     return error;
 }
@@ -508,33 +755,18 @@ void microphone_task(void *arg)
 {
     (void)arg;
     vTaskDelay(pdMS_TO_TICKS(2500));
-    s_microphone = bsp_audio_codec_microphone_init();
-    if (s_microphone == nullptr) {
+    const esp_err_t init_error = qsee_audio_init();
+    if (init_error != ESP_OK) {
         update_snapshot([](qsee::DeviceSnapshot &snapshot) {
             set_component(snapshot.audio.microphone, false, ESP_ERR_NOT_FOUND);
         });
-        ESP_LOGW(TAG, "Microphones ES7210: codec initialization failed");
+        ESP_LOGW(TAG, "Microphones ES7210: codec initialization failed (%s)",
+                 esp_err_to_name(init_error));
         vTaskDelete(nullptr);
         return;
     }
 
-    esp_codec_dev_sample_info_t sample = {
-        .bits_per_sample = 16,
-        .channel = 1,
-        .channel_mask = 0,
-        .sample_rate = 22050,
-        .mclk_multiple = 0,
-    };
-    const int result = esp_codec_dev_open(s_microphone, &sample);
-    if (result != ESP_CODEC_DEV_OK) {
-        update_snapshot([](qsee::DeviceSnapshot &snapshot) {
-            set_component(snapshot.audio.microphone, false, ESP_FAIL);
-        });
-        ESP_LOGW(TAG, "Microphones ES7210: stream open failed (%d)", result);
-        vTaskDelete(nullptr);
-        return;
-    }
-    (void)esp_codec_dev_set_in_gain(s_microphone, 24.0F);
+    s_microphone_ready = true;
     ESP_LOGI(TAG, "Microphones ES7210: ADC path enabled at 22.05kHz mono PCM16");
     (void)sample_microphone("initial");
     vTaskDelete(nullptr);
@@ -561,12 +793,22 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
     );
     ESP_LOGI(
         TAG,
-        "Memory: heap=%luB min=%luB internal=%luB largest=%luB PSRAM=%luB largest=%luB",
+        "Flash: firmware=%luB partition=%luB capacity=%luB",
+        static_cast<unsigned long>(snapshot.memory.firmware_image_bytes),
+        static_cast<unsigned long>(snapshot.memory.app_partition_bytes),
+        static_cast<unsigned long>(snapshot.memory.flash_capacity_bytes)
+    );
+    ESP_LOGI(
+        TAG,
+        "Memory: heap=%luB min=%luB internal=%luB largest=%luB PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
         static_cast<unsigned long>(snapshot.memory.heap_free_bytes),
         static_cast<unsigned long>(snapshot.memory.heap_minimum_free_bytes),
         static_cast<unsigned long>(snapshot.memory.internal_free_bytes),
         static_cast<unsigned long>(snapshot.memory.internal_largest_block_bytes),
+        static_cast<unsigned long>(snapshot.memory.psram_used_bytes),
         static_cast<unsigned long>(snapshot.memory.psram_free_bytes),
+        static_cast<unsigned long>(snapshot.memory.psram_heap_total_bytes),
+        static_cast<unsigned long>(snapshot.memory.psram_capacity_bytes),
         static_cast<unsigned long>(snapshot.memory.psram_largest_block_bytes)
     );
     ESP_LOGI(
@@ -586,12 +828,31 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
 void sample_system_state()
 {
     qsee::MemorySnapshot memory;
+    (void)esp_flash_get_size(nullptr, &memory.flash_capacity_bytes);
+
+    const esp_partition_t *running_partition = esp_ota_get_running_partition();
+    if (running_partition != nullptr) {
+        memory.app_partition_bytes = running_partition->size;
+        const esp_partition_pos_t partition_position = {
+            .offset = running_partition->address,
+            .size = running_partition->size,
+        };
+        esp_image_metadata_t image_metadata = {};
+        if (esp_image_get_metadata(&partition_position, &image_metadata) == ESP_OK) {
+            memory.firmware_image_bytes = image_metadata.image_len;
+        }
+    }
+
     memory.heap_free_bytes = esp_get_free_heap_size();
     memory.heap_minimum_free_bytes = esp_get_minimum_free_heap_size();
     memory.internal_free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     memory.internal_largest_block_bytes =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    memory.psram_capacity_bytes = static_cast<uint32_t>(esp_psram_get_size());
+    memory.psram_heap_total_bytes =
+        static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     memory.psram_free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+    memory.psram_used_bytes = memory.psram_heap_total_bytes - memory.psram_free_bytes;
     memory.psram_largest_block_bytes = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
 
     qsee::ProcessorSnapshot processor;
@@ -651,16 +912,13 @@ esp_err_t DeviceSnapshotService::initialize()
     if (ensure_snapshot_mutex() == nullptr) {
         return ESP_ERR_NO_MEM;
     }
-    s_microphone_mutex = xSemaphoreCreateMutexStatic(&s_microphone_mutex_control);
-    if (s_microphone_mutex == nullptr) {
-        return ESP_ERR_NO_MEM;
-    }
 
     i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
     if (bus == nullptr) {
         ESP_LOGE(TAG, "Shared BSP I2C bus unavailable");
         return ESP_ERR_INVALID_STATE;
     }
+    s_i2c_bus = bus;
     ESP_LOGI(TAG, "Shared BSP I2C: SDA=%d SCL=%d", BSP_I2C_SDA, BSP_I2C_SCL);
 
     const esp_err_t pmu = init_pmu(bus);
@@ -715,7 +973,7 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
     if (s_gps_ready && sample_gps(phase) != ESP_OK) {
         aggregate = ESP_FAIL;
     }
-    if (s_microphone != nullptr && sample_microphone(phase) != ESP_OK) {
+    if (s_microphone_ready && sample_microphone(phase) != ESP_OK) {
         aggregate = ESP_FAIL;
     }
     sample_system_state();
@@ -743,6 +1001,8 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
 void DeviceSnapshotService::reportStorage(
     bool mounted,
     uint64_t capacity_bytes,
+    uint64_t filesystem_total_bytes,
+    uint64_t free_bytes,
     bool logger_mirror,
     esp_err_t error
 )
@@ -750,6 +1010,8 @@ void DeviceSnapshotService::reportStorage(
     update_snapshot([=](DeviceSnapshot &snapshot) {
         set_component(snapshot.storage, mounted, error);
         snapshot.storage.capacity_bytes = capacity_bytes;
+        snapshot.storage.filesystem_total_bytes = filesystem_total_bytes;
+        snapshot.storage.free_bytes = free_bytes;
         snapshot.storage.logger_mirror_enabled = logger_mirror;
     });
 }
@@ -769,9 +1031,9 @@ void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
     update_snapshot([=](DeviceSnapshot &snapshot) { set_component(snapshot.audio.speaker, ready, error); });
 }
 
-void DeviceSnapshotService::reportWifi(bool ready, esp_err_t error)
+void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
 {
-    update_snapshot([=](DeviceSnapshot &snapshot) { set_component(snapshot.radios.wifi, ready, error); });
+    update_snapshot([=](DeviceSnapshot &snapshot) { snapshot.radios.wifi = wifi; });
 }
 
 void DeviceSnapshotService::reportBle(bool ready, esp_err_t error)

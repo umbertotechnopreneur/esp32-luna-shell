@@ -8,4 +8,5 @@ idf_component_register(
         qsee_boot
         qsee_logger
         qsee_platform
+        fatfs
 )

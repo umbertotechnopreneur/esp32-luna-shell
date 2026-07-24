@@ -1,12 +1,21 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #include "qsee_boot.h"
 #include "qsee_platform.h"
 
 #include <stddef.h>
 #include <stdint.h>
 
-#include "bsp/esp-bsp.h"
-#include "driver/i2s_std.h"
-#include "esp_codec_dev.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -29,32 +38,19 @@ static void audio_task(void *arg)
         return;
     }
 
-    esp_codec_dev_handle_t speaker = bsp_audio_codec_speaker_init();
-    if (speaker == NULL) {
-        qsee_hardware_report_speaker(false, ESP_ERR_NOT_FOUND);
-        ESP_LOGW(TAG, "Speaker codec unavailable");
-        vTaskDelete(NULL);
-        return;
-    }
+    const esp_err_t result = qsee_audio_play_pcm16(
+        (const int16_t *)(qsee_boot_wav_start + 44),
+        (wav_size - 44U) / sizeof(int16_t),
+        22050,
+        90
+    );
 
-    esp_codec_dev_sample_info_t sample = {
-        .sample_rate = 22050,
-        .channel = 1,
-        .bits_per_sample = 16,
-    };
-    int result = esp_codec_dev_open(speaker, &sample);
-    if (result == ESP_CODEC_DEV_OK) {
-        (void)esp_codec_dev_set_out_vol(speaker, 65);
-        result = esp_codec_dev_write(speaker, (void *)(qsee_boot_wav_start + 44), wav_size - 44U);
-        (void)esp_codec_dev_close(speaker);
-    }
-
-    if (result == ESP_CODEC_DEV_OK) {
+    if (result == ESP_OK) {
         qsee_hardware_report_speaker(true, ESP_OK);
-        ESP_LOGI(TAG, "Boot SFX played: 22.05kHz mono PCM16");
+        ESP_LOGI(TAG, "Boot SFX audible route completed: 22.05kHz mono PCM16 at volume 90");
     } else {
-        qsee_hardware_report_speaker(false, ESP_FAIL);
-        ESP_LOGW(TAG, "Boot SFX playback failed (%d)", result);
+        qsee_hardware_report_speaker(false, result);
+        ESP_LOGW(TAG, "Boot SFX playback failed (%s)", esp_err_to_name(result));
     }
     vTaskDelete(NULL);
 }

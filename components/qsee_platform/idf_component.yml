@@ -1,3 +1,5 @@
 dependencies:
   waveshare/qmi8658:
     version: "*"
+  cube32esp/xpowerslib:
+    version: "^0.3.3"

@@ -1,13 +1,19 @@
 idf_component_register(
     SRCS
         "qsee_hardware.cpp"
+        "qsee_audio.cpp"
         "qsee_radios.cpp"
+        "qsee_wifi.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         esp32_s3_touch_amoled_1_75
         esp_event
         esp_netif
         esp_wifi
+        app_update
+        bootloader_support
+        esp_psram
+        spi_flash
         nvs_flash
         bt
         esp_codec_dev

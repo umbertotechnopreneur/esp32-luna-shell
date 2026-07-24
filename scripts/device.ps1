@@ -151,10 +151,10 @@ function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
 function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
     $patterns = @(
-        [regex]::new([regex]::Escape("device.ps1 monitor")),
         [regex]::new([regex]::Escape("idf.py -B $BuildDir -p $normalizedRequestedPort monitor")),
         [regex]::new([regex]::Escape("idf_monitor.py -p $normalizedRequestedPort")),
-        [regex]::new([regex]::Escape("esp_idf_monitor -p $normalizedRequestedPort"))
+        [regex]::new([regex]::Escape("esp_idf_monitor -p $normalizedRequestedPort")),
+        [regex]::new("(?i)pyserial.*$normalizedRequestedPort")
     )
 
     $genericMonitorPattern = [regex]::new(
@@ -223,6 +223,9 @@ try {
             $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
+            if ($LASTEXITCODE -ne 0) {
+                throw "Erase failed"
+            }
         }
         "flash" {
             if (-not $Port) {
@@ -231,6 +234,9 @@ try {
             $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
+            if ($LASTEXITCODE -ne 0) {
+                throw "Flash failed"
+            }
         }
         "monitor" {
             if (-not $Port) {

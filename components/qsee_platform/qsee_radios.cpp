@@ -1,15 +1,23 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
 
 #include <stdio.h>
 #include <string.h>
 
-#include "esp_event.h"
 #include "esp_log.h"
 #include "esp_mac.h"
-#include "esp_netif.h"
-#include "esp_wifi.h"
-#include "nvs_flash.h"
 #include "sdkconfig.h"
 
 #if CONFIG_BT_NIMBLE_ENABLED
@@ -22,50 +30,6 @@
 #endif
 
 static const char *TAG = "qsee_radios";
-
-static esp_err_t init_wifi(void)
-{
-    esp_err_t err = nvs_flash_init();
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "NVS: initialization failed (%s)", esp_err_to_name(err));
-        return err;
-    }
-
-    err = esp_netif_init();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "Wi-Fi: netif init failed (%s)", esp_err_to_name(err));
-        return err;
-    }
-
-    err = esp_event_loop_create_default();
-    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGW(TAG, "Wi-Fi: event loop failed (%s)", esp_err_to_name(err));
-        return err;
-    }
-
-    if (esp_netif_create_default_wifi_sta() == NULL) {
-        ESP_LOGW(TAG, "Wi-Fi: STA netif unavailable");
-        return ESP_FAIL;
-    }
-
-    wifi_init_config_t config = WIFI_INIT_CONFIG_DEFAULT();
-    config.nvs_enable = 0;
-    err = esp_wifi_init(&config);
-    if (err != ESP_OK) {
-        ESP_LOGW(TAG, "Wi-Fi: driver init failed (%s)", esp_err_to_name(err));
-        return err;
-    }
-
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_storage(WIFI_STORAGE_RAM));
-    ESP_ERROR_CHECK_WITHOUT_ABORT(esp_wifi_set_mode(WIFI_MODE_STA));
-    err = esp_wifi_start();
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "Wi-Fi: STA ready, credentials not configured");
-    } else {
-        ESP_LOGW(TAG, "Wi-Fi: start failed (%s)", esp_err_to_name(err));
-    }
-    return err;
-}
 
 #if CONFIG_BT_NIMBLE_ENABLED
 static uint8_t s_ble_address_type;
@@ -180,9 +144,8 @@ static esp_err_t init_ble(void)
 
 esp_err_t qsee_radios_init(void)
 {
-    const esp_err_t wifi = init_wifi();
+    const esp_err_t wifi = qsee_wifi_init();
     const esp_err_t ble = init_ble();
-    qsee::DeviceSnapshotService::instance().reportWifi(wifi == ESP_OK, wifi);
     qsee::DeviceSnapshotService::instance().reportBle(ble == ESP_OK, ble);
     if (wifi != ESP_OK || ble != ESP_OK) {
         ESP_LOGW(TAG, "Radio inventory completed with degraded capability");

@@ -1,3 +1,15 @@
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
+
 #include "qsee_boot.h"
 
 #include <stdbool.h>
@@ -66,10 +78,13 @@ esp_err_t qsee_boot_ui_show(void)
         return ESP_ERR_NO_MEM;
     }
 
+    ESP_LOGI(TAG, "Boot UI: acquiring LVGL lock");
     if (bsp_display_lock(1000) != ESP_OK) {
+        ESP_LOGE(TAG, "Boot UI: LVGL lock timed out");
         return ESP_ERR_TIMEOUT;
     }
 
+    ESP_LOGI(TAG, "Boot UI: creating screen");
     s_screen = lv_obj_create(NULL);
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_size(s_screen, 466, 466);
@@ -79,11 +94,13 @@ esp_err_t qsee_boot_ui_show(void)
     lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(s_screen, boot_touch_event, LV_EVENT_CLICKED, NULL);
 
+    ESP_LOGI(TAG, "Boot UI: attaching RGB565 branding");
     lv_obj_t *image = lv_image_create(s_screen);
     lv_image_set_src(image, &s_boot_image);
     lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(image, LV_OBJ_FLAG_CLICKABLE);
 
+    ESP_LOGI(TAG, "Boot UI: creating canonical log panel");
     lv_obj_t *panel = lv_obj_create(s_screen);
     lv_obj_set_pos(panel, 73, 222);
     lv_obj_set_size(panel, 320, 152);
@@ -109,6 +126,7 @@ esp_err_t qsee_boot_ui_show(void)
     lv_obj_set_style_text_font(s_continue_label, &lv_font_montserrat_16, 0);
     lv_label_set_text(s_continue_label, "INITIALIZING");
 
+    ESP_LOGI(TAG, "Boot UI: loading screen");
     s_log_timer = lv_timer_create(refresh_log_label, 180, NULL);
     refresh_log_label(NULL);
     lv_screen_load(s_screen);
