@@ -13,6 +13,7 @@
 #include "qsee_boot.h"
 
 #include <stdbool.h>
+#include <string.h>
 
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
@@ -26,7 +27,7 @@ extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
 
 static const char *TAG = "qsee_boot";
 static lv_obj_t *s_screen;
-static lv_obj_t *s_log_label;
+static lv_obj_t *s_log_rich_text;
 static lv_obj_t *s_continue_label;
 static lv_timer_t *s_log_timer;
 static SemaphoreHandle_t s_continue_semaphore;
@@ -44,12 +45,77 @@ static lv_image_dsc_t s_boot_image = {
     .data = qsee_boot_rgb565_start,
 };
 
+static lv_color_t log_level_color(const char *line, size_t length)
+{
+    size_t first = 0;
+    while (first < length && (line[first] == ' ' || line[first] == '\t')) {
+        ++first;
+    }
+
+    if (first < length && (line[first] == 'W' || line[first] == 'w')) {
+        return lv_color_hex(0xF6AD55);
+    }
+    if (first < length && (line[first] == 'E' || line[first] == 'e' ||
+                           line[first] == 'A' || line[first] == 'a')) {
+        return lv_color_hex(0xFC8181);
+    }
+    if (first < length && (line[first] == 'I' || line[first] == 'i')) {
+        return lv_color_hex(0x68D391);
+    }
+    if (first < length && (line[first] == 'D' || line[first] == 'd')) {
+        return lv_color_hex(0xA0AEC0);
+    }
+    return lv_color_hex(0xEAF1F6);
+}
+
 static void refresh_log_label(lv_timer_t *timer)
 {
     (void)timer;
     char snapshot[1100];
     qsee_logger_snapshot(snapshot, sizeof(snapshot), 7);
-    lv_label_set_text(s_log_label, snapshot);
+    if (s_log_rich_text == NULL) {
+        return;
+    }
+
+    while (lv_spangroup_get_span_count(s_log_rich_text) > 0U) {
+        lv_span_t *span = lv_spangroup_get_child(s_log_rich_text, 0);
+        if (span == NULL) {
+            break;
+        }
+        lv_spangroup_delete_span(s_log_rich_text, span);
+    }
+
+    const size_t length = strlen(snapshot);
+    size_t line_start = 0;
+    while (line_start < length || (length == 0U && line_start == 0U)) {
+        size_t line_end = line_start;
+        while (line_end < length && snapshot[line_end] != '\n') {
+            ++line_end;
+        }
+
+        char line[256];
+        const size_t line_length = line_end - line_start;
+        const size_t copy_length = line_length < sizeof(line) - 2U
+            ? line_length : sizeof(line) - 2U;
+        memcpy(line, snapshot + line_start, copy_length);
+        line[copy_length] = '\n';
+        line[copy_length + 1U] = '\0';
+
+        lv_span_t *span = lv_spangroup_add_span(s_log_rich_text);
+        if (span == NULL) {
+            break;
+        }
+        lv_span_set_text(span, line);
+        lv_style_set_text_color(lv_span_get_style(span),
+                                log_level_color(line, copy_length));
+        lv_style_set_text_font(lv_span_get_style(span), &lv_font_unscii_8);
+
+        if (line_end >= length) {
+            break;
+        }
+        line_start = line_end + 1U;
+    }
+    lv_spangroup_refresh(s_log_rich_text);
 }
 
 static void boot_touch_event(lv_event_t *event)
@@ -113,12 +179,12 @@ esp_err_t qsee_boot_ui_show(void)
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
 
-    s_log_label = lv_label_create(panel);
-    lv_obj_set_width(s_log_label, 294);
-    lv_obj_set_style_text_color(s_log_label, lv_color_hex(0xD8ECFF), 0);
-    lv_obj_set_style_text_font(s_log_label, &lv_font_montserrat_12, 0);
-    lv_label_set_long_mode(s_log_label, LV_LABEL_LONG_CLIP);
-    lv_label_set_text(s_log_label, "Logger online\n");
+    s_log_rich_text = lv_spangroup_create(panel);
+    lv_obj_set_width(s_log_rich_text, 294);
+    lv_obj_set_height(s_log_rich_text, 128);
+    lv_spangroup_set_overflow(s_log_rich_text, LV_SPAN_OVERFLOW_CLIP);
+    lv_obj_set_scroll_dir(s_log_rich_text, LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(s_log_rich_text, LV_SCROLLBAR_MODE_AUTO);
 
     s_continue_label = lv_label_create(s_screen);
     lv_obj_align(s_continue_label, LV_ALIGN_BOTTOM_MID, 0, -28);
@@ -141,7 +207,7 @@ void qsee_boot_ui_mark_ready(void)
     s_ready = true;
     if (bsp_display_lock(1000) == ESP_OK) {
         if (s_continue_label != NULL) {
-            lv_label_set_text(s_continue_label, "TOUCH TO CONTINUE");
+            lv_label_set_text(s_continue_label, "OPENING WELCOME");
         }
         bsp_display_unlock();
     }
@@ -169,7 +235,7 @@ void qsee_boot_ui_hide(void)
         lv_obj_delete_async(s_screen);
         s_screen = NULL;
     }
-    s_log_label = NULL;
+    s_log_rich_text = NULL;
     s_continue_label = NULL;
     bsp_display_unlock();
 }

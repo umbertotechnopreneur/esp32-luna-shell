@@ -83,6 +83,31 @@ the previous route. Every transition is written to the canonical logger.
 Cardinal controls remain shell-owned so individual screens cannot redefine the
 round-display interaction model.
 
+### Route index
+
+The route registry currently lives in
+[`components/qsee_app/include/qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp)
+and is rendered by
+[`components/qsee_app/qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp).
+This is the current code-grounded inventory:
+
+| Route | Status | Entry point | Purpose |
+| --- | --- | --- | --- |
+| `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
+| `Logs` | Implemented | `LIVE LOGS` | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
+| `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, per-component details, and SD action dialog |
+| `Audio` | Implemented, diagnostic | `AUDIO SCOPE` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
+| `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
+| `About` | Implemented | `ABOUT` | Device identity, branding, and contact information |
+| `Settings` | Planned | Not currently exposed | User and device settings page |
+| `AudioSpectrogram` | Planned | Not currently exposed | Test-audio spectrogram page; separate from the current audio-level diagnostics |
+| `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
+
+The index is part of the route contract. Whenever a route is created, renamed,
+removed, or its entry point changes, update this table in the same change as
+the enum, screen construction, visibility logic, and entry button. A route
+change is not complete until the README index and the code agree.
+
 ## Hardware
 
 The target includes:

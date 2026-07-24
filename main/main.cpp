@@ -16,6 +16,8 @@
 #include "bsp/esp-bsp.h"
 #include "esp_brookesia.hpp"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "qsee_app.hpp"
 #include "qsee_boot.h"
 #include "qsee_device_snapshot.hpp"
@@ -73,6 +75,15 @@ bool start_brookesia()
     ESP_LOGI(TAG, "ESP-Brookesia ready with %u registered app(s)", static_cast<unsigned>(apps.size()));
     return true;
 }
+
+void brookesia_task(void *arg)
+{
+    (void)arg;
+    if (!start_brookesia()) {
+        ESP_LOGE(TAG, "ESP-Brookesia launch failed; canonical logger remains active");
+    }
+    vTaskDelete(nullptr);
+}
 }
 
 extern "C" void app_main(void)
@@ -121,10 +132,18 @@ extern "C" void app_main(void)
     (void)qsee_hardware_refresh("post-radio");
 
     qsee_boot_ui_mark_ready();
-    qsee_boot_ui_wait_for_continue();
     qsee_boot_ui_hide();
 
-    if (!start_brookesia()) {
-        ESP_LOGE(TAG, "ESP-Brookesia launch failed; canonical logger remains active");
+    const BaseType_t task_result = xTaskCreatePinnedToCore(
+        brookesia_task,
+        "qsee_brookesia",
+        12U * 1024U,
+        nullptr,
+        5,
+        nullptr,
+        1
+    );
+    if (task_result != pdPASS) {
+        ESP_LOGE(TAG, "ESP-Brookesia task creation failed; canonical logger remains active");
     }
 }

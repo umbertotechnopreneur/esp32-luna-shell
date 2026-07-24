@@ -18,6 +18,7 @@
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 extern const uint8_t qsee_boot_wav_start[] asm("_binary_qsee_boot_wav_start");
@@ -26,6 +27,9 @@ extern const uint8_t qsee_boot_wav_end[] asm("_binary_qsee_boot_wav_end");
 static const char *TAG = "qsee_audio";
 static StaticTask_t s_audio_task_control;
 static StackType_t s_audio_task_stack[3072];
+static StaticSemaphore_t s_audio_done_control;
+static SemaphoreHandle_t s_audio_done;
+static volatile esp_err_t s_audio_result;
 
 static void audio_task(void *arg)
 {
@@ -34,6 +38,8 @@ static void audio_task(void *arg)
     if (wav_size <= 44U) {
         qsee_hardware_report_speaker(false, ESP_ERR_INVALID_SIZE);
         ESP_LOGW(TAG, "Boot SFX asset is invalid");
+        s_audio_result = ESP_ERR_INVALID_SIZE;
+        xSemaphoreGive(s_audio_done);
         vTaskDelete(NULL);
         return;
     }
@@ -52,11 +58,18 @@ static void audio_task(void *arg)
         qsee_hardware_report_speaker(false, result);
         ESP_LOGW(TAG, "Boot SFX playback failed (%s)", esp_err_to_name(result));
     }
+    s_audio_result = result;
+    xSemaphoreGive(s_audio_done);
     vTaskDelete(NULL);
 }
 
 esp_err_t qsee_boot_audio_play(void)
 {
+    s_audio_done = xSemaphoreCreateBinaryStatic(&s_audio_done_control);
+    if (s_audio_done == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
     TaskHandle_t task = xTaskCreateStatic(
         audio_task,
         "qsee_boot_sfx",
@@ -66,5 +79,10 @@ esp_err_t qsee_boot_audio_play(void)
         s_audio_task_stack,
         &s_audio_task_control
     );
-    return task != NULL ? ESP_OK : ESP_ERR_NO_MEM;
+    if (task == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    (void)xSemaphoreTake(s_audio_done, portMAX_DELAY);
+    return s_audio_result;
 }

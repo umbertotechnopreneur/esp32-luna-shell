@@ -15,22 +15,26 @@ using namespace esp_brookesia::gui;
 extern const uint8_t qsee_boot_rgb565_start[] asm("_binary_qsee_boot_rgb565_start");
 extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
 
-constexpr uint32_t kBackground = 0xF4F8FC;
-constexpr uint32_t kSurface = 0xFFFFFF;
-constexpr uint32_t kNavy = 0x102A43;
-constexpr uint32_t kMuted = 0x627D98;
+constexpr uint32_t kBackgroundTop = 0x020308;
+constexpr uint32_t kBackgroundBottom = 0x0B2730;
+constexpr uint32_t kSurface = 0x111922;
+constexpr uint32_t kNavy = 0xF3F7FA;
+constexpr uint32_t kMuted = 0x9FB1C1;
 constexpr uint32_t kTeal = 0x0F9D83;
 constexpr uint32_t kBlue = 0x3478C8;
 constexpr uint32_t kSlate = 0x52697D;
 constexpr uint32_t kError = 0xD64545;
-constexpr uint32_t kTrack = 0xDCE7F0;
+constexpr uint32_t kTrack = 0x263744;
 constexpr uint32_t kWhite = 0xFFFFFF;
 constexpr int kWidth = 272;
 constexpr int kRowWidth = 236;
 
 void surface(LvObject &object)
 {
-    object.setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+    object.setStyleAttribute(
+        StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
+        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_90)
+    );
 }
 
 void labelStyle(AppLabel &label, int width, int size, uint32_t color, StyleAlignType align, int x, int y)
@@ -65,7 +69,10 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
     metric.card = std::make_unique<LvContainer>(parent);
     metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 40));
     metric.card->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, y});
-    metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+    metric.card->setStyleAttribute(
+        StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
+        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_90)
+    );
     metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
     metric.label = makeLabel(metric.card.get(), name, 100, 8, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
     metric.value = makeLabel(metric.card.get(), "--", 116, 12, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -10, 1);
@@ -172,7 +179,12 @@ bool Navigation::begin()
     _screen = std::make_unique<AppScreen>(AppScreen::active());
     if (_screen == nullptr || !_screen->isValid()) return false;
 
-    _screen->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kBackground));
+    lv_obj_set_style_bg_color(_screen->getNativeHandle(), lv_color_hex(kBackgroundTop), LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_color(
+        _screen->getNativeHandle(), lv_color_hex(kBackgroundBottom), LV_PART_MAIN
+    );
+    lv_obj_set_style_bg_grad_dir(_screen->getNativeHandle(), LV_GRAD_DIR_VER, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(_screen->getNativeHandle(), LV_OPA_COVER, LV_PART_MAIN);
     _surface = std::make_unique<LvContainer>(_screen.get());
     _surface->setStyleAttribute(StyleSize::RECT(320, 320));
     _surface->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
@@ -292,7 +304,10 @@ bool Navigation::begin()
             left ? 4 : -4,
             row * 35
         });
-        card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, StyleColor::COLOR(kSurface));
+        card->setStyleAttribute(
+            StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
+            StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_90)
+        );
         card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
         auto item = makeLabel(card.get(), hardware_names[i], 112, 8, kMuted,
                               (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
