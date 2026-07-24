@@ -294,6 +294,13 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.6.58
+  espressif/qrcode:
+    component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.1.0~2
   espressif/zlib:
     component_hash: 64ea2fd6754c5a05951f1ddb312ac835cd782e68cb5bd9dfcd1c3a107c8fbfbc
     dependencies:
@@ -364,11 +371,12 @@ direct_dependencies:
 - espressif/esp_lcd_panel_io_additions
 - espressif/esp_lvgl_adapter
 - espressif/esp_mmap_assets
+- espressif/qrcode
 - espressif2022/image_player
 - idf
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/qmi8658
-manifest_hash: f200070d6c6bcccc74641d0fbc69848bb2d187579874ee50f8fe23b0e07f1617
+manifest_hash: 697fcda180503a2d2225ccc6506ee823a9e9a170f7dcc668e54bdf7b0e8b8826
 target: esp32s3
 version: 2.0.0

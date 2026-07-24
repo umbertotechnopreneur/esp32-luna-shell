@@ -2,19 +2,14 @@ idf_component_register(
     SRCS
         "qsee_hardware.cpp"
         "qsee_audio.cpp"
-        "qsee_power.cpp"
-        "qsee_provisioning.cpp"
         "qsee_radios.cpp"
-        "qsee_storage.cpp"
-        "qsee_time.cpp"
+        "qsee_settings.cpp"
+        "qsee_provisioning.cpp"
         "qsee_wifi.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         esp32_s3_touch_amoled_1_75
         esp_event
-        esp_driver_gpio
-        esp_hw_support
-        fatfs
         esp_netif
         esp_wifi
         app_update
@@ -22,9 +17,8 @@ idf_component_register(
         esp_psram
         spi_flash
         nvs_flash
-        wifi_provisioning
         bt
+        wifi_provisioning
         esp_codec_dev
         qmi8658
-        qsee_logger
 )
