@@ -45,6 +45,69 @@ static lv_image_dsc_t s_boot_image = {
     .data = qsee_boot_rgb565_start,
 };
 
+typedef struct {
+    int inset_px;
+    int border_width_px;
+    uint32_t color_hex;
+    lv_opa_t border_opa;
+    int shadow_width_px;
+    int shadow_spread_px;
+    lv_opa_t shadow_opa;
+} boot_ring_layer_t;
+
+static void create_boot_glow_ring(lv_obj_t *parent)
+{
+    const boot_ring_layer_t layers[] = {
+        {
+            .inset_px = 4,
+            .border_width_px = 2,
+            .color_hex = 0x143E78,
+            .border_opa = LV_OPA_40,
+            .shadow_width_px = 18,
+            .shadow_spread_px = 1,
+            .shadow_opa = LV_OPA_30,
+        },
+        {
+            .inset_px = 7,
+            .border_width_px = 3,
+            .color_hex = 0x258CFF,
+            .border_opa = LV_OPA_80,
+            .shadow_width_px = 12,
+            .shadow_spread_px = 1,
+            .shadow_opa = LV_OPA_40,
+        },
+        {
+            .inset_px = 10,
+            .border_width_px = 2,
+            .color_hex = 0x9FE8FF,
+            .border_opa = LV_OPA_COVER,
+            .shadow_width_px = 0,
+            .shadow_spread_px = 0,
+            .shadow_opa = LV_OPA_TRANSP,
+        },
+    };
+
+    for (size_t i = 0; i < sizeof(layers) / sizeof(layers[0]); ++i) {
+        const boot_ring_layer_t *layer = &layers[i];
+        lv_obj_t *ring = lv_obj_create(parent);
+        const int diameter = 466 - (layer->inset_px * 2);
+
+        lv_obj_remove_style_all(ring);
+        lv_obj_set_size(ring, diameter, diameter);
+        lv_obj_center(ring);
+        lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+        lv_obj_set_style_bg_opa(ring, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(ring, layer->border_width_px, 0);
+        lv_obj_set_style_border_color(ring, lv_color_hex(layer->color_hex), 0);
+        lv_obj_set_style_border_opa(ring, layer->border_opa, 0);
+        lv_obj_set_style_shadow_color(ring, lv_color_hex(layer->color_hex), 0);
+        lv_obj_set_style_shadow_width(ring, layer->shadow_width_px, 0);
+        lv_obj_set_style_shadow_spread(ring, layer->shadow_spread_px, 0);
+        lv_obj_set_style_shadow_opa(ring, layer->shadow_opa, 0);
+        lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
+    }
+}
+
 static lv_color_t log_level_color(const char *line, size_t length)
 {
     size_t first = 0;
@@ -165,6 +228,8 @@ esp_err_t qsee_boot_ui_show(void)
     lv_image_set_src(image, &s_boot_image);
     lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(image, LV_OBJ_FLAG_CLICKABLE);
+
+    create_boot_glow_ring(s_screen);
 
     ESP_LOGI(TAG, "Boot UI: creating canonical log panel");
     lv_obj_t *panel = lv_obj_create(s_screen);

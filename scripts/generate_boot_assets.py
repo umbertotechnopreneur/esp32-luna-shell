@@ -129,11 +129,6 @@ def make_boot_screen(artwork: Image.Image) -> Image.Image:
     image = Image.new("RGB", (CANVAS, CANVAS), BLACK)
     draw = ImageDraw.Draw(image)
     draw.ellipse((0, 0, CANVAS - 1, CANVAS - 1), fill=WHITE)
-    draw.ellipse(
-        (7, 7, CANVAS - 8, CANVAS - 8),
-        outline=BRAND_BLUE,
-        width=5,
-    )
 
     # Reserve the lower half of the safe square for the canonical live log.
     logo = fit_inside(artwork, 286, 112)
