@@ -14,6 +14,7 @@
 #include "qsee_device_snapshot.hpp"
 
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -70,6 +71,9 @@ bool s_initialized;
 bool s_pmu_ready;
 bool s_rtc_ready;
 bool s_imu_ready;
+bool s_imu_calibrated;
+float s_accel_bias[3];
+float s_gyro_bias[3];
 bool s_gps_ready;
 bool s_microphone_worker_started;
 bool s_microphone_ready;
@@ -148,9 +152,37 @@ esp_err_t write_register(i2c_master_dev_handle_t device, uint8_t reg, uint8_t va
     return i2c_master_transmit(device, payload, sizeof(payload), I2C_TIMEOUT_MS);
 }
 
+esp_err_t write_registers(
+    i2c_master_dev_handle_t device,
+    uint8_t reg,
+    const uint8_t *data,
+    size_t length
+)
+{
+    if (device == nullptr || data == nullptr || length == 0 || length > 15) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t payload[16] = {reg};
+    std::memcpy(payload + 1, data, length);
+    return i2c_master_transmit(device, payload, length + 1, I2C_TIMEOUT_MS);
+}
+
 uint8_t bcd_to_decimal(uint8_t value)
 {
     return static_cast<uint8_t>(((value >> 4) * 10U) + (value & 0x0FU));
+}
+
+uint8_t decimal_to_bcd(uint8_t value)
+{
+    return static_cast<uint8_t>(((value / 10U) << 4) | (value % 10U));
+}
+
+bool valid_calendar_time(const qsee_calendar_time_t &time)
+{
+    return time.year >= 2024 && time.year <= 2099 &&
+           time.month >= 1 && time.month <= 12 &&
+           time.day >= 1 && time.day <= 31 &&
+           time.hour <= 23 && time.minute <= 59 && time.second <= 59;
 }
 
 esp_err_t sample_pmu(const char *phase)
@@ -321,7 +353,19 @@ esp_err_t sample_rtc(const char *phase)
         sample.month = bcd_to_decimal(raw[5] & 0x1F);
         sample.year = static_cast<uint16_t>(2000U + bcd_to_decimal(raw[6]));
     }
-    update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) { snapshot.rtc = sample; });
+    update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) {
+        const bool system_time_valid = snapshot.rtc.system_time_valid;
+        const bool synchronized = snapshot.rtc.synchronized;
+        char source[sizeof(snapshot.rtc.source)] = {};
+        char timezone[sizeof(snapshot.rtc.timezone)] = {};
+        strlcpy(source, snapshot.rtc.source, sizeof(source));
+        strlcpy(timezone, snapshot.rtc.timezone, sizeof(timezone));
+        snapshot.rtc = sample;
+        snapshot.rtc.system_time_valid = system_time_valid;
+        snapshot.rtc.synchronized = synchronized;
+        strlcpy(snapshot.rtc.source, source, sizeof(snapshot.rtc.source));
+        strlcpy(snapshot.rtc.timezone, timezone, sizeof(snapshot.rtc.timezone));
+    });
     if (error != ESP_OK) {
         ESP_LOGW(TAG, "RTC PCF85063: %s sample failed (%s)", phase, esp_err_to_name(error));
         return error;
@@ -394,6 +438,84 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
     return error;
 }
 
+esp_err_t calibrate_imu()
+{
+    constexpr uint16_t sample_count = 64;
+    constexpr float gravity = 9.80665F;
+    float accel_sum[3] = {};
+    float gyro_sum[3] = {};
+
+    for (uint16_t index = 0; index < sample_count; ++index) {
+        qmi8658_data_t data = {};
+        const esp_err_t error = qmi8658_read_sensor_data(&s_imu, &data);
+        if (error != ESP_OK) {
+            return error;
+        }
+        accel_sum[0] += data.accelX;
+        accel_sum[1] += data.accelY;
+        accel_sum[2] += data.accelZ;
+        gyro_sum[0] += data.gyroX;
+        gyro_sum[1] += data.gyroY;
+        gyro_sum[2] += data.gyroZ;
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
+
+    float accel_mean[3] = {};
+    float gyro_mean[3] = {};
+    float magnitude_squared = 0.0F;
+    unsigned gravity_axis = 0;
+    for (unsigned axis = 0; axis < 3; ++axis) {
+        accel_mean[axis] = accel_sum[axis] / sample_count;
+        gyro_mean[axis] = gyro_sum[axis] / sample_count;
+        magnitude_squared += accel_mean[axis] * accel_mean[axis];
+        const float axis_acceleration =
+            accel_mean[axis] < 0.0F ? -accel_mean[axis] : accel_mean[axis];
+        const float gravity_acceleration =
+            accel_mean[gravity_axis] < 0.0F
+                ? -accel_mean[gravity_axis]
+                : accel_mean[gravity_axis];
+        if (axis_acceleration > gravity_acceleration) {
+            gravity_axis = axis;
+        }
+    }
+    const float magnitude = __builtin_sqrtf(magnitude_squared);
+    const float gyro_x_abs = gyro_mean[0] < 0.0F ? -gyro_mean[0] : gyro_mean[0];
+    const float gyro_y_abs = gyro_mean[1] < 0.0F ? -gyro_mean[1] : gyro_mean[1];
+    const float gyro_z_abs = gyro_mean[2] < 0.0F ? -gyro_mean[2] : gyro_mean[2];
+    if (magnitude < 8.0F || magnitude > 12.0F ||
+        gyro_x_abs > 5.0F ||
+        gyro_y_abs > 5.0F ||
+        gyro_z_abs > 5.0F) {
+        ESP_LOGW(
+            TAG,
+            "IMU calibration deferred: device not stationary (|a|=%.2f gyro=[%.2f %.2f %.2f])",
+            magnitude,
+            gyro_mean[0],
+            gyro_mean[1],
+            gyro_mean[2]
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    for (unsigned axis = 0; axis < 3; ++axis) {
+        s_accel_bias[axis] = accel_mean[axis];
+        s_gyro_bias[axis] = gyro_mean[axis];
+    }
+    s_accel_bias[gravity_axis] -= accel_mean[gravity_axis] >= 0.0F ? gravity : -gravity;
+    s_imu_calibrated = true;
+    ESP_LOGI(
+        TAG,
+        "IMU stationary calibration ready: accel-bias=[%.3f %.3f %.3f] gyro-bias=[%.3f %.3f %.3f]",
+        s_accel_bias[0],
+        s_accel_bias[1],
+        s_accel_bias[2],
+        s_gyro_bias[0],
+        s_gyro_bias[1],
+        s_gyro_bias[2]
+    );
+    return ESP_OK;
+}
+
 esp_err_t sample_imu(const char *phase)
 {
     qsee::ImuSnapshot sample;
@@ -401,12 +523,18 @@ esp_err_t sample_imu(const char *phase)
     const esp_err_t error = qmi8658_read_sensor_data(&s_imu, &data);
     set_component(sample, error == ESP_OK, error);
     if (error == ESP_OK) {
-        sample.acceleration_mps2[0] = data.accelX;
-        sample.acceleration_mps2[1] = data.accelY;
-        sample.acceleration_mps2[2] = data.accelZ;
-        sample.angular_velocity_dps[0] = data.gyroX;
-        sample.angular_velocity_dps[1] = data.gyroY;
-        sample.angular_velocity_dps[2] = data.gyroZ;
+        sample.calibrated = s_imu_calibrated;
+        sample.calibration_samples = s_imu_calibrated ? 64 : 0;
+        const float acceleration[] = {data.accelX, data.accelY, data.accelZ};
+        const float angular_velocity[] = {data.gyroX, data.gyroY, data.gyroZ};
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            sample.acceleration_bias_mps2[axis] = s_accel_bias[axis];
+            sample.angular_velocity_bias_dps[axis] = s_gyro_bias[axis];
+            sample.acceleration_mps2[axis] =
+                acceleration[axis] - (s_imu_calibrated ? s_accel_bias[axis] : 0.0F);
+            sample.angular_velocity_dps[axis] =
+                angular_velocity[axis] - (s_imu_calibrated ? s_gyro_bias[axis] : 0.0F);
+        }
         sample.temperature_c = data.temperature;
     }
     update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) { snapshot.imu = sample; });
@@ -418,12 +546,12 @@ esp_err_t sample_imu(const char *phase)
         TAG,
         "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
         phase,
-        data.accelX,
-        data.accelY,
-        data.accelZ,
-        data.gyroX,
-        data.gyroY,
-        data.gyroZ,
+        sample.acceleration_mps2[0],
+        sample.acceleration_mps2[1],
+        sample.acceleration_mps2[2],
+        sample.angular_velocity_dps[0],
+        sample.angular_velocity_dps[1],
+        sample.angular_velocity_dps[2],
         data.temperature
     );
     return ESP_OK;
@@ -508,17 +636,27 @@ esp_err_t gps_write(const uint8_t *data, size_t length)
     return i2c_master_transmit(s_gps_control, data, length, 1000);
 }
 
-esp_err_t gps_receive(uint8_t *data, size_t length, const char *step)
+esp_err_t gps_exchange(
+    const uint8_t *command,
+    size_t command_length,
+    uint8_t *data,
+    size_t data_length,
+    const char *step
+)
 {
     esp_err_t error = ESP_FAIL;
     for (unsigned attempt = 1; attempt <= 3; ++attempt) {
-        error = i2c_master_receive(s_gps_read, data, length, 1000);
+        error = gps_write(command, command_length);
+        if (error == ESP_OK) {
+            vTaskDelay(pdMS_TO_TICKS(100));
+            error = i2c_master_receive(s_gps_read, data, data_length, 1000);
+        }
         if (error == ESP_OK) {
             return ESP_OK;
         }
         ESP_LOGW(
             TAG,
-            "GPS LC76G: %s receive attempt %u/3 failed (%s), read endpoint=%s",
+            "GPS LC76G: %s exchange attempt %u/3 failed (%s), read endpoint=%s",
             step,
             attempt,
             esp_err_to_name(error),
@@ -526,9 +664,7 @@ esp_err_t gps_receive(uint8_t *data, size_t length, const char *step)
                 i2c_master_probe(s_i2c_bus, LC76G_READ_ADDRESS, I2C_TIMEOUT_MS)
             )
         );
-        if (attempt == 2) {
-            (void)recover_gps_bridge();
-        }
+        (void)recover_gps_bridge();
         vTaskDelay(pdMS_TO_TICKS(200));
     }
     return error;
@@ -589,8 +725,29 @@ void parse_nmea_sentence(const char *sentence, size_t length, qsee::GpsSnapshot 
         sample.hdop = std::strtof(fields[8], nullptr);
         sample.altitude_m = std::strtof(fields[9], nullptr);
         sample.has_fix = sample.fix_quality > 0;
-    } else if (std::strcmp(type, "RMC") == 0 && field_count >= 9) {
+    } else if (std::strcmp(type, "RMC") == 0 && field_count >= 10) {
         strlcpy(sample.utc_time, fields[1], sizeof(sample.utc_time));
+        if (fields[9] != nullptr && std::strlen(fields[9]) >= 6) {
+            const unsigned day = static_cast<unsigned>(
+                (fields[9][0] - '0') * 10 + (fields[9][1] - '0')
+            );
+            const unsigned month = static_cast<unsigned>(
+                (fields[9][2] - '0') * 10 + (fields[9][3] - '0')
+            );
+            const unsigned year = 2000U + static_cast<unsigned>(
+                (fields[9][4] - '0') * 10 + (fields[9][5] - '0')
+            );
+            if (day >= 1 && day <= 31 && month >= 1 && month <= 12) {
+                std::snprintf(
+                    sample.utc_date,
+                    sizeof(sample.utc_date),
+                    "%04u-%02u-%02u",
+                    year,
+                    month,
+                    day
+                );
+            }
+        }
         const bool valid = fields[2] != nullptr && fields[2][0] == 'A';
         if (valid) {
             sample.latitude_degrees = nmea_coordinate(
@@ -645,14 +802,13 @@ esp_err_t sample_gps(const char *phase)
     qsee::GpsSnapshot sample;
     uint8_t length_bytes[4] = {};
 
-    esp_err_t error = gps_write(length_command, sizeof(length_command));
-    if (error != ESP_OK) {
-        ESP_LOGW(TAG, "GPS LC76G: length command failed (%s)", esp_err_to_name(error));
-    }
-    if (error == ESP_OK) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        error = gps_receive(length_bytes, sizeof(length_bytes), "length");
-    }
+    esp_err_t error = gps_exchange(
+        length_command,
+        sizeof(length_command),
+        length_bytes,
+        sizeof(length_bytes),
+        "length"
+    );
     const uint32_t data_length =
         static_cast<uint32_t>(length_bytes[0]) |
         (static_cast<uint32_t>(length_bytes[1]) << 8) |
@@ -668,18 +824,13 @@ esp_err_t sample_gps(const char *phase)
             0x00, 0x20, 0x51, 0xAA,
             length_bytes[0], length_bytes[1], length_bytes[2], length_bytes[3],
         };
-        error = gps_write(request, sizeof(request));
-        if (error != ESP_OK) {
-            ESP_LOGW(TAG, "GPS LC76G: payload request failed (%s)", esp_err_to_name(error));
-        }
-        if (error == ESP_OK) {
-            vTaskDelay(pdMS_TO_TICKS(100));
-            error = gps_receive(
-                reinterpret_cast<uint8_t *>(s_gps_payload),
-                data_length,
-                "payload"
-            );
-        }
+        error = gps_exchange(
+            request,
+            sizeof(request),
+            reinterpret_cast<uint8_t *>(s_gps_payload),
+            data_length,
+            "payload"
+        );
         if (error == ESP_OK) {
             s_gps_payload[data_length] = '\0';
             parse_nmea_payload(s_gps_payload, data_length, sample);
@@ -710,6 +861,21 @@ esp_err_t sample_gps(const char *phase)
             sample.hdop,
             sample.first_sentence
         );
+    }
+    if (sample.has_fix && sample.utc_date[0] != '\0' && std::strlen(sample.utc_time) >= 6) {
+        const uint16_t year = static_cast<uint16_t>(std::strtoul(sample.utc_date, nullptr, 10));
+        const uint8_t month = static_cast<uint8_t>(std::strtoul(sample.utc_date + 5, nullptr, 10));
+        const uint8_t day = static_cast<uint8_t>(std::strtoul(sample.utc_date + 8, nullptr, 10));
+        const uint8_t hour = static_cast<uint8_t>(
+            (sample.utc_time[0] - '0') * 10 + (sample.utc_time[1] - '0')
+        );
+        const uint8_t minute = static_cast<uint8_t>(
+            (sample.utc_time[2] - '0') * 10 + (sample.utc_time[3] - '0')
+        );
+        const uint8_t second = static_cast<uint8_t>(
+            (sample.utc_time[4] - '0') * 10 + (sample.utc_time[5] - '0')
+        );
+        (void)qsee_time_sync_from_gps(year, month, day, hour, minute, second);
     }
     return ESP_OK;
 }
@@ -823,6 +989,34 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
         static_cast<unsigned long>(snapshot.processor.cores[1].priority),
         static_cast<unsigned long>(snapshot.processor.cores[1].stack_high_water_words)
     );
+    ESP_LOGI(
+        TAG,
+        "Time/GPS: UTC=%04u-%02u-%02u %02u:%02u:%02u source=%s sync=%s fix=%s sat=%u",
+        snapshot.rtc.year,
+        snapshot.rtc.month,
+        snapshot.rtc.day,
+        snapshot.rtc.hour,
+        snapshot.rtc.minute,
+        snapshot.rtc.second,
+        snapshot.rtc.source,
+        snapshot.rtc.synchronized ? "yes" : "no",
+        snapshot.gps.has_fix ? "yes" : "no",
+        static_cast<unsigned>(snapshot.gps.satellites)
+    );
+    ESP_LOGI(
+        TAG,
+        "Inputs/IMU/SD: BOOT=%s(%lu) PWR=%s(short=%lu long=%lu) TCA9554=%s IMU-cal=%s SD-card=%s attempts=%lu format-attempted=%s",
+        snapshot.input.boot_pressed ? "pressed" : "released",
+        static_cast<unsigned long>(snapshot.input.boot_press_count),
+        snapshot.input.power_pressed ? "pressed" : "released",
+        static_cast<unsigned long>(snapshot.input.power_short_press_count),
+        static_cast<unsigned long>(snapshot.input.power_long_press_count),
+        qsee::deviceHealthName(snapshot.input.io_expander.health),
+        snapshot.imu.calibrated ? "yes" : "no",
+        snapshot.storage.card_present ? "present" : "absent",
+        static_cast<unsigned long>(snapshot.storage.mount_attempt_count),
+        snapshot.storage.format_attempted ? "yes" : "no"
+    );
 }
 
 void sample_system_state()
@@ -924,6 +1118,9 @@ esp_err_t DeviceSnapshotService::initialize()
     const esp_err_t pmu = init_pmu(bus);
     const esp_err_t rtc = init_rtc(bus);
     const esp_err_t imu = init_imu(bus);
+    if (imu == ESP_OK) {
+        (void)calibrate_imu();
+    }
     const esp_err_t gps = init_gps(bus);
 
     TaskHandle_t microphone = xTaskCreateStatic(
@@ -1000,6 +1197,10 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
 
 void DeviceSnapshotService::reportStorage(
     bool mounted,
+    bool card_present,
+    bool format_attempted,
+    bool formatted,
+    uint32_t mount_attempt_count,
     uint64_t capacity_bytes,
     uint64_t filesystem_total_bytes,
     uint64_t free_bytes,
@@ -1009,6 +1210,10 @@ void DeviceSnapshotService::reportStorage(
 {
     update_snapshot([=](DeviceSnapshot &snapshot) {
         set_component(snapshot.storage, mounted, error);
+        snapshot.storage.card_present = card_present;
+        snapshot.storage.format_attempted = format_attempted;
+        snapshot.storage.formatted = formatted;
+        snapshot.storage.mount_attempt_count = mount_attempt_count;
         snapshot.storage.capacity_bytes = capacity_bytes;
         snapshot.storage.filesystem_total_bytes = filesystem_total_bytes;
         snapshot.storage.free_bytes = free_bytes;
@@ -1036,9 +1241,54 @@ void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
     update_snapshot([=](DeviceSnapshot &snapshot) { snapshot.radios.wifi = wifi; });
 }
 
-void DeviceSnapshotService::reportBle(bool ready, esp_err_t error)
+void DeviceSnapshotService::reportBle(
+    bool ready,
+    esp_err_t error,
+    bool advertising,
+    bool connected,
+    uint16_t connection_handle,
+    uint32_t connection_count,
+    uint32_t disconnection_count,
+    const char *device_name
+)
 {
-    update_snapshot([=](DeviceSnapshot &snapshot) { set_component(snapshot.radios.ble, ready, error); });
+    update_snapshot([=](DeviceSnapshot &snapshot) {
+        set_component(snapshot.radios.ble, ready, error);
+        snapshot.radios.ble.advertising = advertising;
+        snapshot.radios.ble.connected = connected;
+        snapshot.radios.ble.connection_handle = connection_handle;
+        snapshot.radios.ble.connection_count = connection_count;
+        snapshot.radios.ble.disconnection_count = disconnection_count;
+        if (device_name != nullptr) {
+            strlcpy(
+                snapshot.radios.ble.device_name,
+                device_name,
+                sizeof(snapshot.radios.ble.device_name)
+            );
+        }
+    });
+}
+
+void DeviceSnapshotService::reportTime(
+    bool system_time_valid,
+    bool synchronized,
+    const char *source,
+    const char *timezone
+)
+{
+    update_snapshot([=](DeviceSnapshot &snapshot) {
+        snapshot.rtc.system_time_valid = system_time_valid;
+        snapshot.rtc.synchronized = synchronized;
+        strlcpy(snapshot.rtc.source, source != nullptr ? source : "none",
+                sizeof(snapshot.rtc.source));
+        strlcpy(snapshot.rtc.timezone, timezone != nullptr ? timezone : "UTC0",
+                sizeof(snapshot.rtc.timezone));
+    });
+}
+
+void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
+{
+    update_snapshot([=](DeviceSnapshot &snapshot) { snapshot.input = inputs; });
 }
 
 }  // namespace qsee
@@ -1056,4 +1306,55 @@ extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
 extern "C" void qsee_hardware_report_speaker(bool ready, esp_err_t error)
 {
     qsee::DeviceSnapshotService::instance().reportSpeaker(ready, error);
+}
+
+extern "C" esp_err_t qsee_rtc_read(qsee_calendar_time_t *time)
+{
+    if (time == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_rtc_ready || s_rtc == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint8_t raw[7] = {};
+    const esp_err_t error = read_register(s_rtc, PCF85063_REG_SECONDS, raw, sizeof(raw));
+    if (error != ESP_OK) {
+        return error;
+    }
+    time->clock_integrity = (raw[0] & BIT(7)) == 0;
+    time->second = bcd_to_decimal(raw[0] & 0x7F);
+    time->minute = bcd_to_decimal(raw[1] & 0x7F);
+    time->hour = bcd_to_decimal(raw[2] & 0x3F);
+    time->day = bcd_to_decimal(raw[3] & 0x3F);
+    time->month = bcd_to_decimal(raw[5] & 0x1F);
+    time->year = static_cast<uint16_t>(2000U + bcd_to_decimal(raw[6]));
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_rtc_write(const qsee_calendar_time_t *time)
+{
+    if (time == nullptr || !valid_calendar_time(*time)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_rtc_ready || s_rtc == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const uint8_t raw[7] = {
+        decimal_to_bcd(time->second),
+        decimal_to_bcd(time->minute),
+        decimal_to_bcd(time->hour),
+        decimal_to_bcd(time->day),
+        0,
+        decimal_to_bcd(time->month),
+        decimal_to_bcd(static_cast<uint8_t>(time->year - 2000U)),
+    };
+    const esp_err_t error = write_registers(s_rtc, PCF85063_REG_SECONDS, raw, sizeof(raw));
+    if (error == ESP_OK) {
+        ESP_LOGI(
+            TAG,
+            "RTC PCF85063 updated: %04u-%02u-%02u %02u:%02u:%02u UTC",
+            time->year, time->month, time->day, time->hour, time->minute, time->second
+        );
+    }
+    return error;
 }

@@ -322,6 +322,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         wifi_lock();
         s_status.connected = true;
         s_status.ip_acquired = true;
+        s_status.credentials_configured = true;
+        s_status.connect_requested = true;
         s_status.rssi = access_point.rssi;
         s_status.channel = access_point.primary;
         s_status.reconnect_pending = false;
@@ -353,6 +355,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         publish_snapshot();
         ESP_LOGI(TAG, "Online: SSID=%s IP=%s RSSI=%d dBm",
                  s_status.ssid, s_status.ip_address, s_status.rssi);
+        (void)qsee_time_notify_wifi_online();
     } else if (event_id == IP_EVENT_STA_LOST_IP) {
         wifi_lock();
         s_status.ip_acquired = false;
@@ -469,6 +472,11 @@ extern "C" esp_err_t qsee_wifi_init(void)
     if (error != ESP_OK) {
         goto fail;
     }
+    error = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+    if (error != ESP_OK) {
+        goto fail;
+    }
+    ESP_LOGI(TAG, "Wi-Fi power save: native minimum-modem mode enabled");
 
     {
         uint8_t mac[6] = {};

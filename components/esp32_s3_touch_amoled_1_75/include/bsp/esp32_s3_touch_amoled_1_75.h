@@ -21,12 +21,12 @@
 
 #define BSP_CAPS_DISPLAY        1
 #define BSP_CAPS_TOUCH          1
-#define BSP_CAPS_BUTTONS        0
+#define BSP_CAPS_BUTTONS        1
 #define BSP_CAPS_AUDIO          1
 #define BSP_CAPS_AUDIO_SPEAKER  1
 #define BSP_CAPS_AUDIO_MIC      1
 #define BSP_CAPS_SDCARD         1
-#define BSP_CAPS_IMU            0
+#define BSP_CAPS_IMU            1
 
 /**************************************************************************************************
  * ESP-SparkBot-BSP pinout
@@ -218,6 +218,14 @@ extern sdmmc_card_t *bsp_sdcard;
  *      - other error codes from SDMMC or SPI drivers, SDMMC protocol, or FATFS drivers
  */
 esp_err_t bsp_sdcard_mount(void);
+
+/**
+ * @brief Mount microSD card with an explicit FAT formatting policy
+ *
+ * @param format_if_mount_failed Format only after SDMMC transport and card
+ *                               initialization have succeeded but FAT mount fails.
+ */
+esp_err_t bsp_sdcard_mount_with_format(bool format_if_mount_failed);
 
 /**
  * @brief Unmount microSD card from virtual file system

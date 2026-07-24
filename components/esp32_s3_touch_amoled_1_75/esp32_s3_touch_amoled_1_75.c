@@ -152,14 +152,10 @@ esp_err_t bsp_spiffs_unmount(void)
     return esp_vfs_spiffs_unregister(CONFIG_BSP_SPIFFS_PARTITION_LABEL);
 }
 
-esp_err_t bsp_sdcard_mount(void)
+esp_err_t bsp_sdcard_mount_with_format(bool format_if_mount_failed)
 {
     const esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-#ifdef CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL
-        .format_if_mount_failed = true,
-#else
-        .format_if_mount_failed = false,
-#endif
+        .format_if_mount_failed = format_if_mount_failed,
         .max_files = 5,
         .allocation_unit_size = 16 * 1024};
 
@@ -188,6 +184,15 @@ esp_err_t bsp_sdcard_mount(void)
 #endif
 
     return esp_vfs_fat_sdmmc_mount(BSP_SD_MOUNT_POINT, &host, &slot_config, &mount_config, &bsp_sdcard);
+}
+
+esp_err_t bsp_sdcard_mount(void)
+{
+#ifdef CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL
+    return bsp_sdcard_mount_with_format(true);
+#else
+    return bsp_sdcard_mount_with_format(false);
+#endif
 }
 
 esp_err_t bsp_sdcard_unmount(void)

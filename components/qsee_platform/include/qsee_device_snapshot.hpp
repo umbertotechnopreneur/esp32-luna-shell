@@ -45,16 +45,24 @@ struct ImuSnapshot : ComponentSnapshot {
     float acceleration_mps2[3] = {};
     float angular_velocity_dps[3] = {};
     float temperature_c = 0.0F;
+    bool calibrated = false;
+    uint16_t calibration_samples = 0;
+    float acceleration_bias_mps2[3] = {};
+    float angular_velocity_bias_dps[3] = {};
 };
 
 struct RtcSnapshot : ComponentSnapshot {
     bool clock_integrity = false;
+    bool system_time_valid = false;
+    bool synchronized = false;
     uint16_t year = 0;
     uint8_t month = 0;
     uint8_t day = 0;
     uint8_t hour = 0;
     uint8_t minute = 0;
     uint8_t second = 0;
+    char source[8] = "none";
+    char timezone[40] = "UTC0";
 };
 
 struct GpsSnapshot : ComponentSnapshot {
@@ -69,6 +77,7 @@ struct GpsSnapshot : ComponentSnapshot {
     float course_degrees = 0.0F;
     float hdop = 0.0F;
     char utc_time[11] = {};
+    char utc_date[11] = {};
     char first_sentence[181] = {};
 };
 
@@ -98,12 +107,25 @@ struct WifiSnapshot : ComponentSnapshot {
     char mac_address[18] = {};
 };
 
+struct BleSnapshot : ComponentSnapshot {
+    bool advertising = false;
+    bool connected = false;
+    uint16_t connection_handle = 0xFFFF;
+    uint32_t connection_count = 0;
+    uint32_t disconnection_count = 0;
+    char device_name[20] = {};
+};
+
 struct RadioSnapshot {
     WifiSnapshot wifi;
-    ComponentSnapshot ble;
+    BleSnapshot ble;
 };
 
 struct StorageSnapshot : ComponentSnapshot {
+    bool card_present = false;
+    bool format_attempted = false;
+    bool formatted = false;
+    uint32_t mount_attempt_count = 0;
     uint64_t capacity_bytes = 0;
     uint64_t filesystem_total_bytes = 0;
     uint64_t free_bytes = 0;
@@ -113,6 +135,18 @@ struct StorageSnapshot : ComponentSnapshot {
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
+};
+
+struct InputSnapshot {
+    ComponentSnapshot io_expander;
+    ComponentSnapshot boot_button;
+    ComponentSnapshot power_button;
+    bool boot_pressed = false;
+    bool power_pressed = false;
+    uint32_t boot_press_count = 0;
+    uint32_t power_short_press_count = 0;
+    uint32_t power_long_press_count = 0;
+    uint32_t wakeup_cause = 0;
 };
 
 struct MemorySnapshot {
@@ -154,6 +188,7 @@ struct DeviceSnapshot {
     RadioSnapshot radios;
     StorageSnapshot storage;
     UiHardwareSnapshot ui;
+    InputSnapshot input;
     MemorySnapshot memory;
     ProcessorSnapshot processor;
 };
@@ -175,6 +210,10 @@ public:
 
     void reportStorage(
         bool mounted,
+        bool card_present,
+        bool format_attempted,
+        bool formatted,
+        uint32_t mount_attempt_count,
         uint64_t capacity_bytes,
         uint64_t filesystem_total_bytes,
         uint64_t free_bytes,
@@ -185,7 +224,23 @@ public:
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);
     void reportWifi(const WifiSnapshot &wifi);
-    void reportBle(bool ready, esp_err_t error);
+    void reportBle(
+        bool ready,
+        esp_err_t error,
+        bool advertising = false,
+        bool connected = false,
+        uint16_t connection_handle = 0xFFFF,
+        uint32_t connection_count = 0,
+        uint32_t disconnection_count = 0,
+        const char *device_name = nullptr
+    );
+    void reportTime(
+        bool system_time_valid,
+        bool synchronized,
+        const char *source,
+        const char *timezone
+    );
+    void reportInputs(const InputSnapshot &inputs);
 
 private:
     DeviceSnapshotService() = default;

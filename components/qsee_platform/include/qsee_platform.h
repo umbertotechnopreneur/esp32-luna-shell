@@ -22,6 +22,16 @@
 extern "C" {
 #endif
 
+typedef struct {
+    bool clock_integrity;
+    uint16_t year;
+    uint8_t month;
+    uint8_t day;
+    uint8_t hour;
+    uint8_t minute;
+    uint8_t second;
+} qsee_calendar_time_t;
+
 /**
  * Probe and initialize hardware attached to the Waveshare BSP I2C bus.
  *
@@ -34,6 +44,40 @@ esp_err_t qsee_hardware_init(void);
  * Refresh the canonical hardware snapshot once. No background polling occurs.
  */
 esp_err_t qsee_hardware_refresh(const char *reason);
+
+/** Read or write the board PCF85063. The RTC is maintained in UTC. */
+esp_err_t qsee_rtc_read(qsee_calendar_time_t *time);
+esp_err_t qsee_rtc_write(const qsee_calendar_time_t *time);
+
+/** Restore system time from RTC and prepare deferred SNTP synchronization. */
+esp_err_t qsee_time_init(const char *timezone);
+
+/** Start SNTP after DHCP has supplied an IP address. */
+esp_err_t qsee_time_notify_wifi_online(void);
+
+/** Apply a valid UTC GPS date/time to system time and the RTC. */
+esp_err_t qsee_time_sync_from_gps(
+    uint16_t year,
+    uint8_t month,
+    uint8_t day,
+    uint8_t hour,
+    uint8_t minute,
+    uint8_t second
+);
+
+/** Initialize BOOT/PWR observation, PMU events, wake-cause and TCA9554 health. */
+esp_err_t qsee_power_inputs_init(void);
+
+/** Enter explicit low-power states; callers own the surrounding UI lifecycle. */
+esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us);
+esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us);
+
+/** Start non-blocking SD detection/mount retries. Never formats automatically. */
+esp_err_t qsee_storage_init(void);
+
+/** Arm one format attempt after explicit user authorization. No UI is implied. */
+esp_err_t qsee_storage_request_format(void);
+bool qsee_storage_mounted(void);
 
 /**
  * Report the result of an actual speaker playback attempt.
@@ -66,6 +110,7 @@ esp_err_t qsee_audio_capture_pcm16(
  * Start the Wi-Fi station lifecycle and BLE advertising as QSEE-xxxx.
  */
 esp_err_t qsee_radios_init(void);
+esp_err_t qsee_ble_init(void);
 
 #define QSEE_WIFI_MAX_NETWORKS 16
 #define QSEE_WIFI_SSID_MAX_LEN 32
@@ -131,6 +176,14 @@ esp_err_t qsee_wifi_start_scan(void);
  */
 size_t qsee_wifi_get_networks(qsee_wifi_network_t *networks, size_t capacity);
 void qsee_wifi_get_status(qsee_wifi_status_t *status);
+
+/** Start/stop secure stock ESP-IDF BLE Wi-Fi provisioning. */
+esp_err_t qsee_provisioning_init(void);
+esp_err_t qsee_provisioning_start(void);
+esp_err_t qsee_provisioning_stop(void);
+bool qsee_provisioning_active(void);
+const char *qsee_provisioning_service_name(void);
+const char *qsee_provisioning_pop(void);
 
 #ifdef __cplusplus
 }
