@@ -13,6 +13,9 @@ idf_component_register(
     REQUIRES
         esp32_s3_touch_amoled_1_75
         esp_event
+        esp_driver_gpio
+        esp_hw_support
+        fatfs
         esp_netif
         esp_wifi
         app_update
@@ -24,4 +27,5 @@ idf_component_register(
         wifi_provisioning
         esp_codec_dev
         qmi8658
+        qsee_logger
 )
