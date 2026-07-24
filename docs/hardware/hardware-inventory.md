@@ -4,7 +4,7 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 
 | Area | Device / capability | Firmware integration |
 | --- | --- | --- |
-| MCU | ESP32-S3R8, dual core up to 240 MHz | ESP-IDF 5.5.4, 8 MB octal PSRAM, 16 MB flash |
+| MCU | ESP32-S3R8, dual core up to 240 MHz | ESP-IDF 6.0.2, 8 MB octal PSRAM, 16 MB flash |
 | Display | 1.75-inch round AMOLED, 466 x 466, CO5300, QSPI | Official Waveshare BSP + LVGL 9 |
 | Touch | CST9217, two-point capacitive touch | Initialized by `bsp_display_start()` |
 | Power | AXP2101 PMU at I2C `0x34` | Probed; battery presence, charging state, percent, and voltage logged |

@@ -128,7 +128,7 @@ The SD card must be prepared as FAT32 with an MBR partition. Firmware never
 formats it implicitly. An SDMMC OCR timeout occurs before filesystem parsing
 and therefore is not proof that formatting alone will fix the card.
 
-The PMU integration uses XPowersLib on the BSP's shared ESP-IDF 5 I2C bus,
+The PMU integration uses XPowersLib on the BSP's shared ESP-IDF I2C master bus,
 matching the Waveshare AXP2101 example. Charging is configured for 50 mA
 precharge, 400 mA constant current, 25 mA termination, and a 4.20 V target.
 TS-pin measurement is disabled because this board does not expose a battery
@@ -141,14 +141,22 @@ from physical audibility.
 
 ## Firmware toolchain
 
-This checkout is configured for ESP-IDF 5.5.4 on Windows. PowerShell 7, Python,
+This checkout is configured for ESP-IDF 6.0.2 on Windows. PowerShell 7, Python,
 FFmpeg, and `winget` are available locally. Canonical configuration belongs in
 `sdkconfig.defaults`; the generated `sdkconfig` is intentionally ignored.
+See [the ESP-IDF 6 migration record](docs/esp-idf-6-migration.md) for the
+dependency changes, validation results, and known limits.
 
 Build:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-brookesia
+```
+
+Show the application and static memory size report:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-brookesia
 ```
 
 Flash the currently dedicated device:
