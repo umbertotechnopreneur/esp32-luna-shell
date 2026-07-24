@@ -21,6 +21,7 @@ constexpr uint32_t kMuted = 0x627D98;
 constexpr uint32_t kTeal = 0x0F9D83;
 constexpr uint32_t kBlue = 0x3478C8;
 constexpr uint32_t kSlate = 0x52697D;
+constexpr uint32_t kError = 0xD64545;
 constexpr uint32_t kTrack = 0xDCE7F0;
 constexpr uint32_t kWhite = 0xFFFFFF;
 constexpr int kWidth = 272;
@@ -82,11 +83,13 @@ const char *health(qsee::DeviceHealth value)
     return qsee::deviceHealthName(value);
 }
 
-uint32_t healthColor(qsee::DeviceHealth value)
+uint32_t healthColor(qsee::DeviceHealth value, esp_err_t error = ESP_OK)
 {
     switch (value) {
     case qsee::DeviceHealth::Ready: return kTeal;
-    case qsee::DeviceHealth::Degraded: return 0xD97706;
+    case qsee::DeviceHealth::Degraded:
+        return (error == ESP_FAIL || error == ESP_ERR_INVALID_STATE || error == ESP_ERR_NO_MEM)
+            ? kError : 0xD97706;
     case qsee::DeviceHealth::Missing: return kSlate;
     case qsee::DeviceHealth::Unknown:
     default: return kMuted;
@@ -175,8 +178,8 @@ bool Navigation::begin()
     _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 280));
     _hardware->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
     const char *hardware_names[] = {
-        "BATTERY", "RTC", "IMU", "GPS", "WIFI", "BLE",
-        "DISPLAY", "TOUCH", "SPEAKER", "MIC", "SD CARD"
+        "[B] BATTERY", "[R] RTC", "[M] IMU", "[G] GPS", "[W] WIFI", "[B] BLE",
+        "[D] DISPLAY", "[T] TOUCH", "[S] SPEAKER", "[M] MIC", "[S] SD CARD"
     };
     for (size_t i = 0; i < sizeof(hardware_names) / sizeof(hardware_names[0]); ++i) {
         auto card = std::make_unique<LvContainer>(_hardware.get());
@@ -386,7 +389,7 @@ void Navigation::refresh()
     }
     const uint32_t sd_color = snapshot.storage.format_required ? 0xD97706 :
                               !snapshot.storage.card_present ? kMuted :
-                              snapshot.storage.health == DeviceHealth::Ready ? kTeal : 0xD97706;
+                              healthColor(snapshot.storage.health, snapshot.storage.last_error);
     _sd.value->setTextColor(StyleColor::COLOR(sd_color));
     _sd.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(sd_color));
     updateMetric(_cpu0, "CPU data unavailable", -1);
@@ -421,10 +424,17 @@ void Navigation::updateHardwareText()
         auto &state = _hardware_labels[i * 2 + 1];
         const bool format_required = i == 10U && snapshot.storage.format_required;
         state->setText(format_required ? "FORMAT" : health(states[i]));
-        state->setTextColor(StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i])));
+        const esp_err_t errors[] = {
+            snapshot.battery.last_error, snapshot.rtc.last_error, snapshot.imu.last_error,
+            snapshot.gps.last_error, snapshot.radios.wifi.last_error, snapshot.radios.ble.last_error,
+            snapshot.ui.display.last_error, snapshot.ui.touch.last_error,
+            snapshot.audio.speaker.last_error, snapshot.audio.microphone.last_error,
+            snapshot.storage.last_error
+        };
+        state->setTextColor(StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i], errors[i])));
         _hardware_cards[i]->setStyleAttribute(
             StyleColorItem::STYLE_COLOR_ITEM_BORDER,
-            StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i]))
+            StyleColor::COLOR(format_required ? 0xD97706 : healthColor(states[i], errors[i]))
         );
     }
     char summary[96];

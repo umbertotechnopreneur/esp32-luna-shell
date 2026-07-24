@@ -24,10 +24,10 @@
 namespace {
 constexpr int kStatusTextId = 0x5141;
 
-const char *statusWord(qsee::DeviceHealth health)
+const char *statusGlyph(qsee::DeviceHealth health)
 {
-    return health == qsee::DeviceHealth::Ready ? "ON" :
-           health == qsee::DeviceHealth::Missing ? "--" : "!";
+    return health == qsee::DeviceHealth::Ready ? "●" :
+           health == qsee::DeviceHealth::Missing ? "○" : "!";
 }
 }
 
@@ -69,16 +69,15 @@ void App::syncStatusBar()
 
     const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
     if (!_status_text_added) {
-        _status_text_added = status_bar->addText("BT --  Wi --  GP --  SD --", 0, kStatusTextId);
+        _status_text_added = status_bar->addText("BT○ Wi○ GP○ SD○", 0, kStatusTextId);
     }
     char status_text[64];
-    const char *sd_status = snapshot.storage.format_required ? "FMT" :
-                            statusWord(snapshot.storage.health);
-    std::snprintf(status_text, sizeof(status_text), "BT %s  Wi %s  GP %s  SD %s",
-                  statusWord(snapshot.radios.ble.health),
-                  statusWord(snapshot.radios.wifi.health),
-                  statusWord(snapshot.gps.health),
-                  sd_status);
+    std::snprintf(status_text, sizeof(status_text), "BT%s Wi%s GP%s SD%s",
+                  statusGlyph(snapshot.radios.ble.health),
+                  statusGlyph(snapshot.radios.wifi.health),
+                  statusGlyph(snapshot.gps.health),
+                  snapshot.storage.format_required ? "!" :
+                  statusGlyph(snapshot.storage.health));
     if (_status_text_added) {
         (void)status_bar->setText(kStatusTextId, status_text);
     }
