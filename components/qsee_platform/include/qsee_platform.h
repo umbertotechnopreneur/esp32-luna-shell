@@ -207,6 +207,71 @@ bool qsee_provisioning_active(void);
 const char *qsee_provisioning_service_name(void);
 const char *qsee_provisioning_pop(void);
 
+#define QSEE_WIFI_MAX_NETWORKS 16
+#define QSEE_WIFI_SSID_MAX_LEN 32
+
+typedef struct {
+    char ssid[QSEE_WIFI_SSID_MAX_LEN + 1];
+    int8_t rssi;
+    uint8_t channel;
+    bool secured;
+} qsee_wifi_network_t;
+
+typedef struct {
+    bool initialized;
+    bool started;
+    bool scanning;
+    bool credentials_configured;
+    bool connect_requested;
+    bool connected;
+    bool ip_acquired;
+    bool reconnect_pending;
+    int8_t rssi;
+    uint8_t channel;
+    uint16_t last_disconnect_reason;
+    uint32_t event_sequence;
+    uint32_t connect_attempt_count;
+    uint32_t reconnect_attempt_count;
+    uint32_t disconnect_count;
+    uint32_t reconnect_delay_ms;
+    esp_err_t last_error;
+    char ssid[QSEE_WIFI_SSID_MAX_LEN + 1];
+    char ip_address[16];
+    char netmask[16];
+    char gateway[16];
+    char mac_address[18];
+} qsee_wifi_status_t;
+
+/**
+ * Initialize one event-driven ESP-IDF station lifecycle.
+ *
+ * A profile previously stored by ESP-IDF is connected automatically.
+ */
+esp_err_t qsee_wifi_init(void);
+
+/**
+ * Apply a station profile and connect. The password is never written to logs.
+ *
+ * When persist is true ESP-IDF stores the profile in NVS.
+ */
+esp_err_t qsee_wifi_connect(const char *ssid, const char *password, bool persist);
+
+/**
+ * Stop reconnect attempts while leaving the station driver available.
+ */
+esp_err_t qsee_wifi_disconnect(void);
+
+/**
+ * Start one asynchronous all-channel scan.
+ */
+esp_err_t qsee_wifi_start_scan(void);
+
+/**
+ * Copy fixed scan results and the immutable connection state.
+ */
+size_t qsee_wifi_get_networks(qsee_wifi_network_t *networks, size_t capacity);
+void qsee_wifi_get_status(qsee_wifi_status_t *status);
+
 #ifdef __cplusplus
 }
 #endif
