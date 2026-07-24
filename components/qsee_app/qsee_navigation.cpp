@@ -15,8 +15,6 @@ using namespace esp_brookesia::gui;
 extern const uint8_t qsee_boot_rgb565_start[] asm("_binary_qsee_boot_rgb565_start");
 extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
 
-constexpr uint32_t kBackgroundTop = 0x020308;
-constexpr uint32_t kBackgroundBottom = 0x0B2730;
 constexpr uint32_t kSurface = 0x111922;
 constexpr uint32_t kNavy = 0xF3F7FA;
 constexpr uint32_t kMuted = 0x9FB1C1;
@@ -30,6 +28,33 @@ constexpr uint32_t kTitleTop = 0x0A1824;
 constexpr uint32_t kTitleBottom = 0x123D50;
 constexpr int kWidth = 272;
 constexpr int kRowWidth = 236;
+
+void applySpotlightBackground(lv_obj_t *screen)
+{
+    static lv_grad_dsc_t gradient;
+    static bool initialized = false;
+    if (!initialized) {
+        const lv_color_t colors[] = {
+            lv_color_hex(0x173A48),
+            lv_color_hex(0x07141B),
+            lv_color_hex(0x010205),
+        };
+        const uint8_t stops[] = {0, 132, 255};
+        lv_grad_init_stops(&gradient, colors, nullptr, stops, 3);
+        lv_grad_radial_init(
+            &gradient,
+            lv_pct(50),
+            lv_pct(34),
+            lv_pct(100),
+            lv_pct(100),
+            LV_GRAD_EXTEND_PAD
+        );
+        initialized = true;
+    }
+
+    lv_obj_set_style_bg_grad(screen, &gradient, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+}
 
 void surface(LvObject &object)
 {
@@ -53,7 +78,7 @@ void buttonStyle(AppButton &button, int width, int height, uint32_t color)
                                color == kBlue ? 0x183E70 : 0x263746;
     button.setWidth(width);
     button.setHeight(height);
-    button.setFont(StyleFont::SIZE(10));
+    button.setFont(StyleFont::SIZE(12));
     button.setTextColor(StyleColor::COLOR(kWhite));
     button.setBackgroundGradient(StyleColor::COLOR(color), StyleColor::COLOR(end_color));
     lv_obj_set_style_bg_grad_dir(button.getNativeHandle(), LV_GRAD_DIR_VER, LV_PART_MAIN);
@@ -76,25 +101,26 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
                 uint32_t color)
 {
     metric.card = std::make_unique<LvContainer>(parent);
-    metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 40));
+    metric.card->setStyleAttribute(StyleSize::RECT(kRowWidth, 38));
     metric.card->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     metric.card->setStyleAttribute(
         StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
-        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_90)
+        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_35)
     );
-    metric.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
-    metric.label = makeLabel(metric.card.get(), name, 100, 8, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 10, 3);
-    metric.value = makeLabel(metric.card.get(), "--", 116, 12, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -10, 1);
+    lv_obj_set_style_radius(metric.card->getNativeHandle(), 8, LV_PART_MAIN);
+    metric.label = makeLabel(metric.card.get(), name, 104, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 3);
+    metric.value = makeLabel(metric.card.get(), "--", 118, 14, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 1);
+    lv_label_set_long_mode(metric.value->getNativeHandle(), LV_LABEL_LONG_MODE_DOTS);
     metric.bar = std::make_unique<AppProgressBar>(metric.card.get());
     metric.bar->setRange(0, 100);
     metric.bar->setValue(0);
     // Keep the bar inside the 236 px card after the 10 px side insets.
-    metric.bar->setWidth(kRowWidth - 20);
-    metric.bar->setHeight(8);
+    metric.bar->setWidth(kRowWidth - 16);
+    metric.bar->setHeight(5);
     metric.bar->setBackgroundColor(StyleColor::COLOR(kTrack));
     lv_obj_set_style_bg_color(metric.bar->getNativeHandle(), lv_color_hex(color), LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(metric.bar->getNativeHandle(), LV_OPA_COVER, LV_PART_INDICATOR);
-    metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 27});
+    metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 30});
 }
 
 std::unique_ptr<AppProgressBar> makeDiagnosticBar(const LvObject *parent, int y, uint32_t top, uint32_t bottom)
@@ -192,16 +218,15 @@ bool Navigation::begin()
     _screen = std::make_unique<AppScreen>(AppScreen::active());
     if (_screen == nullptr || !_screen->isValid()) return false;
 
-    lv_obj_set_style_bg_color(_screen->getNativeHandle(), lv_color_hex(kBackgroundTop), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_color(
-        _screen->getNativeHandle(), lv_color_hex(kBackgroundBottom), LV_PART_MAIN
-    );
-    lv_obj_set_style_bg_grad_dir(_screen->getNativeHandle(), LV_GRAD_DIR_VER, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(_screen->getNativeHandle(), LV_OPA_COVER, LV_PART_MAIN);
+    applySpotlightBackground(_screen->getNativeHandle());
     _surface = std::make_unique<LvContainer>(_screen.get());
     _surface->setStyleAttribute(StyleSize::RECT(320, 320));
     _surface->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
-    surface(*_surface);
+    _surface->setStyleAttribute(
+        StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
+        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_TRANSP)
+    );
+    lv_obj_clear_flag(_surface->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
 
     _title_bar = std::make_unique<LvContainer>(_surface.get());
     _title_bar->setStyleAttribute(StyleSize::RECT(kWidth, 46));
@@ -222,53 +247,52 @@ bool Navigation::begin()
                                STYLE_ALIGN_TYPE_TOP_MID, 0, 25);
 
     _welcome = std::make_unique<LvContainer>(_surface.get());
-    _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 232));
-    _welcome->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 54});
+    _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 268));
+    _welcome->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    lv_obj_clear_flag(_welcome->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
     makeMetric(_ram, _welcome.get(), "RAM FREE", 0, kTeal);
-    makeMetric(_sd, _welcome.get(), "SD STORAGE", 43, kBlue);
-    makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 86, kTeal);
-    makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 129, kBlue);
+    makeMetric(_sd, _welcome.get(), "SD STORAGE", 40, kBlue);
+    makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 80, kTeal);
+    makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 120, kBlue);
     _sd_action = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Hardware); });
     _sd_action->setText("");
     _sd_action->setWidth(kRowWidth);
-    _sd_action->setHeight(40);
+    _sd_action->setHeight(38);
     lv_obj_set_style_bg_opa(_sd_action->getNativeHandle(), LV_OPA_TRANSP, LV_PART_MAIN);
-    _sd_action->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 43});
-    _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
-                              STYLE_ALIGN_TYPE_TOP_MID, 0, 177);
+    _sd_action->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 40});
+    _radio_status = makeLabel(_welcome.get(), "WiFi --  |  BLE --  |  GPS --", kRowWidth, 12, kNavy,
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 162);
     _open_audio = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Audio); });
     _open_audio->setText("AUDIO SCOPE");
-    buttonStyle(*_open_audio, 112, 28, kBlue);
-    _open_audio->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 202});
+    buttonStyle(*_open_audio, 112, 34, kBlue);
+    _open_audio->align({STYLE_ALIGN_TYPE_TOP_LEFT, 18, 184});
     _open_imu = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Imu); });
     _open_imu->setText("IMU LEVEL");
-    buttonStyle(*_open_imu, 112, 28, kTeal);
-    _open_imu->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 202});
+    buttonStyle(*_open_imu, 112, 34, kTeal);
+    _open_imu->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -18, 184});
 
-    _open_logs = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Logs); });
+    _open_logs = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Logs); });
     _open_logs->setText("LIVE LOGS");
-    buttonStyle(*_open_logs, 112, 34, kSlate);
-    _open_logs->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 18, -14});
-    _open_hardware = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::Hardware); });
+    buttonStyle(*_open_logs, 78, 36, kSlate);
+    _open_logs->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 226});
+    _open_hardware = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::Hardware); });
     _open_hardware->setText("HARDWARE");
-    buttonStyle(*_open_hardware, 86, 34, kTeal);
-    _open_hardware->align({STYLE_ALIGN_TYPE_BOTTOM_MID, 0, -14});
-    _open_logs->setWidth(86);
-    _open_logs->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -14});
-    _open_about = std::make_unique<AppButton>(_surface.get(), [this]() { show(Screen::About); });
+    buttonStyle(*_open_hardware, 96, 36, kTeal);
+    _open_hardware->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 226});
+    _open_about = std::make_unique<AppButton>(_welcome.get(), [this]() { show(Screen::About); });
     _open_about->setText("ABOUT");
-    buttonStyle(*_open_about, 86, 34, kBlue);
-    _open_about->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -14});
+    buttonStyle(*_open_about, 78, 36, kBlue);
+    _open_about->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 226});
 
     _logs = std::make_unique<LvContainer>(_surface.get());
-    _logs->setStyleAttribute(StyleSize::RECT(kWidth, 280));
-    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _logs->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
     _log_search = std::make_unique<AppTextBox>(_logs.get());
     _log_search->setWidth(164);
-    _log_search->setHeight(28);
+    _log_search->setHeight(32);
     _log_search->setOneLine();
     _log_search->setPlaceholder("Search logs");
-    _log_search->setFont(StyleFont::SIZE(8));
+    _log_search->setFont(StyleFont::SIZE(12));
     _log_search->setTextColor(StyleColor::COLOR(kNavy));
     _log_search->setBackgroundColor(StyleColor::COLOR(kSurface));
     _log_search->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 0});
@@ -280,117 +304,125 @@ bool Navigation::begin()
         updateLogView();
     });
     _log_filter->setText("FILTER ALL");
-    buttonStyle(*_log_filter, 96, 26, kBlue);
+    buttonStyle(*_log_filter, 96, 30, kBlue);
     _log_filter->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 1});
     _log_box = std::make_unique<AppRichText>(_logs.get());
     _log_box->setWidth(kWidth);
-    _log_box->setHeight(180);
-    _log_box->setFont(StyleFont::SIZE(10));
+    _log_box->setHeight(154);
+    _log_box->setFont(StyleFont::SIZE(12));
     _log_box->setTextColor(StyleColor::COLOR(0xEAF1F6));
     _log_box->setBackgroundColor(StyleColor::COLOR(0x12263A));
-    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 32});
+    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 36});
 
     _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
         _logs_paused = !_logs_paused;
         _logs_pause->setText(_logs_paused ? "RESUME" : "PAUSE");
     });
     _logs_pause->setText("PAUSE");
-    buttonStyle(*_logs_pause, 82, 26, kSlate);
+    buttonStyle(*_logs_pause, 82, 30, kSlate);
     _logs_pause->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -2});
     _logs_clear = std::make_unique<AppButton>(_logs.get(), [this]() {
         qsee_logger_clear();
         _log_box->setText("", false);
     });
     _logs_clear->setText("CLEAR");
-    buttonStyle(*_logs_clear, 70, 26, kBlue);
+    buttonStyle(*_logs_clear, 70, 30, kBlue);
     _logs_clear->align({STYLE_ALIGN_TYPE_BOTTOM_MID, -4, -2});
     _logs_follow = std::make_unique<AppButton>(_logs.get(), [this]() {
         _logs_follow_latest = !_logs_follow_latest;
         _logs_follow->setText(_logs_follow_latest ? "FOLLOW ON" : "FOLLOW OFF");
     });
     _logs_follow->setText("FOLLOW ON");
-    buttonStyle(*_logs_follow, 92, 26, kBlue);
+    buttonStyle(*_logs_follow, 92, 30, kBlue);
     _logs_follow->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -2});
-    _logs_live = makeLabel(_logs.get(), "● LIVE", 70, 9, kTeal,
-                           STYLE_ALIGN_TYPE_TOP_RIGHT, -4, -28);
+    _logs_live = makeLabel(_logs.get(), "LIVE", 54, 12, kTeal,
+                           STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 40);
 
     _hardware = std::make_unique<LvContainer>(_surface.get());
-    _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 280));
-    _hardware->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 226));
+    _hardware->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    lv_obj_add_flag(_hardware->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_scroll_dir(_hardware->getNativeHandle(), LV_DIR_VER);
+    lv_obj_set_scrollbar_mode(_hardware->getNativeHandle(), LV_SCROLLBAR_MODE_AUTO);
+    lv_obj_set_style_width(_hardware->getNativeHandle(), 3, LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_color(_hardware->getNativeHandle(), lv_color_hex(kBlue), LV_PART_SCROLLBAR);
+    lv_obj_set_style_bg_opa(_hardware->getNativeHandle(), LV_OPA_50, LV_PART_SCROLLBAR);
     const char *hardware_names[] = {
-        "[B] BATTERY", "[R] RTC", "[M] IMU", "[G] GPS", "[W] WIFI", "[B] BLE",
-        "[D] DISPLAY", "[T] TOUCH", "[S] SPEAKER", "[M] MIC", "[S] SD CARD"
+        "BATTERY", "RTC", "IMU", "GPS", "WIFI", "BLE",
+        "DISPLAY", "TOUCH", "SPEAKER", "MIC", "SD CARD"
     };
     for (size_t i = 0; i < sizeof(hardware_names) / sizeof(hardware_names[0]); ++i) {
         auto card = std::make_unique<LvContainer>(_hardware.get());
-        card->setStyleAttribute(StyleSize::RECT(128, 32));
+        card->setStyleAttribute(StyleSize::RECT(128, 42));
         const bool left = (i % 2U) == 0U;
         const int row = static_cast<int>(i / 2U);
         card->setStyleAttribute(StyleAlign{
             left ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
             left ? 4 : -4,
-            row * 35
+            row * 46
         });
         card->setStyleAttribute(
             StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
-            StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_90)
+            StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_55)
         );
         card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
-        auto item = makeLabel(card.get(), hardware_names[i], 112, 8, kMuted,
-                              (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
-                              (i % 2 == 0) ? 8 : -8, 3);
+        lv_obj_set_style_border_width(card->getNativeHandle(), 1, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(card->getNativeHandle(), LV_OPA_35, LV_PART_MAIN);
+        lv_obj_set_style_radius(card->getNativeHandle(), 8, LV_PART_MAIN);
+        auto item = makeLabel(card.get(), hardware_names[i], 112, 12, kMuted,
+                              STYLE_ALIGN_TYPE_TOP_LEFT, 8, 4);
         _hardware_labels.push_back(std::move(item));
-        auto state = makeLabel(card.get(), "--", 112, 10, kNavy,
-                               (i % 2 == 0) ? STYLE_ALIGN_TYPE_TOP_LEFT : STYLE_ALIGN_TYPE_TOP_RIGHT,
-                               (i % 2 == 0) ? 8 : -8, 14);
+        auto state = makeLabel(card.get(), "--", 112, 12, kNavy,
+                               STYLE_ALIGN_TYPE_TOP_LEFT, 8, 21);
         _hardware_labels.push_back(std::move(state));
         auto action = std::make_unique<AppButton>(card.get(), [this, i]() { showComponentDetails(i); });
         action->setText("");
         action->setWidth(128);
-        action->setHeight(32);
+        action->setHeight(42);
         lv_obj_set_style_bg_opa(action->getNativeHandle(), LV_OPA_TRANSP, LV_PART_MAIN);
         action->align({STYLE_ALIGN_TYPE_CENTER, 0, 0});
         _hardware_actions.push_back(std::move(action));
         _hardware_cards.push_back(std::move(card));
     }
-    _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 9, kMuted,
-                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 184);
+    _hardware_summary = makeLabel(_hardware.get(), "Snapshot -- | SD --", kRowWidth, 12, kMuted,
+                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 282);
+    lv_label_set_long_mode(_hardware_summary->getNativeHandle(), LV_LABEL_LONG_MODE_DOTS);
 
     _audio = std::make_unique<LvContainer>(_surface.get());
-    _audio->setStyleAttribute(StyleSize::RECT(kWidth, 270));
-    _audio->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 38});
-    _audio_status = makeLabel(_audio.get(), "MICROPHONES --", kRowWidth, 11, kMuted,
-                              STYLE_ALIGN_TYPE_TOP_MID, 0, 8);
-    makeLabel(_audio.get(), "CHANNEL 0", 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 44);
+    _audio->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+    _audio->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    _audio_status = makeLabel(_audio.get(), "MICROPHONES --", kRowWidth, 14, kMuted,
+                              STYLE_ALIGN_TYPE_TOP_MID, 0, 6);
+    makeLabel(_audio.get(), "CHANNEL 0", 110, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 40);
     _audio_mic0 = makeDiagnosticBar(_audio.get(), 62, kTeal, 0x08745F);
-    makeLabel(_audio.get(), "CHANNEL 1", 100, 9, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 92);
+    makeLabel(_audio.get(), "CHANNEL 1", 110, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 88);
     _audio_mic1 = makeDiagnosticBar(_audio.get(), 110, kBlue, 0x2A5E9B);
-    _audio_channels = makeLabel(_audio.get(), "PCM -- | -- Hz", kRowWidth, 10, kNavy,
+    _audio_channels = makeLabel(_audio.get(), "PCM -- | -- Hz", kRowWidth, 12, kNavy,
                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 146);
-    makeLabel(_audio.get(), "Canonical hardware snapshot", kRowWidth, 8, kMuted,
+    makeLabel(_audio.get(), "Canonical hardware snapshot", kRowWidth, 12, kMuted,
               STYLE_ALIGN_TYPE_TOP_MID, 0, 174);
 
     _imu = std::make_unique<LvContainer>(_surface.get());
-    _imu->setStyleAttribute(StyleSize::RECT(kWidth, 270));
-    _imu->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 38});
-    _imu_status = makeLabel(_imu.get(), "QMI8658 --", kRowWidth, 11, kMuted,
-                            STYLE_ALIGN_TYPE_TOP_MID, 0, 8);
-    _imu_accel = makeLabel(_imu.get(), "ACC X -- Y -- Z -- m/s2", kRowWidth, 10, kNavy,
+    _imu->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+    _imu->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    _imu_status = makeLabel(_imu.get(), "QMI8658 --", kRowWidth, 14, kMuted,
+                            STYLE_ALIGN_TYPE_TOP_MID, 0, 6);
+    _imu_accel = makeLabel(_imu.get(), "ACC X -- Y -- Z -- m/s2", kRowWidth, 12, kNavy,
                            STYLE_ALIGN_TYPE_TOP_MID, 0, 52);
-    _imu_gyro = makeLabel(_imu.get(), "GYRO X -- Y -- Z -- dps", kRowWidth, 10, kNavy,
+    _imu_gyro = makeLabel(_imu.get(), "GYRO X -- Y -- Z -- dps", kRowWidth, 12, kNavy,
                           STYLE_ALIGN_TYPE_TOP_MID, 0, 86);
-    _imu_temperature = makeLabel(_imu.get(), "TEMP -- C", kRowWidth, 10, kBlue,
+    _imu_temperature = makeLabel(_imu.get(), "TEMP -- C", kRowWidth, 14, kBlue,
                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 120);
-    _imu_calibration = makeLabel(_imu.get(), "CALIBRATION --", kRowWidth, 9, kMuted,
+    _imu_calibration = makeLabel(_imu.get(), "CALIBRATION --", kRowWidth, 12, kMuted,
                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 158);
 
     _format_sd = std::make_unique<AppButton>(_hardware.get(), [this]() { showFormatDialog(); });
     _format_sd->setText("FORMAT SD");
-    buttonStyle(*_format_sd, 108, 30, kBlue);
-    _format_sd->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, 0, -2});
+    buttonStyle(*_format_sd, 108, 34, kBlue);
+    _format_sd->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 308});
 
     _about = std::make_unique<LvContainer>(_surface.get());
-    _about->setStyleAttribute(StyleSize::RECT(kWidth, 260));
+    _about->setStyleAttribute(StyleSize::RECT(kWidth, 232));
     _about->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
     _about_logo = std::make_unique<AppImage>(_about.get());
     _about_logo->setRawRgb565(
@@ -402,19 +434,19 @@ bool Navigation::begin()
     _about_logo->setWidth(118);
     _about_logo->setHeight(118);
     _about_logo->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
-    _about_tagline = makeLabel(_about.get(), "QSee.ai device console", kWidth, 12, kNavy,
+    _about_tagline = makeLabel(_about.get(), "QSee.ai device console", kWidth, 14, kNavy,
                                STYLE_ALIGN_TYPE_TOP_MID, 0, 126);
-    _about_website = makeLabel(_about.get(), "qsee.ai", kWidth, 10, kBlue,
+    _about_website = makeLabel(_about.get(), "qsee.ai", kWidth, 12, kBlue,
                                STYLE_ALIGN_TYPE_TOP_MID, 0, 148);
-    _about_email = makeLabel(_about.get(), "hello@qsee.ai", kWidth, 10, kBlue,
+    _about_email = makeLabel(_about.get(), "hello@qsee.ai", kWidth, 12, kBlue,
                              STYLE_ALIGN_TYPE_TOP_MID, 0, 170);
-    _about_copyright = makeLabel(_about.get(), "Copyright (c) QSee.ai — all rights reserved", kWidth, 9, kMuted,
+    _about_copyright = makeLabel(_about.get(), "Copyright (c) QSee.ai - all rights reserved", kWidth, 10, kMuted,
                                  STYLE_ALIGN_TYPE_TOP_MID, 0, 196);
 
     _back = std::make_unique<AppButton>(_surface.get(), [this]() { (void)back(); });
     _back->setText("BACK");
-    buttonStyle(*_back, 90, 32, kSlate);
-    _back->align({STYLE_ALIGN_TYPE_BOTTOM_MID, 0, -8});
+    buttonStyle(*_back, 96, 36, kSlate);
+    _back->align({STYLE_ALIGN_TYPE_BOTTOM_MID, 0, -2});
 
     _dialog = std::make_unique<LvContainer>(_surface.get());
     _dialog->setStyleAttribute(StyleSize::RECT(252, 142));
@@ -422,7 +454,7 @@ bool Navigation::begin()
     surface(*_dialog);
     _dialog_title = makeLabel(_dialog.get(), "FORMAT SD?", 220, 16, kNavy,
                               STYLE_ALIGN_TYPE_TOP_MID, 0, 14);
-    _dialog_text = makeLabel(_dialog.get(), "This erases the card. Are you sure?", 220, 10, kMuted,
+    _dialog_text = makeLabel(_dialog.get(), "This erases the card. Are you sure?", 220, 12, kMuted,
                              STYLE_ALIGN_TYPE_TOP_MID, 0, 46);
     _dialog_progress = std::make_unique<AppProgressBar>(_dialog.get());
     _dialog_progress->setRange(0, 100);
@@ -575,7 +607,8 @@ void Navigation::refresh()
     const int ram_progress = snapshot.memory.heap_free_bytes > 0
         ? static_cast<int>((snapshot.memory.heap_free_bytes / 10000U) > 100U ? 100U : snapshot.memory.heap_free_bytes / 10000U)
         : 0;
-    std::snprintf(value, sizeof(value), "%lu KB  %d%%", static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U), ram_progress);
+    std::snprintf(value, sizeof(value), "%lu KB | %d%%",
+                  static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U), ram_progress);
     updateMetric(_ram, value, ram_progress);
 
     if (snapshot.storage.health == DeviceHealth::Ready && snapshot.storage.capacity_bytes > 0) {
@@ -583,10 +616,9 @@ void Navigation::refresh()
             ? snapshot.storage.capacity_bytes - snapshot.storage.free_bytes : 0;
         const int used_percent = static_cast<int>((used_bytes * 100ULL) /
                                                    snapshot.storage.capacity_bytes);
-        std::snprintf(value, sizeof(value), "%llu / %llu MB  %s",
+        std::snprintf(value, sizeof(value), "%llu / %llu MB",
                       static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
-                      static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)),
-                      snapshot.storage.logger_mirror_enabled ? "MIRROR" : "NO MIRROR");
+                      static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)));
         updateMetric(_sd, value, 100 - used_percent);
     } else if (storageFormatRequired(snapshot.storage)) {
         updateMetric(_sd, "format required", 0);
@@ -600,8 +632,8 @@ void Navigation::refresh()
                               healthColor(snapshot.storage.health, snapshot.storage.last_error);
     _sd.value->setTextColor(StyleColor::COLOR(sd_color));
     _sd.card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(sd_color));
-    updateMetric(_cpu0, "CPU data unavailable", -1);
-    updateMetric(_cpu1, "CPU data unavailable", -1);
+    updateMetric(_cpu0, "no data", -1);
+    updateMetric(_cpu1, "no data", -1);
     _cpu0.value->setTextColor(StyleColor::COLOR(kMuted));
     _cpu1.value->setTextColor(StyleColor::COLOR(kMuted));
 
@@ -741,11 +773,10 @@ void Navigation::updateHardwareText()
         );
     }
     char summary[96];
-    std::snprintf(summary, sizeof(summary), "Snapshot #%lu | SD %llu / %llu MB | %s",
-                  static_cast<unsigned long>(snapshot.sequence),
+    std::snprintf(summary, sizeof(summary), "SD %llu/%llu MB | MIRROR %s",
                   static_cast<unsigned long long>(snapshot.storage.free_bytes / (1024ULL * 1024ULL)),
                   static_cast<unsigned long long>(snapshot.storage.capacity_bytes / (1024ULL * 1024ULL)),
-                  snapshot.storage.logger_mirror_enabled ? "MIRROR ON" : "MIRROR OFF");
+                  snapshot.storage.logger_mirror_enabled ? "ON" : "OFF");
     _hardware_summary->setText(summary);
 }
 

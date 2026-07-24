@@ -194,7 +194,18 @@ void qsee_boot_ui_hide(void)
     }
 
     if (s_screen != NULL) {
-        lv_obj_delete_async(s_screen);
+        /*
+         * Brookesia replaces this screen immediately after this call.  Clean
+         * and repaint it first so the AMOLED does not retain untouched strips
+         * from the full-screen RGB565 boot artwork around the round app area.
+         */
+        lv_obj_clean(s_screen);
+        lv_obj_remove_style_all(s_screen);
+        lv_obj_set_size(s_screen, 466, 466);
+        lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x000000), 0);
+        lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+        lv_obj_invalidate(s_screen);
+        lv_refr_now(lv_display_get_default());
         s_screen = NULL;
     }
     s_continue_label = NULL;

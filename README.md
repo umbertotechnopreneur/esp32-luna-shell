@@ -14,6 +14,12 @@ content square at `(73, 73)`. All information and controls required to finish a
 screen must fit in that square. The curved perimeter is reserved for stable,
 easy-to-learn shell actions:
 
+Route containers and the title bar inside the safe square must remain
+transparent: they do not own a background, card, pill, or gradient. The
+full-screen application background is the single visual atmosphere and uses a
+dark radial spotlight gradient. Local cards may add only subtle contrast when
+they represent actual information or an action.
+
 | Edge | Default action |
 | --- | --- |
 | Left | Back or Cancel |
