@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "erase", "reconfigure", "set-target", "combo", "ports", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "erase", "reconfigure", "set-target", "size", "combo", "ports", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -12,6 +12,14 @@ param(
     [string]$BuildDir = "build",
 
     [int]$WaitSeconds = 30,
+
+    # Explicit parameters take precedence over the dedicated QSEE_IDF_*
+    # environment variables and the workstation defaults below.
+    [string]$IdfPath,
+
+    [string]$ToolsPath,
+
+    [string]$PythonExe,
 
     # The workstation has 16 cores and 32 GB RAM; allow overriding for CI or
     # constrained machines while keeping the local default fully parallel.
@@ -26,51 +34,104 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
-$IdfPath = "E:\Espressif\.espressif\v5.5.4\esp-idf"
-$ToolsPath = "E:\Espressif"
-$PythonExe = "E:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe"
 
-if (-not (Test-Path $IdfPath)) {
+if (-not $IdfPath) {
+    $IdfPath = if ($env:QSEE_IDF_PATH) {
+        $env:QSEE_IDF_PATH
+    } else {
+        "E:\Espressif\.espressif\v6.0.2\esp-idf"
+    }
+}
+if (-not $ToolsPath) {
+    $ToolsPath = if ($env:QSEE_IDF_TOOLS_PATH) {
+        $env:QSEE_IDF_TOOLS_PATH
+    } else {
+        "E:\Espressif"
+    }
+}
+
+if (-not (Test-Path -LiteralPath $IdfPath -PathType Container)) {
     throw "ESP-IDF non trovato in $IdfPath"
 }
+if (-not (Test-Path -LiteralPath $ToolsPath -PathType Container)) {
+    throw "Root degli strumenti Espressif non trovata in $ToolsPath"
+}
 
-if (-not (Test-Path $PythonExe)) {
+$IdfPath = (Resolve-Path -LiteralPath $IdfPath).Path
+$ToolsPath = (Resolve-Path -LiteralPath $ToolsPath).Path
+$IdfPy = Join-Path $IdfPath "tools\idf.py"
+$IdfToolsPy = Join-Path $IdfPath "tools\idf_tools.py"
+foreach ($requiredIdfFile in @($IdfPy, $IdfToolsPy)) {
+    if (-not (Test-Path -LiteralPath $requiredIdfFile -PathType Leaf)) {
+        throw "Installazione ESP-IDF incompleta: file non trovato $requiredIdfFile"
+    }
+}
+
+if (-not $PythonExe) {
+    $idfInstallName = Split-Path -Leaf (Split-Path -Parent $IdfPath)
+    $PythonExe = Join-Path $ToolsPath "tools\python\$idfInstallName\venv\Scripts\python.exe"
+    if ($env:QSEE_IDF_PYTHON) {
+        $PythonExe = $env:QSEE_IDF_PYTHON
+    }
+}
+if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {
     throw "Python ESP-IDF non trovato in $PythonExe"
 }
+$PythonExe = (Resolve-Path -LiteralPath $PythonExe).Path
+$PythonEnvPath = Split-Path -Parent (Split-Path -Parent $PythonExe)
 
 $env:IDF_PATH = $IdfPath
 $env:IDF_TOOLS_PATH = $ToolsPath
-$env:IDF_PYTHON_ENV_PATH = "E:\Espressif\tools\python\v5.5.4\venv"
-$env:ESP_IDF_VERSION = "5.5.4"
-$env:OPENOCD_SCRIPTS = "E:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251215\openocd-esp32\share\openocd\scripts"
-$env:ESP_ROM_ELF_DIR = "E:\Espressif\tools\esp-rom-elfs\20241011"
+$env:IDF_PYTHON_ENV_PATH = $PythonEnvPath
+
+# Ask the selected ESP-IDF checkout for its exact supported tool paths instead
+# of duplicating CMake, Ninja, debugger, and compiler versions in this script.
+$toolExports = & $PythonExe $IdfToolsPy export --format key-value
+if ($LASTEXITCODE -ne 0) {
+    throw "Impossibile esportare la toolchain ESP-IDF da $IdfPath"
+}
+foreach ($line in $toolExports) {
+    if ($line -notmatch '^([A-Z][A-Z0-9_]*)=(.*)$') {
+        continue
+    }
+    $name = $Matches[1]
+    $value = $Matches[2]
+    if ($name -eq "PATH") {
+        $value = $value.Replace("%PATH%", $env:PATH)
+    }
+    [System.Environment]::SetEnvironmentVariable($name, $value, "Process")
+}
+
 # Parallel ccache processes intermittently exit without diagnostics on this
 # Windows workstation; deterministic firmware builds are more valuable here.
 $env:IDF_CCACHE_ENABLE = "0"
-$env:IDF_PYTHON_CHECK_CONSTRAINTS = "no"
 
-$toolBins = @(
-    "E:\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64",
-    "E:\Espressif\tools\cmake\3.30.2\bin",
-    "E:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64",
-    "E:\Espressif\tools\esp-rom-elfs\20241011",
-    "E:\Espressif\tools\esp32ulp-elf\2.38_20240113\esp32ulp-elf\bin",
-    "E:\Espressif\tools\idf-exe\1.0.3",
-    "E:\Espressif\tools\ninja\1.12.1",
-    "E:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251215\openocd-esp32\bin",
-    "E:\Espressif\tools\riscv32-esp-elf\esp-14.2.0_20260121\riscv32-esp-elf\bin",
-    "E:\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin",
-    "E:\Espressif\tools\xtensa-esp-elf-gdb\16.3_20250913\xtensa-esp-elf-gdb\bin",
-    "E:\Espressif\tools\python\v5.5.4\venv\Scripts"
-)
-
-$existingPath = @()
-if ($env:PATH) {
-    $existingPath = $env:PATH -split ";"
+function Get-ToolCommand([string]$Name) {
+    $command = Get-Command $Name -CommandType Application -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($null -eq $command) {
+        throw "Strumento ESP-IDF richiesto non trovato nel PATH: $Name"
+    }
+    return $command
 }
 
-$env:PATH = (($toolBins + $existingPath) | Where-Object { $_ } | Select-Object -Unique) -join ";"
-$IdfPy = Join-Path $IdfPath "tools\idf.py"
+$CMakeCommand = Get-ToolCommand "cmake"
+$NinjaCommand = Get-ToolCommand "ninja"
+$ToolchainCommand = Get-ToolCommand "xtensa-esp32s3-elf-gcc"
+$IdfVersion = (& $PythonExe $IdfPy --version | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) {
+    throw "Impossibile determinare la versione ESP-IDF"
+}
+$PythonVersion = (& $PythonExe --version | Out-String).Trim()
+$CMakeVersion = (& $CMakeCommand.Source --version | Select-Object -First 1)
+$NinjaVersion = (& $NinjaCommand.Source --version | Select-Object -First 1)
+$ToolchainVersion = (& $ToolchainCommand.Source --version | Select-Object -First 1)
+Write-Host "ESP-IDF: $IdfVersion ($IdfPath)"
+Write-Host "Python: $PythonVersion ($PythonExe)"
+Write-Host "CMake: $CMakeVersion ($($CMakeCommand.Source))"
+Write-Host "Ninja: $NinjaVersion ($($NinjaCommand.Source))"
+Write-Host "Toolchain: $ToolchainVersion ($($ToolchainCommand.Source))"
+
 $MonitorScript = Join-Path $PSScriptRoot "device.ps1"
 
 function Get-SerialPorts {
@@ -245,6 +306,12 @@ try {
         "set-target" {
             & $PythonExe $IdfPy @commonArgs set-target esp32s3
         }
+        "size" {
+            & $PythonExe $IdfPy @commonArgs size
+            if ($LASTEXITCODE -ne 0) {
+                throw "Size report failed"
+            }
+        }
         "ports" {
             Show-SerialPorts
         }
@@ -293,7 +360,10 @@ try {
                 "-File", "`"$MonitorScript`"",
                 "monitor",
                 "-Port", $Port,
-                "-BuildDir", $BuildDir
+                "-BuildDir", $BuildDir,
+                "-IdfPath", "`"$IdfPath`"",
+                "-ToolsPath", "`"$ToolsPath`"",
+                "-PythonExe", "`"$PythonExe`""
             )
 
             Start-Process -FilePath "pwsh.exe" -ArgumentList $monitorArgs -WorkingDirectory $ProjectRoot
