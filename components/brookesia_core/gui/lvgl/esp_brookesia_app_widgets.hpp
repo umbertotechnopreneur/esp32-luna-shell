@@ -74,6 +74,20 @@ public:
     bool align(const StyleAlign &alignment);
 };
 
+class AppRichText final : public LvObject {
+public:
+    explicit AppRichText(const LvObject *parent);
+
+    bool setText(const char *text, bool follow_latest = true);
+    bool setWidth(int width);
+    bool setHeight(int height);
+    bool setFont(const StyleFont &font);
+    bool setTextColor(const StyleColor &color);
+    bool setBackgroundColor(const StyleColor &color);
+    bool align(const StyleAlign &alignment);
+    bool isAtBottom() const;
+};
+
 class AppImage final : public LvObject {
 public:
     explicit AppImage(const LvObject *parent);

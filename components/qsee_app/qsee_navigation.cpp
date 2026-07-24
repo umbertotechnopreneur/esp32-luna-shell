@@ -139,7 +139,7 @@ bool Navigation::begin()
     _logs = std::make_unique<LvContainer>(_surface.get());
     _logs->setStyleAttribute(StyleSize::RECT(kWidth, 280));
     _logs->setStyleAttribute({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
-    _log_box = std::make_unique<AppTextBox>(_logs.get());
+    _log_box = std::make_unique<AppRichText>(_logs.get());
     _log_box->setWidth(kWidth);
     _log_box->setHeight(214);
     _log_box->setFont(StyleFont::SIZE(10));

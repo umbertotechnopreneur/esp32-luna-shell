@@ -53,7 +53,7 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_clear;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_follow;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _logs_live;
-    std::unique_ptr<esp_brookesia::gui::AppTextBox> _log_box;
+    std::unique_ptr<esp_brookesia::gui::AppRichText> _log_box;
     std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _hardware_labels;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _hardware_summary;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _about;

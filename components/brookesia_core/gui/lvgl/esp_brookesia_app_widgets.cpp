@@ -1,5 +1,6 @@
 #include "esp_brookesia_app_widgets.hpp"
 
+#include <cstring>
 #include <utility>
 
 #include "esp_brookesia_lv_helper.hpp"
@@ -227,6 +228,96 @@ bool AppTextBox::setBackgroundColor(const StyleColor &color)
 bool AppTextBox::align(const StyleAlign &alignment)
 {
     return setStyleAttribute(alignment);
+}
+
+AppRichText::AppRichText(const LvObject *parent):
+    LvObject(lv_spangroup_create(parent != nullptr ? parent->getNativeHandle() : nullptr))
+{
+    if (isValid()) {
+        lv_spangroup_set_mode(getNativeHandle(), LV_SPAN_MODE_BREAK);
+        lv_spangroup_set_overflow(getNativeHandle(), LV_SPAN_OVERFLOW_CLIP);
+        lv_obj_set_scroll_dir(getNativeHandle(), LV_DIR_VER);
+        lv_obj_set_scrollbar_mode(getNativeHandle(), LV_SCROLLBAR_MODE_AUTO);
+    }
+}
+
+bool AppRichText::setText(const char *text, bool follow_latest)
+{
+    if (!isValid()) return false;
+    const bool was_at_bottom = isAtBottom();
+    const char *source = text != nullptr ? text : "";
+    while (lv_spangroup_get_span_count(getNativeHandle()) > 0U) {
+        lv_span_t *span = lv_spangroup_get_child(getNativeHandle(), 0);
+        if (span == nullptr) break;
+        lv_spangroup_delete_span(getNativeHandle(), span);
+    }
+
+    const size_t length = std::strlen(source);
+    size_t line_start = 0;
+    while (line_start < length || (length == 0U && line_start == 0U)) {
+        size_t line_end = line_start;
+        while (line_end < length && source[line_end] != '\n') ++line_end;
+        size_t first = line_start;
+        while (first < line_end && (source[first] == ' ' || source[first] == '\t')) ++first;
+        uint32_t color = 0xEAF1F6;
+        if (first < line_end && (source[first] == 'W' || source[first] == 'w')) color = 0xF6AD55;
+        else if (first < line_end && (source[first] == 'E' || source[first] == 'e' ||
+                                      source[first] == 'A' || source[first] == 'a')) color = 0xFC8181;
+        else if (first < line_end && (source[first] == 'I' || source[first] == 'i')) color = 0x68D391;
+        else if (first < line_end && (source[first] == 'D' || source[first] == 'd')) color = 0xA0AEC0;
+
+        std::string line(source + line_start, line_end - line_start);
+        line.push_back('\n');
+        lv_span_t *span = lv_spangroup_add_span(getNativeHandle());
+        if (span == nullptr) return false;
+        lv_span_set_text(span, line.c_str());
+        lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(color));
+        lv_style_set_text_font(lv_span_get_style(span), &lv_font_montserrat_10);
+        if (line_end >= length) break;
+        line_start = line_end + 1U;
+    }
+    lv_spangroup_refresh(getNativeHandle());
+    if (follow_latest && was_at_bottom) {
+        lv_obj_scroll_to_y(getNativeHandle(),
+                           lv_obj_get_scroll_y(getNativeHandle()) +
+                               lv_obj_get_scroll_bottom(getNativeHandle()), LV_ANIM_OFF);
+    }
+    return true;
+}
+
+bool AppRichText::setWidth(int width)
+{
+    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+}
+
+bool AppRichText::setHeight(int height)
+{
+    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+}
+
+bool AppRichText::setFont(const StyleFont &font)
+{
+    return setStyleAttribute(font);
+}
+
+bool AppRichText::setTextColor(const StyleColor &color)
+{
+    return setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_TEXT, color);
+}
+
+bool AppRichText::setBackgroundColor(const StyleColor &color)
+{
+    return setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND, color);
+}
+
+bool AppRichText::align(const StyleAlign &alignment)
+{
+    return setStyleAttribute(alignment);
+}
+
+bool AppRichText::isAtBottom() const
+{
+    return isValid() && lv_obj_get_scroll_bottom(getNativeHandle()) <= 2;
 }
 
 AppImage::AppImage(const LvObject *parent):
