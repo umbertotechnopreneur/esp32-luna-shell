@@ -26,6 +26,8 @@ constexpr uint32_t kSlate = 0x52697D;
 constexpr uint32_t kError = 0xD64545;
 constexpr uint32_t kTrack = 0x263744;
 constexpr uint32_t kWhite = 0xFFFFFF;
+constexpr uint32_t kTitleTop = 0x0A1824;
+constexpr uint32_t kTitleBottom = 0x123D50;
 constexpr int kWidth = 272;
 constexpr int kRowWidth = 236;
 
@@ -47,11 +49,18 @@ void labelStyle(AppLabel &label, int width, int size, uint32_t color, StyleAlign
 
 void buttonStyle(AppButton &button, int width, int height, uint32_t color)
 {
+    const uint32_t end_color = color == kTeal ? 0x075E54 :
+                               color == kBlue ? 0x183E70 : 0x263746;
     button.setWidth(width);
     button.setHeight(height);
     button.setFont(StyleFont::SIZE(10));
     button.setTextColor(StyleColor::COLOR(kWhite));
-    button.setBackgroundGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
+    button.setBackgroundGradient(StyleColor::COLOR(color), StyleColor::COLOR(end_color));
+    lv_obj_set_style_bg_grad_dir(button.getNativeHandle(), LV_GRAD_DIR_VER, LV_PART_MAIN);
+    lv_obj_set_style_radius(button.getNativeHandle(), height / 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button.getNativeHandle(), 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(button.getNativeHandle(), lv_color_hex(0x4D7188), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(button.getNativeHandle(), LV_OPA_40, LV_PART_MAIN);
 }
 
 std::unique_ptr<AppLabel> makeLabel(const LvObject *parent, const char *text, int width, int size,
@@ -79,10 +88,12 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
     metric.bar = std::make_unique<AppProgressBar>(metric.card.get());
     metric.bar->setRange(0, 100);
     metric.bar->setValue(0);
-    metric.bar->setWidth(kRowWidth);
+    // Keep the bar inside the 236 px card after the 10 px side insets.
+    metric.bar->setWidth(kRowWidth - 20);
     metric.bar->setHeight(8);
     metric.bar->setBackgroundColor(StyleColor::COLOR(kTrack));
-    metric.bar->setIndicatorGradient(StyleColor::COLOR(color), StyleColor::COLOR(color == kTeal ? 0x08745F : 0x2A5E9B));
+    lv_obj_set_style_bg_color(metric.bar->getNativeHandle(), lv_color_hex(color), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(metric.bar->getNativeHandle(), LV_OPA_COVER, LV_PART_INDICATOR);
     metric.bar->align({STYLE_ALIGN_TYPE_TOP_LEFT, 10, 27});
 }
 
@@ -94,7 +105,9 @@ std::unique_ptr<AppProgressBar> makeDiagnosticBar(const LvObject *parent, int y,
     bar->setWidth(kRowWidth);
     bar->setHeight(12);
     bar->setBackgroundColor(StyleColor::COLOR(kTrack));
-    bar->setIndicatorGradient(StyleColor::COLOR(top), StyleColor::COLOR(bottom));
+    (void)bottom;
+    lv_obj_set_style_bg_color(bar->getNativeHandle(), lv_color_hex(top), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(bar->getNativeHandle(), LV_OPA_COVER, LV_PART_INDICATOR);
     bar->align({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     return bar;
 }
@@ -190,8 +203,23 @@ bool Navigation::begin()
     _surface->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
     surface(*_surface);
 
-    _page_title = makeLabel(_surface.get(), "WELCOME", kWidth, 20, kNavy, STYLE_ALIGN_TYPE_TOP_MID, 0, 10);
-    _page_subtitle = makeLabel(_surface.get(), "QSee device console", kWidth, 10, kMuted, STYLE_ALIGN_TYPE_TOP_MID, 0, 34);
+    _title_bar = std::make_unique<LvContainer>(_surface.get());
+    _title_bar->setStyleAttribute(StyleSize::RECT(kWidth, 46));
+    _title_bar->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
+    lv_obj_set_style_bg_color(_title_bar->getNativeHandle(), lv_color_hex(kTitleTop), LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_color(_title_bar->getNativeHandle(), lv_color_hex(kTitleBottom), LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_dir(_title_bar->getNativeHandle(), LV_GRAD_DIR_HOR, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(_title_bar->getNativeHandle(), LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_radius(_title_bar->getNativeHandle(), 18, LV_PART_MAIN);
+    lv_obj_set_style_border_width(_title_bar->getNativeHandle(), 1, LV_PART_MAIN);
+    lv_obj_set_style_border_color(_title_bar->getNativeHandle(), lv_color_hex(0x28556A), LV_PART_MAIN);
+    lv_obj_set_style_border_opa(_title_bar->getNativeHandle(), LV_OPA_60, LV_PART_MAIN);
+    lv_obj_clear_flag(_title_bar->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
+
+    _page_title = makeLabel(_title_bar.get(), "WELCOME", kRowWidth, 16, kNavy,
+                            STYLE_ALIGN_TYPE_TOP_MID, 0, 5);
+    _page_subtitle = makeLabel(_title_bar.get(), "QSee device console", kRowWidth, 10, kMuted,
+                               STYLE_ALIGN_TYPE_TOP_MID, 0, 25);
 
     _welcome = std::make_unique<LvContainer>(_surface.get());
     _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 232));
@@ -204,8 +232,7 @@ bool Navigation::begin()
     _sd_action->setText("");
     _sd_action->setWidth(kRowWidth);
     _sd_action->setHeight(40);
-    _sd_action->setBackgroundGradient(StyleColor::COLOR_WITH_OPACITY(kSurface, 0),
-                                      StyleColor::COLOR_WITH_OPACITY(kSurface, 0));
+    lv_obj_set_style_bg_opa(_sd_action->getNativeHandle(), LV_OPA_TRANSP, LV_PART_MAIN);
     _sd_action->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 43});
     _radio_status = makeLabel(_welcome.get(), "WiFi --   BLE --   GPS --", kRowWidth, 10, kNavy,
                               STYLE_ALIGN_TYPE_TOP_MID, 0, 177);
@@ -321,8 +348,7 @@ bool Navigation::begin()
         action->setText("");
         action->setWidth(128);
         action->setHeight(32);
-        action->setBackgroundGradient(StyleColor::COLOR_WITH_OPACITY(kSurface, 0),
-                                       StyleColor::COLOR_WITH_OPACITY(kSurface, 0));
+        lv_obj_set_style_bg_opa(action->getNativeHandle(), LV_OPA_TRANSP, LV_PART_MAIN);
         action->align({STYLE_ALIGN_TYPE_CENTER, 0, 0});
         _hardware_actions.push_back(std::move(action));
         _hardware_cards.push_back(std::move(card));
@@ -404,7 +430,8 @@ bool Navigation::begin()
     _dialog_progress->setWidth(190);
     _dialog_progress->setHeight(8);
     _dialog_progress->setBackgroundColor(StyleColor::COLOR(kTrack));
-    _dialog_progress->setIndicatorGradient(StyleColor::COLOR(kTeal), StyleColor::COLOR(0x08745F));
+    lv_obj_set_style_bg_color(_dialog_progress->getNativeHandle(), lv_color_hex(kTeal), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_opa(_dialog_progress->getNativeHandle(), LV_OPA_COVER, LV_PART_INDICATOR);
     _dialog_progress->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 76});
     setVisible(*_dialog_progress, false);
     _dialog_confirm = std::make_unique<AppButton>(_dialog.get(), [this]() { requestFormat(); });
@@ -512,6 +539,7 @@ void Navigation::shutdown()
     _dialog.reset();
     _page_title.reset();
     _page_subtitle.reset();
+    _title_bar.reset();
     _open_logs.reset();
     _open_hardware.reset();
     _open_audio.reset();

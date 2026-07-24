@@ -45,6 +45,7 @@ private:
 
     std::unique_ptr<esp_brookesia::gui::AppScreen> _screen;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _surface;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _title_bar;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _page_title;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _page_subtitle;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _welcome;

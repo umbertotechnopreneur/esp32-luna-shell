@@ -36,7 +36,11 @@ bool AppLabel::setText(const char *text)
 
 bool AppLabel::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppLabel::setFont(const StyleFont &font)
@@ -72,12 +76,20 @@ bool AppButton::setText(const char *text)
 
 bool AppButton::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppButton::setHeight(int height)
 {
-    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_height(getNativeHandle(), height);
+    return true;
 }
 
 bool AppButton::setFont(const StyleFont &font)
@@ -138,12 +150,20 @@ bool AppProgressBar::setValue(int value, bool animated)
 
 bool AppProgressBar::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppProgressBar::setHeight(int height)
 {
-    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_height(getNativeHandle(), height);
+    return true;
 }
 
 bool AppProgressBar::setIndicatorColor(const StyleColor &color)
@@ -221,12 +241,20 @@ bool AppTextBox::isAtBottom() const
 
 bool AppTextBox::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppTextBox::setHeight(int height)
 {
-    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_height(getNativeHandle(), height);
+    return true;
 }
 
 bool AppTextBox::setFont(const StyleFont &font)
@@ -306,12 +334,20 @@ bool AppRichText::setText(const char *text, bool follow_latest)
 
 bool AppRichText::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppRichText::setHeight(int height)
 {
-    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_height(getNativeHandle(), height);
+    return true;
 }
 
 bool AppRichText::setFont(const StyleFont &font)
@@ -362,12 +398,20 @@ bool AppImage::setRawRgb565(const uint8_t *data, uint32_t width, uint32_t height
 
 bool AppImage::setWidth(int width)
 {
-    return setStyleAttribute(StyleSize::RECT(width, StyleSize::LENGTH_AUTO));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_width(getNativeHandle(), width);
+    return true;
 }
 
 bool AppImage::setHeight(int height)
 {
-    return setStyleAttribute(StyleSize::RECT(StyleSize::LENGTH_AUTO, height));
+    if (!isValid()) {
+        return false;
+    }
+    lv_obj_set_height(getNativeHandle(), height);
+    return true;
 }
 
 bool AppImage::align(const StyleAlign &alignment)

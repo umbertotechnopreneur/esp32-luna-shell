@@ -53,6 +53,9 @@ finally {
         $serial.Close()
     }
     $serial.Dispose()
+    # Give the Windows USB serial driver time to release cancellation state
+    # before a following flash or monitor command reopens the same COM port.
+    Start-Sleep -Milliseconds 500
 }
 
 [System.IO.File]::WriteAllText($resolvedOutput, $captured.ToString(), [System.Text.UTF8Encoding]::new($false))

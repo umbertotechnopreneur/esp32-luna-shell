@@ -32,7 +32,7 @@ using esp_brookesia::systems::phone::Phone;
 namespace {
 const char *TAG = "qsee_main";
 
-bool start_brookesia()
+bool start_brookesia(lv_indev_t *touch)
 {
     LvLock::registerCallbacks(
         [](int timeout_ms) {
@@ -44,11 +44,61 @@ bool start_brookesia()
         }
     );
 
-    auto *phone = new (std::nothrow) Phone();
+    // Bind Brookesia to the display already created by the Waveshare BSP.
+    // Without this, the framework falls back to its generic display context.
+    auto *phone = new (std::nothrow) Phone(lv_disp_get_default());
     if (phone == nullptr) {
         ESP_LOGE(TAG, "ESP-Brookesia: phone allocation failed");
         return false;
     }
+
+    auto phone_stylesheet = ESP_BROOKESIA_PHONE_480_480_DARK_STYLESHEET();
+    phone_stylesheet.core.screen_size = esp_brookesia::gui::StyleSize::RECT(466, 466);
+    auto &status_bar = phone_stylesheet.display.status_bar.data;
+    status_bar.main.size = esp_brookesia::gui::StyleSize::RECT(260, 30);
+    status_bar.main.size.radius = 15;
+    status_bar.main.offset_y = 42;
+    status_bar.main.background_color = esp_brookesia::gui::StyleColor::COLOR(0x050A10);
+    status_bar.main.background_gradient_color = esp_brookesia::gui::StyleColor::COLOR(0x123D50);
+    status_bar.main.enable_background_gradient = true;
+    status_bar.main.text_font = esp_brookesia::gui::StyleFont::SIZE(10);
+    status_bar.main.text_color = esp_brookesia::gui::StyleColor::COLOR(0xF4FAFF);
+    status_bar.area.num = 1;
+    status_bar.area.data[0] = {
+        .size = esp_brookesia::gui::StyleSize::RECT_PERCENT(100, 100),
+        .layout_column_align = esp_brookesia::systems::phone::StatusBar::AreaAlign::CENTER,
+        .layout_column_start_offset = 0,
+        .layout_column_pad = 4,
+    };
+    // Text telemetry is denser and clearer than the stock phone icons at this
+    // diameter; battery, radios, GPS and SD state share one compact line.
+    status_bar.flags.enable_battery_icon = 0;
+    status_bar.flags.enable_battery_icon_common_size = 0;
+    status_bar.flags.enable_battery_label = 0;
+    status_bar.flags.enable_wifi_icon = 0;
+    status_bar.flags.enable_wifi_icon_common_size = 0;
+    status_bar.flags.enable_clock = 0;
+    // The circular device has no recents gesture surface. Disabling that
+    // unused 480px layout also avoids allocating its snapshot layers.
+    phone_stylesheet.display.flags.enable_recents_screen = 0;
+    // The circular QSee UI keeps its own BACK control. Avoid allocating the
+    // Brookesia bottom bar so a gesture cannot reveal it again.
+    phone_stylesheet.display.flags.enable_navigation_bar = 0;
+    phone_stylesheet.manager.flags.enable_recents_screen_snapshot_drag = 0;
+    if (!phone->addStylesheet(phone_stylesheet) ||
+        !phone->activateStylesheet(phone_stylesheet)) {
+        ESP_LOGE(TAG, "ESP-Brookesia: compatible phone stylesheet setup failed");
+        return false;
+    }
+
+    if (touch == nullptr || !phone->setTouchDevice(touch)) {
+        ESP_LOGE(TAG, "ESP-Brookesia: touch device setup failed");
+        return false;
+    }
+
+    // The boot task now owns the LVGL lock, so the overlay can be removed
+    // reliably before Brookesia starts creating application objects.
+    qsee_boot_ui_hide();
 
     LvLockGuard gui_guard;
     if (!phone->begin()) {
@@ -80,7 +130,7 @@ bool start_brookesia()
 void brookesia_task(void *arg)
 {
     (void)arg;
-    if (!start_brookesia()) {
+    if (!start_brookesia(static_cast<lv_indev_t *>(arg))) {
         ESP_LOGE(TAG, "ESP-Brookesia launch failed; canonical logger remains active");
     }
     vTaskDelete(nullptr);
@@ -118,28 +168,18 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_power_inputs_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_storage_init());
-    (void)qsee_radios_init();
-    if (!qsee_provisioning_active()) {
-        const esp_err_t wifi_scan_result = qsee_wifi_start_scan();
-        ESP_LOGI(TAG, "Wi-Fi: boot scan request %s", esp_err_to_name(wifi_scan_result));
-    } else {
-        ESP_LOGI(
-            TAG,
-            "Wi-Fi: scan deferred during BLE provisioning (%s, PoP=%s)",
-            qsee_provisioning_service_name(),
-            qsee_provisioning_pop()
-        );
-    }
-    (void)qsee_hardware_refresh("post-radio");
+    // Keep the display DMA path and Welcome task alive. Wi-Fi/BLE reserve most
+    // internal SRAM on this S3 and are started later from the settings flow.
+    ESP_LOGI(TAG, "Wi-Fi/BLE startup deferred until Settings");
+    (void)qsee_hardware_refresh("pre-ui");
 
     qsee_boot_ui_mark_ready();
-    qsee_boot_ui_hide();
 
     const BaseType_t task_result = xTaskCreatePinnedToCore(
         brookesia_task,
         "qsee_brookesia",
         12U * 1024U,
-        nullptr,
+        touch,
         5,
         nullptr,
         1

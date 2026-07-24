@@ -42,9 +42,15 @@ bool StatusBar::begin(lv_obj_t *parent)
     ESP_UTILS_CHECK_FALSE_RETURN(!checkMainInitialized(), false, "Already initialized");
 
     ESP_UTILS_CHECK_FALSE_GOTO(beginMain(parent), err, "Begin main failed");
-    ESP_UTILS_CHECK_FALSE_GOTO(beginWifi(), err, "Begin wifi failed");
-    ESP_UTILS_CHECK_FALSE_GOTO(beginBattery(), err, "Begin battery failed");
-    ESP_UTILS_CHECK_FALSE_GOTO(beginClock(), err, "Begin clock failed");
+    if (_data.flags.enable_wifi_icon) {
+        ESP_UTILS_CHECK_FALSE_GOTO(beginWifi(), err, "Begin wifi failed");
+    }
+    if (_data.flags.enable_battery_icon || _data.flags.enable_battery_label) {
+        ESP_UTILS_CHECK_FALSE_GOTO(beginBattery(), err, "Begin battery failed");
+    }
+    if (_data.flags.enable_clock) {
+        ESP_UTILS_CHECK_FALSE_GOTO(beginClock(), err, "Begin clock failed");
+    }
 
     ESP_UTILS_CHECK_FALSE_RETURN(_system_context.registerDateUpdateEventCallback(onDataUpdateEventCallback, this), false,
                                  "Register data update event callback failed");
@@ -113,6 +119,7 @@ bool StatusBar::addIcon(const StatusBarIcon::Data &data, uint8_t area_index, int
 {
     ESP_UTILS_LOGD("Add icon(%d) in area(%d)", id, area_index);
     ESP_UTILS_CHECK_FALSE_RETURN(checkMainInitialized(), false, "Not initialized");
+    ESP_UTILS_CHECK_FALSE_RETURN(area_index < _area_objs.size(), false, "Invalid area index");
 
     shared_ptr<StatusBarIcon> icon = make_shared<StatusBarIcon>(data);
     ESP_UTILS_CHECK_NULL_RETURN(icon, false, "Alloc icon failed");
@@ -307,7 +314,7 @@ bool StatusBar::beginMain(lv_obj_t *parent)
     /* Setup objects style */
     // Main
     lv_obj_add_style(main_obj.get(), _system_context.getDisplay().getCoreContainerStyle(), 0);
-    lv_obj_set_align(main_obj.get(), LV_ALIGN_TOP_MID);
+    lv_obj_align(main_obj.get(), LV_ALIGN_TOP_MID, 0, _data.main.offset_y);
     lv_obj_set_style_bg_opa(main_obj.get(), LV_OPA_COVER, 0);
     lv_obj_clear_flag(main_obj.get(), LV_OBJ_FLAG_SCROLLABLE);
     // Area
@@ -352,15 +359,21 @@ bool StatusBar::updateMainByNewData(void)
     ESP_UTILS_CHECK_FALSE_RETURN(checkMainInitialized(), false, "Not initialized");
 
     lv_obj_set_size(_main_obj.get(), _data.main.size.width, _data.main.size.height);
+    lv_obj_align(_main_obj.get(), LV_ALIGN_TOP_MID, 0, _data.main.offset_y);
+    lv_obj_set_style_radius(_main_obj.get(), _data.main.size.radius, 0);
+    lv_obj_set_style_clip_corner(_main_obj.get(), true, 0);
     lv_obj_set_style_text_font(_main_obj.get(), (lv_font_t *)_data.main.text_font.font_resource, 0);
     lv_obj_set_style_text_color(_main_obj.get(), lv_color_hex(_data.main.text_color.color), 0);
     lv_obj_set_style_text_opa(_main_obj.get(), _data.main.text_color.opacity, 0);
     lv_obj_set_style_bg_color(_main_obj.get(), lv_color_hex(_data.main.background_color.color), 0);
     lv_obj_set_style_bg_opa(_main_obj.get(), _data.main.background_color.opacity, 0);
     if (_data.main.enable_background_gradient) {
-        lv_obj_set_style_bg_grad_color(_main_obj.get(),
-                                       lv_color_hex(_data.main.background_gradient_color.color), 0);
+        lv_obj_set_style_bg_grad_color(
+            _main_obj.get(), lv_color_hex(_data.main.background_gradient_color.color), 0
+        );
         lv_obj_set_style_bg_grad_dir(_main_obj.get(), LV_GRAD_DIR_HOR, 0);
+    } else {
+        lv_obj_set_style_bg_grad_dir(_main_obj.get(), LV_GRAD_DIR_NONE, 0);
     }
 
     lv_flex_align_t main_align = LV_FLEX_ALIGN_START;

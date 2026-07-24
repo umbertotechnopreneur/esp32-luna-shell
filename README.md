@@ -91,22 +91,24 @@ and is rendered by
 [`components/qsee_app/qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp).
 This is the current code-grounded inventory:
 
-| Route | Status | Entry point | Purpose |
-| --- | --- | --- | --- |
-| `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
-| `Logs` | Implemented | `LIVE LOGS` | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
-| `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, per-component details, and SD action dialog |
-| `Audio` | Implemented, diagnostic | `AUDIO SCOPE` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
-| `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
-| `About` | Implemented | `ABOUT` | Device identity, branding, and contact information |
-| `Settings` | Planned | Not currently exposed | User and device settings page |
-| `AudioSpectrogram` | Planned | Not currently exposed | Test-audio spectrogram page; separate from the current audio-level diagnostics |
-| `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
+| Route | Status | Entry point | Declaration / implementation | Purpose |
+| --- | --- | --- | --- | --- |
+| `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
+| `Logs` | Implemented | `LIVE LOGS` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
+| `Hardware` | Implemented | `HARDWARE` or storage card | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Component health inventory, per-component details, and SD action dialog |
+| `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Microphone channel levels and PCM capture status; this is not yet a waveform or spectrogram |
+| `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Accelerometer, gyroscope, temperature, and calibration status |
+| `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
+| `Settings` | Planned | Not currently exposed | No route or screen implementation yet | User and device settings, including deferred Wi-Fi/BLE activation |
+| `AudioSpectrogram` | Planned | Not currently exposed | No route or screen implementation yet | Test-audio waveform/spectrogram page, separate from the current audio-level diagnostics |
+| `ImuCalibration` | Planned | Not currently exposed | No route or screen implementation yet | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
-The index is part of the route contract. Whenever a route is created, renamed,
-removed, or its entry point changes, update this table in the same change as
-the enum, screen construction, visibility logic, and entry button. A route
-change is not complete until the README index and the code agree.
+The index is part of the route contract. Every creation, rename, removal, or
+entry-point change must update this table in the same change as the route
+declaration, screen construction, visibility logic, and entry control. The
+change is incomplete unless the index contains the resulting route name,
+implemented/planned status, actual entry point, and declaration/implementation
+file, and those fields agree with the code review diff.
 
 ## Hardware
 
@@ -162,6 +164,27 @@ Capture a bounded diagnostic log:
 ```powershell
 pwsh -NoProfile -File .\scripts\capture-serial.ps1 -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
 ```
+
+### PowerShell quoting on Windows
+
+Run every PowerShell command with `pwsh -NoProfile`. Prefer `-File` for
+repository scripts because it avoids an unnecessary parsing layer:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-brookesia
+```
+
+When `-Command` is required, enclose the complete inner PowerShell program in
+single quotes. This prevents the invoking shell from expanding `$PID`, `$_`,
+and `$env:` before the inner PowerShell process receives them:
+
+```powershell
+pwsh -NoProfile -Command '$selfPid = $PID; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $selfPid -and $_.CommandLine -match $env:QSEE_PORT }'
+```
+
+Avoid nested `-Command "..."` invocations containing PowerShell variables.
+If the program becomes long or needs another quoting layer, put it in a `.ps1`
+file and invoke it with `pwsh -NoProfile -File`.
 
 Always pass the port explicitly before flashing. The device helper terminates
 stale monitor processes scoped to that port and fails the command if flashing
@@ -239,11 +262,22 @@ files, and other third-party code. Contact: `hello@qsee.ai`.
 ## Last physical-device validation
 
 The 2026-07-25 runtime pass on the dedicated `COM12` device confirmed a stable
-boot without the former `esp_timer` stack overflow. The display and branded
-live-log boot UI are stable, touch is responsive, the boot SFX is physically
-audible, and Wi-Fi scans complete with 8-10 access points detected. PMU, RTC,
-IMU, BLE advertising, ES8311 playback, and ES7210 microphone sampling have also
-been observed without reboot, draw, or SPI DMA-allocation failures.
+boot without the former `esp_timer` stack overflow. Boot now uses a minimal UI:
+the RichText log console remains off-screen while canonical logs continue over
+serial and in bounded RAM. After successful boot the application opens
+`Welcome`. Touch and scrolling are responsive, and the boot SFX completes
+before application startup.
+
+The 466 x 466 display uses two PSRAM draw buffers, each 50 rows high. This
+strip-based double-buffer configuration removes the former visible
+line-by-line composition without requiring full-frame DMA-capable internal
+memory. The latest validation did not reproduce the previous draw or SPI
+DMA-allocation failures.
+
+Wi-Fi and BLE initialization are intentionally deferred from boot to the
+planned `Settings` route, so earlier observations of startup scanning or BLE
+advertising are not claims about the current boot path. PMU, RTC, IMU, ES8311
+playback, and ES7210 microphone sampling have been observed on the device.
 
 The microSD is currently removed; firmware reports the SDMMC OCR timeout,
 keeps retrying asynchronously, and never formats automatically. LC76G bridge

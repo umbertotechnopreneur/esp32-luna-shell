@@ -4,8 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 #include <algorithm>
-#include <string>
 #include <cmath>
+#include <limits>
+#include <string>
 #include "esp_brookesia_gui_internal.h"
 #if !ESP_BROOKESIA_LVGL_HELPER_ENABLE_DEBUG_LOG
 #   define ESP_BROOKESIA_UTILS_DISABLE_DEBUG_LOG
@@ -13,11 +14,6 @@
 #include "private/esp_brookesia_lv_utils.hpp"
 #include "style/esp_brookesia_gui_style.hpp"
 #include "esp_brookesia_lv_helper.hpp"
-
-#define FONT_SWITH_CASE(size)           \
-    case (size):                        \
-    ret_font = &lv_font_montserrat_##size;   \
-    break
 
 namespace esp_brookesia::gui {
 
@@ -171,91 +167,101 @@ bool checkLvEventCodeValid(lv_event_code_t code)
 
 bool getLvInternalFontBySize(uint8_t size_px, const lv_font_t **font)
 {
-    bool ret = true;
-    const lv_font_t *ret_font = LV_FONT_DEFAULT;
+    struct FontCandidate {
+        uint8_t size;
+        const lv_font_t *font;
+    };
 
-    uint8_t temp_size = size_px;
-    size_px = (size_px << 2) >> 2;
-    size_px = std::clamp((int)size_px, StyleFont::FONT_SIZE_MIN, StyleFont::FONT_SIZE_MAX);
-    if (temp_size != size_px) {
-        ESP_UTILS_LOGW("Font size(%d) not support, use the nearest size(%d)", temp_size, size_px);
-    }
-
-    switch (size_px) {
+    static const FontCandidate candidates[] = {
 #if LV_FONT_MONTSERRAT_8
-        FONT_SWITH_CASE(8);
+        {8, &lv_font_montserrat_8},
 #endif
 #if LV_FONT_MONTSERRAT_10
-        FONT_SWITH_CASE(10);
+        {10, &lv_font_montserrat_10},
 #endif
 #if LV_FONT_MONTSERRAT_12
-        FONT_SWITH_CASE(12);
+        {12, &lv_font_montserrat_12},
 #endif
 #if LV_FONT_MONTSERRAT_14
-        FONT_SWITH_CASE(14);
+        {14, &lv_font_montserrat_14},
 #endif
 #if LV_FONT_MONTSERRAT_16
-        FONT_SWITH_CASE(16);
+        {16, &lv_font_montserrat_16},
 #endif
 #if LV_FONT_MONTSERRAT_18
-        FONT_SWITH_CASE(18);
+        {18, &lv_font_montserrat_18},
 #endif
 #if LV_FONT_MONTSERRAT_20
-        FONT_SWITH_CASE(20);
+        {20, &lv_font_montserrat_20},
 #endif
 #if LV_FONT_MONTSERRAT_22
-        FONT_SWITH_CASE(22);
+        {22, &lv_font_montserrat_22},
 #endif
 #if LV_FONT_MONTSERRAT_24
-        FONT_SWITH_CASE(24);
+        {24, &lv_font_montserrat_24},
 #endif
 #if LV_FONT_MONTSERRAT_26
-        FONT_SWITH_CASE(26);
+        {26, &lv_font_montserrat_26},
 #endif
 #if LV_FONT_MONTSERRAT_28
-        FONT_SWITH_CASE(28);
+        {28, &lv_font_montserrat_28},
 #endif
 #if LV_FONT_MONTSERRAT_30
-        FONT_SWITH_CASE(30);
+        {30, &lv_font_montserrat_30},
 #endif
 #if LV_FONT_MONTSERRAT_32
-        FONT_SWITH_CASE(32);
+        {32, &lv_font_montserrat_32},
 #endif
 #if LV_FONT_MONTSERRAT_34
-        FONT_SWITH_CASE(34);
+        {34, &lv_font_montserrat_34},
 #endif
 #if LV_FONT_MONTSERRAT_36
-        FONT_SWITH_CASE(36);
+        {36, &lv_font_montserrat_36},
 #endif
 #if LV_FONT_MONTSERRAT_38
-        FONT_SWITH_CASE(38);
+        {38, &lv_font_montserrat_38},
 #endif
 #if LV_FONT_MONTSERRAT_40
-        FONT_SWITH_CASE(40);
+        {40, &lv_font_montserrat_40},
 #endif
 #if LV_FONT_MONTSERRAT_42
-        FONT_SWITH_CASE(42);
+        {42, &lv_font_montserrat_42},
 #endif
 #if LV_FONT_MONTSERRAT_44
-        FONT_SWITH_CASE(44);
+        {44, &lv_font_montserrat_44},
 #endif
 #if LV_FONT_MONTSERRAT_46
-        FONT_SWITH_CASE(46);
+        {46, &lv_font_montserrat_46},
 #endif
 #if LV_FONT_MONTSERRAT_48
-        FONT_SWITH_CASE(48);
+        {48, &lv_font_montserrat_48},
 #endif
-    default:
-        ret = false;
-        ESP_UTILS_LOGE("No internal font size(%d) found, use default instead", temp_size);
-        break;
+    };
+
+    const uint8_t requested_size = std::clamp(
+        static_cast<int>(size_px),
+        StyleFont::FONT_SIZE_MIN,
+        StyleFont::FONT_SIZE_MAX
+    );
+    const FontCandidate *nearest = nullptr;
+    int nearest_distance = std::numeric_limits<int>::max();
+    for (const auto &candidate : candidates) {
+        const int distance = candidate.size > requested_size
+            ? candidate.size - requested_size
+            : requested_size - candidate.size;
+        if ((distance < nearest_distance) ||
+                ((distance == nearest_distance) &&
+                 (nearest == nullptr || candidate.size > nearest->size))) {
+            nearest = &candidate;
+            nearest_distance = distance;
+        }
     }
 
     if (font != NULL) {
-        *font = ret_font;
+        *font = nearest != nullptr ? nearest->font : LV_FONT_DEFAULT;
     }
 
-    return ret;
+    return nearest != nullptr;
 }
 
 lv_color_t getLvRandomColor(void)

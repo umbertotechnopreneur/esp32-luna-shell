@@ -22,6 +22,11 @@ LvObject::LvObject(lv_obj_t *p, bool is_auto_delete):
 
     ESP_UTILS_CHECK_FALSE_EXIT((p != nullptr) && checkLvObjIsValid(p), "Invalid object pointer(@0x%p)", p);
 
+    // Keep the shared UI path allocation-light on the ESP32-S3; shadows use a
+    // temporary software-render buffer from scarce internal RAM.
+    lv_obj_set_style_shadow_width(p, 0, LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(p, LV_OPA_TRANSP, LV_PART_MAIN);
+
     lv_obj_add_event_cb(p, [](lv_event_t *e) {
         ESP_UTILS_LOG_TRACE_ENTER();
 
@@ -122,7 +127,16 @@ bool LvObject::setStyleAttribute(const gui::StyleFont &font)
 
     ESP_UTILS_CHECK_FALSE_RETURN(isValid(), false, "Invalid object");
 
-    lv_obj_set_style_text_font(_native_handle, (lv_font_t *)font.font_resource, (int)LV_PART_MAIN | (int)LV_STATE_DEFAULT);
+    const lv_font_t *resolved_font = static_cast<const lv_font_t *>(font.font_resource);
+    if (resolved_font == nullptr) {
+        (void)getLvInternalFontBySize(static_cast<uint8_t>(font.size_px), &resolved_font);
+    }
+    if (resolved_font == nullptr) {
+        resolved_font = LV_FONT_DEFAULT;
+    }
+    lv_obj_set_style_text_font(
+        _native_handle, resolved_font, (int)LV_PART_MAIN | (int)LV_STATE_DEFAULT
+    );
 
     ESP_UTILS_LOG_TRACE_EXIT_WITH_THIS();
     return true;
@@ -266,7 +280,8 @@ bool LvObject::setStyleAttribute(StyleFlag flags, bool enable)
         }
     }
 
-    if (flags | STYLE_FLAG_CLIP_CORNER) {
+    if ((static_cast<unsigned int>(flags) &
+            static_cast<unsigned int>(STYLE_FLAG_CLIP_CORNER)) != 0U) {
         lv_obj_set_style_clip_corner(
             _native_handle, enable, static_cast<int>(LV_PART_MAIN) | static_cast<int>(LV_STATE_DEFAULT)
         );
@@ -409,7 +424,8 @@ bool LvObject::hasFlags(StyleFlag flags) const
         result = lv_obj_has_flag(_native_handle, lv_flag);
     }
 
-    if (flags | STYLE_FLAG_CLIP_CORNER) {
+    if ((static_cast<unsigned int>(flags) &
+            static_cast<unsigned int>(STYLE_FLAG_CLIP_CORNER)) != 0U) {
         result &= lv_obj_get_style_clip_corner(_native_handle, LV_PART_MAIN);
     }
 

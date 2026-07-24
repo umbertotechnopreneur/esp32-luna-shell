@@ -24,10 +24,11 @@
 namespace {
 constexpr int kStatusTextId = 0x5141;
 
-const char *statusGlyph(qsee::DeviceHealth health)
+const char *statusCode(qsee::DeviceHealth health)
 {
-    return health == qsee::DeviceHealth::Ready ? "●" :
-           health == qsee::DeviceHealth::Missing ? "○" : "!";
+    return health == qsee::DeviceHealth::Ready ? "OK" :
+           health == qsee::DeviceHealth::Degraded ? "!" :
+           health == qsee::DeviceHealth::Missing ? "--" : "..";
 }
 
 bool storageFormatRequired(const qsee::StorageSnapshot &storage)
@@ -75,30 +76,25 @@ void App::syncStatusBar()
 
     const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
     if (!_status_text_added) {
-        _status_text_added = status_bar->addText("BT○ Wi○ GP○ SD○", 0, kStatusTextId);
+        _status_text_added = status_bar->addText("P:--  BT:..  WF:..  G:..  SD:..", 0, kStatusTextId);
     }
-    char status_text[64];
-    std::snprintf(status_text, sizeof(status_text), "BT%s Wi%s GP%s SD%s",
-                  statusGlyph(snapshot.radios.ble.health),
-                  statusGlyph(snapshot.radios.wifi.health),
-                  statusGlyph(snapshot.gps.health),
+    char power[12];
+    if (snapshot.battery.battery_present && snapshot.battery.level_percent >= 0) {
+        std::snprintf(power, sizeof(power), "%d%%", snapshot.battery.level_percent);
+    } else {
+        std::snprintf(power, sizeof(power), "%s", snapshot.battery.usb_present ? "USB" : "--");
+    }
+    char status_text[80];
+    std::snprintf(status_text, sizeof(status_text), "P:%s  BT:%s  WF:%s  G:%s  SD:%s",
+                  power,
+                  statusCode(snapshot.radios.ble.health),
+                  statusCode(snapshot.radios.wifi.health),
+                  statusCode(snapshot.gps.health),
                   storageFormatRequired(snapshot.storage) ? "!" :
-                  statusGlyph(snapshot.storage.health));
+                  statusCode(snapshot.storage.health));
     if (_status_text_added) {
         (void)status_bar->setText(kStatusTextId, status_text);
     }
-    if (snapshot.battery.level_percent >= 0) {
-        (void)status_bar->showBatteryPercent();
-        (void)status_bar->setBatteryPercent(snapshot.battery.usb_present,
-                                            snapshot.battery.level_percent);
-    } else {
-        (void)status_bar->hideBatteryPercent();
-    }
-
-    const auto wifi_state = snapshot.radios.wifi.health == qsee::DeviceHealth::Ready
-        ? esp_brookesia::systems::phone::StatusBar::WifiState::SIGNAL_3
-        : esp_brookesia::systems::phone::StatusBar::WifiState::DISCONNECTED;
-    (void)status_bar->setWifiIconState(wifi_state);
 }
 
 bool App::back()

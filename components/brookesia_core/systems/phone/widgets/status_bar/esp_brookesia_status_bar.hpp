@@ -37,6 +37,7 @@ public:
     struct Data {
         struct {
             gui::StyleSize size;
+            int offset_y;
             gui::StyleSize size_min;
             gui::StyleSize size_max;
             gui::StyleColor background_color;

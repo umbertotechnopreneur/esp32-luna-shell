@@ -162,7 +162,7 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     )
 
     $genericMonitorPattern = [regex]::new(
-        "(?i)(device\.ps1.*monitor.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
+        "(?i)(device\.ps1.*monitor.*-Port\s+$normalizedRequestedPort|capture-serial\.ps1.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
     )
 
     $toStop = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
@@ -182,6 +182,30 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
             Write-Warning "Could not stop stale monitor process $($process.ProcessId): $($_.Exception.Message)"
         }
     }
+}
+
+function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastError = $null
+
+    while ((Get-Date) -lt $deadline) {
+        $probe = [System.IO.Ports.SerialPort]::new($RequestedPort, 115200)
+        try {
+            $probe.Open()
+            $probe.Close()
+            $probe.Dispose()
+            Start-Sleep -Milliseconds 500
+            Write-Host "Serial port $RequestedPort is released and ready."
+            return
+        } catch {
+            $lastError = $_.Exception.Message
+            $probe.Dispose()
+            Stop-StaleMonitorProcesses $RequestedPort
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
 }
 
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
@@ -254,6 +278,7 @@ try {
             }
             $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Erase failed"
@@ -265,6 +290,7 @@ try {
             }
             $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
@@ -275,12 +301,16 @@ try {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
             $Port = Resolve-Port $Port
+            Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
         }
         "combo" {
             Invoke-ProjectBuild $BuildDir
 
             $Port = Resolve-Port $Port
+            Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
@@ -303,6 +333,7 @@ try {
 
             $Port = Wait-ForPort $Port $WaitSeconds
             Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
