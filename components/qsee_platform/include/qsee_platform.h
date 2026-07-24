@@ -45,6 +45,9 @@ esp_err_t qsee_hardware_init(void);
  */
 esp_err_t qsee_hardware_refresh(const char *reason);
 
+/** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
+esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+
 /**
  * Run an explicit stationary QMI8658 calibration.
  *
@@ -109,6 +112,15 @@ esp_err_t qsee_audio_play_pcm16(
 esp_err_t qsee_audio_capture_pcm16(
     int16_t *samples,
     size_t sample_count,
+    uint32_t sample_rate_hz,
+    float gain_db
+);
+
+/** Capture interleaved PCM16 frames from the ES7210 microphone channels. */
+esp_err_t qsee_audio_capture_pcm16_channels(
+    int16_t *samples,
+    size_t frame_count,
+    uint8_t channel_count,
     uint32_t sample_rate_hz,
     float gain_db
 );

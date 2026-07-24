@@ -30,6 +30,7 @@ esp_codec_dev_handle_t s_speaker;
 esp_codec_dev_handle_t s_microphone;
 uint32_t s_sample_rate_hz;
 std::atomic_bool s_initialized;
+uint8_t s_channel_count;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
 
@@ -41,12 +42,12 @@ SemaphoreHandle_t audio_mutex()
     return s_audio_mutex;
 }
 
-esp_err_t configure_streams(uint32_t sample_rate_hz)
+esp_err_t configure_streams(uint32_t sample_rate_hz, uint8_t channel_count)
 {
-    if (sample_rate_hz == 0) {
+    if (sample_rate_hz == 0 || channel_count == 0 || channel_count > 2) {
         return ESP_ERR_INVALID_ARG;
     }
-    if (s_sample_rate_hz == sample_rate_hz) {
+    if (s_sample_rate_hz == sample_rate_hz && s_channel_count == channel_count) {
         return ESP_OK;
     }
 
@@ -56,7 +57,7 @@ esp_err_t configure_streams(uint32_t sample_rate_hz)
     }
     esp_codec_dev_sample_info_t sample = {
         .bits_per_sample = 16,
-        .channel = 1,
+        .channel = channel_count,
         .channel_mask = 0,
         .sample_rate = sample_rate_hz,
         .mclk_multiple = 0,
@@ -71,6 +72,7 @@ esp_err_t configure_streams(uint32_t sample_rate_hz)
         return ESP_FAIL;
     }
     s_sample_rate_hz = sample_rate_hz;
+    s_channel_count = channel_count;
     return ESP_OK;
 }
 
@@ -97,7 +99,7 @@ extern "C" esp_err_t qsee_audio_init(void)
     s_speaker = bsp_audio_codec_speaker_init();
     s_microphone = bsp_audio_codec_microphone_init();
     esp_err_t error =
-        s_speaker != nullptr && s_microphone != nullptr ? configure_streams(22050) : ESP_ERR_NOT_FOUND;
+        s_speaker != nullptr && s_microphone != nullptr ? configure_streams(22050, 1) : ESP_ERR_NOT_FOUND;
     if (error == ESP_OK) {
         const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
         const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
@@ -112,7 +114,7 @@ extern "C" esp_err_t qsee_audio_init(void)
     xSemaphoreGive(mutex);
 
     if (error == ESP_OK) {
-        ESP_LOGI(TAG, "Audio route ready: ES8311 out + ES7210 in, mono PCM16 22.05kHz");
+        ESP_LOGI(TAG, "Audio route ready: ES8311 out + ES7210 in, PCM16 22.05kHz (capture 2ch)");
     } else {
         ESP_LOGE(TAG, "Audio route initialization failed (%s)", esp_err_to_name(error));
     }
@@ -138,7 +140,7 @@ extern "C" esp_err_t qsee_audio_play_pcm16(
         return ESP_ERR_TIMEOUT;
     }
 
-    error = configure_streams(sample_rate_hz);
+    error = configure_streams(sample_rate_hz, 1);
     const int volume = std::clamp(volume_percent, 0, 100);
     if (error == ESP_OK &&
         esp_codec_dev_set_out_vol(s_speaker, volume) != ESP_CODEC_DEV_OK) {
@@ -192,7 +194,7 @@ extern "C" esp_err_t qsee_audio_capture_pcm16(
         return ESP_ERR_TIMEOUT;
     }
 
-    error = configure_streams(sample_rate_hz);
+    error = configure_streams(sample_rate_hz, 1);
     if (error == ESP_OK &&
         esp_codec_dev_set_in_gain(s_microphone, gain_db) != ESP_CODEC_DEV_OK) {
         error = ESP_FAIL;
@@ -202,6 +204,42 @@ extern "C" esp_err_t qsee_audio_capture_pcm16(
             s_microphone,
             samples,
             sample_count * sizeof(int16_t)
+        );
+        error = result == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
+    }
+    xSemaphoreGive(mutex);
+    return error;
+}
+
+extern "C" esp_err_t qsee_audio_capture_pcm16_channels(
+    int16_t *samples,
+    size_t frame_count,
+    uint8_t channel_count,
+    uint32_t sample_rate_hz,
+    float gain_db
+)
+{
+    if (samples == nullptr || frame_count == 0 || channel_count == 0 || channel_count > 2) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t error = qsee_audio_init();
+    if (error != ESP_OK) {
+        return error;
+    }
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    error = configure_streams(sample_rate_hz, channel_count);
+    if (error == ESP_OK &&
+        esp_codec_dev_set_in_gain(s_microphone, gain_db) != ESP_CODEC_DEV_OK) {
+        error = ESP_FAIL;
+    }
+    if (error == ESP_OK) {
+        const int result = esp_codec_dev_read(
+            s_microphone,
+            samples,
+            frame_count * channel_count * sizeof(int16_t)
         );
         error = result == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
     }

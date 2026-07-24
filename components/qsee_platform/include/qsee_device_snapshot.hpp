@@ -87,8 +87,12 @@ struct GpsSnapshot : ComponentSnapshot {
 struct AudioSnapshot {
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
+    uint8_t channel_count = 0;
+    uint32_t sample_rate_hz = 0;
     uint32_t microphone_mean_level = 0;
     uint32_t microphone_peak_level = 0;
+    uint32_t channel_mean_level[2] = {};
+    uint32_t channel_peak_level[2] = {};
 };
 
 struct WifiSnapshot : ComponentSnapshot {

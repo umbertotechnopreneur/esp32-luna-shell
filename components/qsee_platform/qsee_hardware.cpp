@@ -80,6 +80,8 @@ float s_gyro_bias[3];
 bool s_gps_ready;
 bool s_microphone_worker_started;
 bool s_microphone_ready;
+bool s_diagnostic_monitor_started;
+volatile bool s_diagnostic_monitor_active;
 
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
@@ -89,8 +91,10 @@ SemaphoreHandle_t s_refresh_mutex;
 
 StaticTask_t s_microphone_task_control;
 StackType_t s_microphone_task_stack[4096];
+StaticTask_t s_diagnostic_task_control;
+StackType_t s_diagnostic_task_stack[3072];
 char s_gps_payload[GPS_MAX_PAYLOAD + 1];
-int16_t s_microphone_samples[512];
+int16_t s_microphone_samples[1024];
 
 SemaphoreHandle_t ensure_snapshot_mutex()
 {
@@ -916,34 +920,54 @@ esp_err_t sample_gps(const char *phase)
 
 esp_err_t sample_microphone(const char *phase)
 {
-    const esp_err_t error = qsee_audio_capture_pcm16(
+    constexpr size_t channel_count = 2;
+    constexpr size_t frame_count = sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
+    const esp_err_t error = qsee_audio_capture_pcm16_channels(
         s_microphone_samples,
-        sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]),
+        frame_count,
+        channel_count,
         22050,
         24.0F
     );
 
-    uint32_t absolute_sum = 0;
-    uint32_t peak = 0;
+    uint32_t absolute_sum[2] = {};
+    uint32_t peak[2] = {};
     if (error == ESP_OK) {
-        for (int16_t raw : s_microphone_samples) {
-            const uint32_t value = raw < 0 ? static_cast<uint32_t>(-static_cast<int32_t>(raw))
-                                           : static_cast<uint32_t>(raw);
-            absolute_sum += value;
-            if (value > peak) {
-                peak = value;
+        for (size_t index = 0; index < frame_count; ++index) {
+            for (size_t channel = 0; channel < channel_count; ++channel) {
+                const int16_t raw = s_microphone_samples[index * channel_count + channel];
+                const uint32_t value = raw < 0 ? static_cast<uint32_t>(-static_cast<int32_t>(raw))
+                                               : static_cast<uint32_t>(raw);
+                absolute_sum[channel] += value;
+                if (value > peak[channel]) {
+                    peak[channel] = value;
+                }
             }
         }
     }
-    const uint32_t mean = absolute_sum / (sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]));
-    update_snapshot([error, mean, peak](qsee::DeviceSnapshot &snapshot) {
+    const uint32_t mean = (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
+    const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
+    const uint32_t channel_mean0 = absolute_sum[0] / frame_count;
+    const uint32_t channel_mean1 = absolute_sum[1] / frame_count;
+    const uint32_t channel_peak0 = peak[0];
+    const uint32_t channel_peak1 = peak[1];
+    update_snapshot([error, mean, aggregate_peak, channel_count, channel_mean0, channel_mean1,
+                     channel_peak0, channel_peak1](qsee::DeviceSnapshot &snapshot) {
         set_component(snapshot.audio.microphone, error == ESP_OK, error);
+        snapshot.audio.channel_count = error == ESP_OK ? static_cast<uint8_t>(channel_count) : 0;
+        snapshot.audio.sample_rate_hz = error == ESP_OK ? 22050 : 0;
         snapshot.audio.microphone_mean_level = mean;
-        snapshot.audio.microphone_peak_level = peak;
+        snapshot.audio.microphone_peak_level = aggregate_peak;
+        snapshot.audio.channel_mean_level[0] = channel_mean0;
+        snapshot.audio.channel_mean_level[1] = channel_mean1;
+        snapshot.audio.channel_peak_level[0] = channel_peak0;
+        snapshot.audio.channel_peak_level[1] = channel_peak1;
     });
     if (error == ESP_OK) {
-        ESP_LOGI(TAG, "Microphones ES7210 %s: mean=%lu peak=%lu",
-                 phase, static_cast<unsigned long>(mean), static_cast<unsigned long>(peak));
+        ESP_LOGI(TAG, "Microphones ES7210 %s: ch0=%lu/%lu ch1=%lu/%lu",
+                 phase, static_cast<unsigned long>(absolute_sum[0] / frame_count),
+                 static_cast<unsigned long>(peak[0]), static_cast<unsigned long>(absolute_sum[1] / frame_count),
+                 static_cast<unsigned long>(peak[1]));
     } else {
         ESP_LOGW(TAG, "Microphones ES7210: %s capture failed (%s)",
                  phase, esp_err_to_name(error));
@@ -967,9 +991,20 @@ void microphone_task(void *arg)
     }
 
     s_microphone_ready = true;
-    ESP_LOGI(TAG, "Microphones ES7210: ADC path enabled at 22.05kHz mono PCM16");
+    ESP_LOGI(TAG, "Microphones ES7210: ADC path enabled at 22.05kHz 2-channel PCM16");
     (void)sample_microphone("initial");
     vTaskDelete(nullptr);
+}
+
+void diagnostic_monitor_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        if (s_diagnostic_monitor_active) {
+            (void)qsee::DeviceSnapshotService::instance().refresh("diagnostic-ui");
+        }
+        vTaskDelay(pdMS_TO_TICKS(120));
+    }
 }
 
 void log_summary(const qsee::DeviceSnapshot &snapshot)
@@ -1229,7 +1264,9 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
         snapshot.refreshed_at_us = esp_timer_get_time();
         strlcpy(snapshot.reason, phase, sizeof(snapshot.reason));
     });
-    log_summary(snapshot());
+    if (std::strcmp(phase, "diagnostic-ui") != 0) {
+        log_summary(snapshot());
+    }
     xSemaphoreGive(refresh_mutex);
     return aggregate;
 }
@@ -1353,6 +1390,29 @@ extern "C" esp_err_t qsee_hardware_init(void)
 extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
 {
     return qsee::DeviceSnapshotService::instance().refresh(reason);
+}
+
+extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
+{
+    s_diagnostic_monitor_active = enabled;
+    if (!enabled || s_diagnostic_monitor_started) {
+        return ESP_OK;
+    }
+    TaskHandle_t task = xTaskCreateStatic(
+        diagnostic_monitor_task,
+        "qsee_diag_monitor",
+        sizeof(s_diagnostic_task_stack) / sizeof(s_diagnostic_task_stack[0]),
+        nullptr,
+        3,
+        s_diagnostic_task_stack,
+        &s_diagnostic_task_control
+    );
+    s_diagnostic_monitor_started = task != nullptr;
+    if (!s_diagnostic_monitor_started) {
+        s_diagnostic_monitor_active = false;
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
 }
 
 extern "C" esp_err_t qsee_imu_calibrate(void)

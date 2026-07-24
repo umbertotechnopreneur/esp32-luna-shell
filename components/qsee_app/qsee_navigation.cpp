@@ -572,6 +572,52 @@ void Navigation::refresh()
         const bool needs_format = storageFormatRequired(snapshot.storage);
         setVisible(*_format_sd, needs_format);
     }
+    updateDiagnosticViews();
+}
+
+void Navigation::updateDiagnosticViews()
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    char text[160];
+    const int level0 = std::min(100, static_cast<int>(snapshot.audio.channel_mean_level[0] / 328U));
+    const int level1 = std::min(100, static_cast<int>(snapshot.audio.channel_mean_level[1] / 328U));
+    std::snprintf(text, sizeof(text), "MICROPHONES %s", health(snapshot.audio.microphone.health));
+    _audio_status->setText(text);
+    _audio_mic0->setValue(level0, true);
+    _audio_mic1->setValue(level1, true);
+    std::snprintf(text, sizeof(text), "PCM %u ch  |  %lu Hz  |  peak %lu / %lu",
+                  static_cast<unsigned>(snapshot.audio.channel_count),
+                  static_cast<unsigned long>(snapshot.audio.sample_rate_hz),
+                  static_cast<unsigned long>(snapshot.audio.channel_peak_level[0]),
+                  static_cast<unsigned long>(snapshot.audio.channel_peak_level[1]));
+    _audio_channels->setText(text);
+
+    std::snprintf(text, sizeof(text), "QMI8658 %s", health(snapshot.imu.health));
+    _imu_status->setText(text);
+    std::snprintf(text, sizeof(text), "ACC X %+.2f Y %+.2f Z %+.2f m/s2",
+                  snapshot.imu.acceleration_mps2[0], snapshot.imu.acceleration_mps2[1],
+                  snapshot.imu.acceleration_mps2[2]);
+    _imu_accel->setText(text);
+    std::snprintf(text, sizeof(text), "GYRO X %+.2f Y %+.2f Z %+.2f dps",
+                  snapshot.imu.angular_velocity_dps[0], snapshot.imu.angular_velocity_dps[1],
+                  snapshot.imu.angular_velocity_dps[2]);
+    _imu_gyro->setText(text);
+    std::snprintf(text, sizeof(text), "TEMP %.1f C", snapshot.imu.temperature_c);
+    _imu_temperature->setText(text);
+    std::snprintf(text, sizeof(text), "CALIBRATION %s  |  %u samples",
+                  snapshot.imu.calibrated ? "READY" : "PENDING",
+                  static_cast<unsigned>(snapshot.imu.calibration_samples));
+    _imu_calibration->setText(text);
+}
+
+void Navigation::showAudio()
+{
+    show(Screen::Audio);
+}
+
+void Navigation::showImu()
+{
+    show(Screen::Imu);
 }
 
 void Navigation::updateLogView()
