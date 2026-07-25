@@ -22,6 +22,7 @@
 #include "qsee_app.hpp"
 #include "qsee_boot.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_http_server.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
 
@@ -144,6 +145,7 @@ extern "C" void app_main(void)
     (void)qsee_hardware_init();
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_display_apply_saved_brightness());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_time_init("UTC0"));
+    ESP_ERROR_CHECK_WITHOUT_ABORT(qsee::httpServerInit());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_power_inputs_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_storage_init());

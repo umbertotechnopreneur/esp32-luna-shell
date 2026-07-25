@@ -130,11 +130,26 @@ esp_err_t UserSettingsService::getFloat(const char *key, float default_value, fl
 esp_err_t UserSettingsService::setString(const char *key, const char *value)
 {
     if (key == nullptr || value == nullptr) return ESP_ERR_INVALID_ARG;
-    std::lock_guard<std::mutex> lock(_mutex);
-    esp_err_t error = ensureInitialized();
-    if (error != ESP_OK) return error;
-    error = nvs_set_str(_handle, key, value);
-    return error == ESP_OK ? nvs_commit(_handle) : error;
+    StringChangeObserver observer = nullptr;
+    void *observer_context = nullptr;
+    esp_err_t error = ESP_OK;
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        error = ensureInitialized();
+        if (error != ESP_OK) return error;
+        error = nvs_set_str(_handle, key, value);
+        if (error == ESP_OK) {
+            error = nvs_commit(_handle);
+        }
+        if (error == ESP_OK) {
+            observer = _string_change_observer;
+            observer_context = _string_change_context;
+        }
+    }
+    if (error == ESP_OK && observer != nullptr) {
+        observer(key, value, observer_context);
+    }
+    return error;
 }
 
 esp_err_t UserSettingsService::getString(const char *key, const char *default_value, std::string *value) const
@@ -154,6 +169,19 @@ esp_err_t UserSettingsService::getString(const char *key, const char *default_va
     error = nvs_get_str(_handle, key, buffer.data(), &length);
     if (error == ESP_OK) *value = buffer.c_str();
     return error;
+}
+
+esp_err_t UserSettingsService::setStringChangeObserver(
+    StringChangeObserver observer,
+    void *context
+)
+{
+    std::lock_guard<std::mutex> lock(_mutex);
+    const esp_err_t error = ensureInitialized();
+    if (error != ESP_OK) return error;
+    _string_change_observer = observer;
+    _string_change_context = context;
+    return ESP_OK;
 }
 
 esp_err_t UserSettingsService::setBlob(const char *key, const void *data, size_t size)

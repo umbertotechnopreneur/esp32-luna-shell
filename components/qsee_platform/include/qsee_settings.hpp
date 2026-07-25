@@ -10,6 +10,12 @@
 
 namespace qsee {
 
+using StringChangeObserver = void (*)(
+    const char *key,
+    const char *value,
+    void *context
+);
+
 /**
  * Thread-safe persistent store for user-owned settings.
  *
@@ -44,6 +50,7 @@ public:
 
     esp_err_t setString(const char *key, const char *value);
     esp_err_t getString(const char *key, const char *default_value, std::string *value) const;
+    esp_err_t setStringChangeObserver(StringChangeObserver observer, void *context);
 
     esp_err_t setBlob(const char *key, const void *data, size_t size);
     esp_err_t getBlob(const char *key, std::vector<uint8_t> *data) const;
@@ -64,6 +71,8 @@ private:
     mutable std::mutex _mutex;
     nvs_handle_t _handle = 0;
     bool _initialized = false;
+    StringChangeObserver _string_change_observer = nullptr;
+    void *_string_change_context = nullptr;
 };
 
 }  // namespace qsee
