@@ -66,6 +66,8 @@ These rules apply to the entire Distanziamoci firmware repository.
 
 - Treat compiler and linker errors as evidence; fix their root cause rather
   than suppressing warnings globally.
+- Firmware compilation can take up to 240 seconds; allow at least a 240-second
+  timeout for build invocations before treating them as stalled.
 - Do not run intermediate configure, build, or size passes while implementation
   and integration work is still in progress. Finish the code changes, static
   review, and cross-component integration first; run the clean build,
