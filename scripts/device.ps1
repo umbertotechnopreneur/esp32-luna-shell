@@ -309,6 +309,7 @@ function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     throw "Timed out waiting for an openable ESP serial port."
 }
 
+# Stop only known stale monitor processes, never this script or its callers.
 function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
     $patterns = @(
@@ -322,9 +323,20 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
         "(?i)(device\.ps1.*(?:monitor|capture).*-Port\s+$normalizedRequestedPort|capture-serial\.ps1.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
     )
 
-    $toStop = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
+    $protectedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
+    $ancestorId = $PID
+    while ($ancestorId -gt 0 -and $protectedProcessIds.Add($ancestorId)) {
+        $ancestor = $allProcesses | Where-Object { $_.ProcessId -eq $ancestorId } | Select-Object -First 1
+        if ($null -eq $ancestor -or $ancestor.ParentProcessId -eq $ancestorId) {
+            break
+        }
+        $ancestorId = [int]$ancestor.ParentProcessId
+    }
+
+    $toStop = $allProcesses |
         Where-Object {
-            $_.ProcessId -ne $PID -and
+            -not $protectedProcessIds.Contains([int]$_.ProcessId) -and
             $_.CommandLine -and
             ($genericMonitorPattern.IsMatch($_.CommandLine) -or
              @($patterns | Where-Object { $_.IsMatch($_.CommandLine) }).Count -gt 0)
