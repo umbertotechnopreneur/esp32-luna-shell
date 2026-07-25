@@ -12,7 +12,7 @@ round ESP32-S3 device.
 Do not edit generated files manually. Run:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
+pwsh -NoProfile -File .\scripts\device.ps1 assets
 ```
 
 The original external logo and SFX archives remain untouched. Only selected

@@ -1,376 +1,584 @@
+<#
+.SYNOPSIS
+Unified QSee.ai firmware, serial, asset, verification, and repository utility.
+
+.DESCRIPTION
+Run without parameters to open the interactive menu. Pass an action and any
+options for prompt-free CLI execution. This is the canonical PowerShell
+entrypoint; legacy script names under scripts are thin compatibility shims.
+
+.PARAMETER Action
+Workflow to run. Firmware actions retain their historical positional syntax.
+
+.PARAMETER NonInteractive
+Run the historical default action, build, when no Action is supplied.
+
+.PARAMETER StopStaleMonitors
+Allow serial workflows to close matching stale monitor processes. Without this
+explicit switch, they report the conflicting processes and stop safely.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1
+
+Opens the interactive menu.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-brookesia
+
+Runs a prompt-free incremental firmware build.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 assets -NoProgress
+
+Regenerates all device assets without progress rendering.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 source-banner -Apply
+
+Applies the canonical QSee.ai banner to owned sources.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 settings -Port COM12 -SaveSettings
+
+Persists local script defaults under the ignored scripts/logs folder.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 monitor -Port COM12 -StopStaleMonitors
+
+Closes only matching stale monitor processes after explicit opt-in.
+#>
+
 [CmdletBinding()]
-# Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "combo", "ports", "recover")]
-    [string]$Action = "build",
+    [ValidateSet(
+        'build', 'clean', 'fullclean', 'flash', 'monitor', 'capture', 'erase',
+        'reconfigure', 'set-target', 'combo', 'ports', 'recover', 'assets',
+        'boot-assets', 'sfx', 'pairing', 'source-banner', 'settings', 'help'
+    )]
+    [string]$Action,
 
-    [string]$Port = "COM8",
-
-    [int]$Baud = 115200,
-
-    [string]$BuildDir = "build",
-
-    [int]$WaitSeconds = 30,
-
-    [int]$DurationSeconds = 30,
-
+    [string]$Port,
+    [int]$Baud,
+    [string]$BuildDir,
+    [int]$WaitSeconds,
+    [int]$DurationSeconds,
     [string]$OutputPath,
+    [int]$Jobs,
 
-    # The workstation has 16 cores and 32 GB RAM; allow overriding for CI or
-    # constrained machines while keeping the local default fully parallel.
-    [int]$Jobs = 0
+    [string]$IdfPath,
+    [string]$IdfToolsPath,
+    [string]$IdfPythonEnvPath,
+    [string]$OpenOcdScripts,
+    [string]$EspRomElfDir,
+    [string]$AssetPython,
+
+    [string]$ConfigPath,
+    [string]$BootSource,
+    [string]$BootOutputDirectory,
+
+    [switch]$Apply,
+    [switch]$Remove,
+    [string]$RepositoryRoot,
+    [string[]]$SourceRoot,
+
+    [switch]$SaveSettings,
+    [switch]$ResetSettings,
+    [switch]$StopStaleMonitors,
+    [switch]$NonInteractive,
+    [switch]$NoProgress,
+    [switch]$NoBanner,
+    [Alias('h')][switch]$Help
 )
 
-$ErrorActionPreference = "Stop"
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
-[System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
-[System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
-[System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$IdfPath = "E:\Espressif\.espressif\v5.5.4\esp-idf"
-$ToolsPath = "E:\Espressif"
-$PythonExe = "E:\Espressif\tools\python\v5.5.4\venv\Scripts\python.exe"
-
-if (-not (Test-Path $IdfPath)) {
-    throw "ESP-IDF non trovato in $IdfPath"
+$runStart = Get-Date
+$scriptName = [System.IO.Path]::GetFileName($PSCommandPath)
+$projectRoot = Split-Path -Parent $PSScriptRoot
+$modulesRoot = Join-Path $PSScriptRoot 'modules'
+$logsRoot = Join-Path $PSScriptRoot 'logs'
+$defaultsPath = Join-Path $PSScriptRoot 'settings.defaults.json'
+$localSettingsPath = Join-Path $logsRoot 'settings.json'
+$explicitParameters = @{}
+foreach ($parameter in $PSBoundParameters.GetEnumerator()) {
+    $explicitParameters[$parameter.Key] = $parameter.Value
 }
+$interactive = $PSBoundParameters.Count -eq 0
+$loggerInitialized = $false
+$footerShown = $false
+$cancelled = $false
 
-if (-not (Test-Path $PythonExe)) {
-    throw "Python ESP-IDF non trovato in $PythonExe"
+$runtimeModulePath = Join-Path $modulesRoot 'qsee-runtime.ps1'
+if (-not (Test-Path -LiteralPath $runtimeModulePath -PathType Leaf)) {
+    throw "Required script module is missing: $runtimeModulePath"
 }
+. $runtimeModulePath
 
-$env:IDF_PATH = $IdfPath
-$env:IDF_TOOLS_PATH = $ToolsPath
-$env:IDF_PYTHON_ENV_PATH = "E:\Espressif\tools\python\v5.5.4\venv"
-$env:ESP_IDF_VERSION = "5.5.4"
-$env:OPENOCD_SCRIPTS = "E:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251215\openocd-esp32\share\openocd\scripts"
-$env:ESP_ROM_ELF_DIR = "E:\Espressif\tools\esp-rom-elfs\20241011"
-# Parallel ccache processes intermittently exit without diagnostics on this
-# Windows workstation; deterministic firmware builds are more valuable here.
-$env:IDF_CCACHE_ENABLE = "0"
-$env:IDF_PYTHON_CHECK_CONSTRAINTS = "no"
-
-$toolBins = @(
-    "E:\Espressif\tools\ccache\4.12.1\ccache-4.12.1-windows-x86_64",
-    "E:\Espressif\tools\cmake\3.30.2\bin",
-    "E:\Espressif\tools\dfu-util\0.11\dfu-util-0.11-win64",
-    "E:\Espressif\tools\esp-rom-elfs\20241011",
-    "E:\Espressif\tools\esp32ulp-elf\2.38_20240113\esp32ulp-elf\bin",
-    "E:\Espressif\tools\idf-exe\1.0.3",
-    "E:\Espressif\tools\ninja\1.12.1",
-    "E:\Espressif\tools\openocd-esp32\v0.12.0-esp32-20251215\openocd-esp32\bin",
-    "E:\Espressif\tools\riscv32-esp-elf\esp-14.2.0_20260121\riscv32-esp-elf\bin",
-    "E:\Espressif\tools\xtensa-esp-elf\esp-14.2.0_20260121\xtensa-esp-elf\bin",
-    "E:\Espressif\tools\xtensa-esp-elf-gdb\16.3_20250913\xtensa-esp-elf-gdb\bin",
-    "E:\Espressif\tools\python\v5.5.4\venv\Scripts"
+$requiredModules = @(
+    'qsee-device-operations.ps1',
+    'qsee-assets.ps1',
+    'qsee-source-banner.ps1'
 )
 
-$existingPath = @()
-if ($env:PATH) {
-    $existingPath = $env:PATH -split ";"
+function Select-QSeeMainAction {
+    [CmdletBinding()]
+    param()
+
+    return Select-QSeeMenuItem -Title 'QSee.ai development console' -Prompt 'Action' -Items @(
+        [pscustomobject]@{ Key = '1'; Label = 'Build firmware'; Description = 'Incremental ESP-IDF build'; Value = 'build' }
+        [pscustomobject]@{ Key = '2'; Label = 'Flash firmware'; Description = 'Flash the selected serial port'; Value = 'flash' }
+        [pscustomobject]@{ Key = '3'; Label = 'Monitor serial'; Description = 'Open the ESP-IDF monitor'; Value = 'monitor' }
+        [pscustomobject]@{ Key = '4'; Label = 'Capture serial'; Description = 'Save one bounded diagnostic capture'; Value = 'capture' }
+        [pscustomobject]@{ Key = '5'; Label = 'Build, flash, monitor'; Description = 'Run the complete device loop'; Value = 'combo' }
+        [pscustomobject]@{ Key = '6'; Label = 'List serial ports'; Description = 'Show Windows port state'; Value = 'ports' }
+        [pscustomobject]@{ Key = 'A'; Label = 'Generate all assets'; Description = 'Boot graphics and SFX'; Value = 'assets' }
+        [pscustomobject]@{ Key = 'B'; Label = 'Generate boot assets'; Description = 'PNG and RGB565 outputs'; Value = 'boot-assets' }
+        [pscustomobject]@{ Key = 'C'; Label = 'Generate SFX'; Description = 'Normalized device WAV and manifest'; Value = 'sfx' }
+        [pscustomobject]@{ Key = 'D'; Label = 'Verify pairing'; Description = 'Hardware-free pairing checks'; Value = 'pairing' }
+        [pscustomobject]@{ Key = 'E'; Label = 'Source banners'; Description = 'Preview or update owned source headers'; Value = 'source-banner' }
+        [pscustomobject]@{ Key = 'M'; Label = 'Firmware maintenance'; Description = 'Clean, configure, recover, or erase'; Value = 'maintenance' }
+        [pscustomobject]@{ Key = 'S'; Label = 'Settings'; Description = 'Inspect or save local defaults'; Value = 'settings' }
+        [pscustomobject]@{ Key = 'H'; Label = 'Help'; Description = 'Show CLI parameters and examples'; Value = 'help' }
+    )
 }
 
-$env:PATH = (($toolBins + $existingPath) | Where-Object { $_ } | Select-Object -Unique) -join ";"
-$IdfPy = Join-Path $IdfPath "tools\idf.py"
-$MonitorScript = Join-Path $PSScriptRoot "device.ps1"
-$CaptureScript = Join-Path $PSScriptRoot "capture-serial.ps1"
+function Select-QSeeMaintenanceAction {
+    [CmdletBinding()]
+    param()
 
-function Get-SerialPorts {
-    $openablePorts = @([System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpperInvariant() })
-
-    $ports = Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue |
-        Where-Object { $_.FriendlyName -match '\(COM\d+\)' } |
-        ForEach-Object {
-            $deviceId = $null
-            if ($_.InstanceId -match '\((COM\d+)\)') {
-                $deviceId = $Matches[1].ToUpperInvariant()
-            } elseif ($_.FriendlyName -match '\((COM\d+)\)') {
-                $deviceId = $Matches[1].ToUpperInvariant()
-            }
-
-            [PSCustomObject]@{
-                DeviceID = $deviceId
-                FriendlyName = $_.FriendlyName
-                InstanceId = $_.InstanceId
-                Status = $_.Status
-                IsEspressif = $_.InstanceId -match 'VID_303A'
-                IsOpenable = $openablePorts -contains $deviceId
-            }
-        } |
-        Where-Object { $_.DeviceID } |
-        Sort-Object DeviceID
-
-    return @($ports)
+    return Select-QSeeMenuItem -Title 'Firmware maintenance' -Prompt 'Action' `
+        -QuitKey 'B' -QuitLabel 'Back' -Items @(
+            [pscustomobject]@{ Key = '1'; Label = 'Clean'; Description = 'Remove intermediate build outputs'; Value = 'clean' }
+            [pscustomobject]@{ Key = '2'; Label = 'Full clean'; Description = 'Reset the ESP-IDF build directory'; Value = 'fullclean' }
+            [pscustomobject]@{ Key = '3'; Label = 'Reconfigure'; Description = 'Regenerate ESP-IDF configuration'; Value = 'reconfigure' }
+            [pscustomobject]@{ Key = '4'; Label = 'Set ESP32-S3 target'; Description = 'Select the project MCU target'; Value = 'set-target' }
+            [pscustomobject]@{ Key = '5'; Label = 'Recover'; Description = 'Build, wait for port, and flash'; Value = 'recover' }
+            [pscustomobject]@{ Key = '6'; Label = 'Erase flash'; Description = 'Destructive; confirmation required'; Value = 'erase' }
+        )
 }
 
-function Show-SerialPorts {
-    $ports = Get-SerialPorts
+function Select-QSeeSourceBannerMode {
+    [CmdletBinding()]
+    param()
 
-    if ($ports.Count -eq 0) {
-        Write-Host "No serial ports detected."
+    return Select-QSeeMenuItem -Title 'QSee.ai source banners' -Prompt 'Mode' `
+        -QuitKey 'B' -QuitLabel 'Back' -Items @(
+            [pscustomobject]@{
+                Key = '1'; Label = 'Preview additions'; Description = 'No source writes'
+                Value = [pscustomobject]@{ Apply = $false; Remove = $false }
+            }
+            [pscustomobject]@{
+                Key = '2'; Label = 'Apply additions'; Description = 'Write missing canonical banners'
+                Value = [pscustomobject]@{ Apply = $true; Remove = $false }
+            }
+            [pscustomobject]@{
+                Key = '3'; Label = 'Preview removals'; Description = 'No source writes'
+                Value = [pscustomobject]@{ Apply = $false; Remove = $true }
+            }
+            [pscustomobject]@{
+                Key = '4'; Label = 'Apply removals'; Description = 'Remove exact canonical banners'
+                Value = [pscustomobject]@{ Apply = $true; Remove = $true }
+            }
+        )
+}
+
+function Read-QSeeIntegerSetting {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][int]$Current,
+        [int]$Minimum = 0
+    )
+
+    while ($true) {
+        $inputValue = (Read-Host "  $Label [$Current]").Trim()
+        if ([string]::IsNullOrWhiteSpace($inputValue)) {
+            return $Current
+        }
+
+        $parsed = 0
+        if ([int]::TryParse($inputValue, [ref]$parsed) -and $parsed -ge $Minimum) {
+            return $parsed
+        }
+        Write-Host "  Enter an integer greater than or equal to $Minimum." -ForegroundColor Red
+    }
+}
+
+# Preserve the current value when an advanced setting is left blank.
+function Read-QSeeStringSetting {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Current
+    )
+
+    $inputValue = (Read-Host "  $Label [$Current]").Trim()
+    if ([string]::IsNullOrWhiteSpace($inputValue)) {
+        return $Current
+    }
+    return $inputValue
+}
+
+# Inspect, persist or explicitly reset the local CLI settings override.
+function Invoke-QSeeSettingsWorkflow {
+    [CmdletBinding()]
+    param(
+        [AllowNull()][object]$Settings,
+        [Parameter(Mandatory)][string]$DefaultsFile,
+        [Parameter(Mandatory)][string]$LocalFile,
+        [switch]$Interactive,
+        [switch]$Save,
+        [switch]$Reset
+    )
+
+    if ($Save -and $Reset) {
+        throw '-SaveSettings and -ResetSettings cannot be used together.'
+    }
+
+    if ($Reset) {
+        if (Test-Path -LiteralPath $LocalFile -PathType Leaf) {
+            Remove-Item -LiteralPath $LocalFile -Force
+            Write-QSeeSuccess "Removed local settings: $LocalFile"
+        }
+        else {
+            Write-QSeeInfo 'No local settings override exists.'
+        }
         return
     }
 
-    Write-Host "Detected serial ports:"
-    $ports | Format-Table DeviceID, FriendlyName, Status, IsOpenable -AutoSize
-}
-
-function Resolve-Port([string]$RequestedPort) {
-    $ports = Get-SerialPorts
-    $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
-
-    if (($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.IsOpenable }).Count -gt 0) {
-        return $normalizedRequestedPort
+    if ($null -eq $Settings) {
+        throw 'Settings are required unless the local override is being reset.'
     }
 
-    if (($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort }).Count -gt 0) {
-        Write-Host "Requested port $normalizedRequestedPort is listed by PnP but is not currently openable."
-    } else {
-        Write-Host "Requested port $normalizedRequestedPort was not found."
-    }
-    Show-SerialPorts
-    throw "No usable serial port found. Windows sees no openable COM port for the device right now."
-}
-
-function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
-
-    Write-Host "Waiting for an openable ESP serial port for up to $TimeoutSeconds seconds..."
-
-    while ((Get-Date) -lt $deadline) {
-        $ports = Get-SerialPorts
-        $requested = @($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.IsOpenable })
-        if ($requested.Count -gt 0) {
-            Write-Host "Using requested port $normalizedRequestedPort."
-            return $normalizedRequestedPort
-        }
-
-        Start-Sleep -Milliseconds 750
+    if ($Save) {
+        Save-QSeeSettings -Settings $Settings -LocalPath $LocalFile
+        Write-QSeeSuccess "Saved local settings: $LocalFile"
+        return
     }
 
-    Write-Host "No openable ESP serial port became available."
-    Show-SerialPorts
-    throw "Timed out waiting for an openable ESP serial port."
-}
-
-function Stop-StaleMonitorProcesses([string]$RequestedPort) {
-    $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
-    $patterns = @(
-        [regex]::new([regex]::Escape("idf.py -B $BuildDir -p $normalizedRequestedPort monitor")),
-        [regex]::new([regex]::Escape("idf_monitor.py -p $normalizedRequestedPort")),
-        [regex]::new([regex]::Escape("esp_idf_monitor -p $normalizedRequestedPort")),
-        [regex]::new("(?i)pyserial.*$normalizedRequestedPort")
-    )
-
-    $genericMonitorPattern = [regex]::new(
-        "(?i)(device\.ps1.*monitor.*-Port\s+$normalizedRequestedPort|capture-serial\.ps1.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
-    )
-
-    $toStop = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object {
-            $_.ProcessId -ne $PID -and
-            $_.CommandLine -and
-            ($genericMonitorPattern.IsMatch($_.CommandLine) -or
-             @($patterns | Where-Object { $_.IsMatch($_.CommandLine) }).Count -gt 0)
-        } |
-        Sort-Object ProcessId -Descending
-
-    foreach ($process in $toStop) {
-        try {
-            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-            Write-Host "Stopped stale monitor process $($process.ProcessId) ($($process.Name))."
-        } catch {
-            Write-Warning "Could not stop stale monitor process $($process.ProcessId): $($_.Exception.Message)"
-        }
+    if (-not $Interactive) {
+        Show-QSeeSettings -Settings $Settings -DefaultsPath $DefaultsFile -LocalPath $LocalFile
+        return
     }
-}
 
-function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $lastError = $null
-
-    while ((Get-Date) -lt $deadline) {
-        $probe = [System.IO.Ports.SerialPort]::new($RequestedPort, 115200)
-        try {
-            $probe.Open()
-            $probe.Close()
-            $probe.Dispose()
-            Start-Sleep -Milliseconds 500
-            Write-Host "Serial port $RequestedPort is released and ready."
+    while ($true) {
+        Show-QSeeSettings -Settings $Settings -DefaultsPath $DefaultsFile -LocalPath $LocalFile
+        $selection = Select-QSeeMenuItem -Title 'Settings' -Prompt 'Action' `
+            -QuitKey 'B' -QuitLabel 'Back' -Items @(
+                [pscustomobject]@{ Key = '1'; Label = 'Update local defaults'; Description = 'Stored under scripts/logs'; Value = 'update' }
+                [pscustomobject]@{ Key = '2'; Label = 'Reset local defaults'; Description = 'Return to checked-in defaults'; Value = 'reset' }
+            )
+        if ($null -eq $selection) {
             return
-        } catch {
-            $lastError = $_.Exception.Message
-            $probe.Dispose()
-            Stop-StaleMonitorProcesses $RequestedPort
-            Start-Sleep -Milliseconds 500
         }
-    }
 
-    throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
-}
-
-function Invoke-ProjectBuild([string]$RequestedBuildDir) {
-    $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
-    $reconfigure = -not (Test-Path $buildNinja)
-
-    if (-not $reconfigure) {
-        $trackedBuildInputs = @(
-            Get-ChildItem -Path $ProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.FullName -notlike "$(Join-Path $ProjectRoot $RequestedBuildDir)\*" -and
-                    ($_.Name -eq "CMakeLists.txt" -or $_.Name -eq "sdkconfig" -or $_.Name -eq "sdkconfig.defaults")
+        if ($selection.Value -eq 'reset') {
+            $confirmation = (Read-Host '  Type RESET to remove the local override').Trim()
+            if ($confirmation -ceq 'RESET') {
+                if (Test-Path -LiteralPath $LocalFile -PathType Leaf) {
+                    Remove-Item -LiteralPath $LocalFile -Force
+                    Write-QSeeSuccess 'Local settings reset.'
                 }
-        )
-        $latestInput = $trackedBuildInputs |
-            Sort-Object LastWriteTimeUtc -Descending |
-            Select-Object -First 1
-        $reconfigure = $null -ne $latestInput -and
-            $latestInput.LastWriteTimeUtc -gt (Get-Item $buildNinja).LastWriteTimeUtc
-    }
-
-    if ($reconfigure) {
-        Write-Host "Build configuration changed; running ESP-IDF reconfigure."
-        & $PythonExe $IdfPy -B $RequestedBuildDir reconfigure
-        if ($LASTEXITCODE -ne 0) {
-            throw "Reconfigure failed"
+                else {
+                    Write-QSeeInfo 'No local settings override exists.'
+                }
+            }
+            else {
+                Write-QSeeWarning 'Settings reset cancelled.'
+            }
+            return
         }
-    } else {
-        Write-Host "Using incremental build; skipping reconfigure."
-    }
 
-    $parallelJobs = if ($Jobs -gt 0) {
-        $Jobs
-    } else {
-        [Math]::Max(2, [Math]::Min(16, [Environment]::ProcessorCount))
-    }
-    Write-Host "Building with Ninja parallelism: -j $parallelJobs"
-    & ninja -C $RequestedBuildDir -j $parallelJobs all
-    if ($LASTEXITCODE -ne 0) {
-        throw "Build failed"
+        $portValue = (Read-Host "  Port [$($Settings.Port)]").Trim()
+        if (-not [string]::IsNullOrWhiteSpace($portValue)) {
+            $Settings.Port = $portValue.ToUpperInvariant()
+        }
+        $buildValue = (Read-Host "  Build directory [$($Settings.BuildDir)]").Trim()
+        if (-not [string]::IsNullOrWhiteSpace($buildValue)) {
+            $Settings.BuildDir = $buildValue
+        }
+        $Settings.Baud = Read-QSeeIntegerSetting -Label 'Baud' `
+            -Current $Settings.Baud -Minimum 1
+        $Settings.WaitSeconds = Read-QSeeIntegerSetting -Label 'Port wait seconds' `
+            -Current $Settings.WaitSeconds -Minimum 1
+        $Settings.DurationSeconds = Read-QSeeIntegerSetting -Label 'Capture seconds' `
+            -Current $Settings.DurationSeconds -Minimum 1
+        $Settings.Jobs = Read-QSeeIntegerSetting -Label 'Build jobs (0 = automatic)' `
+            -Current $Settings.Jobs -Minimum 0
+        $Settings.IdfPath = Read-QSeeStringSetting -Label 'ESP-IDF path' `
+            -Current $Settings.IdfPath
+        $Settings.IdfToolsPath = Read-QSeeStringSetting -Label 'ESP-IDF tools path' `
+            -Current $Settings.IdfToolsPath
+        $Settings.IdfPythonEnvPath = Read-QSeeStringSetting -Label 'ESP-IDF Python environment' `
+            -Current $Settings.IdfPythonEnvPath
+        $Settings.OpenOcdScripts = Read-QSeeStringSetting -Label 'OpenOCD scripts path' `
+            -Current $Settings.OpenOcdScripts
+        $Settings.EspRomElfDir = Read-QSeeStringSetting -Label 'ESP ROM ELF directory' `
+            -Current $Settings.EspRomElfDir
+        $Settings.AssetPython = Read-QSeeStringSetting -Label 'Asset Python command' `
+            -Current $Settings.AssetPython
+        $Settings.Port = ConvertTo-QSeeSerialPortName -Port $Settings.Port
+        Save-QSeeSettings -Settings $Settings -LocalPath $LocalFile
+        Write-QSeeSuccess 'Local settings updated.'
+        return
     }
 }
 
-Push-Location $ProjectRoot
 try {
-    $commonArgs = @("-B", $BuildDir)
+    Initialize-QSeeRuntime -ClearScreen:$interactive
+    Initialize-QSeeLogger -ScriptName $scriptName -LogsDirectory $logsRoot
+    $loggerInitialized = $true
+    $logPath = Get-QSeeLogPath
+
+    if (-not $NoBanner) {
+        Show-QSeeBanner
+    }
+
+    if ($Help) {
+        $Action = 'help'
+    }
+    elseif ($interactive) {
+        $selection = Select-QSeeMainAction
+        if ($null -eq $selection) {
+            $cancelled = $true
+        }
+        else {
+            $Action = [string]$selection.Value
+            # Returning from maintenance reopens the main menu.
+            while ($Action -eq 'maintenance') {
+                $maintenanceSelection = Select-QSeeMaintenanceAction
+                if ($null -eq $maintenanceSelection) {
+                    $selection = Select-QSeeMainAction
+                    if ($null -eq $selection) {
+                        $cancelled = $true
+                        break
+                    }
+                    $Action = [string]$selection.Value
+                }
+                else {
+                    $Action = [string]$maintenanceSelection.Value
+                }
+            }
+        }
+    }
+    elseif ([string]::IsNullOrWhiteSpace($Action)) {
+        # Preserve the historical parameterized default while reserving no args for the menu.
+        $Action = 'build'
+    }
+
+    if ($cancelled) {
+        Write-QSeeLog -Message 'Interactive session cancelled.' -Level WARN
+        Show-QSeeFooter -ScriptName $scriptName -Status 'CANCELLED' `
+            -StatusColor Yellow -StartTime $runStart -LogPath $logPath
+        $footerShown = $true
+        return
+    }
+
+    $Action = $Action.ToLowerInvariant()
+    if ($interactive -and $Action -eq 'source-banner') {
+        $bannerSelection = Select-QSeeSourceBannerMode
+        if ($null -eq $bannerSelection) {
+            Write-QSeeLog -Message 'Source-banner menu cancelled.' -Level WARN
+            Show-QSeeFooter -ScriptName $scriptName -Status 'CANCELLED' `
+                -StatusColor Yellow -StartTime $runStart -LogPath $logPath
+            $footerShown = $true
+            return
+        }
+        $Apply = [bool]$bannerSelection.Value.Apply
+        $Remove = [bool]$bannerSelection.Value.Remove
+    }
+
+    # Help and explicit reset remain available even when local settings are invalid.
+    if ($Action -eq 'help') {
+        Show-QSeeCommandHeader -Action $Action -Settings $null -LogPath $logPath
+        Write-QSeeLog -Message "Selected action: $Action"
+        Get-Help -Name $PSCommandPath -Full | Out-Host
+        Show-QSeeFooter -ScriptName $scriptName -Status 'HELP' `
+            -StatusColor Cyan -StartTime $runStart -LogPath $logPath
+        $footerShown = $true
+        return
+    }
+
+    if ($Action -eq 'settings' -and $ResetSettings) {
+        Show-QSeeCommandHeader -Action $Action -Settings $null -LogPath $logPath
+        Write-QSeeLog -Message 'Selected action: settings reset'
+        Invoke-QSeeSettingsWorkflow -Settings $null -DefaultsFile $defaultsPath `
+            -LocalFile $localSettingsPath -Save:$SaveSettings -Reset
+        Show-QSeeFooter -ScriptName $scriptName -Status 'SETTINGS RESET' `
+            -StatusColor Cyan -StartTime $runStart -LogPath $logPath
+        $footerShown = $true
+        return
+    }
+
+    $settings = Get-QSeeSettings -DefaultsPath $defaultsPath -LocalPath $localSettingsPath
+    $overrides = @{
+        Port = 'Port'
+        Baud = 'Baud'
+        BuildDir = 'BuildDir'
+        WaitSeconds = 'WaitSeconds'
+        DurationSeconds = 'DurationSeconds'
+        Jobs = 'Jobs'
+        IdfPath = 'IdfPath'
+        IdfToolsPath = 'IdfToolsPath'
+        IdfPythonEnvPath = 'IdfPythonEnvPath'
+        OpenOcdScripts = 'OpenOcdScripts'
+        EspRomElfDir = 'EspRomElfDir'
+        AssetPython = 'AssetPython'
+    }
+    foreach ($parameterName in $overrides.Keys) {
+        if ($explicitParameters.ContainsKey($parameterName)) {
+            $settings.($overrides[$parameterName]) = $explicitParameters[$parameterName]
+        }
+    }
+
+    $settings.Port = ConvertTo-QSeeSerialPortName -Port $settings.Port
+    if ([string]::IsNullOrWhiteSpace($settings.BuildDir)) {
+        throw 'BuildDir cannot be empty.'
+    }
+    if ($settings.Baud -le 0 -or $settings.WaitSeconds -le 0 -or $settings.DurationSeconds -le 0) {
+        throw 'Baud, WaitSeconds, and DurationSeconds must be positive.'
+    }
+    if ($settings.Jobs -lt 0) {
+        throw 'Jobs cannot be negative.'
+    }
+
+    if (-not $explicitParameters.ContainsKey('ConfigPath')) {
+        $ConfigPath = Join-Path $projectRoot 'assets\sfx\sfx-config.json'
+    }
+    $ConfigPath = [System.IO.Path]::GetFullPath($ConfigPath)
+
+    if (-not $explicitParameters.ContainsKey('BootSource')) {
+        $BootSource = Join-Path $projectRoot 'assets\branding\qsee\source\qsee-ai-logo.pdf'
+    }
+    $BootSource = [System.IO.Path]::GetFullPath($BootSource)
+
+    if (-not $explicitParameters.ContainsKey('BootOutputDirectory')) {
+        $BootOutputDirectory = Join-Path $projectRoot 'assets\branding\qsee\generated'
+    }
+    $BootOutputDirectory = [System.IO.Path]::GetFullPath($BootOutputDirectory)
+
+    if (-not $explicitParameters.ContainsKey('RepositoryRoot')) {
+        $RepositoryRoot = $projectRoot
+    }
+    if (-not $explicitParameters.ContainsKey('SourceRoot')) {
+        $SourceRoot = @(
+            'main',
+            'components/qsee_app',
+            'components/qsee_boot',
+            'components/qsee_logger',
+            'components/qsee_platform'
+        )
+    }
+
+    if ($interactive -and $Action -eq 'erase') {
+        $confirmation = (Read-Host "  Type ERASE to erase $($settings.Port)").Trim()
+        if ($confirmation -cne 'ERASE') {
+            Write-QSeeWarning 'Erase cancelled.'
+            Show-QSeeFooter -ScriptName $scriptName -Status 'CANCELLED' `
+                -StatusColor Yellow -StartTime $runStart -LogPath $logPath
+            $footerShown = $true
+            return
+        }
+    }
+
+    Show-QSeeCommandHeader -Action $Action -Settings $settings -LogPath $logPath
+    Write-QSeeLog -Message "Selected action: $Action"
+
+    if ($Action -eq 'settings') {
+        Invoke-QSeeSettingsWorkflow -Settings $settings -DefaultsFile $defaultsPath `
+            -LocalFile $localSettingsPath -Interactive:$interactive `
+            -Save:$SaveSettings -Reset:$ResetSettings
+        Show-QSeeFooter -ScriptName $scriptName -Status 'SETTINGS COMPLETE' `
+            -StatusColor Cyan -StartTime $runStart -LogPath $logPath
+        $footerShown = $true
+        return
+    }
+
+    foreach ($moduleName in $requiredModules) {
+        $modulePath = Join-Path $modulesRoot $moduleName
+        if (-not (Test-Path -LiteralPath $modulePath -PathType Leaf)) {
+            throw "Required script module is missing: $modulePath"
+        }
+        . $modulePath
+    }
+
+    $firmwareActions = @(
+        'build', 'clean', 'fullclean', 'flash', 'monitor', 'erase',
+        'reconfigure', 'set-target', 'combo', 'recover'
+    )
+    if ($Action -in $firmwareActions) {
+        Initialize-QSeeIdfEnvironment -Settings $settings
+    }
+
+    Invoke-QSeePreflight -Action $Action -Settings $settings `
+        -ProjectRoot $projectRoot -ScriptsRoot $PSScriptRoot `
+        -ConfigPath $ConfigPath -BootSource $BootSource | Out-Null
 
     switch ($Action) {
-        "build" {
-            Invoke-ProjectBuild $BuildDir
+        { $_ -in ($firmwareActions + @('ports', 'capture')) } {
+            Invoke-QSeeFirmwareAction -Action $Action -ProjectRoot $projectRoot `
+                -ScriptsRoot $PSScriptRoot -Settings $settings -OutputPath $OutputPath `
+                -StopStaleMonitors:$StopStaleMonitors
+            break
         }
-        "clean" {
-            & $PythonExe $IdfPy @commonArgs clean
+        'assets' {
+            Invoke-QSeeAllAssetGeneration -ScriptsRoot $PSScriptRoot `
+                -PythonCommand $settings.AssetPython -ConfigPath $ConfigPath `
+                -BootSource $BootSource -BootOutputDirectory $BootOutputDirectory `
+                -NoProgress:$NoProgress | Out-Null
+            break
         }
-        "fullclean" {
-            & $PythonExe $IdfPy @commonArgs fullclean
+        'boot-assets' {
+            Invoke-QSeeBootAssetGeneration -ScriptsRoot $PSScriptRoot `
+                -PythonCommand $settings.AssetPython -Source $BootSource `
+                -OutputDirectory $BootOutputDirectory
+            break
         }
-        "reconfigure" {
-            & $PythonExe $IdfPy @commonArgs reconfigure
+        'sfx' {
+            Invoke-QSeeSfxGeneration -ConfigPath $ConfigPath `
+                -NoProgress:$NoProgress | Out-Null
+            break
         }
-        "set-target" {
-            & $PythonExe $IdfPy @commonArgs set-target esp32s3
+        'pairing' {
+            $pairingScript = Join-Path $PSScriptRoot 'verify_pairing.py'
+            Invoke-QSeeNativeCommand -FilePath $settings.AssetPython `
+                -ArgumentList @($pairingScript) `
+                -FailureMessage 'Pairing verification failed'
+            break
         }
-        "ports" {
-            Show-SerialPorts
-        }
-        "erase" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
-            Stop-StaleMonitorProcesses $Port
-            $Port = Resolve-Port $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
-            if ($LASTEXITCODE -ne 0) {
-                throw "Erase failed"
-            }
-        }
-        "flash" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
-            Stop-StaleMonitorProcesses $Port
-            $Port = Resolve-Port $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
-            if ($LASTEXITCODE -ne 0) {
-                throw "Flash failed"
-            }
-        }
-        "monitor" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
-            Stop-StaleMonitorProcesses $Port
-            $Port = Resolve-Port $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port monitor
-        }
-        "capture" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
-            Stop-StaleMonitorProcesses $Port
-            $Port = Resolve-Port $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $captureArgs = @(
-                "-NoProfile",
-                "-File", $CaptureScript,
-                "-Port", $Port,
-                "-Baud", $Baud,
-                "-DurationSeconds", $DurationSeconds
-            )
-            if ($OutputPath) {
-                $captureArgs += @("-OutputPath", $OutputPath)
-            }
-            & pwsh @captureArgs
-            if ($LASTEXITCODE -ne 0) {
-                throw "Serial capture failed"
-            }
-        }
-        "combo" {
-            Invoke-ProjectBuild $BuildDir
-
-            Stop-StaleMonitorProcesses $Port
-            $Port = Resolve-Port $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
-            if ($LASTEXITCODE -ne 0) {
-                throw "Flash failed"
-            }
-
-            $monitorArgs = @(
-                "-NoExit",
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-File", "`"$MonitorScript`"",
-                "monitor",
-                "-Port", $Port,
-                "-BuildDir", $BuildDir
-            )
-
-            Start-Process -FilePath "pwsh.exe" -ArgumentList $monitorArgs -WorkingDirectory $ProjectRoot
-        }
-        "recover" {
-            Invoke-ProjectBuild $BuildDir
-
-            Stop-StaleMonitorProcesses $Port
-            $Port = Wait-ForPort $Port $WaitSeconds
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
-            if ($LASTEXITCODE -ne 0) {
-                throw "Flash failed"
-            }
+        'source-banner' {
+            Invoke-QSeeSourceBanner -RepositoryRoot $RepositoryRoot `
+                -SourceRoot $SourceRoot -Apply:$Apply -Remove:$Remove `
+                -NoProgress:$NoProgress | Out-Null
+            break
         }
         default {
             throw "Unsupported action: $Action"
         }
     }
+
+    Write-QSeeSuccess "Action '$Action' completed."
+    Show-QSeeFooter -ScriptName $scriptName -Status 'COMPLETED' `
+        -StartTime $runStart -LogPath $logPath
+    $footerShown = $true
+}
+catch {
+    if ($loggerInitialized) {
+        Write-QSeeError $_.Exception.Message
+    }
+    if (-not $footerShown -and (Get-Command Show-QSeeErrorFooter -ErrorAction SilentlyContinue)) {
+        Show-QSeeErrorFooter -ScriptName $scriptName `
+            -ErrorMessage $_.Exception.Message -StartTime $runStart `
+            -LogPath $(if ($loggerInitialized) { Get-QSeeLogPath } else { $null })
+    }
+    throw
 }
 finally {
-    Pop-Location
+    Write-Progress -Id 20 -Activity 'Generating QSee.ai SFX' -Completed
+    Write-Progress -Id 30 -Activity 'QSee.ai source banners' -Completed
+    if ($loggerInitialized) {
+        Close-QSeeLogger
+    }
 }

@@ -38,7 +38,20 @@ events instead of being polled.
 | `qsee_storage_*` | Mount/retry asynchronously; format only after an explicit API call |
 | `qsee_wifi_*` | Event-driven ESP-IDF station lifecycle and asynchronous scans |
 | `qsee_provisioning_*` | Security 1 BLE provisioning with explicit lifecycle state |
-| `qsee_power_*` | Native PM policy, input inventory, and explicit sleep entry |
+| `qsee_display_*` | Persist brightness/auto-rotation, apply synchronized CO5300+CST9217 cardinal rotation, run non-persistent fades, and control CO5300 display-on/off |
+| `qsee_power_*` | Native PM policy and input inventory; persist staged dim/display-off timers and coordinate BOOT wake for light/deep sleep |
+
+The reusable fade path keeps persisted brightness separate from the actual
+`0..100` panel output. Intermediate fade steps never write NVS. The inactivity
+policy dims to 50% of that preference and later sends CO5300 display-off;
+touch or BOOT activity restores the preference. Light sleep pauses the LVGL
+adapter, fades to black, uses GPIO0 as its digital wake source, restores the
+preferred brightness, then resumes rendering. The
+BOOT wake press is consumed until release so it cannot immediately put the
+device back to sleep.
+
+Deep sleep uses the same BOOT RTC-domain input but restarts the firmware after
+wake, while light sleep resumes the retained runtime.
 
 ## Bounded behavior
 

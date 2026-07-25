@@ -5,6 +5,9 @@
  * Copyright (c) 2026 QSee.ai. All rights reserved.
  */
 
+// Read-only HTTP API entry point for QSee device diagnostics.
+// Owns server startup and shutdown around the station lifecycle.
+
 #pragma once
 
 #include <cstddef>

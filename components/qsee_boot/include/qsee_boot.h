@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Boot screen and boot audio entry points for the firmware.
+// Exposes the minimal API used by app_main and startup tasks.
+
 #pragma once
 
 #include "esp_err.h"

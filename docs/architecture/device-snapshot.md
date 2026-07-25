@@ -16,9 +16,11 @@ fusion.
   by the service directly, including display, touch, SD, speaker, Wi-Fi, and
   BLE.
 
-No periodic sensor loop exists. A caller requests a refresh when a coherent
-update is needed. This prevents hidden bus traffic and gives future sensor
-fusion an explicit sample boundary.
+Full hardware refreshes remain explicit. One existing monitor task performs
+only the bounded periodic work requested by an active diagnostic page, the
+Welcome metrics, or cardinal auto-rotation. Auto-rotation samples raw gravity
+at 100 ms without creating a second task; all consumers still read the
+published snapshot rather than a driver directly.
 
 ## Snapshot content
 
@@ -27,6 +29,7 @@ fusion an explicit sample boundary.
 | Power | battery/USB presence, charge state, percentage, rails, PMU temperature |
 | RTC | date/time and clock-integrity flag |
 | IMU / sensor input | filtered acceleration and angular velocity, sensor temperature, calibration state/biases, availability, and `sampled_at_us` |
+| Cardinal orientation | persisted auto-rotation state, gravity validity, physical orientation, applied rendering rotation, pending state, and change timestamps |
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, availability, and `sampled_at_us` |
 | Audio | speaker health, microphone health, mean and peak input level |
 | UI/storage/radios | display, touch, SD/logger mirror, Wi-Fi, BLE |
@@ -57,10 +60,11 @@ the size of the running app partition. It is not a percentage of generic
 storage; physical flash capacity is reported separately by
 `esp_flash_get_size()`.
 
-The current checkpoint has no separate orientation-fusion provider. The
-canonical IMU path therefore exposes only the filtered/calibrated QMI8658
-values it actually produces; pitch/roll/yaw and fusion quality remain absent
-until a real fusion service is added behind this boundary.
+The current checkpoint has no separate orientation-fusion provider. A guarded
+raw-gravity classifier supplies only stable `0/90/180/270` physical orientation
+for the CO5300 display; it does not claim pitch, roll, yaw, heading, or fusion
+quality. The canonical diagnostic IMU path continues to expose the real
+filtered/calibrated QMI8658 values.
 
 The LC76G bridge is command-gated: address `0x54` is read only after a command
 to `0x50`. Backlogs are drained in fixed 4096-byte chunks into static storage,

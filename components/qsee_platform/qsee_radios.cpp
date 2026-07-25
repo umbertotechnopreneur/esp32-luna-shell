@@ -10,10 +10,10 @@
  * Contact: hello@qsee.ai
  */
 
-#include "qsee_platform.h"
-#include "qsee_device_snapshot.hpp"
+// Radio-state helpers for Wi-Fi and Bluetooth status reporting.
+// Feeds the UI and snapshot layer with current connectivity state.
 
-#include <stdio.h>
+#include "qsee_platform.h"
 #include <string.h>
 
 #include "esp_app_desc.h"
@@ -82,6 +82,7 @@ static void publish_ble_snapshot(esp_err_t error = ESP_OK)
     );
 }
 
+// Refresh hardware outside the non-blocking NimBLE access callback.
 static void refresh_snapshot_task(void *argument)
 {
     (void)argument;
@@ -89,6 +90,7 @@ static void refresh_snapshot_task(void *argument)
     vTaskDelete(nullptr);
 }
 
+// Serve chunked telemetry reads and the bounded "refresh" command.
 static int qsee_gatt_access(
     uint16_t connection_handle,
     uint16_t attribute_handle,
@@ -128,6 +130,7 @@ static int qsee_gatt_access(
         }
         const size_t remaining =
             static_cast<size_t>(length) - context->offset;
+        // Honor ATT offsets so clients can read telemetry across MTU chunks.
         const uint16_t mtu = ble_att_mtu(connection_handle);
         const size_t chunk =
             remaining < static_cast<size_t>(mtu - 1) ? remaining : mtu - 1;
@@ -187,6 +190,7 @@ static const struct ble_gatt_svc_def s_qsee_services[] = {
 
 static void start_ble_advertising(void);
 
+// Track connection lifecycle and resume advertising after disconnect.
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
@@ -273,6 +277,7 @@ static void ble_host_task(void *arg)
     nimble_port_freertos_deinit();
 }
 
+// Start NimBLE with QSee telemetry and command characteristics.
 extern "C" esp_err_t qsee_ble_init(void)
 {
     if (s_ble_initialized) {
@@ -332,6 +337,7 @@ extern "C" esp_err_t qsee_ble_init(void)
 }
 #endif
 
+// Assign BLE to provisioning until Wi-Fi credentials permit telemetry mode.
 esp_err_t qsee_radios_init(void)
 {
     const esp_err_t wifi = qsee_wifi_init();

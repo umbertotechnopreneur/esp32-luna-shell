@@ -1,14 +1,21 @@
 #include "qsee_navigation.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <cstring>
-#include <algorithm>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "qrcode.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
+#include "qsee_provisioning.hpp"
+
+// Navigation controller for the QSee.ai shell and screen transitions.
+// Centralizes stack management so app screens stay self-contained.
 
 namespace {
 using namespace esp_brookesia::gui;
@@ -29,9 +36,80 @@ constexpr int kWidth = 272;
 constexpr int kRowWidth = 236;
 constexpr int kHardwareRowWidth = 248;
 constexpr size_t kLogBufferBytes = 4096;
+constexpr double kPcm16FullScale = 32768.0;
+constexpr double kAudioMeterFloorDbfs = -60.0;
+constexpr uint32_t kUiTickMs = 100;
+constexpr uint32_t kFullRefreshTicks = 1000 / kUiTickMs;
+constexpr int64_t kAudioPeakHoldUs = 1000000;
+constexpr float kAudioMeterReleasePerSecond = 36.0F;
+constexpr float kAudioPeakReleasePerSecond = 14.0F;
+constexpr float kImuGyroVisualRangeDps = 128.0F;
+constexpr int kQrCanvasSize = 216;
+constexpr int64_t kPairingTimeoutUs = 5LL * 60LL * 1000000LL;
+constexpr char kEspressifAppStoreUrl[] =
+    "https://play.google.com/store/apps/details?id=com.espressif.provble";
 constexpr lv_style_selector_t kPressedSelector =
     static_cast<lv_style_selector_t>(LV_PART_MAIN) |
     static_cast<lv_style_selector_t>(LV_STATE_PRESSED);
+constexpr uint32_t kBrightnessLowPercent = 35;
+constexpr uint32_t kBrightnessDefaultPercent = 70;
+constexpr uint32_t kBrightnessHighPercent = 100;
+constexpr uint32_t kDimTimeoutOptions[] = {15, 30, 60, 120, 0};
+constexpr uint32_t kPanelOffDelayOptions[] = {15, 30, 60, 120, 300, 0};
+
+template <size_t Count>
+uint32_t nextPreset(uint32_t current, const uint32_t (&options)[Count])
+{
+    for (size_t index = 0; index < Count; ++index) {
+        if (options[index] == current) {
+            return options[(index + 1U) % Count];
+        }
+    }
+    return options[0];
+}
+
+void formatDuration(uint32_t seconds, char *buffer, size_t buffer_size)
+{
+    if (seconds == 0U) {
+        std::snprintf(buffer, buffer_size, "OFF");
+    } else if (seconds < 60U) {
+        std::snprintf(buffer, buffer_size, "%lu S",
+                      static_cast<unsigned long>(seconds));
+    } else {
+        std::snprintf(buffer, buffer_size, "%lu MIN",
+                      static_cast<unsigned long>(seconds / 60U));
+    }
+}
+
+bool isSettingsScreen(qsee::Navigation::Screen screen)
+{
+    using Screen = qsee::Navigation::Screen;
+    return screen == Screen::Settings ||
+           screen == Screen::SettingsDiagnostics ||
+           screen == Screen::SettingsStorage ||
+           screen == Screen::SettingsNetwork ||
+           screen == Screen::SettingsDisplay ||
+           screen == Screen::SettingsPower;
+}
+
+bool isPairingScreen(qsee::Navigation::Screen screen)
+{
+    using Screen = qsee::Navigation::Screen;
+    return screen == Screen::PairIntro ||
+           screen == Screen::PairBluetooth ||
+           screen == Screen::PairApp ||
+           screen == Screen::PairQr ||
+           screen == Screen::AppStoreQr ||
+           screen == Screen::PairResult;
+}
+
+void wipeBytes(void *data, size_t size)
+{
+    auto *cursor = static_cast<volatile uint8_t *>(data);
+    while (cursor != nullptr && size-- > 0U) {
+        *cursor++ = 0U;
+    }
+}
 
 void applySpotlightBackground(lv_obj_t *screen)
 {
@@ -142,6 +220,31 @@ void styleArcButton(
     lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
 }
 
+void styleBottomArcCommand(
+    AppButton &button,
+    int x,
+    int y,
+    uint32_t color
+)
+{
+    buttonStyle(button, 104, 44, color);
+    button.align({STYLE_ALIGN_TYPE_TOP_LEFT, x, y});
+
+    lv_obj_t *native = button.getNativeHandle();
+    lv_obj_set_style_border_width(native, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_color(
+        native,
+        lv_color_hex(color == kTeal ? 0x2BE7D0 : 0x69B9FF),
+        LV_PART_MAIN
+    );
+    lv_obj_set_style_border_opa(native, LV_OPA_80, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(native, 0, LV_PART_MAIN);
+    lv_obj_set_style_translate_x(native, 0, kPressedSelector);
+    lv_obj_set_style_translate_y(native, 0, kPressedSelector);
+    lv_obj_set_style_transform_width(native, 0, kPressedSelector);
+    lv_obj_set_style_transform_height(native, 0, kPressedSelector);
+}
+
 void transparentPanel(LvContainer &panel, bool scrollable)
 {
     lv_obj_t *native = panel.getNativeHandle();
@@ -246,15 +349,91 @@ std::unique_ptr<AppProgressBar> makeDiagnosticBar(const LvObject *parent, int y,
 {
     auto bar = std::make_unique<AppProgressBar>(parent);
     bar->setRange(0, 100);
-    bar->setValue(0);
     bar->setWidth(kRowWidth);
     bar->setHeight(12);
     bar->setBackgroundColor(StyleColor::COLOR(kTrack));
+    (void)top;
     (void)bottom;
-    lv_obj_set_style_bg_color(bar->getNativeHandle(), lv_color_hex(top), LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(bar->getNativeHandle(), LV_OPA_COVER, LV_PART_INDICATOR);
+    // The draw callback paints absolute dBFS threshold bands. A gradient on the
+    // indicator itself would incorrectly squeeze green/yellow/red into any
+    // short fill because LVGL scales it to the current indicator width.
+    lv_obj_set_style_bg_opa(bar->getNativeHandle(), LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_radius(bar->getNativeHandle(), 6, LV_PART_MAIN);
     bar->align({STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     return bar;
+}
+
+void audioMeterDrawEvent(lv_event_t *event)
+{
+    lv_obj_t *bar = lv_event_get_target_obj(event);
+    auto *levels = static_cast<float *>(lv_event_get_user_data(event));
+    lv_layer_t *layer = lv_event_get_layer(event);
+    if (bar == nullptr || levels == nullptr || layer == nullptr) {
+        return;
+    }
+
+    lv_area_t area;
+    lv_obj_get_coords(bar, &area);
+    area.x1 += 1;
+    area.x2 -= 1;
+    area.y1 += 2;
+    area.y2 -= 2;
+    const int width = lv_area_get_width(&area);
+    const float display_level = std::clamp(levels[0], 0.0F, 100.0F);
+    const float hold_level = std::clamp(levels[1], 0.0F, 100.0F);
+
+    struct MeterBand {
+        float start;
+        float end;
+        uint32_t color;
+    };
+    // -60..0 dBFS maps to 0..100: -12 dBFS=80 and -3 dBFS=95.
+    static constexpr MeterBand bands[] = {
+        {0.0F, 80.0F, 0x18C97A},
+        {80.0F, 95.0F, 0xF4C542},
+        {95.0F, 100.0F, 0xED4245},
+    };
+    for (const MeterBand &band : bands) {
+        const float visible_end = std::min(display_level, band.end);
+        if (visible_end <= band.start) {
+            continue;
+        }
+        lv_area_t segment = area;
+        segment.x1 = area.x1 + static_cast<int>(
+            (width - 1) * band.start / 100.0F + 0.5F
+        );
+        segment.x2 = area.x1 + static_cast<int>(
+            (width - 1) * visible_end / 100.0F + 0.5F
+        );
+        lv_draw_rect_dsc_t fill;
+        lv_draw_rect_dsc_init(&fill);
+        fill.bg_opa = LV_OPA_COVER;
+        fill.bg_color = lv_color_hex(band.color);
+        fill.radius = 3;
+        lv_draw_rect(layer, &fill, &segment);
+    }
+
+    if (hold_level <= 0.0F) {
+        return;
+    }
+    const int marker_x = area.x1 + static_cast<int>(
+        (width - 1) * hold_level / 100.0F + 0.5F
+    );
+    lv_area_t marker_border = area;
+    marker_border.x1 = std::max(area.x1, marker_x - 2);
+    marker_border.x2 = std::min(area.x2, marker_x + 2);
+    lv_draw_rect_dsc_t marker;
+    lv_draw_rect_dsc_init(&marker);
+    marker.bg_opa = LV_OPA_COVER;
+    marker.bg_color = lv_color_hex(0x071018);
+    marker.radius = 1;
+    lv_draw_rect(layer, &marker, &marker_border);
+
+    lv_area_t marker_core = marker_border;
+    marker_core.x1 = std::max(area.x1, marker_x - 1);
+    marker_core.x2 = std::min(area.x2, marker_x + 1);
+    marker.bg_color = lv_color_white();
+    lv_draw_rect(layer, &marker, &marker_core);
 }
 
 const char *health(qsee::DeviceHealth value)
@@ -275,6 +454,43 @@ uint32_t healthColor(qsee::DeviceHealth value, esp_err_t error = ESP_OK)
     }
 }
 
+double audioPeakDbfs(uint32_t peak)
+{
+    if (peak == 0U) {
+        return kAudioMeterFloorDbfs;
+    }
+    const double normalized = std::min(1.0, static_cast<double>(peak) / kPcm16FullScale);
+    return 20.0 * std::log10(normalized);
+}
+
+int audioPeakMeterValue(uint32_t peak)
+{
+    if (peak == 0U) {
+        return 0;
+    }
+    // A logarithmic dBFS scale keeps real low-level PCM input visible.
+    const double dbfs = std::max(kAudioMeterFloorDbfs, audioPeakDbfs(peak));
+    return static_cast<int>(((dbfs - kAudioMeterFloorDbfs) * 100.0 /
+                             -kAudioMeterFloorDbfs) + 0.5);
+}
+
+void formatAudioPeak(char *text, size_t text_size, unsigned channel, uint32_t peak)
+{
+    const double percent_full_scale =
+        std::min(100.0, static_cast<double>(peak) * 100.0 / kPcm16FullScale);
+    if (peak == 0U) {
+        std::snprintf(
+            text, text_size, "PEAK CH%u  %.2f %%FS | -inf dBFS",
+            channel, percent_full_scale
+        );
+        return;
+    }
+    std::snprintf(
+        text, text_size, "PEAK CH%u  %.2f %%FS | %.1f dBFS",
+        channel, percent_full_scale, audioPeakDbfs(peak)
+    );
+}
+
 bool storageFormatRequired(const qsee::StorageSnapshot &storage)
 {
     return storage.card_present && !storage.formatted &&
@@ -287,7 +503,7 @@ const char *hardwareStateText(
     const qsee::DeviceHealth *states
 )
 {
-    if (index == 10U && !snapshot.storage.card_present) return "NO CARD";
+    if (index == 10U && !snapshot.storage.card_present) return "N/A";
     if (index == 10U && storageFormatRequired(snapshot.storage)) return "FORMAT";
     switch (states[index]) {
     case qsee::DeviceHealth::Ready: return "OK";
@@ -318,62 +534,11 @@ uint32_t hardwareStatusColor(
     return kWarning;
 }
 
-const char *logFilterName(uint8_t mode)
-{
-    switch (mode) {
-    case 1: return "WARN";
-    case 2: return "ERROR";
-    case 3: return "INFO";
-    default: return "ALL";
-    }
-}
-
-bool logLineMatches(const char *line, const char *query, uint8_t filter_mode)
-{
-    const char *first = line;
-    while (*first == ' ' || *first == '\t') ++first;
-    if (filter_mode == 1 && (*first != 'W' && *first != 'w')) return false;
-    if (filter_mode == 2 && (*first != 'E' && *first != 'e')) return false;
-    if (filter_mode == 3 && (*first != 'I' && *first != 'i')) return false;
-    return query == nullptr || query[0] == '\0' || std::strstr(line, query) != nullptr;
-}
-
-void filterLogs(const char *source, const char *query, uint8_t filter_mode,
-                char *output, size_t output_size)
-{
-    if (output == nullptr || output_size == 0) return;
-    output[0] = '\0';
-    size_t used = 0;
-    const char *cursor = source != nullptr ? source : "";
-    while (*cursor != '\0' && used + 1 < output_size) {
-        const char *line_end = std::strchr(cursor, '\n');
-        const size_t raw_length = line_end != nullptr
-            ? static_cast<size_t>(line_end - cursor) : std::strlen(cursor);
-        const size_t line_length = raw_length < 255U ? raw_length : 255U;
-        char line[256];
-        std::memcpy(line, cursor, line_length);
-        line[line_length] = '\0';
-        if (logLineMatches(line, query, filter_mode)) {
-            constexpr size_t kVisibleLogColumns = 42U;
-            const size_t visible_length = line_length < kVisibleLogColumns
-                ? line_length : kVisibleLogColumns;
-            const size_t copy_length = visible_length < output_size - used - 1U
-                ? visible_length : output_size - used - 1U;
-            std::memcpy(output + used, line, copy_length);
-            if (line_length > kVisibleLogColumns && copy_length > 0U) {
-                output[used + copy_length - 1U] = '~';
-            }
-            used += copy_length;
-            if (used + 1U < output_size) output[used++] = '\n';
-            output[used] = '\0';
-        }
-        cursor = line_end != nullptr ? line_end + 1 : cursor + raw_length;
-    }
-}
-
 }
 
 namespace qsee {
+
+Navigation *Navigation::_qr_owner = nullptr;
 
 bool Navigation::begin()
 {
@@ -382,20 +547,12 @@ bool Navigation::begin()
     _log_snapshot_buffer = static_cast<char *>(
         heap_caps_malloc(kLogBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
     );
-    _log_filtered_buffer = static_cast<char *>(
-        heap_caps_malloc(kLogBufferBytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-    );
     if (_log_snapshot_buffer == nullptr) {
         _log_snapshot_buffer = static_cast<char *>(heap_caps_malloc(kLogBufferBytes, MALLOC_CAP_8BIT));
     }
-    if (_log_filtered_buffer == nullptr) {
-        _log_filtered_buffer = static_cast<char *>(heap_caps_malloc(kLogBufferBytes, MALLOC_CAP_8BIT));
-    }
     if (_log_snapshot_buffer != nullptr) _log_snapshot_buffer[0] = '\0';
-    if (_log_filtered_buffer != nullptr) _log_filtered_buffer[0] = '\0';
-    ESP_LOGI("qsee_navigation", "Log buffers: snapshot=%s filtered=%s",
-             _log_snapshot_buffer != nullptr ? "ready" : "unavailable",
-             _log_filtered_buffer != nullptr ? "ready" : "unavailable");
+    ESP_LOGI("qsee_navigation", "Log snapshot buffer: %s",
+             _log_snapshot_buffer != nullptr ? "ready" : "unavailable");
 
     applySpotlightBackground(_screen->getNativeHandle());
     _surface = std::make_unique<LvContainer>(_screen.get());
@@ -425,7 +582,7 @@ bool Navigation::begin()
     _welcome->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
     transparentPanel(*_welcome, true);
     lv_obj_set_scrollbar_mode(_welcome->getNativeHandle(), LV_SCROLLBAR_MODE_OFF);
-    makeMetric(_ram, _welcome.get(), "INTERNAL RAM", 0, kTeal);
+    makeMetric(_ram, _welcome.get(), "PSRAM", 0, kTeal);
     makeMetric(_sd, _welcome.get(), "SD STORAGE", 40, kBlue);
     makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 80, kTeal);
     makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 120, kBlue);
@@ -470,35 +627,18 @@ bool Navigation::begin()
     styleArcButton(*_open_settings, 54, 346, 330, kBlue, LV_SYMBOL_SETTINGS);
 
     _logs = std::make_unique<LvContainer>(_screen.get());
-    _logs->setStyleAttribute(StyleSize::RECT(370, 374));
-    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_RIGHT, -6, 82});
+    _logs->setStyleAttribute(StyleSize::RECT(320, 374));
+    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 82});
     transparentPanel(*_logs, false);
-    _log_search = std::make_unique<AppTextBox>(_logs.get());
-    _log_search->setWidth(220);
-    _log_search->setHeight(32);
-    _log_search->setOneLine();
-    _log_search->setPlaceholder("Search logs");
-    _log_search->setFont(StyleFont::SIZE(12));
-    _log_search->setTextColor(StyleColor::COLOR(kNavy));
-    _log_search->setBackgroundColor(StyleColor::COLOR(kSurface));
-    _log_search->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 0});
-    _log_filter = std::make_unique<AppButton>(_logs.get(), [this]() {
-        _log_filter_mode = static_cast<uint8_t>((_log_filter_mode + 1U) % 4U);
-        char filter[24];
-        std::snprintf(filter, sizeof(filter), "FILTER %s", logFilterName(_log_filter_mode));
-        _log_filter->setText(filter);
-        updateLogView();
-    });
-    _log_filter->setText("FILTER ALL");
-    buttonStyle(*_log_filter, 116, 30, kBlue);
-    _log_filter->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 1});
+    _logs_live = makeLabel(_logs.get(), "LIVE", 46, 10, kTeal,
+                           STYLE_ALIGN_TYPE_TOP_LEFT, 10, 0);
     _log_box = std::make_unique<AppRichText>(_logs.get());
-    _log_box->setWidth(354);
-    _log_box->setHeight(286);
+    _log_box->setWidth(300);
+    _log_box->setHeight(280);
     _log_box->setFont(StyleFont::SIZE(8));
     _log_box->setTextColor(StyleColor::COLOR(0xEAF1F6));
     _log_box->setBackgroundColor(StyleColor::COLOR(0x12263A));
-    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 50});
+    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 18});
     lv_obj_set_scrollbar_mode(_log_box->getNativeHandle(), LV_SCROLLBAR_MODE_OFF);
 
     _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
@@ -506,24 +646,14 @@ bool Navigation::begin()
         _logs_pause->setText(_logs_paused ? "RESUME" : "PAUSE");
     });
     _logs_pause->setText("PAUSE");
-    buttonStyle(*_logs_pause, 82, 30, kSlate);
-    _logs_pause->align({STYLE_ALIGN_TYPE_BOTTOM_LEFT, 8, -2});
+    // Equal commands sit symmetrically on the lower safe arc, like the home actions.
+    styleBottomArcCommand(*_logs_pause, 49, 308, kSlate);
     _logs_clear = std::make_unique<AppButton>(_logs.get(), [this]() {
         qsee_logger_clear();
         _log_box->setText("", false);
     });
     _logs_clear->setText("CLEAR");
-    buttonStyle(*_logs_clear, 70, 30, kBlue);
-    _logs_clear->align({STYLE_ALIGN_TYPE_BOTTOM_MID, -4, -2});
-    _logs_follow = std::make_unique<AppButton>(_logs.get(), [this]() {
-        _logs_follow_latest = !_logs_follow_latest;
-        _logs_follow->setText(_logs_follow_latest ? "FOLLOW ON" : "FOLLOW OFF");
-    });
-    _logs_follow->setText("FOLLOW ON");
-    buttonStyle(*_logs_follow, 92, 30, kBlue);
-    _logs_follow->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -2});
-    _logs_live = makeLabel(_logs.get(), "LIVE", 46, 10, kTeal,
-                           STYLE_ALIGN_TYPE_TOP_LEFT, 8, 36);
+    styleBottomArcCommand(*_logs_clear, 167, 308, kBlue);
 
     _hardware = std::make_unique<LvContainer>(_surface.get());
     _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 226));
@@ -602,36 +732,175 @@ bool Navigation::begin()
     _audio->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
     transparentPanel(*_audio, true);
     _audio_status = makeLabel(_audio.get(), "MICROPHONES --", kRowWidth, 14, kMuted,
-                              STYLE_ALIGN_TYPE_TOP_MID, 0, 6);
+                               STYLE_ALIGN_TYPE_TOP_MID, 0, 6);
     _content_labels.push_back(
-        makeLabel(_audio.get(), "CHANNEL 0", 110, 14, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 40)
+        makeLabel(_audio.get(), "CHANNEL 0 PEAK  |  -60..0 dBFS", kRowWidth, 12, kMuted,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 34)
     );
-    _audio_mic0 = makeDiagnosticBar(_audio.get(), 62, kTeal, 0x08745F);
-    _content_labels.push_back(
-        makeLabel(_audio.get(), "CHANNEL 1", 110, 14, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 96)
+    _audio_mic0 = makeDiagnosticBar(_audio.get(), 54, kTeal, 0x08745F);
+    lv_obj_add_event_cb(
+        _audio_mic0->getNativeHandle(),
+        audioMeterDrawEvent,
+        LV_EVENT_DRAW_MAIN_END,
+        _audio_meter_visual[0]
     );
-    _audio_mic1 = makeDiagnosticBar(_audio.get(), 118, kBlue, 0x2A5E9B);
-    _audio_channels = makeLabel(_audio.get(), "PCM -- | -- Hz", kRowWidth, 14, kNavy,
-                                STYLE_ALIGN_TYPE_TOP_MID, 0, 166);
     _content_labels.push_back(
-        makeLabel(_audio.get(), "Live levels from the canonical device snapshot", kRowWidth, 12,
-                  kMuted, STYLE_ALIGN_TYPE_TOP_MID, 0, 204)
+        makeLabel(_audio.get(), "CHANNEL 1 PEAK  |  -60..0 dBFS", kRowWidth, 12, kMuted,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 78)
+    );
+    _audio_mic1 = makeDiagnosticBar(_audio.get(), 98, kBlue, 0x2A5E9B);
+    lv_obj_add_event_cb(
+        _audio_mic1->getNativeHandle(),
+        audioMeterDrawEvent,
+        LV_EVENT_DRAW_MAIN_END,
+        _audio_meter_visual[1]
+    );
+    _audio_channels = makeLabel(
+        _audio.get(),
+        "FORMAT     SIGNED PCM / 16-bit\n"
+        "RATE       -- kHz\n"
+        "CHANNELS   --\n"
+        "PEAK CH0   -- %FS | -- dBFS\n"
+        "PEAK CH1   -- %FS | -- dBFS",
+        kRowWidth, 12, kNavy, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 124
+    );
+    _content_labels.push_back(
+        makeLabel(_audio.get(), "dBFS peak  |  1 s hold  |  canonical snapshot", kRowWidth, 11,
+                  kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 218)
     );
 
     _imu = std::make_unique<LvContainer>(_surface.get());
     _imu->setStyleAttribute(StyleSize::RECT(kWidth, 232));
     _imu->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
-    transparentPanel(*_imu, true);
-    _imu_status = makeLabel(_imu.get(), "QMI8658 --", kRowWidth, 14, kMuted,
-                            STYLE_ALIGN_TYPE_TOP_MID, 0, 6);
-    _imu_accel = makeLabel(_imu.get(), "ACC X -- Y -- Z -- m/s2", kRowWidth, 14, kNavy,
-                           STYLE_ALIGN_TYPE_TOP_MID, 0, 52);
-    _imu_gyro = makeLabel(_imu.get(), "GYRO X -- Y -- Z -- dps", kRowWidth, 14, kNavy,
-                          STYLE_ALIGN_TYPE_TOP_MID, 0, 98);
-    _imu_temperature = makeLabel(_imu.get(), "TEMP -- C", kRowWidth, 16, kBlue,
-                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 144);
-    _imu_calibration = makeLabel(_imu.get(), "CALIBRATION --", kRowWidth, 14, kMuted,
-                                 STYLE_ALIGN_TYPE_TOP_MID, 0, 190);
+    transparentPanel(*_imu, false);
+    _imu_status = makeLabel(_imu.get(), "QMI8658 --", 122, 12, kMuted,
+                            STYLE_ALIGN_TYPE_TOP_LEFT, 8, 2);
+    _imu_calibration = makeLabel(_imu.get(), "CALIB -- | 0", 132, 10, kMuted,
+                                 STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 3);
+    _content_labels.push_back(
+        makeLabel(_imu.get(), "ACCEL  m/s2", 126, 11, kTeal,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 27)
+    );
+    _content_labels.push_back(
+        makeLabel(_imu.get(), "GYRO  dps", 116, 11, kBlue,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 148, 27)
+    );
+
+    static constexpr lv_point_precise_t kImuXAxis[] = {
+        {0, 4}, {54, 4}, {47, 0}, {54, 4}, {47, 8},
+    };
+    static constexpr lv_point_precise_t kImuYAxis[] = {
+        {4, 56}, {4, 2}, {0, 9}, {4, 2}, {8, 9},
+    };
+    static constexpr lv_point_precise_t kImuZAxis[] = {
+        {39, 0}, {2, 37}, {3, 27}, {2, 37}, {12, 36},
+    };
+    const auto make_imu_axis = [this](
+        const lv_point_precise_t *points,
+        uint32_t point_count,
+        int x,
+        int y,
+        int width,
+        int height,
+        uint32_t color
+    ) {
+        lv_obj_t *axis = lv_line_create(_imu->getNativeHandle());
+        if (axis == nullptr) return;
+        lv_obj_remove_style_all(axis);
+        lv_obj_set_pos(axis, x, y);
+        lv_obj_set_size(axis, width, height);
+        lv_line_set_points(axis, points, point_count);
+        lv_obj_set_style_line_width(axis, 3, LV_PART_MAIN);
+        lv_obj_set_style_line_color(axis, lv_color_hex(color), LV_PART_MAIN);
+        lv_obj_set_style_line_rounded(axis, true, LV_PART_MAIN);
+        lv_obj_clear_flag(axis, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(axis, LV_OBJ_FLAG_SCROLLABLE);
+    };
+    make_imu_axis(kImuXAxis, 5, 66, 103, 55, 9, kTeal);
+    make_imu_axis(kImuYAxis, 5, 62, 51, 9, 57, kBlue);
+    make_imu_axis(kImuZAxis, 5, 27, 107, 40, 40, kWarning);
+
+    _imu_accel_x = makeLabel(_imu.get(), "X --", 68, 11, kTeal,
+                             STYLE_ALIGN_TYPE_TOP_LEFT, 76, 87);
+    _imu_accel_y = makeLabel(_imu.get(), "Y --", 68, 11, kBlue,
+                             STYLE_ALIGN_TYPE_TOP_LEFT, 73, 51);
+    _imu_accel_z = makeLabel(_imu.get(), "Z --", 76, 11, kWarning,
+                             STYLE_ALIGN_TYPE_TOP_LEFT, 8, 151);
+
+    lv_obj_t *imu_divider = lv_obj_create(_imu->getNativeHandle());
+    if (imu_divider != nullptr) {
+        lv_obj_remove_style_all(imu_divider);
+        lv_obj_set_pos(imu_divider, 136, 31);
+        lv_obj_set_size(1, 151);
+        lv_obj_set_style_bg_color(imu_divider, lv_color_hex(kTrack), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(imu_divider, LV_OPA_80, LV_PART_MAIN);
+        lv_obj_clear_flag(imu_divider, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(imu_divider, LV_OBJ_FLAG_SCROLLABLE);
+    }
+
+    static constexpr int kGyroArcAngles[3][2] = {
+        {205, 315},
+        {325, 75},
+        {85, 195},
+    };
+    static constexpr uint32_t kAxisColors[3] = {kTeal, kBlue, kWarning};
+    for (size_t axis = 0; axis < 3U; ++axis) {
+        _imu_gyro_arcs[axis] = lv_arc_create(_imu->getNativeHandle());
+        if (_imu_gyro_arcs[axis] == nullptr) continue;
+        lv_obj_remove_style_all(_imu_gyro_arcs[axis]);
+        lv_obj_set_pos(_imu_gyro_arcs[axis], 169, 48);
+        lv_obj_set_size(_imu_gyro_arcs[axis], 74, 74);
+        lv_arc_set_bg_angles(
+            _imu_gyro_arcs[axis],
+            kGyroArcAngles[axis][0],
+            kGyroArcAngles[axis][1]
+        );
+        lv_obj_set_style_arc_width(_imu_gyro_arcs[axis], 5, LV_PART_MAIN);
+        lv_obj_set_style_arc_color(
+            _imu_gyro_arcs[axis],
+            lv_color_hex(kAxisColors[axis]),
+            LV_PART_MAIN
+        );
+        lv_obj_set_style_arc_rounded(_imu_gyro_arcs[axis], true, LV_PART_MAIN);
+        lv_obj_set_style_arc_opa(_imu_gyro_arcs[axis], LV_OPA_30, LV_PART_MAIN);
+        lv_obj_clear_flag(_imu_gyro_arcs[axis], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(_imu_gyro_arcs[axis], LV_OBJ_FLAG_SCROLLABLE);
+    }
+    _content_labels.push_back(
+        makeLabel(_imu.get(), LV_SYMBOL_REFRESH, 28, 18, kMuted,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 192, 74)
+    );
+    _imu_gyro_x = makeLabel(_imu.get(), "X --", 112, 11, kTeal,
+                            STYLE_ALIGN_TYPE_TOP_LEFT, 150, 130);
+    _imu_gyro_y = makeLabel(_imu.get(), "Y --", 112, 11, kBlue,
+                            STYLE_ALIGN_TYPE_TOP_LEFT, 150, 148);
+    _imu_gyro_z = makeLabel(_imu.get(), "Z --", 112, 11, kWarning,
+                            STYLE_ALIGN_TYPE_TOP_LEFT, 150, 166);
+
+    lv_obj_t *thermometer_stem = lv_obj_create(_imu->getNativeHandle());
+    if (thermometer_stem != nullptr) {
+        lv_obj_remove_style_all(thermometer_stem);
+        lv_obj_set_pos(thermometer_stem, 18, 198);
+        lv_obj_set_size(thermometer_stem, 6, 19);
+        lv_obj_set_style_radius(thermometer_stem, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(thermometer_stem, lv_color_hex(kBlue), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(thermometer_stem, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(thermometer_stem, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(thermometer_stem, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    lv_obj_t *thermometer_bulb = lv_obj_create(_imu->getNativeHandle());
+    if (thermometer_bulb != nullptr) {
+        lv_obj_remove_style_all(thermometer_bulb);
+        lv_obj_set_pos(thermometer_bulb, 14, 212);
+        lv_obj_set_size(thermometer_bulb, 14, 14);
+        lv_obj_set_style_radius(thermometer_bulb, LV_RADIUS_CIRCLE, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(thermometer_bulb, lv_color_hex(kBlue), LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(thermometer_bulb, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_clear_flag(thermometer_bulb, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(thermometer_bulb, LV_OBJ_FLAG_SCROLLABLE);
+    }
+    _imu_temperature = makeLabel(_imu.get(), "-- C", 92, 15, kBlue,
+                                 STYLE_ALIGN_TYPE_TOP_LEFT, 36, 201);
 
     _format_sd = std::make_unique<AppButton>(_hardware.get(), [this]() { showFormatDialog(); });
     _format_sd->setText("FORMAT SD");
@@ -663,129 +932,7 @@ bool Navigation::begin()
         kRowWidth, 12, kBlue, STYLE_ALIGN_TYPE_TOP_MID, 0, 206
     );
 
-    _settings = std::make_unique<LvContainer>(_surface.get());
-    _settings->setStyleAttribute(StyleSize::RECT(kWidth, 232));
-    _settings->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
-    transparentPanel(*_settings, true);
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "DIAGNOSTICS", kRowWidth, 18, kTeal,
-                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 8)
-    );
-    _settings_period = makeLabel(_settings.get(), "Sample interval 300 ms", kRowWidth, 16, kNavy,
-                                 STYLE_ALIGN_TYPE_TOP_LEFT, 8, 40);
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "Active only in Audio Scope and IMU Level",
-                  kRowWidth, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 68)
-    );
-    _settings_faster = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustDiagnosticPeriod(-100); }
-    );
-    _settings_faster->setText("FASTER");
-    buttonStyle(*_settings_faster, 108, 38, kTeal);
-    _settings_faster->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 96});
-    _settings_slower = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustDiagnosticPeriod(100); }
-    );
-    _settings_slower->setText("SLOWER");
-    buttonStyle(*_settings_slower, 108, 38, kBlue);
-    _settings_slower->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 96});
-    _settings_default = std::make_unique<AppButton>(
-        _settings.get(), [this]() {
-            (void)qsee_hardware_set_diagnostic_period_ms(300);
-            updateSettings();
-        }
-    );
-    _settings_default->setText("RESET 300 MS");
-    buttonStyle(*_settings_default, 148, 38, kSlate);
-    _settings_default->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 142});
-
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "SENSOR FUSION", kRowWidth, 18, kBlue,
-                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 202)
-    );
-    _settings_smoothing = makeLabel(
-        _settings.get(), "IMU input smoothing 70%", kRowWidth, 16, kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT, 8, 234
-    );
-    _settings_smoothing_less = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustImuSmoothing(-10); }
-    );
-    _settings_smoothing_less->setText("LESS FILTER");
-    buttonStyle(*_settings_smoothing_less, 108, 38, kSlate);
-    _settings_smoothing_less->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 270});
-    _settings_smoothing_more = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustImuSmoothing(10); }
-    );
-    _settings_smoothing_more->setText("MORE FILTER");
-    buttonStyle(*_settings_smoothing_more, 108, 38, kBlue);
-    _settings_smoothing_more->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 270});
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "0% raw response  |  90% maximum smoothing",
-                  kRowWidth, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 316)
-    );
-
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "STORAGE", kRowWidth, 18, kTeal,
-                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 366)
-    );
-    _settings_storage = makeLabel(
-        _settings.get(), "SD --  |  log mirror --", kRowWidth, 16, kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT, 8, 398
-    );
-    _settings_sd_mirror = std::make_unique<AppButton>(
-        _settings.get(), [this]() { toggleSdMirror(); }
-    );
-    _settings_sd_mirror->setText("LOG MIRROR ON");
-    buttonStyle(*_settings_sd_mirror, 160, 38, kTeal);
-    _settings_sd_mirror->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 436});
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "Formatting remains an explicit action in Hardware",
-                  kRowWidth, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 482)
-    );
-
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "WI-FI", kRowWidth, 18, kBlue,
-                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 532)
-    );
-    _settings_wifi = makeLabel(
-        _settings.get(), "Radio deferred  |  no connection", kRowWidth, 16, kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT, 8, 564
-    );
-    _settings_wifi_start = std::make_unique<AppButton>(
-        _settings.get(), [this]() { startWifi(); }
-    );
-    _settings_wifi_start->setText("START WI-FI");
-    buttonStyle(*_settings_wifi_start, 148, 38, kBlue);
-    _settings_wifi_start->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 602});
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "Credentials are stored by the Wi-Fi service",
-                  kRowWidth, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 648)
-    );
-
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "DISPLAY", kRowWidth, 18, kTeal,
-                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 698)
-    );
-    _settings_brightness = makeLabel(
-        _settings.get(), "AMOLED brightness 100%", kRowWidth, 16, kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT, 8, 730
-    );
-    _settings_brightness_down = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustBrightness(-10); }
-    );
-    _settings_brightness_down->setText("DIMMER");
-    buttonStyle(*_settings_brightness_down, 108, 38, kSlate);
-    _settings_brightness_down->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 768});
-    _settings_brightness_up = std::make_unique<AppButton>(
-        _settings.get(), [this]() { adjustBrightness(10); }
-    );
-    _settings_brightness_up->setText("BRIGHTER");
-    buttonStyle(*_settings_brightness_up, 108, 38, kTeal);
-    _settings_brightness_up->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 768});
-    _content_labels.push_back(
-        makeLabel(_settings.get(), "All values above are stored in device NVS",
-                  kRowWidth, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 820)
-    );
+    buildSettingsUi();
 
     _dialog_scrim = std::make_unique<LvContainer>(_screen.get());
     // Keep edge-owned Back/OK/Close controls outside the modal hit area.
@@ -859,9 +1006,520 @@ bool Navigation::begin()
         }
     });
 
-    _refresh_timer = std::make_unique<AppTimer>(1000, [this]() { refresh(); });
+    // Consume the first touch while AMOLED output is off.
+    _display_wake_guard = std::make_unique<LvContainer>(_screen.get());
+    lv_obj_t *wake_guard = _display_wake_guard->getNativeHandle();
+    lv_obj_remove_style_all(wake_guard);
+    lv_obj_set_size(wake_guard, 466, 466);
+    lv_obj_center(wake_guard);
+    lv_obj_add_flag(wake_guard, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_clear_flag(wake_guard, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(
+        wake_guard,
+        displayWakeGuardEvent,
+        LV_EVENT_PRESSED,
+        this
+    );
+    setVisible(*_display_wake_guard, false);
+
+    _refresh_timer = std::make_unique<AppTimer>(kUiTickMs, [this]() { onRefreshTick(); });
     show(Screen::Welcome);
     return true;
+}
+
+void Navigation::buildSettingsUi()
+{
+    const auto make_page = [this]() {
+        auto page = std::make_unique<LvContainer>(_surface.get());
+        page->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+        page->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+        transparentPanel(*page, false);
+        return page;
+    };
+
+    _settings = make_page();
+    _settings_diagnostics_open = std::make_unique<AppButton>(
+        _settings.get(), [this]() { show(Screen::SettingsDiagnostics); }
+    );
+    _settings_diagnostics_open->setText("DIAGNOSTICS\n300 ms | 70%");
+    buttonStyle(*_settings_diagnostics_open, 112, 54, kTeal);
+    _settings_diagnostics_open->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 2});
+    _settings_storage_open = std::make_unique<AppButton>(
+        _settings.get(), [this]() { show(Screen::SettingsStorage); }
+    );
+    _settings_storage_open->setText("STORAGE\nSD -- | M --");
+    buttonStyle(*_settings_storage_open, 112, 54, kBlue);
+    _settings_storage_open->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 2});
+    _settings_network_open = std::make_unique<AppButton>(
+        _settings.get(), [this]() { show(Screen::SettingsNetwork); }
+    );
+    _settings_network_open->setText("NETWORK\nWI-FI --");
+    buttonStyle(*_settings_network_open, 112, 54, kBlue);
+    _settings_network_open->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 64});
+    _settings_display_open = std::make_unique<AppButton>(
+        _settings.get(), [this]() { show(Screen::SettingsDisplay); }
+    );
+    _settings_display_open->setText("DISPLAY\n100% | ROT OFF");
+    buttonStyle(*_settings_display_open, 112, 54, kTeal);
+    _settings_display_open->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 64});
+    _settings_power_open = std::make_unique<AppButton>(
+        _settings.get(), [this]() { show(Screen::SettingsPower); }
+    );
+    _settings_power_open->setText("POWER\nDIM --\nOFF --");
+    buttonStyle(*_settings_power_open, 112, 54, kSlate);
+    _settings_power_open->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 126});
+    _content_labels.push_back(
+        makeLabel(
+            _settings.get(),
+            "Only implemented device controls are exposed",
+            kRowWidth,
+            10,
+            kMuted,
+            STYLE_ALIGN_TYPE_TOP_MID,
+            0,
+            190
+        )
+    );
+
+    _settings_diagnostics_page = make_page();
+    _settings_period = makeLabel(
+        _settings_diagnostics_page.get(),
+        "Sample interval 300 ms",
+        kRowWidth,
+        15,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        4
+    );
+    _content_labels.push_back(
+        makeLabel(
+            _settings_diagnostics_page.get(),
+            "Audio Scope and IMU diagnostics",
+            kRowWidth,
+            10,
+            kMuted,
+            STYLE_ALIGN_TYPE_TOP_LEFT,
+            8,
+            27
+        )
+    );
+    _settings_faster = std::make_unique<AppButton>(
+        _settings_diagnostics_page.get(),
+        [this]() { adjustDiagnosticPeriod(-100); }
+    );
+    _settings_faster->setText("FASTER");
+    buttonStyle(*_settings_faster, 104, 34, kTeal);
+    _settings_faster->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 44});
+    _settings_slower = std::make_unique<AppButton>(
+        _settings_diagnostics_page.get(),
+        [this]() { adjustDiagnosticPeriod(100); }
+    );
+    _settings_slower->setText("SLOWER");
+    buttonStyle(*_settings_slower, 104, 34, kBlue);
+    _settings_slower->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 44});
+    _settings_smoothing = makeLabel(
+        _settings_diagnostics_page.get(),
+        "IMU input smoothing 70%",
+        kRowWidth,
+        15,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        92
+    );
+    _settings_smoothing_less = std::make_unique<AppButton>(
+        _settings_diagnostics_page.get(),
+        [this]() { adjustImuSmoothing(-10); }
+    );
+    _settings_smoothing_less->setText("LESS");
+    buttonStyle(*_settings_smoothing_less, 104, 34, kSlate);
+    _settings_smoothing_less->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 120});
+    _settings_smoothing_more = std::make_unique<AppButton>(
+        _settings_diagnostics_page.get(),
+        [this]() { adjustImuSmoothing(10); }
+    );
+    _settings_smoothing_more->setText("MORE");
+    buttonStyle(*_settings_smoothing_more, 104, 34, kBlue);
+    _settings_smoothing_more->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 120});
+    _settings_default = std::make_unique<AppButton>(
+        _settings_diagnostics_page.get(),
+        [this]() {
+            (void)qsee_hardware_set_diagnostic_period_ms(300);
+            (void)qsee_hardware_set_imu_smoothing_percent(70);
+            updateSettings();
+        }
+    );
+    _settings_default->setText("RESET");
+    styleBottomArcCommand(*_settings_default, 84, 180, kSlate);
+
+    _settings_storage_page = make_page();
+    _settings_storage = makeLabel(
+        _settings_storage_page.get(),
+        "SD --\nLog mirror --",
+        kRowWidth,
+        16,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        14
+    );
+    lv_label_set_long_mode(
+        _settings_storage->getNativeHandle(),
+        LV_LABEL_LONG_MODE_WRAP
+    );
+    _content_labels.push_back(
+        makeLabel(
+            _settings_storage_page.get(),
+            "Logs are mirrored only while the card is ready.\n"
+            "Formatting remains an explicit Hardware action.",
+            kRowWidth,
+            11,
+            kMuted,
+            STYLE_ALIGN_TYPE_TOP_LEFT,
+            8,
+            76
+        )
+    );
+    _settings_sd_mirror = std::make_unique<AppButton>(
+        _settings_storage_page.get(), [this]() { toggleSdMirror(); }
+    );
+    _settings_sd_mirror->setText("MIRROR ON");
+    styleBottomArcCommand(*_settings_sd_mirror, 84, 180, kTeal);
+
+    _settings_network_page = make_page();
+    _settings_wifi = makeLabel(
+        _settings_network_page.get(),
+        "WI-FI DEFERRED\nSSID --\nIP --\nPASSWORD --",
+        kRowWidth,
+        13,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        2
+    );
+    lv_label_set_long_mode(_settings_wifi->getNativeHandle(), LV_LABEL_LONG_MODE_WRAP);
+    _settings_wifi_start = std::make_unique<AppButton>(
+        _settings_network_page.get(), [this]() { startWifi(); }
+    );
+    _settings_wifi_start->setText("START RADIO");
+    buttonStyle(*_settings_wifi_start, 128, 32, kSlate);
+    _settings_wifi_start->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 126});
+    _content_labels.push_back(
+        makeLabel(
+            _settings_network_page.get(),
+            "Local keyboard or Espressif BLE provisioning",
+            kRowWidth,
+            10,
+            kMuted,
+            STYLE_ALIGN_TYPE_TOP_MID,
+            0,
+            163
+        )
+    );
+    _settings_wifi_edit = std::make_unique<AppButton>(
+        _settings_network_page.get(),
+        [this]() { show(Screen::WifiCredentials); }
+    );
+    _settings_wifi_edit->setText("EDIT");
+    styleBottomArcCommand(*_settings_wifi_edit, 16, 180, kBlue);
+    _settings_wifi_pair = std::make_unique<AppButton>(
+        _settings_network_page.get(),
+        [this]() { startPairing(); }
+    );
+    _settings_wifi_pair->setText("PAIR");
+    styleBottomArcCommand(*_settings_wifi_pair, 152, 180, kTeal);
+
+    _settings_display_page = make_page();
+    _settings_brightness = makeLabel(
+        _settings_display_page.get(),
+        "AMOLED brightness DEFAULT | 70%",
+        kRowWidth,
+        14,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        4
+    );
+    _settings_brightness_low = std::make_unique<AppButton>(
+        _settings_display_page.get(),
+        [this]() { setBrightnessProfile(kBrightnessLowPercent); }
+    );
+    _settings_brightness_low->setText("LOW");
+    buttonStyle(*_settings_brightness_low, 70, 34, kSlate);
+    _settings_brightness_low->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 34});
+    _settings_brightness_default = std::make_unique<AppButton>(
+        _settings_display_page.get(),
+        [this]() { setBrightnessProfile(kBrightnessDefaultPercent); }
+    );
+    _settings_brightness_default->setText("DEFAULT");
+    buttonStyle(*_settings_brightness_default, 82, 34, kBlue);
+    _settings_brightness_default->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 34});
+    _settings_brightness_high = std::make_unique<AppButton>(
+        _settings_display_page.get(),
+        [this]() { setBrightnessProfile(kBrightnessHighPercent); }
+    );
+    _settings_brightness_high->setText("HIGH");
+    buttonStyle(*_settings_brightness_high, 70, 34, kTeal);
+    _settings_brightness_high->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 34});
+    _settings_rotation = makeLabel(
+        _settings_display_page.get(),
+        "Auto-rotation OFF\nRendering 0 deg | gravity --",
+        kRowWidth,
+        13,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        86
+    );
+    lv_label_set_long_mode(
+        _settings_rotation->getNativeHandle(),
+        LV_LABEL_LONG_MODE_WRAP
+    );
+    _content_labels.push_back(
+        makeLabel(
+            _settings_display_page.get(),
+            "Cardinal CO5300 rotations: 0 / 90 / 180 / 270",
+            kRowWidth,
+            10,
+            kMuted,
+            STYLE_ALIGN_TYPE_TOP_LEFT,
+            8,
+            143
+        )
+    );
+    _settings_auto_rotate = std::make_unique<AppButton>(
+        _settings_display_page.get(), [this]() { toggleAutoRotation(); }
+    );
+    _settings_auto_rotate->setText("ROTATE ON");
+    styleBottomArcCommand(*_settings_auto_rotate, 84, 180, kTeal);
+
+    _settings_power_page = make_page();
+    _settings_dim_timeout = makeLabel(
+        _settings_power_page.get(),
+        "DIM 50% AFTER",
+        108,
+        12,
+        kMuted,
+        STYLE_ALIGN_TYPE_TOP_LEFT,
+        8,
+        4
+    );
+    _settings_panel_off_delay = makeLabel(
+        _settings_power_page.get(),
+        "PANEL OFF LATER",
+        108,
+        12,
+        kMuted,
+        STYLE_ALIGN_TYPE_TOP_RIGHT,
+        -8,
+        4
+    );
+    _settings_dim_cycle = std::make_unique<AppButton>(
+        _settings_power_page.get(), [this]() { cycleDimTimeout(); }
+    );
+    _settings_dim_cycle->setText("30 S");
+    styleBottomArcCommand(*_settings_dim_cycle, 16, 180, kBlue);
+    _settings_panel_off_cycle = std::make_unique<AppButton>(
+        _settings_power_page.get(), [this]() { cyclePanelOffDelay(); }
+    );
+    _settings_panel_off_cycle->setText("1 MIN");
+    styleBottomArcCommand(*_settings_panel_off_cycle, 152, 180, kSlate);
+    _content_labels.push_back(
+        makeLabel(
+            _settings_power_page.get(),
+            "BOOT wakes the device.\n"
+            "Display inactivity values are stored in NVS.",
+            kRowWidth,
+            13,
+            kNavy,
+            STYLE_ALIGN_TYPE_TOP_LEFT,
+            8,
+            94
+        )
+    );
+
+    _wifi_editor = std::make_unique<LvContainer>(_screen.get());
+    _wifi_editor->setStyleAttribute(StyleSize::RECT(320, 374));
+    _wifi_editor->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 82});
+    transparentPanel(*_wifi_editor, false);
+    _wifi_editor_title = makeLabel(
+        _wifi_editor.get(),
+        "WI-FI CREDENTIALS",
+        280,
+        17,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_MID,
+        0,
+        0
+    );
+    lv_obj_set_style_text_align(
+        _wifi_editor_title->getNativeHandle(),
+        LV_TEXT_ALIGN_CENTER,
+        LV_PART_MAIN
+    );
+    _wifi_ssid = std::make_unique<AppTextBox>(_wifi_editor.get());
+    _wifi_ssid->setWidth(280);
+    _wifi_ssid->setHeight(38);
+    _wifi_ssid->setOneLine();
+    _wifi_ssid->setPlaceholder("Network name (SSID)");
+    _wifi_ssid->setFont(StyleFont::SIZE(12));
+    _wifi_ssid->setTextColor(StyleColor::COLOR(kNavy));
+    _wifi_ssid->setBackgroundColor(StyleColor::COLOR(kSurface));
+    _wifi_ssid->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 30});
+    lv_textarea_set_max_length(
+        _wifi_ssid->getNativeHandle(),
+        QSEE_WIFI_SSID_MAX_LEN
+    );
+    lv_obj_set_style_radius(_wifi_ssid->getNativeHandle(), 8, LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        _wifi_ssid->getNativeHandle(),
+        wifiFieldFocusEvent,
+        LV_EVENT_FOCUSED,
+        this
+    );
+    _wifi_password = std::make_unique<AppTextBox>(_wifi_editor.get());
+    _wifi_password->setWidth(206);
+    _wifi_password->setHeight(38);
+    _wifi_password->setOneLine();
+    _wifi_password->setPlaceholder("Password");
+    _wifi_password->setFont(StyleFont::SIZE(12));
+    _wifi_password->setTextColor(StyleColor::COLOR(kNavy));
+    _wifi_password->setBackgroundColor(StyleColor::COLOR(kSurface));
+    _wifi_password->align({STYLE_ALIGN_TYPE_TOP_LEFT, 20, 76});
+    lv_textarea_set_max_length(_wifi_password->getNativeHandle(), 64);
+    lv_textarea_set_password_mode(_wifi_password->getNativeHandle(), true);
+    lv_obj_set_style_radius(_wifi_password->getNativeHandle(), 8, LV_PART_MAIN);
+    lv_obj_add_event_cb(
+        _wifi_password->getNativeHandle(),
+        wifiFieldFocusEvent,
+        LV_EVENT_FOCUSED,
+        this
+    );
+    lv_obj_add_event_cb(
+        _wifi_password->getNativeHandle(),
+        wifiPasswordChangedEvent,
+        LV_EVENT_VALUE_CHANGED,
+        this
+    );
+    _wifi_password_visibility = std::make_unique<AppButton>(
+        _wifi_editor.get(),
+        [this]() {
+            _wifi_password_visible = !_wifi_password_visible;
+            lv_textarea_set_password_mode(
+                _wifi_password->getNativeHandle(),
+                !_wifi_password_visible
+            );
+            _wifi_password_visibility->setText(
+                _wifi_password_visible ? "HIDE" : "SHOW"
+            );
+        }
+    );
+    _wifi_password_visibility->setText("SHOW");
+    buttonStyle(*_wifi_password_visibility, 66, 38, kSlate);
+    _wifi_password_visibility->align(
+        {STYLE_ALIGN_TYPE_TOP_RIGHT, -20, 76}
+    );
+    _wifi_editor_message = makeLabel(
+        _wifi_editor.get(),
+        "Password is masked and never logged.",
+        280,
+        10,
+        kMuted,
+        STYLE_ALIGN_TYPE_TOP_MID,
+        0,
+        120
+    );
+    lv_label_set_long_mode(
+        _wifi_editor_message->getNativeHandle(),
+        LV_LABEL_LONG_MODE_WRAP
+    );
+    lv_obj_set_style_text_align(
+        _wifi_editor_message->getNativeHandle(),
+        LV_TEXT_ALIGN_CENTER,
+        LV_PART_MAIN
+    );
+    _wifi_keyboard = lv_keyboard_create(_wifi_editor->getNativeHandle());
+    if (_wifi_keyboard != nullptr) {
+        lv_obj_set_size(_wifi_keyboard, 280, 146);
+        lv_obj_align(_wifi_keyboard, LV_ALIGN_TOP_MID, 0, 152);
+        lv_keyboard_set_textarea(
+            _wifi_keyboard,
+            _wifi_ssid->getNativeHandle()
+        );
+        lv_obj_set_style_radius(_wifi_keyboard, 10, LV_PART_MAIN);
+        lv_obj_set_style_translate_x(_wifi_keyboard, 0, kPressedSelector);
+        lv_obj_set_style_translate_y(_wifi_keyboard, 0, kPressedSelector);
+    }
+    _wifi_editor_cancel = std::make_unique<AppButton>(
+        _wifi_editor.get(), [this]() { show(Screen::SettingsNetwork); }
+    );
+    _wifi_editor_cancel->setText("CANCEL");
+    styleBottomArcCommand(*_wifi_editor_cancel, 49, 310, kSlate);
+    _wifi_editor_save = std::make_unique<AppButton>(
+        _wifi_editor.get(), [this]() { saveWifiCredentials(); }
+    );
+    _wifi_editor_save->setText("SAVE");
+    styleBottomArcCommand(*_wifi_editor_save, 167, 310, kTeal);
+
+    _pairing = std::make_unique<LvContainer>(_screen.get());
+    _pairing->setStyleAttribute(StyleSize::RECT(320, 374));
+    _pairing->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 82});
+    transparentPanel(*_pairing, false);
+    _pairing_title = makeLabel(
+        _pairing.get(),
+        "WI-FI PAIRING",
+        280,
+        17,
+        kNavy,
+        STYLE_ALIGN_TYPE_TOP_MID,
+        0,
+        0
+    );
+    lv_obj_set_style_text_align(
+        _pairing_title->getNativeHandle(),
+        LV_TEXT_ALIGN_CENTER,
+        LV_PART_MAIN
+    );
+    _pairing_message = makeLabel(
+        _pairing.get(),
+        "",
+        280,
+        12,
+        kMuted,
+        STYLE_ALIGN_TYPE_TOP_MID,
+        0,
+        46
+    );
+    lv_label_set_long_mode(
+        _pairing_message->getNativeHandle(),
+        LV_LABEL_LONG_MODE_WRAP
+    );
+    lv_obj_set_style_text_align(
+        _pairing_message->getNativeHandle(),
+        LV_TEXT_ALIGN_CENTER,
+        LV_PART_MAIN
+    );
+    _pairing_qr_canvas = lv_canvas_create(_pairing->getNativeHandle());
+    if (_pairing_qr_canvas != nullptr) {
+        lv_obj_set_size(
+            _pairing_qr_canvas,
+            kQrCanvasSize,
+            kQrCanvasSize
+        );
+        lv_obj_align(_pairing_qr_canvas, LV_ALIGN_TOP_MID, 0, 42);
+        lv_obj_add_flag(_pairing_qr_canvas, LV_OBJ_FLAG_HIDDEN);
+    }
+    _pairing_secondary = std::make_unique<AppButton>(
+        _pairing.get(), [this]() { pairingSecondaryAction(); }
+    );
+    _pairing_secondary->setText("BACK");
+    styleBottomArcCommand(*_pairing_secondary, 49, 310, kSlate);
+    _pairing_primary = std::make_unique<AppButton>(
+        _pairing.get(), [this]() { pairingPrimaryAction(); }
+    );
+    _pairing_primary->setText("NEXT");
+    styleBottomArcCommand(*_pairing_primary, 167, 310, kTeal);
 }
 
 void Navigation::setVisible(LvObject &object, bool visible)
@@ -871,12 +1529,101 @@ void Navigation::setVisible(LvObject &object, bool visible)
 
 void Navigation::show(Screen screen)
 {
-    const char *route = screen == Screen::Welcome ? "welcome" :
-                        screen == Screen::Logs ? "logs" :
-                        screen == Screen::Hardware ? "hardware" :
-                        screen == Screen::Audio ? "audio" :
-                        screen == Screen::Imu ? "imu" :
-                        screen == Screen::About ? "about" : "settings";
+    const Screen previous = _current;
+    if (previous == Screen::WifiCredentials &&
+        screen != Screen::WifiCredentials) {
+        clearWifiPassword();
+    }
+    if (previous == Screen::PairQr && screen != Screen::PairQr) {
+        (void)qsee_provisioning_stop();
+    }
+
+    const char *route = "unknown";
+    const char *title = "QSEE.AI";
+    const char *subtitle = "";
+    switch (screen) {
+    case Screen::Welcome:
+        route = "welcome";
+        title = "WELCOME";
+        subtitle = "QSee device console";
+        break;
+    case Screen::Logs:
+        route = "logs";
+        title = "LIVE LOGS";
+        subtitle = "RAM ring, newest lines";
+        break;
+    case Screen::Hardware:
+        route = "hardware";
+        title = "HARDWARE";
+        subtitle = "Component inventory";
+        break;
+    case Screen::Audio:
+        route = "audio";
+        title = "AUDIO SCOPE";
+        subtitle = "ES7210 microphone diagnostics";
+        break;
+    case Screen::Imu:
+        route = "imu";
+        title = "IMU LEVEL";
+        subtitle = "QMI8658 orientation and calibration";
+        break;
+    case Screen::About:
+        route = "about";
+        title = "ABOUT";
+        subtitle = "About this device";
+        break;
+    case Screen::Settings:
+        route = "settings";
+        title = "SETTINGS";
+        subtitle = "Device controls by category";
+        break;
+    case Screen::SettingsDiagnostics:
+        route = "settings-diagnostics";
+        title = "DIAGNOSTICS";
+        subtitle = "Sampling and IMU smoothing";
+        break;
+    case Screen::SettingsStorage:
+        route = "settings-storage";
+        title = "STORAGE";
+        subtitle = "SD card and log mirror";
+        break;
+    case Screen::SettingsNetwork:
+        route = "settings-network";
+        title = "NETWORK";
+        subtitle = "Wi-Fi credentials and pairing";
+        break;
+    case Screen::SettingsDisplay:
+        route = "settings-display";
+        title = "DISPLAY";
+        subtitle = "Brightness and cardinal rotation";
+        break;
+    case Screen::SettingsPower:
+        route = "settings-power";
+        title = "POWER";
+        subtitle = "Dim and panel-off timing";
+        break;
+    case Screen::WifiCredentials:
+        route = "wifi-credentials";
+        break;
+    case Screen::PairIntro:
+        route = "pair-intro";
+        break;
+    case Screen::PairBluetooth:
+        route = "pair-bluetooth";
+        break;
+    case Screen::PairApp:
+        route = "pair-app";
+        break;
+    case Screen::PairQr:
+        route = "pair-qr";
+        break;
+    case Screen::AppStoreQr:
+        route = "pair-app-store";
+        break;
+    case Screen::PairResult:
+        route = "pair-result";
+        break;
+    }
     ESP_LOGI("qsee_navigation", "Opening route: %s", route);
     if (_dialog != nullptr) {
         closeDialog();
@@ -894,13 +1641,27 @@ void Navigation::show(Screen screen)
         ESP_LOGW("qsee_navigation", "System monitor toggle failed for %s (%s)",
                  route, esp_err_to_name(system_monitor_result));
     }
-    setVisible(*_title_bar, screen != Screen::Logs);
+    const bool full_height =
+        screen == Screen::Logs ||
+        screen == Screen::WifiCredentials ||
+        isPairingScreen(screen);
+    setVisible(*_title_bar, !full_height);
     setVisible(*_welcome, screen == Screen::Welcome);
     setVisible(*_logs, screen == Screen::Logs);
     setVisible(*_hardware, screen == Screen::Hardware);
     setVisible(*_audio, screen == Screen::Audio);
     setVisible(*_imu, screen == Screen::Imu);
     setVisible(*_settings, screen == Screen::Settings);
+    setVisible(
+        *_settings_diagnostics_page,
+        screen == Screen::SettingsDiagnostics
+    );
+    setVisible(*_settings_storage_page, screen == Screen::SettingsStorage);
+    setVisible(*_settings_network_page, screen == Screen::SettingsNetwork);
+    setVisible(*_settings_display_page, screen == Screen::SettingsDisplay);
+    setVisible(*_settings_power_page, screen == Screen::SettingsPower);
+    setVisible(*_wifi_editor, screen == Screen::WifiCredentials);
+    setVisible(*_pairing, isPairingScreen(screen));
     setVisible(*_open_logs, screen == Screen::Welcome);
     setVisible(*_open_hardware, screen == Screen::Welcome);
     setVisible(*_open_audio, screen == Screen::Welcome);
@@ -913,24 +1674,55 @@ void Navigation::show(Screen screen)
     setVisible(*_dialog_scrim, false);
     setVisible(*_dialog, false);
     setVisible(*_about, screen == Screen::About);
-    _page_title->setText(screen == Screen::Welcome ? "WELCOME" : screen == Screen::Logs ? "LIVE LOGS" :
-                         screen == Screen::Hardware ? "HARDWARE" : screen == Screen::Audio ? "AUDIO SCOPE" :
-                         screen == Screen::Imu ? "IMU LEVEL" : screen == Screen::About ? "ABOUT" : "SETTINGS");
-    _page_subtitle->setText(screen == Screen::Welcome ? "QSee device console" :
-                            screen == Screen::Logs ? "RAM ring, newest lines" :
-                            screen == Screen::Hardware ? "Component inventory" :
-                            screen == Screen::Audio ? "ES7210 microphone diagnostics" :
-                            screen == Screen::Imu ? "QMI8658 orientation and calibration" :
-                            screen == Screen::About ? "About this device" : "Diagnostics and sampling");
+    _page_title->setText(title);
+    _page_subtitle->setText(subtitle);
     refresh();
-    if (screen == Screen::Settings) updateSettings();
+    _refresh_tick_count = 0;
+    if (screen == Screen::Audio) {
+        updateAudioMeters(true);
+    }
+    if (isSettingsScreen(screen)) {
+        updateSettings();
+    } else if (screen == Screen::WifiCredentials) {
+        prepareWifiEditor();
+    } else if (isPairingScreen(screen)) {
+        renderPairing();
+    }
     ESP_LOGI("qsee_navigation", "Route ready: %s", route);
 }
 
 bool Navigation::back()
 {
     if (_current == Screen::Welcome) return false;
-    show(Screen::Welcome);
+    switch (_current) {
+    case Screen::SettingsDiagnostics:
+    case Screen::SettingsStorage:
+    case Screen::SettingsNetwork:
+    case Screen::SettingsDisplay:
+    case Screen::SettingsPower:
+        show(Screen::Settings);
+        break;
+    case Screen::WifiCredentials:
+    case Screen::PairIntro:
+    case Screen::PairResult:
+        show(Screen::SettingsNetwork);
+        break;
+    case Screen::PairBluetooth:
+        show(Screen::PairIntro);
+        break;
+    case Screen::PairApp:
+        show(Screen::PairBluetooth);
+        break;
+    case Screen::AppStoreQr:
+        show(Screen::PairApp);
+        break;
+    case Screen::PairQr:
+        show(Screen::PairApp);
+        break;
+    default:
+        show(Screen::Welcome);
+        break;
+    }
     return true;
 }
 
@@ -938,6 +1730,9 @@ void Navigation::shutdown()
 {
     // Stop callbacks before Brookesia releases the app screen and its widgets.
     _refresh_timer.reset();
+    _display_wake_guard.reset();
+    (void)qsee_provisioning_stop();
+    clearWifiPassword();
     (void)qsee_hardware_set_diagnostic_monitor(false);
     (void)qsee_hardware_set_system_monitor(false);
     if (_dialog != nullptr) {
@@ -969,13 +1764,24 @@ void Navigation::shutdown()
     _flash.card.reset();
     _welcome_devices.clear();
     _log_box.reset();
+    _audio_meter_updated_at_us = 0;
+    _refresh_tick_count = 0;
+    for (size_t channel = 0; channel < 2U; ++channel) {
+        _audio_meter_visual[channel][0] = 0.0F;
+        _audio_meter_visual[channel][1] = 0.0F;
+        _audio_peak_hold_until_us[channel] = 0;
+    }
     _audio_mic0.reset();
     _audio_mic1.reset();
     _audio_status.reset();
     _audio_channels.reset();
     _imu_status.reset();
-    _imu_accel.reset();
-    _imu_gyro.reset();
+    _imu_accel_x.reset();
+    _imu_accel_y.reset();
+    _imu_accel_z.reset();
+    _imu_gyro_x.reset();
+    _imu_gyro_y.reset();
+    _imu_gyro_z.reset();
     _imu_temperature.reset();
     _imu_calibration.reset();
     _hardware_labels.clear();
@@ -986,9 +1792,6 @@ void Navigation::shutdown()
     _content_labels.clear();
     _logs_pause.reset();
     _logs_clear.reset();
-    _logs_follow.reset();
-    _log_search.reset();
-    _log_filter.reset();
     _logs_live.reset();
     _hardware_status_dots.clear();
     _hardware_parts.clear();
@@ -1018,6 +1821,9 @@ void Navigation::shutdown()
     _hardware.reset();
     _audio.reset();
     _imu.reset();
+    for (lv_obj_t *&arc : _imu_gyro_arcs) {
+        arc = nullptr;
+    }
     _about_tagline.reset();
     _about_website.reset();
     _about_email.reset();
@@ -1033,18 +1839,56 @@ void Navigation::shutdown()
     _settings_sd_mirror.reset();
     _settings_wifi.reset();
     _settings_wifi_start.reset();
+    _settings_wifi_edit.reset();
+    _settings_wifi_pair.reset();
     _settings_brightness.reset();
-    _settings_brightness_down.reset();
-    _settings_brightness_up.reset();
+    _settings_brightness_low.reset();
+    _settings_brightness_default.reset();
+    _settings_brightness_high.reset();
+    _settings_dim_timeout.reset();
+    _settings_dim_cycle.reset();
+    _settings_panel_off_delay.reset();
+    _settings_panel_off_cycle.reset();
+    _settings_rotation.reset();
+    _settings_auto_rotate.reset();
+    _settings_diagnostics_open.reset();
+    _settings_storage_open.reset();
+    _settings_network_open.reset();
+    _settings_display_open.reset();
+    _settings_power_open.reset();
+    _wifi_editor_save.reset();
+    _wifi_editor_cancel.reset();
+    _wifi_password_visibility.reset();
+    _wifi_password.reset();
+    _wifi_ssid.reset();
+    _wifi_editor_message.reset();
+    _wifi_editor_title.reset();
+    _wifi_editor.reset();
+    _wifi_keyboard = nullptr;
+    _pairing_primary.reset();
+    _pairing_secondary.reset();
+    _pairing_message.reset();
+    _pairing_title.reset();
+    _pairing.reset();
+    _pairing_qr_canvas = nullptr;
+    if (_pairing_qr_buffer != nullptr) {
+        heap_caps_free(_pairing_qr_buffer);
+        _pairing_qr_buffer = nullptr;
+    }
+    if (_qr_owner == this) {
+        _qr_owner = nullptr;
+    }
+    wipeBytes(_pairing_result, sizeof(_pairing_result));
+    _settings_diagnostics_page.reset();
+    _settings_storage_page.reset();
+    _settings_network_page.reset();
+    _settings_display_page.reset();
+    _settings_power_page.reset();
     _settings.reset();
     _about.reset();
     if (_log_snapshot_buffer != nullptr) {
         heap_caps_free(_log_snapshot_buffer);
         _log_snapshot_buffer = nullptr;
-    }
-    if (_log_filtered_buffer != nullptr) {
-        heap_caps_free(_log_filtered_buffer);
-        _log_filtered_buffer = nullptr;
     }
     _surface.reset();
     _screen.reset();
@@ -1072,7 +1916,7 @@ void Navigation::updateWelcomeDevices(const DeviceSnapshot &snapshot)
             text,
             sizeof(text),
             "%s  %.1f C  %u samples",
-            snapshot.imu.calibrated ? "CALIBRATED" : "CAL PENDING",
+            snapshot.imu.calibrated ? "CLB" : "NO CLB",
             static_cast<double>(snapshot.imu.temperature_c),
             static_cast<unsigned>(snapshot.imu.calibration_samples)
         );
@@ -1097,7 +1941,7 @@ void Navigation::updateWelcomeDevices(const DeviceSnapshot &snapshot)
             text,
             sizeof(text),
             "%s  attempt %lu",
-            wifi.reconnect_pending ? "RECONNECTING" : "SEARCHING",
+            wifi.reconnect_pending ? "RECON." : "SEARCHING",
             static_cast<unsigned long>(wifi.connect_attempt_count)
         );
         setLine(1, text, kWarning);
@@ -1253,45 +2097,189 @@ void Navigation::refresh()
         updateHardwareText();
         const bool needs_format = storageFormatRequired(snapshot.storage);
         setVisible(*_format_sd, needs_format);
-    } else if (_current == Screen::Settings) {
+    } else if (isSettingsScreen(_current)) {
         updateSettings();
+    } else if (_current == Screen::PairQr) {
+        updatePairingState();
     }
     updateDiagnosticViews();
+}
+
+void Navigation::onRefreshTick()
+{
+    qsee_power_report_display_inactive_ms(
+        lv_display_get_inactive_time(nullptr)
+    );
+    updateDisplayWakeGuard();
+    if (_current == Screen::Audio) {
+        updateAudioMeters(false);
+    }
+    ++_refresh_tick_count;
+    if (_refresh_tick_count >= kFullRefreshTicks) {
+        _refresh_tick_count = 0;
+        refresh();
+    }
+}
+
+// Synchronize the shell-owned touch guard with the physical panel state.
+void Navigation::updateDisplayWakeGuard()
+{
+    if (_display_wake_guard == nullptr) {
+        return;
+    }
+    const bool required = qsee_power_display_input_guard_required();
+    setVisible(*_display_wake_guard, required);
+    if (required) {
+        lv_obj_move_foreground(_display_wake_guard->getNativeHandle());
+    }
+}
+
+// Wake the panel but keep this press from reaching the hidden control below.
+void Navigation::displayWakeGuardEvent(lv_event_t *event)
+{
+    if (lv_event_get_code(event) == LV_EVENT_PRESSED) {
+        qsee_power_wake_display();
+    }
+}
+
+void Navigation::updateAudioMeters(bool reset)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    const int targets[2] = {
+        audioPeakMeterValue(snapshot.audio.channel_peak_level[0]),
+        audioPeakMeterValue(snapshot.audio.channel_peak_level[1]),
+    };
+    const int64_t now_us = esp_timer_get_time();
+    const float elapsed_seconds = !reset && _audio_meter_updated_at_us > 0
+        ? std::clamp(
+            static_cast<float>(now_us - _audio_meter_updated_at_us) / 1000000.0F,
+            0.0F,
+            0.25F
+        )
+        : 0.0F;
+
+    esp_brookesia::gui::AppProgressBar *bars[2] = {
+        _audio_mic0.get(),
+        _audio_mic1.get(),
+    };
+    for (size_t channel = 0; channel < 2U; ++channel) {
+        const float target = static_cast<float>(targets[channel]);
+        if (reset || _audio_meter_updated_at_us == 0) {
+            _audio_meter_visual[channel][0] = target;
+            _audio_meter_visual[channel][1] = target;
+            _audio_peak_hold_until_us[channel] = now_us + kAudioPeakHoldUs;
+        } else {
+            if (target >= _audio_meter_visual[channel][0]) {
+                _audio_meter_visual[channel][0] = target;
+            } else {
+                _audio_meter_visual[channel][0] = std::max(
+                    target,
+                    _audio_meter_visual[channel][0] -
+                        kAudioMeterReleasePerSecond * elapsed_seconds
+                );
+            }
+
+            if (target >= _audio_meter_visual[channel][1]) {
+                _audio_meter_visual[channel][1] = target;
+                _audio_peak_hold_until_us[channel] = now_us + kAudioPeakHoldUs;
+            } else if (now_us >= _audio_peak_hold_until_us[channel]) {
+                _audio_meter_visual[channel][1] = std::max(
+                    target,
+                    _audio_meter_visual[channel][1] -
+                        kAudioPeakReleasePerSecond * elapsed_seconds
+                );
+            }
+        }
+
+        if (bars[channel] != nullptr) {
+            bars[channel]->setValue(
+                static_cast<int>(_audio_meter_visual[channel][0] + 0.5F),
+                false
+            );
+            lv_obj_invalidate(bars[channel]->getNativeHandle());
+        }
+    }
+    _audio_meter_updated_at_us = now_us;
 }
 
 void Navigation::updateDiagnosticViews()
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
     char text[160];
-    const int level0 = std::min(100, static_cast<int>(snapshot.audio.channel_mean_level[0] / 328U));
-    const int level1 = std::min(100, static_cast<int>(snapshot.audio.channel_mean_level[1] / 328U));
+    char peak0[48];
+    char peak1[48];
     std::snprintf(text, sizeof(text), "MICROPHONES %s", health(snapshot.audio.microphone.health));
     _audio_status->setText(text);
-    _audio_mic0->setValue(level0, true);
-    _audio_mic1->setValue(level1, true);
-    std::snprintf(text, sizeof(text), "PCM16 | %.2f kHz | %u ch | pk %lu/%lu",
-                  static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
-                  static_cast<unsigned>(snapshot.audio.channel_count),
-                  static_cast<unsigned long>(snapshot.audio.channel_peak_level[0]),
-                  static_cast<unsigned long>(snapshot.audio.channel_peak_level[1]));
+    formatAudioPeak(
+        peak0, sizeof(peak0), 0U, snapshot.audio.channel_peak_level[0]
+    );
+    formatAudioPeak(
+        peak1, sizeof(peak1), 1U, snapshot.audio.channel_peak_level[1]
+    );
+    std::snprintf(
+        text, sizeof(text),
+        "FORMAT     SIGNED PCM / 16-bit\n"
+        "RATE       %.2f kHz\n"
+        "CHANNELS   %u\n"
+        "%s\n"
+        "%s",
+        static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
+        static_cast<unsigned>(snapshot.audio.channel_count),
+        peak0,
+        peak1
+    );
     _audio_channels->setText(text);
 
     std::snprintf(text, sizeof(text), "QMI8658 %s", health(snapshot.imu.health));
     _imu_status->setText(text);
-    std::snprintf(text, sizeof(text), "ACC X %+.2f Y %+.2f Z %+.2f m/s2",
-                  snapshot.imu.acceleration_mps2[0], snapshot.imu.acceleration_mps2[1],
-                  snapshot.imu.acceleration_mps2[2]);
-    _imu_accel->setText(text);
-    std::snprintf(text, sizeof(text), "GYRO X %+.2f Y %+.2f Z %+.2f dps",
-                  snapshot.imu.angular_velocity_dps[0], snapshot.imu.angular_velocity_dps[1],
-                  snapshot.imu.angular_velocity_dps[2]);
-    _imu_gyro->setText(text);
-    std::snprintf(text, sizeof(text), "TEMP %.1f C", snapshot.imu.temperature_c);
-    _imu_temperature->setText(text);
-    std::snprintf(text, sizeof(text), "CALIBRATION %s  |  %u samples",
+    std::snprintf(text, sizeof(text), "CALIB %s | %u",
                   snapshot.imu.calibrated ? "READY" : "PENDING",
                   static_cast<unsigned>(snapshot.imu.calibration_samples));
     _imu_calibration->setText(text);
+
+    if (snapshot.imu.available) {
+        std::snprintf(text, sizeof(text), "X %+.2f", snapshot.imu.acceleration_mps2[0]);
+        _imu_accel_x->setText(text);
+        std::snprintf(text, sizeof(text), "Y %+.2f", snapshot.imu.acceleration_mps2[1]);
+        _imu_accel_y->setText(text);
+        std::snprintf(text, sizeof(text), "Z %+.2f", snapshot.imu.acceleration_mps2[2]);
+        _imu_accel_z->setText(text);
+        std::snprintf(text, sizeof(text), "X %+.2f", snapshot.imu.angular_velocity_dps[0]);
+        _imu_gyro_x->setText(text);
+        std::snprintf(text, sizeof(text), "Y %+.2f", snapshot.imu.angular_velocity_dps[1]);
+        _imu_gyro_y->setText(text);
+        std::snprintf(text, sizeof(text), "Z %+.2f", snapshot.imu.angular_velocity_dps[2]);
+        _imu_gyro_z->setText(text);
+        std::snprintf(text, sizeof(text), "%.1f C", snapshot.imu.temperature_c);
+        _imu_temperature->setText(text);
+    } else {
+        _imu_accel_x->setText("X --");
+        _imu_accel_y->setText("Y --");
+        _imu_accel_z->setText("Z --");
+        _imu_gyro_x->setText("X --");
+        _imu_gyro_y->setText("Y --");
+        _imu_gyro_z->setText("Z --");
+        _imu_temperature->setText("-- C");
+    }
+
+    for (size_t axis = 0; axis < 3U; ++axis) {
+        if (_imu_gyro_arcs[axis] == nullptr) continue;
+        // The number preserves direction; arc intensity is the compact activity cue.
+        const float activity = snapshot.imu.available
+            ? std::min(
+                1.0F,
+                std::fabs(snapshot.imu.angular_velocity_dps[axis]) /
+                    kImuGyroVisualRangeDps
+            )
+            : 0.0F;
+        const int opacity = LV_OPA_30 +
+            static_cast<int>((LV_OPA_COVER - LV_OPA_30) * activity);
+        lv_obj_set_style_arc_opa(
+            _imu_gyro_arcs[axis],
+            static_cast<lv_opa_t>(opacity),
+            LV_PART_MAIN
+        );
+    }
 }
 
 void Navigation::showAudio()
@@ -1346,16 +2334,57 @@ void Navigation::startWifi()
     updateSettings();
 }
 
-void Navigation::adjustBrightness(int delta_percent)
+void Navigation::setBrightnessProfile(uint32_t percent)
 {
-    const int current =
-        static_cast<int>(qsee_display_get_brightness_percent());
-    const int requested = std::max(10, std::min(100, current + delta_percent));
-    const esp_err_t result =
-        qsee_display_set_brightness_percent(static_cast<uint32_t>(requested));
+    const esp_err_t result = qsee_display_set_brightness_percent(percent);
     if (result != ESP_OK) {
         ESP_LOGW("qsee_navigation", "Brightness update failed (%s)",
                  esp_err_to_name(result));
+    }
+    updateSettings();
+}
+
+void Navigation::cycleDimTimeout()
+{
+    const uint32_t requested = nextPreset(
+        qsee_power_get_dim_timeout_seconds(),
+        kDimTimeoutOptions
+    );
+    const esp_err_t result =
+        qsee_power_set_dim_timeout_seconds(requested);
+    if (result != ESP_OK) {
+        ESP_LOGW("qsee_navigation", "Dim timeout update failed (%s)",
+                 esp_err_to_name(result));
+    }
+    updateSettings();
+}
+
+void Navigation::cyclePanelOffDelay()
+{
+    const uint32_t requested = nextPreset(
+        qsee_power_get_panel_off_delay_seconds(),
+        kPanelOffDelayOptions
+    );
+    const esp_err_t result =
+        qsee_power_set_panel_off_delay_seconds(requested);
+    if (result != ESP_OK) {
+        ESP_LOGW("qsee_navigation", "Panel-off delay update failed (%s)",
+                 esp_err_to_name(result));
+    }
+    updateSettings();
+}
+
+void Navigation::toggleAutoRotation()
+{
+    const bool enabled = !qsee_display_get_auto_rotation_enabled();
+    const esp_err_t result =
+        qsee_display_set_auto_rotation_enabled(enabled);
+    if (result != ESP_OK) {
+        ESP_LOGW(
+            "qsee_navigation",
+            "Auto-rotation update failed (%s)",
+            esp_err_to_name(result)
+        );
     }
     updateSettings();
 }
@@ -1364,78 +2393,711 @@ void Navigation::updateSettings()
 {
     if (_settings_period == nullptr || _settings_smoothing == nullptr ||
         _settings_storage == nullptr || _settings_wifi == nullptr ||
-        _settings_brightness == nullptr) {
+        _settings_brightness == nullptr ||
+        _settings_brightness_low == nullptr ||
+        _settings_brightness_default == nullptr ||
+        _settings_brightness_high == nullptr ||
+        _settings_dim_timeout == nullptr ||
+        _settings_dim_cycle == nullptr ||
+        _settings_panel_off_delay == nullptr ||
+        _settings_panel_off_cycle == nullptr ||
+        _settings_rotation == nullptr ||
+        _settings_auto_rotate == nullptr ||
+        _settings_diagnostics_open == nullptr ||
+        _settings_storage_open == nullptr ||
+        _settings_network_open == nullptr ||
+        _settings_display_open == nullptr ||
+        _settings_power_open == nullptr) {
         return;
     }
     const DeviceSnapshot snapshot =
         DeviceSnapshotService::instance().snapshot();
-    char text[96];
+    char text[192];
+    const uint32_t period_ms = qsee_hardware_get_diagnostic_period_ms();
+    const uint32_t smoothing = qsee_hardware_get_imu_smoothing_percent();
     std::snprintf(
         text,
         sizeof(text),
         "Sample interval %lu ms",
-        static_cast<unsigned long>(qsee_hardware_get_diagnostic_period_ms())
+        static_cast<unsigned long>(period_ms)
     );
     _settings_period->setText(text);
     std::snprintf(
         text,
         sizeof(text),
         "IMU input smoothing %lu%%",
-        static_cast<unsigned long>(qsee_hardware_get_imu_smoothing_percent())
+        static_cast<unsigned long>(smoothing)
     );
     _settings_smoothing->setText(text);
-
-    const bool mirror = qsee_storage_get_logger_mirror_preference();
     std::snprintf(
         text,
         sizeof(text),
-        "SD %s  |  log mirror %s",
+        "DIAGNOSTICS\n%lu ms | %lu%%",
+        static_cast<unsigned long>(period_ms),
+        static_cast<unsigned long>(smoothing)
+    );
+    _settings_diagnostics_open->setText(text);
+
+    const bool mirror = qsee_storage_get_logger_mirror_preference();
+    const char *storage_state =
         snapshot.storage.health == DeviceHealth::Ready ? "READY" :
-        snapshot.storage.card_present ? "NOT MOUNTED" : "ABSENT",
+        snapshot.storage.card_present ? "NOT MOUNTED" : "ABSENT";
+    const char *storage_hub_state =
+        snapshot.storage.health == DeviceHealth::Ready ? "READY" :
+        snapshot.storage.card_present ? "UNMOUNT" : "ABSENT";
+    std::snprintf(
+        text,
+        sizeof(text),
+        "SD %s\nLog mirror %s",
+        storage_state,
         mirror ? "ON" : "OFF"
     );
     _settings_storage->setText(text);
-    _settings_sd_mirror->setText(mirror ? "LOG MIRROR ON" : "LOG MIRROR OFF");
-
+    _settings_sd_mirror->setText(mirror ? "MIRROR OFF" : "MIRROR ON");
     std::snprintf(
         text,
         sizeof(text),
-        "Wi-Fi %s  |  %s",
-        snapshot.radios.wifi.started ? "STARTED" : "DEFERRED",
-        snapshot.radios.wifi.ip_acquired ? snapshot.radios.wifi.ip_address :
-        snapshot.radios.wifi.credentials_configured ? "credentials saved" :
-        "not configured"
+        "STORAGE\n%s | M %s",
+        storage_hub_state,
+        mirror ? "ON" : "OFF"
+    );
+    _settings_storage_open->setText(text);
+
+    const WifiSnapshot &wifi = snapshot.radios.wifi;
+    const char *wifi_state =
+        wifi.ip_acquired ? "ONLINE" :
+        wifi.connected ? "CONNECTED" :
+        wifi.started ? "STARTED" : "DEFERRED";
+    std::snprintf(
+        text,
+        sizeof(text),
+        "WI-FI %s\nSSID %s\nIP %s\nPASSWORD %s",
+        wifi_state,
+        wifi.ssid[0] != '\0' ? wifi.ssid : "--",
+        wifi.ip_acquired && wifi.ip_address[0] != '\0'
+            ? wifi.ip_address : "--",
+        wifi.credentials_configured ? "SAVED" : "NOT SET"
     );
     _settings_wifi->setText(text);
     _settings_wifi_start->setText(
-        snapshot.radios.wifi.started ? "WI-FI STARTED" : "START WI-FI"
+        wifi.started ? "RADIO ON" : "START RADIO"
     );
-
+    setVisible(*_settings_wifi_start, !wifi.started);
     std::snprintf(
         text,
         sizeof(text),
-        "AMOLED brightness %lu%%",
-        static_cast<unsigned long>(qsee_display_get_brightness_percent())
+        "NETWORK\nWI-FI %s",
+        wifi_state
     );
+    _settings_network_open->setText(text);
+
+    const uint32_t brightness = qsee_display_get_brightness_percent();
+    const char *brightness_profile =
+        brightness == kBrightnessLowPercent ? "LOW" :
+        brightness == kBrightnessDefaultPercent ? "DEFAULT" :
+        brightness == kBrightnessHighPercent ? "HIGH" : "CUSTOM";
+    std::snprintf(text, sizeof(text), "AMOLED brightness %s  |  %lu%%",
+                  brightness_profile,
+                  static_cast<unsigned long>(brightness));
     _settings_brightness->setText(text);
+    _settings_brightness_low->setText(
+        brightness == kBrightnessLowPercent ? "LOW *" : "LOW"
+    );
+    _settings_brightness_default->setText(
+        brightness == kBrightnessDefaultPercent ? "DEFAULT *" : "DEFAULT"
+    );
+    _settings_brightness_high->setText(
+        brightness == kBrightnessHighPercent ? "HIGH *" : "HIGH"
+    );
+    const bool auto_rotation = qsee_display_get_auto_rotation_enabled();
+    const OrientationSnapshot &orientation = snapshot.ui.orientation;
+    std::snprintf(
+        text,
+        sizeof(text),
+        "Auto-rotation %s\nPhysical %u deg | rendering %u deg\nGravity %s%s",
+        auto_rotation ? "ON" : "OFF",
+        static_cast<unsigned>(orientation.physical_orientation_degrees),
+        static_cast<unsigned>(orientation.rendering_rotation_degrees),
+        auto_rotation
+            ? (orientation.gravity_valid ? "LOCKED" : "WAITING")
+            : "IDLE",
+        orientation.rotation_pending ? " | pending" : ""
+    );
+    _settings_rotation->setText(text);
+    _settings_auto_rotate->setText(
+        auto_rotation ? "ROTATE OFF" : "ROTATE ON"
+    );
+    std::snprintf(
+        text,
+        sizeof(text),
+        "DISPLAY\n%lu%% | ROT %s",
+        static_cast<unsigned long>(brightness),
+        auto_rotation ? "ON" : "OFF"
+    );
+    _settings_display_open->setText(text);
+
+    char dim_duration[24];
+    char panel_duration[24];
+    formatDuration(
+        qsee_power_get_dim_timeout_seconds(),
+        dim_duration,
+        sizeof(dim_duration)
+    );
+    _settings_dim_cycle->setText(dim_duration);
+    formatDuration(
+        qsee_power_get_panel_off_delay_seconds(),
+        panel_duration,
+        sizeof(panel_duration)
+    );
+    _settings_panel_off_cycle->setText(panel_duration);
+    std::snprintf(
+        text,
+        sizeof(text),
+        "POWER\nDIM %s\nOFF %s",
+        dim_duration,
+        panel_duration
+    );
+    _settings_power_open->setText(text);
+}
+
+void Navigation::prepareWifiEditor()
+{
+    if (_wifi_ssid == nullptr || _wifi_password == nullptr ||
+        _wifi_editor_message == nullptr) {
+        return;
+    }
+
+    const esp_err_t wifi_result = qsee_wifi_init();
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    _wifi_editor_loading = true;
+    _wifi_ssid->setText(snapshot.radios.wifi.ssid, false);
+    _wifi_password->setText("", false);
+    _wifi_password->setPlaceholder(
+        snapshot.radios.wifi.credentials_configured
+            ? "Blank keeps saved password"
+            : "Password for this network"
+    );
+    _wifi_password_dirty = false;
+    _wifi_password_visible = false;
+    lv_textarea_set_password_mode(_wifi_password->getNativeHandle(), true);
+    _wifi_password_visibility->setText("SHOW");
+    if (_wifi_keyboard != nullptr) {
+        lv_keyboard_set_textarea(
+            _wifi_keyboard,
+            _wifi_ssid->getNativeHandle()
+        );
+    }
+    _wifi_editor_loading = false;
+
+    if (wifi_result == ESP_OK) {
+        _wifi_editor_message->setText(
+            snapshot.radios.wifi.credentials_configured
+                ? "Password is masked. Blank keeps the saved password."
+                : "Enter SSID and password. Secrets are never logged."
+        );
+        _wifi_editor_message->setTextColor(StyleColor::COLOR(kMuted));
+    } else {
+        char message[96];
+        std::snprintf(
+            message,
+            sizeof(message),
+            "Wi-Fi unavailable: %s",
+            esp_err_to_name(wifi_result)
+        );
+        _wifi_editor_message->setText(message);
+        _wifi_editor_message->setTextColor(StyleColor::COLOR(kError));
+    }
+}
+
+void Navigation::clearWifiPassword()
+{
+    if (_wifi_password == nullptr) {
+        return;
+    }
+    _wifi_editor_loading = true;
+    const size_t length = strnlen(_wifi_password->getText(), 64U);
+    if (length > 0U) {
+        char scrub[65] = {};
+        std::memset(scrub, ' ', length);
+        scrub[length] = '\0';
+        _wifi_password->setText(scrub, false);
+        wipeBytes(scrub, sizeof(scrub));
+    }
+    _wifi_password->setText("", false);
+    _wifi_password_dirty = false;
+    _wifi_password_visible = false;
+    lv_textarea_set_password_mode(_wifi_password->getNativeHandle(), true);
+    if (_wifi_password_visibility != nullptr) {
+        _wifi_password_visibility->setText("SHOW");
+    }
+    _wifi_editor_loading = false;
+}
+
+void Navigation::wifiFieldFocusEvent(lv_event_t *event)
+{
+    auto *navigation = static_cast<Navigation *>(
+        lv_event_get_user_data(event)
+    );
+    lv_obj_t *field = lv_event_get_target_obj(event);
+    if (navigation == nullptr || navigation->_wifi_keyboard == nullptr ||
+        field == nullptr) {
+        return;
+    }
+    lv_keyboard_set_textarea(navigation->_wifi_keyboard, field);
+}
+
+void Navigation::wifiPasswordChangedEvent(lv_event_t *event)
+{
+    auto *navigation = static_cast<Navigation *>(
+        lv_event_get_user_data(event)
+    );
+    if (navigation != nullptr && !navigation->_wifi_editor_loading) {
+        navigation->_wifi_password_dirty = true;
+    }
+}
+
+void Navigation::saveWifiCredentials()
+{
+    if (_wifi_ssid == nullptr || _wifi_password == nullptr ||
+        _wifi_editor_message == nullptr) {
+        return;
+    }
+
+    char ssid[QSEE_WIFI_SSID_MAX_LEN + 1U] = {};
+    char password[65] = {};
+    strlcpy(ssid, _wifi_ssid->getText(), sizeof(ssid));
+    strlcpy(password, _wifi_password->getText(), sizeof(password));
+    if (ssid[0] == '\0') {
+        _wifi_editor_message->setText("SSID is required.");
+        _wifi_editor_message->setTextColor(StyleColor::COLOR(kError));
+        wipeBytes(password, sizeof(password));
+        return;
+    }
+
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    const bool same_saved_profile =
+        snapshot.radios.wifi.credentials_configured &&
+        std::strcmp(snapshot.radios.wifi.ssid, ssid) == 0;
+    const bool password_entered = password[0] != '\0';
+    if ((!same_saved_profile && !password_entered) ||
+        (_wifi_password_dirty && !password_entered)) {
+        _wifi_editor_message->setText(
+            "Enter a password for a new or changed network."
+        );
+        _wifi_editor_message->setTextColor(StyleColor::COLOR(kError));
+        wipeBytes(password, sizeof(password));
+        return;
+    }
+
+    const bool replace_password = password_entered;
+    const esp_err_t result = qsee_wifi_update_credentials(
+        ssid,
+        password,
+        replace_password,
+        true
+    );
+    wipeBytes(password, sizeof(password));
+    clearWifiPassword();
+    if (result == ESP_OK) {
+        show(Screen::SettingsNetwork);
+        return;
+    }
+
+    char message[112];
+    std::snprintf(
+        message,
+        sizeof(message),
+        "Save failed: %s. Password cleared.",
+        esp_err_to_name(result)
+    );
+    _wifi_editor_message->setText(message);
+    _wifi_editor_message->setTextColor(StyleColor::COLOR(kError));
+}
+
+void Navigation::startPairing()
+{
+    show(Screen::PairIntro);
+}
+
+void Navigation::showPairingBluetooth()
+{
+    show(Screen::PairBluetooth);
+}
+
+void Navigation::showPairingApp()
+{
+    show(Screen::PairApp);
+}
+
+void Navigation::showPairingQr()
+{
+    const esp_err_t wifi_result = qsee_wifi_init();
+    if (wifi_result != ESP_OK) {
+        char message[112];
+        std::snprintf(
+            message,
+            sizeof(message),
+            "Wi-Fi could not start: %s",
+            esp_err_to_name(wifi_result)
+        );
+        showPairingResult(message, false);
+        return;
+    }
+    const esp_err_t start_result = qsee_provisioning_start();
+    if (start_result != ESP_OK) {
+        char message[112];
+        std::snprintf(
+            message,
+            sizeof(message),
+            "BLE provisioning could not start: %s",
+            esp_err_to_name(start_result)
+        );
+        showPairingResult(message, false);
+        return;
+    }
+    _pairing_started_at_us = esp_timer_get_time();
+    show(Screen::PairQr);
+}
+
+void Navigation::showAppStoreQr()
+{
+    show(Screen::AppStoreQr);
+}
+
+void Navigation::showPairingResult(const char *message, bool success)
+{
+    strlcpy(
+        _pairing_result,
+        message != nullptr ? message : "",
+        sizeof(_pairing_result)
+    );
+    _pairing_result_success = success;
+    _pairing_started_at_us = 0;
+    show(Screen::PairResult);
+}
+
+void Navigation::pairingPrimaryAction()
+{
+    switch (_current) {
+    case Screen::PairIntro:
+        showPairingBluetooth();
+        break;
+    case Screen::PairBluetooth:
+        showPairingApp();
+        break;
+    case Screen::PairApp:
+        showPairingQr();
+        break;
+    case Screen::PairQr:
+        if (ProvisioningService::instance().state() ==
+            ProvisioningState::Failed) {
+            showPairingQr();
+        } else {
+            showAppStoreQr();
+        }
+        break;
+    case Screen::AppStoreQr:
+        showPairingQr();
+        break;
+    case Screen::PairResult:
+        if (_pairing_result_success) {
+            show(Screen::SettingsNetwork);
+        } else {
+            showPairingQr();
+        }
+        break;
+    default:
+        break;
+    }
+}
+
+void Navigation::pairingSecondaryAction()
+{
+    switch (_current) {
+    case Screen::PairIntro:
+    case Screen::PairResult:
+        show(Screen::SettingsNetwork);
+        break;
+    case Screen::PairBluetooth:
+        show(Screen::PairIntro);
+        break;
+    case Screen::PairApp:
+        showAppStoreQr();
+        break;
+    case Screen::PairQr:
+        show(Screen::PairApp);
+        break;
+    case Screen::AppStoreQr:
+        show(Screen::PairApp);
+        break;
+    default:
+        break;
+    }
+}
+
+void Navigation::renderPairing()
+{
+    if (_pairing_title == nullptr || _pairing_message == nullptr ||
+        _pairing_primary == nullptr || _pairing_secondary == nullptr) {
+        return;
+    }
+
+    const bool qr_visible =
+        _current == Screen::PairQr || _current == Screen::AppStoreQr;
+    if (_pairing_qr_canvas != nullptr) {
+        if (qr_visible) {
+            lv_obj_remove_flag(_pairing_qr_canvas, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(_pairing_qr_canvas, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    _pairing_message->align({
+        STYLE_ALIGN_TYPE_TOP_MID,
+        0,
+        qr_visible ? 266 : 68
+    });
+    _pairing_message->setTextColor(StyleColor::COLOR(kMuted));
+
+    switch (_current) {
+    case Screen::PairIntro:
+        _pairing_title->setText("WI-FI PAIRING");
+        _pairing_message->setText(
+            "Configure Wi-Fi securely over Bluetooth.\n"
+            "The Espressif app will send credentials directly to this device."
+        );
+        _pairing_secondary->setText("CANCEL");
+        _pairing_primary->setText("START");
+        break;
+    case Screen::PairBluetooth:
+        _pairing_title->setText("ENABLE BLUETOOTH");
+        _pairing_message->setText(
+            "Enable Bluetooth on your phone and keep it close to QSee."
+        );
+        _pairing_secondary->setText("BACK");
+        _pairing_primary->setText("NEXT");
+        break;
+    case Screen::PairApp:
+        _pairing_title->setText("ESPRESSIF APP");
+        _pairing_message->setText(
+            "Open ESP BLE Provisioning by Espressif.\n"
+            "Install it first if it is not on the phone."
+        );
+        _pairing_secondary->setText("APP QR");
+        _pairing_primary->setText("NEXT");
+        break;
+    case Screen::PairQr: {
+        _pairing_title->setText("SCAN DEVICE QR");
+        char message[128];
+        std::snprintf(
+            message,
+            sizeof(message),
+            "In the Espressif app choose Scan QR.\nDevice: %s",
+            qsee_provisioning_service_name()
+        );
+        _pairing_message->setText(message);
+        _pairing_secondary->setText("BACK");
+        _pairing_primary->setText(
+            ProvisioningService::instance().state() ==
+                ProvisioningState::Failed
+                ? "RETRY" : "APP QR"
+        );
+        if (!renderQr(ProvisioningService::instance().qrPayload())) {
+            _pairing_message->setText("Device QR is unavailable. Go back and retry.");
+            _pairing_message->setTextColor(StyleColor::COLOR(kError));
+        }
+        break;
+    }
+    case Screen::AppStoreQr:
+        _pairing_title->setText("INSTALL ESPRESSIF");
+        _pairing_message->setText(
+            "Scan to open ESP BLE Provisioning on Google Play."
+        );
+        _pairing_secondary->setText("BACK");
+        _pairing_primary->setText("DEVICE");
+        if (!renderQr(kEspressifAppStoreUrl)) {
+            _pairing_message->setText("App-store QR is unavailable.");
+            _pairing_message->setTextColor(StyleColor::COLOR(kError));
+        }
+        break;
+    case Screen::PairResult:
+        _pairing_title->setText(
+            _pairing_result_success ? "WI-FI READY" : "PAIRING FAILED"
+        );
+        _pairing_message->setText(_pairing_result);
+        _pairing_message->setTextColor(
+            StyleColor::COLOR(_pairing_result_success ? kTeal : kError)
+        );
+        _pairing_secondary->setText("NETWORK");
+        _pairing_primary->setText(
+            _pairing_result_success ? "DONE" : "RETRY"
+        );
+        break;
+    default:
+        break;
+    }
+}
+
+bool Navigation::renderQr(const char *payload)
+{
+    if (_pairing_qr_canvas == nullptr || payload == nullptr ||
+        payload[0] == '\0') {
+        return false;
+    }
+    const size_t stride = lv_draw_buf_width_to_stride(
+        kQrCanvasSize,
+        LV_COLOR_FORMAT_RGB565
+    );
+    const size_t buffer_size = stride * kQrCanvasSize;
+    if (_pairing_qr_buffer == nullptr) {
+        _pairing_qr_buffer = static_cast<uint8_t *>(
+            heap_caps_malloc(
+                buffer_size,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+            )
+        );
+        if (_pairing_qr_buffer == nullptr) {
+            _pairing_qr_buffer = static_cast<uint8_t *>(
+                heap_caps_malloc(buffer_size, MALLOC_CAP_8BIT)
+            );
+        }
+        if (_pairing_qr_buffer == nullptr) {
+            return false;
+        }
+        lv_canvas_set_buffer(
+            _pairing_qr_canvas,
+            _pairing_qr_buffer,
+            kQrCanvasSize,
+            kQrCanvasSize,
+            LV_COLOR_FORMAT_RGB565
+        );
+    }
+
+    std::memset(_pairing_qr_buffer, 0xFF, buffer_size);
+    _qr_owner = this;
+    esp_qrcode_config_t config = ESP_QRCODE_CONFIG_DEFAULT();
+    config.display_func = qrDisplayCallback;
+    config.max_qrcode_version = 10;
+    config.qrcode_ecc_level = ESP_QRCODE_ECC_MED;
+    const esp_err_t result = esp_qrcode_generate(&config, payload);
+    _qr_owner = nullptr;
+    lv_obj_invalidate(_pairing_qr_canvas);
+    if (result != ESP_OK) {
+        ESP_LOGW(
+            "qsee_navigation",
+            "QR generation failed (%s)",
+            esp_err_to_name(result)
+        );
+    }
+    return result == ESP_OK;
+}
+
+void Navigation::qrDisplayCallback(const uint8_t *qrcode)
+{
+    if (_qr_owner == nullptr || _qr_owner->_pairing_qr_canvas == nullptr ||
+        qrcode == nullptr) {
+        return;
+    }
+
+    const int modules = esp_qrcode_get_size(qrcode);
+    constexpr int quiet_zone = 4;
+    const int scale = std::max(
+        1,
+        kQrCanvasSize / (modules + quiet_zone * 2)
+    );
+    const int rendered = (modules + quiet_zone * 2) * scale;
+    const int offset = (kQrCanvasSize - rendered) / 2;
+    for (int y = 0; y < rendered; ++y) {
+        for (int x = 0; x < rendered; ++x) {
+            const int module_x = (x / scale) - quiet_zone;
+            const int module_y = (y / scale) - quiet_zone;
+            const bool dark =
+                module_x >= 0 && module_y >= 0 &&
+                module_x < modules && module_y < modules &&
+                esp_qrcode_get_module(qrcode, module_x, module_y);
+            lv_canvas_set_px(
+                _qr_owner->_pairing_qr_canvas,
+                offset + x,
+                offset + y,
+                dark ? lv_color_black() : lv_color_white(),
+                LV_OPA_COVER
+            );
+        }
+    }
+}
+
+void Navigation::updatePairingState()
+{
+    if (_current != Screen::PairQr) {
+        return;
+    }
+
+    const ProvisioningState state = ProvisioningService::instance().state();
+    switch (state) {
+    case ProvisioningState::WaitingForApp:
+        _pairing_message->setText(
+            "Bluetooth ready. Scan this QR in the Espressif app."
+        );
+        break;
+    case ProvisioningState::CredentialsReceived:
+        _pairing_message->setText(
+            "Credentials received. Preparing the Wi-Fi profile..."
+        );
+        break;
+    case ProvisioningState::Connecting:
+        _pairing_message->setText(
+            "Credentials received. Connecting to Wi-Fi..."
+        );
+        break;
+    case ProvisioningState::Success: {
+        char summary[128] = {};
+        if (ProvisioningService::instance().connectionSummary(
+                summary,
+                sizeof(summary)
+            ) != ESP_OK) {
+            strlcpy(
+                summary,
+                "Credentials accepted. Wi-Fi is connecting.",
+                sizeof(summary)
+            );
+        }
+        showPairingResult(summary, true);
+        return;
+    }
+    case ProvisioningState::Failed:
+        showPairingResult(
+            "The network did not accept the credentials.\n"
+            "Check the password and retry.",
+            false
+        );
+        return;
+    default:
+        break;
+    }
+
+    if (_pairing_started_at_us > 0 &&
+        esp_timer_get_time() - _pairing_started_at_us >=
+            kPairingTimeoutUs) {
+        (void)qsee_provisioning_stop();
+        showPairingResult(
+            "Pairing timed out after 5 minutes.\nStart a new session to retry.",
+            false
+        );
+    }
 }
 
 void Navigation::updateLogView()
 {
-    if (_log_box == nullptr || _log_snapshot_buffer == nullptr || _log_filtered_buffer == nullptr) {
+    if (_log_box == nullptr || _log_snapshot_buffer == nullptr) {
         if (_log_box != nullptr) {
-            _log_box->setText("Log buffers unavailable", false);
+            _log_box->setText("Log buffer unavailable", false);
         }
         return;
     }
     qsee_logger_snapshot(_log_snapshot_buffer, kLogBufferBytes, 32);
-    const char *query = _log_search != nullptr ? _log_search->getText() : "";
-    filterLogs(_log_snapshot_buffer, query, _log_filter_mode,
-               _log_filtered_buffer, kLogBufferBytes);
-    _log_box->setText(
-        _log_filtered_buffer,
-        _logs_follow_latest && _log_box->isAtBottom()
-    );
+    const bool follow_latest = _log_box->isAtBottom();
+    _log_box->setText(_log_snapshot_buffer, follow_latest);
 }
 
 void Navigation::showComponentDetails(size_t index)

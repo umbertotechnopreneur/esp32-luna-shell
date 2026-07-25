@@ -14,6 +14,9 @@
 
 #include <algorithm>
 #include <array>
+
+// Status bar adapter for the QSee.ai phone shell.
+// Renders snapshot-driven indicators on the active screen.
 #include <cstddef>
 #include <cstdlib>
 #include <iterator>
@@ -408,6 +411,7 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
         }
     }
 
+    // Build icons from LVGL primitives so no icon font is required.
     IndicatorVisual &usb = _impl->indicators[kUsbIndex];
     if (!addPart(usb, makeFill(usb.root, 9, 9, 16, 12, 3), PaintKind::Fill) ||
         !addPart(usb, makeFill(usb.root, 11, 3, 3, 8, 1), PaintKind::Fill) ||
@@ -520,6 +524,7 @@ void QSeeStatusBar::Update(const StatusBarState &state)
     updateIndicator(_impl->indicators[kGpsIndex], resolvedGpsState(state));
     updateIndicator(_impl->indicators[kSdIndex], resolvedSdState(state));
 
+    // Unknown values retain a dim placeholder instead of disappearing.
     const int battery_percent = state.battery_percent < 0
         ? 35
         : std::clamp<int>(state.battery_percent, 0, 100);

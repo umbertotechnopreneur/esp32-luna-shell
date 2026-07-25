@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Canonical logging backend for the QSee firmware.
+// Serializes log output and protects early-boot initialization ordering.
+
 #include "qsee_logger.h"
 
 #include <errno.h>

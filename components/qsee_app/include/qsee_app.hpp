@@ -10,7 +10,13 @@
  * Contact: hello@qsee.ai
  */
 
+// Public app entry point for the QSee.ai phone-style experience.
+// Owns navigation startup, back handling, and status bar synchronization.
+
 #pragma once
+
+// Public app entry point for the QSee.ai phone-style experience.
+// Owns navigation startup, back handling, and status bar synchronization.
 
 #include <memory>
 
@@ -27,8 +33,11 @@ public:
 
 protected:
     App();
+    /** Build the navigation shell and start snapshot-driven status updates. */
     bool run() override;
+    /** Navigate inside QSee first, then release the app back to Brookesia. */
     bool back() override;
+    /** Map one canonical device snapshot to display-only indicator state. */
     void syncStatusBar();
 
 private:

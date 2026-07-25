@@ -28,6 +28,7 @@ MUTED = "#69849c"
 BACKGROUND = "#f7fbff"
 
 
+# Resolve assets in both source runs and PyInstaller bundles.
 def resource_path(relative: str) -> Path:
     base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2]))
     return base / relative
@@ -184,6 +185,7 @@ class QSeeSimulator:
             self.canvas.itemconfigure("boot_log", text=self.logger.snapshot(count=5, max_chars=58))
         self.root.after(120, self._refresh_log)
 
+    # Replay deterministic hardware events without emulating device drivers.
     def _advance_timeline(self) -> None:
         events = [
             ("qsee_logger", "Canonical logger online: console + RAM ring"),
@@ -217,6 +219,7 @@ class QSeeSimulator:
                 self.logger.info("qsee_boot", "Synthetic touch received; startup still in progress")
             return
 
+        # Hit boxes mirror the drawn controls on the fixed 466 px canvas.
         if 6 <= event.x <= 68 and 190 <= event.y <= 276 and self.screen == "confirmation":
             self.cancel()
         elif 398 <= event.x <= 460 and 190 <= event.y <= 276 and self.screen == "confirmation":

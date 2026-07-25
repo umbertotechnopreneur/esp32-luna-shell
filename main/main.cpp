@@ -10,10 +10,10 @@
  * Contact: hello@qsee.ai
  */
 
-#include <new>
-#include <vector>
+// Main firmware entry point that boots the QSee.ai application stack.
+// Sets up the top-level application before control enters the UI flow.
 
-#include "bsp/esp-bsp.h"
+#include <new>
 #include "esp_brookesia.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -33,6 +33,7 @@ using esp_brookesia::systems::phone::Phone;
 namespace {
 const char *TAG = "qsee_main";
 
+// Attach Brookesia to BSP-owned LVGL objects and launch the QSee app.
 bool start_brookesia(lv_indev_t *touch)
 {
     LvLock::registerCallbacks(
@@ -102,10 +103,23 @@ bool start_brookesia(lv_indev_t *touch)
         return false;
     }
 
+    // Rotate only after the app owns the screen, then arm BOOT sleep.
+    const esp_err_t rotation_result =
+        qsee_display_apply_saved_auto_rotation();
+    if (rotation_result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Saved display auto-rotation unavailable (%s)",
+            esp_err_to_name(rotation_result)
+        );
+    }
+    qsee_power_set_runtime_ready();
+
     ESP_LOGI(TAG, "ESP-Brookesia ready with %u registered app(s)", static_cast<unsigned>(apps.size()));
     return true;
 }
 
+// Start the UI outside app_main so the boot screen remains responsive.
 void brookesia_task(void *arg)
 {
     (void)arg;
@@ -116,6 +130,7 @@ void brookesia_task(void *arg)
 }
 }
 
+// Bring up fail-open hardware services, then hand the display to Brookesia.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(qsee_logger_init());

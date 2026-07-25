@@ -1,5 +1,8 @@
 #pragma once
 
+// Settings access helpers for platform configuration and persistence.
+// Provides the shared contract for reading and writing QSee settings.
+
 #include <cstdint>
 #include <mutex>
 #include <string>

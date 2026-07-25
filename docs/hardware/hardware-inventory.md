@@ -5,8 +5,8 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 | Area | Device / capability | Firmware integration |
 | --- | --- | --- |
 | MCU | ESP32-S3R8, dual core up to 240 MHz | ESP-IDF 5.5.4, 8 MB octal PSRAM, 16 MB flash |
-| Display | 1.75-inch round AMOLED, 466 x 466, CO5300, QSPI | Official Waveshare BSP + LVGL 9 |
-| Touch | CST9217, two-point capacitive touch | Initialized by `bsp_display_start()` |
+| Display | 1.75-inch round AMOLED, 466 x 466, CO5300, QSPI | Official Waveshare BSP + LVGL 9; synchronized cardinal `0/90/180/270` scan rotation |
+| Touch | CST9217, two-point capacitive touch | Initialized by `bsp_display_start()`; coordinates follow each CO5300 cardinal rotation |
 | Power | AXP2101 PMU at I2C `0x34` | Probed; battery presence, charging state, percent, and voltage logged |
 | IMU | QMI8658 at I2C `0x6B` or `0x6A` | Probed and initialized for accelerometer + gyroscope |
 | GPS / GNSS | LC76G GPS variant, external ceramic antenna | Command-gated I2C bridge at control `0x50`, read `0x54`; bounded NMEA chunks, no-fix is allowed |
@@ -33,6 +33,14 @@ I2C driver.
 | SDMMC CLK / CMD / D0 | 2 / 1 / 3 |
 | I2S BCLK / MCLK / WS / DOUT / DIN | 9 / 42 / 45 / 8 / 10 |
 | Speaker amplifier enable | 46 |
+| BOOT / light-sleep wake | 0 |
+
+GPIO0 is an RTC-domain input on ESP32-S3, so BOOT can wake both explicit light
+sleep and deep sleep. The
+display-only idle policy keeps the CPU awake: it first fades to 50% of the
+selected brightness, then sends the CO5300 display-off command after the
+separately configured delay. Touch or BOOT activity restores the selected
+brightness.
 
 ## SD preparation
 

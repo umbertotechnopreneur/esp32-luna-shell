@@ -5,6 +5,9 @@
  * Copyright (c) 2026 QSee.ai. All rights reserved.
  */
 
+// JSON builders for snapshot and metrics responses.
+// Keeps transport formatting separate from HTTP routing.
+
 #pragma once
 
 #include <cstddef>
@@ -33,8 +36,10 @@ public:
 
     bool raw(const char *text);
     bool format(const char *format_string, ...);
+    /** Append a null-safe JSON string with control-character escaping. */
     bool quoted(const char *value);
     bool boolean(bool value);
+    /** Flush buffered data and terminate the chunked HTTP response. */
     bool finish();
 
 private:
@@ -53,6 +58,7 @@ void httpJsonWriteHealth(
     bool server_running
 );
 
+/** Serialize public info, optionally adding authenticated diagnostics. */
 void httpJsonWriteInfo(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,

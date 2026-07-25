@@ -9,6 +9,9 @@
  * qsee_http_json.cpp.
  */
 
+// Read-only HTTP server for device status, diagnostics, and capabilities.
+// Handles auth, request routing, and snapshot refresh orchestration.
+
 #include "qsee_http_server.hpp"
 
 #include <atomic>
@@ -146,6 +149,7 @@ bool authRateLimited()
     return s_metrics.view.auth_failures_in_window >= kAuthFailureLimit;
 }
 
+// Replace the in-memory Bearer credential after validating its bounded size.
 esp_err_t loadApiKeyValue(const char *value)
 {
     if (value == nullptr) {
@@ -191,6 +195,7 @@ esp_err_t loadApiKeyFromSettings()
     return loadApiKeyValue(value.c_str());
 }
 
+// Hot-reload only API-key updates from the shared settings observer.
 void settingsChanged(const char *key, const char *value, void *)
 {
     if (key == nullptr || std::strcmp(key, kApiKeySetting) != 0) {
@@ -202,6 +207,7 @@ void settingsChanged(const char *key, const char *value, void *)
     }
 }
 
+// Compare complete buffers so API-key failures do not reveal a prefix.
 bool constantTimeEquals(
     const char *actual,
     std::size_t actual_length,
@@ -239,6 +245,7 @@ bool headerMatches(
     return constantTimeEquals(value, length, expected, expected_length);
 }
 
+// Compare a request against a mutex-protected copy of the active credential.
 bool authorized(httpd_req_t *request)
 {
     char expected_authorization[
@@ -291,6 +298,7 @@ esp_err_t sendError(
     return httpd_resp_send(request, body, length);
 }
 
+// Refresh API data periodically even when no client is polling.
 void snapshotRefreshTask(void *)
 {
     for (;;) {
@@ -322,6 +330,7 @@ bool startSnapshotRefreshTask()
     return s_snapshot_task_started;
 }
 
+// Authenticate data routes and serialize one immutable snapshot per request.
 esp_err_t handleApiRequest(httpd_req_t *request)
 {
     recordRequest();
@@ -369,6 +378,7 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     return ESP_OK;
 }
 
+// Start the read-only routes once a refresh task is available.
 esp_err_t startServer()
 {
     if (s_server != nullptr) {
@@ -436,6 +446,7 @@ void stopServer()
     }
 }
 
+// Bind server lifetime to acquisition and loss of a usable station IP.
 void networkEventHandler(void *argument, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)argument;

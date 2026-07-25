@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Canonical logger interface used across QSee components.
+// Initializes the logging pipeline before the rest of the firmware starts.
+
 #pragma once
 
 #include <stdbool.h>

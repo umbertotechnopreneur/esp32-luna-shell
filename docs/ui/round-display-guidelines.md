@@ -14,6 +14,41 @@ Everything required to understand or complete a screen must fit in that safe
 square. Content may decorate the circular perimeter, but it must not depend on
 the perimeter to remain usable.
 
+## In-screen command groups
+
+When a screen needs two or more local commands, place them on the lower arc
+whenever the content permits it. Commands in the same group use equal
+dimensions, symmetric spacing, the same gradient and bright border as the
+Welcome action arc, and no pressed-state movement. Keep destructive actions
+visually distinct and do not let the group replace the shell-owned Back action.
+
+## Compact diagnostic screens
+
+Live diagnostics should favor one non-scrolling overview over vertically
+stacked telemetry. Use a stable graphic for spatial values, keep each numeric
+value beside the part of the graphic it describes, and retain the physical unit
+on screen. The IMU view uses a color-matched X/Y/Z acceleration triad, a compact
+three-segment gyroscope ring, and a thermometer icon while the numeric values
+remain authoritative.
+
+## Settings information architecture
+
+Settings is a compact hub, not one long scrolling form. It exposes only
+implemented controls and routes them to focused pages:
+
+- Diagnostics: sampling period and IMU smoothing;
+- Storage: SD state and logger mirroring;
+- Network: Wi-Fi state, local credential editing, and BLE provisioning;
+- Display: brightness profiles and cardinal auto-rotation;
+- Power: display dim and panel-off timing.
+
+Each focused page keeps its status near the top and, where practical, places
+one or two equal command buttons on the lower safe arc. Password entry uses a
+dedicated full-height editor: the password starts blank and masked, is cleared
+whenever the editor closes, and is never copied into a diagnostic snapshot.
+Provisioning steps use the same bottom command geometry and keep the
+shell-owned Back control available.
+
 ## Cardinal action caps
 
 The four curved margins outside the safe square are interaction caps. Each cap
@@ -21,8 +56,8 @@ hosts at most one visible action.
 
 | Cap | Default role | Visual slot |
 | --- | --- | --- |
-| Left | Back, or Cancel in a modal flow | `x=12, y=169, w=56, h=128` |
-| Right | Next, or OK on a final step | `x=398, y=169, w=56, h=128` |
+| Left | Back, or Cancel in a modal flow | `x=10, y=175, w=60, h=116` |
+| Right | Next, or OK on a final step | `x=396, y=175, w=60, h=116` |
 | Top | Close, menu, status, or another non-destructive contextual action | `x=169, y=12, w=128, h=56` |
 | Bottom | Contextual primary action such as capture, retry, or details | `x=169, y=398, w=128, h=56` |
 

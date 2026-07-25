@@ -18,6 +18,8 @@ def require(text: str, fragment: str, source: str) -> None:
 def main() -> None:
     provisioning = read("components/qsee_platform/qsee_provisioning.cpp")
     provisioning_header = read("components/qsee_platform/include/qsee_provisioning.hpp")
+    platform_header = read("components/qsee_platform/include/qsee_platform.h")
+    wifi = read("components/qsee_platform/qsee_wifi.cpp")
     navigation = read("components/qsee_app/qsee_navigation.cpp")
     navigation_header = read("components/qsee_app/include/qsee_navigation.hpp")
     cmake = read("components/qsee_platform/CMakeLists.txt")
@@ -32,15 +34,28 @@ def main() -> None:
     if "wifi_prov_scheme_softap" in provisioning or "WIFI_PROV_SECURITY_0" in provisioning:
         raise AssertionError("SoftAP or unsecured provisioning was reintroduced")
 
-    for screen in ("PairIntro", "PairBluetooth", "PairApp", "PairQr", "AppStoreQr"):
+    for screen in (
+        "WifiCredentials",
+        "PairIntro",
+        "PairBluetooth",
+        "PairApp",
+        "PairQr",
+        "AppStoreQr",
+        "PairResult",
+    ):
         require(navigation_header, screen, "navigation header")
     for fragment in ("startPairing", "showPairingQr", "showAppStoreQr", "renderQr"):
         require(navigation, fragment, "navigation implementation")
+    require(navigation, "lv_textarea_set_password_mode", "masked password editor")
+    require(navigation, "clearWifiPassword", "password editor cleanup")
+    require(platform_header, "qsee_wifi_update_credentials", "platform header")
+    require(wifi, "secure_zero", "Wi-Fi secret cleanup")
+    require(provisioning, "service.initialize()", "provisioning start wrapper")
 
     require(cmake, '"qsee_provisioning.cpp"', "platform CMake")
     require(cmake, '"qsee_settings.cpp"', "platform CMake")
     require(app_cmake, "qrcode", "app CMake")
-    require(settings, "SettingsService::instance", "settings singleton")
+    require(settings, "UserSettingsService::instance", "settings singleton")
 
     print("pairing static verification: PASS")
 

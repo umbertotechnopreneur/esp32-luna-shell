@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Shared color palette and visual constants for QSee UI surfaces.
+// Keeps the app look consistent across screens and widgets.
+
 #pragma once
 
 #include <cstdint>

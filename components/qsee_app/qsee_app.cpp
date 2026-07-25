@@ -10,7 +10,13 @@
  * Contact: hello@qsee.ai
  */
 
+// Application shell for QSee.ai UI flow, navigation, and status updates.
+// Keeps the app lifecycle wired to the Brookesia phone framework.
+
 #include "qsee_app.hpp"
+
+// Application shell for QSee.ai UI flow, navigation, and status updates.
+// Keeps the app lifecycle wired to the Brookesia phone framework.
 
 #include <cstdio>
 #include <cstring>
@@ -23,6 +29,7 @@
 #include "qsee_navigation.hpp"
 
 namespace {
+// Map snapshot health to a visual state, promoting hard runtime failures.
 qsee::StatusIndicatorState indicatorState(qsee::DeviceHealth health, esp_err_t error)
 {
     switch (health) {
@@ -81,6 +88,7 @@ bool App::run()
     return true;
 }
 
+// Translate one canonical snapshot into display-only status-bar state.
 void App::syncStatusBar()
 {
     if (_status_bar == nullptr) return;

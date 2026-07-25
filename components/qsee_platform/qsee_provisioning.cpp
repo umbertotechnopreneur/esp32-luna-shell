@@ -1,7 +1,12 @@
+// Provisioning flow for pairing and onboarding a QSee device.
+// Owns the connection handoff needed to bootstrap Wi-Fi setup.
+
 #include "qsee_provisioning.hpp"
 
-#include <mutex>
 #include <cstdio>
+#include <cstdint>
+#include <cstring>
+#include <mutex>
 
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -13,6 +18,14 @@
 
 namespace {
 constexpr char kTag[] = "qsee_prov";
+
+void secure_zero(void *data, size_t size)
+{
+    auto *cursor = static_cast<volatile uint8_t *>(data);
+    while (cursor != nullptr && size-- > 0U) {
+        *cursor++ = 0U;
+    }
+}
 }
 
 namespace qsee {
@@ -23,6 +36,7 @@ ProvisioningService &ProvisioningService::instance()
     return service;
 }
 
+// Prepare Espressif's BLE provisioning manager without starting a session.
 esp_err_t ProvisioningService::initialize()
 {
     std::lock_guard<std::mutex> guard(_mutex);
@@ -56,6 +70,7 @@ esp_err_t ProvisioningService::initialize()
     return ESP_OK;
 }
 
+// Start or cleanly restart one secure BLE provisioning session.
 esp_err_t ProvisioningService::start()
 {
     std::lock_guard<std::mutex> guard(_mutex);
@@ -114,6 +129,7 @@ esp_err_t ProvisioningService::isProvisioned(bool *provisioned) const
     return wifi_prov_mgr_is_provisioned(provisioned);
 }
 
+// Format current SSID and IP state into a caller-owned bounded buffer.
 esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_size) const
 {
     if (buffer == nullptr || buffer_size == 0) {
@@ -123,9 +139,13 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
     wifi_config_t config{};
     const esp_err_t wifi_err = esp_wifi_get_config(WIFI_IF_STA, &config);
     if (wifi_err != ESP_OK || config.sta.ssid[0] == '\0') {
-        std::snprintf(buffer, buffer_size, "Wi-Fi non configurato");
+        std::snprintf(buffer, buffer_size, "Wi-Fi not configured");
+        secure_zero(&config, sizeof(config));
         return wifi_err == ESP_OK ? ESP_ERR_NOT_FOUND : wifi_err;
     }
+    char ssid[sizeof(config.sta.ssid) + 1U] = {};
+    std::memcpy(ssid, config.sta.ssid, sizeof(config.sta.ssid));
+    ssid[sizeof(config.sta.ssid)] = '\0';
 
     esp_netif_ip_info_t ip_info{};
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -134,12 +154,18 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
         std::snprintf(
             buffer,
             buffer_size,
-            "Rete: %s\\nIP: " IPSTR,
-            reinterpret_cast<const char *>(config.sta.ssid),
+            "Network: %s\nIP: " IPSTR,
+            ssid,
             IP2STR(&ip_info.ip));
     } else {
-        std::snprintf(buffer, buffer_size, "Rete: %s\\nIP in assegnazione", reinterpret_cast<const char *>(config.sta.ssid));
+        std::snprintf(
+            buffer,
+            buffer_size,
+            "Network: %s\nIP pending",
+            ssid
+        );
     }
+    secure_zero(&config, sizeof(config));
     return ESP_OK;
 }
 
@@ -167,6 +193,7 @@ void ProvisioningService::onEvent(void *user_data, wifi_prov_cb_event_t event, v
     }
 }
 
+// Map Espressif callbacks into the UI-facing provisioning state machine.
 void ProvisioningService::handleEvent(wifi_prov_cb_event_t event, void *event_data)
 {
     (void)event_data;
@@ -199,6 +226,7 @@ void ProvisioningService::handleEvent(wifi_prov_cb_event_t event, void *event_da
     }
 }
 
+// Rebuild the nearby-device name and matching Espressif QR payload.
 void ProvisioningService::rebuildIdentity()
 {
     uint8_t mac[6]{};
@@ -207,6 +235,7 @@ void ProvisioningService::rebuildIdentity()
     } else {
         std::snprintf(_service_name, sizeof(_service_name), "PROV_QSEE-%02X%02X", mac[4], mac[5]);
     }
+    // Espressif's provisioning app consumes this exact JSON QR payload.
     std::snprintf(
         _qr_payload,
         sizeof(_qr_payload),
@@ -223,7 +252,9 @@ extern "C" esp_err_t qsee_provisioning_init(void)
 
 extern "C" esp_err_t qsee_provisioning_start(void)
 {
-    return qsee::ProvisioningService::instance().start();
+    auto &service = qsee::ProvisioningService::instance();
+    const esp_err_t init_error = service.initialize();
+    return init_error == ESP_OK ? service.start() : init_error;
 }
 
 extern "C" esp_err_t qsee_provisioning_stop(void)

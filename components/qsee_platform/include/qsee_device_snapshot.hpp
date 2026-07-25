@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Shared snapshot model for board health, radios, power, storage, and time.
+// Used by the UI, HTTP API, and platform services as a read-only contract.
+
 #pragma once
 
 #include <cstdint>
@@ -147,9 +150,21 @@ struct StorageSnapshot : ComponentSnapshot {
     bool logger_mirror_enabled = false;
 };
 
+struct OrientationSnapshot {
+    bool auto_rotation_enabled = false;
+    bool gravity_valid = false;
+    bool rotation_pending = false;
+    uint16_t physical_orientation_degrees = 0;
+    uint16_t rendering_rotation_degrees = 0;
+    uint32_t change_sequence = 0;
+    int64_t sampled_at_us = 0;
+    int64_t changed_at_us = 0;
+};
+
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
+    OrientationSnapshot orientation;
 };
 
 struct InputSnapshot {
@@ -235,10 +250,14 @@ class DeviceSnapshotService final {
 public:
     static DeviceSnapshotService &instance();
 
+    /** Probe synchronous devices and publish the initial canonical state. */
     esp_err_t initialize();
+    /** Refresh sampled devices and tag the resulting snapshot with a reason. */
     esp_err_t refresh(const char *reason = "manual");
+    /** Return a thread-safe value copy for UI or transport consumers. */
     DeviceSnapshot snapshot() const;
 
+    /** Merge asynchronous driver state without exposing hardware to consumers. */
     void reportStorage(
         bool mounted,
         bool card_present,

@@ -33,8 +33,9 @@
 
 ## Sensor fusion
 
-- The Settings route currently persists and applies the QMI8658 input
-  low-pass smoothing value; it does not claim to provide orientation fusion.
+- The Settings route persists the QMI8658 input low-pass smoothing value and
+  enables only the guarded cardinal gravity classifier used for display
+  rotation; this is not a general orientation-fusion service.
 - Add a canonical sensor-fusion service behind `DeviceSnapshotService` before
   exposing algorithm selection, gain, reference-frame controls, or
   pitch/roll/yaw values in the UI. Until then the snapshot exposes the real

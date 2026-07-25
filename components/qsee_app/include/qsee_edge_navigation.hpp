@@ -1,5 +1,8 @@
 #pragma once
 
+// Edge-gesture helpers used by the QSee navigation shell.
+// Converts boundary swipes into screen navigation decisions.
+
 #include <cstdint>
 #include <functional>
 
@@ -23,7 +26,9 @@ public:
     EdgeNavigation(const EdgeNavigation &) = delete;
     EdgeNavigation &operator=(const EdgeNavigation &) = delete;
 
+    /** Create round-margin actions under the supplied LVGL root. */
     bool Begin(lv_obj_t *root);
+    /** Delete owned LVGL controls and clear their cached handles. */
     void Shutdown();
 
     void SetLeftCallback(Callback callback);
@@ -33,8 +38,10 @@ public:
     void SetEnabled(bool enabled);
 
 private:
+    /** Dispatch clicks and clear cached handles when LVGL deletes a button. */
     static void OnButtonEvent(lv_event_t *event);
 
+    /** Build one curved edge action and return its separately colored accent. */
     lv_obj_t *CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t **accent);
     lv_obj_t *CreateLineIcon(lv_obj_t *parent);
     lv_obj_t *CreateLabel(lv_obj_t *parent);

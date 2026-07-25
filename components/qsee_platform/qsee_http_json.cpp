@@ -8,6 +8,9 @@
  * rate limiting, and Wi-Fi event handling remain in qsee_http_server.cpp.
  */
 
+// JSON serialization helpers for the read-only HTTP API.
+// Converts device snapshots and metrics into compact response bodies.
+
 #include "qsee_http_json.hpp"
 
 #include <cstdarg>
@@ -288,12 +291,27 @@ void writeStorage(qsee::HttpJsonWriter &json, const qsee::StorageSnapshot &stora
     (void)json.raw("}");
 }
 
+// Serialize UI hardware with the committed, not candidate, render angle.
 void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
 {
     (void)json.raw("{\"display\":");
     writeComponentFields(json, ui.display);
     (void)json.raw(",\"touch\":");
     writeComponentFields(json, ui.touch);
+    (void)json.raw(",\"orientation\":{\"auto_rotation_enabled\":");
+    (void)json.boolean(ui.orientation.auto_rotation_enabled);
+    (void)json.raw(",\"gravity_valid\":");
+    (void)json.boolean(ui.orientation.gravity_valid);
+    (void)json.raw(",\"rotation_pending\":");
+    (void)json.boolean(ui.orientation.rotation_pending);
+    (void)json.format(
+        ",\"physical_degrees\":%u,\"rendering_degrees\":%u,\"change_sequence\":%lu,\"sampled_at_us\":%lld,\"changed_at_us\":%lld}",
+        static_cast<unsigned>(ui.orientation.physical_orientation_degrees),
+        static_cast<unsigned>(ui.orientation.rendering_rotation_degrees),
+        static_cast<unsigned long>(ui.orientation.change_sequence),
+        static_cast<long long>(ui.orientation.sampled_at_us),
+        static_cast<long long>(ui.orientation.changed_at_us)
+    );
     (void)json.raw("}");
 }
 
@@ -361,6 +379,7 @@ void writeProcessor(qsee::HttpJsonWriter &json, const qsee::ProcessorSnapshot &p
     (void)json.raw("]}");
 }
 
+// Collapse required component health into the public device health value.
 qsee::DeviceHealth overallHealth(const qsee::DeviceSnapshot &snapshot)
 {
     const qsee::ComponentSnapshot *components[] = {
@@ -430,6 +449,7 @@ HttpJsonWriter::HttpJsonWriter(httpd_req_t *request): _request(request)
     (void)httpd_resp_set_hdr(_request, "Cache-Control", "no-store");
 }
 
+// Stream arbitrary text through the fixed response buffer.
 bool HttpJsonWriter::raw(const char *text)
 {
     if (_failed || text == nullptr) return !_failed;
@@ -459,6 +479,7 @@ bool HttpJsonWriter::format(const char *format_string, ...)
     return raw(rendered);
 }
 
+// Append a null-safe JSON string with control-character escaping.
 bool HttpJsonWriter::quoted(const char *value)
 {
     if (!raw("\"")) return false;
@@ -490,6 +511,7 @@ bool HttpJsonWriter::boolean(bool value)
     return raw(value ? "true" : "false");
 }
 
+// Flush buffered JSON and terminate the chunked HTTP response.
 bool HttpJsonWriter::finish()
 {
     if (_failed || !flush()) return false;

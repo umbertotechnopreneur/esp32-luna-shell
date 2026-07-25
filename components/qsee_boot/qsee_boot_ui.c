@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Boot screen lifecycle and readiness handshake for QSee.
+// Shows the splash UI until the rest of the stack is ready.
+
 #include "qsee_boot.h"
 
 #include <stdbool.h>

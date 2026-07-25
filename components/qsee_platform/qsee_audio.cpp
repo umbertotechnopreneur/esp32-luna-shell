@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Audio hardware control for speaker and microphone access.
+// Serializes codec lifecycle and shared audio resource ownership.
+
 #include "qsee_platform.h"
 
 #include <algorithm>
@@ -42,6 +45,7 @@ SemaphoreHandle_t audio_mutex()
     return s_audio_mutex;
 }
 
+// Reopen input/output together because both codecs share one stream format.
 esp_err_t configure_streams(uint32_t sample_rate_hz, uint8_t channel_count)
 {
     if (sample_rate_hz == 0 || channel_count == 0 || channel_count > 2) {
@@ -78,9 +82,9 @@ esp_err_t configure_streams(uint32_t sample_rate_hz, uint8_t channel_count)
 
 }  // namespace
 
+// Initialize the shared codec route once without blocking active playback.
 extern "C" esp_err_t qsee_audio_init(void)
 {
-    // Initialization is immutable after success; avoid waiting behind playback.
     if (s_initialized.load(std::memory_order_acquire)) {
         return ESP_OK;
     }
@@ -121,6 +125,7 @@ extern "C" esp_err_t qsee_audio_init(void)
     return error;
 }
 
+// Serialize mono playback with capture and codec format changes.
 extern "C" esp_err_t qsee_audio_play_pcm16(
     const int16_t *samples,
     size_t sample_count,
@@ -211,6 +216,7 @@ extern "C" esp_err_t qsee_audio_capture_pcm16(
     return error;
 }
 
+// Capture interleaved frames while holding the shared codec route.
 extern "C" esp_err_t qsee_audio_capture_pcm16_channels(
     int16_t *samples,
     size_t frame_count,

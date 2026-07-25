@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Platform-wide abstraction for hardware, connectivity, and device services.
+// Centralizes board control, sensor access, and health snapshots.
+
 #pragma once
 
 #include <stdbool.h>
@@ -40,15 +43,15 @@ typedef struct {
  */
 esp_err_t qsee_hardware_init(void);
 
-/**
- * Refresh the canonical hardware snapshot once. No background polling occurs.
- */
+/** Refresh the canonical snapshot once; periodic monitors are controlled separately. */
 esp_err_t qsee_hardware_refresh(const char *reason);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
 /** Enable cheap CPU/memory snapshot sampling while the Welcome page consumes it. */
 esp_err_t qsee_hardware_set_system_monitor(bool enabled);
+/** Block new refresh/calibration work and drain any sample already in flight. */
+esp_err_t qsee_hardware_set_sleep_transition(bool active);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */
@@ -58,12 +61,7 @@ esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
 /** Return the persisted IMU input smoothing percentage. */
 uint32_t qsee_hardware_get_imu_smoothing_percent(void);
 
-/**
- * Run an explicit stationary QMI8658 calibration.
- *
- * The call rejects moving sample sets and keeps the previous valid calibration.
- */
-/** Run the explicit stationary IMU calibration sequence. */
+/** Run a stationary IMU calibration, retaining the old one on rejection. */
 esp_err_t qsee_imu_calibrate(void);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
@@ -88,8 +86,22 @@ esp_err_t qsee_time_sync_from_gps(
 
 /** Initialize BOOT/PWR observation, PMU events, wake-cause and TCA9554 health. */
 esp_err_t qsee_power_inputs_init(void);
+/** Arm BOOT sleep only after the application UI has started successfully. */
+void qsee_power_set_runtime_ready(void);
+/** Feed LVGL's inactivity counter to the platform power policy. */
+void qsee_power_report_display_inactive_ms(uint32_t inactive_ms);
+/** Request a non-blocking wake from the dimmed or panel-off display state. */
+void qsee_power_wake_display(void);
+/** Keep the UI touch guard active until a dark panel is fully restored. */
+bool qsee_power_display_input_guard_required(void);
+/** Persist seconds before a 50% transient dim; zero disables the dim stage. */
+esp_err_t qsee_power_set_dim_timeout_seconds(uint32_t seconds);
+uint32_t qsee_power_get_dim_timeout_seconds(void);
+/** Persist seconds from the dim stage to CO5300 display-off; zero disables it. */
+esp_err_t qsee_power_set_panel_off_delay_seconds(uint32_t seconds);
+uint32_t qsee_power_get_panel_off_delay_seconds(void);
 
-/** Enter explicit low-power states; callers own the surrounding UI lifecycle. */
+/** Enter explicit low-power states with the coordinated display lifecycle. */
 esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us);
 esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us);
 
@@ -106,6 +118,18 @@ bool qsee_storage_get_logger_mirror_preference(void);
 esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
 uint32_t qsee_display_get_brightness_percent(void);
 esp_err_t qsee_display_apply_saved_brightness(void);
+
+/** Fade the current AMOLED output without changing the saved preference. */
+esp_err_t qsee_display_fade_to_percent(uint32_t target_percent, uint32_t duration_ms);
+esp_err_t qsee_display_fade_out(uint32_t duration_ms);
+esp_err_t qsee_display_fade_in(uint32_t duration_ms);
+/** Send the CO5300 display-on/off command without changing the preference. */
+esp_err_t qsee_display_set_panel_enabled(bool enabled);
+
+/** Persist and apply gravity-driven CO5300 cardinal auto-rotation. */
+esp_err_t qsee_display_set_auto_rotation_enabled(bool enabled);
+bool qsee_display_get_auto_rotation_enabled(void);
+esp_err_t qsee_display_apply_saved_auto_rotation(void);
 
 /**
  * Report the result of an actual speaker playback attempt.
@@ -197,6 +221,20 @@ esp_err_t qsee_wifi_init(void);
  * When persist is true ESP-IDF stores the profile in NVS.
  */
 esp_err_t qsee_wifi_connect(const char *ssid, const char *password, bool persist);
+
+/**
+ * Update station credentials without exposing a saved password to the caller.
+ *
+ * When replace_password is false, the current stored password is reused only
+ * if the requested SSID matches the stored profile. Secret bytes are never
+ * logged and temporary copies are wiped before returning.
+ */
+esp_err_t qsee_wifi_update_credentials(
+    const char *ssid,
+    const char *password,
+    bool replace_password,
+    bool persist
+);
 
 /**
  * Stop reconnect attempts while leaving the station driver available.

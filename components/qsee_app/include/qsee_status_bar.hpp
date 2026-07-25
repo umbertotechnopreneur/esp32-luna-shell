@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Status bar widget contract for the QSee device shell.
+// Renders snapshot-driven indicators onto the active phone display.
+
 #pragma once
 
 #include <cstdint>
@@ -62,6 +65,7 @@ public:
      */
     bool Begin(lv_obj_t *parent);
     void Shutdown();
+    /** Repaint existing primitives; no hardware is read by this widget. */
     void Update(const StatusBarState &state);
 
     lv_obj_t *NativeHandle() const;

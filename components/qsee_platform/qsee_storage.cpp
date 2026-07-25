@@ -10,10 +10,10 @@
  * Contact: hello@qsee.ai
  */
 
-#include "qsee_platform.h"
-#include "qsee_device_snapshot.hpp"
+// Storage and filesystem helpers for SD-backed data paths.
+// Tracks mount state and availability for the application snapshot.
 
-#include <atomic>
+#include "qsee_platform.h"
 
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
@@ -49,6 +49,7 @@ void report_failure(esp_err_t error, bool card_responded, bool format_attempted)
     );
 }
 
+// Probe/mount once and format only when the one-shot authorization is armed.
 esp_err_t mount_once()
 {
     ++s_mount_attempt_count;
@@ -125,6 +126,7 @@ esp_err_t mount_once()
     return ESP_OK;
 }
 
+// Retry mounting with backoff; task notifications interrupt the wait.
 void storage_task(void *argument)
 {
     (void)argument;
@@ -185,6 +187,7 @@ extern "C" esp_err_t qsee_storage_init(void)
     return ESP_OK;
 }
 
+// Arm one format attempt for the next responding card with invalid FAT.
 extern "C" esp_err_t qsee_storage_request_format(void)
 {
     if (s_mounted) {
@@ -206,6 +209,7 @@ extern "C" bool qsee_storage_mounted(void)
     return s_mounted;
 }
 
+// Persist the mirror preference and update the mounted logger immediately.
 extern "C" esp_err_t qsee_storage_set_logger_mirror(bool enabled)
 {
     auto &settings = qsee::UserSettingsService::instance();

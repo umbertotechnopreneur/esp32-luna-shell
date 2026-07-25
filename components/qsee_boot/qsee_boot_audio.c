@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Boot-time audio cue playback for the QSee startup flow.
+// Plays the startup sound after the audio path becomes available.
+
 #include "qsee_boot.h"
 #include "qsee_platform.h"
 

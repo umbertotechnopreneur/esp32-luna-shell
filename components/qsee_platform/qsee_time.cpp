@@ -10,10 +10,10 @@
  * Contact: hello@qsee.ai
  */
 
-#include "qsee_platform.h"
-#include "qsee_device_snapshot.hpp"
+// Timekeeping and RTC helpers for the platform snapshot layer.
+// Keeps device clock state available to UI and diagnostics.
 
-#include <cstdlib>
+#include "qsee_platform.h"
 #include <cstring>
 #include <ctime>
 #include <sys/time.h>
@@ -101,6 +101,7 @@ esp_err_t persist_epoch_to_rtc(time_t epoch)
     return qsee_rtc_write(&calendar);
 }
 
+// Persist a valid SNTP epoch to RTC and publish the new time source.
 void sntp_sync_callback(struct timeval *time_value)
 {
     if (time_value == nullptr || !epoch_valid(time_value->tv_sec)) {
@@ -126,6 +127,7 @@ void sntp_sync_callback(struct timeval *time_value)
     report_time(true, true, "sntp");
 }
 
+// Apply one validated UTC calendar to system time, RTC and the snapshot.
 esp_err_t apply_utc_calendar(
     uint16_t year,
     uint8_t month,
@@ -168,6 +170,7 @@ esp_err_t apply_utc_calendar(
 
 }  // namespace
 
+// Restore RTC time first and prepare SNTP without starting network traffic.
 extern "C" esp_err_t qsee_time_init(const char *timezone)
 {
     if (s_initialized) {
@@ -229,6 +232,7 @@ extern "C" esp_err_t qsee_time_init(const char *timezone)
     return ESP_OK;
 }
 
+// Start SNTP once, only after DHCP has supplied connectivity.
 extern "C" esp_err_t qsee_time_notify_wifi_online(void)
 {
     if (!s_initialized) {

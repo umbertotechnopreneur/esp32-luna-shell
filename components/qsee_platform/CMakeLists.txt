@@ -18,8 +18,10 @@ idf_component_register(
         esp_event
         esp_http_server
         esp_timer
+        esp_lvgl_adapter
         esp_driver_gpio
         esp_hw_support
+        esp_pm
         fatfs
         esp_netif
         esp_wifi

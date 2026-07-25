@@ -75,7 +75,15 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
  */
 esp_err_t bsp_display_brightness_init(void);
 
+/**
+ * @brief Rotate the CO5300 scan direction and matching CST9217 coordinates.
+ *
+ * LVGL remains at logical rotation 0. The operation is serialized with the
+ * display task, rejected while a pointer is pressed, and invalidates the
+ * active screen after a successful cardinal change.
+ */
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation);
+bsp_display_rotation_t bsp_display_rotation_get(void);
 
 /**
  * @brief Set display's brightness
@@ -91,6 +99,14 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation);
 esp_err_t bsp_display_brightness_set(int brightness_percent);
 
 int bsp_display_brightness_get(void);
+
+/**
+ * @brief Enable or disable CO5300 panel output.
+ *
+ * Unlike brightness zero, disabling output sends the controller's display-off
+ * command so the AMOLED panel can enter its lower-power blank state.
+ */
+esp_err_t bsp_display_panel_set_enabled(bool enabled);
 
 /**
  * @brief Turn on display backlight

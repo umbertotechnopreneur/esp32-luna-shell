@@ -5,15 +5,19 @@
 namespace {
 
 constexpr int kDisplaySize = 466;
+
+// Edge gesture navigation helpers for QSee.ai screen switching.
+// Turns boundary swipes into app-level navigation actions.
 constexpr int kSafeAreaLeft = 73;
 constexpr int kSafeAreaRight = 393;
-constexpr int kEdgeInset = 4;
-constexpr int kButtonWidth = 68;
-constexpr int kButtonHeight = 144;
+constexpr int kEdgeInset = 10;
+constexpr int kButtonWidth = 60;
+constexpr int kButtonHeight = 116;
 constexpr int kButtonY = (kDisplaySize - kButtonHeight) / 2;
 constexpr int kLeftButtonX = kEdgeInset;
 constexpr int kRightButtonX = kDisplaySize - kEdgeInset - kButtonWidth;
 
+// Edge actions occupy the round-panel margin outside the content safe square.
 constexpr uint32_t kDarkTop = 0x142632;
 constexpr uint32_t kDarkBottom = 0x071018;
 constexpr uint32_t kBackAccent = 0x51C7F2;
@@ -54,8 +58,8 @@ constexpr lv_point_precise_t kCloseReverse[] = {
 
 const lv_font_t *edgeFont()
 {
-#if LV_FONT_MONTSERRAT_18
-    return &lv_font_montserrat_18;
+#if LV_FONT_MONTSERRAT_14
+    return &lv_font_montserrat_14;
 #else
     return LV_FONT_DEFAULT;
 #endif
@@ -192,6 +196,7 @@ void EdgeNavigation::OnButtonEvent(lv_event_t *event)
     lv_obj_t *target = static_cast<lv_obj_t *>(lv_event_get_target(event));
     const lv_event_code_t code = lv_event_get_code(event);
     if (code == LV_EVENT_DELETE) {
+        // LVGL owns deletion; clear aliases so Shutdown remains idempotent.
         if (target == self->_left_button) {
             self->_left_button = nullptr;
             self->_left_accent = nullptr;
@@ -233,7 +238,7 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     lv_obj_add_flag(button, LV_OBJ_FLAG_FLOATING);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(button, 10);
+    lv_obj_set_ext_click_area(button, 8);
 
     lv_obj_set_style_radius(button, kButtonWidth / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(button, lv_color_hex(kDarkTop), LV_PART_MAIN);
@@ -262,7 +267,7 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     *accent = lv_obj_create(button);
     if (*accent != nullptr) {
         lv_obj_remove_style_all(*accent);
-        lv_obj_set_size(*accent, 4, 84);
+        lv_obj_set_size(*accent, 4, 64);
         lv_obj_align(*accent, left ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, left ? -4 : 4, 0);
         lv_obj_set_style_radius(*accent, 2, LV_PART_MAIN);
         lv_obj_set_style_bg_color(*accent, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN);
@@ -281,7 +286,7 @@ lv_obj_t *EdgeNavigation::CreateLineIcon(lv_obj_t *parent)
         return nullptr;
     }
     lv_obj_set_size(line, 36, 36);
-    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 14);
+    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 10);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     return line;
@@ -294,12 +299,12 @@ lv_obj_t *EdgeNavigation::CreateLabel(lv_obj_t *parent)
         return nullptr;
     }
     lv_obj_set_width(label, kButtonWidth - 8);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -27);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -18);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(kText), LV_PART_MAIN);
     lv_obj_set_style_text_font(label, edgeFont(), LV_PART_MAIN);
-    lv_obj_set_style_text_letter_space(label, 1, LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(label, 0, LV_PART_MAIN);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_SCROLLABLE);
     return label;

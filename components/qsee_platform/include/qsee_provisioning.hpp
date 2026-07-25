@@ -1,5 +1,8 @@
 #pragma once
 
+// Provisioning entry points for Wi-Fi onboarding and pairing.
+// Exposes the minimal API used by the app and setup flows.
+
 #include <cstddef>
 #include <mutex>
 

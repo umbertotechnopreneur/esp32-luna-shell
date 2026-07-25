@@ -10,6 +10,9 @@
  * Contact: hello@qsee.ai
  */
 
+// Wi-Fi connectivity helpers for scan, connect, and link-state reporting.
+// Supplies network status to the platform snapshot and provisioning flow.
+
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
 
@@ -81,6 +84,15 @@ void copy_ssid(char *destination, size_t destination_size, const uint8_t *source
     destination[length] = '\0';
 }
 
+void secure_zero(void *data, size_t size)
+{
+    auto *cursor = static_cast<volatile uint8_t *>(data);
+    while (cursor != nullptr && size-- > 0U) {
+        *cursor++ = 0U;
+    }
+}
+
+// Copy mutable Wi-Fi state under lock, then publish without holding it.
 void publish_snapshot()
 {
     qsee_wifi_status_t status = {};
@@ -137,6 +149,7 @@ void cancel_reconnect()
     wifi_unlock();
 }
 
+// Arm one bounded reconnect timer and expose the pending delay.
 void schedule_reconnect(uint32_t delay_ms)
 {
     if (s_reconnect_timer == nullptr) {
@@ -161,6 +174,7 @@ void schedule_reconnect(uint32_t delay_ms)
     }
 }
 
+// Retry only while the caller still requests a connection.
 void reconnect_timer_callback(TimerHandle_t timer)
 {
     (void)timer;
@@ -187,6 +201,7 @@ void reconnect_timer_callback(TimerHandle_t timer)
     }
 }
 
+// Copy driver-owned scan records into the fixed public network list.
 void handle_scan_done()
 {
     uint16_t count = QSEE_WIFI_MAX_NETWORKS;
@@ -224,6 +239,7 @@ void handle_scan_done()
     }
 }
 
+// Fold ESP-IDF Wi-Fi/IP events into one published station state.
 void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)arg;
@@ -287,6 +303,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
                      reconnect ? "yes" : "no",
                      static_cast<unsigned long>(delay_ms));
             if (reconnect) {
+                // Each consecutive failure doubles the delay up to the cap.
                 schedule_reconnect(delay_ms);
             }
             break;
@@ -387,6 +404,7 @@ esp_err_t initialize_nvs()
 
 }  // namespace
 
+// Initialize the station once and reconnect any profile stored by ESP-IDF.
 extern "C" esp_err_t qsee_wifi_init(void)
 {
     if (s_initialized) {
@@ -524,6 +542,7 @@ extern "C" esp_err_t qsee_wifi_init(void)
     return ESP_OK;
 
 fail:
+    // Unwind only resources acquired by this initialization attempt.
     if (s_ip_event_instance != nullptr) {
         (void)esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_event_instance);
         s_ip_event_instance = nullptr;
@@ -552,6 +571,7 @@ fail:
     return error;
 }
 
+// Apply a RAM or flash-backed profile and begin asynchronous association.
 extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, bool persist)
 {
     if (!s_initialized) {
@@ -560,14 +580,33 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
     if (ssid == nullptr || ssid[0] == '\0' || std::strlen(ssid) > QSEE_WIFI_SSID_MAX_LEN) {
         return ESP_ERR_INVALID_ARG;
     }
+    const size_t ssid_length = std::strlen(ssid);
     const char *safe_password = password != nullptr ? password : "";
-    if (std::strlen(safe_password) > 64) {
+    const size_t password_length = strnlen(safe_password, 65U);
+    if (password_length > 64U) {
         return ESP_ERR_INVALID_ARG;
     }
 
     wifi_config_t config = {};
-    strlcpy(reinterpret_cast<char *>(config.sta.ssid), ssid, sizeof(config.sta.ssid));
-    strlcpy(reinterpret_cast<char *>(config.sta.password), safe_password, sizeof(config.sta.password));
+    if (ssid_length == sizeof(config.sta.ssid)) {
+        std::memcpy(config.sta.ssid, ssid, ssid_length);
+    } else {
+        strlcpy(
+            reinterpret_cast<char *>(config.sta.ssid),
+            ssid,
+            sizeof(config.sta.ssid)
+        );
+    }
+    if (password_length == sizeof(config.sta.password)) {
+        // ESP-IDF accepts a 64-byte hexadecimal PSK without a trailing NUL.
+        std::memcpy(config.sta.password, safe_password, password_length);
+    } else {
+        strlcpy(
+            reinterpret_cast<char *>(config.sta.password),
+            safe_password,
+            sizeof(config.sta.password)
+        );
+    }
     config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     config.sta.threshold.authmode = safe_password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
@@ -578,9 +617,12 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
         error = esp_wifi_set_config(WIFI_IF_STA, &config);
     }
     if (error != ESP_OK) {
+        secure_zero(&config, sizeof(config));
         record_error(error);
         return error;
     }
+    // The driver owns its copy after esp_wifi_set_config().
+    secure_zero(&config, sizeof(config));
 
     wifi_lock();
     s_connect_requested = true;
@@ -602,6 +644,48 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
         return ESP_OK;
     }
     record_error(error);
+    return error;
+}
+
+extern "C" esp_err_t qsee_wifi_update_credentials(
+    const char *ssid,
+    const char *password,
+    bool replace_password,
+    bool persist
+)
+{
+    if (ssid == nullptr || ssid[0] == '\0' ||
+        std::strlen(ssid) > QSEE_WIFI_SSID_MAX_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    esp_err_t error = qsee_wifi_init();
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (replace_password) {
+        return qsee_wifi_connect(ssid, password, persist);
+    }
+
+    wifi_config_t stored = {};
+    error = esp_wifi_get_config(WIFI_IF_STA, &stored);
+    if (error != ESP_OK) {
+        secure_zero(&stored, sizeof(stored));
+        return error;
+    }
+    const auto *stored_ssid = reinterpret_cast<const char *>(stored.sta.ssid);
+    if (stored_ssid[0] == '\0' ||
+        std::strncmp(stored_ssid, ssid, sizeof(stored.sta.ssid)) != 0) {
+        secure_zero(&stored, sizeof(stored));
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    char saved_password[sizeof(stored.sta.password) + 1U] = {};
+    std::memcpy(saved_password, stored.sta.password, sizeof(stored.sta.password));
+    saved_password[sizeof(stored.sta.password)] = '\0';
+    error = qsee_wifi_connect(ssid, saved_password, persist);
+    secure_zero(saved_password, sizeof(saved_password));
+    secure_zero(&stored, sizeof(stored));
     return error;
 }
 

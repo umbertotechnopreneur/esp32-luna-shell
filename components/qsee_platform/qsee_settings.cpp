@@ -1,3 +1,6 @@
+// Persistent settings access for QSee platform configuration.
+// Bridges stored values to the rest of the firmware.
+
 #include "qsee_settings.hpp"
 
 #include <cstring>
@@ -26,6 +29,7 @@ UserSettingsService::~UserSettingsService()
     }
 }
 
+// Open the dedicated NVS namespace once without implicit erase or migration.
 esp_err_t UserSettingsService::initialize()
 {
     std::lock_guard<std::mutex> lock(_mutex);
@@ -83,6 +87,7 @@ esp_err_t UserSettingsService::getBool(const char *key, bool default_value, bool
     return error;
 }
 
+// Keep typed integer access consistent with the same commit/default policy.
 #define QSEE_SETTINGS_INT_METHODS(Suffix, Type, SetFn, GetFn) \
 esp_err_t UserSettingsService::set##Suffix(const char *key, Type value) \
 { \
@@ -127,6 +132,7 @@ esp_err_t UserSettingsService::getFloat(const char *key, float default_value, fl
     return ESP_OK;
 }
 
+// Persist a string, then notify the observer after releasing the mutex.
 esp_err_t UserSettingsService::setString(const char *key, const char *value)
 {
     if (key == nullptr || value == nullptr) return ESP_ERR_INVALID_ARG;
@@ -152,6 +158,7 @@ esp_err_t UserSettingsService::setString(const char *key, const char *value)
     return error;
 }
 
+// Read an NVS string in two passes because its stored length is dynamic.
 esp_err_t UserSettingsService::getString(const char *key, const char *default_value, std::string *value) const
 {
     if (key == nullptr || value == nullptr) return ESP_ERR_INVALID_ARG;
@@ -211,6 +218,7 @@ esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *da
     return nvs_get_blob(_handle, key, data->data(), &size);
 }
 
+// Check key metadata without reading or interpreting its stored value.
 bool UserSettingsService::contains(const char *key) const
 {
     if (key == nullptr) return false;

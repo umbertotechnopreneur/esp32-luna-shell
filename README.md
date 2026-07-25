@@ -100,9 +100,9 @@ This is the current code-grounded inventory:
 | Route | Status | Entry point | Declaration / implementation | Purpose |
 | --- | --- | --- | --- | --- |
 | `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable device console with real internal-RAM, PSRAM, firmware-partition, SD and per-core CPU metrics; dedicated fusion, Wi-Fi, BLE and GPS lines; fixed six-action arc |
-| `Logs` | Implemented | `LIVE LOGS` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
+| `Logs` | Implemented | `LIVE LOGS` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Bounded direct RAM log with implicit follow plus symmetric pause and clear commands on the lower arc |
 | `Hardware` | Implemented | `HARDWARE` or storage card | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable component inventory with manufacturer part numbers, traffic-light states, and dimmed bordered detail dialogs |
-| `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Microphone channel levels and PCM capture status; this is not yet a waveform or spectrogram |
+| `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | PCM capture status and two channel meters driven by real peak level in `%FS` and `dBFS`; this is not yet a waveform or spectrogram |
 | `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Accelerometer, gyroscope, temperature, and calibration status |
 | `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
 | `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Persistent diagnostic period, IMU input smoothing, SD log-mirror preference, Wi-Fi start action, and AMOLED brightness |
@@ -160,6 +160,17 @@ This checkout is configured for ESP-IDF 5.5.4 on Windows. PowerShell 7, Python,
 FFmpeg, and `winget` are available locally. Canonical configuration belongs in
 `sdkconfig.defaults`; the generated `sdkconfig` is intentionally ignored.
 
+Open the unified interactive menu:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1
+```
+
+Every menu action also remains directly callable from the CLI. Shared defaults
+live in `scripts/settings.defaults.json`; local overrides stay ignored under
+`scripts/logs/settings.json`. See
+[`scripts/README.md`](scripts/README.md) for the full action list.
+
 Build:
 
 ```powershell
@@ -199,9 +210,11 @@ Avoid nested `-Command "..."` invocations containing PowerShell variables.
 If the program becomes long or needs another quoting layer, put it in a `.ps1`
 file and invoke it with `pwsh -NoProfile -File`.
 
-Always pass the port explicitly for every device action. The helper terminates
-stale monitor and capture processes scoped to that port before checking whether
-it is openable, then fails the command if flashing, erasing, or capture fails.
+Always pass the port explicitly for every device action. The helper does not
+terminate processes implicitly: it reports monitor or capture processes scoped
+to that port and stops safely. Pass `-StopStaleMonitors` only when you explicitly
+want those matching processes closed before the action. The command still fails
+if flashing, erasing, or capture fails.
 Build success is not hardware proof; keep serial evidence separate from
 compiler evidence.
 
@@ -209,12 +222,26 @@ compiler evidence.
 
 The Windows build uses deterministic synthetic hardware data, so navigation,
 boot status, and failure paths can be debugged without the physical device.
+Run the commands from the repository root:
 
 ```powershell
+cd E:\Research\distanziamoci
 pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1
 pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
-pwsh -NoProfile -File .\simulator\windows\build-exe.ps1
 ```
+
+Rebuild the standalone Windows executable, then run the regenerated binary:
+
+```powershell
+cd E:\Research\distanziamoci
+pwsh -NoProfile -File .\simulator\windows\build-exe.ps1
+.\simulator\windows\dist\QSeeDeviceSimulator.exe
+```
+
+The simulator is a separate Python model. Rebuilding its executable packages
+the current `simulator/windows/qsee_simulator.py`; firmware C/C++ changes do not
+appear in the simulator unless the equivalent simulator behavior is implemented
+there too.
 
 See [simulator/windows/README.md](simulator/windows/README.md) for controls and
 available scenarios.
@@ -225,7 +252,7 @@ Brand, display, and original SFX inputs live under `assets/`. Regenerate all
 device derivatives with:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
+pwsh -NoProfile -File .\scripts\device.ps1 assets
 ```
 
 Generated outputs include the 466 x 466 PNG, a headerless little-endian RGB565
@@ -238,11 +265,11 @@ Owned C and C++ sources use the canonical QSee.ai copyright/contact banner.
 Preview or apply it with:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\add-source-banner.ps1
-pwsh -NoProfile -File .\scripts\add-source-banner.ps1 -Apply
+pwsh -NoProfile -File .\scripts\device.ps1 source-banner
+pwsh -NoProfile -File .\scripts\device.ps1 source-banner -Apply
 ```
 
-The script is idempotent, supports `-Remove -Apply`, and intentionally excludes
+The action is idempotent, supports `-Remove -Apply`, and intentionally excludes
 the Waveshare BSP, ESP-Brookesia, managed components, build output, generated
 files, and other third-party code. Contact: `hello@qsee.ai`.
 

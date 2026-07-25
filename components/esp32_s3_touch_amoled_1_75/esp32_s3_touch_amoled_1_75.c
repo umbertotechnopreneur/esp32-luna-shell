@@ -28,10 +28,12 @@ static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
 static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
 static lv_indev_t *disp_indev = NULL;
+static lv_display_t *disp_handle = NULL;
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 static esp_lcd_touch_handle_t tp = NULL;
 static esp_lcd_panel_handle_t panel_handle = NULL; // LCD panel handle
 static esp_lcd_panel_io_handle_t io_handle = NULL;
+static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
 uint8_t brightness;
 static i2s_chan_handle_t i2s_tx_chan = NULL;
 static i2s_chan_handle_t i2s_rx_chan = NULL;
@@ -344,15 +346,14 @@ esp_codec_dev_handle_t bsp_audio_codec_microphone_init(void)
 
 esp_err_t bsp_display_brightness_init(void)
 {
-    bsp_display_brightness_set(100);
-    return ESP_OK;
+    return bsp_display_brightness_set(100);
 }
 
 esp_err_t bsp_display_brightness_set(int brightness_percent)
 {
-    if (panel_handle == NULL)
+    if (panel_handle == NULL || io_handle == NULL)
     {
-        ESP_LOGE(TAG, "Panel handle is not initialized");
+        ESP_LOGE(TAG, "Panel or IO handle is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -362,16 +363,19 @@ esp_err_t bsp_display_brightness_set(int brightness_percent)
         return ESP_ERR_INVALID_ARG;
     }
 
-    brightness = (uint8_t)(brightness_percent * 255 / 100);
-
     uint32_t lcd_cmd = 0x51;
     lcd_cmd &= 0xff;
     lcd_cmd <<= 8;
     lcd_cmd |= 0x02 << 24;
-    uint8_t param = brightness;
-    esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, &param, 1);
-
-    return ESP_OK;
+    const uint8_t requested_brightness =
+        (uint8_t)(brightness_percent * 255 / 100);
+    const esp_err_t result =
+        esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, &requested_brightness, 1);
+    if (result == ESP_OK)
+    {
+        brightness = requested_brightness;
+    }
+    return result;
 }
 
 int bsp_display_brightness_get(void)
@@ -383,6 +387,16 @@ int bsp_display_brightness_get(void)
     }
 
     return brightness * 100 / 255;
+}
+
+esp_err_t bsp_display_panel_set_enabled(bool enabled)
+{
+    if (panel_handle == NULL)
+    {
+        ESP_LOGE(TAG, "Panel handle is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    return esp_lcd_panel_disp_on_off(panel_handle, enabled);
 }
 
 esp_err_t bsp_display_backlight_off(void)
@@ -605,6 +619,7 @@ lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg)
     BSP_ERROR_CHECK_RETURN_NULL(esp_lv_adapter_init(&cfg->lv_adapter_cfg));
 
     BSP_NULL_CHECK(disp = bsp_display_lcd_init(cfg), NULL);
+    disp_handle = disp;
 
     BSP_NULL_CHECK(disp_indev = bsp_display_indev_init(cfg, disp), NULL);
 
@@ -620,43 +635,160 @@ lv_indev_t *bsp_display_get_input_dev(void)
     return disp_indev;
 }
 
-esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
+typedef struct
 {
-    if (panel_handle == NULL || io_handle == NULL)
-    {
-        ESP_LOGE(TAG, "Panel or IO handle is not initialized");
-        return ESP_ERR_INVALID_STATE;
-    }
+    bool panel_swap_xy;
+    bool panel_mirror_x;
+    bool panel_mirror_y;
+    bool touch_swap_xy;
+    bool touch_mirror_x;
+    bool touch_mirror_y;
+} bsp_display_rotation_config_t;
 
-    uint8_t madctl = 0x00;
+static bool bsp_display_rotation_config(
+    bsp_display_rotation_t rotation,
+    bsp_display_rotation_config_t *config
+)
+{
+    if (config == NULL)
+    {
+        return false;
+    }
 
     switch (rotation)
     {
     case BSP_DISPLAY_ROTATE_0:
-        madctl = 0x00;
-        break;
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = false,
+            .panel_mirror_x = false,
+            .panel_mirror_y = false,
+            .touch_swap_xy = false,
+            .touch_mirror_x = true,
+            .touch_mirror_y = true,
+        };
+        return true;
     case BSP_DISPLAY_ROTATE_90:
-        madctl = 0x60;
-        break;
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = true,
+            .panel_mirror_x = true,
+            .panel_mirror_y = false,
+            .touch_swap_xy = true,
+            .touch_mirror_x = false,
+            .touch_mirror_y = true,
+        };
+        return true;
     case BSP_DISPLAY_ROTATE_180:
-        madctl = 0xC0;
-        break;
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = false,
+            .panel_mirror_x = true,
+            .panel_mirror_y = true,
+            .touch_swap_xy = false,
+            .touch_mirror_x = false,
+            .touch_mirror_y = false,
+        };
+        return true;
     case BSP_DISPLAY_ROTATE_270:
-        madctl = 0xA0;
-        break;
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = true,
+            .panel_mirror_x = false,
+            .panel_mirror_y = true,
+            .touch_swap_xy = true,
+            .touch_mirror_x = true,
+            .touch_mirror_y = false,
+        };
+        return true;
     default:
+        return false;
+    }
+}
+
+static esp_err_t bsp_display_apply_rotation_config(
+    const bsp_display_rotation_config_t *config
+)
+{
+    esp_err_t result = esp_lcd_panel_swap_xy(panel_handle, config->panel_swap_xy);
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    result = esp_lcd_panel_mirror(
+        panel_handle,
+        config->panel_mirror_x,
+        config->panel_mirror_y
+    );
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    result = esp_lcd_touch_set_swap_xy(tp, config->touch_swap_xy);
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    result = esp_lcd_touch_set_mirror_x(tp, config->touch_mirror_x);
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    return esp_lcd_touch_set_mirror_y(tp, config->touch_mirror_y);
+}
+
+esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
+{
+    if (panel_handle == NULL || io_handle == NULL || tp == NULL || disp_handle == NULL)
+    {
+        ESP_LOGE(TAG, "Display or touch handle is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    bsp_display_rotation_config_t requested_config;
+    if (!bsp_display_rotation_config(rotation, &requested_config))
+    {
         ESP_LOGE(TAG, "Invalid rotation value: %d", rotation);
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint32_t lcd_cmd = 0x36;
-    lcd_cmd &= 0xff;
-    lcd_cmd <<= 8;
-    lcd_cmd |= 0x02 << 24;
+    esp_err_t result = bsp_display_lock(100);
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    if (rotation == current_rotation)
+    {
+        bsp_display_unlock();
+        return ESP_OK;
+    }
+    if (disp_indev != NULL && lv_indev_get_state(disp_indev) == LV_INDEV_STATE_PRESSED)
+    {
+        bsp_display_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    ESP_LOGI(TAG, "Set display rotation: %d (MADCTL=0x%02X)", rotation, madctl);
+    bsp_display_rotation_config_t previous_config;
+    (void)bsp_display_rotation_config(current_rotation, &previous_config);
+    result = bsp_display_apply_rotation_config(&requested_config);
+    if (result != ESP_OK)
+    {
+        ESP_LOGE(TAG, "Display rotation %d failed (%s)", rotation, esp_err_to_name(result));
+        (void)bsp_display_apply_rotation_config(&previous_config);
+        bsp_display_unlock();
+        return result;
+    }
 
-    return esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, &madctl, 1);
+    current_rotation = rotation;
+    lv_obj_t *screen = lv_display_get_screen_active(disp_handle);
+    if (screen != NULL)
+    {
+        lv_obj_invalidate(screen);
+    }
+    bsp_display_unlock();
+    ESP_LOGI(TAG, "CO5300 + CST9217 rotation: %d degrees", rotation * 90);
+    return ESP_OK;
+}
+
+bsp_display_rotation_t bsp_display_rotation_get(void)
+{
+    return current_rotation;
 }
 
 esp_err_t bsp_display_lock(uint32_t timeout_ms)
