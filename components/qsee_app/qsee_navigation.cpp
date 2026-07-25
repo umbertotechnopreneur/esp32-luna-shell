@@ -8,8 +8,11 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/task.h"
 #include "qrcode.h"
+#include "qsee_background_asset.hpp"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_http_server.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
 #include "qsee_provisioning.hpp"
@@ -45,6 +48,7 @@ constexpr float kAudioMeterReleasePerSecond = 36.0F;
 constexpr float kAudioPeakReleasePerSecond = 14.0F;
 constexpr float kImuGyroVisualRangeDps = 128.0F;
 constexpr int kQrCanvasSize = 216;
+constexpr size_t kWifiOptionsBufferBytes = 1024;
 constexpr int64_t kPairingTimeoutUs = 5LL * 60LL * 1000000LL;
 constexpr char kEspressifAppStoreUrl[] =
     "https://play.google.com/store/apps/details?id=com.espressif.provble";
@@ -119,20 +123,6 @@ size_t presetIndex(uint32_t current, const uint32_t (&options)[Count])
     return best;
 }
 
-// Keep timer status compact while controls use friendlier dropdown labels.
-void formatDuration(uint32_t seconds, char *buffer, size_t buffer_size)
-{
-    if (seconds == 0U) {
-        std::snprintf(buffer, buffer_size, "OFF");
-    } else if (seconds < 60U) {
-        std::snprintf(buffer, buffer_size, "%lu S",
-                      static_cast<unsigned long>(seconds));
-    } else {
-        std::snprintf(buffer, buffer_size, "%lu MIN",
-                      static_cast<unsigned long>(seconds / 60U));
-    }
-}
-
 // Identify the single route that owns every ordinary device setting.
 bool isSettingsScreen(qsee::Navigation::Screen screen)
 {
@@ -158,6 +148,7 @@ bool hasAdaptiveCommandBar(qsee::Navigation::Screen screen)
     using Screen = qsee::Navigation::Screen;
     return screen == Screen::Welcome ||
            screen == Screen::Logs ||
+           screen == Screen::Audio ||
            screen == Screen::WifiCredentials ||
            isPairingScreen(screen);
 }
@@ -166,6 +157,24 @@ bool hasAdaptiveCommandBar(qsee::Navigation::Screen screen)
 size_t commandBarTimeoutIndex(uint32_t seconds)
 {
     return presetIndex(seconds, kCommandBarTimeoutOptions);
+}
+
+// Unwind the full snapshot frame before a network-selection callback navigates.
+bool copyWifiNetworkSnapshot(
+    uint32_t selected,
+    qsee::WifiNetworkSnapshot *network
+)
+{
+    if (selected == 0U || network == nullptr) {
+        return false;
+    }
+    const qsee::DeviceSnapshot snapshot =
+        qsee::DeviceSnapshotService::instance().snapshot();
+    if (selected > snapshot.radios.wifi.network_count) {
+        return false;
+    }
+    *network = snapshot.radios.wifi.networks[selected - 1U];
+    return true;
 }
 
 void wipeBytes(void *data, size_t size)
@@ -197,6 +206,7 @@ void applySpotlightBackground(lv_obj_t *screen)
         initialized = true;
     }
 
+    lv_obj_set_style_bg_image_src(screen, nullptr, LV_PART_MAIN);
     lv_obj_set_style_bg_grad(screen, &gradient, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
 }
@@ -636,7 +646,7 @@ bool Navigation::begin()
     if (command_bar_result != ESP_OK) {
         ESP_LOGW(
             "qsee_navigation",
-            "Command-bar timeout uses 10 s default (%s)",
+            "Adaptive-interface timeout uses 10 s default (%s)",
             esp_err_to_name(command_bar_result)
         );
     }
@@ -650,7 +660,9 @@ bool Navigation::begin()
     ESP_LOGI("qsee_navigation", "Log snapshot buffer: %s",
              _log_snapshot_buffer != nullptr ? "ready" : "unavailable");
 
+    _background_asset_attached = false;
     applySpotlightBackground(_screen->getNativeHandle());
+    tryAttachBackgroundAsset();
     _surface = std::make_unique<LvContainer>(_screen.get());
     _surface->setStyleAttribute(StyleSize::RECT(320, 320));
     _surface->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_CENTER, 0, 0});
@@ -688,7 +700,7 @@ bool Navigation::begin()
         0,
         0
     );
-    makeMetric(_ram, _welcome.get(), "INTERNAL RAM", 34, kTeal);
+    makeMetric(_ram, _welcome.get(), "RAM", 34, kTeal);
     makeMetric(_sd, _welcome.get(), "SD STORAGE", 74, kBlue);
     makeMetric(_cpu0, _welcome.get(), "CPU CORE 0", 114, kTeal);
     makeMetric(_cpu1, _welcome.get(), "CPU CORE 1", 154, kBlue);
@@ -895,6 +907,52 @@ bool Navigation::begin()
     _content_labels.push_back(
         makeLabel(_audio.get(), "dBFS peak  |  1 s hold  |  canonical snapshot", kRowWidth, 11,
                   kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 218)
+    );
+    _audio_fft_action = std::make_unique<AppButton>(
+        _screen.get(), [this]() { show(Screen::AudioFft); }
+    );
+    _audio_fft_action->setText("SHOW FFT");
+    styleBottomArcCommand(
+        *_audio_fft_action, 181, 392, kTeal, _adaptive_command_bar.get()
+    );
+
+    _audio_fft = std::make_unique<LvContainer>(_surface.get());
+    _audio_fft->setStyleAttribute(StyleSize::RECT(kWidth, 232));
+    _audio_fft->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    transparentPanel(*_audio_fft, false);
+    _audio_fft_status = makeLabel(
+        _audio_fft.get(), "SPECTRUM --", kRowWidth, 14, kMuted,
+        STYLE_ALIGN_TYPE_TOP_MID, 0, 6
+    );
+    _content_labels.push_back(
+        makeLabel(_audio_fft.get(), "16 SELECTED DFT BINS  |  0 TO 11.0 kHz", kRowWidth, 11,
+                  kMuted, STYLE_ALIGN_TYPE_TOP_MID, 0, 30)
+    );
+    _content_labels.push_back(
+        makeLabel(_audio_fft.get(), "MIC 1", kRowWidth, 12, kBlue,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 50)
+    );
+    _content_labels.push_back(
+        makeLabel(_audio_fft.get(), "MIC 2", kRowWidth, 12, kWarning,
+                  STYLE_ALIGN_TYPE_TOP_LEFT, 8, 112)
+    );
+    _audio_fft_bands = lv_obj_create(_audio_fft->getNativeHandle());
+    if (_audio_fft_bands != nullptr) {
+        lv_obj_remove_style_all(_audio_fft_bands);
+        lv_obj_set_pos(_audio_fft_bands, 18, 68);
+        lv_obj_set_size(_audio_fft_bands, 236, 98);
+        lv_obj_clear_flag(_audio_fft_bands, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_clear_flag(_audio_fft_bands, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_event_cb(
+            _audio_fft_bands,
+            audioSpectrumDrawEvent,
+            LV_EVENT_DRAW_MAIN,
+            this
+        );
+    }
+    _content_labels.push_back(
+        makeLabel(_audio_fft.get(), "Live selected-bin spectrum  |  snapshot-driven", kRowWidth, 11,
+                  kMuted, STYLE_ALIGN_TYPE_TOP_MID, 0, 188)
     );
 
     _imu = std::make_unique<LvContainer>(_surface.get());
@@ -1155,6 +1213,16 @@ bool Navigation::begin()
     return true;
 }
 
+// Bridge shell-owned chrome into the controller already used by route commands.
+void Navigation::registerAdaptiveVisual(lv_obj_t *visual)
+{
+    if (_adaptive_command_bar == nullptr || visual == nullptr) {
+        return;
+    }
+    _adaptive_command_bar->registerVisual(visual);
+    updateUiMotionMonitor(qsee_power_display_input_guard_required());
+}
+
 // Build one spacious, scrollable Settings page for the circular viewport.
 void Navigation::buildSettingsUi()
 {
@@ -1323,6 +1391,40 @@ void Navigation::buildSettingsUi()
         );
         return toggle;
     };
+    const auto make_value_row =
+        [this](const char *name, int y) {
+            auto row_name = makeLabel(
+                _settings.get(),
+                name,
+                92,
+                10,
+                kMuted,
+                STYLE_ALIGN_TYPE_TOP_LEFT,
+                8,
+                y
+            );
+            auto row_value = makeLabel(
+                _settings.get(),
+                "--",
+                136,
+                11,
+                kNavy,
+                STYLE_ALIGN_TYPE_TOP_RIGHT,
+                -8,
+                y - 1
+            );
+            lv_obj_set_style_text_align(
+                row_value->getNativeHandle(),
+                LV_TEXT_ALIGN_RIGHT,
+                LV_PART_MAIN
+            );
+            lv_label_set_long_mode(
+                row_value->getNativeHandle(),
+                LV_LABEL_LONG_MODE_DOTS
+            );
+            _content_labels.push_back(std::move(row_name));
+            return row_value;
+        };
 
     add_section(
         "DIAGNOSTICS",
@@ -1337,10 +1439,10 @@ void Navigation::buildSettingsUi()
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        52
+        50
     );
     _settings_period_dropdown = make_dropdown(
-        78,
+        74,
         kDiagnosticPeriodLabels,
         settingsControlChangedEvent
     );
@@ -1352,37 +1454,25 @@ void Navigation::buildSettingsUi()
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        134
+        130
     );
     _settings_smoothing_dropdown = make_dropdown(
-        160,
+        154,
         kImuSmoothingLabels,
         settingsControlChangedEvent
     );
     add_section(
         "STORAGE",
         "Card state and persistent log mirroring",
-        228
+        224
     );
-    _settings_storage = makeLabel(
-        _settings.get(),
-        "SD status\nWaiting for snapshot",
-        kRowWidth,
-        11,
-        kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT,
-        8,
-        278
-    );
-    lv_label_set_long_mode(
-        _settings_storage->getNativeHandle(),
-        LV_LABEL_LONG_MODE_WRAP
-    );
-    add_text("Mirror logs to SD", 334, 12, kNavy);
-    _settings_sd_mirror_switch = make_switch(-8, 328);
+    _settings_storage = make_value_row("SD card", 274);
+    _settings_storage_mirror = make_value_row("Log destination", 300);
+    add_text("Mirror logs to SD", 336, 12, kNavy);
+    _settings_sd_mirror_switch = make_switch(-8, 330);
     add_text(
-        "Mirroring activates only when the card is ready.",
-        366,
+        "Off keeps serial and the in-memory log available.",
+        368,
         10,
         kMuted
     );
@@ -1390,59 +1480,53 @@ void Navigation::buildSettingsUi()
     add_section(
         "WI-FI",
         "Connection, saved credentials and nearby networks",
-        416
+        420
     );
-    _settings_wifi = makeLabel(
-        _settings.get(),
-        "Wi-Fi status\nWaiting for snapshot",
-        kRowWidth,
-        11,
-        kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT,
-        8,
-        466
-    );
-    lv_label_set_long_mode(
-        _settings_wifi->getNativeHandle(),
-        LV_LABEL_LONG_MODE_WRAP
-    );
-    add_text("Network action", 546, 12, kNavy);
+    _settings_wifi = make_value_row("Radio", 470);
+    _settings_wifi_ssid = make_value_row("Network", 496);
+    _settings_wifi_ip = make_value_row("IP address", 522);
+    _settings_wifi_credentials = make_value_row("Credentials", 548);
+    add_text("Network action", 584, 12, kNavy);
     _settings_wifi_action_dropdown = make_dropdown(
-        572,
+        608,
         kWifiActionLabels,
         settingsControlChangedEvent
     );
-    add_text("Available networks", 630, 12, kNavy);
+    add_text("Available networks", 664, 12, kNavy);
     _settings_wifi_networks_dropdown = make_dropdown(
-        656,
+        688,
         "Scan to find networks",
         settingsControlChangedEvent
     );
 
     add_section(
+        "BACKGROUND SERVICES",
+        "Optional network work that can be stopped",
+        760
+    );
+    _settings_http = make_value_row("HTTP API", 810);
+    _settings_http_port = make_value_row("Endpoint", 836);
+    add_text("Enable read-only HTTP API", 872, 12, kNavy);
+    _settings_http_switch = make_switch(-8, 866);
+    add_text(
+        "Off stops HTTP requests and its 5-second refresh.",
+        904,
+        10,
+        kMuted
+    );
+
+    add_section(
         "BLUETOOTH",
         "Radio state and Espressif provisioning",
-        730
+        952
     );
-    _settings_ble = makeLabel(
-        _settings.get(),
-        "Bluetooth status\nWaiting for snapshot",
-        kRowWidth,
-        11,
-        kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT,
-        8,
-        780
-    );
-    lv_label_set_long_mode(
-        _settings_ble->getNativeHandle(),
-        LV_LABEL_LONG_MODE_WRAP
-    );
-    add_text("Bluetooth radio", 834, 12, kNavy);
-    _settings_ble_switch = make_switch(-8, 828);
-    add_text("Espressif pairing", 872, 12, kNavy);
+    _settings_ble = make_value_row("Radio", 1002);
+    _settings_ble_device = make_value_row("Device", 1028);
+    add_text("Bluetooth radio", 1064, 12, kNavy);
+    _settings_ble_switch = make_switch(-8, 1058);
+    add_text("Espressif pairing", 1100, 12, kNavy);
     _settings_ble_action_dropdown = make_dropdown(
-        898,
+        1124,
         kBleActionLabels,
         settingsControlChangedEvent
     );
@@ -1450,29 +1534,18 @@ void Navigation::buildSettingsUi()
     add_section(
         "GPS",
         "LC76G receiver and current fix state",
-        972
+        1196
     );
-    _settings_gps = makeLabel(
-        _settings.get(),
-        "GPS status\nWaiting for snapshot",
-        kRowWidth,
-        11,
-        kNavy,
-        STYLE_ALIGN_TYPE_TOP_LEFT,
-        8,
-        1022
-    );
-    lv_label_set_long_mode(
-        _settings_gps->getNativeHandle(),
-        LV_LABEL_LONG_MODE_WRAP
-    );
-    add_text("GPS receiver", 1082, 12, kNavy);
-    _settings_gps_switch = make_switch(-8, 1076);
+    _settings_gps = make_value_row("Receiver", 1246);
+    _settings_gps_satellites = make_value_row("Satellites", 1272);
+    _settings_gps_precision = make_value_row("HDOP", 1298);
+    add_text("GPS receiver", 1334, 12, kNavy);
+    _settings_gps_switch = make_switch(-8, 1328);
 
     add_section(
         "DISPLAY & MOTION",
         "AMOLED output, cardinal rotation and command visibility",
-        1140
+        1396
     );
     _settings_brightness = makeLabel(
         _settings.get(),
@@ -1482,47 +1555,36 @@ void Navigation::buildSettingsUi()
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        1190
+        1446
     );
     _settings_brightness_dropdown = make_dropdown(
-        1216,
+        1470,
         kBrightnessLabels,
         settingsControlChangedEvent
     );
-    add_text("Automatic cardinal rotation", 1278, 12, kNavy);
-    _settings_auto_rotation_switch = make_switch(-8, 1272);
-    _settings_rotation = makeLabel(
-        _settings.get(),
-        "Orientation status\nWaiting for IMU",
-        kRowWidth,
-        10,
-        kMuted,
-        STYLE_ALIGN_TYPE_TOP_LEFT,
-        8,
-        1316
-    );
-    lv_label_set_long_mode(
-        _settings_rotation->getNativeHandle(),
-        LV_LABEL_LONG_MODE_WRAP
-    );
+    add_text("Automatic cardinal rotation", 1530, 12, kNavy);
+    _settings_auto_rotation_switch = make_switch(-8, 1524);
+    _settings_rotation = make_value_row("Physical", 1566);
+    _settings_rendering_rotation = make_value_row("Rendering", 1592);
+    _settings_rotation_source = make_value_row("Source", 1618);
     _settings_command_bar_timeout = makeLabel(
         _settings.get(),
-        "Lower command bar",
+        "Adaptive interface",
         kRowWidth,
         12,
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        1384
+        1654
     );
     add_text(
-        "Visible after touch or device movement",
-        1406,
+        "Status and commands after touch or movement",
+        1676,
         10,
         kMuted
     );
     _settings_command_bar_timeout_dropdown = make_dropdown(
-        1432,
+        1700,
         kCommandBarTimeoutLabels,
         commandBarTimeoutChangedEvent
     );
@@ -1530,7 +1592,7 @@ void Navigation::buildSettingsUi()
     add_section(
         "POWER",
         "Display inactivity timers; BOOT wakes the device",
-        1506
+        1772
     );
     _settings_dim_timeout = makeLabel(
         _settings.get(),
@@ -1540,10 +1602,10 @@ void Navigation::buildSettingsUi()
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        1556
+        1822
     );
     _settings_dim_timeout_dropdown = make_dropdown(
-        1582,
+        1846,
         kDimTimeoutLabels,
         settingsControlChangedEvent
     );
@@ -1555,16 +1617,16 @@ void Navigation::buildSettingsUi()
         kNavy,
         STYLE_ALIGN_TYPE_TOP_LEFT,
         8,
-        1638
+        1902
     );
     _settings_panel_off_dropdown = make_dropdown(
-        1664,
+        1926,
         kPanelOffDelayLabels,
         settingsControlChangedEvent
     );
     add_text(
         "Changes are saved automatically.",
-        1718,
+        1980,
         10,
         kMuted
     );
@@ -1807,6 +1869,11 @@ void Navigation::show(Screen screen)
         title = "AUDIO SCOPE";
         subtitle = "ES7210 microphone diagnostics";
         break;
+    case Screen::AudioFft:
+        route = "audio-fft";
+        title = "FFT SCOPE";
+        subtitle = "ES7210 dual microphone spectrum";
+        break;
     case Screen::Imu:
         route = "imu";
         title = "IMU LEVEL";
@@ -1849,7 +1916,8 @@ void Navigation::show(Screen screen)
         closeDialog();
     }
     _current = screen;
-    const bool diagnostic = screen == Screen::Audio || screen == Screen::Imu;
+    const bool diagnostic =
+        screen == Screen::Audio || screen == Screen::AudioFft || screen == Screen::Imu;
     const esp_err_t monitor_result = qsee_hardware_set_diagnostic_monitor(diagnostic);
     if (monitor_result != ESP_OK) {
         ESP_LOGW("qsee_navigation", "Diagnostic monitor toggle failed for %s (%s)",
@@ -1870,6 +1938,8 @@ void Navigation::show(Screen screen)
     setVisible(*_logs, screen == Screen::Logs);
     setVisible(*_hardware, screen == Screen::Hardware);
     setVisible(*_audio, screen == Screen::Audio);
+    setVisible(*_audio_fft_action, screen == Screen::Audio);
+    setVisible(*_audio_fft, screen == Screen::AudioFft);
     setVisible(*_imu, screen == Screen::Imu);
     setVisible(*_settings, screen == Screen::Settings);
     setVisible(*_wifi_editor, screen == Screen::WifiCredentials);
@@ -1892,35 +1962,40 @@ void Navigation::show(Screen screen)
     if (_adaptive_command_bar != nullptr) {
         _adaptive_command_bar->activate(command_bar_active);
     }
-    const esp_err_t motion_monitor_result =
-        qsee_hardware_set_ui_motion_monitor(command_bar_active);
-    if (motion_monitor_result != ESP_OK) {
-        ESP_LOGW(
-            "qsee_navigation",
-            "Command-bar motion monitor toggle failed for %s (%s)",
-            route,
-            esp_err_to_name(motion_monitor_result)
-        );
+    updateUiMotionMonitor(qsee_power_display_input_guard_required());
+
+    // Settings refresh is deferred until this nested touch callback unwinds.
+    if (isSettingsScreen(screen)) {
+        _refresh_tick_count = kFullRefreshTicks;
+    } else {
+        refresh();
+        _refresh_tick_count = 0;
     }
-    refresh();
-    _refresh_tick_count = 0;
     if (screen == Screen::Audio) {
         updateAudioMeters(true);
+    } else if (screen == Screen::AudioFft) {
+        updateAudioSpectrum();
     }
-    if (isSettingsScreen(screen)) {
-        updateSettings();
-    } else if (screen == Screen::WifiCredentials) {
+    if (screen == Screen::WifiCredentials) {
         prepareWifiEditor();
     } else if (isPairingScreen(screen)) {
         renderPairing();
     }
-    ESP_LOGI("qsee_navigation", "Route ready: %s", route);
+    ESP_LOGI(
+        "qsee_navigation",
+        "Route ready: %s (lvgl-stack-free-min=%lu B)",
+        route,
+        static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr))
+    );
 }
 
 bool Navigation::back()
 {
     if (_current == Screen::Welcome) return false;
     switch (_current) {
+    case Screen::AudioFft:
+        show(Screen::Audio);
+        break;
     case Screen::WifiCredentials:
     case Screen::PairIntro:
     case Screen::PairResult:
@@ -1959,6 +2034,7 @@ void Navigation::shutdown()
     (void)qsee_hardware_set_diagnostic_monitor(false);
     (void)qsee_hardware_set_system_monitor(false);
     (void)qsee_hardware_set_ui_motion_monitor(false);
+    _ui_motion_monitor_active = false;
     if (_dialog != nullptr) {
         closeDialog();
     }
@@ -1990,6 +2066,7 @@ void Navigation::shutdown()
     _log_box.reset();
     _audio_meter_updated_at_us = 0;
     _refresh_tick_count = 0;
+    _background_asset_attached = false;
     for (size_t channel = 0; channel < 2U; ++channel) {
         _audio_meter_visual[channel][0] = 0.0F;
         _audio_meter_visual[channel][1] = 0.0F;
@@ -1997,6 +2074,9 @@ void Navigation::shutdown()
     }
     _audio_mic0.reset();
     _audio_mic1.reset();
+    _audio_fft_bands = nullptr;
+    _audio_fft_status.reset();
+    _audio_fft_action.reset();
     _audio_status.reset();
     _audio_channels.reset();
     _imu_status.reset();
@@ -2045,6 +2125,7 @@ void Navigation::shutdown()
     _logs.reset();
     _hardware.reset();
     _audio.reset();
+    _audio_fft.reset();
     _imu.reset();
     for (lv_obj_t *&arc : _imu_gyro_arcs) {
         arc = nullptr;
@@ -2058,14 +2139,24 @@ void Navigation::shutdown()
     _settings_smoothing.reset();
     _settings_smoothing_dropdown = nullptr;
     _settings_storage.reset();
+    _settings_storage_mirror.reset();
     _settings_sd_mirror_switch = nullptr;
     _settings_wifi.reset();
+    _settings_wifi_ssid.reset();
+    _settings_wifi_ip.reset();
+    _settings_wifi_credentials.reset();
     _settings_wifi_action_dropdown = nullptr;
     _settings_wifi_networks_dropdown = nullptr;
+    _settings_http.reset();
+    _settings_http_port.reset();
+    _settings_http_switch = nullptr;
     _settings_ble.reset();
+    _settings_ble_device.reset();
     _settings_ble_switch = nullptr;
     _settings_ble_action_dropdown = nullptr;
     _settings_gps.reset();
+    _settings_gps_satellites.reset();
+    _settings_gps_precision.reset();
     _settings_gps_switch = nullptr;
     _settings_wifi_scan_sequence = 0xFFFFFFFFU;
     _settings_wifi_scanning = false;
@@ -2078,6 +2169,8 @@ void Navigation::shutdown()
     _settings_command_bar_timeout.reset();
     _settings_command_bar_timeout_dropdown = nullptr;
     _settings_rotation.reset();
+    _settings_rendering_rotation.reset();
+    _settings_rotation_source.reset();
     _settings_auto_rotation_switch = nullptr;
     _wifi_editor_save.reset();
     _wifi_editor_cancel.reset();
@@ -2243,6 +2336,10 @@ void Navigation::updateWelcomeDevices(const DeviceSnapshot &snapshot)
 void Navigation::refresh()
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (snapshot.storage.health == DeviceHealth::Ready) {
+        BackgroundAssetCache::instance().request();
+    }
+    tryAttachBackgroundAsset();
     char value[64];
     if (snapshot.memory.internal_heap_available) {
         std::snprintf(
@@ -2337,11 +2434,32 @@ void Navigation::refresh()
         const bool needs_format = storageFormatRequired(snapshot.storage);
         setVisible(*_format_sd, needs_format);
     } else if (isSettingsScreen(_current)) {
-        updateSettings();
+        updateSettings(snapshot);
     } else if (_current == Screen::PairQr) {
         updatePairingState();
     }
-    updateDiagnosticViews();
+    updateDiagnosticViews(snapshot);
+}
+
+// Replace the fallback gradient only after the worker publishes a complete image.
+void Navigation::tryAttachBackgroundAsset()
+{
+    if (_background_asset_attached || _screen == nullptr) {
+        return;
+    }
+    const lv_image_dsc_t *image = BackgroundAssetCache::instance().image();
+    if (image == nullptr) {
+        return;
+    }
+
+    lv_obj_t *screen = _screen->getNativeHandle();
+    lv_obj_set_style_bg_image_src(screen, image, LV_PART_MAIN);
+    lv_obj_set_style_bg_image_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_bg_image_tiled(screen, false, LV_PART_MAIN);
+    lv_obj_remove_local_style_prop(screen, LV_STYLE_BG_GRAD, LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_NONE, LV_PART_MAIN);
+    lv_obj_invalidate(screen);
+    _background_asset_attached = true;
 }
 
 // Refresh meters quickly while throttling the heavier snapshot render.
@@ -2351,15 +2469,24 @@ void Navigation::onRefreshTick()
         lv_display_get_inactive_time(nullptr);
     qsee_power_report_display_inactive_ms(touch_inactive_ms);
     updateDisplayWakeGuard();
+    const bool wake_guard_required =
+        qsee_power_display_input_guard_required();
     if (_adaptive_command_bar != nullptr &&
-        _adaptive_command_bar->isActive()) {
-        _adaptive_command_bar->update(
-            DeviceSnapshotService::instance().snapshot(),
+        (_adaptive_command_bar->isActive() || wake_guard_required)) {
+        const DeviceSnapshot snapshot =
+            DeviceSnapshotService::instance().snapshot();
+        const bool moved = _adaptive_command_bar->update(
+            snapshot,
             touch_inactive_ms
         );
+        if (moved && wake_guard_required) {
+            qsee_power_wake_display();
+        }
     }
     if (_current == Screen::Audio) {
         updateAudioMeters(false);
+    } else if (_current == Screen::AudioFft) {
+        updateAudioSpectrum();
     }
     ++_refresh_tick_count;
     if (_refresh_tick_count >= kFullRefreshTicks) {
@@ -2375,10 +2502,34 @@ void Navigation::updateDisplayWakeGuard()
         return;
     }
     const bool required = qsee_power_display_input_guard_required();
+    updateUiMotionMonitor(required);
     setVisible(*_display_wake_guard, required);
     if (required) {
         lv_obj_move_foreground(_display_wake_guard->getNativeHandle());
     }
+}
+
+// Keep the IMU worker alive only while adaptive chrome or a dark panel needs it.
+void Navigation::updateUiMotionMonitor(bool wake_guard_required)
+{
+    const bool required =
+        (_adaptive_command_bar != nullptr &&
+         _adaptive_command_bar->isActive()) ||
+        wake_guard_required;
+    if (required == _ui_motion_monitor_active) {
+        return;
+    }
+    const esp_err_t result =
+        qsee_hardware_set_ui_motion_monitor(required);
+    if (result != ESP_OK) {
+        ESP_LOGW(
+            "qsee_navigation",
+            "UI motion monitor toggle failed (%s)",
+            esp_err_to_name(result)
+        );
+        return;
+    }
+    _ui_motion_monitor_active = required;
 }
 
 // Wake the panel but keep this press from reaching the hidden control below.
@@ -2450,9 +2601,108 @@ void Navigation::updateAudioMeters(bool reset)
     _audio_meter_updated_at_us = now_us;
 }
 
-void Navigation::updateDiagnosticViews()
+// Copy only new backend frames so the renderer stays idle between samples.
+void Navigation::updateAudioSpectrum()
 {
+    if (_audio_fft_bands == nullptr) {
+        return;
+    }
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (_audio_spectrum_sequence == snapshot.audio.spectrum_sequence) {
+        return;
+    }
+    std::memcpy(
+        _audio_spectrum_visual,
+        snapshot.audio.channel_spectrum,
+        sizeof(_audio_spectrum_visual)
+    );
+    _audio_spectrum_sequence = snapshot.audio.spectrum_sequence;
+    if (_audio_fft_status != nullptr) {
+        char text[96];
+        std::snprintf(
+            text,
+            sizeof(text),
+            "SPECTRUM %s  |  %u CH  |  %.2f kHz",
+            health(snapshot.audio.microphone.health),
+            static_cast<unsigned>(snapshot.audio.channel_count),
+            static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0
+        );
+        _audio_fft_status->setText(text);
+    }
+    lv_obj_invalidate(_audio_fft_bands);
+}
+
+// Draw both microphone spectra with a fixed number of low-cost rectangles.
+void Navigation::audioSpectrumDrawEvent(lv_event_t *event)
+{
+    if (event == nullptr) {
+        return;
+    }
+    lv_obj_t *object = lv_event_get_target_obj(event);
+    lv_layer_t *layer = lv_event_get_layer(event);
+    auto *navigation = static_cast<Navigation *>(lv_event_get_user_data(event));
+    if (object == nullptr || layer == nullptr || navigation == nullptr) {
+        return;
+    }
+
+    lv_area_t area;
+    lv_obj_get_coords(object, &area);
+    constexpr int kRowGap = 14;
+    constexpr int kBandGap = 3;
+    const int width = lv_area_get_width(&area);
+    const int height = lv_area_get_height(&area);
+    const int row_height = (height - kRowGap) / 2;
+    const int band_width =
+        (width - static_cast<int>(kAudioSpectrumBandCount - 1U) * kBandGap) /
+        static_cast<int>(kAudioSpectrumBandCount);
+    static constexpr uint32_t colors[2][4] = {
+        {0x223A87, 0x345BB4, 0x7C63D2, 0xCCA8FF},
+        {0x714017, 0xBD6517, 0xF0B73E, 0xD5E969},
+    };
+
+    for (size_t channel = 0; channel < 2U; ++channel) {
+        lv_area_t row = area;
+        row.y1 += static_cast<int>(channel) * (row_height + kRowGap);
+        row.y2 = row.y1 + row_height - 1;
+        for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
+            lv_area_t column = row;
+            column.x1 += static_cast<int>(band) * (band_width + kBandGap);
+            column.x2 = band + 1U == kAudioSpectrumBandCount
+                ? row.x2
+                : column.x1 + band_width - 1;
+
+            lv_draw_rect_dsc_t background;
+            lv_draw_rect_dsc_init(&background);
+            background.bg_opa = LV_OPA_COVER;
+            background.bg_color = lv_color_hex(0x22313D);
+            background.radius = 2;
+            lv_draw_rect(layer, &background, &column);
+
+            const uint8_t intensity = navigation->_audio_spectrum_visual[channel][band];
+            if (intensity == 0U) {
+                continue;
+            }
+            const int fill_height = std::max(
+                1,
+                static_cast<int>((static_cast<unsigned>(intensity) * row_height + 99U) / 100U)
+            );
+            lv_area_t fill = column;
+            fill.y1 = fill.y2 - fill_height + 1;
+            lv_draw_rect_dsc_t foreground;
+            lv_draw_rect_dsc_init(&foreground);
+            foreground.bg_opa = LV_OPA_COVER;
+            foreground.bg_color = lv_color_hex(
+                colors[channel][std::min(static_cast<size_t>(3U),
+                                         static_cast<size_t>(intensity / 25U))]
+            );
+            foreground.radius = 2;
+            lv_draw_rect(layer, &foreground, &fill);
+        }
+    }
+}
+
+void Navigation::updateDiagnosticViews(const DeviceSnapshot &snapshot)
+{
     char text[512];
     char peak0[48];
     char peak1[48];
@@ -2584,6 +2834,11 @@ void Navigation::settingsControlChangedEvent(lv_event_t *event)
         result = qsee_storage_set_logger_mirror(
             lv_obj_has_state(control, LV_STATE_CHECKED)
         );
+    } else if (control == navigation->_settings_http_switch) {
+        setting = "HTTP API";
+        result = qsee::httpServerSetEnabled(
+            lv_obj_has_state(control, LV_STATE_CHECKED)
+        );
     } else if (control == navigation->_settings_wifi_action_dropdown) {
         const uint32_t action = lv_dropdown_get_selected(control);
         lv_dropdown_set_selected(control, 0);
@@ -2604,14 +2859,10 @@ void Navigation::settingsControlChangedEvent(lv_event_t *event)
         }
     } else if (control == navigation->_settings_wifi_networks_dropdown) {
         const uint32_t selected = lv_dropdown_get_selected(control);
-        const DeviceSnapshot snapshot =
-            DeviceSnapshotService::instance().snapshot();
-        if (selected == 0U ||
-            selected > snapshot.radios.wifi.network_count) {
+        WifiNetworkSnapshot network{};
+        if (!copyWifiNetworkSnapshot(selected, &network)) {
             return;
         }
-        const WifiNetworkSnapshot &network =
-            snapshot.radios.wifi.networks[selected - 1U];
         lv_dropdown_set_selected(control, 0);
         navigation->show(Screen::WifiCredentials);
         if (navigation->_wifi_ssid != nullptr &&
@@ -2701,7 +2952,8 @@ void Navigation::settingsControlChangedEvent(lv_event_t *event)
             esp_err_to_name(result)
         );
     }
-    navigation->updateSettings();
+    // Let the timer refresh after this nested LVGL value-change callback.
+    navigation->_refresh_tick_count = kFullRefreshTicks;
 }
 
 // Apply a preset selected from the real LVGL dropdown and persist it in NVS.
@@ -2732,22 +2984,30 @@ void Navigation::commandBarTimeoutChangedEvent(lv_event_t *event)
     if (result != ESP_OK) {
         ESP_LOGW(
             "qsee_navigation",
-            "Command-bar timeout persistence failed (%s)",
+            "Adaptive-interface timeout persistence failed (%s)",
             esp_err_to_name(result)
         );
     }
 }
 
-void Navigation::updateSettings()
+void Navigation::updateSettings(const DeviceSnapshot &snapshot)
 {
     if (_settings_period == nullptr || _settings_smoothing == nullptr ||
-        _settings_storage == nullptr || _settings_wifi == nullptr ||
-        _settings_ble == nullptr || _settings_gps == nullptr ||
+        _settings_storage == nullptr || _settings_storage_mirror == nullptr ||
+        _settings_wifi == nullptr || _settings_wifi_ssid == nullptr ||
+        _settings_wifi_ip == nullptr || _settings_wifi_credentials == nullptr ||
+        _settings_http == nullptr || _settings_http_port == nullptr ||
+        _settings_ble == nullptr || _settings_ble_device == nullptr ||
+        _settings_gps == nullptr || _settings_gps_satellites == nullptr ||
+        _settings_gps_precision == nullptr ||
         _settings_brightness == nullptr || _settings_dim_timeout == nullptr ||
         _settings_panel_off_delay == nullptr || _settings_rotation == nullptr ||
+        _settings_rendering_rotation == nullptr ||
+        _settings_rotation_source == nullptr ||
         _settings_period_dropdown == nullptr ||
         _settings_smoothing_dropdown == nullptr ||
         _settings_sd_mirror_switch == nullptr ||
+        _settings_http_switch == nullptr ||
         _settings_wifi_action_dropdown == nullptr ||
         _settings_wifi_networks_dropdown == nullptr ||
         _settings_ble_switch == nullptr ||
@@ -2759,31 +3019,17 @@ void Navigation::updateSettings()
         _settings_panel_off_dropdown == nullptr) {
         return;
     }
-    const DeviceSnapshot snapshot =
-        DeviceSnapshotService::instance().snapshot();
-    char text[256];
+    char text[64];
     const uint32_t period_ms = qsee_hardware_get_diagnostic_period_ms();
     const uint32_t smoothing = qsee_hardware_get_imu_smoothing_percent();
-    std::snprintf(
-        text,
-        sizeof(text),
-        "Sampling interval  |  %lu ms",
-        static_cast<unsigned long>(period_ms)
-    );
-    _settings_period->setText(text);
+    _settings_period->setText("Sampling interval");
     lv_dropdown_set_selected(
         _settings_period_dropdown,
         static_cast<uint32_t>(
             presetIndex(period_ms, kDiagnosticPeriodOptions)
         )
     );
-    std::snprintf(
-        text,
-        sizeof(text),
-        "IMU input smoothing  |  %lu%%",
-        static_cast<unsigned long>(smoothing)
-    );
-    _settings_smoothing->setText(text);
+    _settings_smoothing->setText("IMU input smoothing");
     lv_dropdown_set_selected(
         _settings_smoothing_dropdown,
         static_cast<uint32_t>(
@@ -2795,16 +3041,12 @@ void Navigation::updateSettings()
     const char *storage_state =
         snapshot.storage.health == DeviceHealth::Ready ? "READY" :
         snapshot.storage.card_present ? "NOT MOUNTED" : "ABSENT";
-    std::snprintf(
-        text,
-        sizeof(text),
-        "SD card  |  %s\nLog mirror  |  %s%s",
-        storage_state,
-        mirror ? "ENABLED" : "OFF",
-        mirror && snapshot.storage.health != DeviceHealth::Ready
-            ? " (waiting for card)" : ""
+    _settings_storage->setText(storage_state);
+    _settings_storage_mirror->setText(
+        !mirror ? "MEMORY ONLY" :
+        snapshot.storage.health == DeviceHealth::Ready ? "SD + MEMORY" :
+        "WAITING FOR SD"
     );
-    _settings_storage->setText(text);
     if (mirror) {
         lv_obj_add_state(_settings_sd_mirror_switch, LV_STATE_CHECKED);
     } else {
@@ -2816,20 +3058,21 @@ void Navigation::updateSettings()
         wifi.ip_acquired ? "ONLINE" :
         wifi.connected ? "CONNECTED" :
         wifi.started ? "STARTED" : "DEFERRED";
-    std::snprintf(
-        text,
-        sizeof(text),
-        "Wi-Fi  |  %s\nSSID  |  %s\nIP  |  %s\nPassword  |  %s",
-        wifi_state,
-        wifi.ssid[0] != '\0' ? wifi.ssid : "--",
+    _settings_wifi->setText(wifi_state);
+    _settings_wifi_ssid->setText(
+        wifi.ssid[0] != '\0' ? wifi.ssid : "NOT SELECTED"
+    );
+    _settings_wifi_ip->setText(
         wifi.ip_acquired && wifi.ip_address[0] != '\0'
-            ? wifi.ip_address : "--",
+            ? wifi.ip_address : "NOT ASSIGNED"
+    );
+    _settings_wifi_credentials->setText(
         wifi.credentials_configured ? "SAVED" : "NOT SET"
     );
-    _settings_wifi->setText(text);
 
-    // Refresh scan choices only when the asynchronous snapshot changes.
-    if (wifi.scanning) {
+    // LVGL's open popup borrows the options buffer; update it only after close.
+    if (!lv_dropdown_is_open(_settings_wifi_networks_dropdown) &&
+        wifi.scanning) {
         if (!_settings_wifi_scanning) {
             lv_dropdown_set_options(
                 _settings_wifi_networks_dropdown,
@@ -2837,8 +3080,9 @@ void Navigation::updateSettings()
             );
         }
         _settings_wifi_scanning = true;
-    } else if (_settings_wifi_scanning ||
-               _settings_wifi_scan_sequence != wifi.scan_sequence) {
+    } else if (!lv_dropdown_is_open(_settings_wifi_networks_dropdown) &&
+               (_settings_wifi_scanning ||
+                _settings_wifi_scan_sequence != wifi.scan_sequence)) {
         _settings_wifi_scanning = false;
         _settings_wifi_scan_sequence = wifi.scan_sequence;
         if (!wifi.scan_completed) {
@@ -2852,46 +3096,86 @@ void Navigation::updateSettings()
                 "No networks found"
             );
         } else {
-            char options[1024] = "Select a network...";
-            size_t used = std::strlen(options);
-            const size_t network_count = std::min(
-                static_cast<size_t>(wifi.network_count),
-                kWifiSnapshotMaxNetworks
-            );
-            for (size_t index = 0; index < network_count; ++index) {
-                char ssid[sizeof(wifi.networks[index].ssid)];
+            char *options = static_cast<char *>(heap_caps_malloc(
+                kWifiOptionsBufferBytes,
+                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+            ));
+            if (options == nullptr) {
+                lv_dropdown_set_options(
+                    _settings_wifi_networks_dropdown,
+                    "Networks unavailable - low PSRAM"
+                );
+            } else {
                 std::snprintf(
-                    ssid,
-                    sizeof(ssid),
-                    "%s",
-                    wifi.networks[index].ssid
+                    options,
+                    kWifiOptionsBufferBytes,
+                    "Select a network..."
                 );
-                for (char &character : ssid) {
-                    if (character == '\n' || character == '\r') {
-                        character = ' ';
+                size_t used = std::strlen(options);
+                const size_t network_count = std::min(
+                    static_cast<size_t>(wifi.network_count),
+                    kWifiSnapshotMaxNetworks
+                );
+                for (size_t index = 0; index < network_count; ++index) {
+                    char ssid[sizeof(wifi.networks[index].ssid)];
+                    std::snprintf(
+                        ssid,
+                        sizeof(ssid),
+                        "%s",
+                        wifi.networks[index].ssid
+                    );
+                    for (char &character : ssid) {
+                        if (character == '\n' || character == '\r') {
+                            character = ' ';
+                        }
                     }
+                    const int written = std::snprintf(
+                        options + used,
+                        kWifiOptionsBufferBytes - used,
+                        "\n%s  %d dBm  %s",
+                        ssid[0] != '\0' ? ssid : "<hidden>",
+                        static_cast<int>(wifi.networks[index].rssi),
+                        wifi.networks[index].secured ? "SECURE" : "OPEN"
+                    );
+                    if (written < 0 ||
+                        static_cast<size_t>(written) >=
+                            kWifiOptionsBufferBytes - used) {
+                        break;
+                    }
+                    used += static_cast<size_t>(written);
                 }
-                const int written = std::snprintf(
-                    options + used,
-                    sizeof(options) - used,
-                    "\n%s  %d dBm  %s",
-                    ssid[0] != '\0' ? ssid : "<hidden>",
-                    static_cast<int>(wifi.networks[index].rssi),
-                    wifi.networks[index].secured ? "SECURE" : "OPEN"
+                lv_dropdown_set_options(
+                    _settings_wifi_networks_dropdown,
+                    options
                 );
-                if (written < 0 ||
-                    static_cast<size_t>(written) >=
-                        sizeof(options) - used) {
-                    break;
-                }
-                used += static_cast<size_t>(written);
+                heap_caps_free(options);
             }
-            lv_dropdown_set_options(
-                _settings_wifi_networks_dropdown,
-                options
-            );
         }
         lv_dropdown_set_selected(_settings_wifi_networks_dropdown, 0);
+    }
+
+    const HttpSnapshot &http = snapshot.http;
+    _settings_http->setText(
+        !http.enabled ? "OFF" :
+        http.running ? "RUNNING" :
+        http.last_error != ESP_OK ? "ERROR" :
+        "WAITING FOR WI-FI"
+    );
+    if (http.enabled) {
+        lv_obj_add_state(_settings_http_switch, LV_STATE_CHECKED);
+    } else {
+        lv_obj_remove_state(_settings_http_switch, LV_STATE_CHECKED);
+    }
+    if (http.enabled) {
+        std::snprintf(
+            text,
+            sizeof(text),
+            "PORT %u",
+            static_cast<unsigned>(http.port)
+        );
+        _settings_http_port->setText(text);
+    } else {
+        _settings_http_port->setText("DISABLED");
     }
 
     const BleSnapshot &ble = snapshot.radios.ble;
@@ -2900,14 +3184,10 @@ void Navigation::updateSettings()
         ble.connected ? "CONNECTED" :
         ble.provisioning ? "PROVISIONING" :
         ble.advertising ? "ADVERTISING" : "READY";
-    std::snprintf(
-        text,
-        sizeof(text),
-        "Bluetooth  |  %s\nDevice  |  %s",
-        ble_state,
+    _settings_ble->setText(ble_state);
+    _settings_ble_device->setText(
         ble.device_name[0] != '\0' ? ble.device_name : "QSee"
     );
-    _settings_ble->setText(text);
     if (ble.enabled) {
         lv_obj_add_state(_settings_ble_switch, LV_STATE_CHECKED);
     } else {
@@ -2919,15 +3199,21 @@ void Navigation::updateSettings()
         !gps.enabled ? "OFF" :
         gps.has_fix ? "FIX" :
         gps.available ? "SEARCHING" : "UNAVAILABLE";
+    _settings_gps->setText(gps_state);
     std::snprintf(
         text,
         sizeof(text),
-        "GPS  |  %s\nSatellites  |  %u\nHDOP  |  %.1f",
-        gps_state,
-        static_cast<unsigned>(gps.satellites),
+        "%u",
+        static_cast<unsigned>(gps.satellites)
+    );
+    _settings_gps_satellites->setText(text);
+    std::snprintf(
+        text,
+        sizeof(text),
+        "%.1f",
         static_cast<double>(gps.hdop)
     );
-    _settings_gps->setText(text);
+    _settings_gps_precision->setText(text);
     if (gps.enabled) {
         lv_obj_add_state(_settings_gps_switch, LV_STATE_CHECKED);
     } else {
@@ -2935,14 +3221,7 @@ void Navigation::updateSettings()
     }
 
     const uint32_t brightness = qsee_display_get_brightness_percent();
-    const char *brightness_profile =
-        brightness == kBrightnessLowPercent ? "LOW" :
-        brightness == kBrightnessDefaultPercent ? "DEFAULT" :
-        brightness == kBrightnessHighPercent ? "HIGH" : "CUSTOM";
-    std::snprintf(text, sizeof(text), "AMOLED brightness  |  %s, %lu%%",
-                   brightness_profile,
-                   static_cast<unsigned long>(brightness));
-    _settings_brightness->setText(text);
+    _settings_brightness->setText("AMOLED brightness");
     lv_dropdown_set_selected(
         _settings_brightness_dropdown,
         static_cast<uint32_t>(
@@ -2959,55 +3238,34 @@ void Navigation::updateSettings()
                 : snapshot.imu.health == DeviceHealth::Ready
                     ? "GYRO READY"
                     : "IMU WAITING";
+    std::snprintf(text, sizeof(text), "%u deg",
+                  static_cast<unsigned>(orientation.physical_orientation_degrees));
+    _settings_rotation->setText(text);
+    std::snprintf(text, sizeof(text), "%u deg",
+                  static_cast<unsigned>(orientation.rendering_rotation_degrees));
+    _settings_rendering_rotation->setText(text);
     std::snprintf(
         text,
         sizeof(text),
-        "Physical %u deg  |  rendering %u deg\n"
-        "Source  |  %s%s\nCO5300: 0 / 90 / 180 / 270 deg",
-        static_cast<unsigned>(orientation.physical_orientation_degrees),
-        static_cast<unsigned>(orientation.rendering_rotation_degrees),
+        "%s%s",
         orientation_source,
-        orientation.rotation_pending ? " | pending" : ""
+        orientation.rotation_pending ? " / PENDING" : ""
     );
-    _settings_rotation->setText(text);
+    _settings_rotation_source->setText(text);
     if (auto_rotation) {
         lv_obj_add_state(_settings_auto_rotation_switch, LV_STATE_CHECKED);
     } else {
         lv_obj_remove_state(_settings_auto_rotation_switch, LV_STATE_CHECKED);
     }
 
-    char dim_duration[24];
-    char panel_duration[24];
     const uint32_t dim_seconds = qsee_power_get_dim_timeout_seconds();
     const uint32_t panel_seconds = qsee_power_get_panel_off_delay_seconds();
-    formatDuration(
-        dim_seconds,
-        dim_duration,
-        sizeof(dim_duration)
-    );
-    std::snprintf(
-        text,
-        sizeof(text),
-        "Dim display to 50%%  |  %s",
-        dim_duration
-    );
-    _settings_dim_timeout->setText(text);
+    _settings_dim_timeout->setText("Dim display to 50%");
     lv_dropdown_set_selected(
         _settings_dim_timeout_dropdown,
         static_cast<uint32_t>(presetIndex(dim_seconds, kDimTimeoutOptions))
     );
-    formatDuration(
-        panel_seconds,
-        panel_duration,
-        sizeof(panel_duration)
-    );
-    std::snprintf(
-        text,
-        sizeof(text),
-        "Turn panel off after dimming  |  %s",
-        panel_duration
-    );
-    _settings_panel_off_delay->setText(text);
+    _settings_panel_off_delay->setText("Turn panel off after dimming");
     lv_dropdown_set_selected(
         _settings_panel_off_dropdown,
         static_cast<uint32_t>(

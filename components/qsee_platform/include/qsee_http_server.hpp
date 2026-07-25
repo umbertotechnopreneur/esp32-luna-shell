@@ -21,5 +21,7 @@ constexpr std::size_t kHttpApiKeyMaxLength = 63;
 
 /** Start the read-only device HTTP API and bind it to the station lifecycle. */
 esp_err_t httpServerInit();
+/** Persist the HTTP preference and apply it immediately when Wi-Fi is usable. */
+esp_err_t httpServerSetEnabled(bool enabled);
 
 }  // namespace qsee

@@ -1,4 +1,4 @@
-// Adaptive visibility policy for lower-arc UI commands.
+// Shared adaptive visibility policy for passive status and lower-arc commands.
 
 #include "qsee_adaptive_command_bar.hpp"
 
@@ -84,11 +84,25 @@ void AdaptiveCommandBar::registerControl(lv_obj_t *control)
     applyOpacityTree(control, static_cast<lv_opa_t>(_opacity));
 }
 
-// A route entry always starts with usable, fully visible commands.
+// Add passive chrome to the existing activity policy without creating another timer.
+void AdaptiveCommandBar::registerVisual(lv_obj_t *visual)
+{
+    if (visual == nullptr ||
+        std::find(_visuals.begin(), _visuals.end(), visual) !=
+            _visuals.end()) {
+        return;
+    }
+    _visuals.push_back(visual);
+    _active = true;
+    applyOpacityTree(visual, static_cast<lv_opa_t>(_opacity));
+    noteActivity(esp_timer_get_time());
+}
+
+// A route entry always starts with fully visible status and usable commands.
 void AdaptiveCommandBar::activate(bool has_commands)
 {
     lv_anim_delete(this, animationValue);
-    _active = has_commands && !_controls.empty();
+    _active = !_visuals.empty() || (has_commands && !_controls.empty());
     _last_activity_us = esp_timer_get_time();
     _last_touch_inactive_ms = UINT32_MAX;
     _last_imu_sample_us = 0;
@@ -99,13 +113,14 @@ void AdaptiveCommandBar::activate(bool has_commands)
 }
 
 // Combine LVGL touch activity and immutable snapshot motion into one timer.
-void AdaptiveCommandBar::update(
+bool AdaptiveCommandBar::update(
     const DeviceSnapshot &snapshot,
     uint32_t touch_inactive_ms
 )
 {
+    const bool motion_activity = detectMotion(snapshot.imu);
     if (!_active) {
-        return;
+        return motion_activity;
     }
 
     const int64_t now_us = esp_timer_get_time();
@@ -115,9 +130,9 @@ void AdaptiveCommandBar::update(
          touch_inactive_ms < _last_touch_inactive_ms);
     _last_touch_inactive_ms = touch_inactive_ms;
 
-    if (touch_activity || detectMotion(snapshot.imu)) {
+    if (touch_activity || motion_activity) {
         noteActivity(now_us);
-        return;
+        return motion_activity;
     }
 
     const int64_t timeout_us =
@@ -126,6 +141,7 @@ void AdaptiveCommandBar::update(
         _animation_target != LV_OPA_TRANSP) {
         animateTo(LV_OPA_TRANSP);
     }
+    return motion_activity;
 }
 
 // Persist only values inside the range exposed by the Settings dropdown.
@@ -163,6 +179,7 @@ void AdaptiveCommandBar::shutdown()
     lv_anim_delete(this, animationValue);
     _active = false;
     _controls.clear();
+    _visuals.clear();
 }
 
 void AdaptiveCommandBar::animationValue(void *context, int32_t opacity)
@@ -280,6 +297,14 @@ void AdaptiveCommandBar::applyOpacity(int32_t opacity)
         if (control != nullptr && lv_obj_is_valid(control)) {
             applyOpacityTree(
                 control,
+                static_cast<lv_opa_t>(_opacity)
+            );
+        }
+    }
+    for (lv_obj_t *visual : _visuals) {
+        if (visual != nullptr && lv_obj_is_valid(visual)) {
+            applyOpacityTree(
+                visual,
                 static_cast<lv_opa_t>(_opacity)
             );
         }

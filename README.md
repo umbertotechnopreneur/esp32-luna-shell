@@ -20,6 +20,11 @@ full-screen application background is the single visual atmosphere and uses a
 dark radial spotlight gradient. Local cards may add only subtle contrast when
 they represent actual information or an action.
 
+The gradient is also the immediate fail-open fallback. Once the optional SD
+card is ready, the firmware validates or creates one 466 x 466 dithered RGB565
+cache, loads it once into PSRAM, and renders only from that buffer. Repaints
+never read the SD card, and background caching never formats it.
+
 | Edge | Default action |
 | --- | --- |
 | Left | Back or Cancel |
@@ -106,7 +111,7 @@ This is the current code-grounded inventory:
 | `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Two peak-driven VU meters on a `-60..0 dBFS` scale, with green below `-12 dBFS`, yellow through `-3 dBFS`, red above it, and a one-second peak-hold marker; values remain visible in `%FS` and `dBFS` |
 | `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Single non-scrolling overview with an X/Y/Z acceleration triad, segmented gyroscope ring, temperature, numeric units, and calibration status |
 | `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
-| `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | One spacious scroll surface for diagnostics, storage, Wi-Fi, Bluetooth, GPS, display, motion, power, and the lower-command visibility timeout |
+| `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | One spacious scroll surface for diagnostics, storage, Wi-Fi, Bluetooth, GPS, display, motion, power, and the adaptive-interface visibility timeout |
 | `WifiCredentials` | Implemented | Wi-Fi action in Settings | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | SSID editor with a blank, masked password field; an unchanged SSID can reuse its saved password internally without returning it to the UI |
 | `PairIntro` | Implemented flow | Bluetooth pairing action in Settings | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Introduction to secure Wi-Fi provisioning over Bluetooth LE |
 | `PairBluetooth` | Implemented flow | Next from `PairIntro` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Phone Bluetooth preparation |
@@ -131,12 +136,13 @@ Back is rendered on the left circular perimeter outside the 320 x 320 safe
 area. Contextual OK or Close is rendered on the right perimeter. Route content
 must not place duplicate navigation controls inside the safe-area panel.
 
-Lower-arc command groups start fully visible, then fade out after the
-user-selected inactivity interval. Touch or QMI8658 motion restores them and
-restarts the interval. The dropdown offers common presets from 10 seconds to
-10 minutes, stored in NVS with a 10-second default. Invisible commands are not
-clickable; the shell-owned perimeter Back control never participates in this
-fade policy.
+The status ribbon and lower-arc command groups start fully visible, then fade
+out together after the user-selected inactivity interval. Touch or QMI8658
+motion restores both and restarts the interval. The dropdown offers common
+presets from 10 seconds to 10 minutes, stored in NVS with a 10-second default.
+Invisible commands are not clickable; the passive status overlay reserves no
+layout space, while the shell-owned perimeter Back control never participates
+in this fade policy.
 
 ## Hardware
 

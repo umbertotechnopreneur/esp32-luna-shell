@@ -372,6 +372,7 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
     lv_obj_set_style_bg_opa(_impl->root, LV_OPA_TRANSP, LV_PART_MAIN);
     lv_obj_set_style_border_width(_impl->root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(_impl->root, 0, LV_PART_MAIN);
+    lv_obj_add_flag(_impl->root, LV_OBJ_FLAG_FLOATING);
     makePassive(_impl->root);
 
     _impl->curve_edge = makeCurve(

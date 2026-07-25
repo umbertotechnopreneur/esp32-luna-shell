@@ -47,6 +47,45 @@ qsee::StatusIndicatorState indicatorState(qsee::DeviceHealth health, esp_err_t e
         return qsee::StatusIndicatorState::Unknown;
     }
 }
+
+// Collapse the canonical snapshot before entering the status widget's LVGL call path.
+qsee::StatusBarState buildStatusBarState()
+{
+    const qsee::DeviceSnapshot snapshot =
+        qsee::DeviceSnapshotService::instance().snapshot();
+    qsee::StatusBarState state;
+    state.usb = snapshot.battery.usb_present
+        ? qsee::StatusIndicatorState::Ready
+        : qsee::StatusIndicatorState::Missing;
+    state.battery = indicatorState(
+        snapshot.battery.health,
+        snapshot.battery.last_error
+    );
+    state.bluetooth = indicatorState(
+        snapshot.radios.ble.health,
+        snapshot.radios.ble.last_error
+    );
+    state.wifi = indicatorState(
+        snapshot.radios.wifi.health,
+        snapshot.radios.wifi.last_error
+    );
+    state.gps = indicatorState(snapshot.gps.health, snapshot.gps.last_error);
+    state.sd = indicatorState(
+        snapshot.storage.health,
+        snapshot.storage.last_error
+    );
+    state.battery_percent =
+        static_cast<int8_t>(snapshot.battery.level_percent);
+    state.battery_charging =
+        std::strstr(snapshot.battery.power_state, "charg") != nullptr;
+    if (snapshot.radios.wifi.connected) {
+        state.wifi_bars = snapshot.radios.wifi.rssi <= -80 ? 1 :
+                          snapshot.radios.wifi.rssi <= -65 ? 2 : 3;
+    }
+    state.gps_has_fix = snapshot.gps.has_fix;
+    state.sd_mounted = snapshot.storage.health == qsee::DeviceHealth::Ready;
+    return state;
+}
 }
 
 #define APP_NAME "QSee.ai"
@@ -82,6 +121,8 @@ bool App::run()
     if (!_status_bar->Begin(lv_screen_active())) {
         ESP_LOGW("qsee_app", "Custom status bar unavailable");
         _status_bar.reset();
+    } else {
+        s_navigation.registerAdaptiveVisual(_status_bar->NativeHandle());
     }
     _status_timer = std::make_unique<esp_brookesia::gui::AppTimer>(1000, [this]() { syncStatusBar(); });
     syncStatusBar();
@@ -93,38 +134,7 @@ void App::syncStatusBar()
 {
     if (_status_bar == nullptr) return;
 
-    const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
-    StatusBarState state;
-    state.usb = snapshot.battery.usb_present
-        ? StatusIndicatorState::Ready
-        : StatusIndicatorState::Missing;
-    state.battery = indicatorState(
-        snapshot.battery.health,
-        snapshot.battery.last_error
-    );
-    state.bluetooth = indicatorState(
-        snapshot.radios.ble.health,
-        snapshot.radios.ble.last_error
-    );
-    state.wifi = indicatorState(
-        snapshot.radios.wifi.health,
-        snapshot.radios.wifi.last_error
-    );
-    state.gps = indicatorState(snapshot.gps.health, snapshot.gps.last_error);
-    state.sd = indicatorState(
-        snapshot.storage.health,
-        snapshot.storage.last_error
-    );
-    state.battery_percent = static_cast<int8_t>(snapshot.battery.level_percent);
-    state.battery_charging =
-        std::strstr(snapshot.battery.power_state, "charg") != nullptr;
-    if (snapshot.radios.wifi.connected) {
-        state.wifi_bars = snapshot.radios.wifi.rssi <= -80 ? 1 :
-                          snapshot.radios.wifi.rssi <= -65 ? 2 : 3;
-    }
-    state.gps_has_fix = snapshot.gps.has_fix;
-    state.sd_mounted = snapshot.storage.health == DeviceHealth::Ready;
-    _status_bar->Update(state);
+    _status_bar->Update(buildStatusBarState());
 }
 
 bool App::back()

@@ -17,6 +17,9 @@ Run the historical default action, build, when no Action is supplied.
 Allow serial workflows to close matching stale monitor processes. Without this
 explicit switch, they report the conflicting processes and stop safely.
 
+.PARAMETER NoReset
+Capture serial output from the already running firmware without pulsing EN.
+
 .EXAMPLE
 pwsh -NoProfile -File .\scripts\device.ps1
 
@@ -46,6 +49,11 @@ Persists local script defaults under the ignored scripts/logs folder.
 pwsh -NoProfile -File .\scripts\device.ps1 monitor -Port COM12 -StopStaleMonitors
 
 Closes only matching stale monitor processes after explicit opt-in.
+
+.EXAMPLE
+pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -NoReset
+
+Captures the running device without restarting it.
 #>
 
 [CmdletBinding()]
@@ -85,6 +93,7 @@ param(
     [switch]$SaveSettings,
     [switch]$ResetSettings,
     [switch]$StopStaleMonitors,
+    [switch]$NoReset,
     [switch]$NonInteractive,
     [switch]$NoProgress,
     [switch]$NoBanner,
@@ -154,7 +163,7 @@ function Select-QSeeMaintenanceAction {
             [pscustomobject]@{ Key = '2'; Label = 'Full clean'; Description = 'Reset the ESP-IDF build directory'; Value = 'fullclean' }
             [pscustomobject]@{ Key = '3'; Label = 'Reconfigure'; Description = 'Regenerate ESP-IDF configuration'; Value = 'reconfigure' }
             [pscustomobject]@{ Key = '4'; Label = 'Set ESP32-S3 target'; Description = 'Select the project MCU target'; Value = 'set-target' }
-            [pscustomobject]@{ Key = '5'; Label = 'Recover'; Description = 'Build, wait for port, and flash'; Value = 'recover' }
+            [pscustomobject]@{ Key = '5'; Label = 'Recover'; Description = 'Build and make one direct flash attempt'; Value = 'recover' }
             [pscustomobject]@{ Key = '6'; Label = 'Erase flash'; Description = 'Destructive; confirmation required'; Value = 'erase' }
         )
 }
@@ -520,7 +529,7 @@ try {
         { $_ -in ($firmwareActions + @('ports', 'capture')) } {
             Invoke-QSeeFirmwareAction -Action $Action -ProjectRoot $projectRoot `
                 -ScriptsRoot $PSScriptRoot -Settings $settings -OutputPath $OutputPath `
-                -StopStaleMonitors:$StopStaleMonitors
+                -StopStaleMonitors:$StopStaleMonitors -NoReset:$NoReset
             break
         }
         'assets' {

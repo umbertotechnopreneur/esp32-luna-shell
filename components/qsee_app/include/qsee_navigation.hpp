@@ -23,6 +23,7 @@ public:
         Logs,
         Hardware,
         Audio,
+        AudioFft,
         Imu,
         About,
         Settings,
@@ -52,6 +53,8 @@ public:
     bool begin();
     bool back();
     void shutdown();
+    /** Attach passive shell chrome to the existing activity and fade policy. */
+    void registerAdaptiveVisual(lv_obj_t *visual);
 
 private:
     /** Build one vertically scrollable Settings surface with native controls. */
@@ -70,21 +73,29 @@ private:
     void showFormatDialog();
     void closeDialog();
     void requestFormat();
-    void updateDiagnosticViews();
+    void updateDiagnosticViews(const qsee::DeviceSnapshot &snapshot);
     /** Smooth live dBFS levels and maintain each peak-hold marker. */
     void updateAudioMeters(bool reset);
+    /** Copy a new audio spectrum frame and invalidate its single drawing object. */
+    void updateAudioSpectrum();
+    /** Draw both microphone spectra in one lightweight LVGL draw pass. */
+    static void audioSpectrumDrawEvent(lv_event_t *event);
     /** Refresh fast animations while throttling the heavier full snapshot. */
     void onRefreshTick();
+    /** Attach the published PSRAM background only from the LVGL-owned UI thread. */
+    void tryAttachBackgroundAsset();
     /** Keep the full-screen wake guard above controls while the panel is dark. */
     void updateDisplayWakeGuard();
+    /** Sample IMU motion only while commands or a dark panel need it. */
+    void updateUiMotionMonitor(bool wake_guard_required);
     /** Consume the first dark-screen touch and request asynchronous recovery. */
     static void displayWakeGuardEvent(lv_event_t *event);
     /** Apply a user selection from the unified Settings controls. */
     static void settingsControlChangedEvent(lv_event_t *event);
-    /** Persist the dropdown's lower-command visibility timeout. */
+    /** Persist the shared status-and-command visibility timeout. */
     static void commandBarTimeoutChangedEvent(lv_event_t *event);
     /** Refresh snapshot status and synchronize persisted Settings controls. */
-    void updateSettings();
+    void updateSettings(const qsee::DeviceSnapshot &snapshot);
     /** Load only the SSID; a blank password preserves the saved secret. */
     void prepareWifiEditor();
     void saveWifiCredentials();
@@ -122,6 +133,7 @@ private:
     std::unique_ptr<esp_brookesia::gui::LvContainer> _logs;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _audio;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _audio_fft;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _imu;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _settings;
     std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_rows;
@@ -156,14 +168,24 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_smoothing;
     lv_obj_t *_settings_smoothing_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_storage;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_storage_mirror;
     lv_obj_t *_settings_sd_mirror_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi_ssid;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi_ip;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi_credentials;
     lv_obj_t *_settings_wifi_action_dropdown = nullptr;
     lv_obj_t *_settings_wifi_networks_dropdown = nullptr;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_http;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_http_port;
+    lv_obj_t *_settings_http_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_ble;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_ble_device;
     lv_obj_t *_settings_ble_switch = nullptr;
     lv_obj_t *_settings_ble_action_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_gps;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_gps_satellites;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_gps_precision;
     lv_obj_t *_settings_gps_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_brightness;
     lv_obj_t *_settings_brightness_dropdown = nullptr;
@@ -174,6 +196,8 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_command_bar_timeout;
     lv_obj_t *_settings_command_bar_timeout_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_rotation;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_rendering_rotation;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_rotation_source;
     lv_obj_t *_settings_auto_rotation_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _wifi_editor;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _wifi_editor_title;
@@ -219,11 +243,18 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppLabel> _audio_channels;
     std::unique_ptr<esp_brookesia::gui::AppProgressBar> _audio_mic0;
     std::unique_ptr<esp_brookesia::gui::AppProgressBar> _audio_mic1;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _audio_fft_action;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _audio_fft_status;
+    lv_obj_t *_audio_fft_bands = nullptr;
+    static constexpr size_t kAudioSpectrumBandCount = 16;
+    uint8_t _audio_spectrum_visual[2][kAudioSpectrumBandCount] = {};
+    uint32_t _audio_spectrum_sequence = 0xFFFFFFFFU;
     // Per channel: [0] displayed level, [1] peak-hold marker (0..100 dBFS scale).
     float _audio_meter_visual[2][2] = {};
     int64_t _audio_peak_hold_until_us[2] = {};
     int64_t _audio_meter_updated_at_us = 0;
     uint16_t _refresh_tick_count = 0;
+    bool _background_asset_attached = false;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_status;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_accel_x;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_accel_y;
@@ -236,6 +267,7 @@ private:
     lv_obj_t *_imu_gyro_arcs[3] = {};
     std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
     std::unique_ptr<AdaptiveCommandBar> _adaptive_command_bar;
+    bool _ui_motion_monitor_active = false;
     bool _logs_paused = false;
     bool _dialog_requires_confirmation = false;
     size_t _selected_component = 0;

@@ -16,7 +16,7 @@ typographic hierarchy and generous spacing:
 - BLE: persisted enabled state and on-demand Espressif provisioning;
 - GPS: persisted acquisition and time-sync state;
 - Display & Motion: brightness, cardinal auto-rotation, and applied angle;
-- Power: dim, panel-off, and lower-command visibility timing.
+- Power: dim, panel-off, and adaptive-interface visibility timing.
 
 Enum-like values use dropdowns and booleans use switches. There is no category
 button hub. Back returns directly to Welcome. Only the Wi-Fi credential editor
@@ -57,13 +57,14 @@ before the panel is turned off. Once the application has armed the input, one
 BOOT press and release enters coordinated light sleep; the next BOOT press
 wakes the device and is consumed as the wake action.
 
-The Display & Motion section exposes a dropdown for lower-command visibility.
-Command groups start visible, fade out after the selected interval, and disable
-their hit targets only after becoming transparent. LVGL touch activity or
-meaningful QMI8658 movement fades them back in. A lightweight platform monitor
-publishes motion through `DeviceSnapshotService` even when auto-rotation is
-disabled, so the UI never reads the sensor driver directly. Shell-owned Back
-remains visible.
+The Display & Motion section exposes one dropdown for adaptive interface
+visibility. The passive status overlay and command groups start visible and
+fade out together after the selected interval; only command hit targets are
+disabled after becoming transparent. LVGL touch activity or meaningful
+QMI8658 movement fades both back in. A lightweight platform monitor publishes
+motion through `DeviceSnapshotService` even when auto-rotation is disabled, so
+the UI never reads the sensor driver directly. Shell-owned Back remains
+visible.
 
 ## Local Wi-Fi credential editing
 

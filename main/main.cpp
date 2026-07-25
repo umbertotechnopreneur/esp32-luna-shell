@@ -166,8 +166,8 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_storage_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_ble_apply_saved_enabled());
-    // HTTP owns Wi-Fi; normal BLE follows its preference after boot audio.
-    ESP_LOGI(TAG, "Wi-Fi requested for HTTP; saved BLE preference applied");
+    // HTTP starts Wi-Fi only when its saved service preference is enabled.
+    ESP_LOGI(TAG, "Saved HTTP and BLE service preferences applied");
     (void)qsee_hardware_refresh("pre-ui");
 
     qsee_boot_ui_mark_ready();

@@ -52,8 +52,7 @@ private:
     lv_obj_t *_left_button = nullptr;
     lv_obj_t *_left_accent = nullptr;
     lv_obj_t *_left_label = nullptr;
-    lv_obj_t *_left_icon_primary = nullptr;
-    lv_obj_t *_left_icon_secondary = nullptr;
+    lv_obj_t *_left_icon = nullptr;
     lv_obj_t *_right_button = nullptr;
     lv_obj_t *_right_accent = nullptr;
     lv_obj_t *_right_label = nullptr;

@@ -38,6 +38,7 @@ namespace {
 
 constexpr const char *kTag = "qsee_http";
 constexpr const char *kApiKeySetting = "ApiKey";
+constexpr const char *kEnabledSetting = "http_enabled";
 constexpr std::size_t kAuthorizationPrefixLength = 7U;
 
 constexpr uint32_t kSnapshotRefreshIntervalMs = 5000U;
@@ -61,7 +62,9 @@ struct HttpMetricsState {
 
 httpd_handle_t s_server = nullptr;
 bool s_initialized = false;
+std::atomic<bool> s_enabled{true};
 std::atomic<bool> s_server_running{false};
+std::mutex s_lifecycle_mutex;
 
 std::mutex s_auth_mutex;
 bool s_auth_ready = false;
@@ -339,6 +342,17 @@ bool startSnapshotRefreshTask()
     return s_snapshot_task_started;
 }
 
+// Keep UI status behind the canonical snapshot boundary.
+void reportLifecycle(esp_err_t error = ESP_OK)
+{
+    qsee::DeviceSnapshotService::instance().reportHttp(
+        s_enabled.load(),
+        s_server_running.load(),
+        qsee::kHttpServerPort,
+        error
+    );
+}
+
 // Authenticate data routes and serialize one immutable snapshot per request.
 esp_err_t handleApiRequest(httpd_req_t *request)
 {
@@ -390,11 +404,17 @@ esp_err_t handleApiRequest(httpd_req_t *request)
 // Start the read-only routes once a refresh task is available.
 esp_err_t startServer()
 {
+    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
+    if (!s_enabled.load()) {
+        reportLifecycle();
+        return ESP_OK;
+    }
     if (s_server != nullptr) {
         return ESP_OK;
     }
     if (!startSnapshotRefreshTask()) {
         recordServerStartFailure();
+        reportLifecycle(ESP_ERR_NO_MEM);
         return ESP_ERR_NO_MEM;
     }
 
@@ -409,6 +429,7 @@ esp_err_t startServer()
     esp_err_t error = httpd_start(&server, &config);
     if (error != ESP_OK) {
         recordServerStartFailure();
+        reportLifecycle(error);
         ESP_LOGW(kTag, "HTTP server start failed: %s", esp_err_to_name(error));
         return error;
     }
@@ -427,6 +448,7 @@ esp_err_t startServer()
         if (error != ESP_OK) {
             (void)httpd_stop(server);
             recordServerStartFailure();
+            reportLifecycle(error);
             ESP_LOGW(kTag, "HTTP route registration failed: %s", esp_err_to_name(error));
             return error;
         }
@@ -435,24 +457,30 @@ esp_err_t startServer()
     s_server = server;
     s_server_running.store(true);
     recordServerStart();
+    reportLifecycle();
     ESP_LOGI(kTag, "HTTP API online on port %u", static_cast<unsigned>(qsee::kHttpServerPort));
     return ESP_OK;
 }
 
-void stopServer()
+esp_err_t stopServer()
 {
+    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
     if (s_server == nullptr) {
-        return;
+        s_server_running.store(false);
+        reportLifecycle();
+        return ESP_OK;
     }
     s_server_running.store(false);
     const esp_err_t error = httpd_stop(s_server);
     s_server = nullptr;
     recordServerStop();
+    reportLifecycle(error);
     if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP server stop failed: %s", esp_err_to_name(error));
     } else {
         ESP_LOGI(kTag, "HTTP API offline until the next Wi-Fi lease");
     }
+    return error;
 }
 
 // Bind server lifetime to acquisition and loss of a usable station IP.
@@ -467,7 +495,7 @@ void networkEventHandler(void *argument, esp_event_base_t event_base, int32_t ev
     if ((event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) ||
         (event_base == WIFI_EVENT &&
          (event_id == WIFI_EVENT_STA_DISCONNECTED || event_id == WIFI_EVENT_STA_STOP))) {
-        stopServer();
+        (void)stopServer();
     }
 }
 
@@ -481,18 +509,20 @@ esp_err_t httpServerInit()
         return ESP_OK;
     }
 
-    const esp_err_t wifi_error = qsee_wifi_init();
-    if (wifi_error != ESP_OK) {
-        ESP_LOGW(kTag, "HTTP API requires Wi-Fi initialization: %s", esp_err_to_name(wifi_error));
-        return wifi_error;
-    }
-
     UserSettingsService &settings = UserSettingsService::instance();
     esp_err_t error = settings.initialize();
     if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP API settings initialization failed: %s", esp_err_to_name(error));
         return error;
     }
+
+    bool enabled = true;
+    error = settings.getBool(kEnabledSetting, true, &enabled);
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "HTTP preference initialization failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    s_enabled.store(enabled);
 
     error = settings.setStringChangeObserver(settingsChanged, nullptr);
     if (error != ESP_OK) {
@@ -505,6 +535,17 @@ esp_err_t httpServerInit()
         ESP_LOGI(kTag, "HTTP API waiting for an ApiKey from Settings");
     } else if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP API key initialization failed: %s", esp_err_to_name(error));
+        return error;
+    }
+
+    error = esp_event_loop_create_default();
+    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
+        reportLifecycle(error);
+        ESP_LOGW(
+            kTag,
+            "HTTP event loop initialization failed: %s",
+            esp_err_to_name(error)
+        );
         return error;
     }
 
@@ -532,12 +573,61 @@ esp_err_t httpServerInit()
     }
 
     s_initialized = true;
+    reportLifecycle();
+    if (!enabled) {
+        ESP_LOGI(kTag, "HTTP API disabled by saved preference");
+        return ESP_OK;
+    }
+
+    const esp_err_t wifi_error = qsee_wifi_init();
+    if (wifi_error != ESP_OK) {
+        reportLifecycle(wifi_error);
+        ESP_LOGW(kTag, "HTTP API requires Wi-Fi initialization: %s", esp_err_to_name(wifi_error));
+        return wifi_error;
+    }
+
     qsee_wifi_status_t wifi = {};
     qsee_wifi_get_status(&wifi);
     if (wifi.ip_acquired) {
         (void)startServer();
     }
     ESP_LOGI(kTag, "HTTP API initialized; health probe is public and data routes require API key");
+    return ESP_OK;
+}
+
+// Persist one user choice, then apply only the matching server transition.
+esp_err_t httpServerSetEnabled(bool enabled)
+{
+    UserSettingsService &settings = UserSettingsService::instance();
+    esp_err_t error = settings.initialize();
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = settings.setBool(kEnabledSetting, enabled);
+    if (error != ESP_OK) {
+        return error;
+    }
+
+    s_enabled.store(enabled);
+    if (!s_initialized) {
+        return httpServerInit();
+    }
+    if (!enabled) {
+        return stopServer();
+    }
+
+    error = qsee_wifi_init();
+    if (error != ESP_OK) {
+        reportLifecycle(error);
+        return error;
+    }
+    qsee_wifi_status_t wifi = {};
+    qsee_wifi_get_status(&wifi);
+    if (wifi.ip_acquired) {
+        return startServer();
+    }
+    reportLifecycle();
+    ESP_LOGI(kTag, "HTTP API enabled; waiting for a Wi-Fi address");
     return ESP_OK;
 }
 

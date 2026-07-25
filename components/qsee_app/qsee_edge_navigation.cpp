@@ -18,12 +18,14 @@ constexpr int kBackButtonY = (kDisplaySize - kBackButtonHeight) / 2;
 constexpr int kRightButtonY = (kDisplaySize - kRightButtonHeight) / 2;
 constexpr int kLeftButtonX = kEdgeInset;
 constexpr int kRightButtonX = kDisplaySize - kEdgeInset - kButtonWidth;
+constexpr int kBackGlyphOffsetX = -2;
+constexpr int kBackGlyphOffsetY = -2;
 
 // Edge actions occupy the round-panel margin outside the content safe square.
 constexpr uint32_t kDarkTop = 0x142632;
 constexpr uint32_t kDarkBottom = 0x071018;
-constexpr uint32_t kBackTop = 0x16A77C;
-constexpr uint32_t kBackBottom = 0x063D35;
+constexpr uint32_t kBackTop = 0x20BF91;
+constexpr uint32_t kBackBottom = 0x0A6C53;
 constexpr uint32_t kBackAccent = 0x63FFD0;
 constexpr uint32_t kBackIcon = 0xF3FFFB;
 constexpr uint32_t kOkAccent = 0x3DE0B0;
@@ -37,16 +39,6 @@ static_assert(kLeftButtonX + kButtonWidth < kSafeAreaLeft,
               "The left edge action must stay outside the safe area");
 static_assert(kRightButtonX > kSafeAreaRight,
               "The right edge action must stay outside the safe area");
-
-constexpr lv_point_precise_t kBackChevron[] = {
-    {30, 3},
-    {8, 17},
-    {30, 31},
-};
-constexpr lv_point_precise_t kBackShaft[] = {
-    {8, 17},
-    {34, 17},
-};
 constexpr lv_point_precise_t kOkCheck[] = {
     {4, 18},
     {13, 27},
@@ -70,7 +62,17 @@ const lv_font_t *edgeFont()
 #endif
 }
 
-// Apply one reusable rounded stroke to the hand-drawn edge icons.
+// Use the largest enabled built-in symbol font without adding another bitmap asset.
+const lv_font_t *backIconFont()
+{
+#if LV_FONT_MONTSERRAT_28
+    return &lv_font_montserrat_28;
+#else
+    return LV_FONT_DEFAULT;
+#endif
+}
+
+// Apply one reusable rounded stroke to the hand-drawn right-edge icons.
 void setLine(
     lv_obj_t *line,
     const lv_point_precise_t *points,
@@ -83,6 +85,24 @@ void setLine(
     lv_obj_set_style_line_color(line, lv_color_hex(color), LV_PART_MAIN);
     lv_obj_set_style_line_width(line, width, LV_PART_MAIN);
     lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
+}
+
+// Render a solid chevron without the vertical bar embedded in the Brookesia back asset.
+lv_obj_t *CreateBackIcon(lv_obj_t *parent)
+{
+    lv_obj_t *icon = lv_label_create(parent);
+    if (icon == nullptr) {
+        return nullptr;
+    }
+
+    lv_label_set_text(icon, LV_SYMBOL_LEFT);
+    lv_obj_set_style_text_color(icon, lv_color_hex(kBackIcon), LV_PART_MAIN);
+    lv_obj_set_style_text_opa(icon, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_text_font(icon, backIconFont(), LV_PART_MAIN);
+    lv_obj_align(icon, LV_ALIGN_CENTER, kBackGlyphOffsetX, kBackGlyphOffsetY);
+    lv_obj_remove_flag(icon, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_remove_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
+    return icon;
 }
 
 void setHidden(lv_obj_t *object, bool hidden)
@@ -121,23 +141,18 @@ bool EdgeNavigation::Begin(lv_obj_t *root)
         return false;
     }
 
-    _left_icon_primary = CreateLineIcon(_left_button);
-    _left_icon_secondary = CreateLineIcon(_left_button);
+    _left_icon = CreateBackIcon(_left_button);
     _left_label = CreateLabel(_left_button);
     _right_icon_primary = CreateLineIcon(_right_button);
     _right_icon_secondary = CreateLineIcon(_right_button);
     _right_label = CreateLabel(_right_button);
-    if (_left_icon_primary == nullptr || _left_icon_secondary == nullptr ||
-        _left_label == nullptr || _right_accent == nullptr || _right_icon_primary == nullptr ||
-        _right_icon_secondary == nullptr || _right_label == nullptr) {
+    if (_left_icon == nullptr || _left_label == nullptr || _right_accent == nullptr ||
+        _right_icon_primary == nullptr || _right_icon_secondary == nullptr ||
+        _right_label == nullptr) {
         Shutdown();
         return false;
     }
 
-    setLine(_left_icon_primary, kBackChevron, 3, kBackIcon, 5);
-    setLine(_left_icon_secondary, kBackShaft, 2, kBackIcon, 5);
-    lv_obj_align(_left_icon_primary, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_align(_left_icon_secondary, LV_ALIGN_CENTER, 0, 0);
     lv_label_set_text(_left_label, "");
     setHidden(_left_label, true);
 
@@ -163,8 +178,7 @@ void EdgeNavigation::Shutdown()
     _left_button = nullptr;
     _left_accent = nullptr;
     _left_label = nullptr;
-    _left_icon_primary = nullptr;
-    _left_icon_secondary = nullptr;
+    _left_icon = nullptr;
     _right_button = nullptr;
     _right_accent = nullptr;
     _right_label = nullptr;
@@ -216,8 +230,7 @@ void EdgeNavigation::OnButtonEvent(lv_event_t *event)
             self->_left_button = nullptr;
             self->_left_accent = nullptr;
             self->_left_label = nullptr;
-            self->_left_icon_primary = nullptr;
-            self->_left_icon_secondary = nullptr;
+            self->_left_icon = nullptr;
         } else if (target == self->_right_button) {
             self->_right_button = nullptr;
             self->_right_accent = nullptr;
@@ -266,9 +279,9 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     lv_obj_set_style_bg_grad_color(button, lv_color_hex(bottom_color), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(button, left ? LV_OPA_COVER : LV_OPA_90, LV_PART_MAIN);
-    lv_obj_set_style_border_width(button, 2, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, left ? 1 : 2, LV_PART_MAIN);
     lv_obj_set_style_border_color(button, lv_color_hex(accent_color), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(button, LV_OPA_80, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(button, left ? LV_OPA_COVER : LV_OPA_80, LV_PART_MAIN);
     lv_obj_set_style_shadow_width(button, left ? 16 : 12, LV_PART_MAIN);
     lv_obj_set_style_shadow_spread(button, 1, LV_PART_MAIN);
     lv_obj_set_style_shadow_color(button, lv_color_hex(accent_color), LV_PART_MAIN);

@@ -14,6 +14,16 @@ Everything required to understand or complete a screen must fit in that safe
 square. Content may decorate the circular perimeter, but it must not depend on
 the perimeter to remain usable.
 
+## Runtime background cache
+
+The full-screen radial atmosphere appears immediately as an LVGL gradient. If
+the optional SD card is ready, a low-priority worker validates or creates a
+versioned 466 x 466 RGB565LE cache with deterministic ordered dithering. The
+validated pixels live in PSRAM for the process lifetime; LVGL never reads the
+SD card during repaint. Missing media, invalid data, write failures, or an
+unavailable PSRAM block leave the original gradient active, and this flow never
+formats the card. One unrotated asset serves every hardware cardinal rotation.
+
 ## In-screen command groups
 
 When a screen needs two or more local commands, place them on the lower arc

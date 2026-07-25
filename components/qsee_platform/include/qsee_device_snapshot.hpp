@@ -92,6 +92,8 @@ struct GpsSnapshot : ComponentSnapshot {
     char first_sentence[181] = {};
 };
 
+constexpr size_t kAudioSpectrumBandCount = 16;
+
 struct AudioSnapshot {
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
@@ -101,6 +103,8 @@ struct AudioSnapshot {
     uint32_t microphone_peak_level = 0;
     uint32_t channel_mean_level[2] = {};
     uint32_t channel_peak_level[2] = {};
+    uint8_t channel_spectrum[2][kAudioSpectrumBandCount] = {};
+    uint32_t spectrum_sequence = 0;
 };
 
 constexpr size_t kWifiSnapshotMaxNetworks = 16;
@@ -165,6 +169,13 @@ struct StorageSnapshot : ComponentSnapshot {
     uint64_t filesystem_total_bytes = 0;
     uint64_t free_bytes = 0;
     bool logger_mirror_enabled = false;
+};
+
+struct HttpSnapshot {
+    bool enabled = true;
+    bool running = false;
+    uint16_t port = 8080;
+    esp_err_t last_error = ESP_OK;
 };
 
 struct OrientationSnapshot {
@@ -250,6 +261,7 @@ struct DeviceSnapshot {
     AudioSnapshot audio;
     RadioSnapshot radios;
     StorageSnapshot storage;
+    HttpSnapshot http;
     UiHardwareSnapshot ui;
     InputSnapshot input;
     MemorySnapshot memory;
@@ -291,6 +303,8 @@ public:
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);
     void reportWifi(const WifiSnapshot &wifi);
+    /** Publish the desired and active HTTP service lifecycle for UI consumers. */
+    void reportHttp(bool enabled, bool running, uint16_t port, esp_err_t error);
     void reportBle(
         bool ready,
         esp_err_t error,

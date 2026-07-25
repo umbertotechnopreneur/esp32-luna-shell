@@ -107,48 +107,14 @@ function Show-QSeeSerialPorts {
     return $ports
 }
 
+# Normalize a user-confirmed port without enumerating or opening the USB bridge.
 function Resolve-QSeeSerialPort {
     [CmdletBinding()]
     param([Parameter(Mandatory)][string]$RequestedPort)
 
     $normalized = ConvertTo-QSeeSerialPortName -Port $RequestedPort
-    $ports = Get-QSeeSerialPorts
-    if (@($ports | Where-Object { $_.DeviceID -eq $normalized -and $_.IsOpenable }).Count -gt 0) {
-        return $normalized
-    }
-
-    if (@($ports | Where-Object { $_.DeviceID -eq $normalized }).Count -gt 0) {
-        Write-QSeeWarning "Requested port $normalized is listed by Windows but is not currently openable."
-    }
-    else {
-        Write-QSeeWarning "Requested port $normalized was not found."
-    }
-    Show-QSeeSerialPorts | Out-Null
-    throw "No usable serial port found for $normalized."
-}
-
-function Wait-QSeeSerialPort {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$RequestedPort,
-        [Parameter(Mandatory)][int]$TimeoutSeconds
-    )
-
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $normalized = ConvertTo-QSeeSerialPortName -Port $RequestedPort
-    Write-QSeeInfo "Waiting up to $TimeoutSeconds seconds for $normalized."
-
-    while ((Get-Date) -lt $deadline) {
-        $ports = Get-QSeeSerialPorts
-        if (@($ports | Where-Object { $_.DeviceID -eq $normalized -and $_.IsOpenable }).Count -gt 0) {
-            Write-QSeeSuccess "Serial port $normalized is available."
-            return $normalized
-        }
-        Start-Sleep -Milliseconds 750
-    }
-
-    Show-QSeeSerialPorts | Out-Null
-    throw "Timed out waiting for serial port $normalized."
+    Write-QSeeInfo "Using requested serial port $normalized without a USB preflight probe."
+    return $normalized
 }
 
 # Find only monitor processes tied to the requested port or build invocation.
@@ -227,40 +193,6 @@ function Resolve-QSeeStaleMonitorProcesses {
     }
 }
 
-function Wait-QSeeExclusiveSerialPort {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)][string]$RequestedPort,
-        [Parameter(Mandatory)][string]$BuildDir,
-        [Parameter(Mandatory)][int]$TimeoutSeconds,
-        [switch]$StopStaleMonitors
-    )
-
-    $normalized = ConvertTo-QSeeSerialPortName -Port $RequestedPort
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $lastError = $null
-    while ((Get-Date) -lt $deadline) {
-        $probe = [System.IO.Ports.SerialPort]::new($normalized, 115200)
-        try {
-            $probe.Open()
-            $probe.Close()
-            $probe.Dispose()
-            Start-Sleep -Milliseconds 500
-            Write-QSeeSuccess "Serial port $normalized is released and ready."
-            return
-        }
-        catch {
-            $lastError = $_.Exception.Message
-            $probe.Dispose()
-            Resolve-QSeeStaleMonitorProcesses -RequestedPort $normalized `
-                -BuildDir $BuildDir -Stop:$StopStaleMonitors
-            Start-Sleep -Milliseconds 500
-        }
-    }
-
-    throw "Serial port $normalized stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
-}
-
 # Reconfigure stale CMake metadata, then run the bounded parallel Ninja build.
 function Invoke-QSeeProjectBuild {
     [CmdletBinding()]
@@ -320,7 +252,8 @@ function Invoke-QSeeSerialCapture {
         [Parameter(Mandatory)][string]$Port,
         [Parameter(Mandatory)][int]$Baud,
         [Parameter(Mandatory)][int]$DurationSeconds,
-        [Parameter(Mandatory)][string]$OutputPath
+        [Parameter(Mandatory)][string]$OutputPath,
+        [switch]$NoReset
     )
 
     $Port = ConvertTo-QSeeSerialPortName -Port $Port
@@ -336,15 +269,22 @@ function Invoke-QSeeSerialCapture {
     $serial.ReadTimeout = 100
     $serial.WriteTimeout = 100
     $serial.NewLine = "`n"
+    if ($NoReset) {
+        # Set idle control-line levels before Open so the driver never pulses EN.
+        $serial.DtrEnable = $false
+        $serial.RtsEnable = $false
+    }
     $captured = [System.Text.StringBuilder]::new()
 
     try {
         $serial.Open()
-        # Keep GPIO0 released and pulse EN for one bounded fresh-boot capture.
-        $serial.DtrEnable = $false
-        $serial.RtsEnable = $true
-        Start-Sleep -Milliseconds 120
-        $serial.RtsEnable = $false
+        if (-not $NoReset) {
+            # Keep GPIO0 released and pulse EN for one bounded fresh-boot capture.
+            $serial.DtrEnable = $false
+            $serial.RtsEnable = $true
+            Start-Sleep -Milliseconds 120
+            $serial.RtsEnable = $false
+        }
 
         $deadline = (Get-Date).AddSeconds($DurationSeconds)
         while ((Get-Date) -lt $deadline) {
@@ -358,17 +298,29 @@ function Invoke-QSeeSerialCapture {
     }
     finally {
         if ($serial.IsOpen) {
-            $serial.Close()
+            try {
+                $serial.DtrEnable = $false
+                $serial.RtsEnable = $false
+            }
+            catch {
+                Write-QSeeWarning "Serial control lines unavailable during capture cleanup: $($_.Exception.Message)"
+            }
+            try {
+                $serial.Close()
+            }
+            catch {
+                Write-QSeeWarning "Serial port close failed during capture cleanup: $($_.Exception.Message)"
+            }
         }
         $serial.Dispose()
+        [System.IO.File]::WriteAllText(
+            $resolvedOutput,
+            $captured.ToString(),
+            [System.Text.UTF8Encoding]::new($false)
+        )
         Start-Sleep -Milliseconds 500
     }
 
-    [System.IO.File]::WriteAllText(
-        $resolvedOutput,
-        $captured.ToString(),
-        [System.Text.UTF8Encoding]::new($false)
-    )
     Write-QSeeSuccess "Saved serial capture: $resolvedOutput"
     return $resolvedOutput
 }
@@ -382,7 +334,8 @@ function Invoke-QSeeFirmwareAction {
         [Parameter(Mandatory)][string]$ScriptsRoot,
         [Parameter(Mandatory)][object]$Settings,
         [string]$OutputPath,
-        [switch]$StopStaleMonitors
+        [switch]$StopStaleMonitors,
+        [switch]$NoReset
     )
 
     $idf = Get-QSeeIdfCommand -Settings $Settings
@@ -419,9 +372,6 @@ function Invoke-QSeeFirmwareAction {
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
                 $port = Resolve-QSeeSerialPort -RequestedPort $port
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
                 Invoke-QSeeNativeCommand -FilePath $idf.Python `
                     -ArgumentList ($commonArgs + @('-p', $port, '-b', [string]$Settings.Baud, 'erase-flash')) `
                     -FailureMessage 'Erase failed'
@@ -430,9 +380,6 @@ function Invoke-QSeeFirmwareAction {
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
                 $port = Resolve-QSeeSerialPort -RequestedPort $port
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
                 Invoke-QSeeNativeCommand -FilePath $idf.Python `
                     -ArgumentList ($commonArgs + @('-p', $port, '-b', [string]$Settings.Baud, 'flash')) `
                     -FailureMessage 'Flash failed'
@@ -441,9 +388,6 @@ function Invoke-QSeeFirmwareAction {
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
                 $port = Resolve-QSeeSerialPort -RequestedPort $port
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
                 Invoke-QSeeNativeCommand -FilePath $idf.Python `
                     -ArgumentList ($commonArgs + @('-p', $port, 'monitor')) `
                     -FailureMessage 'Monitor failed'
@@ -452,24 +396,19 @@ function Invoke-QSeeFirmwareAction {
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
                 $port = Resolve-QSeeSerialPort -RequestedPort $port
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
                 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
                     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
                     $OutputPath = Join-Path $ProjectRoot "runtime-logs\hardware-$stamp.log"
                 }
                 Invoke-QSeeSerialCapture -Port $port -Baud $Settings.Baud `
-                    -DurationSeconds $Settings.DurationSeconds -OutputPath $OutputPath | Out-Null
+                    -DurationSeconds $Settings.DurationSeconds -OutputPath $OutputPath `
+                    -NoReset:$NoReset | Out-Null
             }
             'combo' {
                 Invoke-QSeeProjectBuild -ProjectRoot $ProjectRoot -Settings $Settings
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
                 $port = Resolve-QSeeSerialPort -RequestedPort $port
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
                 Invoke-QSeeNativeCommand -FilePath $idf.Python `
                     -ArgumentList ($commonArgs + @('-p', $port, '-b', [string]$Settings.Baud, 'flash')) `
                     -FailureMessage 'Flash failed'
@@ -500,11 +439,7 @@ function Invoke-QSeeFirmwareAction {
                 Invoke-QSeeProjectBuild -ProjectRoot $ProjectRoot -Settings $Settings
                 Resolve-QSeeStaleMonitorProcesses -RequestedPort $port `
                     -BuildDir $Settings.BuildDir -Stop:$StopStaleMonitors
-                $port = Wait-QSeeSerialPort -RequestedPort $port `
-                    -TimeoutSeconds $Settings.WaitSeconds
-                Wait-QSeeExclusiveSerialPort -RequestedPort $port `
-                    -BuildDir $Settings.BuildDir -TimeoutSeconds $Settings.WaitSeconds `
-                    -StopStaleMonitors:$StopStaleMonitors
+                $port = Resolve-QSeeSerialPort -RequestedPort $port
                 Invoke-QSeeNativeCommand -FilePath $idf.Python `
                     -ArgumentList ($commonArgs + @('-p', $port, '-b', [string]$Settings.Baud, 'flash')) `
                     -FailureMessage 'Recovery flash failed'

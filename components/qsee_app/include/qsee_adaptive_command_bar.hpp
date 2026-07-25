@@ -1,6 +1,6 @@
 #pragma once
 
-// Reusable inactivity controller for command buttons placed on the lower arc.
+// Reusable inactivity controller for lower commands and passive shell chrome.
 
 #include <cstdint>
 #include <vector>
@@ -21,10 +21,12 @@ public:
     esp_err_t begin();
     /** Track one command without taking ownership of its LVGL object. */
     void registerControl(lv_obj_t *control);
+    /** Track passive chrome under the same activity timer without changing hit testing. */
+    void registerVisual(lv_obj_t *visual);
     /** Reset visibility and activity state whenever the active route changes. */
     void activate(bool has_commands);
-    /** Detect touch or motion activity and advance the inactivity fade policy. */
-    void update(const DeviceSnapshot &snapshot, uint32_t touch_inactive_ms);
+    /** Advance the fade policy and report movement for dark-panel wake. */
+    bool update(const DeviceSnapshot &snapshot, uint32_t touch_inactive_ms);
     /** Persist and immediately apply a UI-selected timeout. */
     esp_err_t setTimeoutSeconds(uint32_t seconds);
     uint32_t timeoutSeconds() const;
@@ -42,6 +44,7 @@ private:
     void setControlsClickable(bool clickable);
 
     std::vector<lv_obj_t *> _controls;
+    std::vector<lv_obj_t *> _visuals;
     uint32_t _timeout_seconds = kDefaultTimeoutSeconds;
     uint32_t _last_touch_inactive_ms = UINT32_MAX;
     int64_t _last_activity_us = 0;

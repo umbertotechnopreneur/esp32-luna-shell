@@ -14,6 +14,7 @@
 // Collects device state used by the UI, diagnostics, and HTTP API.
 
 #include "qsee_platform.h"
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -38,6 +39,10 @@
 #include "freertos/task.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
+// The vendor header defines M_PI unconditionally after <cmath>.
+#ifdef M_PI
+#undef M_PI
+#endif
 #include "qmi8658.h"
 #include "sdkconfig.h"
 
@@ -77,6 +82,14 @@ constexpr float kOrientationFilterAlpha = 0.35F;
 constexpr float kOrientationGyroDeadbandDps = 4.0F;
 constexpr float kOrientationGyroSnapDegrees = 50.0F;
 constexpr float kOrientationGyroMaxStepSeconds = 0.25F;
+constexpr size_t kAudioSpectrumFrameCount = 256;
+constexpr float kAudioSpectrumFullScale = 32768.0F;
+constexpr float kAudioSpectrumFloor = 0.001F;
+constexpr float kAudioSpectrumTwoPi = 6.28318530718F;
+constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
+    1, 2, 3, 4, 6, 8, 11, 16,
+    23, 32, 45, 64, 90, 110, 120, 127,
+};
 
 i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
@@ -153,6 +166,10 @@ StaticTask_t s_diagnostic_task_control;
 StackType_t s_diagnostic_task_stack[3072];
 char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 int16_t s_microphone_samples[1024];
+
+struct AudioSpectrumBands {
+    uint8_t value[2][qsee::kAudioSpectrumBandCount] = {};
+};
 
 SemaphoreHandle_t ensure_snapshot_mutex()
 {
@@ -1427,6 +1444,43 @@ esp_err_t sample_gps(const char *phase)
     return ESP_OK;
 }
 
+// Project one captured window onto a compact bank of logarithmic DFT bins.
+void build_audio_spectrum(AudioSpectrumBands &spectrum)
+{
+    constexpr size_t channel_count = 2;
+    for (size_t band = 0; band < qsee::kAudioSpectrumBandCount; ++band) {
+        const float coefficient = 2.0F * cosf(
+            kAudioSpectrumTwoPi * static_cast<float>(kAudioSpectrumBins[band]) /
+            static_cast<float>(kAudioSpectrumFrameCount)
+        );
+        for (size_t channel = 0; channel < channel_count; ++channel) {
+            float previous = 0.0F;
+            float previous_previous = 0.0F;
+            for (size_t frame = 0; frame < kAudioSpectrumFrameCount; ++frame) {
+                const float current = static_cast<float>(
+                    s_microphone_samples[frame * channel_count + channel]
+                ) + coefficient * previous - previous_previous;
+                previous_previous = previous;
+                previous = current;
+            }
+            const float power = fmaxf(
+                0.0F,
+                previous * previous + previous_previous * previous_previous -
+                    coefficient * previous * previous_previous
+            );
+            const float normalized =
+                2.0F * sqrtf(power) /
+                (static_cast<float>(kAudioSpectrumFrameCount) * kAudioSpectrumFullScale);
+            const float dbfs = 20.0F * log10f(fmaxf(normalized, kAudioSpectrumFloor));
+            const float intensity = fminf(
+                100.0F,
+                fmaxf(0.0F, (dbfs + 60.0F) * (100.0F / 60.0F))
+            );
+            spectrum.value[channel][band] = static_cast<uint8_t>(intensity + 0.5F);
+        }
+    }
+}
+
 // Capture one stereo window and publish per-channel peak/RMS diagnostics.
 esp_err_t sample_microphone(const char *phase)
 {
@@ -1442,6 +1496,7 @@ esp_err_t sample_microphone(const char *phase)
 
     uint32_t absolute_sum[2] = {};
     uint32_t peak[2] = {};
+    AudioSpectrumBands spectrum;
     if (error == ESP_OK) {
         for (size_t index = 0; index < frame_count; ++index) {
             for (size_t channel = 0; channel < channel_count; ++channel) {
@@ -1454,6 +1509,7 @@ esp_err_t sample_microphone(const char *phase)
                 }
             }
         }
+        build_audio_spectrum(spectrum);
     }
     const uint32_t mean = (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
     const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
@@ -1462,7 +1518,7 @@ esp_err_t sample_microphone(const char *phase)
     const uint32_t channel_peak0 = peak[0];
     const uint32_t channel_peak1 = peak[1];
     update_snapshot([error, mean, aggregate_peak, channel_count, channel_mean0, channel_mean1,
-                     channel_peak0, channel_peak1](qsee::DeviceSnapshot &snapshot) {
+                     channel_peak0, channel_peak1, spectrum](qsee::DeviceSnapshot &snapshot) {
         set_component(snapshot.audio.microphone, error == ESP_OK, error);
         snapshot.audio.channel_count = error == ESP_OK ? static_cast<uint8_t>(channel_count) : 0;
         snapshot.audio.sample_rate_hz = error == ESP_OK ? 22050 : 0;
@@ -1472,6 +1528,9 @@ esp_err_t sample_microphone(const char *phase)
         snapshot.audio.channel_mean_level[1] = channel_mean1;
         snapshot.audio.channel_peak_level[0] = channel_peak0;
         snapshot.audio.channel_peak_level[1] = channel_peak1;
+        std::memcpy(snapshot.audio.channel_spectrum, spectrum.value,
+                    sizeof(snapshot.audio.channel_spectrum));
+        ++snapshot.audio.spectrum_sequence;
     });
     if (error == ESP_OK) {
         ESP_LOGI(TAG, "Microphones ES7210 %s: ch0=%lu/%lu ch1=%lu/%lu",
@@ -2061,6 +2120,22 @@ void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
     update_snapshot([&wifi](DeviceSnapshot &snapshot) {
         snapshot.radios.wifi = wifi;
         snapshot.radios.wifi.updated_at_us = esp_timer_get_time();
+    });
+}
+
+// Publish service intent separately from whether the network has started it.
+void DeviceSnapshotService::reportHttp(
+    bool enabled,
+    bool running,
+    uint16_t port,
+    esp_err_t error
+)
+{
+    update_snapshot([=](DeviceSnapshot &snapshot) {
+        snapshot.http.enabled = enabled;
+        snapshot.http.running = running;
+        snapshot.http.port = port;
+        snapshot.http.last_error = error;
     });
 }
 
