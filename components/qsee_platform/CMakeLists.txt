@@ -9,10 +9,12 @@ idf_component_register(
         "qsee_settings.cpp"
         "qsee_provisioning.cpp"
         "qsee_wifi.cpp"
+        "qsee_http_server.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         esp32_s3_touch_amoled_1_75
         esp_event
+        esp_http_server
         esp_driver_gpio
         esp_hw_support
         fatfs
