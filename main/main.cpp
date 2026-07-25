@@ -15,8 +15,11 @@
 #include <utility>
 
 #include "brookesia/gui_lvgl.hpp"
+#include "brookesia/lib_utils.hpp"
 #include "brookesia/system_super.hpp"
 #include "bsp/esp-bsp.h"
+#include "boost/thread.hpp"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -119,12 +122,19 @@ bool start_brookesia()
     return false;
 }
 
-void brookesia_task(void *)
+void brookesia_task()
 {
     if (!start_brookesia()) {
         ESP_LOGE(kTag, "Brookesia launch failed; canonical logger remains active");
     }
-    vTaskDelete(nullptr);
+
+    const UBaseType_t stack_remaining_words = uxTaskGetStackHighWaterMark(nullptr);
+    ESP_LOGI(
+        kTag,
+        "Brookesia bootstrap stack remaining=%luB internal-heap=%uB",
+        static_cast<unsigned long>(stack_remaining_words * sizeof(StackType_t)),
+        heap_caps_get_free_size(MALLOC_CAP_INTERNAL)
+    );
 }
 
 }  // namespace
@@ -212,16 +222,11 @@ extern "C" void app_main(void)
         return;
     }
 
-    const BaseType_t task_result = xTaskCreatePinnedToCore(
-        brookesia_task,
-        "qsee_brookesia",
-        40U * 1024U,
-        nullptr,
-        5,
-        nullptr,
-        1
-    );
-    if (task_result != pdPASS) {
-        ESP_LOGE(kTag, "Brookesia task creation failed; canonical logger remains active");
+    // Match the upstream System Super setup: reserve its deep C++ stack in PSRAM.
+    {
+        BROOKESIA_THREAD_CONFIG_GUARD({
+            .stack_size = 40 * 1024,
+        });
+        boost::thread(brookesia_task).detach();
     }
 }

@@ -1772,8 +1772,11 @@ static esp_err_t bsp_display_lcd_init(
     }
     *out_display = NULL;
 
+    // The SPI bounce buffer lives in internal DMA RAM; 20 lines fit after Brookesia starts.
+    const size_t transfer_height = 20;
+
     const bsp_display_config_t disp_config = {
-        .max_transfer_sz = BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8,
+        .max_transfer_sz = BSP_LCD_H_RES * transfer_height * BSP_LCD_BITS_PER_PIXEL / 8,
     };
 
     ESP_RETURN_ON_ERROR(
@@ -1791,9 +1794,8 @@ static esp_err_t bsp_display_lcd_init(
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            // Waveshare's current BSP uses two 50-line PSRAM buffers: large
-            // enough to keep QSPI busy without forcing a full-frame DMA copy.
-            .buffer_height = 50,
+            // The adapter and panel use the same bounded transfer height.
+            .buffer_height = transfer_height,
             .use_psram = true,
             .enable_ppa_accel = false,
             .require_double_buffer = true,
