@@ -3,25 +3,50 @@
 ## BLE Wi-Fi pairing task
 
 - [x] BLE-only Espressif provisioning flow; no SoftAP and no PIN/PoP.
-- [x] Full-screen device QR and Google Play fallback QR.
-- [x] Wizard routes for Bluetooth, app installation, QR scanning, retry and result.
-- [x] Global reusable settings singleton with NVS persistence.
 - [x] Provisioning lifecycle bridge for the hardware foundation.
-- [x] Hardware-free static verification: scripts/verify_pairing.py.
-- [ ] Validate the QR and credential flow with the physical radio and the Espressif mobile app.
+- [x] Defer Wi-Fi/BLE allocation until the explicit Settings action.
+- [x] Hardware-free backend and System Core UI verification:
+  `scripts/verify_pairing.py`.
+- [ ] Design and implement an on-device provisioning/QR experience if the
+  product requires one; no pairing wizard or QR route exists today.
+- [ ] Validate the BLE credential flow with the physical radio and the
+  Espressif mobile app.
 - [ ] Verify reboot persistence, repeated pairing, timeout and BLE shutdown on hardware.
 
 ## ESP-Brookesia integration
 
+- [x] Run the QSee.ai application as a native System Core `IApp` under System
+  Super.
+- [x] Express the seven current screens and `qsee_content` flow in the GUI LVGL
+  JSON package.
+- [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
+  mirroring, deferred radio startup, and persisted brightness.
+- [x] Stage System Super and QSee.ai resources in the internal LittleFS image.
+- [ ] Define shared QSee.ai JSON design tokens for the circular 466 x 466
+  display and 320 x 320 safe area.
+- [ ] Add Bluetooth, GPS, and CPU indicators to System Super only when an
+  official extension point is available; record the framework gap here before
+  adding product-specific system chrome.
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
-- [ ] Register a QSee stylesheet for the circular 466 x 466 display and 320 x 320 safe area.
-- [ ] Add native Bluetooth/GPS/CPU indicators to the standard Brookesia status bar when supported.
+- [ ] Remove proprietary branding markers (including “QSEE.AI” identifiers/logo mentions) before GitHub open-source publication.
 
 ## SD formatting
 
-- The UI handles card absent, format required, confirmation and progress/unavailable states.
-- `qsee_storage_request_format()` is currently guarded by the hardware storage abstraction and must remain fail-safe.
-- Implement formatting only after the hardware/storage abstraction exposes a documented formatter.
+- [x] Keep internal LittleFS resources independent from the removable SD
+  volume.
+- [x] Represent card/transport unconfirmed, ready, and format-required states
+  through `DeviceSnapshotService`; the board has no card-detect pin, so a
+  failed SDMMC probe is never reported as physical absence.
+- [x] Make only an exact FatFs `FR_NO_FILESYSTEM` result eligible for format.
+- [x] Arm `qsee_storage_request_format()` only after the destructive System
+  Super confirmation is accepted, bind that one-shot permission to the
+  observed CID fields and capacity, and consume it on the immediate attempt.
+- [x] Poll a mounted card and invalidate/unmount it when status reports removal
+  or a transport failure.
+- [ ] Validate cancel, confirmed format, progress, failure, and recovery with a
+  disposable card on hardware.
+- [ ] Address SD-card detection regressions (card not detected in some boots) so detection and diagnostics are surfaced clearly in UI.
+- [ ] Add a dedicated Storage section in Settings to surface card presence/state, free space, mount status, and safe format/reset options (with explicit confirmation and progress).
 
 ## Device metrics
 
@@ -30,6 +55,15 @@
 - Keep the UI on `CPU data unavailable` until the first valid previous-sample
   delta exists or runtime statistics are unavailable.
 - Keep hardware refresh non-blocking and outside the UI thread.
+
+## Snapshot integrity
+
+- [x] Commit a full hardware refresh as one snapshot generation and advance the
+  generation for asynchronous subsystem reports.
+- [x] Apply component freshness TTLs and hide expired numeric telemetry as
+  `STALE`.
+- [ ] Add deterministic tests for transaction visibility, TTL expiry, and
+  recovery after a later successful sample.
 
 ## Sensor fusion
 
@@ -56,3 +90,26 @@
 - Keep event-driven platform state, critical logs, and fail-fast errors
   truthful; do not keep periodic UI timers alive just to manufacture stale or
   placeholder values.
+
+## Deferred HTTP API activation
+
+- [ ] Add an explicit System Core Settings action for the read-only HTTP API
+  after `ApiKey` and `http_enabled` are deliberately persisted; do not start
+  the server automatically during boot or invent missing settings.
+
+## Audio scope visualization
+
+- [ ] Add the "FFT scope" action to the Brookesia JSON/System Core audio page.
+- [ ] Improve FFT sensitivity — currently input must be significantly amplified (e.g., physical microphone tapping) to show visible spectrum; investigate gain levels and response thresholds.
+- [ ] Redesign FFT bar layout: reduce margins, apply color gradients instead of flat colors for better visual appeal.
+- [ ] ? Investigate microphone gain/volume control: should we apply amplification via hardware (pre-processing) or in software (post-processing)?
+
+## Open-source publication prep
+
+- [ ] Scan repository for proprietary identifiers (for example `QSEE.AI`, `qsee.ai`,
+  qsee logos, internal contact/footer signatures) and replace/remove with
+  neutral/open-source equivalents.
+- [ ] Remove or generalize internal/legal notice text from scripts, startup splash,
+  and user-facing docs before publishing to GitHub.
+- [ ] Add a pre-release checklist that includes branding sweep, placeholder
+  replacements, and export-safe defaults.

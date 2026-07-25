@@ -1,34 +1,76 @@
-# Repository guidance
+# Repository engineering rules
 
-## Code comments
+These rules apply to the entire Distanziamoci firmware repository.
 
-- Put a short, practical comment immediately above each non-obvious function or method declaration/definition.
-- Use that signature comment to clarify purpose, inputs/outputs, side effects, or an important constraint.
-- Add comments inside a function only for genuinely complex control-flow steps.
-- Explain intent or trade-offs; do not restate what the code already says.
-- Leave obvious accessors, boilerplate, simple wrappers, and self-explanatory operations uncommented.
-- Keep comments close to the relevant code and concise. Do not write long explanatory blocks.
+## Supported platform
 
-## Scope and safety
+- Target ESP-IDF 6.0.2 and the official ESP-Brookesia 0.8 architecture only.
+- Do not add compatibility branches, shims, wrappers, migrations, or fallback
+  paths for ESP-IDF 5.x, Brookesia 0.6/0.7, or the removed Phone framework.
+- LVGL is only the rendering backend below Brookesia System Super, System Core,
+  and the declarative GUI package.
+- Run every ESP-IDF configure, build, size, flash, erase, capture, and monitor
+  workflow through `scripts/device.ps1`. Never invoke the ESP-IDF Python
+  entrypoint directly.
 
-- Preserve unrelated work already present in the working tree.
-- Treat `managed_components/`, vendor/Waveshare components, generated assets, and build output as external or generated code unless a task explicitly targets them.
-- Do not build, flash, or monitor a device unless the user explicitly requests it.
-- When a device port is already known, use it directly; do not run repeated serial, PnP, or USB enumeration probes before flashing or monitoring.
-- Treat ESP USB/JTAG enumeration as potentially disruptive on Windows. After a disconnect, stop probing and wait for the user to reconnect the device.
-- Run at most one requested flash or monitor attempt per confirmed connection. If it fails or the port disappears, report it instead of retrying in a loop.
+## Fail-fast and error visibility
 
-## Git workflow
+- Never convert a failure or partial failure into `ESP_OK`.
+- Never discard an initialization, read, write, persistence, or service-start
+  error. Propagate the original `esp_err_t` or a more specific error.
+- Log every rejected value and failed operation with the component, operation,
+  and real error. Logs complement structured state; they do not replace it.
+- Startup-critical failures stop the current startup stage immediately.
+- A higher-level orchestrator may explicitly continue after a component that is
+  documented as optional fails, but the component call must still return its
+  real error and publish the failure in `DeviceSnapshotService`.
+- When classification or recovery is ambiguous, fail fast. Do not guess.
 
-- While Umberto is the sole developer, do not open pull requests for this repository.
-- After the requested checks pass, commit directly to the intended branch and push only when explicitly authorized.
-- Before a high-risk migration, preserve the verified baseline with an explicit tag or backup branch.
+## Sensor and runtime data
 
-## Embedded stack discipline
+- Publish a measurement only after a successful hardware read.
+- Never manufacture, interpolate, zero-fill, or reuse a stale value as if it
+  were a current sensor reading.
+- A failed or unavailable sample must carry an explicit invalid/unavailable
+  state, the real error, and its validity or sample timestamp where applicable.
+- UI code must check validity and health before rendering numeric telemetry. It
+  must show `UNAVAILABLE`, `NO FIX`, `STALE`, or the real error instead of a
+  plausible numeric placeholder.
+- CPU usage or any other metric that is not actually measured must be labelled
+  unavailable; it must never be estimated.
+- Synthetic data is allowed only inside the Windows simulator and must remain
+  visibly labelled synthetic. It must never enter firmware snapshots.
 
-- Keep task stack usage small; do not place large snapshots, arrays, image data, or formatting buffers in local variables.
-- Reuse an existing snapshot by const reference instead of copying it through nested calls.
-- Put large temporary buffers in bounded PSRAM allocations and handle allocation failure without falling back to internal RAM.
-- Defer heavy refresh or persistence work until after LVGL event callbacks unwind.
-- Prefer reducing stack frames over increasing task stack sizes; account for scarce internal RAM before changing a task stack.
-- Add or inspect a stack high-water mark when a task gains a non-trivial call path, and validate it on device.
+## Persistent settings
+
+- First-boot defaults are allowed only when a key is genuinely absent. The
+  default, its key, and the first-boot decision must be logged, then persisted.
+- A missing key and a failed/corrupt read are different states. Do not treat
+  read, type, CRC, or storage errors as "not found".
+- Never silently clamp, repair, migrate, overwrite, or substitute an invalid
+  persisted value. Log it and return an error.
+- Reset or repair requires an explicit user action with a visible result.
+
+## Storage and destructive actions
+
+- Internal LittleFS/NVS and removable SD have separate owners and purposes;
+  neither is a fallback for the other.
+- Never format removable storage implicitly.
+- SD formatting requires a present card, a verified format-required state, and
+  one explicit, single-use user authorization. If the card disappears or the
+  immediate attempt cannot run, the authorization expires.
+- Do not access physical hardware, serial ports, flash, erase, recover, or
+  monitor flows unless the user explicitly authorizes that operation.
+
+## Validation
+
+- Treat compiler and linker errors as evidence; fix their root cause rather
+  than suppressing warnings globally.
+- Do not run intermediate configure, build, or size passes while implementation
+  and integration work is still in progress. Finish the code changes, static
+  review, and cross-component integration first; run the clean build,
+  incremental build, and size report only in the final validation phase.
+- Before delivery, run a clean build, an incremental build, the size report,
+  simulator checks, `git diff --check`, dependency/legacy scans, and a
+  changed-files secret scan.
+- Do not claim hardware behavior from host-only validation.

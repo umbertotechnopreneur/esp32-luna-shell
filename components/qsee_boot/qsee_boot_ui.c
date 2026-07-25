@@ -19,8 +19,6 @@
 
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "lvgl.h"
 
 extern const uint8_t qsee_boot_rgb565_start[] asm("_binary_qsee_boot_rgb565_start");
@@ -29,9 +27,6 @@ extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
 static const char *TAG = "qsee_boot";
 static lv_obj_t *s_screen;
 static lv_obj_t *s_continue_label;
-static SemaphoreHandle_t s_continue_semaphore;
-static StaticSemaphore_t s_continue_semaphore_control;
-static bool s_ready;
 
 static lv_image_dsc_t s_boot_image = {
     .header.magic = LV_IMAGE_HEADER_MAGIC,
@@ -49,9 +44,6 @@ typedef struct {
     int border_width_px;
     uint32_t color_hex;
     lv_opa_t border_opa;
-    int shadow_width_px;
-    int shadow_spread_px;
-    lv_opa_t shadow_opa;
 } boot_ring_layer_t;
 
 static void create_boot_glow_ring(lv_obj_t *parent)
@@ -62,27 +54,18 @@ static void create_boot_glow_ring(lv_obj_t *parent)
             .border_width_px = 2,
             .color_hex = 0x143E78,
             .border_opa = LV_OPA_40,
-            .shadow_width_px = 0,
-            .shadow_spread_px = 0,
-            .shadow_opa = LV_OPA_TRANSP,
         },
         {
             .inset_px = 7,
             .border_width_px = 3,
             .color_hex = 0x258CFF,
             .border_opa = LV_OPA_80,
-            .shadow_width_px = 0,
-            .shadow_spread_px = 0,
-            .shadow_opa = LV_OPA_TRANSP,
         },
         {
             .inset_px = 10,
             .border_width_px = 2,
             .color_hex = 0x9FE8FF,
             .border_opa = LV_OPA_COVER,
-            .shadow_width_px = 0,
-            .shadow_spread_px = 0,
-            .shadow_opa = LV_OPA_TRANSP,
         },
     };
 
@@ -99,27 +82,8 @@ static void create_boot_glow_ring(lv_obj_t *parent)
         lv_obj_set_style_border_width(ring, layer->border_width_px, 0);
         lv_obj_set_style_border_color(ring, lv_color_hex(layer->color_hex), 0);
         lv_obj_set_style_border_opa(ring, layer->border_opa, 0);
-        lv_obj_set_style_shadow_color(ring, lv_color_hex(layer->color_hex), 0);
-        lv_obj_set_style_shadow_width(ring, layer->shadow_width_px, 0);
-        lv_obj_set_style_shadow_spread(ring, layer->shadow_spread_px, 0);
-        lv_obj_set_style_shadow_opa(ring, layer->shadow_opa, 0);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
-}
-
-static void boot_touch_event(lv_event_t *event)
-{
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-        return;
-    }
-
-    if (!s_ready) {
-        ESP_LOGI(TAG, "Touch received; startup still in progress");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Touch confirmed; opening ESP-Brookesia");
-    xSemaphoreGive(s_continue_semaphore);
 }
 
 esp_err_t qsee_boot_ui_show(void)
@@ -128,29 +92,42 @@ esp_err_t qsee_boot_ui_show(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    s_continue_semaphore = xSemaphoreCreateBinaryStatic(&s_continue_semaphore_control);
-    if (s_continue_semaphore == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
     ESP_LOGI(TAG, "Boot UI: acquiring LVGL lock");
-    if (bsp_display_lock(1000) != ESP_OK) {
-        ESP_LOGE(TAG, "Boot UI: LVGL lock timed out");
-        return ESP_ERR_TIMEOUT;
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI: LVGL lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
     }
 
     ESP_LOGI(TAG, "Boot UI: creating screen");
     s_screen = lv_obj_create(NULL);
+    if (s_screen == NULL) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: screen allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_size(s_screen, 466, 466);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_add_flag(s_screen, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(s_screen, boot_touch_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_clear_flag(
+        s_screen,
+        LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE
+    );
 
     ESP_LOGI(TAG, "Boot UI: attaching RGB565 branding");
     lv_obj_t *image = lv_image_create(s_screen);
+    if (image == NULL) {
+        lv_obj_delete(s_screen);
+        s_screen = NULL;
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: image allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_image_set_src(image, &s_boot_image);
     lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(image, LV_OBJ_FLAG_CLICKABLE);
@@ -158,6 +135,13 @@ esp_err_t qsee_boot_ui_show(void)
     create_boot_glow_ring(s_screen);
 
     s_continue_label = lv_label_create(s_screen);
+    if (s_continue_label == NULL) {
+        lv_obj_delete(s_screen);
+        s_screen = NULL;
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: label allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_obj_align(s_continue_label, LV_ALIGN_BOTTOM_MID, 0, -28);
     lv_obj_set_style_text_color(s_continue_label, lv_color_hex(0x2F80ED), 0);
     lv_obj_set_style_text_font(s_continue_label, &lv_font_montserrat_16, 0);
@@ -171,46 +155,74 @@ esp_err_t qsee_boot_ui_show(void)
     return ESP_OK;
 }
 
-void qsee_boot_ui_mark_ready(void)
+esp_err_t qsee_boot_ui_mark_ready(void)
 {
-    s_ready = true;
-    if (bsp_display_lock(1000) == ESP_OK) {
-        if (s_continue_label != NULL) {
-            lv_label_set_text(s_continue_label, "OPENING WELCOME");
-        }
+    if (s_screen == NULL || s_continue_label == NULL) {
+        ESP_LOGE(TAG, "Boot UI cannot transition before it is initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI ready transition lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
+    }
+
+    lv_display_t *display = lv_display_get_default();
+    if (display == NULL) {
         bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI ready transition has no default display");
+        return ESP_ERR_INVALID_STATE;
     }
+    lv_label_set_text(s_continue_label, "OPENING WELCOME");
+    lv_refr_now(display);
+    bsp_display_unlock();
     ESP_LOGI(TAG, "Startup complete; opening Welcome");
+    return ESP_OK;
 }
 
-void qsee_boot_ui_wait_for_continue(void)
+esp_err_t qsee_boot_ui_hide(void)
 {
-    if (s_continue_semaphore != NULL) {
-        xSemaphoreTake(s_continue_semaphore, portMAX_DELAY);
-    }
-}
-
-void qsee_boot_ui_hide(void)
-{
-    if (bsp_display_lock(1000) != ESP_OK) {
-        return;
+    if (s_screen == NULL) {
+        ESP_LOGE(TAG, "Boot UI cannot hide before it is initialized");
+        return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_screen != NULL) {
-        /*
-         * Brookesia replaces this screen immediately after this call.  Clean
-         * and repaint it first so the AMOLED does not retain untouched strips
-         * from the full-screen RGB565 boot artwork around the round app area.
-         */
-        lv_obj_clean(s_screen);
-        lv_obj_remove_style_all(s_screen);
-        lv_obj_set_size(s_screen, 466, 466);
-        lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x000000), 0);
-        lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-        lv_obj_invalidate(s_screen);
-        lv_refr_now(lv_display_get_default());
-        s_screen = NULL;
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI hide lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
     }
+
+    lv_display_t *display = lv_display_get_default();
+    if (display == NULL) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI hide has no default display");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    /*
+     * Brookesia replaces this screen immediately after this call. Clean and
+     * repaint it first so the AMOLED does not retain untouched strips from the
+     * full-screen RGB565 boot artwork around the round app area.
+     */
+    lv_obj_clean(s_screen);
+    lv_obj_remove_style_all(s_screen);
+    lv_obj_set_size(s_screen, 466, 466);
+    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    lv_obj_invalidate(s_screen);
+    lv_refr_now(display);
+    s_screen = NULL;
     s_continue_label = NULL;
     bsp_display_unlock();
+    return ESP_OK;
 }

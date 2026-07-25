@@ -1,0 +1,4 @@
+[submodule "esp-brookesia"]
+	path = third_party/esp-brookesia
+	url = https://github.com/espressif/esp-brookesia.git
+	branch = master

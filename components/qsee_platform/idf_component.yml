@@ -1,5 +1,7 @@
 dependencies:
+  espressif/network_provisioning:
+    version: "1.2.4"
   waveshare/qmi8658:
-    version: "*"
+    version: "2.0.0"
   cube32esp/xpowerslib:
-    version: "^0.3.3"
+    version: "0.3.3"

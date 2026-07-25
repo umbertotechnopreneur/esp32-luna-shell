@@ -10,9 +10,6 @@
  * Contact: hello@qsee.ai
  */
 
-// Platform-wide abstraction for hardware, connectivity, and device services.
-// Centralizes board control, sensor access, and health snapshots.
-
 #pragma once
 
 #include <stdbool.h>
@@ -38,22 +35,19 @@ typedef struct {
 /**
  * Probe and initialize hardware attached to the Waveshare BSP I2C bus.
  *
- * Every peripheral is fail-open: a missing optional sensor is logged but does
- * not prevent the application from starting.
+ * Returns the original initialization error from the first failing peripheral.
+ * Any decision to continue after an optional-device failure belongs to the
+ * caller; this platform layer never converts a partial failure into success.
  */
 esp_err_t qsee_hardware_init(void);
 
-/** Refresh the canonical snapshot once; periodic monitors are controlled separately. */
+/**
+ * Refresh the canonical hardware snapshot once. No background polling occurs.
+ */
 esp_err_t qsee_hardware_refresh(const char *reason);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
-/** Enable cheap CPU/memory snapshot sampling while the Welcome page consumes it. */
-esp_err_t qsee_hardware_set_system_monitor(bool enabled);
-/** Publish lightweight IMU samples while an adaptive command bar is active. */
-esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled);
-/** Block new refresh/calibration work and drain any sample already in flight. */
-esp_err_t qsee_hardware_set_sleep_transition(bool active);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */
@@ -63,11 +57,11 @@ esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
 /** Return the persisted IMU input smoothing percentage. */
 uint32_t qsee_hardware_get_imu_smoothing_percent(void);
 
-/** Persist and apply whether QSee samples the LC76G receiver. */
-esp_err_t qsee_gps_set_enabled(bool enabled);
-bool qsee_gps_get_enabled(void);
-
-/** Run a stationary IMU calibration, retaining the old one on rejection. */
+/**
+ * Run an explicit stationary QMI8658 calibration.
+ *
+ * The call rejects moving sample sets and keeps the previous valid calibration.
+ */
 esp_err_t qsee_imu_calibrate(void);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
@@ -92,50 +86,27 @@ esp_err_t qsee_time_sync_from_gps(
 
 /** Initialize BOOT/PWR observation, PMU events, wake-cause and TCA9554 health. */
 esp_err_t qsee_power_inputs_init(void);
-/** Arm BOOT sleep only after the application UI has started successfully. */
-void qsee_power_set_runtime_ready(void);
-/** Feed LVGL's inactivity counter to the platform power policy. */
-void qsee_power_report_display_inactive_ms(uint32_t inactive_ms);
-/** Request a non-blocking wake from the dimmed or panel-off display state. */
-void qsee_power_wake_display(void);
-/** Keep the UI touch guard active until a dark panel is fully restored. */
-bool qsee_power_display_input_guard_required(void);
-/** Persist seconds before a 50% transient dim; zero disables the dim stage. */
-esp_err_t qsee_power_set_dim_timeout_seconds(uint32_t seconds);
-uint32_t qsee_power_get_dim_timeout_seconds(void);
-/** Persist seconds from the dim stage to CO5300 display-off; zero disables it. */
-esp_err_t qsee_power_set_panel_off_delay_seconds(uint32_t seconds);
-uint32_t qsee_power_get_panel_off_delay_seconds(void);
 
-/** Enter explicit low-power states with the coordinated display lifecycle. */
+/** Enter explicit low-power states; callers own the surrounding UI lifecycle. */
 esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us);
 esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us);
 
 /** Start non-blocking SD detection/mount retries. Never formats automatically. */
 esp_err_t qsee_storage_init(void);
 
-/** Arm one format attempt after explicit user authorization. No UI is implied. */
+/**
+ * Arm one immediate format attempt after explicit user authorization.
+ *
+ * The authorization is accepted only for the exact card identity from the
+ * latest verified FR_NO_FILESYSTEM probe and expires when consumed.
+ */
 esp_err_t qsee_storage_request_format(void);
-bool qsee_storage_mounted(void);
 esp_err_t qsee_storage_set_logger_mirror(bool enabled);
-bool qsee_storage_get_logger_mirror_preference(void);
 
 /** Persist and apply AMOLED brightness (10-100 percent). */
 esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
-uint32_t qsee_display_get_brightness_percent(void);
+esp_err_t qsee_display_get_brightness_percent(uint32_t *percent);
 esp_err_t qsee_display_apply_saved_brightness(void);
-
-/** Fade the current AMOLED output without changing the saved preference. */
-esp_err_t qsee_display_fade_to_percent(uint32_t target_percent, uint32_t duration_ms);
-esp_err_t qsee_display_fade_out(uint32_t duration_ms);
-esp_err_t qsee_display_fade_in(uint32_t duration_ms);
-/** Send the CO5300 display-on/off command without changing the preference. */
-esp_err_t qsee_display_set_panel_enabled(bool enabled);
-
-/** Persist auto-rotation plus the last applied CO5300 cardinal angle. */
-esp_err_t qsee_display_set_auto_rotation_enabled(bool enabled);
-bool qsee_display_get_auto_rotation_enabled(void);
-esp_err_t qsee_display_apply_saved_auto_rotation(void);
 
 /**
  * Report the result of an actual speaker playback attempt.
@@ -174,23 +145,10 @@ esp_err_t qsee_audio_capture_pcm16_channels(
 );
 
 /**
- * Start Wi-Fi and apply the saved normal BLE advertising preference.
+ * Start the Wi-Fi station lifecycle and BLE advertising as QSEE-xxxx.
  */
 esp_err_t qsee_radios_init(void);
 esp_err_t qsee_ble_init(void);
-/** Persist and apply normal BLE telemetry advertising. */
-esp_err_t qsee_ble_set_enabled(bool enabled);
-bool qsee_ble_get_enabled(void);
-/** Apply the saved BLE preference after boot-critical services are ready. */
-esp_err_t qsee_ble_apply_saved_enabled(void);
-/** Temporarily yield the BLE controller to Espressif provisioning. */
-esp_err_t qsee_ble_prepare_provisioning(void);
-/** Restore normal BLE advertising after provisioning releases the controller. */
-esp_err_t qsee_ble_restore_after_provisioning(void);
-/** Transactionally stop active radios before explicit light sleep. */
-esp_err_t qsee_radios_prepare_light_sleep(void);
-/** Restore the radio checkpoint captured before explicit light sleep. */
-esp_err_t qsee_radios_restore_after_light_sleep(void);
 
 #define QSEE_WIFI_MAX_NETWORKS 16
 #define QSEE_WIFI_SSID_MAX_LEN 32
@@ -206,7 +164,6 @@ typedef struct {
     bool initialized;
     bool started;
     bool scanning;
-    bool scan_completed;
     bool credentials_configured;
     bool connect_requested;
     bool connected;
@@ -219,9 +176,7 @@ typedef struct {
     uint32_t connect_attempt_count;
     uint32_t reconnect_attempt_count;
     uint32_t disconnect_count;
-    uint32_t scan_sequence;
     uint32_t reconnect_delay_ms;
-    uint8_t network_count;
     esp_err_t last_error;
     char ssid[QSEE_WIFI_SSID_MAX_LEN + 1];
     char ip_address[16];
@@ -245,20 +200,6 @@ esp_err_t qsee_wifi_init(void);
 esp_err_t qsee_wifi_connect(const char *ssid, const char *password, bool persist);
 
 /**
- * Update station credentials without exposing a saved password to the caller.
- *
- * When replace_password is false, the current stored password is reused only
- * if the requested SSID matches the stored profile. Secret bytes are never
- * logged and temporary copies are wiped before returning.
- */
-esp_err_t qsee_wifi_update_credentials(
-    const char *ssid,
-    const char *password,
-    bool replace_password,
-    bool persist
-);
-
-/**
  * Stop reconnect attempts while leaving the station driver available.
  */
 esp_err_t qsee_wifi_disconnect(void);
@@ -267,22 +208,6 @@ esp_err_t qsee_wifi_disconnect(void);
  * Start one asynchronous all-channel scan.
  */
 esp_err_t qsee_wifi_start_scan(void);
-
-/** Preserve the current station profile while BLE provisioning owns Wi-Fi. */
-esp_err_t qsee_wifi_begin_provisioning(void);
-/** Finish the provisioning handoff, restoring the old profile on cancellation. */
-esp_err_t qsee_wifi_end_provisioning(bool credentials_applied);
-
-/** Stop Wi-Fi for explicit light sleep without losing reconnect intent. */
-esp_err_t qsee_wifi_prepare_light_sleep(
-    bool *was_started,
-    bool *reconnect_requested
-);
-/** Restart Wi-Fi after light sleep and restore the captured connect intent. */
-esp_err_t qsee_wifi_restore_after_light_sleep(
-    bool was_started,
-    bool reconnect_requested
-);
 
 /**
  * Copy fixed scan results and the immutable connection state.
@@ -294,6 +219,10 @@ void qsee_wifi_get_status(qsee_wifi_status_t *status);
 esp_err_t qsee_provisioning_init(void);
 esp_err_t qsee_provisioning_start(void);
 esp_err_t qsee_provisioning_stop(void);
+/** Release provisioning BLE ownership before starting telemetry NimBLE. */
+esp_err_t qsee_provisioning_deinit_for_ble(void);
+/** True while the provisioning manager owns, or is changing, BLE lifecycle. */
+bool qsee_provisioning_initialized(void);
 bool qsee_provisioning_active(void);
 const char *qsee_provisioning_service_name(void);
 const char *qsee_provisioning_pop(void);

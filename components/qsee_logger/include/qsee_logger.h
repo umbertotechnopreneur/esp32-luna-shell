@@ -17,6 +17,7 @@
 
 #include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #include "esp_err.h"
 
@@ -42,17 +43,33 @@ esp_err_t qsee_logger_enable_sd(const char *mount_point);
 /**
  * Stop SD mirroring safely. Serial output and the RAM ring remain active.
  */
-void qsee_logger_disable_sd(void);
+esp_err_t qsee_logger_disable_sd(void);
+
+typedef struct {
+    bool enabled;
+    esp_err_t last_error;
+    int last_errno;
+    int64_t changed_at_us;
+    uint32_t failure_count;
+} qsee_logger_sd_status_t;
+
+/**
+ * Return the current SD writer state, including asynchronous write failures.
+ */
+esp_err_t qsee_logger_get_sd_status(qsee_logger_sd_status_t *status);
 
 /**
  * Copy the newest complete log lines into a caller-owned text buffer.
  */
-size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines);
+esp_err_t qsee_logger_snapshot(
+    char *buffer,
+    size_t buffer_size,
+    size_t max_lines,
+    size_t *bytes_written
+);
 
 /** Clear only the in-memory UI ring; serial and SD logging continue. */
-void qsee_logger_clear(void);
-
-bool qsee_logger_sd_enabled(void);
+esp_err_t qsee_logger_clear(void);
 
 #ifdef __cplusplus
 }

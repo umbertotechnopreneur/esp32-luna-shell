@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
@@ -35,6 +36,7 @@
 
 typedef struct {
     char text[QSEE_LOG_LINE_BYTES];
+    uint32_t sd_generation;
 } qsee_log_line_t;
 
 static const char *TAG = "qsee_logger";
@@ -48,6 +50,8 @@ static portMUX_TYPE s_ring_lock = portMUX_INITIALIZER_UNLOCKED;
 static portMUX_TYPE s_format_lock = portMUX_INITIALIZER_UNLOCKED;
 static SemaphoreHandle_t s_snapshot_mutex;
 static StaticSemaphore_t s_snapshot_mutex_control;
+static SemaphoreHandle_t s_writer_idle;
+static StaticSemaphore_t s_writer_idle_control;
 static QueueHandle_t s_write_queue;
 static StaticQueue_t s_write_queue_control;
 static uint8_t s_write_queue_storage[QSEE_LOG_QUEUE_LINES * sizeof(qsee_log_line_t)];
@@ -56,8 +60,75 @@ static StackType_t s_writer_task_stack[4096];
 static TaskHandle_t s_writer_task;
 static vprintf_like_t s_serial_vprintf;
 static char s_log_path[160];
-static volatile bool s_sd_enabled;
+static qsee_logger_sd_status_t s_sd_status;
+static uint32_t s_sd_generation;
+static portMUX_TYPE s_sd_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_initialized;
+
+static int serial_printf(const char *format, ...)
+{
+    va_list args;
+    va_start(args, format);
+    const int result = s_serial_vprintf != NULL
+        ? s_serial_vprintf(format, args)
+        : vprintf(format, args);
+    va_end(args);
+    return result;
+}
+
+static void read_sd_state(qsee_logger_sd_status_t *status, uint32_t *generation)
+{
+    portENTER_CRITICAL(&s_sd_lock);
+    if (status != NULL) {
+        *status = s_sd_status;
+    }
+    if (generation != NULL) {
+        *generation = s_sd_generation;
+    }
+    portEXIT_CRITICAL(&s_sd_lock);
+}
+
+static void set_sd_enabled(void)
+{
+    const int64_t changed_at_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_sd_lock);
+    s_sd_status.enabled = true;
+    s_sd_status.last_error = ESP_OK;
+    s_sd_status.last_errno = 0;
+    s_sd_status.changed_at_us = changed_at_us;
+    s_sd_generation++;
+    portEXIT_CRITICAL(&s_sd_lock);
+}
+
+static void set_sd_disabled(void)
+{
+    const int64_t changed_at_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_sd_lock);
+    s_sd_status.enabled = false;
+    s_sd_status.changed_at_us = changed_at_us;
+    portEXIT_CRITICAL(&s_sd_lock);
+}
+
+static void record_sd_failure(const char *operation, esp_err_t error, int system_errno)
+{
+    const int64_t changed_at_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_sd_lock);
+    s_sd_status.enabled = false;
+    s_sd_status.last_error = error;
+    s_sd_status.last_errno = system_errno;
+    s_sd_status.changed_at_us = changed_at_us;
+    s_sd_status.failure_count++;
+    portEXIT_CRITICAL(&s_sd_lock);
+
+    serial_printf(
+        "E (%lld) %s: SD mirror %s failed: %s (errno=%d)\n",
+        (long long)(changed_at_us / 1000),
+        TAG,
+        operation,
+        esp_err_to_name(error),
+        system_errno
+    );
+}
 
 static void ring_push(const char *line)
 {
@@ -114,36 +185,184 @@ static int qsee_log_vprintf(const char *format, va_list args)
 
     qsee_log_line_t *line = acquire_format_slot();
     if (line == NULL) {
+        qsee_logger_sd_status_t sd_status;
+        read_sd_state(&sd_status, NULL);
+        if (sd_status.enabled) {
+            record_sd_failure("format slot", ESP_ERR_NO_MEM, 0);
+        } else {
+            serial_printf(
+                "E (%lld) %s: Log capture format slots exhausted; serial output only\n",
+                (long long)(esp_timer_get_time() / 1000),
+                TAG
+            );
+        }
         return serial_result;
     }
 
     va_copy(capture_args, args);
-    vsnprintf(line->text, sizeof(line->text), format, capture_args);
+    const int capture_result =
+        vsnprintf(line->text, sizeof(line->text), format, capture_args);
     va_end(capture_args);
+    if (capture_result < 0) {
+        serial_printf(
+            "E (%lld) %s: Log capture formatting failed; serial output only\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG
+        );
+        release_format_slot(line);
+        return serial_result;
+    }
+    if ((size_t)capture_result >= sizeof(line->text)) {
+        static const char truncated_suffix[] = " [TRUNCATED]\n";
+        const size_t suffix_size = sizeof(truncated_suffix);
+        memcpy(
+            line->text + sizeof(line->text) - suffix_size,
+            truncated_suffix,
+            suffix_size
+        );
+        serial_printf(
+            "E (%lld) %s: Captured log line exceeded %u bytes and was marked truncated\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            (unsigned int)(sizeof(line->text) - 1U)
+        );
+    }
 
     ring_push(line->text);
-    if (s_write_queue != NULL) {
-        (void)xQueueSend(s_write_queue, line, 0);
+    qsee_logger_sd_status_t sd_status;
+    uint32_t sd_generation;
+    read_sd_state(&sd_status, &sd_generation);
+    line->sd_generation = sd_generation;
+    if (sd_status.enabled && s_write_queue != NULL &&
+        xQueueSend(s_write_queue, line, 0) != pdTRUE) {
+        record_sd_failure("queue", ESP_ERR_NO_MEM, 0);
     }
     release_format_slot(line);
 
     return serial_result;
 }
 
-static void rotate_log_if_needed(FILE **file)
+static bool close_log_file(FILE **file, const char *operation)
 {
-    const long position = ftell(*file);
-    if (position < 0 || (unsigned long)position < QSEE_LOG_FILE_LIMIT_BYTES) {
-        return;
+    if (*file == NULL) {
+        return true;
     }
 
-    fclose(*file);
+    FILE *open_file = *file;
     *file = NULL;
+    if (fclose(open_file) != 0) {
+        const int close_errno = errno;
+        record_sd_failure(operation, ESP_FAIL, close_errno);
+        return false;
+    }
+    return true;
+}
+
+static bool rotate_log_if_needed(FILE **file)
+{
+    const long position = ftell(*file);
+    if (position < 0) {
+        const int position_errno = errno;
+        record_sd_failure("size check", ESP_FAIL, position_errno);
+        return false;
+    }
+    if ((unsigned long)position < QSEE_LOG_FILE_LIMIT_BYTES) {
+        return true;
+    }
+
+    if (!close_log_file(file, "rotation close")) {
+        return false;
+    }
 
     char rotated_path[sizeof(s_log_path) + 4];
-    snprintf(rotated_path, sizeof(rotated_path), "%s.1", s_log_path);
-    (void)remove(rotated_path);
-    (void)rename(s_log_path, rotated_path);
+    const int rotated_length =
+        snprintf(rotated_path, sizeof(rotated_path), "%s.1", s_log_path);
+    if (rotated_length < 0 || (size_t)rotated_length >= sizeof(rotated_path)) {
+        record_sd_failure("rotation path", ESP_ERR_INVALID_SIZE, 0);
+        return false;
+    }
+    if (remove(rotated_path) != 0 && errno != ENOENT) {
+        const int remove_errno = errno;
+        record_sd_failure("rotation remove", ESP_FAIL, remove_errno);
+        return false;
+    }
+    if (rename(s_log_path, rotated_path) != 0) {
+        const int rename_errno = errno;
+        record_sd_failure("rotation rename", ESP_FAIL, rename_errno);
+        return false;
+    }
+    return true;
+}
+
+static bool flush_log_file(
+    FILE **file,
+    unsigned int *lines_since_flush,
+    const char *operation
+)
+{
+    if (*file == NULL || *lines_since_flush == 0U) {
+        return true;
+    }
+    if (fflush(*file) != 0) {
+        const int flush_errno = errno;
+        *lines_since_flush = 0;
+        record_sd_failure(operation, ESP_FAIL, flush_errno);
+        close_log_file(file, "close after flush");
+        return false;
+    }
+    *lines_since_flush = 0;
+    return true;
+}
+
+static bool write_log_line(
+    FILE **file,
+    unsigned int *lines_since_flush,
+    const qsee_log_line_t *line
+)
+{
+    if (*file == NULL) {
+        *file = fopen(s_log_path, "ab");
+        if (*file == NULL) {
+            const int open_errno = errno;
+            record_sd_failure("open", ESP_FAIL, open_errno);
+            return false;
+        }
+        if (fseek(*file, 0, SEEK_END) != 0) {
+            const int seek_errno = errno;
+            record_sd_failure("seek", ESP_FAIL, seek_errno);
+            close_log_file(file, "close after seek");
+            return false;
+        }
+    }
+
+    if (fputs(line->text, *file) == EOF) {
+        const int write_errno = errno;
+        record_sd_failure("write", ESP_FAIL, write_errno);
+        close_log_file(file, "close after write");
+        return false;
+    }
+    const size_t length = strlen(line->text);
+    if (length == 0U || line->text[length - 1U] != '\n') {
+        if (fputc('\n', *file) == EOF) {
+            const int newline_errno = errno;
+            record_sd_failure("newline write", ESP_FAIL, newline_errno);
+            close_log_file(file, "close after newline write");
+            return false;
+        }
+    }
+
+    (*lines_since_flush)++;
+    if (*lines_since_flush < 8U) {
+        return true;
+    }
+    if (!flush_log_file(file, lines_since_flush, "flush")) {
+        return false;
+    }
+    if (!rotate_log_if_needed(file)) {
+        close_log_file(file, "close after rotation");
+        return false;
+    }
+    return true;
 }
 
 static void writer_task(void *arg)
@@ -152,76 +371,88 @@ static void writer_task(void *arg)
     FILE *file = NULL;
     unsigned int lines_since_flush = 0;
     qsee_log_line_t line;
+    uint32_t active_generation = 0;
 
     while (true) {
-        if (!s_sd_enabled) {
+        qsee_logger_sd_status_t sd_status;
+        uint32_t generation;
+        read_sd_state(&sd_status, &generation);
+
+        if (generation != active_generation) {
             if (file != NULL) {
-                (void)fclose(file);
-                file = NULL;
+                if (!flush_log_file(
+                        &file,
+                        &lines_since_flush,
+                        "configuration flush"
+                    ) ||
+                    !close_log_file(&file, "configuration close")) {
+                    lines_since_flush = 0;
+                    active_generation = generation;
+                    continue;
+                }
                 lines_since_flush = 0;
             }
-            while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
-                /* Drop queued SD copies while the card is unavailable. */
+            active_generation = generation;
+            continue;
+        }
+
+        if (!sd_status.enabled) {
+            if (sd_status.last_error == ESP_OK) {
+                while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
+                    if (line.sd_generation == active_generation &&
+                        !write_log_line(&file, &lines_since_flush, &line)) {
+                        break;
+                    }
+                }
+            } else {
+                while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
+                    /* The recorded writer failure prevents safe persistence. */
+                }
+            }
+            flush_log_file(&file, &lines_since_flush, "stop flush");
+            close_log_file(&file, "stop close");
+            if (s_writer_idle != NULL) {
+                const BaseType_t acknowledged = xSemaphoreGive(s_writer_idle);
+                if (acknowledged != pdTRUE) {
+                    /* A binary acknowledgement is already pending. */
+                }
             }
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
         }
 
-        if (xQueueReceive(s_write_queue, &line, pdMS_TO_TICKS(500)) != pdTRUE) {
-            if (file != NULL && lines_since_flush > 0U) {
-                if (fflush(file) != 0) {
-                    (void)fclose(file);
-                    file = NULL;
-                    s_sd_enabled = false;
-                }
-                lines_since_flush = 0;
-            }
+        if (xQueueReceive(s_write_queue, &line, pdMS_TO_TICKS(100)) != pdTRUE) {
+            flush_log_file(&file, &lines_since_flush, "idle flush");
+            continue;
+        }
+        if (line.sd_generation != active_generation) {
             continue;
         }
 
-        if (file == NULL) {
-            file = fopen(s_log_path, "ab");
-            if (file == NULL) {
-                s_sd_enabled = false;
-                continue;
-            }
-            if (fseek(file, 0, SEEK_END) != 0) {
-                (void)fclose(file);
-                file = NULL;
-                s_sd_enabled = false;
-                continue;
-            }
-        }
-
-        if (fputs(line.text, file) == EOF) {
-            (void)fclose(file);
-            file = NULL;
-            s_sd_enabled = false;
-            continue;
-        }
-        const size_t length = strlen(line.text);
-        if (length == 0U || line.text[length - 1U] != '\n') {
-            if (fputc('\n', file) == EOF) {
-                (void)fclose(file);
-                file = NULL;
-                s_sd_enabled = false;
-                continue;
-            }
-        }
-
-        lines_since_flush++;
-        if (lines_since_flush >= 8U) {
-            if (fflush(file) != 0) {
-                (void)fclose(file);
-                file = NULL;
-                s_sd_enabled = false;
-                lines_since_flush = 0;
-                continue;
-            }
-            lines_since_flush = 0;
-            rotate_log_if_needed(&file);
-        }
+        write_log_line(&file, &lines_since_flush, &line);
     }
+}
+
+static esp_err_t stop_sd_writer(void)
+{
+    qsee_logger_sd_status_t before;
+    read_sd_state(&before, NULL);
+
+    while (xSemaphoreTake(s_writer_idle, 0) == pdTRUE) {
+        /* Remove a stale idle acknowledgement before requesting the stop. */
+    }
+    set_sd_disabled();
+    if (xSemaphoreTake(s_writer_idle, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        record_sd_failure("stop acknowledgement", ESP_ERR_TIMEOUT, 0);
+        return ESP_ERR_TIMEOUT;
+    }
+
+    qsee_logger_sd_status_t after;
+    read_sd_state(&after, NULL);
+    if (after.failure_count != before.failure_count) {
+        return after.last_error;
+    }
+    return ESP_OK;
 }
 
 esp_err_t qsee_logger_init(void)
@@ -232,6 +463,11 @@ esp_err_t qsee_logger_init(void)
 
     s_snapshot_mutex = xSemaphoreCreateMutexStatic(&s_snapshot_mutex_control);
     if (s_snapshot_mutex == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+
+    s_writer_idle = xSemaphoreCreateBinaryStatic(&s_writer_idle_control);
+    if (s_writer_idle == NULL) {
         return ESP_ERR_NO_MEM;
     }
 
@@ -259,6 +495,17 @@ esp_err_t qsee_logger_init(void)
     }
 
     s_serial_vprintf = esp_log_set_vprintf(qsee_log_vprintf);
+    const int64_t initialized_at_us = esp_timer_get_time();
+    portENTER_CRITICAL(&s_sd_lock);
+    s_sd_status = (qsee_logger_sd_status_t){
+        .enabled = false,
+        .last_error = ESP_OK,
+        .last_errno = 0,
+        .changed_at_us = initialized_at_us,
+        .failure_count = 0,
+    };
+    s_sd_generation = 1;
+    portEXIT_CRITICAL(&s_sd_lock);
     s_initialized = true;
     ESP_LOGI(TAG, "Canonical logger online: serial + RAM ring");
     return ESP_OK;
@@ -266,56 +513,115 @@ esp_err_t qsee_logger_init(void)
 
 esp_err_t qsee_logger_enable_sd(const char *mount_point)
 {
-    if (!s_initialized || mount_point == NULL || mount_point[0] == '\0') {
+    if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
+    }
+    if (mount_point == NULL || mount_point[0] == '\0') {
+        record_sd_failure("enable arguments", ESP_ERR_INVALID_ARG, 0);
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const esp_err_t stop_result = stop_sd_writer();
+    if (stop_result != ESP_OK) {
+        return stop_result;
     }
 
     char app_dir[128];
     char logs_dir[144];
-    snprintf(app_dir, sizeof(app_dir), "%s/qsee", mount_point);
-    snprintf(logs_dir, sizeof(logs_dir), "%s/logs", app_dir);
+    const int app_dir_length =
+        snprintf(app_dir, sizeof(app_dir), "%s/qsee", mount_point);
+    if (app_dir_length < 0 || (size_t)app_dir_length >= sizeof(app_dir)) {
+        record_sd_failure("application path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const int logs_dir_length =
+        snprintf(logs_dir, sizeof(logs_dir), "%s/logs", app_dir);
+    if (logs_dir_length < 0 || (size_t)logs_dir_length >= sizeof(logs_dir)) {
+        record_sd_failure("logs path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
 
     if ((mkdir(app_dir, 0775) != 0) && errno != EEXIST) {
+        const int mkdir_errno = errno;
+        record_sd_failure("application directory", ESP_FAIL, mkdir_errno);
         return ESP_FAIL;
     }
     if ((mkdir(logs_dir, 0775) != 0) && errno != EEXIST) {
+        const int mkdir_errno = errno;
+        record_sd_failure("logs directory", ESP_FAIL, mkdir_errno);
         return ESP_FAIL;
     }
 
-    snprintf(s_log_path, sizeof(s_log_path), "%s/qsee.log", logs_dir);
+    const int log_path_length =
+        snprintf(s_log_path, sizeof(s_log_path), "%s/qsee.log", logs_dir);
+    if (log_path_length < 0 || (size_t)log_path_length >= sizeof(s_log_path)) {
+        record_sd_failure("log path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
     FILE *probe = fopen(s_log_path, "ab");
     if (probe == NULL) {
+        const int open_errno = errno;
+        record_sd_failure("probe open", ESP_FAIL, open_errno);
         return ESP_FAIL;
     }
-    fclose(probe);
+    if (fclose(probe) != 0) {
+        const int close_errno = errno;
+        record_sd_failure("probe close", ESP_FAIL, close_errno);
+        return ESP_FAIL;
+    }
 
-    s_sd_enabled = true;
+    set_sd_enabled();
     ESP_LOGI(TAG, "SD mirror enabled: %s", s_log_path);
     return ESP_OK;
 }
 
-void qsee_logger_disable_sd(void)
+esp_err_t qsee_logger_disable_sd(void)
 {
-    s_sd_enabled = false;
+    if (!s_initialized) {
+        serial_printf("E (0) %s: Cannot disable SD mirror before logger init\n", TAG);
+        return ESP_ERR_INVALID_STATE;
+    }
+    return stop_sd_writer();
 }
 
-void qsee_logger_clear(void)
+esp_err_t qsee_logger_clear(void)
 {
+    if (!s_initialized) {
+        serial_printf("E (0) %s: Cannot clear RAM ring before logger init\n", TAG);
+        return ESP_ERR_INVALID_STATE;
+    }
+
     portENTER_CRITICAL(&s_ring_lock);
     memset(s_ring, 0, sizeof(s_ring));
     s_ring_head = 0U;
     s_ring_count = 0U;
     portEXIT_CRITICAL(&s_ring_lock);
+    return ESP_OK;
 }
 
-size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines)
+esp_err_t qsee_logger_snapshot(
+    char *buffer,
+    size_t buffer_size,
+    size_t max_lines,
+    size_t *bytes_written
+)
 {
-    if (buffer == NULL || buffer_size == 0U || max_lines == 0U) {
-        return 0;
+    if (buffer == NULL || buffer_size == 0U || max_lines == 0U ||
+        bytes_written == NULL) {
+        serial_printf("E (0) %s: Invalid RAM ring snapshot arguments\n", TAG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    *bytes_written = 0U;
+    buffer[0] = '\0';
+
+    if (!s_initialized) {
+        serial_printf("E (0) %s: Cannot read RAM ring before logger init\n", TAG);
+        return ESP_ERR_INVALID_STATE;
     }
 
     if (xSemaphoreTake(s_snapshot_mutex, 0) != pdTRUE) {
-        return 0;
+        ESP_LOGE(TAG, "RAM ring snapshot busy");
+        return ESP_ERR_TIMEOUT;
     }
 
     size_t copy_count;
@@ -329,28 +635,45 @@ size_t qsee_logger_snapshot(char *buffer, size_t buffer_size, size_t max_lines)
     }
     portEXIT_CRITICAL(&s_ring_lock);
 
+    esp_err_t result = ESP_OK;
     size_t used = 0;
-    buffer[0] = '\0';
     for (size_t i = 0; i < copy_count && used + 1U < buffer_size; ++i) {
         const char *text = s_snapshot_copy[i].text;
         const size_t available = buffer_size - used;
         const int written = snprintf(buffer + used, available, "%s%s", text,
                                      (text[0] != '\0' && text[strlen(text) - 1U] == '\n') ? "" : "\n");
         if (written < 0) {
+            result = ESP_FAIL;
             break;
         }
         if ((size_t)written >= available) {
             used = buffer_size - 1U;
+            result = ESP_ERR_INVALID_SIZE;
             break;
         }
         used += (size_t)written;
     }
     buffer[used] = '\0';
-    xSemaphoreGive(s_snapshot_mutex);
-    return used;
+    *bytes_written = used;
+    if (xSemaphoreGive(s_snapshot_mutex) != pdTRUE) {
+        ESP_LOGE(TAG, "RAM ring snapshot mutex release failed");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "RAM ring snapshot formatting failed");
+    }
+    return result;
 }
 
-bool qsee_logger_sd_enabled(void)
+esp_err_t qsee_logger_get_sd_status(qsee_logger_sd_status_t *status)
 {
-    return s_sd_enabled;
+    if (status == NULL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    read_sd_state(status, NULL);
+    return ESP_OK;
 }

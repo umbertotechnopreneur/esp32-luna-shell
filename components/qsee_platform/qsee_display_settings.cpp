@@ -1,220 +1,236 @@
-// Display-brightness settings and panel fade control for QSee.
-// Keeps applied brightness separate from the user's preferred value.
+/*
+ * QSEE.AI
+ * Clear signals. Confident decisions.
+ *
+ * Copyright (c) 2026 QSee.ai. All rights reserved.
+ *
+ * Author: Umberto Giacobbi
+ * QSee.ai: https://qsee.ai
+ * Author website: https://umbertogiacobbi.biz
+ * Contact: hello@qsee.ai
+ */
 
 #include "qsee_platform.h"
+#include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
 
-#include <atomic>
+#include <mutex>
 
 #include "bsp/display.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
-#include "freertos/task.h"
 
 namespace {
 
 constexpr char kTag[] = "qsee_display_settings";
 constexpr char kBrightnessSetting[] = "brightness";
-constexpr uint32_t kFadeStepMs = 20;
+constexpr uint32_t kBrightnessDefaultPercent = 100;
+constexpr uint32_t kBrightnessMinPercent = 10;
+constexpr uint32_t kBrightnessMaxPercent = 100;
+std::mutex s_brightness_mutex;
 
-// Keep the user setting separate from temporary fade levels.
-std::atomic<uint32_t> s_preferred_brightness_percent{100};
-uint32_t s_applied_brightness_percent = 100;
-bool s_panel_enabled = true;
-StaticSemaphore_t s_fade_mutex_control;
-SemaphoreHandle_t s_fade_mutex;
-portMUX_TYPE s_fade_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
-
-uint32_t clamp_brightness(uint32_t percent)
+esp_err_t read_applied_brightness(uint32_t *percent)
 {
-    return percent < 10U ? 10U : percent > 100U ? 100U : percent;
-}
-
-// Create the shared fade mutex once under a cross-task initialization guard.
-SemaphoreHandle_t fade_mutex()
-{
-    portENTER_CRITICAL(&s_fade_mutex_init_lock);
-    if (s_fade_mutex == nullptr) {
-        s_fade_mutex = xSemaphoreCreateMutexStatic(&s_fade_mutex_control);
+    if (percent == nullptr) {
+        return ESP_ERR_INVALID_ARG;
     }
-    SemaphoreHandle_t mutex = s_fade_mutex;
-    portEXIT_CRITICAL(&s_fade_mutex_init_lock);
-    return mutex;
-}
-
-// Apply one hardware level without changing the persisted user preference.
-esp_err_t apply_runtime_brightness(uint32_t percent)
-{
-    const esp_err_t result =
-        bsp_display_brightness_set(static_cast<int>(percent));
-    if (result == ESP_OK) {
-        s_applied_brightness_percent = percent;
+    const int brightness = bsp_display_brightness_get();
+    if (brightness < 0) {
+        return ESP_ERR_INVALID_STATE;
     }
-    return result;
-}
-
-// Interpolate the active level; the caller must hold the fade mutex.
-esp_err_t fade_locked(uint32_t target_percent, uint32_t duration_ms)
-{
-    if (!s_panel_enabled && target_percent > 0U) {
-        const esp_err_t panel_result = bsp_display_panel_set_enabled(true);
-        if (panel_result != ESP_OK) {
-            return panel_result;
-        }
-        s_panel_enabled = true;
-        s_applied_brightness_percent = 0;
+    if (brightness > static_cast<int>(kBrightnessMaxPercent)) {
+        return ESP_ERR_INVALID_RESPONSE;
     }
-
-    const uint32_t start_percent = s_applied_brightness_percent;
-    if (start_percent == target_percent || duration_ms == 0U) {
-        return apply_runtime_brightness(target_percent);
-    }
-
-    const int32_t difference =
-        static_cast<int32_t>(target_percent) -
-        static_cast<int32_t>(start_percent);
-    const uint32_t distance =
-        static_cast<uint32_t>(difference < 0 ? -difference : difference);
-    uint32_t step_count = duration_ms / kFadeStepMs;
-    if (step_count == 0U) {
-        step_count = 1U;
-    }
-    if (step_count > distance) {
-        step_count = distance;
-    }
-
-    // Limit writes to distinct percentage values while keeping an even cadence.
-    const TickType_t step_ticks = pdMS_TO_TICKS(
-        duration_ms / step_count > 0U ? duration_ms / step_count : 1U
-    );
-    TickType_t last_wake = xTaskGetTickCount();
-    for (uint32_t step = 1; step <= step_count; ++step) {
-        const int32_t interpolated =
-            static_cast<int32_t>(start_percent) +
-            (difference * static_cast<int32_t>(step)) /
-                static_cast<int32_t>(step_count);
-        const esp_err_t result =
-            apply_runtime_brightness(static_cast<uint32_t>(interpolated));
-        if (result != ESP_OK) {
-            return result;
-        }
-        if (step < step_count) {
-            vTaskDelayUntil(&last_wake, step_ticks > 0 ? step_ticks : 1);
-        }
-    }
+    *percent = static_cast<uint32_t>(brightness);
     return ESP_OK;
+}
+
+esp_err_t ensure_user_settings()
+{
+    auto &settings = qsee::UserSettingsService::instance();
+    return settings.isInitialized() ? ESP_OK : settings.initialize();
+}
+
+void publish_brightness(uint32_t percent, esp_err_t error)
+{
+    qsee::DeviceSnapshotService::instance().reportDisplayBrightness(
+        percent,
+        error
+    );
 }
 
 }  // namespace
 
-// Persist the user preference and apply it immediately to the panel.
 extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
 {
-    if (percent < 10U || percent > 100U) {
+    if (percent < kBrightnessMinPercent ||
+        percent > kBrightnessMaxPercent) {
+        publish_brightness(0, ESP_ERR_INVALID_ARG);
+        ESP_LOGE(
+            kTag,
+            "Brightness %lu outside [%lu, %lu]",
+            static_cast<unsigned long>(percent),
+            static_cast<unsigned long>(kBrightnessMinPercent),
+            static_cast<unsigned long>(kBrightnessMaxPercent)
+        );
         return ESP_ERR_INVALID_ARG;
     }
-    auto &settings = qsee::UserSettingsService::instance();
-    if (!settings.isInitialized()) {
-        const esp_err_t init_error = settings.initialize();
-        if (init_error != ESP_OK) return init_error;
+
+    std::lock_guard<std::mutex> lock(s_brightness_mutex);
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        publish_brightness(0, init_error);
+        ESP_LOGE(
+            kTag,
+            "Brightness settings initialization failed (%s)",
+            esp_err_to_name(init_error)
+        );
+        return init_error;
     }
 
-    SemaphoreHandle_t mutex = fade_mutex();
-    if (mutex == nullptr) return ESP_ERR_NO_MEM;
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
+    uint32_t previous_percent = 0;
+    const esp_err_t read_error =
+        read_applied_brightness(&previous_percent);
+    if (read_error != ESP_OK) {
+        publish_brightness(0, read_error);
+        ESP_LOGE(
+            kTag,
+            "Reading applied brightness failed (%s)",
+            esp_err_to_name(read_error)
+        );
+        return read_error;
+    }
+
+    const esp_err_t display_error =
+        bsp_display_brightness_set(static_cast<int>(percent));
+    if (display_error != ESP_OK) {
+        publish_brightness(previous_percent, display_error);
+        ESP_LOGE(
+            kTag,
+            "Applying brightness failed (%s)",
+            esp_err_to_name(display_error)
+        );
+        return display_error;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
     const esp_err_t persist_error =
         settings.setUInt32(kBrightnessSetting, percent);
     if (persist_error != ESP_OK) {
-        xSemaphoreGive(mutex);
+        const esp_err_t rollback_error =
+            bsp_display_brightness_set(static_cast<int>(previous_percent));
+        publish_brightness(previous_percent, persist_error);
+        ESP_LOGE(
+            kTag,
+            "Brightness persistence failed (%s)",
+            esp_err_to_name(persist_error)
+        );
+        if (rollback_error != ESP_OK) {
+            ESP_LOGW(
+                kTag,
+                "Brightness persistence failed (%s); rollback also failed (%s)",
+                esp_err_to_name(persist_error),
+                esp_err_to_name(rollback_error)
+            );
+        }
         return persist_error;
     }
-    s_preferred_brightness_percent.store(percent);
-    const esp_err_t display_error = fade_locked(percent, 0);
-    xSemaphoreGive(mutex);
+
+    publish_brightness(percent, ESP_OK);
     ESP_LOGI(kTag, "AMOLED brightness: %lu%%",
              static_cast<unsigned long>(percent));
-    return display_error;
+    return ESP_OK;
 }
 
-extern "C" uint32_t qsee_display_get_brightness_percent(void)
+extern "C" esp_err_t qsee_display_get_brightness_percent(uint32_t *percent)
 {
-    return s_preferred_brightness_percent.load();
-}
-
-// Restore both preferred and active levels from NVS at startup.
-extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
-{
-    auto &settings = qsee::UserSettingsService::instance();
-    if (!settings.isInitialized()) {
-        const esp_err_t init_error = settings.initialize();
-        if (init_error != ESP_OK) return init_error;
-    }
-    SemaphoreHandle_t mutex = fade_mutex();
-    if (mutex == nullptr) return ESP_ERR_NO_MEM;
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
-    uint32_t brightness = 100;
-    const esp_err_t read_error =
-        settings.getUInt32(kBrightnessSetting, 100, &brightness);
-    if (read_error != ESP_OK) {
-        xSemaphoreGive(mutex);
-        return read_error;
-    }
-    brightness = clamp_brightness(brightness);
-    s_preferred_brightness_percent.store(brightness);
-    const esp_err_t display_error = fade_locked(brightness, 0);
-    xSemaphoreGive(mutex);
-    ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
-             static_cast<unsigned long>(brightness));
-    return display_error;
-}
-
-// Fade to a transient level without overwriting the user preference.
-extern "C" esp_err_t qsee_display_fade_to_percent(
-    uint32_t target_percent,
-    uint32_t duration_ms
-)
-{
-    if (target_percent > 100U) {
+    if (percent == nullptr) {
+        ESP_LOGE(kTag, "Brightness read rejected: output is null");
         return ESP_ERR_INVALID_ARG;
     }
-    SemaphoreHandle_t mutex = fade_mutex();
-    if (mutex == nullptr) return ESP_ERR_NO_MEM;
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
-    const esp_err_t result = fade_locked(target_percent, duration_ms);
-    xSemaphoreGive(mutex);
-    return result;
-}
-
-extern "C" esp_err_t qsee_display_fade_out(uint32_t duration_ms)
-{
-    return qsee_display_fade_to_percent(0U, duration_ms);
-}
-
-extern "C" esp_err_t qsee_display_fade_in(uint32_t duration_ms)
-{
-    SemaphoreHandle_t mutex = fade_mutex();
-    if (mutex == nullptr) return ESP_ERR_NO_MEM;
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
-    const esp_err_t result =
-        fade_locked(s_preferred_brightness_percent.load(), duration_ms);
-    xSemaphoreGive(mutex);
-    return result;
-}
-
-// Toggle panel scan output while preserving the saved brightness preference.
-extern "C" esp_err_t qsee_display_set_panel_enabled(bool enabled)
-{
-    SemaphoreHandle_t mutex = fade_mutex();
-    if (mutex == nullptr) return ESP_ERR_NO_MEM;
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
-    const esp_err_t result = bsp_display_panel_set_enabled(enabled);
-    if (result == ESP_OK) {
-        s_panel_enabled = enabled;
-        if (!enabled) {
-            s_applied_brightness_percent = 0;
-        }
+    std::lock_guard<std::mutex> lock(s_brightness_mutex);
+    const esp_err_t error = read_applied_brightness(percent);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Reading applied brightness failed (%s)",
+            esp_err_to_name(error)
+        );
     }
-    xSemaphoreGive(mutex);
-    return result;
+    return error;
+}
+
+extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
+{
+    std::lock_guard<std::mutex> lock(s_brightness_mutex);
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        publish_brightness(0, init_error);
+        ESP_LOGE(
+            kTag,
+            "Brightness settings initialization failed (%s)",
+            esp_err_to_name(init_error)
+        );
+        return init_error;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    uint32_t brightness = 0;
+    esp_err_t read_error =
+        settings.getUInt32(kBrightnessSetting, &brightness);
+    if (read_error == ESP_ERR_NVS_NOT_FOUND) {
+        brightness = kBrightnessDefaultPercent;
+        ESP_LOGI(
+            kTag,
+            "Brightness: first boot key '%s' absent; "
+            "persisting explicit default %lu",
+            kBrightnessSetting,
+            static_cast<unsigned long>(brightness)
+        );
+        read_error = settings.setUInt32(kBrightnessSetting, brightness);
+        if (read_error != ESP_OK) {
+            publish_brightness(0, read_error);
+            ESP_LOGE(
+                kTag,
+                "Persisting first-boot brightness failed (%s)",
+                esp_err_to_name(read_error)
+            );
+            return read_error;
+        }
+    } else if (read_error != ESP_OK) {
+        publish_brightness(0, read_error);
+        ESP_LOGE(
+            kTag,
+            "Reading persisted brightness failed (%s)",
+            esp_err_to_name(read_error)
+        );
+        return read_error;
+    }
+
+    if (brightness < kBrightnessMinPercent ||
+        brightness > kBrightnessMaxPercent) {
+        publish_brightness(0, ESP_ERR_INVALID_ARG);
+        ESP_LOGE(
+            kTag,
+            "Persisted brightness %lu outside [%lu, %lu]; "
+            "explicit reset required",
+            static_cast<unsigned long>(brightness),
+            static_cast<unsigned long>(kBrightnessMinPercent),
+            static_cast<unsigned long>(kBrightnessMaxPercent)
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
+             static_cast<unsigned long>(brightness));
+    const esp_err_t display_error =
+        bsp_display_brightness_set(static_cast<int>(brightness));
+    publish_brightness(brightness, display_error);
+    if (display_error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Applying persisted brightness failed (%s)",
+            esp_err_to_name(display_error)
+        );
+    }
+    return display_error;
 }

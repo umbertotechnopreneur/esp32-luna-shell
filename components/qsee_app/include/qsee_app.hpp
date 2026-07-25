@@ -10,40 +10,117 @@
  * Contact: hello@qsee.ai
  */
 
-// Public app entry point for the QSee.ai phone-style experience.
-// Owns navigation startup, back handling, and status bar synchronization.
-
 #pragma once
 
-// Public app entry point for the QSee.ai phone-style experience.
-// Owns navigation startup, back handling, and status bar synchronization.
-
+#include <cstdint>
+#include <expected>
 #include <memory>
+#include <string>
+#include <string_view>
 
-#include "systems/phone/esp_brookesia_phone_app.hpp"
-#include "gui/lvgl/esp_brookesia_app_widgets.hpp"
-#include "qsee_status_bar.hpp"
+#include "brookesia/system_core.hpp"
 
 namespace qsee {
 
-class App final : public esp_brookesia::systems::phone::App {
-public:
-    static App *requestInstance();
-    ~App() override = default;
+inline constexpr std::string_view kAppManifestId = "ai.qsee.device-console";
 
-protected:
-    App();
-    /** Build the navigation shell and start snapshot-driven status updates. */
-    bool run() override;
-    /** Navigate inside QSee first, then release the app back to Brookesia. */
-    bool back() override;
-    /** Map one canonical device snapshot to display-only indicator state. */
-    void syncStatusBar();
+class App final : public esp_brookesia::system::core::IApp {
+public:
+    esp_brookesia::system::core::AppManifest get_manifest() const override;
+    esp_brookesia::system::core::AppGuiDescriptor get_gui_descriptor() const override;
+
+    std::expected<void, std::string> on_start(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_pause(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_resume(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_stop(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_action(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view action
+    ) override;
+    std::expected<void, std::string> on_timer(
+        esp_brookesia::system::core::AppContext &context,
+        esp_brookesia::system::core::TimerId timer_id,
+        std::string_view name
+    ) override;
 
 private:
-    static App *_instance;
-    std::unique_ptr<esp_brookesia::gui::AppTimer> _status_timer;
-    std::unique_ptr<QSeeStatusBar> _status_bar;
+    enum class Screen {
+        Welcome,
+        Logs,
+        Hardware,
+        Audio,
+        Imu,
+        Settings,
+        About,
+    };
+
+    std::expected<void, std::string> open_screen(
+        esp_brookesia::system::core::AppContext &context,
+        Screen screen,
+        std::string_view action
+    );
+    std::expected<void, std::string> refresh(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_welcome(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_logs(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_hardware(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_audio(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_imu(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_settings(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> request_log_search(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> request_sd_format(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> show_error_dialog(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view title,
+        std::string_view details
+    );
+    std::expected<void, std::string> apply_diagnostic_monitor(
+        esp_brookesia::system::core::AppContext &context,
+        Screen screen
+    );
+
+    esp_brookesia::system::core::AppContext *context_ = nullptr;
+    esp_brookesia::system::core::TimerId refresh_timer_ =
+        esp_brookesia::system::core::INVALID_TIMER_ID;
+    esp_brookesia::system::core::KeyboardRequestId search_keyboard_ =
+        esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
+    esp_brookesia::system::core::MessageDialogRequestId format_dialog_ =
+        esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
+    esp_brookesia::system::core::MessageDialogRequestId error_dialog_ =
+        esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
+    Screen screen_ = Screen::Welcome;
+    bool logs_paused_ = false;
+    bool logs_follow_latest_ = true;
+    uint8_t log_filter_mode_ = 0;
+    int64_t diagnostic_activation_sample_at_us_ = 0;
+    std::string log_query_;
+    std::unique_ptr<char[]> log_source_buffer_;
+    std::unique_ptr<char[]> log_filtered_buffer_;
 };
 
-} // namespace qsee
+}  // namespace qsee

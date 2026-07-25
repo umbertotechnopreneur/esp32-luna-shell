@@ -10,12 +10,8 @@
  * Contact: hello@qsee.ai
  */
 
-// Shared snapshot model for board health, radios, power, storage, and time.
-// Used by the UI, HTTP API, and platform services as a read-only contract.
-
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
 
 #include "esp_err.h"
@@ -30,9 +26,12 @@ enum class DeviceHealth : uint8_t {
 };
 
 struct ComponentSnapshot {
-    bool available = false;
     DeviceHealth health = DeviceHealth::Unknown;
     esp_err_t last_error = ESP_ERR_INVALID_STATE;
+    bool data_valid = false;
+    bool data_stale = false;
+    int64_t last_attempt_at_us = 0;
+    int64_t last_success_at_us = 0;
 };
 
 struct BatterySnapshot : ComponentSnapshot {
@@ -47,7 +46,7 @@ struct BatterySnapshot : ComponentSnapshot {
 };
 
 struct ImuSnapshot : ComponentSnapshot {
-    int64_t sampled_at_us = 0;
+    ComponentSnapshot calibration;
     float acceleration_mps2[3] = {};
     float angular_velocity_dps[3] = {};
     float temperature_c = 0.0F;
@@ -61,6 +60,7 @@ struct ImuSnapshot : ComponentSnapshot {
 };
 
 struct RtcSnapshot : ComponentSnapshot {
+    ComponentSnapshot system_time;
     bool clock_integrity = false;
     bool system_time_valid = false;
     bool synchronized = false;
@@ -75,10 +75,9 @@ struct RtcSnapshot : ComponentSnapshot {
 };
 
 struct GpsSnapshot : ComponentSnapshot {
-    bool enabled = true;
-    int64_t sampled_at_us = 0;
     uint32_t pending_nmea_bytes = 0;
     bool has_fix = false;
+    bool utc_valid = false;
     uint8_t fix_quality = 0;
     uint8_t satellites = 0;
     double latitude_degrees = 0.0;
@@ -92,8 +91,6 @@ struct GpsSnapshot : ComponentSnapshot {
     char first_sentence[181] = {};
 };
 
-constexpr size_t kAudioSpectrumBandCount = 16;
-
 struct AudioSnapshot {
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
@@ -103,24 +100,10 @@ struct AudioSnapshot {
     uint32_t microphone_peak_level = 0;
     uint32_t channel_mean_level[2] = {};
     uint32_t channel_peak_level[2] = {};
-    uint8_t channel_spectrum[2][kAudioSpectrumBandCount] = {};
-    uint32_t spectrum_sequence = 0;
-};
-
-constexpr size_t kWifiSnapshotMaxNetworks = 16;
-
-struct WifiNetworkSnapshot {
-    char ssid[33] = {};
-    int8_t rssi = 0;
-    uint8_t channel = 0;
-    bool secured = false;
 };
 
 struct WifiSnapshot : ComponentSnapshot {
-    int64_t updated_at_us = 0;
     bool started = false;
-    bool scanning = false;
-    bool scan_completed = false;
     bool credentials_configured = false;
     bool connect_requested = false;
     bool connected = false;
@@ -133,19 +116,12 @@ struct WifiSnapshot : ComponentSnapshot {
     uint32_t connect_attempt_count = 0;
     uint32_t reconnect_attempt_count = 0;
     uint32_t disconnect_count = 0;
-    uint32_t scan_sequence = 0;
-    uint8_t network_count = 0;
     char ssid[33] = {};
     char ip_address[16] = {};
-    char netmask[16] = {};
-    char gateway[16] = {};
     char mac_address[18] = {};
-    WifiNetworkSnapshot networks[kWifiSnapshotMaxNetworks];
 };
 
 struct BleSnapshot : ComponentSnapshot {
-    int64_t updated_at_us = 0;
-    bool enabled = false;
     bool provisioning = false;
     bool advertising = false;
     bool connected = false;
@@ -160,39 +136,120 @@ struct RadioSnapshot {
     BleSnapshot ble;
 };
 
-struct StorageSnapshot : ComponentSnapshot {
-    bool card_present = false;
+enum class StorageMountOutcome : uint8_t {
+    NotAttempted,
+    Mounted,
+    CardOrTransportFailed,
+    FormatRequired,
+    FilesystemFailed,
+    FormatFailed,
+    InternalFailed,
+};
+
+enum class StorageMountStage : uint8_t {
+    None,
+    Request,
+    HostInit,
+    SlotInit,
+    CardInit,
+    CardIdentity,
+    DriveAlloc,
+    DiskIoRegister,
+    VfsRegister,
+    FatMount,
+    PreFormatUnmount,
+    Partition,
+    Format,
+    PostFormatMount,
+    RuntimeStatus,
+    RuntimeFilesystem,
+    RuntimeUnmount,
+};
+
+enum class StorageCleanupStage : uint8_t {
+    None,
+    FatUnmount,
+    VfsUnregister,
+    HostDeinit,
+};
+
+struct StorageMountReport {
+    StorageMountOutcome outcome = StorageMountOutcome::NotAttempted;
+    StorageMountStage stage = StorageMountStage::None;
+    StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+    esp_err_t cleanup_error = ESP_OK;
+    bool initial_fatfs_result_valid = false;
+    int32_t initial_fatfs_result = 0;
+    bool fatfs_result_valid = false;
+    int32_t fatfs_result = 0;
+    bool cleanup_fatfs_result_valid = false;
+    int32_t cleanup_fatfs_result = 0;
+    bool cleanup_complete = true;
+    bool poisoned = false;
+    bool mounted = false;
+    bool card_response_verified = false;
+    bool format_required = false;
+    bool authorization_consumed = false;
+    bool authorization_identity_matched = false;
     bool format_attempted = false;
+    bool partition_written = false;
     bool formatted = false;
     uint32_t mount_attempt_count = 0;
     uint64_t capacity_bytes = 0;
     uint64_t filesystem_total_bytes = 0;
     uint64_t free_bytes = 0;
+    bool logger_mirror_requested = true;
     bool logger_mirror_enabled = false;
 };
 
-struct HttpSnapshot {
-    bool enabled = true;
-    bool running = false;
-    uint16_t port = 8080;
-    esp_err_t last_error = ESP_OK;
-};
-
-struct OrientationSnapshot {
-    bool auto_rotation_enabled = false;
-    bool gravity_valid = false;
-    bool rotation_pending = false;
-    uint16_t physical_orientation_degrees = 0;
-    uint16_t rendering_rotation_degrees = 0;
-    uint32_t change_sequence = 0;
-    int64_t sampled_at_us = 0;
-    int64_t changed_at_us = 0;
+struct StorageSnapshot : ComponentSnapshot {
+    ComponentSnapshot logger_mirror;
+    StorageMountOutcome mount_outcome = StorageMountOutcome::NotAttempted;
+    StorageMountStage mount_stage = StorageMountStage::None;
+    StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
+    esp_err_t cleanup_error = ESP_OK;
+    bool initial_fatfs_result_valid = false;
+    int32_t initial_fatfs_result = 0;
+    bool fatfs_result_valid = false;
+    int32_t fatfs_result = 0;
+    bool cleanup_fatfs_result_valid = false;
+    int32_t cleanup_fatfs_result = 0;
+    bool cleanup_complete = true;
+    bool poisoned = false;
+    bool mounted = false;
+    bool card_response_verified = false;
+    bool format_required = false;
+    bool authorization_consumed = false;
+    bool authorization_identity_matched = false;
+    bool format_attempted = false;
+    bool partition_written = false;
+    bool formatted = false;
+    uint32_t mount_attempt_count = 0;
+    uint64_t capacity_bytes = 0;
+    uint64_t filesystem_total_bytes = 0;
+    uint64_t free_bytes = 0;
+    bool logger_mirror_requested = true;
+    bool logger_mirror_enabled = false;
+    int logger_mirror_errno = 0;
+    int64_t logger_mirror_changed_at_us = 0;
+    uint32_t logger_mirror_failure_count = 0;
 };
 
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
-    OrientationSnapshot orientation;
+    ComponentSnapshot brightness;
+    uint32_t brightness_percent = 100;
+};
+
+struct DiagnosticsSettingsSnapshot {
+    ComponentSnapshot sample_period;
+    ComponentSnapshot imu_smoothing;
+    ComponentSnapshot monitor;
+    uint32_t sample_period_ms = 300;
+    uint32_t imu_smoothing_percent = 70;
+    bool monitor_active = false;
 };
 
 struct InputSnapshot {
@@ -207,52 +264,40 @@ struct InputSnapshot {
     uint32_t wakeup_cause = 0;
 };
 
-struct MemorySnapshot {
-    bool flash_capacity_available = false;
-    bool firmware_usage_available = false;
+struct MemorySnapshot : ComponentSnapshot {
     uint32_t flash_capacity_bytes = 0;
     uint32_t app_partition_bytes = 0;
     uint32_t firmware_image_bytes = 0;
-    uint32_t firmware_used_bytes = 0;
-    uint32_t firmware_total_bytes = 0;
-    uint8_t firmware_used_percent = 0;
     uint32_t heap_free_bytes = 0;
     uint32_t heap_minimum_free_bytes = 0;
-    bool internal_heap_available = false;
-    uint32_t internal_total_bytes = 0;
-    uint32_t internal_used_bytes = 0;
-    uint8_t internal_used_percent = 0;
     uint32_t internal_free_bytes = 0;
     uint32_t internal_largest_block_bytes = 0;
     bool internal_memory_pressure = false;
     uint32_t psram_capacity_bytes = 0;
-    bool psram_heap_available = false;
     uint32_t psram_heap_total_bytes = 0;
-    uint8_t psram_used_percent = 0;
     uint32_t psram_free_bytes = 0;
     uint32_t psram_used_bytes = 0;
     uint32_t psram_largest_block_bytes = 0;
 };
 
 struct CoreSnapshot {
-    char current_task[24] = "unknown";
+    bool available = false;
+    char current_task[24] = "unavailable";
     uint32_t stack_high_water_words = 0;
     uint32_t priority = 0;
-    bool utilization_available = false;
-    uint8_t utilization_percent = 0;
 };
 
-struct ProcessorSnapshot {
+struct ProcessorSnapshot : ComponentSnapshot {
     uint8_t core_count = 0;
     uint8_t sampling_core = 0;
-    bool utilization_available = false;
-    uint32_t utilization_sample_period_us = 0;
     CoreSnapshot cores[2];
 };
 
 struct DeviceSnapshot {
     uint32_t sequence = 0;
-    int64_t refreshed_at_us = 0;
+    int64_t last_update_attempt_at_us = 0;
+    bool last_update_complete = false;
+    esp_err_t last_update_error = ESP_ERR_INVALID_STATE;
     char reason[32] = "not-refreshed";
     BatterySnapshot battery;
     ImuSnapshot imu;
@@ -261,7 +306,7 @@ struct DeviceSnapshot {
     AudioSnapshot audio;
     RadioSnapshot radios;
     StorageSnapshot storage;
-    HttpSnapshot http;
+    DiagnosticsSettingsSnapshot diagnostics;
     UiHardwareSnapshot ui;
     InputSnapshot input;
     MemorySnapshot memory;
@@ -279,32 +324,27 @@ class DeviceSnapshotService final {
 public:
     static DeviceSnapshotService &instance();
 
-    /** Probe synchronous devices and publish the initial canonical state. */
     esp_err_t initialize();
-    /** Refresh sampled devices and tag the resulting snapshot with a reason. */
     esp_err_t refresh(const char *reason = "manual");
-    /** Return a thread-safe value copy for UI or transport consumers. */
     DeviceSnapshot snapshot() const;
 
-    /** Merge asynchronous driver state without exposing hardware to consumers. */
-    void reportStorage(
-        bool mounted,
-        bool card_present,
-        bool format_attempted,
-        bool formatted,
-        uint32_t mount_attempt_count,
-        uint64_t capacity_bytes,
-        uint64_t filesystem_total_bytes,
-        uint64_t free_bytes,
-        bool logger_mirror,
-        esp_err_t error
+    void reportStorage(const StorageMountReport &report);
+    void reportStorageMirror(
+        bool requested,
+        bool enabled,
+        esp_err_t error,
+        int last_errno,
+        int64_t changed_at_us,
+        uint32_t failure_count
     );
+    void reportDiagnosticPeriod(uint32_t sample_period_ms, esp_err_t error);
+    void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
+    void reportDiagnosticMonitor(bool monitor_active, esp_err_t error);
+    void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);
     void reportDisplay(bool ready, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);
     void reportWifi(const WifiSnapshot &wifi);
-    /** Publish the desired and active HTTP service lifecycle for UI consumers. */
-    void reportHttp(bool enabled, bool running, uint16_t port, esp_err_t error);
     void reportBle(
         bool ready,
         esp_err_t error,
@@ -314,14 +354,14 @@ public:
         uint32_t connection_count = 0,
         uint32_t disconnection_count = 0,
         const char *device_name = nullptr,
-        bool provisioning = false,
-        bool enabled = false
+        bool provisioning = false
     );
     void reportTime(
         bool system_time_valid,
         bool synchronized,
         const char *source,
-        const char *timezone
+        const char *timezone,
+        esp_err_t error
     );
     void reportInputs(const InputSnapshot &inputs);
 

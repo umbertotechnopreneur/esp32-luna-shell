@@ -2,6 +2,7 @@
 build/
 build-*/
 managed_components/
+littlefs/
 runtime-logs/
 sdkconfig
 sdkconfig.old

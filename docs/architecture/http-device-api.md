@@ -1,9 +1,11 @@
 # Device HTTP API
 
-The firmware exposes a small read-only HTTP API on port `8080` when the Wi-Fi
-station has a DHCP lease. The server is deliberately tied to the station
-lifecycle: it starts after `IP_EVENT_STA_GOT_IP` and stops when the lease or
-station is lost.
+The firmware contains a small read-only HTTP API module on port `8080`. It is
+not started during boot: Wi-Fi/BLE startup remains an explicit Settings action
+in the migrated UI, and the HTTP module must be initialized only after its
+required persisted settings are present. When initialized, the server is tied
+to the station lifecycle: it starts after `IP_EVENT_STA_GOT_IP` and stops when
+the lease or station is lost.
 
 ## Endpoints
 
@@ -24,9 +26,10 @@ The API key is shared by the devices and is read directly from the user setting
 { "ApiKey": "ap-0000000000000000001" }
 ```
 
-The user may replace it in Settings. The running server observes changes to
-`ApiKey` and adopts a valid new value immediately. The setting is required;
-the server does not generate or substitute another key. Requests must send:
+The setting is required; the server does not generate or substitute another
+key. The persisted `http_enabled` setting is required as well: the server
+fails initialization when either setting is absent or invalid. Requests must
+send:
 
 ```http
 Authorization: Bearer <api-key>
@@ -38,8 +41,10 @@ All data routes serialize one coherent point-in-time copy returned by
 `DeviceSnapshotService::snapshot()`. A bounded task refreshes the hardware
 snapshot every five seconds while the HTTP server is online; request handlers
 never access peripheral drivers directly. JSON data responses use a versioned
-envelope with `sequence`, `refreshed_at_us` and `age_ms` so clients can detect
-stale data.
+envelope with `sequence`, `last_update_attempt_at_us`,
+`last_update_complete` and `age_ms`. The timestamp is explicitly the last
+refresh attempt, so an incomplete refresh cannot be presented as a successful
+sample.
 
 `/api/v1/info` deliberately omits Wi-Fi SSID/IP/MAC and the raw GPS sentence.
 Those fields are available only from the authenticated `/api/v1/diagnostics`

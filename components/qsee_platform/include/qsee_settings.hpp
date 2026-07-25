@@ -1,8 +1,5 @@
 #pragma once
 
-// Settings access helpers for platform configuration and persistence.
-// Provides the shared contract for reading and writing QSee settings.
-
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -12,12 +9,6 @@
 #include "nvs.h"
 
 namespace qsee {
-
-using StringChangeObserver = void (*)(
-    const char *key,
-    const char *value,
-    void *context
-);
 
 /**
  * Thread-safe persistent store for user-owned settings.
@@ -34,32 +25,29 @@ public:
     bool isInitialized() const;
 
     esp_err_t setBool(const char *key, bool value);
-    esp_err_t getBool(const char *key, bool default_value, bool *value) const;
+    esp_err_t getBool(const char *key, bool *value) const;
 
     esp_err_t setInt32(const char *key, int32_t value);
-    esp_err_t getInt32(const char *key, int32_t default_value, int32_t *value) const;
+    esp_err_t getInt32(const char *key, int32_t *value) const;
 
     esp_err_t setUInt32(const char *key, uint32_t value);
-    esp_err_t getUInt32(const char *key, uint32_t default_value, uint32_t *value) const;
+    esp_err_t getUInt32(const char *key, uint32_t *value) const;
 
     esp_err_t setInt64(const char *key, int64_t value);
-    esp_err_t getInt64(const char *key, int64_t default_value, int64_t *value) const;
+    esp_err_t getInt64(const char *key, int64_t *value) const;
 
     esp_err_t setUInt64(const char *key, uint64_t value);
-    esp_err_t getUInt64(const char *key, uint64_t default_value, uint64_t *value) const;
+    esp_err_t getUInt64(const char *key, uint64_t *value) const;
 
     esp_err_t setFloat(const char *key, float value);
-    esp_err_t getFloat(const char *key, float default_value, float *value) const;
+    esp_err_t getFloat(const char *key, float *value) const;
 
     esp_err_t setString(const char *key, const char *value);
-    esp_err_t getString(const char *key, const char *default_value, std::string *value) const;
-    esp_err_t setStringChangeObserver(StringChangeObserver observer, void *context);
+    esp_err_t getString(const char *key, std::string *value) const;
 
     esp_err_t setBlob(const char *key, const void *data, size_t size);
     esp_err_t getBlob(const char *key, std::vector<uint8_t> *data) const;
 
-    bool contains(const char *key) const;
-    esp_err_t erase(const char *key);
     esp_err_t clear();
 
 private:
@@ -74,8 +62,6 @@ private:
     mutable std::mutex _mutex;
     nvs_handle_t _handle = 0;
     bool _initialized = false;
-    StringChangeObserver _string_change_observer = nullptr;
-    void *_string_change_context = nullptr;
 };
 
 }  // namespace qsee

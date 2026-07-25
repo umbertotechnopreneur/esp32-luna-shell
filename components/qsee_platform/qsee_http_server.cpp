@@ -62,7 +62,7 @@ struct HttpMetricsState {
 
 httpd_handle_t s_server = nullptr;
 bool s_initialized = false;
-std::atomic<bool> s_enabled{true};
+std::atomic<bool> s_enabled{false};
 std::atomic<bool> s_server_running{false};
 std::mutex s_lifecycle_mutex;
 
@@ -200,23 +200,11 @@ esp_err_t loadApiKeyFromSettings()
     }
 
     std::string value;
-    error = settings.getString(kApiKeySetting, nullptr, &value);
+    error = settings.getString(kApiKeySetting, &value);
     if (error != ESP_OK) {
         return error;
     }
     return loadApiKeyValue(value.c_str());
-}
-
-// Hot-reload only API-key updates from the shared settings observer.
-void settingsChanged(const char *key, const char *value, void *)
-{
-    if (key == nullptr || std::strcmp(key, kApiKeySetting) != 0) {
-        return;
-    }
-    const esp_err_t error = loadApiKeyValue(value);
-    if (error != ESP_OK) {
-        ESP_LOGW(kTag, "New Settings ApiKey rejected: %s", esp_err_to_name(error));
-    }
 }
 
 // Compare complete buffers so API-key failures do not reveal a prefix.
@@ -342,15 +330,12 @@ bool startSnapshotRefreshTask()
     return s_snapshot_task_started;
 }
 
-// Keep UI status behind the canonical snapshot boundary.
+// Record lifecycle failures without inventing an HTTP component snapshot.
 void reportLifecycle(esp_err_t error = ESP_OK)
 {
-    qsee::DeviceSnapshotService::instance().reportHttp(
-        s_enabled.load(),
-        s_server_running.load(),
-        qsee::kHttpServerPort,
-        error
-    );
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "HTTP lifecycle error: %s", esp_err_to_name(error));
+    }
 }
 
 // Authenticate data routes and serialize one immutable snapshot per request.
@@ -516,19 +501,13 @@ esp_err_t httpServerInit()
         return error;
     }
 
-    bool enabled = true;
-    error = settings.getBool(kEnabledSetting, true, &enabled);
+    bool enabled = false;
+    error = settings.getBool(kEnabledSetting, &enabled);
     if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP preference initialization failed: %s", esp_err_to_name(error));
         return error;
     }
     s_enabled.store(enabled);
-
-    error = settings.setStringChangeObserver(settingsChanged, nullptr);
-    if (error != ESP_OK) {
-        ESP_LOGW(kTag, "HTTP API key observer registration failed: %s", esp_err_to_name(error));
-        return error;
-    }
 
     error = loadApiKeyFromSettings();
     if (error == ESP_ERR_INVALID_SIZE) {

@@ -13,7 +13,6 @@
 
 #include "qsee_http_json.hpp"
 
-#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -28,14 +27,14 @@ constexpr uint32_t kApiVersion = 1U;
 
 uint64_t snapshotAgeMs(const qsee::DeviceSnapshot &snapshot)
 {
-    if (snapshot.refreshed_at_us <= 0) {
+    if (snapshot.last_update_attempt_at_us <= 0) {
         return 0U;
     }
     const int64_t now = esp_timer_get_time();
-    if (now <= snapshot.refreshed_at_us) {
+    if (now <= snapshot.last_update_attempt_at_us) {
         return 0U;
     }
-    return static_cast<uint64_t>(now - snapshot.refreshed_at_us) / 1000ULL;
+    return static_cast<uint64_t>(now - snapshot.last_update_attempt_at_us) / 1000ULL;
 }
 
 void writeEnvelopeStart(
@@ -47,12 +46,14 @@ void writeEnvelopeStart(
     (void)json.raw("{\"schema\":");
     (void)json.quoted(schema);
     (void)json.format(
-        ",\"api_version\":%lu,\"sequence\":%lu,\"refreshed_at_us\":%lld,\"age_ms\":%llu,\"data\":",
+        ",\"api_version\":%lu,\"sequence\":%lu,\"last_update_attempt_at_us\":%lld,\"last_update_complete\":",
         static_cast<unsigned long>(kApiVersion),
         static_cast<unsigned long>(snapshot.sequence),
-        static_cast<long long>(snapshot.refreshed_at_us),
-        static_cast<unsigned long long>(snapshotAgeMs(snapshot))
+        static_cast<long long>(snapshot.last_update_attempt_at_us)
     );
+    (void)json.boolean(snapshot.last_update_complete);
+    (void)json.format(",\"age_ms\":%llu,\"data\":",
+                      static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
 }
 
 void writeComponentFields(
@@ -64,7 +65,15 @@ void writeComponentFields(
     (void)json.quoted(qsee::deviceHealthName(component.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(component.last_error));
-    (void)json.raw("}");
+    (void)json.raw(",\"data_valid\":");
+    (void)json.boolean(component.data_valid);
+    (void)json.raw(",\"data_stale\":");
+    (void)json.boolean(component.data_stale);
+    (void)json.format(
+        ",\"last_attempt_at_us\":%lld,\"last_success_at_us\":%lld}",
+        static_cast<long long>(component.last_attempt_at_us),
+        static_cast<long long>(component.last_success_at_us)
+    );
 }
 
 void writeBattery(qsee::HttpJsonWriter &json, const qsee::BatterySnapshot &battery)
@@ -159,8 +168,6 @@ void writeGpsData(
     (void)json.quoted(qsee::deviceHealthName(gps.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(gps.last_error));
-    (void)json.raw(",\"enabled\":");
-    (void)json.boolean(gps.enabled);
     (void)json.format(
         ",\"pending_nmea_bytes\":%lu,\"has_fix\":",
         static_cast<unsigned long>(gps.pending_nmea_bytes)
@@ -218,10 +225,6 @@ void writeWifi(
     (void)json.quoted(esp_err_to_name(wifi.last_error));
     (void)json.raw(",\"started\":");
     (void)json.boolean(wifi.started);
-    (void)json.raw(",\"scanning\":");
-    (void)json.boolean(wifi.scanning);
-    (void)json.raw(",\"scan_completed\":");
-    (void)json.boolean(wifi.scan_completed);
     (void)json.raw(",\"credentials_configured\":");
     (void)json.boolean(wifi.credentials_configured);
     (void)json.raw(",\"connect_requested\":");
@@ -233,16 +236,14 @@ void writeWifi(
     (void)json.raw(",\"reconnect_pending\":");
     (void)json.boolean(wifi.reconnect_pending);
     (void)json.format(
-        ",\"rssi\":%d,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu,\"scan_sequence\":%lu,\"network_count\":%u",
+        ",\"rssi\":%d,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu",
         static_cast<int>(wifi.rssi),
         static_cast<unsigned>(wifi.channel),
         static_cast<unsigned>(wifi.last_disconnect_reason),
         static_cast<unsigned long>(wifi.event_sequence),
         static_cast<unsigned long>(wifi.connect_attempt_count),
         static_cast<unsigned long>(wifi.reconnect_attempt_count),
-        static_cast<unsigned long>(wifi.disconnect_count),
-        static_cast<unsigned long>(wifi.scan_sequence),
-        static_cast<unsigned>(wifi.network_count)
+        static_cast<unsigned long>(wifi.disconnect_count)
     );
     if (include_sensitive) {
         (void)json.raw(",\"ssid\":");
@@ -251,24 +252,6 @@ void writeWifi(
         (void)json.quoted(wifi.ip_address);
         (void)json.raw(",\"mac_address\":");
         (void)json.quoted(wifi.mac_address);
-        (void)json.raw(",\"networks\":[");
-        const size_t network_count =
-            std::min(static_cast<size_t>(wifi.network_count), qsee::kWifiSnapshotMaxNetworks);
-        for (size_t index = 0; index < network_count; ++index) {
-            if (index > 0U) {
-                (void)json.raw(",");
-            }
-            (void)json.raw("{\"ssid\":");
-            (void)json.quoted(wifi.networks[index].ssid);
-            (void)json.format(
-                ",\"rssi\":%d,\"channel\":%u,\"secured\":",
-                static_cast<int>(wifi.networks[index].rssi),
-                static_cast<unsigned>(wifi.networks[index].channel)
-            );
-            (void)json.boolean(wifi.networks[index].secured);
-            (void)json.raw("}");
-        }
-        (void)json.raw("]");
     }
     (void)json.raw("}");
 }
@@ -279,8 +262,6 @@ void writeBle(qsee::HttpJsonWriter &json, const qsee::BleSnapshot &ble)
     (void)json.quoted(qsee::deviceHealthName(ble.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(ble.last_error));
-    (void)json.raw(",\"enabled\":");
-    (void)json.boolean(ble.enabled);
     (void)json.raw(",\"provisioning\":");
     (void)json.boolean(ble.provisioning);
     (void)json.raw(",\"advertising\":");
@@ -303,8 +284,8 @@ void writeStorage(qsee::HttpJsonWriter &json, const qsee::StorageSnapshot &stora
     (void)json.quoted(qsee::deviceHealthName(storage.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(storage.last_error));
-    (void)json.raw(",\"card_present\":");
-    (void)json.boolean(storage.card_present);
+    (void)json.raw(",\"card_response_verified\":");
+    (void)json.boolean(storage.card_response_verified);
     (void)json.raw(",\"format_attempted\":");
     (void)json.boolean(storage.format_attempted);
     (void)json.raw(",\"formatted\":");
@@ -320,27 +301,17 @@ void writeStorage(qsee::HttpJsonWriter &json, const qsee::StorageSnapshot &stora
     (void)json.raw("}");
 }
 
-// Serialize UI hardware with the committed, not candidate, render angle.
+// Serialize UI hardware using only values committed by the snapshot service.
 void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
 {
     (void)json.raw("{\"display\":");
     writeComponentFields(json, ui.display);
     (void)json.raw(",\"touch\":");
     writeComponentFields(json, ui.touch);
-    (void)json.raw(",\"orientation\":{\"auto_rotation_enabled\":");
-    (void)json.boolean(ui.orientation.auto_rotation_enabled);
-    (void)json.raw(",\"gravity_valid\":");
-    (void)json.boolean(ui.orientation.gravity_valid);
-    (void)json.raw(",\"rotation_pending\":");
-    (void)json.boolean(ui.orientation.rotation_pending);
-    (void)json.format(
-        ",\"physical_degrees\":%u,\"rendering_degrees\":%u,\"change_sequence\":%lu,\"sampled_at_us\":%lld,\"changed_at_us\":%lld}",
-        static_cast<unsigned>(ui.orientation.physical_orientation_degrees),
-        static_cast<unsigned>(ui.orientation.rendering_rotation_degrees),
-        static_cast<unsigned long>(ui.orientation.change_sequence),
-        static_cast<long long>(ui.orientation.sampled_at_us),
-        static_cast<long long>(ui.orientation.changed_at_us)
-    );
+    (void)json.raw(",\"brightness\":");
+    writeComponentFields(json, ui.brightness);
+    (void)json.format(",\"brightness_percent\":%lu}",
+                      static_cast<unsigned long>(ui.brightness_percent));
     (void)json.raw("}");
 }
 
@@ -575,8 +546,11 @@ void httpJsonWriteHealth(
     (void)json.boolean(server_running);
     (void)json.raw(",\"auth_required_for_data\":true,\"wifi_connected\":");
     (void)json.boolean(snapshot.radios.wifi.connected && snapshot.radios.wifi.ip_acquired);
-    (void)json.format(",\"snapshot\":{\"sequence\":%lu,\"age_ms\":%llu}}}",
-                      static_cast<unsigned long>(snapshot.sequence),
+    (void)json.format(",\"snapshot\":{\"sequence\":%lu,\"last_update_attempt_at_us\":%lld,\"last_update_complete\":",
+                       static_cast<unsigned long>(snapshot.sequence),
+                       static_cast<long long>(snapshot.last_update_attempt_at_us));
+    (void)json.boolean(snapshot.last_update_complete);
+    (void)json.format(",\"age_ms\":%llu}}}",
                       static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
 }
 
@@ -644,8 +618,8 @@ void httpJsonWriteStatus(
     (void)json.boolean(snapshot.radios.wifi.connected);
     (void)json.raw(",\"ip_acquired\":");
     (void)json.boolean(snapshot.radios.wifi.ip_acquired);
-    (void)json.raw("},\"storage\":{\"card_present\":");
-    (void)json.boolean(snapshot.storage.card_present);
+    (void)json.raw("},\"storage\":{\"card_response_verified\":");
+    (void)json.boolean(snapshot.storage.card_response_verified);
     (void)json.raw(",\"formatted\":");
     (void)json.boolean(snapshot.storage.formatted);
     (void)json.raw("},\"metrics\":{");
