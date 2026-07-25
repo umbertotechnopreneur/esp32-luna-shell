@@ -61,8 +61,27 @@ ready.
 
 ## ESP-Brookesia integration boundary
 
-These coordinates and roles are framework-independent design tokens. When the
-ESP-Brookesia application shell is introduced, expose them through the shared
-theme/layout layer and keep app documents inside the 320 x 320 safe-content
-container. Cardinal controls belong to the shell, not to each app's private
-layout.
+System Super is the device shell and service layer. System Core owns the
+QSee.ai native application lifecycle, while GUI LVGL loads and renders
+`components/qsee_app/package/res/root.json`. LVGL remains an implementation
+detail beneath that JSON interface.
+
+The current JSON screens center a 320 x 320 root surface on the 466 x 466
+display. Screen structure, layout, styles, actions, and the `qsee_content`
+flow belong in the JSON package. C++ lifecycle code may bind text and progress
+values through the GUI interface, but it must not construct parallel
+screen-specific widgets.
+
+These coordinates and cardinal roles remain shared design tokens. Any future
+cardinal controls or system chrome must be provided through System Super or a
+shared JSON theme/layout contract; individual screens must not redefine them.
+
+Hardware-derived text and progress values come only from
+`DeviceSnapshotService`. The Logs screen may consume the canonical logger ring.
+System interactions such as keyboard input and destructive SD confirmation use
+System Super services so every screen receives the same behavior.
+
+Internal `/littlefs` stores the staged UI resources. It is not the removable
+SD card, is not displayed as SD capacity, and must never be substituted for
+`/sdcard`. The removable SD keeps the absent, ready, and format-required states;
+formatting requires an explicit destructive confirmation.

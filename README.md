@@ -3,9 +3,15 @@
 Firmware and Windows simulator for the QSee.ai application on the GPS variant
 of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 
-The device application uses Espressif ESP-Brookesia on LVGL 9 and keeps the
-official Waveshare board support package (BSP) as the owner of the display,
-touch panel, audio codecs, shared I2C bus, and board-specific pins.
+The device application uses the official Espressif ESP-Brookesia 0.8 stack:
+System Super owns the system shell and services, System Core owns the native
+application lifecycle, and GUI LVGL renders the declarative JSON interface.
+LVGL 9 is the rendering backend, not an application-level UI API. The official
+ESP-Brookesia monorepo is tracked as the `third_party/esp-brookesia` submodule,
+pinned to commit `5361118b9953800e4fe710e57e5314fccec9cbcf`.
+
+The official Waveshare board support package (BSP) remains the owner of the
+display, touch panel, audio codecs, shared I2C bus, and board-specific pins.
 
 ## Product and UI contract
 
@@ -28,15 +34,19 @@ complete geometry.
 
 ## Canonical startup order
 
-1. install the logger;
+1. install the canonical logger;
 2. start display and touch through the BSP;
 3. show the QSee.ai boot console and live logger messages;
-4. initialize PMU, RTC, IMU, GPS, and the delayed ES7210 microphone worker;
-5. play the boot SFX through the ES8311 speaker path;
-6. mount the SD card without automatic formatting;
-7. initialize Wi-Fi and BLE, then request the boot Wi-Fi scan;
-8. create an explicit hardware snapshot and log memory/core state;
-9. wait for touch, then launch ESP-Brookesia and the QSee.ai application.
+4. mount the internal `littlefs_data` resource image at `/littlefs`, without
+   formatting on mount failure;
+5. initialize PMU, RTC, IMU, GPS, and the delayed ES7210 microphone worker;
+6. play the boot SFX through the ES8311 speaker path;
+7. start non-blocking SD detection and mount retries without automatic
+   formatting;
+8. initialize Wi-Fi and BLE, then request the boot Wi-Fi scan;
+9. create an explicit hardware snapshot and log memory/core state;
+10. hide the boot console, start Brookesia System Super, and launch the
+    registered QSee.ai System Core application.
 
 Every optional device is fail-open: a missing or degraded sensor is visible in
 the log and snapshot but does not make the application reboot.
@@ -69,44 +79,51 @@ See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 - ESP32 core count and the current task, priority, and stack watermark sampled
   for each core.
 
-The service refreshes only on explicit request. Future sensor fusion should
-consume one immutable snapshot instead of polling drivers independently. The
-memory and processor readings use native ESP-IDF and FreeRTOS APIs. See
+The service refreshes only on explicit request. Every QSee.ai UI telemetry
+view consumes this immutable snapshot instead of polling drivers
+independently. The log viewer reads the canonical logger ring, never a hardware
+driver. The memory and processor readings use native ESP-IDF and FreeRTOS APIs.
+See
 [device-snapshot.md](docs/architecture/device-snapshot.md) and
 [hardware-api.md](docs/architecture/hardware-api.md).
 
 ## Navigation
 
-The application shell owns a route history. Opening a confirmation pushes the
-current route; Confirm replaces it with the result, while Cancel or Back pops
-the previous route. Every transition is written to the canonical logger.
-Cardinal controls remain shell-owned so individual screens cannot redefine the
-round-display interaction model.
+The QSee.ai native app implements the System Core `IApp` lifecycle. GUI LVGL
+loads `components/qsee_app/package/res/root.json`, while its `qsee_content`
+`screenFlow` maps named actions to screens. `qsee_app.cpp` subscribes to those
+actions, refreshes the active screen from `DeviceSnapshotService`, and uses
+System Super services for the log-search keyboard and the destructive SD
+confirmation dialog.
+
+The JSON document owns view structure, layout, styles, and action names. C++
+owns lifecycle and data binding. App code does not construct a second widget
+framework or call LVGL directly.
 
 ### Route index
 
-The route registry currently lives in
-[`components/qsee_app/include/qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp)
-and is rendered by
-[`components/qsee_app/qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp).
-This is the current code-grounded inventory:
+The route registry lives in
+[`components/qsee_app/package/res/root.json`](components/qsee_app/package/res/root.json);
+action handling lives in
+[`components/qsee_app/qsee_app.cpp`](components/qsee_app/qsee_app.cpp). This is
+the current code-grounded inventory:
 
 | Route | Status | Entry point | Purpose |
 | --- | --- | --- | --- |
 | `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
 | `Logs` | Implemented | `LIVE LOGS` | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
 | `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, per-component details, and SD action dialog |
-| `Audio` | Implemented, diagnostic | `AUDIO SCOPE` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
+| `Audio` | Implemented, diagnostic | `AUDIO` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
 | `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
 | `About` | Implemented | `ABOUT` | Device identity, branding, and contact information |
 | `Settings` | Planned | Not currently exposed | User and device settings page |
 | `AudioSpectrogram` | Planned | Not currently exposed | Test-audio spectrogram page; separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
-The index is part of the route contract. Whenever a route is created, renamed,
-removed, or its entry point changes, update this table in the same change as
-the enum, screen construction, visibility logic, and entry button. A route
-change is not complete until the README index and the code agree.
+The index is part of the screen-flow contract. Whenever a route is created,
+renamed, removed, or its entry point changes, update this table in the same
+change as the JSON screen, flow transition, C++ action subscription, refresh
+logic, and entry button.
 
 ## Hardware
 
@@ -145,24 +162,46 @@ This checkout is configured for ESP-IDF 6.0.2 on Windows. PowerShell 7, Python,
 FFmpeg, and `winget` are available locally. Canonical configuration belongs in
 `sdkconfig.defaults`; the generated `sdkconfig` is intentionally ignored.
 See [the ESP-IDF 6 migration record](docs/esp-idf-6-migration.md) for the
-dependency changes, validation results, and known limits.
+dependency changes, validation boundary, and known limits.
+
+Initialize the official ESP-Brookesia source after cloning:
+
+```powershell
+git submodule update --init --recursive
+```
+
+Every ESP-IDF configure, build, size, flash, erase, and monitor action must go
+through `scripts/device.ps1`. Do not bypass this project entrypoint.
+
+Select the target and generate a clean configuration:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 reconfigure -BuildDir build-idf6
+```
 
 Build:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-brookesia
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6
 ```
 
 Show the application and static memory size report:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-brookesia
+pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-idf6
 ```
 
 Flash the currently dedicated device:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM12 -BuildDir build-brookesia -Baud 921600
+pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM12 -BuildDir build-idf6 -Baud 921600
+```
+
+Monitor it:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 monitor -Port COM12 -BuildDir build-idf6
 ```
 
 Capture a bounded diagnostic log:
@@ -225,9 +264,9 @@ files, and other third-party code. Contact: `hello@qsee.ai`.
 | `components/qsee_logger/` | Serial, RAM, boot-console, and SD logging |
 | `components/qsee_boot/` | Branded boot UI and ES8311 playback |
 | `components/qsee_platform/` | Hardware drivers, radios, and snapshots |
-| `components/qsee_app/` | QSee.ai screens and navigation history |
+| `components/qsee_app/` | Native System Core app, lifecycle/data binding, and JSON screen package |
 | `components/esp32_s3_touch_amoled_1_75/` | Local Waveshare BSP |
-| `components/brookesia_core/` | Espressif ESP-Brookesia source |
+| `third_party/esp-brookesia/` | Official pinned ESP-Brookesia monorepo submodule |
 | `assets/` | Canonical branding and SFX inputs/derivatives |
 | `simulator/windows/` | Synthetic Windows debug build |
 | `scripts/` | Build, flash, serial capture, and asset generation |
@@ -235,6 +274,13 @@ files, and other third-party code. Contact: `hello@qsee.ai`.
 ## Rules for humans and AI agents
 
 - Preserve logger-first startup; all device state must flow through it.
+- Run every ESP-IDF workflow through `scripts/device.ps1`.
+- Keep System Super, System Core, and GUI LVGL JSON as the end-to-end UI stack;
+  LVGL remains only the rendering backend.
+- Keep QSee.ai telemetry reads behind `DeviceSnapshotService`; the log viewer
+  may read only the canonical logger.
+- Keep internal `/littlefs` application resources separate from the removable
+  `/sdcard` data and logger volume.
 - Never enable automatic SD formatting.
 - Reuse the BSP I2C handle; do not initialize a competing bus driver.
 - Prefer official ESP-IDF, FreeRTOS, BSP, and managed-component APIs.
@@ -244,20 +290,13 @@ files, and other third-party code. Contact: `hello@qsee.ai`.
   and local virtual environments out of Git.
 - Do not replace or rewrite original brand and audio source files.
 
-## Last physical-device validation
+## Hardware validation status
 
-The 2026-07-25 runtime pass on the dedicated `COM12` device confirmed a stable
-boot without the former `esp_timer` stack overflow. The display and branded
-live-log boot UI are stable, touch is responsive, the boot SFX is physically
-audible, and Wi-Fi scans complete with 8-10 access points detected. PMU, RTC,
-IMU, BLE advertising, ES8311 playback, and ES7210 microphone sampling have also
-been observed without reboot, draw, or SPI DMA-allocation failures.
+This migration does not claim physical-device validation. A later hardware
+session must verify display and touch startup, System Super resource loading,
+all six JSON screens, keyboard and dialog services, Wi-Fi/BLE provisioning,
+audio, IMU, GPS, sleep/wake behavior, and the removable-SD states.
 
-The microSD is currently removed; firmware reports the SDMMC OCR timeout,
-keeps retrying asynchronously, and never formats automatically. LC76G bridge
-transport and bounded NMEA reads are physically verified: the device drained
-two 4096-byte chunks and parsed the module version and GSV sentences. The
-indoor pass had no satellite fix, so positioning remains environment-dependent.
-QMI8658 warm-up and stationary bias calibration are verified, including the
-board-specific gyro offset. Flash/PSRAM metrics and internal-memory pressure
-are captured through native ESP-IDF APIs in every explicit hardware snapshot.
+Any SD-format test must use a disposable card, begin from a confirmed
+format-required state, display the destructive System Super confirmation, and
+verify that cancellation performs no write.

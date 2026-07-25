@@ -49,6 +49,9 @@ void report_failure(esp_err_t error, bool card_responded, bool format_attempted)
 esp_err_t mount_once()
 {
     ++s_mount_attempt_count;
+    // A format approval is single-use and belongs only to this immediate
+    // probe. A missing card or transport error must never carry it forward.
+    const bool format_requested = s_format_requested.exchange(false);
     ESP_LOGI(
         TAG,
         "SD attempt #%lu: probing 1-bit SDMMC at %s without formatting",
@@ -61,7 +64,7 @@ esp_err_t mount_once()
 
     // ESP_FAIL is returned after card initialization when no mountable FAT
     // filesystem exists. Transport/OCR errors retain their specific codes.
-    if (result == ESP_FAIL && s_format_requested.exchange(false)) {
+    if (result == ESP_FAIL && format_requested) {
         format_attempted = true;
         ESP_LOGW(
             TAG,
@@ -70,6 +73,12 @@ esp_err_t mount_once()
         ++s_mount_attempt_count;
         result = bsp_sdcard_mount_with_format(true);
         formatted = result == ESP_OK;
+    } else if (format_requested && result != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "Explicit SD format authorization expired without formatting: %s",
+            esp_err_to_name(result)
+        );
     }
 
     if (result != ESP_OK) {
@@ -84,6 +93,7 @@ esp_err_t mount_once()
         return result;
     }
 
+    s_format_requested.store(false);
     const uint64_t capacity =
         static_cast<uint64_t>(bsp_sdcard->csd.capacity) *
         bsp_sdcard->csd.sector_size;
@@ -175,10 +185,18 @@ extern "C" esp_err_t qsee_storage_request_format(void)
     if (s_mounted) {
         return ESP_ERR_INVALID_STATE;
     }
+
+    const qsee::StorageSnapshot storage =
+        qsee::DeviceSnapshotService::instance().snapshot().storage;
+    if (!storage.card_present || storage.formatted ||
+        storage.last_error != ESP_FAIL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     s_format_requested.store(true);
     ESP_LOGW(
         TAG,
-        "Explicit user-authorized FAT format armed for the next responding card"
+        "Explicit user-authorized FAT format armed for one immediate probe"
     );
     if (s_storage_task != nullptr) {
         xTaskNotifyGive(s_storage_task);

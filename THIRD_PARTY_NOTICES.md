@@ -8,16 +8,18 @@
 - Component version: `3.0.1`
 - License files and upstream headers are preserved in the component.
 
-## ESP-Brookesia core
+## ESP-Brookesia
 
-- Component: `components/brookesia_core`
-- Manufacturer integration source:
-  <https://github.com/waveshareteam/ESP32-S3-Touch-AMOLED-1.75>
-- Waveshare example revision used:
-  `f04e4bdaf81e34d64d075f67e9e25be6326c3295`
-- ESP-Brookesia core version: `0.6.0-beta2`
+- Source: official monorepo submodule at `third_party/esp-brookesia`
 - Upstream: <https://github.com/espressif/esp-brookesia>
-- Apache-2.0 license is preserved as
-  `components/brookesia_core/license.txt`.
+- Pinned upstream revision:
+  `5361118b9953800e4fe710e57e5314fccec9cbcf`
+- Selected framework components: System Super `0.8.1`, System Core `0.8.1`,
+  GUI LVGL `0.8.1`, and their official monorepo dependencies
+- Apache-2.0 license: `third_party/esp-brookesia/license.txt`
+
+The component manifests resolve the selected framework components from this
+pinned submodule. The monorepo layout is retained so official relative
+component relationships remain intact.
 
 Managed ESP-IDF component versions are recorded in `dependencies.lock`.

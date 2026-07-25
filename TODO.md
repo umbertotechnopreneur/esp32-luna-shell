@@ -13,15 +13,27 @@
 
 ## ESP-Brookesia integration
 
-- [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
-- [ ] Register a QSee stylesheet for the circular 466 x 466 display and 320 x 320 safe area.
-- [ ] Add native Bluetooth/GPS/CPU indicators to the standard Brookesia status bar when supported.
+- [x] Run the QSee.ai application as a native System Core `IApp` under System
+  Super.
+- [x] Express the six current screens and `qsee_content` flow in the GUI LVGL
+  JSON package.
+- [x] Stage System Super and QSee.ai resources in the internal LittleFS image.
+- [ ] Define shared QSee.ai JSON design tokens for the circular 466 x 466
+  display and 320 x 320 safe area.
+- [ ] Add Bluetooth, GPS, and CPU indicators to System Super only when an
+  official extension point is available; record the framework gap here before
+  adding product-specific system chrome.
 
 ## SD formatting
 
-- The UI handles card absent, format required, confirmation and progress/unavailable states.
-- `qsee_storage_request_format()` is currently guarded by the hardware storage abstraction and must remain fail-safe.
-- Implement formatting only after the hardware/storage abstraction exposes a documented formatter.
+- [x] Keep internal LittleFS resources independent from the removable SD
+  volume.
+- [x] Represent card absent, ready, and format-required states through
+  `DeviceSnapshotService`.
+- [x] Arm `qsee_storage_request_format()` only after the destructive System
+  Super confirmation is accepted.
+- [ ] Validate cancel, confirmed format, progress, failure, and recovery with a
+  disposable card on hardware.
 
 ## Device metrics
 

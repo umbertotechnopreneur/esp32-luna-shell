@@ -10,99 +10,107 @@
  * Contact: hello@qsee.ai
  */
 
-#include <new>
-#include <vector>
+#include <memory>
+#include <string_view>
+#include <utility>
 
+#include "brookesia/gui_lvgl.hpp"
+#include "brookesia/system_super.hpp"
 #include "bsp/esp-bsp.h"
-#include "esp_brookesia.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "esp_vfs_fat.h"
 #include "qsee_app.hpp"
 #include "qsee_boot.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
 
-using esp_brookesia::gui::LvLock;
-using esp_brookesia::gui::LvLockGuard;
-using esp_brookesia::systems::phone::Phone;
-
 namespace {
-const char *TAG = "qsee_main";
+
+constexpr char kTag[] = "qsee_main";
+
+std::unique_ptr<esp_brookesia::system::super::System> s_system;
 
 bool start_brookesia()
 {
-    LvLock::registerCallbacks(
-        [](int timeout_ms) {
-            return bsp_display_lock(timeout_ms) == ESP_OK;
-        },
-        []() {
-            bsp_display_unlock();
-            return true;
+    s_system = std::make_unique<esp_brookesia::system::super::System>();
+
+    esp_brookesia::system::super::System::Config config;
+    config.core_config.gui_backend =
+        std::make_unique<esp_brookesia::gui::lvgl::Backend>();
+    config.core_config.environment.width_px = 466;
+    config.core_config.environment.height_px = 466;
+    config.core_config.environment.density = 1.0F;
+    config.core_config.environment.font_scale = 1.0F;
+    config.core_config.environment.language = "en";
+    config.core_config.install_registered_apps = true;
+    config.core_config.install_package_apps = false;
+    config.core_config.storage.default_install_target =
+        esp_brookesia::system::core::StorageInstallTarget::Internal;
+
+    auto init_result = s_system->init(std::move(config));
+    if (!init_result) {
+        ESP_LOGE(kTag, "Brookesia System Super init failed: %s", init_result.error().c_str());
+        s_system.reset();
+        return false;
+    }
+
+    auto start_result = s_system->start();
+    if (!start_result) {
+        ESP_LOGE(kTag, "Brookesia System Super start failed: %s", start_result.error().c_str());
+        s_system->deinit();
+        s_system.reset();
+        return false;
+    }
+
+    for (const auto &app : s_system->list_apps()) {
+        if (app.manifest.id != qsee::kAppManifestId) {
+            continue;
         }
-    );
-
-    auto *phone = new (std::nothrow) Phone();
-    if (phone == nullptr) {
-        ESP_LOGE(TAG, "ESP-Brookesia: phone allocation failed");
-        return false;
+        auto app_start_result = s_system->start_app(app.app_id);
+        if (!app_start_result) {
+            ESP_LOGE(kTag, "QSee.ai app start failed: %s", app_start_result.error().c_str());
+            return false;
+        }
+        ESP_LOGI(
+            kTag,
+            "Brookesia System Super ready; QSee.ai app id=%lu",
+            static_cast<unsigned long>(app.app_id)
+        );
+        return true;
     }
 
-    LvLockGuard gui_guard;
-    if (!phone->begin()) {
-        ESP_LOGE(TAG, "ESP-Brookesia: phone begin failed");
-        return false;
-    }
-
-    std::vector<esp_brookesia::systems::base::Manager::RegistryAppInfo> apps;
-    if (!phone->initAppFromRegistry(apps) || !phone->installAppFromRegistry(apps)) {
-        ESP_LOGE(TAG, "ESP-Brookesia: QSee.ai app install failed");
-        return false;
-    }
-
-    auto *qsee_app = qsee::App::requestInstance();
-    const esp_brookesia::systems::base::Context::AppEventData start_event = {
-        .id = qsee_app->getId(),
-        .type = esp_brookesia::systems::base::Context::AppEventType::START,
-        .data = nullptr,
-    };
-    if (!phone->sendAppEvent(&start_event)) {
-        ESP_LOGE(TAG, "ESP-Brookesia: QSee.ai app auto-start failed");
-        return false;
-    }
-
-    ESP_LOGI(TAG, "ESP-Brookesia ready with %u registered app(s)", static_cast<unsigned>(apps.size()));
-    return true;
+    ESP_LOGE(kTag, "QSee.ai provider was not installed by Brookesia System Core");
+    return false;
 }
 
-void brookesia_task(void *arg)
+void brookesia_task(void *)
 {
-    (void)arg;
     if (!start_brookesia()) {
-        ESP_LOGE(TAG, "ESP-Brookesia launch failed; canonical logger remains active");
+        ESP_LOGE(kTag, "Brookesia launch failed; canonical logger remains active");
     }
     vTaskDelete(nullptr);
 }
-}
+
+}  // namespace
 
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(qsee_logger_init());
-    ESP_LOGI(TAG, "QSee.ai firmware boot");
-    ESP_LOGI(TAG, "Display contract: round 466x466, safe square 320x320 at (73,73)");
+    ESP_LOGI(kTag, "QSee.ai firmware boot");
+    ESP_LOGI(kTag, "Display contract: round 466x466, safe square 320x320 at (73,73)");
 
-    ESP_LOGI(TAG, "Display: starting official Waveshare BSP");
+    ESP_LOGI(kTag, "Display: starting official Waveshare BSP");
     if (bsp_display_start() == nullptr) {
         qsee::DeviceSnapshotService::instance().reportDisplay(false, ESP_FAIL);
-        ESP_LOGE(TAG, "Display: initialization failed");
+        ESP_LOGE(kTag, "Display: initialization failed");
         return;
     }
     qsee::DeviceSnapshotService::instance().reportDisplay(true, ESP_OK);
 
     if (qsee_boot_ui_show() != ESP_OK) {
-        ESP_LOGE(TAG, "Boot UI: initialization failed");
+        ESP_LOGE(kTag, "Boot UI: initialization failed");
         return;
     }
 
@@ -111,7 +119,7 @@ extern "C" void app_main(void)
         touch != nullptr,
         touch != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND
     );
-    ESP_LOGI(TAG, "Touch CST9217: %s", touch != nullptr ? "ready" : "unavailable");
+    ESP_LOGI(kTag, "Touch CST9217: %s", touch != nullptr ? "ready" : "unavailable");
 
     (void)qsee_hardware_init();
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_time_init("UTC0"));
@@ -121,10 +129,10 @@ extern "C" void app_main(void)
     (void)qsee_radios_init();
     if (!qsee_provisioning_active()) {
         const esp_err_t wifi_scan_result = qsee_wifi_start_scan();
-        ESP_LOGI(TAG, "Wi-Fi: boot scan request %s", esp_err_to_name(wifi_scan_result));
+        ESP_LOGI(kTag, "Wi-Fi: boot scan request %s", esp_err_to_name(wifi_scan_result));
     } else {
         ESP_LOGI(
-            TAG,
+            kTag,
             "Wi-Fi: scan deferred during BLE provisioning (%s, PoP=%s)",
             qsee_provisioning_service_name(),
             qsee_provisioning_pop()
@@ -138,13 +146,13 @@ extern "C" void app_main(void)
     const BaseType_t task_result = xTaskCreatePinnedToCore(
         brookesia_task,
         "qsee_brookesia",
-        12U * 1024U,
+        40U * 1024U,
         nullptr,
         5,
         nullptr,
         1
     );
     if (task_result != pdPASS) {
-        ESP_LOGE(TAG, "ESP-Brookesia task creation failed; canonical logger remains active");
+        ESP_LOGE(kTag, "Brookesia task creation failed; canonical logger remains active");
     }
 }

@@ -1,0 +1,12 @@
+dependencies:
+  espressif/brookesia_hal_adaptor:
+    version: "0.8.2"
+    override_path: ../third_party/esp-brookesia/hal/brookesia_hal_adaptor
+  espressif/brookesia_gui_lvgl:
+    version: "0.8.1"
+    override_path: ../third_party/esp-brookesia/gui/brookesia_gui_lvgl
+  espressif/brookesia_system_super:
+    version: "0.8.1"
+    override_path: ../third_party/esp-brookesia/system/brookesia_system_super
+  joltwallet/littlefs:
+    version: "~=1.20.0"
