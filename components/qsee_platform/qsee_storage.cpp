@@ -15,11 +15,14 @@
 
 #include "qsee_platform.h"
 
+#include <atomic>
+
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_settings.hpp"
 

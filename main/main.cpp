@@ -14,6 +14,7 @@
 // Sets up the top-level application before control enters the UI flow.
 
 #include <new>
+#include "bsp/esp-bsp.h"
 #include "esp_brookesia.hpp"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -164,9 +165,9 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_power_inputs_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_storage_init());
-    // Keep the display DMA path and Welcome task alive. Wi-Fi/BLE reserve most
-    // internal SRAM on this S3 and are started later from the settings flow.
-    ESP_LOGI(TAG, "Wi-Fi/BLE startup deferred until Settings");
+    ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_ble_apply_saved_enabled());
+    // HTTP owns Wi-Fi; normal BLE follows its preference after boot audio.
+    ESP_LOGI(TAG, "Wi-Fi requested for HTTP; saved BLE preference applied");
     (void)qsee_hardware_refresh("pre-ui");
 
     qsee_boot_ui_mark_ready();

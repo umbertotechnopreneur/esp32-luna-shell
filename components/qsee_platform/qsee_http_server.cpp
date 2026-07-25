@@ -24,7 +24,9 @@
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
+#include "esp_netif.h"
 #include "esp_timer.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "qsee_device_snapshot.hpp"
@@ -156,7 +158,14 @@ esp_err_t loadApiKeyValue(const char *value)
         return ESP_ERR_INVALID_ARG;
     }
     const std::size_t length = std::strlen(value);
-    if (length == 0U || length > qsee::kHttpApiKeyMaxLength) {
+    if (length == 0U) {
+        std::lock_guard<std::mutex> lock(s_auth_mutex);
+        s_auth_ready = false;
+        std::memset(s_api_key, 0, sizeof(s_api_key));
+        std::memset(s_expected_authorization, 0, sizeof(s_expected_authorization));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (length > qsee::kHttpApiKeyMaxLength) {
         ESP_LOGW(kTag, "Settings ApiKey must contain 1..%u characters",
                  static_cast<unsigned>(qsee::kHttpApiKeyMaxLength));
         return ESP_ERR_INVALID_SIZE;
@@ -492,7 +501,9 @@ esp_err_t httpServerInit()
     }
 
     error = loadApiKeyFromSettings();
-    if (error != ESP_OK) {
+    if (error == ESP_ERR_INVALID_SIZE) {
+        ESP_LOGI(kTag, "HTTP API waiting for an ApiKey from Settings");
+    } else if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP API key initialization failed: %s", esp_err_to_name(error));
         return error;
     }

@@ -50,6 +50,8 @@ esp_err_t qsee_hardware_refresh(const char *reason);
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
 /** Enable cheap CPU/memory snapshot sampling while the Welcome page consumes it. */
 esp_err_t qsee_hardware_set_system_monitor(bool enabled);
+/** Publish lightweight IMU samples while an adaptive command bar is active. */
+esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled);
 /** Block new refresh/calibration work and drain any sample already in flight. */
 esp_err_t qsee_hardware_set_sleep_transition(bool active);
 /** Configure the active diagnostic sample period (100-2000 ms). */
@@ -60,6 +62,10 @@ uint32_t qsee_hardware_get_diagnostic_period_ms(void);
 esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
 /** Return the persisted IMU input smoothing percentage. */
 uint32_t qsee_hardware_get_imu_smoothing_percent(void);
+
+/** Persist and apply whether QSee samples the LC76G receiver. */
+esp_err_t qsee_gps_set_enabled(bool enabled);
+bool qsee_gps_get_enabled(void);
 
 /** Run a stationary IMU calibration, retaining the old one on rejection. */
 esp_err_t qsee_imu_calibrate(void);
@@ -126,7 +132,7 @@ esp_err_t qsee_display_fade_in(uint32_t duration_ms);
 /** Send the CO5300 display-on/off command without changing the preference. */
 esp_err_t qsee_display_set_panel_enabled(bool enabled);
 
-/** Persist and apply gravity-driven CO5300 cardinal auto-rotation. */
+/** Persist auto-rotation plus the last applied CO5300 cardinal angle. */
 esp_err_t qsee_display_set_auto_rotation_enabled(bool enabled);
 bool qsee_display_get_auto_rotation_enabled(void);
 esp_err_t qsee_display_apply_saved_auto_rotation(void);
@@ -168,10 +174,23 @@ esp_err_t qsee_audio_capture_pcm16_channels(
 );
 
 /**
- * Start the Wi-Fi station lifecycle and BLE advertising as QSEE-xxxx.
+ * Start Wi-Fi and apply the saved normal BLE advertising preference.
  */
 esp_err_t qsee_radios_init(void);
 esp_err_t qsee_ble_init(void);
+/** Persist and apply normal BLE telemetry advertising. */
+esp_err_t qsee_ble_set_enabled(bool enabled);
+bool qsee_ble_get_enabled(void);
+/** Apply the saved BLE preference after boot-critical services are ready. */
+esp_err_t qsee_ble_apply_saved_enabled(void);
+/** Temporarily yield the BLE controller to Espressif provisioning. */
+esp_err_t qsee_ble_prepare_provisioning(void);
+/** Restore normal BLE advertising after provisioning releases the controller. */
+esp_err_t qsee_ble_restore_after_provisioning(void);
+/** Transactionally stop active radios before explicit light sleep. */
+esp_err_t qsee_radios_prepare_light_sleep(void);
+/** Restore the radio checkpoint captured before explicit light sleep. */
+esp_err_t qsee_radios_restore_after_light_sleep(void);
 
 #define QSEE_WIFI_MAX_NETWORKS 16
 #define QSEE_WIFI_SSID_MAX_LEN 32
@@ -187,6 +206,7 @@ typedef struct {
     bool initialized;
     bool started;
     bool scanning;
+    bool scan_completed;
     bool credentials_configured;
     bool connect_requested;
     bool connected;
@@ -199,7 +219,9 @@ typedef struct {
     uint32_t connect_attempt_count;
     uint32_t reconnect_attempt_count;
     uint32_t disconnect_count;
+    uint32_t scan_sequence;
     uint32_t reconnect_delay_ms;
+    uint8_t network_count;
     esp_err_t last_error;
     char ssid[QSEE_WIFI_SSID_MAX_LEN + 1];
     char ip_address[16];
@@ -245,6 +267,22 @@ esp_err_t qsee_wifi_disconnect(void);
  * Start one asynchronous all-channel scan.
  */
 esp_err_t qsee_wifi_start_scan(void);
+
+/** Preserve the current station profile while BLE provisioning owns Wi-Fi. */
+esp_err_t qsee_wifi_begin_provisioning(void);
+/** Finish the provisioning handoff, restoring the old profile on cancellation. */
+esp_err_t qsee_wifi_end_provisioning(bool credentials_applied);
+
+/** Stop Wi-Fi for explicit light sleep without losing reconnect intent. */
+esp_err_t qsee_wifi_prepare_light_sleep(
+    bool *was_started,
+    bool *reconnect_requested
+);
+/** Restart Wi-Fi after light sleep and restore the captured connect intent. */
+esp_err_t qsee_wifi_restore_after_light_sleep(
+    bool was_started,
+    bool reconnect_requested
+);
 
 /**
  * Copy fixed scan results and the immutable connection state.

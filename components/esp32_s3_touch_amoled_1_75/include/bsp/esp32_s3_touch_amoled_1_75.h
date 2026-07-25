@@ -146,6 +146,17 @@ i2c_master_bus_handle_t bsp_i2c_get_handle(void);
 esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config);
 
 /**
+ * @brief Control the external speaker amplifier independently from the codec
+ *
+ * Keeping the PA disabled while ES8311 clocks and bias settle prevents an
+ * audible startup pop.
+ *
+ * @param[in] enabled True to enable the amplifier
+ * @return ESP_OK on success, otherwise a GPIO driver error
+ */
+esp_err_t bsp_audio_power_amp_set(bool enabled);
+
+/**
  * @brief Initialize speaker codec device
  *
  * @return Pointer to codec device handle or NULL when error occurred

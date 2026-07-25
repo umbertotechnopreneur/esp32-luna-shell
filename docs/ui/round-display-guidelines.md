@@ -22,6 +22,14 @@ dimensions, symmetric spacing, the same gradient and bright border as the
 Welcome action arc, and no pressed-state movement. Keep destructive actions
 visually distinct and do not let the group replace the shell-owned Back action.
 
+Lower-arc groups are adaptive. They are fully visible on route entry and fade
+only through opacity after the configured inactivity timeout. Any touch or
+meaningful IMU movement fades them back in and restarts the timer. Once fully
+transparent, their click targets are disabled until fade-in begins. The
+perimeter Back action is always excluded. The persisted timeout uses a real
+dropdown with common values from 10 seconds through 10 minutes and defaults to
+10 seconds.
+
 ## Compact diagnostic screens
 
 Live diagnostics should favor one non-scrolling overview over vertically
@@ -33,20 +41,22 @@ remain authoritative.
 
 ## Settings information architecture
 
-Settings is a compact hub, not one long scrolling form. It exposes only
-implemented controls and routes them to focused pages:
+Settings is one spacious vertical surface because the complete device
+configuration no longer fits in a useful hub of tiny buttons. It uses native
+dropdowns and switches, clear section spacing, and exposes only implemented
+controls:
 
 - Diagnostics: sampling period and IMU smoothing;
 - Storage: SD state and logger mirroring;
-- Network: Wi-Fi state, local credential editing, and BLE provisioning;
-- Display: brightness profiles and cardinal auto-rotation;
+- Wi-Fi and Bluetooth: connection state, credentials, scans, and provisioning;
+- GPS: receiver state;
+- Display and motion: brightness profiles, cardinal auto-rotation, and command visibility;
 - Power: display dim and panel-off timing.
 
-Each focused page keeps its status near the top and, where practical, places
-one or two equal command buttons on the lower safe arc. Password entry uses a
-dedicated full-height editor: the password starts blank and masked, is cleared
-whenever the editor closes, and is never copied into a diagnostic snapshot.
-Provisioning steps use the same bottom command geometry and keep the
+Each section keeps live status next to the relevant control. Password entry
+uses a dedicated full-height editor: the password starts blank and masked, is
+cleared whenever the editor closes, and is never copied into a diagnostic
+snapshot. Provisioning steps use the same bottom command geometry and keep the
 shell-owned Back control available.
 
 ## Cardinal action caps

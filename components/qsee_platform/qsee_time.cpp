@@ -21,6 +21,7 @@
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "qsee_device_snapshot.hpp"
 
 namespace {
 

@@ -40,7 +40,8 @@ complete geometry.
 4. initialize PMU, RTC, IMU, GPS, and the delayed ES7210 microphone worker;
 5. play the boot SFX through the ES8311 speaker path;
 6. mount the SD card without automatic formatting;
-7. initialize Wi-Fi and BLE, then request the boot Wi-Fi scan;
+7. start the Wi-Fi station for the event-driven HTTP API while keeping BLE
+   provisioning on demand in Settings;
 8. create an explicit hardware snapshot and log memory/core state;
 9. wait for touch, then launch ESP-Brookesia and the QSee.ai application.
 
@@ -99,13 +100,20 @@ This is the current code-grounded inventory:
 
 | Route | Status | Entry point | Declaration / implementation | Purpose |
 | --- | --- | --- | --- | --- |
-| `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable device console with real internal-RAM, PSRAM, firmware-partition, SD and per-core CPU metrics; dedicated fusion, Wi-Fi, BLE and GPS lines; fixed six-action arc |
+| `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable device console with the IPv4 state first, then real internal-RAM, PSRAM, firmware-partition, SD and per-core CPU metrics; dedicated fusion, Wi-Fi, BLE and GPS lines; adaptive six-action arc |
 | `Logs` | Implemented | `LIVE LOGS` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Bounded direct RAM log with implicit follow plus symmetric pause and clear commands on the lower arc |
 | `Hardware` | Implemented | `HARDWARE` or storage card | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable component inventory with manufacturer part numbers, traffic-light states, and dimmed bordered detail dialogs |
-| `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | PCM capture status and two channel meters driven by real peak level in `%FS` and `dBFS`; this is not yet a waveform or spectrogram |
-| `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Accelerometer, gyroscope, temperature, and calibration status |
+| `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Two peak-driven VU meters on a `-60..0 dBFS` scale, with green below `-12 dBFS`, yellow through `-3 dBFS`, red above it, and a one-second peak-hold marker; values remain visible in `%FS` and `dBFS` |
+| `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Single non-scrolling overview with an X/Y/Z acceleration triad, segmented gyroscope ring, temperature, numeric units, and calibration status |
 | `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
-| `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Persistent diagnostic period, IMU input smoothing, SD log-mirror preference, Wi-Fi start action, and AMOLED brightness |
+| `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | One spacious scroll surface for diagnostics, storage, Wi-Fi, Bluetooth, GPS, display, motion, power, and the lower-command visibility timeout |
+| `WifiCredentials` | Implemented | Wi-Fi action in Settings | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | SSID editor with a blank, masked password field; an unchanged SSID can reuse its saved password internally without returning it to the UI |
+| `PairIntro` | Implemented flow | Bluetooth pairing action in Settings | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Introduction to secure Wi-Fi provisioning over Bluetooth LE |
+| `PairBluetooth` | Implemented flow | Next from `PairIntro` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Phone Bluetooth preparation |
+| `PairApp` | Implemented flow | Next from `PairBluetooth` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Espressif ESP BLE Provisioning app instructions |
+| `PairQr` | Implemented flow | Next from `PairApp` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device QR for ESP-IDF BLE provisioning using security version 1 |
+| `AppStoreQr` | Implemented flow | `APP QR` from `PairApp` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | QR for the Espressif application on Google Play |
+| `PairResult` | Implemented flow | Provisioning completion | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Bounded success, failure, or timeout result with retry or return |
 | `AudioSpectrogram` | Planned | Not currently exposed | No route or screen implementation yet | Test-audio waveform/spectrogram page, separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | No route or screen implementation yet | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
@@ -122,6 +130,13 @@ The selected visual reference for the Welcome route is
 Back is rendered on the left circular perimeter outside the 320 x 320 safe
 area. Contextual OK or Close is rendered on the right perimeter. Route content
 must not place duplicate navigation controls inside the safe-area panel.
+
+Lower-arc command groups start fully visible, then fade out after the
+user-selected inactivity interval. Touch or QMI8658 motion restores them and
+restarts the interval. The dropdown offers common presets from 10 seconds to
+10 minutes, stored in NVS with a 10-second default. Invisible commands are not
+clickable; the shell-owned perimeter Back control never participates in this
+fade policy.
 
 ## Hardware
 
@@ -315,10 +330,11 @@ line-by-line composition without requiring full-frame DMA-capable internal
 memory. The latest validation did not reproduce the previous draw or SPI
 DMA-allocation failures.
 
-Wi-Fi and BLE initialization are intentionally deferred from boot to the
-planned `Settings` route, so earlier observations of startup scanning or BLE
-advertising are not claims about the current boot path. PMU, RTC, IMU, ES8311
-playback, and ES7210 microphone sampling have been observed on the device.
+The Wi-Fi station starts at boot because the event-driven HTTP API owns its
+lifecycle; it reconnects only when a saved profile or explicit user request
+requires it. BLE provisioning starts on demand from Network settings. PMU,
+RTC, IMU, ES8311 playback, and ES7210 microphone sampling have been observed
+on the device.
 
 The microSD is currently removed; firmware reports the SDMMC OCR timeout,
 keeps retrying asynchronously, and never formats automatically. LC76G bridge

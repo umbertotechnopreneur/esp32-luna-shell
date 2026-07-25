@@ -1,5 +1,6 @@
 idf_component_register(
     SRCS
+        "qsee_adaptive_command_bar.cpp"
         "qsee_app.cpp"
         "qsee_edge_navigation.cpp"
         "qsee_navigation.cpp"
@@ -15,6 +16,7 @@ idf_component_register(
 )
 
 set_source_files_properties(
+    qsee_adaptive_command_bar.cpp
     qsee_app.cpp
     qsee_edge_navigation.cpp
     qsee_navigation.cpp

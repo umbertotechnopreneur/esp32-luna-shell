@@ -36,6 +36,8 @@
 #include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "qsee_device_snapshot.hpp"
+#include "qsee_settings.hpp"
 #include "qmi8658.h"
 #include "sdkconfig.h"
 
@@ -61,7 +63,9 @@ namespace {
 const char *TAG = "qsee_snapshot";
 constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
 constexpr char kImuSmoothingSetting[] = "imu_smooth";
+constexpr char kGpsEnabledSetting[] = "gps_on";
 constexpr char kAutoRotationSetting[] = "auto_rotate";
+constexpr char kDisplayRotationSetting[] = "display_rot";
 constexpr uint32_t kOrientationSamplePeriodMs = 100;
 constexpr int64_t kOrientationStableUs = 300000;
 constexpr float kOrientationMagnitudeMin = 7.0F;
@@ -70,6 +74,9 @@ constexpr float kOrientationPlanarEnter = 5.5F;
 constexpr float kOrientationPlanarExit = 4.5F;
 constexpr float kOrientationDominance = 1.25F;
 constexpr float kOrientationFilterAlpha = 0.35F;
+constexpr float kOrientationGyroDeadbandDps = 4.0F;
+constexpr float kOrientationGyroSnapDegrees = 50.0F;
+constexpr float kOrientationGyroMaxStepSeconds = 0.25F;
 
 i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
@@ -99,12 +106,14 @@ bool s_cpu_runtime_ready;
 #endif
 volatile uint32_t s_imu_smoothing_percent = 70;
 bool s_gps_ready;
+volatile bool s_gps_enabled = true;
 bool s_microphone_worker_started;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 volatile bool s_diagnostic_monitor_active;
 volatile bool s_system_monitor_active;
-volatile bool s_auto_rotation_enabled;
+volatile bool s_ui_motion_monitor_active;
+volatile bool s_auto_rotation_enabled = true;
 volatile bool s_sleep_transition_active;
 volatile uint32_t s_diagnostic_period_ms = 300;
 
@@ -115,11 +124,15 @@ struct OrientationState {
     bool gravity_valid = false;
     bool candidate_valid = false;
     float gravity_mps2[3] = {};
+    float gyro_physical_degrees = 0.0F;
+    int64_t gyro_sampled_at_us = 0;
     uint16_t candidate_physical_degrees = 0;
     int64_t candidate_since_us = 0;
     uint16_t physical_degrees = 0;
     uint16_t desired_rendering_degrees = 0;
     uint16_t applied_rendering_degrees = 0;
+    bool persisted_rendering_valid = false;
+    uint16_t persisted_rendering_degrees = 0;
     uint32_t change_sequence = 0;
     int64_t sampled_at_us = 0;
     int64_t changed_at_us = 0;
@@ -647,6 +660,114 @@ uint16_t rendering_rotation_for_physical(uint16_t physical_degrees)
     }
 }
 
+// Keep an integrated gyro angle within one physical revolution.
+float normalize_orientation_degrees(float degrees)
+{
+    while (degrees >= 360.0F) {
+        degrees -= 360.0F;
+    }
+    while (degrees < 0.0F) {
+        degrees += 360.0F;
+    }
+    return degrees;
+}
+
+// Measure the shortest signed turn from a cardinal reference to an angle.
+float signed_orientation_delta(float angle, uint16_t reference_degrees)
+{
+    float delta = angle - static_cast<float>(reference_degrees);
+    while (delta > 180.0F) {
+        delta -= 360.0F;
+    }
+    while (delta <= -180.0F) {
+        delta += 360.0F;
+    }
+    return delta;
+}
+
+// Forward orientation changes to the shared UI and HTTP snapshot.
+void publish_orientation_state();
+
+// Publish one new physical cardinal and its inverse CO5300 render rotation.
+void commit_cardinal_orientation(
+    uint16_t physical_degrees,
+    int64_t sampled_at_us,
+    const char *source
+)
+{
+    s_orientation.candidate_valid = false;
+    s_orientation.physical_degrees = physical_degrees % 360U;
+    s_orientation.desired_rendering_degrees =
+        rendering_rotation_for_physical(s_orientation.physical_degrees);
+    ++s_orientation.change_sequence;
+    s_orientation.changed_at_us = sampled_at_us;
+    publish_orientation_state();
+    ESP_LOGI(
+        TAG,
+        "Cardinal orientation stable: source=%s physical=%u rendering=%u",
+        source,
+        static_cast<unsigned>(s_orientation.physical_degrees),
+        static_cast<unsigned>(s_orientation.desired_rendering_degrees)
+    );
+}
+
+// Track flat-table turns from gyro Z and emit only cardinal orientation steps.
+void process_gyro_cardinal_sample(
+    const qmi8658_data_t &data,
+    int64_t sampled_at_us,
+    bool gravity_controls_orientation
+)
+{
+    const int64_t previous_sample_us = s_orientation.gyro_sampled_at_us;
+    s_orientation.gyro_sampled_at_us = sampled_at_us;
+    if (previous_sample_us == 0 || sampled_at_us <= previous_sample_us) {
+        s_orientation.gyro_physical_degrees =
+            static_cast<float>(s_orientation.physical_degrees);
+        return;
+    }
+
+    if (gravity_controls_orientation) {
+        s_orientation.gyro_physical_degrees =
+            static_cast<float>(s_orientation.physical_degrees);
+        return;
+    }
+
+    float step_seconds =
+        static_cast<float>(sampled_at_us - previous_sample_us) / 1000000.0F;
+    if (step_seconds > kOrientationGyroMaxStepSeconds) {
+        step_seconds = kOrientationGyroMaxStepSeconds;
+    }
+    const float gyro_z_dps =
+        data.gyroZ - (s_imu_calibrated ? s_gyro_bias[2] : 0.0F);
+    if (absolute_value(gyro_z_dps) < kOrientationGyroDeadbandDps) {
+        return;
+    }
+
+    s_orientation.gyro_physical_degrees = normalize_orientation_degrees(
+        s_orientation.gyro_physical_degrees + gyro_z_dps * step_seconds
+    );
+    const float delta = signed_orientation_delta(
+        s_orientation.gyro_physical_degrees,
+        s_orientation.physical_degrees
+    );
+    uint16_t next_physical_degrees = s_orientation.physical_degrees;
+    if (delta >= kOrientationGyroSnapDegrees) {
+        next_physical_degrees =
+            static_cast<uint16_t>((next_physical_degrees + 90U) % 360U);
+    } else if (delta <= -kOrientationGyroSnapDegrees) {
+        next_physical_degrees =
+            static_cast<uint16_t>((next_physical_degrees + 270U) % 360U);
+    } else {
+        return;
+    }
+
+    commit_cardinal_orientation(
+        next_physical_degrees,
+        sampled_at_us,
+        "gyro"
+    );
+}
+
 void copy_orientation_snapshot(qsee::OrientationSnapshot &snapshot)
 {
     snapshot.auto_rotation_enabled = s_auto_rotation_enabled;
@@ -682,6 +803,9 @@ void observe_auto_rotation_state(bool enabled)
     s_orientation.gravity_valid = false;
     s_orientation.candidate_valid = false;
     s_orientation.candidate_since_us = 0;
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(s_orientation.physical_degrees);
+    s_orientation.gyro_sampled_at_us = 0;
     if (!enabled) {
         s_orientation.desired_rendering_degrees = 0;
     }
@@ -702,6 +826,7 @@ void process_orientation_sample(const qmi8658_data_t &data, int64_t sampled_at_u
         magnitude > kOrientationMagnitudeMax) {
         s_orientation.gravity_valid = false;
         s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
         publish_orientation_state();
         return;
     }
@@ -734,6 +859,7 @@ void process_orientation_sample(const qmi8658_data_t &data, int64_t sampled_at_u
     if (!s_orientation.planar_active) {
         s_orientation.gravity_valid = false;
         s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
         publish_orientation_state();
         return;
     }
@@ -746,6 +872,7 @@ void process_orientation_sample(const qmi8658_data_t &data, int64_t sampled_at_u
     if (major < minor * kOrientationDominance) {
         s_orientation.gravity_valid = false;
         s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
         publish_orientation_state();
         return;
     }
@@ -758,6 +885,7 @@ void process_orientation_sample(const qmi8658_data_t &data, int64_t sampled_at_u
         physical_degrees = accel_y < 0.0F ? 90 : 270;
     }
     s_orientation.gravity_valid = true;
+    process_gyro_cardinal_sample(data, sampled_at_us, true);
 
     if (physical_degrees == s_orientation.physical_degrees &&
         s_orientation.desired_rendering_degrees ==
@@ -783,19 +911,12 @@ void process_orientation_sample(const qmi8658_data_t &data, int64_t sampled_at_u
         return;
     }
 
-    s_orientation.candidate_valid = false;
-    s_orientation.physical_degrees = physical_degrees;
-    s_orientation.desired_rendering_degrees =
-        rendering_rotation_for_physical(physical_degrees);
-    ++s_orientation.change_sequence;
-    s_orientation.changed_at_us = sampled_at_us;
-    publish_orientation_state();
-    ESP_LOGI(
-        TAG,
-        "Cardinal orientation stable: physical=%u rendering=%u",
-        static_cast<unsigned>(s_orientation.physical_degrees),
-        static_cast<unsigned>(s_orientation.desired_rendering_degrees)
+    commit_cardinal_orientation(
+        physical_degrees,
+        sampled_at_us,
+        "gravity"
     );
+    s_orientation.gyro_physical_degrees = static_cast<float>(physical_degrees);
 }
 
 bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
@@ -813,6 +934,44 @@ bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
     }
 }
 
+bool is_cardinal_rotation(uint32_t degrees)
+{
+    return degrees == 0U || degrees == 90U ||
+           degrees == 180U || degrees == 270U;
+}
+
+// Commit only a newly applied cardinal angle to avoid redundant NVS writes.
+esp_err_t persist_display_rotation(uint16_t rendering_degrees)
+{
+    if (!is_cardinal_rotation(rendering_degrees)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_orientation.persisted_rendering_valid &&
+        s_orientation.persisted_rendering_degrees == rendering_degrees) {
+        return ESP_OK;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        const esp_err_t init_error = settings.initialize();
+        if (init_error != ESP_OK) {
+            return init_error;
+        }
+    }
+    const esp_err_t error =
+        settings.setUInt32(kDisplayRotationSetting, rendering_degrees);
+    if (error == ESP_OK) {
+        s_orientation.persisted_rendering_valid = true;
+        s_orientation.persisted_rendering_degrees = rendering_degrees;
+        ESP_LOGI(
+            TAG,
+            "Saved cardinal display rotation: %u deg",
+            static_cast<unsigned>(rendering_degrees)
+        );
+    }
+    return error;
+}
+
 // Commit the desired CO5300 angle, deferring while display or touch is busy.
 void apply_pending_display_rotation()
 {
@@ -828,6 +987,16 @@ void apply_pending_display_rotation()
         s_orientation.applied_rendering_degrees =
             s_orientation.desired_rendering_degrees;
         publish_orientation_state();
+        const esp_err_t persist_error = persist_display_rotation(
+            s_orientation.applied_rendering_degrees
+        );
+        if (persist_error != ESP_OK) {
+            ESP_LOGW(
+                TAG,
+                "Cardinal display rotation persistence failed (%s)",
+                esp_err_to_name(persist_error)
+            );
+        }
         return;
     }
     if (result == ESP_ERR_INVALID_STATE || result == ESP_ERR_TIMEOUT) {
@@ -938,6 +1107,9 @@ esp_err_t sample_imu(
 
 esp_err_t init_gps(i2c_master_bus_handle_t bus)
 {
+    if (s_gps_ready) {
+        return ESP_OK;
+    }
     esp_err_t error = add_i2c_device(bus, LC76G_WRITE_ADDRESS, 100000, &s_gps_control);
     if (error == ESP_OK) {
         error = add_i2c_device(bus, LC76G_READ_ADDRESS, 100000, &s_gps_read);
@@ -954,7 +1126,18 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
         }
     }
     s_gps_ready = error == ESP_OK;
+    if (!s_gps_ready) {
+        if (s_gps_read != nullptr) {
+            (void)i2c_master_bus_rm_device(s_gps_read);
+            s_gps_read = nullptr;
+        }
+        if (s_gps_control != nullptr) {
+            (void)i2c_master_bus_rm_device(s_gps_control);
+            s_gps_control = nullptr;
+        }
+    }
     update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
+        snapshot.gps.enabled = s_gps_enabled;
         set_component(snapshot.gps, error == ESP_OK, error);
     });
     if (!s_gps_ready) {
@@ -1137,6 +1320,7 @@ esp_err_t sample_gps(const char *phase)
 {
     static const uint8_t length_command[] = {0x08, 0x00, 0x51, 0xAA, 0x04, 0x00, 0x00, 0x00};
     qsee::GpsSnapshot sample;
+    sample.enabled = s_gps_enabled;
     uint8_t length_bytes[4] = {};
 
     esp_err_t error = gps_exchange(
@@ -1334,6 +1518,7 @@ void diagnostic_monitor_task(void *arg)
     for (;;) {
         const bool diagnostic_active = s_diagnostic_monitor_active;
         const bool system_active = s_system_monitor_active;
+        const bool ui_motion_active = s_ui_motion_monitor_active;
         const bool auto_rotation_active = s_auto_rotation_enabled;
         observe_auto_rotation_state(auto_rotation_active);
 
@@ -1348,11 +1533,11 @@ void diagnostic_monitor_task(void *arg)
         const bool rotation_pending =
             s_orientation.desired_rendering_degrees !=
             s_orientation.applied_rendering_degrees;
-        const bool imu_orientation_due =
-            auto_rotation_active && s_imu_ready;
+        const bool imu_monitor_due =
+            (auto_rotation_active || ui_motion_active) && s_imu_ready;
 
-        // Share one IMU read between diagnostics and the faster rotation loop.
-        if ((periodic_due || imu_orientation_due) &&
+        // Share one IMU read between diagnostics, rotation, and UI motion.
+        if ((periodic_due || imu_monitor_due) &&
             !s_sleep_transition_active) {
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
             if (refresh_mutex != nullptr &&
@@ -1363,12 +1548,16 @@ void diagnostic_monitor_task(void *arg)
                     vTaskDelay(pdMS_TO_TICKS(20));
                     continue;
                 }
-                if (imu_orientation_due) {
+                if (imu_monitor_due) {
                     const bool verbose = periodic_due && diagnostic_active;
                     if (sample_imu(
-                            verbose ? "diagnostic-ui" : "auto-rotation",
+                            verbose
+                                ? "diagnostic-ui"
+                                : auto_rotation_active
+                                    ? "auto-rotation"
+                                    : "command-bar-motion",
                             verbose,
-                            true
+                            auto_rotation_active
                         ) != ESP_OK) {
                         aggregate = ESP_FAIL;
                     }
@@ -1420,7 +1609,7 @@ void diagnostic_monitor_task(void *arg)
         }
 
         const uint32_t delay_ms =
-            (auto_rotation_active ||
+            (auto_rotation_active || ui_motion_active ||
              s_orientation.desired_rendering_degrees !=
              s_orientation.applied_rendering_degrees)
                 ? kOrientationSamplePeriodMs
@@ -1695,6 +1884,10 @@ esp_err_t DeviceSnapshotService::initialize()
         if (settings.getUInt32(kImuSmoothingSetting, 70, &saved_smoothing) == ESP_OK) {
             s_imu_smoothing_percent = saved_smoothing > 90U ? 90U : saved_smoothing;
         }
+        bool gps_enabled = true;
+        if (settings.getBool(kGpsEnabledSetting, true, &gps_enabled) == ESP_OK) {
+            s_gps_enabled = gps_enabled;
+        }
     } else {
         ESP_LOGW(TAG, "User settings unavailable; diagnostic period uses default");
     }
@@ -1713,7 +1906,16 @@ esp_err_t DeviceSnapshotService::initialize()
     if (imu == ESP_OK) {
         (void)calibrate_imu();
     }
-    const esp_err_t gps = init_gps(bus);
+    esp_err_t gps = ESP_OK;
+    if (s_gps_enabled) {
+        gps = init_gps(bus);
+    } else {
+        update_snapshot([](DeviceSnapshot &snapshot) {
+            snapshot.gps = GpsSnapshot{};
+            snapshot.gps.enabled = false;
+        });
+        ESP_LOGI(TAG, "GPS LC76G: disabled by saved preference");
+    }
 
     TaskHandle_t microphone = xTaskCreateStatic(
         microphone_task,
@@ -1741,6 +1943,8 @@ esp_err_t DeviceSnapshotService::initialize()
     }
     if (pmu != ESP_OK || rtc != ESP_OK || imu != ESP_OK || gps != ESP_OK) {
         ESP_LOGW(TAG, "Hardware initialization completed with degraded devices");
+    } else if (!s_gps_enabled) {
+        ESP_LOGI(TAG, "Hardware initialization: PMU + RTC + IMU configured; GPS disabled by preference");
     } else {
         ESP_LOGI(TAG, "Hardware initialization: PMU + RTC + IMU + GPS configured");
     }
@@ -1780,7 +1984,7 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
     if (s_imu_ready && sample_imu(phase) != ESP_OK) {
         aggregate = ESP_FAIL;
     }
-    if (s_gps_ready && sample_gps(phase) != ESP_OK) {
+    if (s_gps_enabled && s_gps_ready && sample_gps(phase) != ESP_OK) {
         aggregate = ESP_FAIL;
     }
     if (s_microphone_ready && sample_microphone(phase) != ESP_OK) {
@@ -1854,7 +2058,7 @@ void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
 
 void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
 {
-    update_snapshot([=](DeviceSnapshot &snapshot) {
+    update_snapshot([&wifi](DeviceSnapshot &snapshot) {
         snapshot.radios.wifi = wifi;
         snapshot.radios.wifi.updated_at_us = esp_timer_get_time();
     });
@@ -1869,12 +2073,20 @@ void DeviceSnapshotService::reportBle(
     uint32_t connection_count,
     uint32_t disconnection_count,
     const char *device_name,
-    bool provisioning
+    bool provisioning,
+    bool enabled
 )
 {
     update_snapshot([=](DeviceSnapshot &snapshot) {
-        set_component(snapshot.radios.ble, ready, error);
+        if (!enabled && !provisioning && !ready) {
+            snapshot.radios.ble.available = false;
+            snapshot.radios.ble.health = DeviceHealth::Unknown;
+            snapshot.radios.ble.last_error = error;
+        } else {
+            set_component(snapshot.radios.ble, ready, error);
+        }
         snapshot.radios.ble.updated_at_us = esp_timer_get_time();
+        snapshot.radios.ble.enabled = enabled;
         snapshot.radios.ble.provisioning = provisioning;
         snapshot.radios.ble.advertising = advertising;
         snapshot.radios.ble.connected = connected;
@@ -1923,6 +2135,7 @@ static esp_err_t ensure_monitor_task()
     }
     s_diagnostic_monitor_active = false;
     s_system_monitor_active = false;
+    s_ui_motion_monitor_active = false;
     s_auto_rotation_enabled = false;
     s_sleep_transition_active = false;
     TaskHandle_t task = xTaskCreateStatic(
@@ -1965,6 +2178,14 @@ extern "C" esp_err_t qsee_hardware_set_system_monitor(bool enabled)
     const esp_err_t result = ensure_monitor_task();
     if (result != ESP_OK) return result;
     s_system_monitor_active = enabled;
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled)
+{
+    const esp_err_t result = ensure_monitor_task();
+    if (result != ESP_OK) return result;
+    s_ui_motion_monitor_active = enabled;
     return ESP_OK;
 }
 
@@ -2034,7 +2255,7 @@ extern "C" bool qsee_display_get_auto_rotation_enabled(void)
     return s_auto_rotation_enabled;
 }
 
-// Restore the persisted toggle without rewriting NVS.
+// Restore the persisted toggle and last applied cardinal angle.
 extern "C" esp_err_t qsee_display_apply_saved_auto_rotation(void)
 {
     auto &settings = qsee::UserSettingsService::instance();
@@ -2044,16 +2265,65 @@ extern "C" esp_err_t qsee_display_apply_saved_auto_rotation(void)
             return init_error;
         }
     }
-    bool enabled = false;
+    bool enabled = true;
     const esp_err_t read_error =
-        settings.getBool(kAutoRotationSetting, false, &enabled);
+        settings.getBool(kAutoRotationSetting, true, &enabled);
     if (read_error != ESP_OK) {
         return read_error;
     }
+
+    uint32_t saved_rendering_degrees = 0;
+    const esp_err_t rotation_read_error = settings.getUInt32(
+        kDisplayRotationSetting,
+        0,
+        &saved_rendering_degrees
+    );
+    if (rotation_read_error != ESP_OK) {
+        return rotation_read_error;
+    }
+    if (!is_cardinal_rotation(saved_rendering_degrees)) {
+        ESP_LOGW(
+            TAG,
+            "Ignoring invalid saved display rotation: %lu",
+            static_cast<unsigned long>(saved_rendering_degrees)
+        );
+        saved_rendering_degrees = 0;
+        s_orientation.persisted_rendering_valid = false;
+    } else {
+        s_orientation.persisted_rendering_valid = true;
+        s_orientation.persisted_rendering_degrees =
+            static_cast<uint16_t>(saved_rendering_degrees);
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+    s_orientation.candidate_valid = false;
+    s_orientation.physical_degrees = rendering_rotation_for_physical(
+        static_cast<uint16_t>(saved_rendering_degrees)
+    );
+    s_orientation.desired_rendering_degrees =
+        static_cast<uint16_t>(saved_rendering_degrees);
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(s_orientation.physical_degrees);
+    s_orientation.gyro_sampled_at_us = 0;
+    if (s_orientation.desired_rendering_degrees !=
+        s_orientation.applied_rendering_degrees) {
+        ++s_orientation.change_sequence;
+        s_orientation.changed_at_us = esp_timer_get_time();
+    }
+    publish_orientation_state();
+    xSemaphoreGive(refresh_mutex);
+
     ESP_LOGI(
         TAG,
-        "Applying saved cardinal display auto-rotation: %s",
-        enabled ? "on" : "off"
+        "Applying saved display state: auto-rotation=%s rendering=%lu deg",
+        enabled ? "on" : "off",
+        static_cast<unsigned long>(saved_rendering_degrees)
     );
     return set_auto_rotation_runtime(enabled);
 }
@@ -2106,6 +2376,65 @@ extern "C" esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent)
 extern "C" uint32_t qsee_hardware_get_imu_smoothing_percent(void)
 {
     return s_imu_smoothing_percent;
+}
+
+// Persist GNSS intent and stop or restore sampling under the refresh lock.
+extern "C" esp_err_t qsee_gps_set_enabled(bool enabled)
+{
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        const esp_err_t init_error = settings.initialize();
+        if (init_error != ESP_OK) {
+            return init_error;
+        }
+    }
+    const esp_err_t persist_error =
+        settings.setBool(kGpsEnabledSetting, enabled);
+    if (persist_error != ESP_OK) {
+        return persist_error;
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    s_gps_enabled = enabled;
+    esp_err_t runtime_error = ESP_OK;
+    if (enabled && s_initialized && !s_gps_ready) {
+        runtime_error = init_gps(s_i2c_bus);
+    } else if (enabled) {
+        update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+            snapshot.gps.enabled = true;
+            if (s_gps_ready) {
+                set_component(snapshot.gps, true, ESP_OK);
+            }
+        });
+    } else {
+        update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+            snapshot.gps = qsee::GpsSnapshot{};
+            snapshot.gps.enabled = false;
+            snapshot.gps.available = s_gps_ready;
+            snapshot.gps.health = qsee::DeviceHealth::Unknown;
+            snapshot.gps.last_error = ESP_OK;
+        });
+    }
+    xSemaphoreGive(refresh_mutex);
+
+    ESP_LOGI(
+        TAG,
+        "GPS LC76G acquisition: %s",
+        enabled ? "enabled" : "disabled"
+    );
+    return runtime_error;
+}
+
+extern "C" bool qsee_gps_get_enabled(void)
+{
+    return s_gps_enabled;
 }
 
 extern "C" esp_err_t qsee_imu_calibrate(void)

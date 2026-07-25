@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "esp_err.h"
@@ -74,6 +75,7 @@ struct RtcSnapshot : ComponentSnapshot {
 };
 
 struct GpsSnapshot : ComponentSnapshot {
+    bool enabled = true;
     int64_t sampled_at_us = 0;
     uint32_t pending_nmea_bytes = 0;
     bool has_fix = false;
@@ -101,9 +103,20 @@ struct AudioSnapshot {
     uint32_t channel_peak_level[2] = {};
 };
 
+constexpr size_t kWifiSnapshotMaxNetworks = 16;
+
+struct WifiNetworkSnapshot {
+    char ssid[33] = {};
+    int8_t rssi = 0;
+    uint8_t channel = 0;
+    bool secured = false;
+};
+
 struct WifiSnapshot : ComponentSnapshot {
     int64_t updated_at_us = 0;
     bool started = false;
+    bool scanning = false;
+    bool scan_completed = false;
     bool credentials_configured = false;
     bool connect_requested = false;
     bool connected = false;
@@ -116,15 +129,19 @@ struct WifiSnapshot : ComponentSnapshot {
     uint32_t connect_attempt_count = 0;
     uint32_t reconnect_attempt_count = 0;
     uint32_t disconnect_count = 0;
+    uint32_t scan_sequence = 0;
+    uint8_t network_count = 0;
     char ssid[33] = {};
     char ip_address[16] = {};
     char netmask[16] = {};
     char gateway[16] = {};
     char mac_address[18] = {};
+    WifiNetworkSnapshot networks[kWifiSnapshotMaxNetworks];
 };
 
 struct BleSnapshot : ComponentSnapshot {
     int64_t updated_at_us = 0;
+    bool enabled = false;
     bool provisioning = false;
     bool advertising = false;
     bool connected = false;
@@ -283,7 +300,8 @@ public:
         uint32_t connection_count = 0,
         uint32_t disconnection_count = 0,
         const char *device_name = nullptr,
-        bool provisioning = false
+        bool provisioning = false,
+        bool enabled = false
     );
     void reportTime(
         bool system_time_valid,

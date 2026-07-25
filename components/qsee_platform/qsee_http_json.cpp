@@ -13,6 +13,7 @@
 
 #include "qsee_http_json.hpp"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -158,6 +159,8 @@ void writeGpsData(
     (void)json.quoted(qsee::deviceHealthName(gps.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(gps.last_error));
+    (void)json.raw(",\"enabled\":");
+    (void)json.boolean(gps.enabled);
     (void)json.format(
         ",\"pending_nmea_bytes\":%lu,\"has_fix\":",
         static_cast<unsigned long>(gps.pending_nmea_bytes)
@@ -215,6 +218,10 @@ void writeWifi(
     (void)json.quoted(esp_err_to_name(wifi.last_error));
     (void)json.raw(",\"started\":");
     (void)json.boolean(wifi.started);
+    (void)json.raw(",\"scanning\":");
+    (void)json.boolean(wifi.scanning);
+    (void)json.raw(",\"scan_completed\":");
+    (void)json.boolean(wifi.scan_completed);
     (void)json.raw(",\"credentials_configured\":");
     (void)json.boolean(wifi.credentials_configured);
     (void)json.raw(",\"connect_requested\":");
@@ -226,14 +233,16 @@ void writeWifi(
     (void)json.raw(",\"reconnect_pending\":");
     (void)json.boolean(wifi.reconnect_pending);
     (void)json.format(
-        ",\"rssi\":%d,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu",
+        ",\"rssi\":%d,\"channel\":%u,\"last_disconnect_reason\":%u,\"event_sequence\":%lu,\"connect_attempt_count\":%lu,\"reconnect_attempt_count\":%lu,\"disconnect_count\":%lu,\"scan_sequence\":%lu,\"network_count\":%u",
         static_cast<int>(wifi.rssi),
         static_cast<unsigned>(wifi.channel),
         static_cast<unsigned>(wifi.last_disconnect_reason),
         static_cast<unsigned long>(wifi.event_sequence),
         static_cast<unsigned long>(wifi.connect_attempt_count),
         static_cast<unsigned long>(wifi.reconnect_attempt_count),
-        static_cast<unsigned long>(wifi.disconnect_count)
+        static_cast<unsigned long>(wifi.disconnect_count),
+        static_cast<unsigned long>(wifi.scan_sequence),
+        static_cast<unsigned>(wifi.network_count)
     );
     if (include_sensitive) {
         (void)json.raw(",\"ssid\":");
@@ -242,6 +251,24 @@ void writeWifi(
         (void)json.quoted(wifi.ip_address);
         (void)json.raw(",\"mac_address\":");
         (void)json.quoted(wifi.mac_address);
+        (void)json.raw(",\"networks\":[");
+        const size_t network_count =
+            std::min(static_cast<size_t>(wifi.network_count), qsee::kWifiSnapshotMaxNetworks);
+        for (size_t index = 0; index < network_count; ++index) {
+            if (index > 0U) {
+                (void)json.raw(",");
+            }
+            (void)json.raw("{\"ssid\":");
+            (void)json.quoted(wifi.networks[index].ssid);
+            (void)json.format(
+                ",\"rssi\":%d,\"channel\":%u,\"secured\":",
+                static_cast<int>(wifi.networks[index].rssi),
+                static_cast<unsigned>(wifi.networks[index].channel)
+            );
+            (void)json.boolean(wifi.networks[index].secured);
+            (void)json.raw("}");
+        }
+        (void)json.raw("]");
     }
     (void)json.raw("}");
 }
@@ -252,6 +279,8 @@ void writeBle(qsee::HttpJsonWriter &json, const qsee::BleSnapshot &ble)
     (void)json.quoted(qsee::deviceHealthName(ble.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(ble.last_error));
+    (void)json.raw(",\"enabled\":");
+    (void)json.boolean(ble.enabled);
     (void)json.raw(",\"provisioning\":");
     (void)json.boolean(ble.provisioning);
     (void)json.raw(",\"advertising\":");

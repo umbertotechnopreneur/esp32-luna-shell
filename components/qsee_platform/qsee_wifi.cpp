@@ -37,6 +37,10 @@
 namespace {
 
 const char *TAG = "qsee_wifi";
+static_assert(
+    QSEE_WIFI_MAX_NETWORKS == qsee::kWifiSnapshotMaxNetworks,
+    "Wi-Fi driver and snapshot capacities must match"
+);
 
 SemaphoreHandle_t s_lock;
 StaticSemaphore_t s_lock_storage;
@@ -48,6 +52,14 @@ esp_event_handler_instance_t s_ip_event_instance;
 bool s_initialized;
 bool s_driver_initialized;
 bool s_connect_requested;
+bool s_sleep_suspended;
+bool s_station_operation_active;
+bool s_provisioning_active;
+bool s_provisioning_profile_valid;
+bool s_provisioning_connect_requested;
+wifi_config_t s_provisioning_profile;
+wifi_storage_t s_profile_storage = WIFI_STORAGE_FLASH;
+wifi_storage_t s_provisioning_profile_storage = WIFI_STORAGE_FLASH;
 uint8_t s_consecutive_disconnects;
 qsee_wifi_status_t s_status;
 qsee_wifi_network_t s_networks[QSEE_WIFI_MAX_NETWORKS];
@@ -96,11 +108,26 @@ void secure_zero(void *data, size_t size)
 void publish_snapshot()
 {
     qsee_wifi_status_t status = {};
+    qsee::WifiSnapshot snapshot;
+    size_t network_count = 0;
     wifi_lock();
     status = s_status;
+    network_count = s_network_count;
+    if (network_count > QSEE_WIFI_MAX_NETWORKS) {
+        network_count = QSEE_WIFI_MAX_NETWORKS;
+    }
+    for (size_t index = 0; index < network_count; ++index) {
+        strlcpy(
+            snapshot.networks[index].ssid,
+            s_networks[index].ssid,
+            sizeof(snapshot.networks[index].ssid)
+        );
+        snapshot.networks[index].rssi = s_networks[index].rssi;
+        snapshot.networks[index].channel = s_networks[index].channel;
+        snapshot.networks[index].secured = s_networks[index].secured;
+    }
     wifi_unlock();
 
-    qsee::WifiSnapshot snapshot;
     snapshot.available = status.initialized;
     snapshot.health = status.initialized && status.started
                           ? qsee::DeviceHealth::Ready
@@ -109,6 +136,8 @@ void publish_snapshot()
                                  : qsee::DeviceHealth::Degraded);
     snapshot.last_error = status.last_error;
     snapshot.started = status.started;
+    snapshot.scanning = status.scanning;
+    snapshot.scan_completed = status.scan_completed;
     snapshot.credentials_configured = status.credentials_configured;
     snapshot.connect_requested = status.connect_requested;
     snapshot.connected = status.connected;
@@ -121,6 +150,8 @@ void publish_snapshot()
     snapshot.connect_attempt_count = status.connect_attempt_count;
     snapshot.reconnect_attempt_count = status.reconnect_attempt_count;
     snapshot.disconnect_count = status.disconnect_count;
+    snapshot.scan_sequence = status.scan_sequence;
+    snapshot.network_count = static_cast<uint8_t>(network_count);
     strlcpy(snapshot.ssid, status.ssid, sizeof(snapshot.ssid));
     strlcpy(snapshot.ip_address, status.ip_address, sizeof(snapshot.ip_address));
     strlcpy(snapshot.netmask, status.netmask, sizeof(snapshot.netmask));
@@ -179,7 +210,9 @@ void reconnect_timer_callback(TimerHandle_t timer)
 {
     (void)timer;
     wifi_lock();
-    const bool should_connect = s_initialized && s_status.started && s_connect_requested;
+    const bool should_connect =
+        s_initialized && s_status.started && s_connect_requested &&
+        !s_sleep_suspended && !s_provisioning_active;
     s_status.reconnect_pending = false;
     s_status.reconnect_delay_ms = 0;
     if (should_connect) {
@@ -210,9 +243,12 @@ void handle_scan_done()
 
     wifi_lock();
     s_status.scanning = false;
+    s_status.scan_completed = true;
+    ++s_status.scan_sequence;
     ++s_status.event_sequence;
     if (error == ESP_OK) {
         s_network_count = count;
+        s_status.network_count = static_cast<uint8_t>(count);
         for (size_t index = 0; index < count; ++index) {
             copy_ssid(
                 s_networks[index].ssid,
@@ -227,6 +263,7 @@ void handle_scan_done()
         s_status.last_error = ESP_OK;
     } else {
         s_network_count = 0;
+        s_status.network_count = 0;
         s_status.last_error = error;
     }
     wifi_unlock();
@@ -287,7 +324,9 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.last_disconnect_reason = disconnected != nullptr ? disconnected->reason : 0;
             s_status.last_error = ESP_OK;
             ++s_status.event_sequence;
-            reconnect = s_connect_requested;
+            reconnect =
+                s_connect_requested && !s_sleep_suspended &&
+                !s_provisioning_active;
             if (reconnect) {
                 const uint8_t shift = s_consecutive_disconnects < 5 ? s_consecutive_disconnects : 5;
                 delay_ms = WIFI_RECONNECT_INITIAL_MS << shift;
@@ -339,11 +378,15 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         wifi_ap_record_t access_point = {};
         (void)esp_wifi_sta_get_ap_info(&access_point);
 
+        char online_ssid[QSEE_WIFI_SSID_MAX_LEN + 1U] = {};
+        char online_ip[16] = {};
+        int online_rssi = 0;
         wifi_lock();
         s_status.connected = true;
         s_status.ip_acquired = true;
         s_status.credentials_configured = true;
         s_status.connect_requested = true;
+        s_connect_requested = true;
         s_status.rssi = access_point.rssi;
         s_status.channel = access_point.primary;
         s_status.reconnect_pending = false;
@@ -368,13 +411,21 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
                 sizeof(s_status.gateway)
             );
         }
+        strlcpy(online_ssid, s_status.ssid, sizeof(online_ssid));
+        strlcpy(online_ip, s_status.ip_address, sizeof(online_ip));
+        online_rssi = s_status.rssi;
         ++s_status.event_sequence;
         s_consecutive_disconnects = 0;
         wifi_unlock();
         cancel_reconnect();
         publish_snapshot();
-        ESP_LOGI(TAG, "Online: SSID=%s IP=%s RSSI=%d dBm",
-                 s_status.ssid, s_status.ip_address, s_status.rssi);
+        ESP_LOGI(
+            TAG,
+            "Wi-Fi online: SSID=\"%s\" IPv4=%s RSSI=%d dBm",
+            online_ssid,
+            online_ip,
+            online_rssi
+        );
         (void)qsee_time_notify_wifi_online();
     } else if (event_id == IP_EVENT_STA_LOST_IP) {
         wifi_lock();
@@ -587,6 +638,18 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
         return ESP_ERR_INVALID_ARG;
     }
 
+    wifi_lock();
+    const bool unavailable =
+        s_sleep_suspended || s_provisioning_active ||
+        s_station_operation_active || s_status.scanning;
+    if (!unavailable) {
+        s_station_operation_active = true;
+    }
+    wifi_unlock();
+    if (unavailable) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     wifi_config_t config = {};
     if (ssid_length == sizeof(config.sta.ssid)) {
         std::memcpy(config.sta.ssid, ssid, ssid_length);
@@ -617,6 +680,9 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
         error = esp_wifi_set_config(WIFI_IF_STA, &config);
     }
     if (error != ESP_OK) {
+        wifi_lock();
+        s_station_operation_active = false;
+        wifi_unlock();
         secure_zero(&config, sizeof(config));
         record_error(error);
         return error;
@@ -630,6 +696,7 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
     s_status.connect_requested = true;
     s_status.connected = false;
     s_status.ip_acquired = false;
+    s_profile_storage = persist ? WIFI_STORAGE_FLASH : WIFI_STORAGE_RAM;
     strlcpy(s_status.ssid, ssid, sizeof(s_status.ssid));
     ++s_status.connect_attempt_count;
     s_status.last_error = ESP_OK;
@@ -639,6 +706,9 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
 
     ESP_LOGI(TAG, "Connecting to SSID=%s, persistence=%s", ssid, persist ? "NVS" : "RAM");
     error = esp_wifi_connect();
+    wifi_lock();
+    s_station_operation_active = false;
+    wifi_unlock();
     if (error == ESP_ERR_WIFI_STATE) {
         schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
         return ESP_OK;
@@ -647,6 +717,7 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
     return error;
 }
 
+// Reuse the stored password unless the editor explicitly replaced it.
 extern "C" esp_err_t qsee_wifi_update_credentials(
     const char *ssid,
     const char *password,
@@ -689,9 +760,21 @@ extern "C" esp_err_t qsee_wifi_update_credentials(
     return error;
 }
 
+// Cancel reconnect intent while keeping the station driver available.
 extern "C" esp_err_t qsee_wifi_disconnect(void)
 {
     if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    wifi_lock();
+    const bool unavailable =
+        s_sleep_suspended || s_provisioning_active ||
+        s_station_operation_active || s_status.scanning;
+    if (!unavailable) {
+        s_station_operation_active = true;
+    }
+    wifi_unlock();
+    if (unavailable) {
         return ESP_ERR_INVALID_STATE;
     }
     cancel_reconnect();
@@ -711,6 +794,9 @@ extern "C" esp_err_t qsee_wifi_disconnect(void)
     publish_snapshot();
 
     const esp_err_t error = esp_wifi_disconnect();
+    wifi_lock();
+    s_station_operation_active = false;
+    wifi_unlock();
     if (error == ESP_ERR_WIFI_NOT_CONNECT) {
         record_error(ESP_OK);
         return ESP_OK;
@@ -719,17 +805,25 @@ extern "C" esp_err_t qsee_wifi_disconnect(void)
     return error;
 }
 
+// Start one asynchronous scan and expose its pending state immediately.
 extern "C" esp_err_t qsee_wifi_start_scan(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
     wifi_lock();
+    if (s_sleep_suspended || s_provisioning_active ||
+        s_station_operation_active) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_status.scanning) {
         wifi_unlock();
         return ESP_OK;
     }
+    s_station_operation_active = true;
     s_status.scanning = true;
+    s_status.scan_completed = false;
     ++s_status.event_sequence;
     wifi_unlock();
     publish_snapshot();
@@ -737,15 +831,294 @@ extern "C" esp_err_t qsee_wifi_start_scan(void)
     wifi_scan_config_t config = {};
     config.show_hidden = true;
     const esp_err_t error = esp_wifi_scan_start(&config, false);
+    wifi_lock();
+    s_station_operation_active = false;
+    wifi_unlock();
     if (error != ESP_OK) {
         wifi_lock();
         s_status.scanning = false;
+        s_status.scan_completed = true;
+        ++s_status.scan_sequence;
         wifi_unlock();
         record_error(error);
     } else {
         ESP_LOGI(TAG, "Asynchronous scan started");
     }
     return error;
+}
+
+// Checkpoint the current profile and suppress reconnects during BLE onboarding.
+extern "C" esp_err_t qsee_wifi_begin_provisioning(void)
+{
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_lock();
+    const bool unavailable =
+        s_sleep_suspended || s_provisioning_active ||
+        s_station_operation_active || s_status.scanning;
+    if (!unavailable) {
+        s_station_operation_active = true;
+    }
+    wifi_unlock();
+    if (unavailable) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_config_t profile = {};
+    const esp_err_t profile_error = esp_wifi_get_config(WIFI_IF_STA, &profile);
+    if (profile_error != ESP_OK) {
+        wifi_lock();
+        s_station_operation_active = false;
+        wifi_unlock();
+        secure_zero(&profile, sizeof(profile));
+        return profile_error;
+    }
+
+    wifi_lock();
+    s_provisioning_profile = profile;
+    s_provisioning_profile_valid = true;
+    s_provisioning_connect_requested = s_connect_requested;
+    s_provisioning_profile_storage = s_profile_storage;
+    s_provisioning_active = true;
+    s_station_operation_active = false;
+    wifi_unlock();
+    secure_zero(&profile, sizeof(profile));
+
+    cancel_reconnect();
+    ESP_LOGI(TAG, "Wi-Fi reconnects paused for BLE provisioning");
+    return ESP_OK;
+}
+
+// Restore the checkpoint after cancellation, or keep the newly applied profile.
+extern "C" esp_err_t qsee_wifi_end_provisioning(bool credentials_applied)
+{
+    wifi_config_t checkpoint = {};
+    bool checkpoint_valid = false;
+    bool reconnect_requested = false;
+    bool station_started = false;
+    wifi_storage_t checkpoint_storage = WIFI_STORAGE_FLASH;
+
+    wifi_lock();
+    if (!s_provisioning_active || s_station_operation_active) {
+        wifi_unlock();
+        return s_provisioning_active ? ESP_ERR_INVALID_STATE : ESP_OK;
+    }
+    s_station_operation_active = true;
+    checkpoint = s_provisioning_profile;
+    checkpoint_valid = s_provisioning_profile_valid;
+    checkpoint_storage = s_provisioning_profile_storage;
+    reconnect_requested =
+        credentials_applied ? true : s_provisioning_connect_requested;
+    station_started = s_status.started;
+    wifi_unlock();
+
+    cancel_reconnect();
+    esp_err_t first_error = ESP_OK;
+    if (!credentials_applied && checkpoint_valid) {
+        const esp_err_t disconnect_error = esp_wifi_disconnect();
+        if (disconnect_error != ESP_OK &&
+            disconnect_error != ESP_ERR_WIFI_NOT_CONNECT) {
+            first_error = disconnect_error;
+        }
+        if (first_error == ESP_OK) {
+            first_error = esp_wifi_set_storage(checkpoint_storage);
+        }
+        if (first_error == ESP_OK) {
+            first_error = esp_wifi_set_config(WIFI_IF_STA, &checkpoint);
+        }
+    }
+    if (first_error != ESP_OK) {
+        wifi_lock();
+        s_station_operation_active = false;
+        wifi_unlock();
+        secure_zero(&checkpoint, sizeof(checkpoint));
+        record_error(first_error);
+        return first_error;
+    }
+
+    wifi_config_t active_profile = {};
+    const esp_err_t active_profile_error =
+        esp_wifi_get_config(WIFI_IF_STA, &active_profile);
+
+    wifi_lock();
+    secure_zero(&s_provisioning_profile, sizeof(s_provisioning_profile));
+    s_provisioning_profile_valid = false;
+    s_provisioning_connect_requested = false;
+    s_provisioning_profile_storage = WIFI_STORAGE_FLASH;
+    s_provisioning_active = false;
+    s_connect_requested = reconnect_requested;
+    s_status.connect_requested = reconnect_requested;
+    if (credentials_applied) {
+        s_profile_storage = WIFI_STORAGE_FLASH;
+    } else if (first_error == ESP_OK) {
+        s_profile_storage = checkpoint_storage;
+    }
+    if (active_profile_error == ESP_OK) {
+        s_status.credentials_configured = active_profile.sta.ssid[0] != '\0';
+        copy_ssid(
+            s_status.ssid,
+            sizeof(s_status.ssid),
+            active_profile.sta.ssid,
+            sizeof(active_profile.sta.ssid)
+        );
+    }
+    ++s_status.event_sequence;
+    wifi_unlock();
+    secure_zero(&active_profile, sizeof(active_profile));
+    secure_zero(&checkpoint, sizeof(checkpoint));
+    publish_snapshot();
+
+    esp_err_t connect_error = ESP_OK;
+    if (!credentials_applied && reconnect_requested && station_started &&
+        first_error == ESP_OK) {
+        wifi_lock();
+        ++s_status.connect_attempt_count;
+        wifi_unlock();
+        connect_error = esp_wifi_connect();
+        if (connect_error != ESP_OK &&
+            connect_error != ESP_ERR_WIFI_STATE) {
+            first_error = connect_error;
+        }
+    }
+    wifi_lock();
+    s_station_operation_active = false;
+    wifi_unlock();
+    if (connect_error == ESP_ERR_WIFI_STATE) {
+        schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+    }
+
+    if (first_error != ESP_OK) {
+        record_error(first_error);
+    } else {
+        ESP_LOGI(TAG, "%s",
+            credentials_applied
+                ? "Provisioned Wi-Fi profile accepted"
+                : "Previous Wi-Fi profile restored after provisioning"
+        );
+    }
+    return first_error;
+}
+
+// Capture Wi-Fi intent and stop only the driver needed for explicit sleep.
+extern "C" esp_err_t qsee_wifi_prepare_light_sleep(
+    bool *was_started,
+    bool *reconnect_requested
+)
+{
+    if (was_started == nullptr || reconnect_requested == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    wifi_lock();
+    if (s_provisioning_active || s_sleep_suspended ||
+        s_station_operation_active) {
+        *was_started = false;
+        *reconnect_requested = false;
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_station_operation_active = true;
+    *was_started = s_initialized && s_status.started;
+    *reconnect_requested = s_connect_requested;
+    s_sleep_suspended = true;
+    s_status.scanning = false;
+    wifi_unlock();
+    cancel_reconnect();
+
+    if (!*was_started) {
+        wifi_lock();
+        s_station_operation_active = false;
+        wifi_unlock();
+        return ESP_OK;
+    }
+
+    const esp_err_t error = esp_wifi_stop();
+    wifi_lock();
+    s_station_operation_active = false;
+    if (error != ESP_OK) {
+        s_sleep_suspended = false;
+    }
+    wifi_unlock();
+    if (error != ESP_OK) {
+        record_error(error);
+    }
+    return error;
+}
+
+// Restart the station and reconnect only when that intent existed pre-sleep.
+extern "C" esp_err_t qsee_wifi_restore_after_light_sleep(
+    bool was_started,
+    bool reconnect_requested
+)
+{
+    if (!was_started) {
+        wifi_lock();
+        if (s_station_operation_active) {
+            wifi_unlock();
+            return ESP_ERR_INVALID_STATE;
+        }
+        s_sleep_suspended = false;
+        wifi_unlock();
+        return ESP_OK;
+    }
+    if (!s_initialized) {
+        wifi_lock();
+        s_sleep_suspended = false;
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    wifi_lock();
+    if (!s_sleep_suspended || s_station_operation_active) {
+        wifi_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_station_operation_active = true;
+    wifi_unlock();
+
+    esp_err_t first_error = esp_wifi_start();
+    const bool driver_started = first_error == ESP_OK;
+    if (driver_started) {
+        const esp_err_t power_save_error =
+            esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
+        if (power_save_error != ESP_OK) {
+            first_error = power_save_error;
+        }
+    }
+
+    wifi_lock();
+    s_sleep_suspended = false;
+    s_connect_requested = reconnect_requested;
+    s_status.connect_requested = reconnect_requested;
+    s_status.scanning = false;
+    ++s_status.event_sequence;
+    wifi_unlock();
+    publish_snapshot();
+
+    esp_err_t connect_error = ESP_OK;
+    if (driver_started && reconnect_requested) {
+        wifi_lock();
+        ++s_status.connect_attempt_count;
+        wifi_unlock();
+        connect_error = esp_wifi_connect();
+        if (connect_error != ESP_OK &&
+            connect_error != ESP_ERR_WIFI_STATE &&
+            first_error == ESP_OK) {
+            first_error = connect_error;
+        }
+    }
+    wifi_lock();
+    s_station_operation_active = false;
+    wifi_unlock();
+    if (connect_error == ESP_ERR_WIFI_STATE) {
+        schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+    }
+    if (first_error != ESP_OK) {
+        record_error(first_error);
+    }
+    return first_error;
 }
 
 extern "C" size_t qsee_wifi_get_networks(qsee_wifi_network_t *networks, size_t capacity)

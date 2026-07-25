@@ -1,8 +1,27 @@
 # Settings and Wi-Fi provisioning
 
-The device Settings UI is an ESP-Brookesia route hierarchy. The hub and its
-focused pages call the existing platform APIs; they do not own duplicate
-settings storage or read sensors directly.
+The device Settings UI is one ESP-Brookesia scrollable route. Its controls call
+the existing platform APIs; they do not own duplicate settings storage or read
+sensors directly.
+
+## Global Settings page
+
+All normal controls are visible in one vertically scrollable page with
+typographic hierarchy and generous spacing:
+
+- Diagnostics: sample period and IMU smoothing;
+- Storage: SD state and logger mirroring;
+- Wi-Fi: runtime state, connection, SSID, IPv4, bounded scan results, and
+  credential editing;
+- BLE: persisted enabled state and on-demand Espressif provisioning;
+- GPS: persisted acquisition and time-sync state;
+- Display & Motion: brightness, cardinal auto-rotation, and applied angle;
+- Power: dim, panel-off, and lower-command visibility timing.
+
+Enum-like values use dropdowns and booleans use switches. There is no category
+button hub. Back returns directly to Welcome. Only the Wi-Fi credential editor
+and pairing wizard retain dedicated full-height routes because they are guided
+flows rather than ordinary settings.
 
 ## Persisted controls
 
@@ -10,22 +29,54 @@ settings storage or read sensors directly.
 | --- | --- | --- |
 | Diagnostics | hardware service | sample period and IMU smoothing |
 | Storage | storage service | logger mirror preference |
-| Display | display/hardware service | brightness and cardinal auto-rotation |
+| Display | display/hardware service | brightness, cardinal auto-rotation, and last successfully applied cardinal angle |
 | Power | power service | dim timeout and later panel-off delay |
+| UI command arc | navigation controller | visible timeout from 10 seconds to 10 minutes |
 | Wi-Fi | ESP-IDF station service | station profile when explicitly saved |
+| Bluetooth LE | radio service | normal telemetry advertising enabled/disabled |
+| GPS / GNSS | hardware service | LC76G acquisition enabled/disabled |
 
-The UI reads live Wi-Fi, storage, and orientation state from
-`DeviceSnapshotService`. It does not expose the HTTP API key or provisioning
-bookkeeping as user settings.
+The UI reads live Wi-Fi, bounded scan results, BLE, GPS, storage, and
+orientation state from `DeviceSnapshotService`. It does not expose the HTTP
+API key, saved Wi-Fi password, or provisioning bookkeeping as user settings.
+
+An asynchronous Wi-Fi scan is command-only from the UI. Its pending/completed
+state and up to 16 SSID/RSSI/channel/security results are copied into the
+canonical snapshot; settings code never reads ESP-IDF scan records directly.
+
+## Display and power
+
+Auto-rotation follows valid QMI8658 gravity samples and applies only the four
+CO5300 cardinal rotations: `0`, `90`, `180`, and `270` degrees. The Display &
+Motion section shows both physical orientation and applied rendering rotation.
+Each successfully applied angle is persisted without redundant NVS writes and
+restored at the next boot.
+
+The Power section persists a timeout for the 50% dim stage and a separate delay
+before the panel is turned off. Once the application has armed the input, one
+BOOT press and release enters coordinated light sleep; the next BOOT press
+wakes the device and is consumed as the wake action.
+
+The Display & Motion section exposes a dropdown for lower-command visibility.
+Command groups start visible, fade out after the selected interval, and disable
+their hit targets only after becoming transparent. LVGL touch activity or
+meaningful QMI8658 movement fades them back in. A lightweight platform monitor
+publishes motion through `DeviceSnapshotService` even when auto-rotation is
+disabled, so the UI never reads the sensor driver directly. Shell-owned Back
+remains visible.
 
 ## Local Wi-Fi credential editing
 
-The password field is blank and masked whenever the editor opens. A saved
-password is never returned to the UI. If the SSID still matches the stored
-profile, `qsee_wifi_update_credentials()` can reuse that password internally;
-otherwise the user must enter a new one. Temporary copies are explicitly
-wiped, the text field is cleared on every exit, and no password is logged or
-published in the canonical snapshot.
+The editor shows the SSID and opens with a blank, masked password field. A
+saved password is never returned to the UI. If the SSID still matches the
+stored profile, `qsee_wifi_update_credentials()` can reuse that password
+internally; otherwise the user must enter a new one. Temporary copies are
+explicitly wiped, the text field is cleared on every exit, and no password is
+logged or published in the canonical snapshot.
+
+When Wi-Fi is active, Settings shows current state, SSID, IPv4, and a bounded
+list of discovered networks. The asynchronous IP event logs SSID, IPv4, and
+RSSI. Welcome places the IPv4 state before memory and device metrics.
 
 ## Espressif BLE provisioning
 
@@ -42,6 +93,20 @@ The route sequence is:
 4. scan the device QR and wait for credentials;
 5. show a bounded success, failure, or timeout result.
 
-Leaving the device-QR step stops an active provisioning session. The wrapper
-initializes the manager before starting it, so the Settings route remains safe
-when radio startup was deferred during boot.
+Leaving the pairing flow synchronously stops and deinitializes its BLE
+provisioning manager. The Wi-Fi station is already owned by the event-driven
+HTTP service; the provisioning transport itself starts only on demand.
+Provisioning temporarily owns the BLE controller and restores normal telemetry
+advertising afterward only when the saved BLE preference is enabled.
+
+## Diagnostic views
+
+Audio Scope renders each ES7210 channel as a peak-driven VU meter on a
+`-60..0 dBFS` scale. Green ends at `-12 dBFS`, yellow ends at `-3 dBFS`, and
+red covers the remaining headroom. A white marker holds the peak for one
+second before decaying, while the detail block reports `%FS`, `dBFS`, PCM
+format, sample rate, and channel count.
+
+IMU Level is a single non-scrolling view. It combines the X/Y/Z acceleration
+triad, a three-segment gyroscope ring, temperature, calibration state, and
+numeric values with their physical units.

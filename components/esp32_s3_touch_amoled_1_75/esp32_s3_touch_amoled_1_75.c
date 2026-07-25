@@ -38,6 +38,7 @@ uint8_t brightness;
 static i2s_chan_handle_t i2s_tx_chan = NULL;
 static i2s_chan_handle_t i2s_rx_chan = NULL;
 static const audio_codec_data_if_t *i2s_data_if = NULL; /* Codec data interface */
+static bool power_amp_initialized = false;
 
 #define BSP_ES7210_CODEC_ADDR ES7210_CODEC_DEFAULT_ADDR
 #define BSP_I2S_GPIO_CFG       \
@@ -207,6 +208,39 @@ esp_err_t bsp_sdcard_unmount(void)
  * I2S Audio Function
  *
  **************************************************************************************************/
+// Keep PA switching independent from codec open/close so it happens at zero PCM.
+esp_err_t bsp_audio_power_amp_set(bool enabled)
+{
+    if (!power_amp_initialized)
+    {
+        // Preload the output latch low before GPIO46 starts driving the PA.
+        esp_err_t result = gpio_set_level(BSP_POWER_AMP_IO, 0);
+        if (result != ESP_OK)
+        {
+            return result;
+        }
+        const gpio_config_t config = {
+            .pin_bit_mask = 1ULL << BSP_POWER_AMP_IO,
+            .mode = GPIO_MODE_OUTPUT,
+            .pull_up_en = GPIO_PULLUP_DISABLE,
+            .pull_down_en = GPIO_PULLDOWN_DISABLE,
+            .intr_type = GPIO_INTR_DISABLE,
+        };
+        result = gpio_config(&config);
+        if (result != ESP_OK)
+        {
+            return result;
+        }
+        result = gpio_set_level(BSP_POWER_AMP_IO, 0);
+        if (result != ESP_OK)
+        {
+            return result;
+        }
+        power_amp_initialized = true;
+    }
+    return gpio_set_level(BSP_POWER_AMP_IO, enabled ? 1 : 0);
+}
+
 esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
 {
     esp_err_t ret = ESP_FAIL;
@@ -286,7 +320,8 @@ esp_codec_dev_handle_t bsp_audio_codec_speaker_init(void)
         .ctrl_if = i2c_ctrl_if,
         .gpio_if = gpio_if,
         .codec_mode = ESP_CODEC_DEV_WORK_MODE_DAC,
-        .pa_pin = BSP_POWER_AMP_IO,
+        // QSee sequences the PA after zero PCM has stabilized to avoid pops.
+        .pa_pin = -1,
         .pa_reverted = false,
         .master_mode = false,
         .use_mclk = true,
@@ -553,9 +588,9 @@ static lv_display_t *bsp_display_lcd_init(const bsp_display_cfg_t *cfg)
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            // Waveshare's current BSP uses two 50-line PSRAM buffers: large
-            // enough to keep QSPI busy without forcing a full-frame DMA copy.
-            .buffer_height = 50,
+            // IDF 5.x bounces PSRAM QSPI transfers through internal DMA RAM.
+            // Keep each stripe bounded so a rich UI cannot starve that copy.
+            .buffer_height = 12,
             .use_psram = true,
             .enable_ppa_accel = false,
             .require_double_buffer = true,
@@ -640,6 +675,8 @@ typedef struct
     bool panel_swap_xy;
     bool panel_mirror_x;
     bool panel_mirror_y;
+    int panel_x_gap;
+    int panel_y_gap;
     bool touch_swap_xy;
     bool touch_mirror_x;
     bool touch_mirror_y;
@@ -662,6 +699,8 @@ static bool bsp_display_rotation_config(
             .panel_swap_xy = false,
             .panel_mirror_x = false,
             .panel_mirror_y = false,
+            .panel_x_gap = 6,
+            .panel_y_gap = 0,
             .touch_swap_xy = false,
             .touch_mirror_x = true,
             .touch_mirror_y = true,
@@ -672,6 +711,8 @@ static bool bsp_display_rotation_config(
             .panel_swap_xy = true,
             .panel_mirror_x = true,
             .panel_mirror_y = false,
+            .panel_x_gap = 0,
+            .panel_y_gap = 6,
             .touch_swap_xy = true,
             .touch_mirror_x = false,
             .touch_mirror_y = true,
@@ -682,6 +723,8 @@ static bool bsp_display_rotation_config(
             .panel_swap_xy = false,
             .panel_mirror_x = true,
             .panel_mirror_y = true,
+            .panel_x_gap = 6,
+            .panel_y_gap = 0,
             .touch_swap_xy = false,
             .touch_mirror_x = false,
             .touch_mirror_y = false,
@@ -692,6 +735,8 @@ static bool bsp_display_rotation_config(
             .panel_swap_xy = true,
             .panel_mirror_x = false,
             .panel_mirror_y = true,
+            .panel_x_gap = 0,
+            .panel_y_gap = 6,
             .touch_swap_xy = true,
             .touch_mirror_x = true,
             .touch_mirror_y = false,
@@ -715,6 +760,16 @@ static esp_err_t bsp_display_apply_rotation_config(
         panel_handle,
         config->panel_mirror_x,
         config->panel_mirror_y
+    );
+    if (result != ESP_OK)
+    {
+        return result;
+    }
+    // MADCTL row/column exchange also swaps the panel's six-pixel RAM offset.
+    result = esp_lcd_panel_set_gap(
+        panel_handle,
+        config->panel_x_gap,
+        config->panel_y_gap
     );
     if (result != ESP_OK)
     {

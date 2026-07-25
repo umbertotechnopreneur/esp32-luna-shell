@@ -30,7 +30,7 @@ published snapshot rather than a driver directly.
 | RTC | date/time and clock-integrity flag |
 | IMU / sensor input | filtered acceleration and angular velocity, sensor temperature, calibration state/biases, availability, and `sampled_at_us` |
 | Cardinal orientation | persisted auto-rotation state, gravity validity, physical orientation, applied rendering rotation, pending state, and change timestamps |
-| GPS | pending NMEA byte count, parsed GGA/RMC fix data, availability, and `sampled_at_us` |
+| GPS | persisted enable state, pending NMEA byte count, parsed GGA/RMC fix data, availability, and `sampled_at_us` |
 | Audio | speaker health, microphone health, mean and peak input level |
 | UI/storage/radios | display, touch, SD/logger mirror, Wi-Fi, BLE |
 | Memory | generic free/minimum heap plus internal and PSRAM heap total/used/free/percentage/largest block; physical flash and running firmware image usage |
@@ -41,6 +41,12 @@ explicit `available` flag, and the last `esp_err_t`. BLE provisioning and
 telemetry advertising are represented as separate states rather than
 collapsing provisioning to `Unknown`; provisioning does not claim an
 advertising state that its API does not expose.
+
+The radio snapshot also carries the normal BLE enable preference. Wi-Fi scan
+state and up to 16 bounded results live in `WifiSnapshot`; UI consumers issue
+`qsee_wifi_start_scan()` and then read `scanning`, `scan_completed`,
+`scan_sequence`, `network_count`, and `networks` only from
+`DeviceSnapshotService`.
 
 CPU utilization is available only after two runtime samples. With
 `CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS` enabled, each core is calculated as

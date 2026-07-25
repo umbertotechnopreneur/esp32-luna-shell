@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "gui/lvgl/esp_brookesia_app_widgets.hpp"
+#include "qsee_adaptive_command_bar.hpp"
 #include "qsee_edge_navigation.hpp"
 
 namespace qsee {
@@ -25,11 +26,6 @@ public:
         Imu,
         About,
         Settings,
-        SettingsDiagnostics,
-        SettingsStorage,
-        SettingsNetwork,
-        SettingsDisplay,
-        SettingsPower,
         WifiCredentials,
         PairIntro,
         PairBluetooth,
@@ -58,7 +54,9 @@ public:
     void shutdown();
 
 private:
+    /** Build one vertically scrollable Settings surface with native controls. */
     void buildSettingsUi();
+    /** Route screens and stop provisioning only when leaving its full flow. */
     void show(Screen screen);
     void showAudio();
     void showImu();
@@ -73,37 +71,46 @@ private:
     void closeDialog();
     void requestFormat();
     void updateDiagnosticViews();
+    /** Smooth live dBFS levels and maintain each peak-hold marker. */
     void updateAudioMeters(bool reset);
+    /** Refresh fast animations while throttling the heavier full snapshot. */
     void onRefreshTick();
     /** Keep the full-screen wake guard above controls while the panel is dark. */
     void updateDisplayWakeGuard();
     /** Consume the first dark-screen touch and request asynchronous recovery. */
     static void displayWakeGuardEvent(lv_event_t *event);
-    void adjustDiagnosticPeriod(int delta_ms);
-    void adjustImuSmoothing(int delta_percent);
-    void toggleSdMirror();
-    void startWifi();
-    void setBrightnessProfile(uint32_t percent);
-    void cycleDimTimeout();
-    void cyclePanelOffDelay();
-    void toggleAutoRotation();
+    /** Apply a user selection from the unified Settings controls. */
+    static void settingsControlChangedEvent(lv_event_t *event);
+    /** Persist the dropdown's lower-command visibility timeout. */
+    static void commandBarTimeoutChangedEvent(lv_event_t *event);
+    /** Refresh snapshot status and synchronize persisted Settings controls. */
     void updateSettings();
+    /** Load only the SSID; a blank password preserves the saved secret. */
     void prepareWifiEditor();
     void saveWifiCredentials();
+    /** Scrub temporary password text before leaving the editor. */
     void clearWifiPassword();
     static void wifiFieldFocusEvent(lv_event_t *event);
+    /** Drop scan metadata when the user edits a preselected SSID. */
+    static void wifiSsidChangedEvent(lv_event_t *event);
+    /** Mark only user edits as password replacements. */
     static void wifiPasswordChangedEvent(lv_event_t *event);
     void startPairing();
     void showPairingBluetooth();
     void showPairingApp();
+    /** Start BLE provisioning only when entering the device QR stage. */
     void showPairingQr();
     void showAppStoreQr();
     void showPairingResult(const char *message, bool success);
     void pairingPrimaryAction();
     void pairingSecondaryAction();
+    /** Render the current pairing stage without changing transport state. */
     void renderPairing();
+    /** Generate a QR into the reusable LVGL canvas buffer. */
     bool renderQr(const char *payload);
+    /** Translate provisioning events into progress or result screens. */
     void updatePairingState();
+    /** Rasterize the QR library callback into the active canvas. */
     static void qrDisplayCallback(const uint8_t *qrcode);
 
     std::unique_ptr<esp_brookesia::gui::AppScreen> _screen;
@@ -127,6 +134,7 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_imu;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_settings;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _welcome_ip;
     std::vector<DeviceLine> _welcome_devices;
     std::unique_ptr<EdgeNavigation> _edge_navigation;
     std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
@@ -143,39 +151,30 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_website;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_email;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_copyright;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_diagnostics_open;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_storage_open;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_network_open;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_display_open;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_power_open;
-    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings_diagnostics_page;
-    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings_storage_page;
-    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings_network_page;
-    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings_display_page;
-    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings_power_page;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_period;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_faster;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_slower;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_default;
+    lv_obj_t *_settings_period_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_smoothing;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_smoothing_less;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_smoothing_more;
+    lv_obj_t *_settings_smoothing_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_storage;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_sd_mirror;
+    lv_obj_t *_settings_sd_mirror_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_wifi_start;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_wifi_edit;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_wifi_pair;
+    lv_obj_t *_settings_wifi_action_dropdown = nullptr;
+    lv_obj_t *_settings_wifi_networks_dropdown = nullptr;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_ble;
+    lv_obj_t *_settings_ble_switch = nullptr;
+    lv_obj_t *_settings_ble_action_dropdown = nullptr;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_gps;
+    lv_obj_t *_settings_gps_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_brightness;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_brightness_low;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_brightness_default;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_brightness_high;
+    lv_obj_t *_settings_brightness_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_dim_timeout;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_dim_cycle;
+    lv_obj_t *_settings_dim_timeout_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_panel_off_delay;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_panel_off_cycle;
+    lv_obj_t *_settings_panel_off_dropdown = nullptr;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_command_bar_timeout;
+    lv_obj_t *_settings_command_bar_timeout_dropdown = nullptr;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_rotation;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_auto_rotate;
+    lv_obj_t *_settings_auto_rotation_switch = nullptr;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _wifi_editor;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _wifi_editor_title;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _wifi_editor_message;
@@ -188,6 +187,7 @@ private:
     bool _wifi_editor_loading = false;
     bool _wifi_password_dirty = false;
     bool _wifi_password_visible = false;
+    bool _wifi_selected_network_open = false;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _pairing;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _pairing_title;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _pairing_message;
@@ -198,6 +198,8 @@ private:
     int64_t _pairing_started_at_us = 0;
     bool _pairing_result_success = false;
     char _pairing_result[160] = {};
+    uint32_t _settings_wifi_scan_sequence = 0xFFFFFFFFU;
+    bool _settings_wifi_scanning = false;
     static Navigation *_qr_owner;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _dialog_scrim;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _dialog;
@@ -233,6 +235,7 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppLabel> _imu_calibration;
     lv_obj_t *_imu_gyro_arcs[3] = {};
     std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
+    std::unique_ptr<AdaptiveCommandBar> _adaptive_command_bar;
     bool _logs_paused = false;
     bool _dialog_requires_confirmation = false;
     size_t _selected_component = 0;

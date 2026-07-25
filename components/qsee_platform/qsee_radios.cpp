@@ -21,6 +21,8 @@
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "qsee_device_snapshot.hpp"
+#include "qsee_settings.hpp"
 #include "sdkconfig.h"
 
 #if CONFIG_BT_NIMBLE_ENABLED
@@ -37,12 +39,17 @@
 #endif
 
 static const char *TAG = "qsee_radios";
+static constexpr char kBleEnabledSetting[] = "ble_on";
+static bool s_ble_enabled;
+static bool s_ble_preference_loaded;
+static bool s_ble_provisioning_reserved;
 
 #if CONFIG_BT_NIMBLE_ENABLED
 static uint8_t s_ble_address_type;
 static bool s_ble_initialized;
 static bool s_ble_advertising;
 static bool s_ble_connected;
+static bool s_ble_sleep_suspended;
 static uint16_t s_connection_handle = BLE_HS_CONN_HANDLE_NONE;
 static uint32_t s_connection_count;
 static uint32_t s_disconnection_count;
@@ -78,7 +85,8 @@ static void publish_ble_snapshot(esp_err_t error = ESP_OK)
         s_connection_count,
         s_disconnection_count,
         s_device_name,
-        false
+        false,
+        s_ble_enabled
     );
 }
 
@@ -212,11 +220,15 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         s_connection_handle = BLE_HS_CONN_HANDLE_NONE;
         ++s_disconnection_count;
         publish_ble_snapshot();
-        ESP_LOGI(TAG, "BLE: disconnected, advertising resumed");
-        start_ble_advertising();
+        if (!s_ble_sleep_suspended) {
+            ESP_LOGI(TAG, "BLE: disconnected, advertising resumed");
+            start_ble_advertising();
+        }
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        start_ble_advertising();
+        if (!s_ble_sleep_suspended) {
+            start_ble_advertising();
+        }
         break;
     default:
         break;
@@ -226,6 +238,12 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
 
 static void start_ble_advertising(void)
 {
+    if (s_ble_sleep_suspended) {
+        s_ble_advertising = false;
+        publish_ble_snapshot();
+        return;
+    }
+
     struct ble_hs_adv_fields fields = {};
     fields.flags = BLE_HS_ADV_F_DISC_GEN | BLE_HS_ADV_F_BREDR_UNSUP;
     fields.tx_pwr_lvl_is_present = 1;
@@ -263,6 +281,9 @@ static void ble_on_reset(int reason)
 
 static void ble_on_sync(void)
 {
+    if (s_ble_sleep_suspended) {
+        return;
+    }
     if (ble_hs_util_ensure_addr(0) != 0 || ble_hs_id_infer_auto(0, &s_ble_address_type) != 0) {
         ESP_LOGW(TAG, "BLE: no usable address");
         return;
@@ -281,10 +302,16 @@ static void ble_host_task(void *arg)
 extern "C" esp_err_t qsee_ble_init(void)
 {
     if (s_ble_initialized) {
+        publish_ble_snapshot();
         return ESP_OK;
     }
+    if (s_ble_provisioning_reserved || qsee_provisioning_active()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_ble_sleep_suspended = false;
     esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
+        publish_ble_snapshot(err);
         ESP_LOGW(TAG, "BLE: NimBLE init failed (%s)", esp_err_to_name(err));
         return err;
     }
@@ -315,10 +342,14 @@ extern "C" esp_err_t qsee_ble_init(void)
         rc = ble_gatts_add_svcs(s_qsee_services);
     }
     if (rc != 0) {
+        (void)nimble_port_deinit();
+        publish_ble_snapshot(ESP_FAIL);
         ESP_LOGW(TAG, "BLE: QSee GATT service registration failed (%d)", rc);
         return ESP_FAIL;
     }
     if (ble_svc_gap_device_name_set(s_device_name) != 0) {
+        (void)nimble_port_deinit();
+        publish_ble_snapshot(ESP_FAIL);
         ESP_LOGW(TAG, "BLE: device name rejected");
         return ESP_FAIL;
     }
@@ -329,50 +360,368 @@ extern "C" esp_err_t qsee_ble_init(void)
     ESP_LOGI(TAG, "BLE: NimBLE host and QSee telemetry GATT ready");
     return ESP_OK;
 }
+
+// Stop the telemetry host while preserving whether sleep should block restart.
+static esp_err_t stop_ble_runtime(
+    bool keep_suspended,
+    bool *was_initialized
+)
+{
+    if (was_initialized == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *was_initialized = s_ble_initialized;
+    if (!s_ble_initialized) {
+        return ESP_OK;
+    }
+
+    s_ble_sleep_suspended = true;
+    if (s_ble_advertising) {
+        (void)ble_gap_adv_stop();
+    }
+    const int stop_result = nimble_port_stop();
+    if (stop_result != 0) {
+        s_ble_sleep_suspended = false;
+        start_ble_advertising();
+        return ESP_FAIL;
+    }
+
+    const esp_err_t deinit_result = nimble_port_deinit();
+    s_ble_initialized = false;
+    s_ble_advertising = false;
+    s_ble_connected = false;
+    s_connection_handle = BLE_HS_CONN_HANDLE_NONE;
+    s_ble_sleep_suspended = keep_suspended;
+    publish_ble_snapshot(deinit_result);
+    return deinit_result;
+}
+
+static esp_err_t suspend_ble_for_light_sleep(bool *was_initialized)
+{
+    return stop_ble_runtime(true, was_initialized);
+}
 #else
 extern "C" esp_err_t qsee_ble_init(void)
 {
     ESP_LOGW(TAG, "BLE: disabled by sdkconfig");
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+static esp_err_t suspend_ble_for_light_sleep(bool *was_initialized)
+{
+    if (was_initialized == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *was_initialized = false;
+    return ESP_OK;
+}
+
+static esp_err_t stop_ble_runtime(
+    bool keep_suspended,
+    bool *was_initialized
+)
+{
+    (void)keep_suspended;
+    return suspend_ble_for_light_sleep(was_initialized);
+}
 #endif
 
-// Assign BLE to provisioning until Wi-Fi credentials permit telemetry mode.
-esp_err_t qsee_radios_init(void)
+enum class RadioSleepState {
+    Awake,
+    Suspending,
+    Suspended,
+    Restoring,
+};
+
+static RadioSleepState s_radio_sleep_state = RadioSleepState::Awake;
+static bool s_restore_wifi_started;
+static bool s_restore_wifi_connect;
+static bool s_restore_ble;
+
+// Read the user-owned BLE intent once without starting the controller.
+static esp_err_t load_ble_preference()
 {
-    const esp_err_t wifi = qsee_wifi_init();
-    qsee_wifi_status_t wifi_status = {};
-    qsee_wifi_get_status(&wifi_status);
-    const esp_err_t ble = wifi_status.credentials_configured
-                              ? qsee_ble_init()
-                              : qsee_provisioning_start();
-    if (!wifi_status.credentials_configured && ble == ESP_OK) {
-        // Provisioning owns the BLE transport here; its GAP advertising state is not exposed.
+    if (s_ble_preference_loaded) {
+        return ESP_OK;
+    }
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        const esp_err_t init_error = settings.initialize();
+        if (init_error != ESP_OK) {
+            return init_error;
+        }
+    }
+    const esp_err_t read_error =
+        settings.getBool(kBleEnabledSetting, false, &s_ble_enabled);
+    if (read_error == ESP_OK) {
+        s_ble_preference_loaded = true;
+    }
+    return read_error;
+}
+
+// Apply saved telemetry advertising after boot-critical allocations finish.
+extern "C" esp_err_t qsee_ble_apply_saved_enabled(void)
+{
+    const esp_err_t preference_error = load_ble_preference();
+    if (preference_error != ESP_OK) {
+        return preference_error;
+    }
+    if (s_ble_enabled) {
+        const esp_err_t start_error = qsee_ble_init();
+        if (start_error != ESP_OK) {
+            qsee::DeviceSnapshotService::instance().reportBle(
+                false,
+                start_error,
+                false,
+                false,
+                0xFFFF,
+                0,
+                0,
+                nullptr,
+                false,
+                true
+            );
+        }
+        return start_error;
+    }
+
+    bool was_initialized = false;
+    const esp_err_t stop_error =
+        stop_ble_runtime(false, &was_initialized);
+    qsee::DeviceSnapshotService::instance().reportBle(
+        false,
+        stop_error,
+        false,
+        false,
+        0xFFFF,
+        0,
+        0,
+        nullptr,
+        false,
+        false
+    );
+    ESP_LOGI(TAG, "BLE telemetry: disabled by saved preference");
+    return stop_error;
+}
+
+// Persist normal BLE intent, then converge the runtime to that state.
+extern "C" esp_err_t qsee_ble_set_enabled(bool enabled)
+{
+    if (s_ble_provisioning_reserved || qsee_provisioning_active() ||
+        s_radio_sleep_state != RadioSleepState::Awake) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        const esp_err_t init_error = settings.initialize();
+        if (init_error != ESP_OK) {
+            return init_error;
+        }
+    }
+    const esp_err_t persist_error =
+        settings.setBool(kBleEnabledSetting, enabled);
+    if (persist_error != ESP_OK) {
+        return persist_error;
+    }
+    s_ble_enabled = enabled;
+    s_ble_preference_loaded = true;
+
+    esp_err_t runtime_error = ESP_OK;
+    if (enabled) {
+        runtime_error = qsee_ble_init();
+        if (runtime_error != ESP_OK) {
+            qsee::DeviceSnapshotService::instance().reportBle(
+                false,
+                runtime_error,
+                false,
+                false,
+                0xFFFF,
+                0,
+                0,
+                nullptr,
+                false,
+                true
+            );
+        }
+    } else {
+        bool was_initialized = false;
+        runtime_error = stop_ble_runtime(false, &was_initialized);
         qsee::DeviceSnapshotService::instance().reportBle(
-            true,
-            ESP_OK,
+            false,
+            runtime_error,
             false,
             false,
             0xFFFF,
             0,
             0,
-            qsee_provisioning_service_name(),
-            qsee_provisioning_active()
+            nullptr,
+            false,
+            false
         );
     }
-    if (ble != ESP_OK) {
-        qsee::DeviceSnapshotService::instance().reportBle(false, ble);
+    ESP_LOGI(
+        TAG,
+        "BLE telemetry preference: %s",
+        enabled ? "enabled" : "disabled"
+    );
+    return runtime_error;
+}
+
+extern "C" bool qsee_ble_get_enabled(void)
+{
+    (void)load_ble_preference();
+    return s_ble_enabled;
+}
+
+// Stop telemetry without changing its preference before provisioning starts.
+extern "C" esp_err_t qsee_ble_prepare_provisioning(void)
+{
+    if (s_ble_provisioning_reserved) {
+        return ESP_OK;
     }
+    if (s_radio_sleep_state != RadioSleepState::Awake ||
+        qsee_provisioning_active()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    bool was_initialized = false;
+    const esp_err_t stop_error =
+        stop_ble_runtime(false, &was_initialized);
+    if (stop_error != ESP_OK) {
+        return stop_error;
+    }
+    s_ble_provisioning_reserved = true;
+    ESP_LOGI(TAG, "BLE controller reserved for Espressif provisioning");
+    return ESP_OK;
+}
+
+// Return the controller to telemetry only when the saved preference requests it.
+extern "C" esp_err_t qsee_ble_restore_after_provisioning(void)
+{
+    if (!s_ble_provisioning_reserved) {
+        return ESP_OK;
+    }
+    s_ble_provisioning_reserved = false;
+    const esp_err_t preference_error = load_ble_preference();
+    if (preference_error != ESP_OK) {
+        return preference_error;
+    }
+    if (s_ble_enabled) {
+        return qsee_ble_init();
+    }
+    qsee::DeviceSnapshotService::instance().reportBle(
+        false,
+        ESP_OK,
+        false,
+        false,
+        0xFFFF,
+        0,
+        0,
+        nullptr,
+        false,
+        false
+    );
+    return ESP_OK;
+}
+
+// Initialize Wi-Fi plus only the BLE runtime requested by user preference.
+esp_err_t qsee_radios_init(void)
+{
+    const esp_err_t wifi = qsee_wifi_init();
+    const esp_err_t ble = qsee_ble_apply_saved_enabled();
     if (wifi != ESP_OK || ble != ESP_OK) {
         ESP_LOGW(TAG, "Radio inventory completed with degraded capability");
-    } else if (!wifi_status.credentials_configured) {
+    } else {
         ESP_LOGI(
             TAG,
-            "Radio inventory: Wi-Fi ready; secure BLE provisioning active as %s",
-            qsee_provisioning_service_name()
+            "Radio inventory: Wi-Fi ready; BLE telemetry %s",
+            s_ble_enabled ? "enabled" : "disabled"
         );
-    } else {
-        ESP_LOGI(TAG, "Radio inventory: Wi-Fi + BLE telemetry GATT ready");
     }
     return ESP_OK;
+}
+
+// Capture and stop radios; reject sleep while provisioning owns BLE.
+extern "C" esp_err_t qsee_radios_prepare_light_sleep(void)
+{
+    if (s_radio_sleep_state == RadioSleepState::Suspended) {
+        return ESP_OK;
+    }
+    if (s_radio_sleep_state != RadioSleepState::Awake ||
+        s_ble_provisioning_reserved || qsee_provisioning_active()) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_radio_sleep_state = RadioSleepState::Suspending;
+    esp_err_t result = suspend_ble_for_light_sleep(&s_restore_ble);
+    if (result != ESP_OK) {
+        if (s_restore_ble) {
+            const esp_err_t restore_error = qsee_ble_init();
+            if (restore_error != ESP_OK) {
+                ESP_LOGW(
+                    TAG,
+                    "BLE rollback after suspend failure: %s",
+                    esp_err_to_name(restore_error)
+                );
+            }
+        }
+        s_restore_ble = false;
+        s_radio_sleep_state = RadioSleepState::Awake;
+        return result;
+    }
+
+    result = qsee_wifi_prepare_light_sleep(
+        &s_restore_wifi_started,
+        &s_restore_wifi_connect
+    );
+    if (result != ESP_OK) {
+        if (s_restore_ble) {
+            const esp_err_t restore_error = qsee_ble_init();
+            if (restore_error != ESP_OK) {
+                ESP_LOGW(
+                    TAG,
+                    "BLE rollback after Wi-Fi stop failure: %s",
+                    esp_err_to_name(restore_error)
+                );
+            }
+        }
+        s_restore_wifi_started = false;
+        s_restore_wifi_connect = false;
+        s_restore_ble = false;
+        s_radio_sleep_state = RadioSleepState::Awake;
+        return result;
+    }
+
+    s_radio_sleep_state = RadioSleepState::Suspended;
+    return ESP_OK;
+}
+
+// Restore Wi-Fi first, then return an optional telemetry GATT to advertising.
+extern "C" esp_err_t qsee_radios_restore_after_light_sleep(void)
+{
+    if (s_radio_sleep_state == RadioSleepState::Awake) {
+        return ESP_OK;
+    }
+    if (s_radio_sleep_state != RadioSleepState::Suspended) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_radio_sleep_state = RadioSleepState::Restoring;
+    esp_err_t first_error = qsee_wifi_restore_after_light_sleep(
+        s_restore_wifi_started,
+        s_restore_wifi_connect
+    );
+    if (s_restore_ble) {
+        const esp_err_t ble_error = qsee_ble_init();
+        if (ble_error != ESP_OK && first_error == ESP_OK) {
+            first_error = ble_error;
+        }
+    }
+
+    s_restore_wifi_started = false;
+    s_restore_wifi_connect = false;
+    s_restore_ble = false;
+    s_radio_sleep_state = RadioSleepState::Awake;
+    return first_error;
 }

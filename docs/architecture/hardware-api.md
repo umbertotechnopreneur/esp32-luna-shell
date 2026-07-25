@@ -32,13 +32,16 @@ events instead of being polled.
 | --- | --- |
 | `qsee_hardware_init` | Initialize PMU, RTC, QMI8658, LC76G, and delayed microphone sampling |
 | `qsee_hardware_refresh` | Take one coherent explicit snapshot |
+| `qsee_hardware_set_*_monitor` | Enable route-scoped diagnostic, system, or lightweight UI-motion snapshot sampling |
 | `qsee_imu_calibrate` | Accept only a stationary 96-sample set and retain the previous calibration on rejection |
 | `qsee_rtc_read` / `qsee_rtc_write` | Read or write UTC calendar time |
 | `qsee_audio_*` | Serialize one shared ES8311/ES7210/I2S route |
 | `qsee_storage_*` | Mount/retry asynchronously; format only after an explicit API call |
 | `qsee_wifi_*` | Event-driven ESP-IDF station lifecycle and asynchronous scans |
+| `qsee_ble_set_enabled` / `qsee_ble_get_enabled` | Persist and apply normal telemetry advertising without interrupting provisioning |
+| `qsee_gps_set_enabled` / `qsee_gps_get_enabled` | Persist and apply LC76G acquisition; disabled state suppresses polling and GPS time sync |
 | `qsee_provisioning_*` | Security 1 BLE provisioning with explicit lifecycle state |
-| `qsee_display_*` | Persist brightness/auto-rotation, apply synchronized CO5300+CST9217 cardinal rotation, run non-persistent fades, and control CO5300 display-on/off |
+| `qsee_display_*` | Persist brightness, auto-rotation, and the last applied cardinal angle; apply synchronized CO5300+CST9217 rotation, run non-persistent fades, and control CO5300 display-on/off |
 | `qsee_power_*` | Native PM policy and input inventory; persist staged dim/display-off timers and coordinate BOOT wake for light/deep sleep |
 
 The reusable fade path keeps persisted brightness separate from the actual
@@ -49,6 +52,16 @@ adapter, fades to black, uses GPIO0 as its digital wake source, restores the
 preferred brightness, then resumes rendering. The
 BOOT wake press is consumed until release so it cannot immediately put the
 device back to sleep.
+
+Only CO5300-supported cardinal angles are stored. Rotation is written after
+the panel and touch transform succeeds, then restored at the next boot
+together with the auto-rotation preference.
+
+Before explicit light sleep, the radio coordinator stops the Wi-Fi driver
+without discarding its reconnect intent and stops any active telemetry GATT.
+Wi-Fi is restarted first after wake, followed by BLE advertising. An active
+Espressif provisioning transport rejects the sleep request instead of losing
+its Security 1 session.
 
 Deep sleep uses the same BOOT RTC-domain input but restarts the firmware after
 wake, while light sleep resumes the retained runtime.

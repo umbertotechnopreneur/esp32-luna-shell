@@ -29,6 +29,9 @@ namespace {
 
 const char *TAG = "qsee_audio";
 constexpr uint32_t AUDIO_LOCK_TIMEOUT_MS = 5000;
+constexpr size_t AUDIO_SILENCE_SAMPLES = 220;
+constexpr unsigned AUDIO_CODEC_SETTLE_BLOCKS = 10;
+constexpr unsigned AUDIO_AMP_SETTLE_BLOCKS = 3;
 esp_codec_dev_handle_t s_speaker;
 esp_codec_dev_handle_t s_microphone;
 uint32_t s_sample_rate_hz;
@@ -36,6 +39,7 @@ std::atomic_bool s_initialized;
 uint8_t s_channel_count;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
+int16_t s_silence[AUDIO_SILENCE_SAMPLES] = {};
 
 SemaphoreHandle_t audio_mutex()
 {
@@ -50,6 +54,10 @@ esp_err_t configure_streams(uint32_t sample_rate_hz, uint8_t channel_count)
 {
     if (sample_rate_hz == 0 || channel_count == 0 || channel_count > 2) {
         return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t amp_error = bsp_audio_power_amp_set(false);
+    if (amp_error != ESP_OK) {
+        return amp_error;
     }
     if (s_sample_rate_hz == sample_rate_hz && s_channel_count == channel_count) {
         return ESP_OK;
@@ -80,6 +88,30 @@ esp_err_t configure_streams(uint32_t sample_rate_hz, uint8_t channel_count)
     return ESP_OK;
 }
 
+// Keep I2S clocked with zero samples while the amplifier gain changes.
+esp_err_t write_silence()
+{
+    return esp_codec_dev_write(
+               s_speaker,
+               s_silence,
+               sizeof(s_silence)
+           ) == ESP_CODEC_DEV_OK
+               ? ESP_OK
+               : ESP_FAIL;
+}
+
+// Hold zero PCM for a bounded codec or amplifier settling interval.
+esp_err_t write_silence_blocks(unsigned block_count)
+{
+    for (unsigned block = 0; block < block_count; ++block) {
+        const esp_err_t result = write_silence();
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+    return ESP_OK;
+}
+
 }  // namespace
 
 // Initialize the shared codec route once without blocking active playback.
@@ -100,13 +132,20 @@ extern "C" esp_err_t qsee_audio_init(void)
         return ESP_OK;
     }
 
-    s_speaker = bsp_audio_codec_speaker_init();
-    s_microphone = bsp_audio_codec_microphone_init();
-    esp_err_t error =
-        s_speaker != nullptr && s_microphone != nullptr ? configure_streams(22050, 1) : ESP_ERR_NOT_FOUND;
+    esp_err_t error = bsp_audio_power_amp_set(false);
     if (error == ESP_OK) {
-        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
+        s_speaker = bsp_audio_codec_speaker_init();
+        s_microphone = bsp_audio_codec_microphone_init();
+        // New codec handles must always pass through a real stream open.
+        s_sample_rate_hz = 0;
+        s_channel_count = 0;
+        error = s_speaker != nullptr && s_microphone != nullptr
+            ? configure_streams(22050, 1)
+            : ESP_ERR_NOT_FOUND;
+    }
+    if (error == ESP_OK) {
         const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
+        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 0);
         const int gain_result = esp_codec_dev_set_in_gain(s_microphone, 24.0F);
         if (volume_result != ESP_CODEC_DEV_OK ||
             mute_result != ESP_CODEC_DEV_OK ||
@@ -148,24 +187,41 @@ extern "C" esp_err_t qsee_audio_play_pcm16(
     error = configure_streams(sample_rate_hz, 1);
     const int volume = std::clamp(volume_percent, 0, 100);
     if (error == ESP_OK &&
+        esp_codec_dev_set_out_mute(s_speaker, true) != ESP_CODEC_DEV_OK) {
+        error = ESP_FAIL;
+    }
+    if (error == ESP_OK &&
         esp_codec_dev_set_out_vol(s_speaker, volume) != ESP_CODEC_DEV_OK) {
         error = ESP_FAIL;
+    }
+    if (error == ESP_OK) {
+        error = write_silence();
     }
     if (error == ESP_OK &&
         esp_codec_dev_set_out_mute(s_speaker, false) != ESP_CODEC_DEV_OK) {
         error = ESP_FAIL;
     }
     if (error == ESP_OK) {
-        // The PA is enabled by the official BSP codec interface; allow its output to settle.
-        vTaskDelay(pdMS_TO_TICKS(100));
+        error = write_silence_blocks(AUDIO_CODEC_SETTLE_BLOCKS);
+    }
+    if (error == ESP_OK) {
+        error = bsp_audio_power_amp_set(true);
+    }
+    if (error == ESP_OK) {
+        error = write_silence_blocks(AUDIO_AMP_SETTLE_BLOCKS);
+    }
+    if (error == ESP_OK) {
         const int result = esp_codec_dev_write(
             s_speaker,
             const_cast<int16_t *>(samples),
             sample_count * sizeof(int16_t)
         );
         error = result == ESP_CODEC_DEV_OK ? ESP_OK : ESP_FAIL;
-        vTaskDelay(pdMS_TO_TICKS(100));
     }
+    if (error == ESP_OK) {
+        error = write_silence_blocks(AUDIO_AMP_SETTLE_BLOCKS);
+    }
+    (void)bsp_audio_power_amp_set(false);
     (void)esp_codec_dev_set_out_mute(s_speaker, true);
     xSemaphoreGive(mutex);
 

@@ -12,15 +12,20 @@ constexpr int kSafeAreaLeft = 73;
 constexpr int kSafeAreaRight = 393;
 constexpr int kEdgeInset = 10;
 constexpr int kButtonWidth = 60;
-constexpr int kButtonHeight = 116;
-constexpr int kButtonY = (kDisplaySize - kButtonHeight) / 2;
+constexpr int kBackButtonHeight = kButtonWidth;
+constexpr int kRightButtonHeight = 116;
+constexpr int kBackButtonY = (kDisplaySize - kBackButtonHeight) / 2;
+constexpr int kRightButtonY = (kDisplaySize - kRightButtonHeight) / 2;
 constexpr int kLeftButtonX = kEdgeInset;
 constexpr int kRightButtonX = kDisplaySize - kEdgeInset - kButtonWidth;
 
 // Edge actions occupy the round-panel margin outside the content safe square.
 constexpr uint32_t kDarkTop = 0x142632;
 constexpr uint32_t kDarkBottom = 0x071018;
-constexpr uint32_t kBackAccent = 0x51C7F2;
+constexpr uint32_t kBackTop = 0x16A77C;
+constexpr uint32_t kBackBottom = 0x063D35;
+constexpr uint32_t kBackAccent = 0x63FFD0;
+constexpr uint32_t kBackIcon = 0xF3FFFB;
 constexpr uint32_t kOkAccent = 0x3DE0B0;
 constexpr uint32_t kCloseAccent = 0xFF7787;
 constexpr uint32_t kText = 0xF4FAFF;
@@ -65,11 +70,18 @@ const lv_font_t *edgeFont()
 #endif
 }
 
-void setLine(lv_obj_t *line, const lv_point_precise_t *points, uint32_t count, uint32_t color)
+// Apply one reusable rounded stroke to the hand-drawn edge icons.
+void setLine(
+    lv_obj_t *line,
+    const lv_point_precise_t *points,
+    uint32_t count,
+    uint32_t color,
+    int width = 4
+)
 {
     lv_line_set_points(line, points, count);
     lv_obj_set_style_line_color(line, lv_color_hex(color), LV_PART_MAIN);
-    lv_obj_set_style_line_width(line, 4, LV_PART_MAIN);
+    lv_obj_set_style_line_width(line, width, LV_PART_MAIN);
     lv_obj_set_style_line_rounded(line, true, LV_PART_MAIN);
 }
 
@@ -115,16 +127,19 @@ bool EdgeNavigation::Begin(lv_obj_t *root)
     _right_icon_primary = CreateLineIcon(_right_button);
     _right_icon_secondary = CreateLineIcon(_right_button);
     _right_label = CreateLabel(_right_button);
-    if (_left_accent == nullptr || _left_icon_primary == nullptr || _left_icon_secondary == nullptr ||
+    if (_left_icon_primary == nullptr || _left_icon_secondary == nullptr ||
         _left_label == nullptr || _right_accent == nullptr || _right_icon_primary == nullptr ||
         _right_icon_secondary == nullptr || _right_label == nullptr) {
         Shutdown();
         return false;
     }
 
-    setLine(_left_icon_primary, kBackChevron, 3, kBackAccent);
-    setLine(_left_icon_secondary, kBackShaft, 2, kBackAccent);
-    lv_label_set_text(_left_label, "BACK");
+    setLine(_left_icon_primary, kBackChevron, 3, kBackIcon, 5);
+    setLine(_left_icon_secondary, kBackShaft, 2, kBackIcon, 5);
+    lv_obj_align(_left_icon_primary, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align(_left_icon_secondary, LV_ALIGN_CENTER, 0, 0);
+    lv_label_set_text(_left_label, "");
+    setHidden(_left_label, true);
 
     lv_obj_add_event_cb(_left_button, OnButtonEvent, LV_EVENT_ALL, this);
     lv_obj_add_event_cb(_right_button, OnButtonEvent, LV_EVENT_ALL, this);
@@ -233,30 +248,35 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     }
 
     lv_obj_remove_style_all(button);
-    lv_obj_set_size(button, kButtonWidth, kButtonHeight);
-    lv_obj_set_pos(button, left ? kLeftButtonX : kRightButtonX, kButtonY);
+    const int button_height = left ? kBackButtonHeight : kRightButtonHeight;
+    const uint32_t top_color = left ? kBackTop : kDarkTop;
+    const uint32_t bottom_color = left ? kBackBottom : kDarkBottom;
+    const uint32_t accent_color = left ? kBackAccent : kOkAccent;
+
+    lv_obj_set_size(button, kButtonWidth, button_height);
+    lv_obj_set_pos(button, left ? kLeftButtonX : kRightButtonX,
+                   left ? kBackButtonY : kRightButtonY);
     lv_obj_add_flag(button, LV_OBJ_FLAG_FLOATING);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(button, 8);
+    lv_obj_set_ext_click_area(button, 10);
 
     lv_obj_set_style_radius(button, kButtonWidth / 2, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(button, lv_color_hex(kDarkTop), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_color(button, lv_color_hex(kDarkBottom), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(button, lv_color_hex(top_color), LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_color(button, lv_color_hex(bottom_color), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(button, LV_OPA_90, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(button, left ? LV_OPA_COVER : LV_OPA_90, LV_PART_MAIN);
     lv_obj_set_style_border_width(button, 2, LV_PART_MAIN);
-    lv_obj_set_style_border_color(button, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN);
+    lv_obj_set_style_border_color(button, lv_color_hex(accent_color), LV_PART_MAIN);
     lv_obj_set_style_border_opa(button, LV_OPA_80, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(button, 12, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, left ? 16 : 12, LV_PART_MAIN);
     lv_obj_set_style_shadow_spread(button, 1, LV_PART_MAIN);
-    lv_obj_set_style_shadow_color(
-        button, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN
-    );
-    lv_obj_set_style_shadow_opa(button, LV_OPA_30, LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(button, lv_color_hex(accent_color), LV_PART_MAIN);
+    lv_obj_set_style_shadow_opa(button, left ? LV_OPA_40 : LV_OPA_30, LV_PART_MAIN);
     lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x1B3545), kPressedSelector);
+    lv_obj_set_style_bg_color(button, lv_color_hex(left ? 0x0D7359 : 0x1B3545),
+                              kPressedSelector);
     lv_obj_set_style_border_opa(button, LV_OPA_COVER, kPressedSelector);
     lv_obj_set_style_shadow_opa(button, LV_OPA_60, kPressedSelector);
     lv_obj_set_style_translate_x(button, 0, kPressedSelector);
@@ -264,13 +284,14 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     lv_obj_set_style_transform_width(button, 0, kPressedSelector);
     lv_obj_set_style_transform_height(button, 0, kPressedSelector);
 
-    *accent = lv_obj_create(button);
+    // The circular Back action uses only its centered arrow; side accents are for right-edge actions.
+    *accent = left ? nullptr : lv_obj_create(button);
     if (*accent != nullptr) {
         lv_obj_remove_style_all(*accent);
         lv_obj_set_size(*accent, 4, 64);
-        lv_obj_align(*accent, left ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, left ? -4 : 4, 0);
+        lv_obj_align(*accent, LV_ALIGN_LEFT_MID, 4, 0);
         lv_obj_set_style_radius(*accent, 2, LV_PART_MAIN);
-        lv_obj_set_style_bg_color(*accent, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN);
+        lv_obj_set_style_bg_color(*accent, lv_color_hex(accent_color), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(*accent, LV_OPA_80, LV_PART_MAIN);
         lv_obj_remove_flag(*accent, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_remove_flag(*accent, LV_OBJ_FLAG_SCROLLABLE);

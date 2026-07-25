@@ -4,6 +4,8 @@
 #include "qsee_platform.h"
 #include "qsee_settings.hpp"
 
+#include <atomic>
+
 #include "bsp/display.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -17,24 +19,28 @@ constexpr char kBrightnessSetting[] = "brightness";
 constexpr uint32_t kFadeStepMs = 20;
 
 // Keep the user setting separate from temporary fade levels.
-volatile uint32_t s_preferred_brightness_percent = 100;
-volatile uint32_t s_applied_brightness_percent = 100;
+std::atomic<uint32_t> s_preferred_brightness_percent{100};
+uint32_t s_applied_brightness_percent = 100;
 bool s_panel_enabled = true;
 StaticSemaphore_t s_fade_mutex_control;
 SemaphoreHandle_t s_fade_mutex;
+portMUX_TYPE s_fade_mutex_init_lock = portMUX_INITIALIZER_UNLOCKED;
 
 uint32_t clamp_brightness(uint32_t percent)
 {
     return percent < 10U ? 10U : percent > 100U ? 100U : percent;
 }
 
-// Lazily create the mutex shared by fades, brightness writes, and panel state.
+// Create the shared fade mutex once under a cross-task initialization guard.
 SemaphoreHandle_t fade_mutex()
 {
+    portENTER_CRITICAL(&s_fade_mutex_init_lock);
     if (s_fade_mutex == nullptr) {
         s_fade_mutex = xSemaphoreCreateMutexStatic(&s_fade_mutex_control);
     }
-    return s_fade_mutex;
+    SemaphoreHandle_t mutex = s_fade_mutex;
+    portEXIT_CRITICAL(&s_fade_mutex_init_lock);
+    return mutex;
 }
 
 // Apply one hardware level without changing the persisted user preference.
@@ -123,7 +129,7 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
         xSemaphoreGive(mutex);
         return persist_error;
     }
-    s_preferred_brightness_percent = percent;
+    s_preferred_brightness_percent.store(percent);
     const esp_err_t display_error = fade_locked(percent, 0);
     xSemaphoreGive(mutex);
     ESP_LOGI(kTag, "AMOLED brightness: %lu%%",
@@ -133,7 +139,7 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
 
 extern "C" uint32_t qsee_display_get_brightness_percent(void)
 {
-    return s_preferred_brightness_percent;
+    return s_preferred_brightness_percent.load();
 }
 
 // Restore both preferred and active levels from NVS at startup.
@@ -155,7 +161,7 @@ extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
         return read_error;
     }
     brightness = clamp_brightness(brightness);
-    s_preferred_brightness_percent = brightness;
+    s_preferred_brightness_percent.store(brightness);
     const esp_err_t display_error = fade_locked(brightness, 0);
     xSemaphoreGive(mutex);
     ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
@@ -191,7 +197,7 @@ extern "C" esp_err_t qsee_display_fade_in(uint32_t duration_ms)
     if (mutex == nullptr) return ESP_ERR_NO_MEM;
     if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) return ESP_ERR_TIMEOUT;
     const esp_err_t result =
-        fade_locked(s_preferred_brightness_percent, duration_ms);
+        fade_locked(s_preferred_brightness_percent.load(), duration_ms);
     xSemaphoreGive(mutex);
     return result;
 }

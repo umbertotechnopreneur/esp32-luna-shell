@@ -17,6 +17,8 @@
 #include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
 
+#include <atomic>
+
 #include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
 #include "driver/rtc_io.h"
@@ -50,21 +52,24 @@ StaticTask_t s_task_control;
 StackType_t s_task_stack[3072];
 TaskHandle_t s_task;
 StaticTask_t s_display_task_control;
-StackType_t s_display_task_stack[2048];
+// LCD command transmission plus logging can exceed the old 2 KB budget.
+StackType_t s_display_task_stack[4096];
 TaskHandle_t s_display_task;
 StaticSemaphore_t s_display_policy_mutex_control;
 SemaphoreHandle_t s_display_policy_mutex;
 qsee::InputSnapshot s_inputs;
-volatile bool s_runtime_ready;
-volatile uint32_t s_raw_display_inactive_ms;
-volatile bool s_display_inactivity_available;
-volatile bool s_rebase_display_inactivity;
-volatile bool s_display_wake_requested;
-volatile bool s_display_input_guard_required;
-volatile bool s_sleep_transition_active;
-volatile uint32_t s_dim_timeout_seconds = kDefaultDimTimeoutSeconds;
-volatile uint32_t s_panel_off_delay_seconds =
-    kDefaultPanelOffDelaySeconds;
+std::atomic_bool s_runtime_ready{false};
+std::atomic<uint32_t> s_raw_display_inactive_ms{0};
+std::atomic_bool s_display_inactivity_available{false};
+std::atomic_bool s_rebase_display_inactivity{false};
+std::atomic_bool s_display_wake_requested{false};
+std::atomic_bool s_display_input_guard_required{false};
+std::atomic_bool s_sleep_transition_active{false};
+std::atomic_bool s_adapter_resume_pending{false};
+std::atomic<uint32_t> s_dim_timeout_seconds{kDefaultDimTimeoutSeconds};
+std::atomic<uint32_t> s_panel_off_delay_seconds{
+    kDefaultPanelOffDelaySeconds
+};
 uint32_t s_display_inactivity_baseline_ms;
 bool s_last_woke_by_boot;
 
@@ -74,7 +79,7 @@ enum class DisplayIdleState {
     Off,
 };
 
-volatile DisplayIdleState s_display_idle_state = DisplayIdleState::Active;
+std::atomic<DisplayIdleState> s_display_idle_state{DisplayIdleState::Active};
 bool s_display_transition_dirty;
 
 struct ButtonState {
@@ -170,14 +175,14 @@ void publish_inputs()
 // Reconcile the physical panel with one logical idle state while locked.
 bool apply_display_idle_state_locked(DisplayIdleState target)
 {
-    const DisplayIdleState previous = s_display_idle_state;
+    const DisplayIdleState previous = s_display_idle_state.load();
     if (target == previous && !s_display_transition_dirty) {
         return true;
     }
 
     if (target == DisplayIdleState::Off) {
         // Keep an invisible guard over the UI before the panel goes dark.
-        s_display_input_guard_required = true;
+        s_display_input_guard_required.store(true);
     }
 
     esp_err_t result = ESP_OK;
@@ -211,20 +216,23 @@ bool apply_display_idle_state_locked(DisplayIdleState target)
         s_display_transition_dirty = true;
         if (previous == DisplayIdleState::Off ||
             target == DisplayIdleState::Off) {
-            s_display_input_guard_required = true;
+            s_display_input_guard_required.store(true);
         }
         return false;
     }
 
-    s_display_idle_state = target;
+    s_display_idle_state.store(target);
     s_display_transition_dirty = false;
-    s_display_input_guard_required = target == DisplayIdleState::Off;
+    s_display_input_guard_required.store(
+        target == DisplayIdleState::Off
+    );
     ESP_LOGI(
         TAG,
-        "Display idle state: %s",
+        "Display idle state: %s (stack-free-min=%lu B)",
         target == DisplayIdleState::Active ? "active" :
         target == DisplayIdleState::Dimmed ? "dimmed-50-percent" :
-        "panel-off"
+        "panel-off",
+        static_cast<unsigned long>(uxTaskGetStackHighWaterMark(nullptr))
     );
     return true;
 }
@@ -232,28 +240,42 @@ bool apply_display_idle_state_locked(DisplayIdleState target)
 // Wake the idle display and rebase LVGL's monotonic inactivity counter.
 void note_display_activity()
 {
-    s_rebase_display_inactivity = true;
-    s_display_wake_requested = true;
+    s_rebase_display_inactivity.store(true);
+    s_display_wake_requested.store(true);
 }
 
-// Convert the latest LVGL inactivity sample into the requested display state.
+// Retry a deferred LVGL resume, then derive state from current inactivity.
 void service_display_idle_policy()
 {
-    if (!s_runtime_ready || !s_display_inactivity_available ||
+    if (!s_runtime_ready.load() ||
+        !s_display_inactivity_available.load() ||
         s_display_policy_mutex == nullptr ||
         xSemaphoreTake(s_display_policy_mutex, portMAX_DELAY) != pdTRUE) {
         return;
     }
-    if (s_sleep_transition_active) {
+    if (s_sleep_transition_active.load()) {
         xSemaphoreGive(s_display_policy_mutex);
         return;
     }
+    if (s_adapter_resume_pending.load()) {
+        const esp_err_t resume_result = esp_lv_adapter_resume();
+        if (resume_result != ESP_OK) {
+            ESP_LOGW(
+                TAG,
+                "LVGL resume retry failed (%s)",
+                esp_err_to_name(resume_result)
+            );
+            xSemaphoreGive(s_display_policy_mutex);
+            return;
+        }
+        s_adapter_resume_pending.store(false);
+    }
 
-    const uint32_t raw_inactive_ms = s_raw_display_inactive_ms;
+    const uint32_t raw_inactive_ms =
+        s_raw_display_inactive_ms.load();
     uint32_t inactive_ms = 0;
-    if (s_rebase_display_inactivity) {
+    if (s_rebase_display_inactivity.exchange(false)) {
         s_display_inactivity_baseline_ms = raw_inactive_ms;
-        s_rebase_display_inactivity = false;
     } else if (raw_inactive_ms < s_display_inactivity_baseline_ms) {
         // Touch input resets LVGL's counter, so discard a button-wake baseline.
         s_display_inactivity_baseline_ms = 0;
@@ -263,20 +285,23 @@ void service_display_idle_policy()
             raw_inactive_ms - s_display_inactivity_baseline_ms;
     }
 
-    if (s_display_wake_requested) {
-        s_display_wake_requested = false;
+    if (s_display_wake_requested.exchange(false)) {
         (void)apply_display_idle_state_locked(DisplayIdleState::Active);
         xSemaphoreGive(s_display_policy_mutex);
         return;
     }
 
+    const uint32_t dim_timeout_seconds =
+        s_dim_timeout_seconds.load();
+    const uint32_t panel_off_delay_seconds =
+        s_panel_off_delay_seconds.load();
     const uint64_t dim_after_ms =
-        static_cast<uint64_t>(s_dim_timeout_seconds) * 1000ULL;
+        static_cast<uint64_t>(dim_timeout_seconds) * 1000ULL;
     const uint64_t panel_off_after_ms =
-        s_panel_off_delay_seconds == 0U
+        panel_off_delay_seconds == 0U
             ? 0ULL
-            : (static_cast<uint64_t>(s_dim_timeout_seconds) +
-               static_cast<uint64_t>(s_panel_off_delay_seconds)) * 1000ULL;
+            : (static_cast<uint64_t>(dim_timeout_seconds) +
+               static_cast<uint64_t>(panel_off_delay_seconds)) * 1000ULL;
     const DisplayIdleState requested =
         panel_off_after_ms > 0ULL &&
         static_cast<uint64_t>(inactive_ms) >= panel_off_after_ms
@@ -302,7 +327,7 @@ void display_policy_task(void *arg)
 // Arm BOOT sleep only after startup or wake has a stable released level.
 void update_boot_arming(bool boot_pressed, TickType_t now)
 {
-    if (!s_runtime_ready ||
+    if (!s_runtime_ready.load() ||
         s_boot_sleep_state != BootSleepState::DisarmedUntilReleased) {
         s_boot_release_timing = false;
         return;
@@ -356,7 +381,7 @@ void input_task(void *arg)
         }
         if (boot_event == ButtonEvent::Pressed) {
             const bool waking_panel =
-                s_display_input_guard_required;
+                s_display_input_guard_required.load();
             note_display_activity();
             if (waking_panel) {
                 s_boot_sleep_state = BootSleepState::AwaitWakeRelease;
@@ -466,10 +491,10 @@ esp_err_t configure_deep_wakeup(uint64_t wake_after_us)
 // Pause idle-display work while an explicit sleep lifecycle owns the panel.
 bool begin_display_sleep_transition()
 {
-    s_sleep_transition_active = true;
+    s_sleep_transition_active.store(true);
     if (s_display_policy_mutex == nullptr ||
         xSemaphoreTake(s_display_policy_mutex, portMAX_DELAY) != pdTRUE) {
-        s_sleep_transition_active = false;
+        s_sleep_transition_active.store(false);
         return false;
     }
     return true;
@@ -479,7 +504,7 @@ bool begin_display_sleep_transition()
 void end_display_sleep_transition()
 {
     xSemaphoreGive(s_display_policy_mutex);
-    s_sleep_transition_active = false;
+    s_sleep_transition_active.store(false);
 }
 
 }  // namespace
@@ -528,12 +553,16 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
             kDefaultPanelOffDelaySeconds,
             &off_seconds
         );
-        s_dim_timeout_seconds = dim_seconds <= 3600U
-            ? dim_seconds
-            : kDefaultDimTimeoutSeconds;
-        s_panel_off_delay_seconds = off_seconds <= 3600U
-            ? off_seconds
-            : kDefaultPanelOffDelaySeconds;
+        s_dim_timeout_seconds.store(
+            dim_seconds <= 3600U
+                ? dim_seconds
+                : kDefaultDimTimeoutSeconds
+        );
+        s_panel_off_delay_seconds.store(
+            off_seconds <= 3600U
+                ? off_seconds
+                : kDefaultPanelOffDelaySeconds
+        );
     }
 
 #if CONFIG_PM_ENABLE
@@ -599,15 +628,15 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
 // Let BOOT enter sleep only after the application reports a usable UI.
 extern "C" void qsee_power_set_runtime_ready(void)
 {
-    s_runtime_ready = true;
+    s_runtime_ready.store(true);
     ESP_LOGI(TAG, "BOOT light-sleep action waiting for released state");
 }
 
 // Hand the LVGL inactivity sample to the dedicated power-policy task.
 extern "C" void qsee_power_report_display_inactive_ms(uint32_t inactive_ms)
 {
-    s_raw_display_inactive_ms = inactive_ms;
-    s_display_inactivity_available = true;
+    s_raw_display_inactive_ms.store(inactive_ms);
+    s_display_inactivity_available.store(true);
 }
 
 // Queue display recovery without blocking the UI or button polling task.
@@ -619,7 +648,7 @@ extern "C" void qsee_power_wake_display(void)
 // Tell the app shell to consume touch while the AMOLED is physically dark.
 extern "C" bool qsee_power_display_input_guard_required(void)
 {
-    return s_display_input_guard_required;
+    return s_display_input_guard_required.load();
 }
 
 extern "C" esp_err_t qsee_power_set_dim_timeout_seconds(uint32_t seconds)
@@ -634,14 +663,14 @@ extern "C" esp_err_t qsee_power_set_dim_timeout_seconds(uint32_t seconds)
     const esp_err_t result =
         settings.setUInt32(kDimTimeoutSetting, seconds);
     if (result == ESP_OK) {
-        s_dim_timeout_seconds = seconds;
+        s_dim_timeout_seconds.store(seconds);
     }
     return result;
 }
 
 extern "C" uint32_t qsee_power_get_dim_timeout_seconds(void)
 {
-    return s_dim_timeout_seconds;
+    return s_dim_timeout_seconds.load();
 }
 
 extern "C" esp_err_t qsee_power_set_panel_off_delay_seconds(
@@ -658,17 +687,17 @@ extern "C" esp_err_t qsee_power_set_panel_off_delay_seconds(
     const esp_err_t result =
         settings.setUInt32(kPanelOffDelaySetting, seconds);
     if (result == ESP_OK) {
-        s_panel_off_delay_seconds = seconds;
+        s_panel_off_delay_seconds.store(seconds);
     }
     return result;
 }
 
 extern "C" uint32_t qsee_power_get_panel_off_delay_seconds(void)
 {
-    return s_panel_off_delay_seconds;
+    return s_panel_off_delay_seconds.load();
 }
 
-// Coordinate sensors, LVGL and fades around one explicit light-sleep cycle.
+// Coordinate sensors, radios, LVGL and fades around one light-sleep cycle.
 extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
 {
     if (!begin_display_sleep_transition()) {
@@ -678,6 +707,7 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     esp_err_t operation_result =
         qsee_hardware_set_sleep_transition(true);
     bool adapter_paused = false;
+    bool radios_prepared = false;
     bool sleep_started = false;
     if (operation_result == ESP_OK) {
         operation_result = configure_light_wakeup(wake_after_us);
@@ -685,6 +715,10 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     if (operation_result == ESP_OK) {
         operation_result = esp_lv_adapter_pause(1000);
         adapter_paused = operation_result == ESP_OK;
+    }
+    if (operation_result == ESP_OK) {
+        operation_result = qsee_radios_prepare_light_sleep();
+        radios_prepared = operation_result == ESP_OK;
     }
     if (operation_result == ESP_OK) {
         operation_result = qsee_display_fade_out(kSleepFadeOutMs);
@@ -713,25 +747,33 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     esp_err_t fade_in_result = ESP_OK;
     esp_err_t resume_result = ESP_OK;
     esp_err_t panel_result = ESP_OK;
+    esp_err_t radio_result = ESP_OK;
     if (adapter_paused) {
         panel_result = qsee_display_set_panel_enabled(true);
+        if (radios_prepared) {
+            radio_result = qsee_radios_restore_after_light_sleep();
+        }
         fade_in_result = qsee_display_fade_in(kWakeFadeInMs);
         resume_result = esp_lv_adapter_resume();
     }
     const bool display_restored =
         !adapter_paused ||
-        (panel_result == ESP_OK && fade_in_result == ESP_OK);
+        (panel_result == ESP_OK && fade_in_result == ESP_OK &&
+         resume_result == ESP_OK);
+    s_adapter_resume_pending.store(
+        adapter_paused && resume_result != ESP_OK
+    );
     if (display_restored) {
-        s_display_idle_state = DisplayIdleState::Active;
+        s_display_idle_state.store(DisplayIdleState::Active);
         s_display_transition_dirty = false;
-        s_display_input_guard_required = false;
-        s_display_wake_requested = false;
+        s_display_input_guard_required.store(false);
+        s_display_wake_requested.store(false);
     } else {
         s_display_transition_dirty = true;
-        s_display_input_guard_required = true;
-        s_display_wake_requested = true;
+        s_display_input_guard_required.store(true);
+        s_display_wake_requested.store(true);
     }
-    s_rebase_display_inactivity = true;
+    s_rebase_display_inactivity.store(true);
     const esp_err_t transition_result =
         qsee_hardware_set_sleep_transition(false);
     end_display_sleep_transition();
@@ -746,6 +788,7 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
 
     if (operation_result != ESP_OK) return operation_result;
     if (panel_result != ESP_OK) return panel_result;
+    if (radio_result != ESP_OK) return radio_result;
     if (fade_in_result != ESP_OK) return fade_in_result;
     if (resume_result != ESP_OK) return resume_result;
     return transition_result;
@@ -776,19 +819,24 @@ extern "C" esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us)
     if (result != ESP_OK) {
         esp_err_t panel_result = ESP_OK;
         esp_err_t fade_result = ESP_OK;
+        esp_err_t resume_result = ESP_OK;
         if (adapter_paused) {
             panel_result = qsee_display_set_panel_enabled(true);
             fade_result = qsee_display_fade_in(kWakeFadeInMs);
-            (void)esp_lv_adapter_resume();
+            resume_result = esp_lv_adapter_resume();
         }
         const bool display_restored =
             !adapter_paused ||
-            (panel_result == ESP_OK && fade_result == ESP_OK);
-        s_display_idle_state = DisplayIdleState::Active;
+            (panel_result == ESP_OK && fade_result == ESP_OK &&
+             resume_result == ESP_OK);
+        s_adapter_resume_pending.store(
+            adapter_paused && resume_result != ESP_OK
+        );
+        s_display_idle_state.store(DisplayIdleState::Active);
         s_display_transition_dirty = !display_restored;
-        s_display_input_guard_required = !display_restored;
-        s_display_wake_requested = !display_restored;
-        s_rebase_display_inactivity = true;
+        s_display_input_guard_required.store(!display_restored);
+        s_display_wake_requested.store(!display_restored);
+        s_rebase_display_inactivity.store(true);
         (void)qsee_hardware_set_sleep_transition(false);
         end_display_sleep_transition();
         return result;
