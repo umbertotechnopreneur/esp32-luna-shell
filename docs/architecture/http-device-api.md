@@ -35,6 +35,10 @@ send:
 Authorization: Bearer <api-key>
 ```
 
+The non-UI backend exposes `httpServerSetApiKey()` for an explicit settings
+action to validate and persist a new key. It writes the setting before updating
+the in-memory credential and never starts or stops the server as a side effect.
+
 The key is never written to logs.
 
 All data routes serialize one coherent point-in-time copy returned by

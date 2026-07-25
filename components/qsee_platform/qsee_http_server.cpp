@@ -153,25 +153,36 @@ bool authRateLimited()
     return s_metrics.view.auth_failures_in_window >= kAuthFailureLimit;
 }
 
-// Replace the in-memory Bearer credential after validating its bounded size.
-esp_err_t loadApiKeyValue(const char *value)
+esp_err_t validateApiKeyValue(const char *value)
 {
     if (value == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
     const std::size_t length = std::strlen(value);
-    if (length == 0U) {
+    if (length == 0U || length > qsee::kHttpApiKeyMaxLength) {
+        ESP_LOGW(kTag, "Settings ApiKey must contain 1..%u characters",
+                 static_cast<unsigned>(qsee::kHttpApiKeyMaxLength));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+// Replace the in-memory Bearer credential after validating its bounded size.
+esp_err_t loadApiKeyValue(const char *value)
+{
+    const esp_err_t validation_error = validateApiKeyValue(value);
+    if (validation_error == ESP_ERR_INVALID_SIZE &&
+        value != nullptr && value[0] == '\0') {
         std::lock_guard<std::mutex> lock(s_auth_mutex);
         s_auth_ready = false;
         std::memset(s_api_key, 0, sizeof(s_api_key));
         std::memset(s_expected_authorization, 0, sizeof(s_expected_authorization));
         return ESP_ERR_INVALID_SIZE;
     }
-    if (length > qsee::kHttpApiKeyMaxLength) {
-        ESP_LOGW(kTag, "Settings ApiKey must contain 1..%u characters",
-                 static_cast<unsigned>(qsee::kHttpApiKeyMaxLength));
-        return ESP_ERR_INVALID_SIZE;
+    if (validation_error != ESP_OK) {
+        return validation_error;
     }
+    const std::size_t length = std::strlen(value);
 
     std::lock_guard<std::mutex> lock(s_auth_mutex);
     std::memset(s_api_key, 0, sizeof(s_api_key));
@@ -606,6 +617,33 @@ esp_err_t httpServerSetEnabled(bool enabled)
     }
     reportLifecycle();
     ESP_LOGI(kTag, "HTTP API enabled; waiting for a Wi-Fi address");
+    return ESP_OK;
+}
+
+// Persist first so a failed write never leaves a new in-memory key active.
+esp_err_t httpServerSetApiKey(const char *api_key)
+{
+    const esp_err_t validation_error = validateApiKeyValue(api_key);
+    if (validation_error != ESP_OK) {
+        return validation_error;
+    }
+
+    UserSettingsService &settings = UserSettingsService::instance();
+    esp_err_t error = settings.initialize();
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = settings.setString(kApiKeySetting, api_key);
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "HTTP API key persistence failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    error = loadApiKeyValue(api_key);
+    if (error != ESP_OK) {
+        ESP_LOGW(kTag, "HTTP API key activation failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    ESP_LOGI(kTag, "HTTP API key updated without changing server lifecycle");
     return ESP_OK;
 }
 

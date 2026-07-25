@@ -22,5 +22,7 @@ constexpr std::size_t kHttpApiKeyMaxLength = 63;
 esp_err_t httpServerInit();
 /** Persist the HTTP preference and apply it immediately when Wi-Fi is usable. */
 esp_err_t httpServerSetEnabled(bool enabled);
+/** Persist a validated API key and update active authentication without changing lifecycle. */
+esp_err_t httpServerSetApiKey(const char *api_key);
 
 }  // namespace qsee

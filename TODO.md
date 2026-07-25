@@ -53,9 +53,9 @@
 
 - [x] Add real per-core CPU utilization samples to `DeviceSnapshotService` using
   ESP-IDF/FreeRTOS idle runtime deltas and explicit availability flags.
-- Keep the UI on `CPU data unavailable` until the first valid previous-sample
+- [x] Keep the UI on `CPU data unavailable` until the first valid previous-sample
   delta exists or runtime statistics are unavailable.
-- Keep hardware refresh non-blocking and outside the UI thread.
+- [x] Keep hardware refresh non-blocking and outside the UI thread.
 
 ## Snapshot integrity
 
@@ -74,12 +74,9 @@
 - The Settings route persists the QMI8658 input low-pass smoothing value and
   enables only the guarded cardinal gravity classifier used for display
   rotation; this is not a general orientation-fusion service.
-- Add a canonical sensor-fusion service behind `DeviceSnapshotService` before
-  exposing algorithm selection, gain, reference-frame controls, or
-  pitch/roll/yaw values in the UI. Until then the snapshot exposes the real
-  filtered/calibrated IMU values with timestamp and availability only.
-- Stationary calibration now runs on a non-blocking platform worker; wire a
-  Settings calibration action on top of it when the UI work lands.
+- [x] Keep stationary calibration on a non-blocking platform worker.
+- [ ] Wire a Settings calibration action on top of the worker when the UI work
+  lands.
 
 ## Power and performance profiles
 
@@ -100,9 +97,11 @@
 
 ## Deferred HTTP API activation
 
-- [ ] Add an explicit System Core Settings action for the read-only HTTP API
-  after `ApiKey` and `http_enabled` are deliberately persisted; do not start
-  the server automatically during boot or invent missing settings.
+- [x] Persist and validate `ApiKey` and `http_enabled` through the non-UI
+  backend; keep the server opt-in and prevent key updates from changing its
+  lifecycle implicitly.
+- [ ] Add an explicit System Core Settings action for the read-only HTTP API;
+  do not start the server automatically during boot or invent missing settings.
 
 ## Audio scope visualization
 
@@ -113,10 +112,11 @@
 
 ## Open-source publication prep
 
-- [ ] Scan repository for proprietary identifiers (for example branded names,
-  logos, internal contact/footer signatures) and replace/remove with
-  neutral/open-source equivalents.
-- [ ] Remove or generalize internal/legal notice text from scripts, startup splash,
-  and user-facing docs before publishing to GitHub.
+- [x] Scan the non-UI release surface for proprietary identifiers and internal
+  contact/footer signatures with `scripts/verify_public_branding.py`.
+- [x] Remove or generalize internal/legal notice text from non-UI scripts and
+  architecture/release docs.
+- [ ] Complete the branding and legal sweep for UI files and startup assets
+  when UI work is authorized.
 - [x] Add a pre-release checklist that includes branding sweep, placeholder
   replacements, and export-safe defaults via `docs/release/open-source-pre-release-checklist.md`.
