@@ -29,6 +29,10 @@ required. Ambiguous recovery is never attempted.
 concurrent callers with a five-second bound, and publishes the completed
 refresh as one snapshot generation.
 
+Sensor fusion consumes only current filtered IMU samples and publishes a
+bounded gravity/motion state through `DeviceSnapshotService`. It deliberately
+does not expose pitch, roll, or yaw without a validated reference frame.
+
 A component publishes numeric telemetry only after a successful sample. Failed
 reads publish invalid health plus the original error; consumers must render
 `UNAVAILABLE`, `NO FIX`, or `STALE` rather than zero-filled or previous values.

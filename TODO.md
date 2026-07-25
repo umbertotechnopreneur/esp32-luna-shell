@@ -68,6 +68,9 @@
 
 ## Sensor fusion
 
+- [x] Add a canonical backend sensor-fusion service behind
+  `DeviceSnapshotService` for gravity-dominant and stationary motion state;
+  keep orientation output unavailable until a validated reference frame exists.
 - The Settings route persists the QMI8658 input low-pass smoothing value and
   enables only the guarded cardinal gravity classifier used for display
   rotation; this is not a general orientation-fusion service.

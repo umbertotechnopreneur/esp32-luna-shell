@@ -31,6 +31,7 @@ full-refresh boundary for future sensor fusion.
 | Power | battery/USB presence, charge state, percentage, rails, PMU temperature |
 | RTC | date/time and clock-integrity flag |
 | IMU | acceleration, angular velocity, sensor temperature, calibration quality and biases |
+| Sensor fusion | gravity-dominant motion state, stationary gate, acceleration magnitude, and angular speed; no unvalidated pitch/roll/yaw |
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
 | UI/storage/radios | display, touch, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |

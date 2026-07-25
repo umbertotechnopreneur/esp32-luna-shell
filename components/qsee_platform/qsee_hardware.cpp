@@ -6,6 +6,7 @@
 
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_sensor_fusion.hpp"
 #include "qsee_settings.hpp"
 
 #include <atomic>
@@ -471,6 +472,9 @@ void merge_snapshot_stage(
     if (stage_is_newer(staged.imu, current.imu)) {
         current.imu = staged.imu;
     }
+    if (stage_is_newer(staged.sensor_fusion, current.sensor_fusion)) {
+        current.sensor_fusion = staged.sensor_fusion;
+    }
     merge_staged_microphone(current.audio, staged.audio);
     current.last_update_attempt_at_us =
         staged.last_update_attempt_at_us;
@@ -578,6 +582,7 @@ void apply_measured_sample_aging(
     age_measured_sample(snapshot.battery, now_us);
     age_measured_sample(snapshot.rtc, now_us);
     age_measured_sample(snapshot.imu, now_us);
+    age_measured_sample(snapshot.sensor_fusion, now_us);
     age_measured_sample(snapshot.gps, now_us);
     age_measured_sample(snapshot.audio.microphone, now_us);
     age_measured_sample(snapshot.memory, now_us);
@@ -1725,6 +1730,10 @@ esp_err_t sample_imu(const char *phase)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
+        qsee::DeviceSnapshotService::instance().reportSensorFusion(
+            {},
+            ESP_ERR_INVALID_STATE
+        );
         const esp_err_t publication_error = update_snapshot(
             [attempted_at_us](qsee::DeviceSnapshot &snapshot) {
                 mark_sample_failure(
@@ -1786,6 +1795,10 @@ esp_err_t sample_imu(const char *phase)
         sample.temperature_c = data.temperature;
     }
     if (error != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportSensorFusion(
+            {},
+            error
+        );
         const esp_err_t publication_error = update_snapshot(
             [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
                 mark_sample_failure(snapshot.imu, error, attempted_at_us);
@@ -1808,6 +1821,13 @@ esp_err_t sample_imu(const char *phase)
             snapshot.imu.calibration = calibration;
         }
     );
+    qsee::SensorFusionResult fusion_result;
+    const esp_err_t fusion_error =
+        qsee::SensorFusionService::instance().process(sample, &fusion_result);
+    qsee::DeviceSnapshotService::instance().reportSensorFusion(
+        fusion_result,
+        fusion_error
+    );
     ESP_LOGI(
         TAG,
         "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
@@ -1820,12 +1840,25 @@ esp_err_t sample_imu(const char *phase)
         sample.angular_velocity_dps[2],
         data.temperature
     );
-    return sample_publication_result(
+    const esp_err_t sample_result = sample_publication_result(
         "IMU QMI8658",
         phase,
         ESP_OK,
         publication_error
     );
+    if (sample_result != ESP_OK) {
+        return sample_result;
+    }
+    if (fusion_error != ESP_OK) {
+        ESP_LOGW(
+            TAG,
+            "IMU sensor-fusion %s failed (%s)",
+            phase,
+            esp_err_to_name(fusion_error)
+        );
+        return fusion_error;
+    }
+    return ESP_OK;
 }
 
 void imu_calibration_task(void *arg)
@@ -3573,6 +3606,48 @@ void DeviceSnapshotService::reportImuSmoothing(
     );
     log_snapshot_publication_failure(
         "IMU-smoothing report",
+        publication_error
+    );
+}
+
+void DeviceSnapshotService::reportSensorFusion(
+    const SensorFusionResult &result,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const bool result_is_finite =
+        std::isfinite(result.acceleration_magnitude_mps2) &&
+        std::isfinite(result.angular_speed_dps);
+    const esp_err_t effective_error =
+        error == ESP_OK && !result_is_finite
+            ? ESP_ERR_INVALID_RESPONSE
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.sensor_fusion.gravity_dominant =
+                    result.gravity_dominant;
+                snapshot.sensor_fusion.stationary = result.stationary;
+                snapshot.sensor_fusion.acceleration_magnitude_mps2 =
+                    result.acceleration_magnitude_mps2;
+                snapshot.sensor_fusion.angular_speed_dps =
+                    result.angular_speed_dps;
+                mark_sample_success(
+                    snapshot.sensor_fusion,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.sensor_fusion,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Sensor-fusion report",
         publication_error
     );
 }

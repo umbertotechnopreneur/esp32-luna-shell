@@ -63,6 +63,7 @@ class DeviceSnapshotModel:
     reason: str = "not-refreshed"
     battery: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     imu: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
+    sensor_fusion: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     rtc: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     gps: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     audio: AudioSnapshotModel = field(default_factory=AudioSnapshotModel)
@@ -133,6 +134,7 @@ def apply_measured_sample_aging(snapshot: DeviceSnapshotModel, now_us: int) -> N
     age_measured_sample(snapshot.battery, now_us)
     age_measured_sample(snapshot.rtc, now_us)
     age_measured_sample(snapshot.imu, now_us)
+    age_measured_sample(snapshot.sensor_fusion, now_us)
     age_measured_sample(snapshot.gps, now_us)
     age_measured_sample(snapshot.audio.microphone, now_us)
     age_measured_sample(snapshot.memory, now_us)
@@ -220,6 +222,7 @@ def verify_source_contract() -> None:
         "age_measured_sample(snapshot.battery, now_us);",
         "age_measured_sample(snapshot.rtc, now_us);",
         "age_measured_sample(snapshot.imu, now_us);",
+        "age_measured_sample(snapshot.sensor_fusion, now_us);",
         "age_measured_sample(snapshot.gps, now_us);",
         "age_measured_sample(snapshot.audio.microphone, now_us);",
         "age_measured_sample(snapshot.memory, now_us);",

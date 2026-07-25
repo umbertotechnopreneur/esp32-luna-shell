@@ -12,6 +12,8 @@
 
 namespace qsee {
 
+struct SensorFusionResult;
+
 enum class DeviceHealth : uint8_t {
     Unknown,
     Ready,
@@ -245,6 +247,13 @@ struct UiHardwareSnapshot {
     } display_power_mode_state = DisplayPowerMode::Unknown;
 };
 
+struct SensorFusionSnapshot : ComponentSnapshot {
+    bool gravity_dominant = false;
+    bool stationary = false;
+    float acceleration_magnitude_mps2 = 0.0F;
+    float angular_speed_dps = 0.0F;
+};
+
 struct DiagnosticsSettingsSnapshot {
     ComponentSnapshot sample_period;
     ComponentSnapshot imu_smoothing;
@@ -303,6 +312,7 @@ struct DeviceSnapshot {
     char reason[32] = "not-refreshed";
     BatterySnapshot battery;
     ImuSnapshot imu;
+    SensorFusionSnapshot sensor_fusion;
     RtcSnapshot rtc;
     GpsSnapshot gps;
     AudioSnapshot audio;
@@ -341,6 +351,10 @@ public:
     );
     void reportDiagnosticPeriod(uint32_t sample_period_ms, esp_err_t error);
     void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
+    void reportSensorFusion(
+        const SensorFusionResult &result,
+        esp_err_t error
+    );
     void reportDiagnosticMonitor(bool monitor_active, esp_err_t error);
     void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);
     void reportDisplayConfiguredBrightness(
