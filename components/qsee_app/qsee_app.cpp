@@ -26,9 +26,9 @@ constexpr int kStatusTextId = 0x5141;
 
 const char *statusCode(qsee::DeviceHealth health)
 {
-    return health == qsee::DeviceHealth::Ready ? "OK" :
+    return health == qsee::DeviceHealth::Ready ? "+" :
            health == qsee::DeviceHealth::Degraded ? "!" :
-           health == qsee::DeviceHealth::Missing ? "--" : "..";
+           health == qsee::DeviceHealth::Missing ? "-" : "?";
 }
 
 bool storageFormatRequired(const qsee::StorageSnapshot &storage)
@@ -76,16 +76,16 @@ void App::syncStatusBar()
 
     const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
     if (!_status_text_added) {
-        _status_text_added = status_bar->addText("P:--  BT:..  WF:..  G:..  SD:..", 0, kStatusTextId);
+        _status_text_added = status_bar->addText("P--  BT?  WI?  G?  SD?", 0, kStatusTextId);
     }
-    char power[12];
+    char power[16];
     if (snapshot.battery.battery_present && snapshot.battery.level_percent >= 0) {
-        std::snprintf(power, sizeof(power), "%d%%", snapshot.battery.level_percent);
+        std::snprintf(power, sizeof(power), "P%d%%", snapshot.battery.level_percent);
     } else {
-        std::snprintf(power, sizeof(power), "%s", snapshot.battery.usb_present ? "USB" : "--");
+        std::snprintf(power, sizeof(power), "%s", snapshot.battery.usb_present ? "USB" : "P--");
     }
     char status_text[80];
-    std::snprintf(status_text, sizeof(status_text), "P:%s  BT:%s  WF:%s  G:%s  SD:%s",
+    std::snprintf(status_text, sizeof(status_text), "%s  BT%s  WI%s  G%s  SD%s",
                   power,
                   statusCode(snapshot.radios.ble.health),
                   statusCode(snapshot.radios.wifi.health),

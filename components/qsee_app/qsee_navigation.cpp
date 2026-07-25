@@ -24,8 +24,6 @@ constexpr uint32_t kSlate = 0x52697D;
 constexpr uint32_t kError = 0xD64545;
 constexpr uint32_t kTrack = 0x263744;
 constexpr uint32_t kWhite = 0xFFFFFF;
-constexpr uint32_t kTitleTop = 0x0A1824;
-constexpr uint32_t kTitleBottom = 0x123D50;
 constexpr int kWidth = 272;
 constexpr int kRowWidth = 236;
 
@@ -36,11 +34,9 @@ void applySpotlightBackground(lv_obj_t *screen)
     if (!initialized) {
         const lv_color_t colors[] = {
             lv_color_hex(0x173A48),
-            lv_color_hex(0x07141B),
             lv_color_hex(0x010205),
         };
-        const uint8_t stops[] = {0, 132, 255};
-        lv_grad_init_stops(&gradient, colors, nullptr, stops, 3);
+        lv_grad_init_stops(&gradient, colors, nullptr, nullptr, 2);
         lv_grad_radial_init(
             &gradient,
             lv_pct(50),
@@ -105,7 +101,7 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
     metric.card->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, y});
     metric.card->setStyleAttribute(
         StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
-        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_35)
+        StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_30)
     );
     lv_obj_set_style_radius(metric.card->getNativeHandle(), 8, LV_PART_MAIN);
     metric.label = makeLabel(metric.card.get(), name, 104, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 3);
@@ -229,22 +225,17 @@ bool Navigation::begin()
     lv_obj_clear_flag(_surface->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
 
     _title_bar = std::make_unique<LvContainer>(_surface.get());
-    _title_bar->setStyleAttribute(StyleSize::RECT(kWidth, 46));
+    _title_bar->setStyleAttribute(StyleSize::RECT(kWidth, 40));
     _title_bar->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 0});
-    lv_obj_set_style_bg_color(_title_bar->getNativeHandle(), lv_color_hex(kTitleTop), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_color(_title_bar->getNativeHandle(), lv_color_hex(kTitleBottom), LV_PART_MAIN);
-    lv_obj_set_style_bg_grad_dir(_title_bar->getNativeHandle(), LV_GRAD_DIR_HOR, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(_title_bar->getNativeHandle(), LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_radius(_title_bar->getNativeHandle(), 18, LV_PART_MAIN);
-    lv_obj_set_style_border_width(_title_bar->getNativeHandle(), 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(_title_bar->getNativeHandle(), lv_color_hex(0x28556A), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(_title_bar->getNativeHandle(), LV_OPA_60, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(_title_bar->getNativeHandle(), LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_bg_grad_dir(_title_bar->getNativeHandle(), LV_GRAD_DIR_NONE, LV_PART_MAIN);
+    lv_obj_set_style_border_width(_title_bar->getNativeHandle(), 0, LV_PART_MAIN);
     lv_obj_clear_flag(_title_bar->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
 
-    _page_title = makeLabel(_title_bar.get(), "WELCOME", kRowWidth, 16, kNavy,
-                            STYLE_ALIGN_TYPE_TOP_MID, 0, 5);
-    _page_subtitle = makeLabel(_title_bar.get(), "QSee device console", kRowWidth, 10, kMuted,
-                               STYLE_ALIGN_TYPE_TOP_MID, 0, 25);
+    _page_title = makeLabel(_title_bar.get(), "WELCOME", 256, 18, kNavy,
+                            STYLE_ALIGN_TYPE_TOP_LEFT, 8, -1);
+    _page_subtitle = makeLabel(_title_bar.get(), "QSee device console", 256, 12, kMuted,
+                               STYLE_ALIGN_TYPE_TOP_LEFT, 8, 21);
 
     _welcome = std::make_unique<LvContainer>(_surface.get());
     _welcome->setStyleAttribute(StyleSize::RECT(kWidth, 268));
@@ -363,11 +354,11 @@ bool Navigation::begin()
         });
         card->setStyleAttribute(
             StyleColorItem::STYLE_COLOR_ITEM_BACKGROUND,
-            StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_55)
+            StyleColor::COLOR_WITH_OPACITY(kSurface, LV_OPA_50)
         );
         card->setStyleAttribute(StyleColorItem::STYLE_COLOR_ITEM_BORDER, StyleColor::COLOR(kTrack));
         lv_obj_set_style_border_width(card->getNativeHandle(), 1, LV_PART_MAIN);
-        lv_obj_set_style_border_opa(card->getNativeHandle(), LV_OPA_35, LV_PART_MAIN);
+        lv_obj_set_style_border_opa(card->getNativeHandle(), LV_OPA_30, LV_PART_MAIN);
         lv_obj_set_style_radius(card->getNativeHandle(), 8, LV_PART_MAIN);
         auto item = makeLabel(card.get(), hardware_names[i], 112, 12, kMuted,
                               STYLE_ALIGN_TYPE_TOP_LEFT, 8, 4);

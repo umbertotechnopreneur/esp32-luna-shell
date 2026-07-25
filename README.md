@@ -168,7 +168,7 @@ pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM12 -BuildDir build-bro
 Capture a bounded diagnostic log:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\capture-serial.ps1 -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
+pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
 ```
 
 ### PowerShell quoting on Windows
@@ -192,10 +192,11 @@ Avoid nested `-Command "..."` invocations containing PowerShell variables.
 If the program becomes long or needs another quoting layer, put it in a `.ps1`
 file and invoke it with `pwsh -NoProfile -File`.
 
-Always pass the port explicitly before flashing. The device helper terminates
-stale monitor processes scoped to that port and fails the command if flashing
-or erasing fails. Build success is not hardware proof; keep serial evidence
-separate from compiler evidence.
+Always pass the port explicitly for every device action. The helper terminates
+stale monitor and capture processes scoped to that port before checking whether
+it is openable, then fails the command if flashing, erasing, or capture fails.
+Build success is not hardware proof; keep serial evidence separate from
+compiler evidence.
 
 ## Windows simulator
 

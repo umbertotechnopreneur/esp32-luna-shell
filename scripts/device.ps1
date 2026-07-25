@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "erase", "reconfigure", "set-target", "combo", "ports", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "combo", "ports", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -12,6 +12,10 @@ param(
     [string]$BuildDir = "build",
 
     [int]$WaitSeconds = 30,
+
+    [int]$DurationSeconds = 30,
+
+    [string]$OutputPath,
 
     # The workstation has 16 cores and 32 GB RAM; allow overriding for CI or
     # constrained machines while keeping the local default fully parallel.
@@ -72,6 +76,7 @@ if ($env:PATH) {
 $env:PATH = (($toolBins + $existingPath) | Where-Object { $_ } | Select-Object -Unique) -join ";"
 $IdfPy = Join-Path $IdfPath "tools\idf.py"
 $MonitorScript = Join-Path $PSScriptRoot "device.ps1"
+$CaptureScript = Join-Path $PSScriptRoot "capture-serial.ps1"
 
 function Get-SerialPorts {
     $openablePorts = @([System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpperInvariant() })
@@ -276,8 +281,8 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            $Port = Resolve-Port $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
             if ($LASTEXITCODE -ne 0) {
@@ -288,8 +293,8 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            $Port = Resolve-Port $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
@@ -300,16 +305,38 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            $Port = Resolve-Port $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
+        }
+        "capture" {
+            if (-not $Port) {
+                throw "Specify the serial port with -Port, for example -Port COM5"
+            }
+            Stop-StaleMonitorProcesses $Port
+            $Port = Resolve-Port $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
+            $captureArgs = @(
+                "-NoProfile",
+                "-File", $CaptureScript,
+                "-Port", $Port,
+                "-Baud", $Baud,
+                "-DurationSeconds", $DurationSeconds
+            )
+            if ($OutputPath) {
+                $captureArgs += @("-OutputPath", $OutputPath)
+            }
+            & pwsh @captureArgs
+            if ($LASTEXITCODE -ne 0) {
+                throw "Serial capture failed"
+            }
         }
         "combo" {
             Invoke-ProjectBuild $BuildDir
 
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            $Port = Resolve-Port $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
@@ -331,8 +358,8 @@ try {
         "recover" {
             Invoke-ProjectBuild $BuildDir
 
-            $Port = Wait-ForPort $Port $WaitSeconds
             Stop-StaleMonitorProcesses $Port
+            $Port = Wait-ForPort $Port $WaitSeconds
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {

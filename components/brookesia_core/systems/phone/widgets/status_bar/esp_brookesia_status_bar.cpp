@@ -172,6 +172,10 @@ bool StatusBar::addText(const char *text, uint8_t area_index, int id)
     lv_obj_t *label = lv_label_create(_area_objs[area_index].get());
     ESP_UTILS_CHECK_NULL_RETURN(label, false, "Create status bar text failed");
     lv_obj_add_style(label, _system_context.getDisplay().getCoreContainerStyle(), 0);
+    lv_obj_set_style_bg_opa(label, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_text_font(label, (lv_font_t *)_data.main.text_font.font_resource, 0);
+    lv_obj_set_style_text_color(label, lv_color_hex(_data.main.text_color.color), 0);
+    lv_obj_set_style_text_opa(label, _data.main.text_color.opacity, 0);
     lv_label_set_text(label, text != nullptr ? text : "");
     _id_text_map[id] = label;
     return true;
@@ -397,6 +401,12 @@ bool StatusBar::updateMainByNewData(void)
             break;
         }
         lv_obj_set_flex_align(_area_objs[i].get(), main_align, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    }
+    for (const auto &[id, label] : _id_text_map) {
+        (void)id;
+        lv_obj_set_style_text_font(label, (lv_font_t *)_data.main.text_font.font_resource, 0);
+        lv_obj_set_style_text_color(label, lv_color_hex(_data.main.text_color.color), 0);
+        lv_obj_set_style_text_opa(label, _data.main.text_color.opacity, 0);
     }
 
     return true;
