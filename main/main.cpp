@@ -54,7 +54,7 @@ bool start_brookesia(lv_indev_t *touch)
 
     auto phone_stylesheet = ESP_BROOKESIA_PHONE_480_480_DARK_STYLESHEET();
     phone_stylesheet.core.screen_size = esp_brookesia::gui::StyleSize::RECT(466, 466);
-    // QSee renders a geometry-only status bar sized for the circular chord.
+    // QSee renders its own shallow curved status ribbon for the round panel.
     phone_stylesheet.display.flags.enable_status_bar = 0;
     // The circular device has no recents gesture surface. Disabling that
     // unused 480px layout also avoids allocating its snapshot layers.

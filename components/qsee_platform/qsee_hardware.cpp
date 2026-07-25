@@ -38,6 +38,7 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 #include "qmi8658.h"
+#include "sdkconfig.h"
 
 #define XPOWERS_CHIP_AXP2101
 #include "XPowersLib.h"
@@ -83,12 +84,18 @@ float s_gyro_bias[3];
 float s_accel_filtered[3];
 float s_gyro_filtered[3];
 bool s_imu_filter_ready;
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS && !CONFIG_FREERTOS_SMP
+uint64_t s_cpu_runtime_counter;
+uint64_t s_cpu_idle_runtime[2];
+bool s_cpu_runtime_ready;
+#endif
 volatile uint32_t s_imu_smoothing_percent = 70;
 bool s_gps_ready;
 bool s_microphone_worker_started;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 volatile bool s_diagnostic_monitor_active;
+volatile bool s_system_monitor_active;
 volatile uint32_t s_diagnostic_period_ms = 300;
 
 qsee::DeviceSnapshot s_snapshot;
@@ -130,6 +137,7 @@ qsee::DeviceHealth health_for(bool ready, esp_err_t error)
 
 void set_component(qsee::ComponentSnapshot &component, bool ready, esp_err_t error)
 {
+    component.available = ready;
     component.health = health_for(ready, error);
     component.last_error = error;
 }
@@ -589,6 +597,7 @@ esp_err_t sample_imu(const char *phase)
     const esp_err_t error = qmi8658_read_sensor_data(&s_imu, &data);
     set_component(sample, error == ESP_OK, error);
     if (error == ESP_OK) {
+        sample.sampled_at_us = esp_timer_get_time();
         sample.calibrated = s_imu_calibrated;
         sample.calibration_stationary = s_imu_calibration_stationary;
         sample.calibration_samples = s_imu_calibration_samples;
@@ -901,6 +910,9 @@ esp_err_t sample_gps(const char *phase)
         }
     }
 
+    if (error == ESP_OK) {
+        sample.sampled_at_us = esp_timer_get_time();
+    }
     set_component(sample, error == ESP_OK, error);
     update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) { snapshot.gps = sample; });
     if (error != ESP_OK) {
@@ -1025,25 +1037,36 @@ void microphone_task(void *arg)
     vTaskDelete(nullptr);
 }
 
+void sample_system_state();
+
 void diagnostic_monitor_task(void *arg)
 {
     (void)arg;
     for (;;) {
-        if (s_diagnostic_monitor_active) {
+        const bool diagnostic_active = s_diagnostic_monitor_active;
+        const bool system_active = s_system_monitor_active;
+        if (diagnostic_active || system_active) {
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
             if (refresh_mutex != nullptr &&
                 xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
                 esp_err_t aggregate = ESP_OK;
-                if (s_imu_ready && sample_imu("diagnostic-ui") != ESP_OK) {
+                if (diagnostic_active &&
+                    s_imu_ready && sample_imu("diagnostic-ui") != ESP_OK) {
                     aggregate = ESP_FAIL;
                 }
-                if (s_microphone_ready && sample_microphone("diagnostic-ui") != ESP_OK) {
+                if (diagnostic_active &&
+                    s_microphone_ready && sample_microphone("diagnostic-ui") != ESP_OK) {
                     aggregate = ESP_FAIL;
                 }
-                update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+                sample_system_state();
+                update_snapshot([diagnostic_active](qsee::DeviceSnapshot &snapshot) {
                     ++snapshot.sequence;
                     snapshot.refreshed_at_us = esp_timer_get_time();
-                    strlcpy(snapshot.reason, "diagnostic-ui", sizeof(snapshot.reason));
+                    strlcpy(
+                        snapshot.reason,
+                        diagnostic_active ? "diagnostic-ui" : "welcome-system",
+                        sizeof(snapshot.reason)
+                    );
                 });
                 xSemaphoreGive(refresh_mutex);
                 if (aggregate != ESP_OK) {
@@ -1052,7 +1075,7 @@ void diagnostic_monitor_task(void *arg)
             }
         }
         const uint32_t delay_ms =
-            s_diagnostic_monitor_active ? s_diagnostic_period_ms : 250U;
+            (diagnostic_active || system_active) ? s_diagnostic_period_ms : 250U;
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
@@ -1141,25 +1164,55 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
 
 void sample_system_state()
 {
+    const auto percent_used = [](uint64_t used, uint64_t total) -> uint8_t {
+        if (total == 0 || used > total) {
+            return 0;
+        }
+        const uint64_t percent = (used * 100ULL) / total;
+        return static_cast<uint8_t>(percent > 100ULL ? 100ULL : percent);
+    };
+
     qsee::MemorySnapshot memory;
-    (void)esp_flash_get_size(nullptr, &memory.flash_capacity_bytes);
+    const esp_err_t flash_error = esp_flash_get_size(nullptr, &memory.flash_capacity_bytes);
+    memory.flash_capacity_available = flash_error == ESP_OK && memory.flash_capacity_bytes > 0;
 
     const esp_partition_t *running_partition = esp_ota_get_running_partition();
     if (running_partition != nullptr) {
         memory.app_partition_bytes = running_partition->size;
+        memory.firmware_total_bytes = running_partition->size;
         const esp_partition_pos_t partition_position = {
             .offset = running_partition->address,
             .size = running_partition->size,
         };
         esp_image_metadata_t image_metadata = {};
-        if (esp_image_get_metadata(&partition_position, &image_metadata) == ESP_OK) {
+        if (esp_image_get_metadata(&partition_position, &image_metadata) == ESP_OK &&
+            image_metadata.image_len <= running_partition->size) {
             memory.firmware_image_bytes = image_metadata.image_len;
+            memory.firmware_used_bytes = image_metadata.image_len;
+            memory.firmware_usage_available = image_metadata.image_len > 0 &&
+                                               running_partition->size > 0;
+            memory.firmware_used_percent = percent_used(
+                memory.firmware_used_bytes,
+                memory.firmware_total_bytes
+            );
         }
     }
 
     memory.heap_free_bytes = esp_get_free_heap_size();
     memory.heap_minimum_free_bytes = esp_get_minimum_free_heap_size();
+    memory.internal_total_bytes = static_cast<uint32_t>(
+        heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+    );
     memory.internal_free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    memory.internal_heap_available = memory.internal_total_bytes > 0 &&
+                                     memory.internal_free_bytes <= memory.internal_total_bytes;
+    if (memory.internal_heap_available) {
+        memory.internal_used_bytes = memory.internal_total_bytes - memory.internal_free_bytes;
+        memory.internal_used_percent = percent_used(
+            memory.internal_used_bytes,
+            memory.internal_total_bytes
+        );
+    }
     memory.internal_largest_block_bytes =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     memory.internal_memory_pressure =
@@ -1169,7 +1222,15 @@ void sample_system_state()
     memory.psram_heap_total_bytes =
         static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
     memory.psram_free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    memory.psram_used_bytes = memory.psram_heap_total_bytes - memory.psram_free_bytes;
+    memory.psram_heap_available = memory.psram_heap_total_bytes > 0 &&
+                                  memory.psram_free_bytes <= memory.psram_heap_total_bytes;
+    if (memory.psram_heap_available) {
+        memory.psram_used_bytes = memory.psram_heap_total_bytes - memory.psram_free_bytes;
+        memory.psram_used_percent = percent_used(
+            memory.psram_used_bytes,
+            memory.psram_heap_total_bytes
+        );
+    }
     memory.psram_largest_block_bytes = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
 
     qsee::ProcessorSnapshot processor;
@@ -1189,6 +1250,45 @@ void sample_system_state()
         processor.cores[core].priority = uxTaskPriorityGet(task);
         processor.cores[core].stack_high_water_words = uxTaskGetStackHighWaterMark(task);
     }
+
+#if CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS && !CONFIG_FREERTOS_SMP
+    // Compare each idle task's delta with the same FreeRTOS runtime-counter interval.
+    const auto runtime_now = portGET_RUN_TIME_COUNTER_VALUE();
+    const uint64_t runtime_value = static_cast<uint64_t>(runtime_now);
+    uint64_t idle_runtime_now[2] = {};
+    for (uint8_t core = 0; core < cores_to_query; ++core) {
+        idle_runtime_now[core] = static_cast<uint64_t>(
+            ulTaskGetIdleRunTimeCounterForCore(core)
+        );
+    }
+
+    if (s_cpu_runtime_ready && runtime_value >= s_cpu_runtime_counter) {
+        const uint64_t elapsed = runtime_value - s_cpu_runtime_counter;
+        if (elapsed > 0) {
+            processor.utilization_sample_period_us = elapsed > UINT32_MAX
+                ? UINT32_MAX
+                : static_cast<uint32_t>(elapsed);
+            for (uint8_t core = 0; core < cores_to_query; ++core) {
+                if (idle_runtime_now[core] < s_cpu_idle_runtime[core]) {
+                    continue;
+                }
+                const uint64_t idle_delta = idle_runtime_now[core] - s_cpu_idle_runtime[core];
+                const uint64_t bounded_idle = idle_delta > elapsed ? elapsed : idle_delta;
+                const uint64_t idle_percent = (bounded_idle * 100ULL) / elapsed;
+                processor.cores[core].utilization_available = true;
+                processor.cores[core].utilization_percent = static_cast<uint8_t>(
+                    idle_percent >= 100ULL ? 0ULL : 100ULL - idle_percent
+                );
+                processor.utilization_available = true;
+            }
+        }
+    }
+    s_cpu_runtime_counter = runtime_value;
+    for (uint8_t core = 0; core < cores_to_query; ++core) {
+        s_cpu_idle_runtime[core] = idle_runtime_now[core];
+    }
+    s_cpu_runtime_ready = true;
+#endif
 
     update_snapshot([&memory, &processor](qsee::DeviceSnapshot &snapshot) {
         snapshot.memory = memory;
@@ -1396,7 +1496,10 @@ void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
 
 void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
 {
-    update_snapshot([=](DeviceSnapshot &snapshot) { snapshot.radios.wifi = wifi; });
+    update_snapshot([=](DeviceSnapshot &snapshot) {
+        snapshot.radios.wifi = wifi;
+        snapshot.radios.wifi.updated_at_us = esp_timer_get_time();
+    });
 }
 
 void DeviceSnapshotService::reportBle(
@@ -1413,6 +1516,7 @@ void DeviceSnapshotService::reportBle(
 {
     update_snapshot([=](DeviceSnapshot &snapshot) {
         set_component(snapshot.radios.ble, ready, error);
+        snapshot.radios.ble.updated_at_us = esp_timer_get_time();
         snapshot.radios.ble.provisioning = provisioning;
         snapshot.radios.ble.advertising = advertising;
         snapshot.radios.ble.connected = connected;
@@ -1453,23 +1557,13 @@ void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
 
 }  // namespace qsee
 
-extern "C" esp_err_t qsee_hardware_init(void)
-{
-    return qsee::DeviceSnapshotService::instance().initialize();
-}
-
-extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
-{
-    return qsee::DeviceSnapshotService::instance().refresh(reason);
-}
-
-extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
+static esp_err_t ensure_monitor_task()
 {
     if (s_diagnostic_monitor_started) {
-        s_diagnostic_monitor_active = enabled;
         return ESP_OK;
     }
     s_diagnostic_monitor_active = false;
+    s_system_monitor_active = false;
     TaskHandle_t task = xTaskCreateStatic(
         diagnostic_monitor_task,
         "qsee_diag_monitor",
@@ -1483,9 +1577,33 @@ extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
     if (!s_diagnostic_monitor_started) {
         return ESP_ERR_NO_MEM;
     }
+    ESP_LOGI(TAG, "Snapshot monitor task ready (standby)");
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_init(void)
+{
+    return qsee::DeviceSnapshotService::instance().initialize();
+}
+
+extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
+{
+    return qsee::DeviceSnapshotService::instance().refresh(reason);
+}
+
+extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
+{
+    const esp_err_t result = ensure_monitor_task();
+    if (result != ESP_OK) return result;
     s_diagnostic_monitor_active = enabled;
-    ESP_LOGI(TAG, "Diagnostic monitor task ready (%s)",
-             enabled ? "active" : "standby");
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_set_system_monitor(bool enabled)
+{
+    const esp_err_t result = ensure_monitor_task();
+    if (result != ESP_OK) return result;
+    s_system_monitor_active = enabled;
     return ESP_OK;
 }
 

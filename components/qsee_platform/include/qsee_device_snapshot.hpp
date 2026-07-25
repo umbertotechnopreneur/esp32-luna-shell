@@ -26,6 +26,7 @@ enum class DeviceHealth : uint8_t {
 };
 
 struct ComponentSnapshot {
+    bool available = false;
     DeviceHealth health = DeviceHealth::Unknown;
     esp_err_t last_error = ESP_ERR_INVALID_STATE;
 };
@@ -42,6 +43,7 @@ struct BatterySnapshot : ComponentSnapshot {
 };
 
 struct ImuSnapshot : ComponentSnapshot {
+    int64_t sampled_at_us = 0;
     float acceleration_mps2[3] = {};
     float angular_velocity_dps[3] = {};
     float temperature_c = 0.0F;
@@ -69,6 +71,7 @@ struct RtcSnapshot : ComponentSnapshot {
 };
 
 struct GpsSnapshot : ComponentSnapshot {
+    int64_t sampled_at_us = 0;
     uint32_t pending_nmea_bytes = 0;
     bool has_fix = false;
     uint8_t fix_quality = 0;
@@ -96,6 +99,7 @@ struct AudioSnapshot {
 };
 
 struct WifiSnapshot : ComponentSnapshot {
+    int64_t updated_at_us = 0;
     bool started = false;
     bool credentials_configured = false;
     bool connect_requested = false;
@@ -111,10 +115,13 @@ struct WifiSnapshot : ComponentSnapshot {
     uint32_t disconnect_count = 0;
     char ssid[33] = {};
     char ip_address[16] = {};
+    char netmask[16] = {};
+    char gateway[16] = {};
     char mac_address[18] = {};
 };
 
 struct BleSnapshot : ComponentSnapshot {
+    int64_t updated_at_us = 0;
     bool provisioning = false;
     bool advertising = false;
     bool connected = false;
@@ -158,16 +165,27 @@ struct InputSnapshot {
 };
 
 struct MemorySnapshot {
+    bool flash_capacity_available = false;
+    bool firmware_usage_available = false;
     uint32_t flash_capacity_bytes = 0;
     uint32_t app_partition_bytes = 0;
     uint32_t firmware_image_bytes = 0;
+    uint32_t firmware_used_bytes = 0;
+    uint32_t firmware_total_bytes = 0;
+    uint8_t firmware_used_percent = 0;
     uint32_t heap_free_bytes = 0;
     uint32_t heap_minimum_free_bytes = 0;
+    bool internal_heap_available = false;
+    uint32_t internal_total_bytes = 0;
+    uint32_t internal_used_bytes = 0;
+    uint8_t internal_used_percent = 0;
     uint32_t internal_free_bytes = 0;
     uint32_t internal_largest_block_bytes = 0;
     bool internal_memory_pressure = false;
     uint32_t psram_capacity_bytes = 0;
+    bool psram_heap_available = false;
     uint32_t psram_heap_total_bytes = 0;
+    uint8_t psram_used_percent = 0;
     uint32_t psram_free_bytes = 0;
     uint32_t psram_used_bytes = 0;
     uint32_t psram_largest_block_bytes = 0;
@@ -177,11 +195,15 @@ struct CoreSnapshot {
     char current_task[24] = "unknown";
     uint32_t stack_high_water_words = 0;
     uint32_t priority = 0;
+    bool utilization_available = false;
+    uint8_t utilization_percent = 0;
 };
 
 struct ProcessorSnapshot {
     uint8_t core_count = 0;
     uint8_t sampling_core = 0;
+    bool utilization_available = false;
+    uint32_t utilization_sample_period_us = 0;
     CoreSnapshot cores[2];
 };
 

@@ -7,9 +7,9 @@ namespace {
 constexpr int kDisplaySize = 466;
 constexpr int kSafeAreaLeft = 73;
 constexpr int kSafeAreaRight = 393;
-constexpr int kEdgeInset = 10;
-constexpr int kButtonWidth = 58;
-constexpr int kButtonHeight = 124;
+constexpr int kEdgeInset = 4;
+constexpr int kButtonWidth = 68;
+constexpr int kButtonHeight = 144;
 constexpr int kButtonY = (kDisplaySize - kButtonHeight) / 2;
 constexpr int kLeftButtonX = kEdgeInset;
 constexpr int kRightButtonX = kDisplaySize - kEdgeInset - kButtonWidth;
@@ -20,6 +20,9 @@ constexpr uint32_t kBackAccent = 0x51C7F2;
 constexpr uint32_t kOkAccent = 0x3DE0B0;
 constexpr uint32_t kCloseAccent = 0xFF7787;
 constexpr uint32_t kText = 0xF4FAFF;
+constexpr lv_style_selector_t kPressedSelector =
+    static_cast<lv_style_selector_t>(LV_PART_MAIN) |
+    static_cast<lv_style_selector_t>(LV_STATE_PRESSED);
 
 static_assert(kLeftButtonX + kButtonWidth < kSafeAreaLeft,
               "The left edge action must stay outside the safe area");
@@ -27,26 +30,26 @@ static_assert(kRightButtonX > kSafeAreaRight,
               "The right edge action must stay outside the safe area");
 
 constexpr lv_point_precise_t kBackChevron[] = {
-    {24, 3},
-    {8, 14},
-    {24, 25},
+    {30, 3},
+    {8, 17},
+    {30, 31},
 };
 constexpr lv_point_precise_t kBackShaft[] = {
-    {8, 14},
-    {29, 14},
+    {8, 17},
+    {34, 17},
 };
 constexpr lv_point_precise_t kOkCheck[] = {
-    {4, 14},
-    {11, 22},
-    {27, 5},
+    {4, 18},
+    {13, 27},
+    {31, 6},
 };
 constexpr lv_point_precise_t kCloseForward[] = {
-    {5, 5},
-    {25, 25},
+    {6, 6},
+    {28, 28},
 };
 constexpr lv_point_precise_t kCloseReverse[] = {
-    {25, 5},
-    {5, 25},
+    {28, 6},
+    {6, 28},
 };
 
 const lv_font_t *edgeFont()
@@ -230,31 +233,37 @@ lv_obj_t *EdgeNavigation::CreateEdgeButton(lv_obj_t *root, bool left, lv_obj_t *
     lv_obj_add_flag(button, LV_OBJ_FLAG_FLOATING);
     lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(button, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_ext_click_area(button, 4);
+    lv_obj_set_ext_click_area(button, 10);
 
     lv_obj_set_style_radius(button, kButtonWidth / 2, LV_PART_MAIN);
     lv_obj_set_style_bg_color(button, lv_color_hex(kDarkTop), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_color(button, lv_color_hex(kDarkBottom), LV_PART_MAIN);
     lv_obj_set_style_bg_grad_dir(button, LV_GRAD_DIR_VER, LV_PART_MAIN);
     lv_obj_set_style_bg_opa(button, LV_OPA_90, LV_PART_MAIN);
-    lv_obj_set_style_border_width(button, 1, LV_PART_MAIN);
+    lv_obj_set_style_border_width(button, 2, LV_PART_MAIN);
     lv_obj_set_style_border_color(button, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(button, LV_OPA_60, LV_PART_MAIN);
-    lv_obj_set_style_shadow_width(button, 0, LV_PART_MAIN);
+    lv_obj_set_style_border_opa(button, LV_OPA_80, LV_PART_MAIN);
+    lv_obj_set_style_shadow_width(button, 12, LV_PART_MAIN);
+    lv_obj_set_style_shadow_spread(button, 1, LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(
+        button, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN
+    );
+    lv_obj_set_style_shadow_opa(button, LV_OPA_30, LV_PART_MAIN);
     lv_obj_set_style_pad_all(button, 0, LV_PART_MAIN);
 
-    lv_obj_set_style_bg_color(button, lv_color_hex(0x1B3545), LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_border_opa(button, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_translate_x(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_translate_y(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_transform_width(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
-    lv_obj_set_style_transform_height(button, 0, LV_PART_MAIN | LV_STATE_PRESSED);
+    lv_obj_set_style_bg_color(button, lv_color_hex(0x1B3545), kPressedSelector);
+    lv_obj_set_style_border_opa(button, LV_OPA_COVER, kPressedSelector);
+    lv_obj_set_style_shadow_opa(button, LV_OPA_60, kPressedSelector);
+    lv_obj_set_style_translate_x(button, 0, kPressedSelector);
+    lv_obj_set_style_translate_y(button, 0, kPressedSelector);
+    lv_obj_set_style_transform_width(button, 0, kPressedSelector);
+    lv_obj_set_style_transform_height(button, 0, kPressedSelector);
 
     *accent = lv_obj_create(button);
     if (*accent != nullptr) {
         lv_obj_remove_style_all(*accent);
-        lv_obj_set_size(*accent, 3, 66);
-        lv_obj_align(*accent, left ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, left ? -3 : 3, 0);
+        lv_obj_set_size(*accent, 4, 84);
+        lv_obj_align(*accent, left ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, left ? -4 : 4, 0);
         lv_obj_set_style_radius(*accent, 2, LV_PART_MAIN);
         lv_obj_set_style_bg_color(*accent, lv_color_hex(left ? kBackAccent : kOkAccent), LV_PART_MAIN);
         lv_obj_set_style_bg_opa(*accent, LV_OPA_80, LV_PART_MAIN);
@@ -271,8 +280,8 @@ lv_obj_t *EdgeNavigation::CreateLineIcon(lv_obj_t *parent)
     if (line == nullptr) {
         return nullptr;
     }
-    lv_obj_set_size(line, 30, 30);
-    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 19);
+    lv_obj_set_size(line, 36, 36);
+    lv_obj_align(line, LV_ALIGN_TOP_MID, 0, 14);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(line, LV_OBJ_FLAG_SCROLLABLE);
     return line;
@@ -284,12 +293,13 @@ lv_obj_t *EdgeNavigation::CreateLabel(lv_obj_t *parent)
     if (label == nullptr) {
         return nullptr;
     }
-    lv_obj_set_width(label, kButtonWidth - 6);
-    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -26);
+    lv_obj_set_width(label, kButtonWidth - 8);
+    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -27);
     lv_label_set_long_mode(label, LV_LABEL_LONG_MODE_CLIP);
     lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
     lv_obj_set_style_text_color(label, lv_color_hex(kText), LV_PART_MAIN);
     lv_obj_set_style_text_font(label, edgeFont(), LV_PART_MAIN);
+    lv_obj_set_style_text_letter_space(label, 1, LV_PART_MAIN);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_remove_flag(label, LV_OBJ_FLAG_SCROLLABLE);
     return label;
@@ -316,6 +326,7 @@ void EdgeNavigation::ApplyRightMode()
     const uint32_t accent = is_ok ? kOkAccent : kCloseAccent;
     lv_label_set_text(_right_label, is_ok ? "OK" : "CLOSE");
     lv_obj_set_style_border_color(_right_button, lv_color_hex(accent), LV_PART_MAIN);
+    lv_obj_set_style_shadow_color(_right_button, lv_color_hex(accent), LV_PART_MAIN);
     lv_obj_set_style_bg_color(_right_accent, lv_color_hex(accent), LV_PART_MAIN);
 
     setLine(_right_icon_primary, is_ok ? kOkCheck : kCloseForward, is_ok ? 3 : 2, accent);
@@ -334,9 +345,11 @@ void EdgeNavigation::ApplyEnabledState(lv_obj_t *button) const
     if (_enabled) {
         lv_obj_add_flag(button, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(button, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_shadow_opa(button, LV_OPA_30, LV_PART_MAIN);
     } else {
         lv_obj_remove_flag(button, LV_OBJ_FLAG_CLICKABLE);
         lv_obj_set_style_opa(button, LV_OPA_50, LV_PART_MAIN);
+        lv_obj_set_style_shadow_opa(button, LV_OPA_10, LV_PART_MAIN);
     }
 }
 

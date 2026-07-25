@@ -47,6 +47,8 @@ esp_err_t qsee_hardware_refresh(const char *reason);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/** Enable cheap CPU/memory snapshot sampling while the Welcome page consumes it. */
+esp_err_t qsee_hardware_set_system_monitor(bool enabled);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */

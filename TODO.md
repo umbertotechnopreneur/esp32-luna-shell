@@ -25,8 +25,10 @@
 
 ## Device metrics
 
-- Add CPU utilization samples to `DeviceSnapshotService` when sensor fusion exposes them.
-- Keep the UI on `CPU data unavailable` until real samples are available.
+- [x] Add real per-core CPU utilization samples to `DeviceSnapshotService` using
+  ESP-IDF/FreeRTOS idle runtime deltas and explicit availability flags.
+- Keep the UI on `CPU data unavailable` until the first valid previous-sample
+  delta exists or runtime statistics are unavailable.
 - Keep hardware refresh non-blocking and outside the UI thread.
 
 ## Sensor fusion
@@ -34,6 +36,8 @@
 - The Settings route currently persists and applies the QMI8658 input
   low-pass smoothing value; it does not claim to provide orientation fusion.
 - Add a canonical sensor-fusion service behind `DeviceSnapshotService` before
-  exposing algorithm selection, gain, or reference-frame controls in the UI.
+  exposing algorithm selection, gain, reference-frame controls, or
+  pitch/roll/yaw values in the UI. Until then the snapshot exposes the real
+  filtered/calibrated IMU values with timestamp and availability only.
 - Move stationary calibration to a non-blocking platform worker before adding
   a Settings calibration action.

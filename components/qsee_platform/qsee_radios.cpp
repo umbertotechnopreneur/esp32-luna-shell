@@ -340,6 +340,20 @@ esp_err_t qsee_radios_init(void)
     const esp_err_t ble = wifi_status.credentials_configured
                               ? qsee_ble_init()
                               : qsee_provisioning_start();
+    if (!wifi_status.credentials_configured && ble == ESP_OK) {
+        // Provisioning owns the BLE transport here; its GAP advertising state is not exposed.
+        qsee::DeviceSnapshotService::instance().reportBle(
+            true,
+            ESP_OK,
+            false,
+            false,
+            0xFFFF,
+            0,
+            0,
+            qsee_provisioning_service_name(),
+            qsee_provisioning_active()
+        );
+    }
     if (ble != ESP_OK) {
         qsee::DeviceSnapshotService::instance().reportBle(false, ble);
     }

@@ -15,19 +15,26 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstdlib>
 #include <iterator>
 #include <new>
 
 namespace {
 
-constexpr int kBarWidth = 244;
-constexpr int kBarHeight = 44;
-constexpr int kBarOffsetY = 28;
-constexpr int kSlotWidth = 34;
-constexpr int kSlotHeight = 40;
-constexpr int kSlotStartX = 5;
-constexpr int kSlotPitch = 39;
-constexpr int kSlotY = 2;
+// The top of the panel is circular, so a straight pill wastes the upper
+// corners. Keep the status indicators on a shallow arch instead.
+constexpr int kBarWidth = 300;
+constexpr int kBarHeight = 132;
+constexpr int kBarOffsetY = 3;
+constexpr int kSlotWidth = 40;
+constexpr int kSlotHeight = 47;
+constexpr int kSlotStartX = 3;
+constexpr int kSlotPitch = 50;
+constexpr int kSlotDotY = 38;
+constexpr int kCurveStartAngle = 214;
+constexpr int kCurveEndAngle = 326;
+constexpr int kCurveBandWidth = 48;
+constexpr int kCurveEdgeWidth = 2;
 
 constexpr uint32_t kPillColor = 0x02070B;
 constexpr uint32_t kPillBorderColor = 0x245363;
@@ -195,6 +202,28 @@ lv_obj_t *makeArc(lv_obj_t *parent, int inset)
     return object;
 }
 
+lv_obj_t *makeCurve(lv_obj_t *parent, int width, uint32_t color, lv_opa_t opa)
+{
+    lv_obj_t *object = lv_arc_create(parent);
+    if (object == nullptr) {
+        return nullptr;
+    }
+
+    lv_obj_remove_style_all(object);
+    lv_obj_set_pos(object, 0, 0);
+    lv_obj_set_size(object, kBarWidth, kBarHeight);
+    lv_arc_set_bg_angles(object, kCurveStartAngle, kCurveEndAngle);
+    lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(object, width, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(object, lv_color_hex(color), LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(object, opa, LV_PART_MAIN);
+    lv_obj_set_style_arc_rounded(object, true, LV_PART_MAIN);
+    lv_obj_set_style_arc_opa(object, LV_OPA_TRANSP, LV_PART_INDICATOR);
+    lv_obj_set_style_opa(object, LV_OPA_TRANSP, LV_PART_KNOB);
+    makePassive(object);
+    return object;
+}
+
 bool addPart(IndicatorVisual &indicator, lv_obj_t *object, PaintKind kind)
 {
     if (object == nullptr || indicator.part_count >= indicator.parts.size()) {
@@ -292,6 +321,8 @@ namespace qsee {
 
 struct QSeeStatusBar::Impl {
     lv_obj_t *root = nullptr;
+    lv_obj_t *curve_base = nullptr;
+    lv_obj_t *curve_edge = nullptr;
     std::array<IndicatorVisual, kIndicatorCount> indicators{};
     lv_obj_t *battery_fill = nullptr;
     lv_obj_t *battery_charge_mark = nullptr;
@@ -329,14 +360,21 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
     lv_obj_remove_style_all(_impl->root);
     lv_obj_set_size(_impl->root, kBarWidth, kBarHeight);
     lv_obj_align(_impl->root, LV_ALIGN_TOP_MID, 0, kBarOffsetY);
-    lv_obj_set_style_radius(_impl->root, LV_RADIUS_CIRCLE, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(_impl->root, lv_color_hex(kPillColor), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(_impl->root, LV_OPA_50, LV_PART_MAIN);
-    lv_obj_set_style_border_width(_impl->root, 1, LV_PART_MAIN);
-    lv_obj_set_style_border_color(_impl->root, lv_color_hex(kPillBorderColor), LV_PART_MAIN);
-    lv_obj_set_style_border_opa(_impl->root, LV_OPA_40, LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(_impl->root, LV_OPA_TRANSP, LV_PART_MAIN);
+    lv_obj_set_style_border_width(_impl->root, 0, LV_PART_MAIN);
     lv_obj_set_style_pad_all(_impl->root, 0, LV_PART_MAIN);
     makePassive(_impl->root);
+
+    _impl->curve_base = makeCurve(
+        _impl->root, kCurveBandWidth, kPillColor, LV_OPA_70
+    );
+    _impl->curve_edge = makeCurve(
+        _impl->root, kCurveEdgeWidth, kPillBorderColor, LV_OPA_90
+    );
+    if (_impl->curve_base == nullptr || _impl->curve_edge == nullptr) {
+        Shutdown();
+        return false;
+    }
 
     for (size_t i = 0; i < _impl->indicators.size(); ++i) {
         IndicatorVisual &indicator = _impl->indicators[i];
@@ -347,11 +385,20 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
         }
 
         lv_obj_remove_style_all(indicator.root);
-        lv_obj_set_pos(indicator.root, kSlotStartX + (static_cast<int>(i) * kSlotPitch), kSlotY);
+        const int distance_from_center_twice =
+            std::abs(5 - (2 * static_cast<int>(i)));
+        const int slot_y = 3 + (distance_from_center_twice * 2);
+        lv_obj_set_pos(
+            indicator.root,
+            kSlotStartX + (static_cast<int>(i) * kSlotPitch),
+            slot_y
+        );
         lv_obj_set_size(indicator.root, kSlotWidth, kSlotHeight);
         makePassive(indicator.root);
 
-        indicator.status_dot = makeFill(indicator.root, 14, 33, 6, 6, LV_RADIUS_CIRCLE);
+        indicator.status_dot = makeFill(
+            indicator.root, (kSlotWidth - 6) / 2, kSlotDotY, 6, 6, LV_RADIUS_CIRCLE
+        );
         if (indicator.status_dot == nullptr) {
             Shutdown();
             return false;

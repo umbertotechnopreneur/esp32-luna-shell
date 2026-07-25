@@ -99,13 +99,13 @@ This is the current code-grounded inventory:
 
 | Route | Status | Entry point | Declaration / implementation | Purpose |
 | --- | --- | --- | --- | --- |
-| `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
+| `Welcome` | Implemented | Initial app screen after successful boot | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable device console with real internal-RAM, PSRAM, firmware-partition, SD and per-core CPU metrics; dedicated fusion, Wi-Fi, BLE and GPS lines; fixed six-action arc |
 | `Logs` | Implemented | `LIVE LOGS` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
-| `Hardware` | Implemented | `HARDWARE` or storage card | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Component health inventory, per-component details, and SD action dialog |
+| `Hardware` | Implemented | `HARDWARE` or storage card | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Scrollable component inventory with manufacturer part numbers, traffic-light states, and dimmed bordered detail dialogs |
 | `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Microphone channel levels and PCM capture status; this is not yet a waveform or spectrogram |
 | `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Accelerometer, gyroscope, temperature, and calibration status |
 | `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
-| `Settings` | Implemented | `SETTINGS` on the scrollable Welcome panel | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Persistent diagnostic period, IMU input smoothing, SD log-mirror preference, Wi-Fi start action, and AMOLED brightness |
+| `Settings` | Implemented | `SETTINGS` in the Welcome action arc | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Persistent diagnostic period, IMU input smoothing, SD log-mirror preference, Wi-Fi start action, and AMOLED brightness |
 | `AudioSpectrogram` | Planned | Not currently exposed | No route or screen implementation yet | Test-audio waveform/spectrogram page, separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | No route or screen implementation yet | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
@@ -115,6 +115,9 @@ declaration, screen construction, visibility logic, and entry control. The
 change is incomplete unless the index contains the resulting route name,
 implemented/planned status, actual entry point, and declaration/implementation
 file, and those fields agree with the code review diff.
+
+The selected visual reference for the Welcome route is
+[`docs/mockup/welcome-arc-actions-reference.png`](docs/mockup/welcome-arc-actions-reference.png).
 
 Back is rendered on the left circular perimeter outside the 320 x 320 safe
 area. Contextual OK or Close is rendered on the right perimeter. Route content

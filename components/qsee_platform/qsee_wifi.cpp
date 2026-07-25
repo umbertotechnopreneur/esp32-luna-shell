@@ -89,6 +89,7 @@ void publish_snapshot()
     wifi_unlock();
 
     qsee::WifiSnapshot snapshot;
+    snapshot.available = status.initialized;
     snapshot.health = status.initialized && status.started
                           ? qsee::DeviceHealth::Ready
                           : (status.last_error == ESP_ERR_NOT_FOUND
@@ -110,6 +111,8 @@ void publish_snapshot()
     snapshot.disconnect_count = status.disconnect_count;
     strlcpy(snapshot.ssid, status.ssid, sizeof(snapshot.ssid));
     strlcpy(snapshot.ip_address, status.ip_address, sizeof(snapshot.ip_address));
+    strlcpy(snapshot.netmask, status.netmask, sizeof(snapshot.netmask));
+    strlcpy(snapshot.gateway, status.gateway, sizeof(snapshot.gateway));
     strlcpy(snapshot.mac_address, status.mac_address, sizeof(snapshot.mac_address));
     qsee::DeviceSnapshotService::instance().reportWifi(snapshot);
 }

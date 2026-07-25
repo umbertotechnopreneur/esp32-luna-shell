@@ -57,7 +57,7 @@ public:
     QSeeStatusBar &operator=(const QSeeStatusBar &) = delete;
 
     /**
-     * Creates the 244 x 44 px bar at y=28, above the 320 px safe square.
+     * Creates the shallow curved status ribbon at the top of the round panel.
      * Call from the LVGL thread.
      */
     bool Begin(lv_obj_t *parent);
