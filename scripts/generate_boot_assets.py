@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic QSee.ai boot assets for the 466 px round display."""
+"""Generate deterministic boot assets for the 466 px round display."""
 
 from __future__ import annotations
 
@@ -54,8 +54,8 @@ def find_pdftoppm() -> Path:
 
 def render_pdf(source_pdf: Path) -> Image.Image:
     pdftoppm = find_pdftoppm()
-    with tempfile.TemporaryDirectory(prefix="qsee-logo-") as temp_dir:
-        prefix = Path(temp_dir) / "qsee-logo"
+    with tempfile.TemporaryDirectory(prefix="boot-assets-") as temp_dir:
+        prefix = Path(temp_dir) / "boot-art"
         subprocess.run(
             [
                 str(pdftoppm),

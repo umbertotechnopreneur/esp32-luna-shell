@@ -68,9 +68,9 @@ The selected architecture is:
 - GUI LVGL for rendering declarative JSON application resources;
 - LVGL 9 only as the GUI backend below the Brookesia interfaces.
 
-The QSee.ai provider is registered as `ai.qsee.device-console`. Its UI package
-is staged into the internal LittleFS image and loads
-`res/root.json` with the `qsee_content` screen flow.
+The provider is registered as the application provider. Its UI package is
+staged into the internal LittleFS image and loads `res/root.json` with the
+`qsee_content` screen flow.
 
 ## Principal resolved dependencies
 
@@ -95,7 +95,7 @@ graph.
 
 ## Framework and API changes
 
-- The QSee.ai UI is a native System Core `IApp` installed by a registered app
+- The native UI is a native System Core `IApp` installed by a registered app
   provider and started by System Super.
 - Screen structure, layout, styling, action names, and transitions live in
   `components/qsee_app/package/res/root.json`.
@@ -149,14 +149,15 @@ and
 ## Storage boundary
 
 The partition table contains an internal `littlefs_data` partition for staged
-System Super and QSee.ai application resources. The official Brookesia HAL
-adaptor mounts it at `/littlefs` and exposes its NVS key-value backend.
+System Super and application resources. The official Brookesia HAL adaptor
+mounts it at `/littlefs` and exposes its NVS key-value backend.
 Mount-time formatting is disabled.
 
 This internal volume is separate from the removable FAT SD volume at
-`/sdcard`. QSee owns the removable-card lifecycle; the HAL adaptor's SD backend
-is deliberately disabled. The card stores user data and the mirrored canonical
-log and is never a fallback location for application resources. The board has
+`/sdcard`. The firmware owns the removable-card lifecycle; the HAL adaptor's
+SD backend is deliberately disabled. The card stores user data and the mirrored
+canonical log and is never a fallback location for application resources. The
+board has
 no card-detect pin, so the UI reports card/transport unconfirmed, ready, or
 format-required through `DeviceSnapshotService`; an SDMMC failure is not
 presented as physical absence.
@@ -181,7 +182,7 @@ The host-side acceptance sequence is:
 2. one complete firmware build;
 3. a second incremental build;
 4. the project size report;
-5. JSON syntax validation for the staged QSee.ai package;
+5. JSON syntax validation for the staged application package;
 6. the BLE provisioning/System Core static verifier;
 7. syntax and hidden-window smoke checks for the Windows simulator;
 8. its existing executable packaging flow;

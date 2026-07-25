@@ -145,7 +145,21 @@ foreach ($diagnostic in @($IdfVersionOutput | Where-Object {
         Write-Warning "Diagnostica probe ESP-IDF: $diagnostic"
     }
 }
-$PythonVersion = (& $PythonExe --version | Out-String).Trim()
+$IdfVersion = @(
+    $IdfVersionOutput |
+        ForEach-Object { $_.ToString().Trim() } |
+        Where-Object { $_ -match '^ESP-IDF v6\.0\.2(?:\s|$)' } |
+        Select-Object -First 1
+)
+if ([string]::IsNullOrWhiteSpace($IdfVersion)) {
+    $IdfVersion = @(
+        $IdfVersionOutput |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ -ne "" } |
+            Select-Object -Last 1
+    )
+}
+$PythonVersion = (& $PythonExe --version 2>&1 | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ -ne "" } | Select-Object -Last 1)
 if ($IdfVersion -notmatch '^ESP-IDF v6\.0\.2(?:\s|$)') {
     throw "Versione ESP-IDF non supportata: '$IdfVersion'. Il repository richiede ESP-IDF v6.0.2."
 }

@@ -1,8 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
+ * Copyright (c) 2026
  *
  * This file owns bounded JSON serialization. HTTP lifecycle, authentication,
  * rate limiting, and Wi-Fi event handling remain in qsee_http_server.cpp.
@@ -128,6 +127,26 @@ void writeImu(qsee::HttpJsonWriter &json, const qsee::ImuSnapshot &imu)
         static_cast<double>(imu.angular_velocity_bias_dps[0]),
         static_cast<double>(imu.angular_velocity_bias_dps[1]),
         static_cast<double>(imu.angular_velocity_bias_dps[2])
+    );
+}
+
+void writeSensorFusion(
+    qsee::HttpJsonWriter &json,
+    const qsee::SensorFusionSnapshot &fusion
+)
+{
+    (void)json.raw("{\"health\":");
+    (void)json.quoted(qsee::deviceHealthName(fusion.health));
+    (void)json.raw(",\"last_error\":");
+    (void)json.quoted(esp_err_to_name(fusion.last_error));
+    (void)json.raw(",\"gravity_dominant\":");
+    (void)json.boolean(fusion.gravity_dominant);
+    (void)json.raw(",\"stationary\":");
+    (void)json.boolean(fusion.stationary);
+    (void)json.format(
+        ",\"acceleration_magnitude_mps2\":%.4f,\"angular_speed_dps\":%.4f}",
+        static_cast<double>(fusion.acceleration_magnitude_mps2),
+        static_cast<double>(fusion.angular_speed_dps)
     );
 }
 
@@ -302,6 +321,21 @@ void writeStorage(qsee::HttpJsonWriter &json, const qsee::StorageSnapshot &stora
 }
 
 // Serialize UI hardware using only values committed by the snapshot service.
+const char *displayPowerModeName(qsee::UiHardwareSnapshot::DisplayPowerMode mode)
+{
+    switch (mode) {
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Active:
+        return "active";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed:
+        return "dimmed";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff:
+        return "display-off";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown:
+    default:
+        return "unknown";
+    }
+}
+
 void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
 {
     (void)json.raw("{\"display\":");
@@ -311,9 +345,12 @@ void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
     (void)json.raw(",\"brightness\":");
     writeComponentFields(json, ui.brightness);
     (void)json.format(
-        ",\"brightness_percent\":%lu,\"orientation\":{\"health\":",
-        static_cast<unsigned long>(ui.brightness_percent)
+        ",\"brightness_percent\":%lu,\"configured_brightness_percent\":%lu,\"display_power_mode\":",
+        static_cast<unsigned long>(ui.brightness_percent),
+        static_cast<unsigned long>(ui.configured_brightness_percent)
     );
+    (void)json.quoted(displayPowerModeName(ui.display_power_mode_state));
+    (void)json.raw(",\"orientation\":{\"health\":");
     (void)json.quoted(qsee::deviceHealthName(ui.orientation.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(ui.orientation.last_error));
@@ -406,7 +443,8 @@ void writeProcessor(qsee::HttpJsonWriter &json, const qsee::ProcessorSnapshot &p
 qsee::DeviceHealth overallHealth(const qsee::DeviceSnapshot &snapshot)
 {
     const qsee::ComponentSnapshot *components[] = {
-        &snapshot.battery, &snapshot.imu, &snapshot.rtc, &snapshot.gps,
+        &snapshot.battery, &snapshot.imu, &snapshot.sensor_fusion,
+        &snapshot.rtc, &snapshot.gps,
         &snapshot.audio.speaker, &snapshot.audio.microphone,
         &snapshot.radios.wifi, &snapshot.radios.ble,
         &snapshot.storage, &snapshot.ui.display, &snapshot.ui.touch,
@@ -439,6 +477,8 @@ void writeInfoData(
     writeBattery(json, snapshot.battery);
     (void)json.raw(",\"imu\":");
     writeImu(json, snapshot.imu);
+    (void)json.raw(",\"sensor_fusion\":");
+    writeSensorFusion(json, snapshot.sensor_fusion);
     (void)json.raw(",\"rtc\":");
     writeRtcData(json, snapshot.rtc);
     (void)json.raw(",\"gps\":");
@@ -621,7 +661,8 @@ void httpJsonWriteStatus(
     };
     const NamedComponent components[] = {
         {"battery", &snapshot.battery}, {"rtc", &snapshot.rtc},
-        {"imu", &snapshot.imu}, {"gps", &snapshot.gps},
+        {"imu", &snapshot.imu}, {"sensor_fusion", &snapshot.sensor_fusion},
+        {"gps", &snapshot.gps},
         {"speaker", &snapshot.audio.speaker}, {"microphone", &snapshot.audio.microphone},
         {"wifi", &snapshot.radios.wifi}, {"ble", &snapshot.radios.ble},
         {"storage", &snapshot.storage}, {"display", &snapshot.ui.display},

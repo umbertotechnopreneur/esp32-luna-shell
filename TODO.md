@@ -15,20 +15,21 @@
 
 ## ESP-Brookesia integration
 
-- [x] Run the QSee.ai application as a native System Core `IApp` under System
-  Super.
+- [x] Run the application as a native System Core `IApp` under System Super.
 - [x] Express the seven current screens and `qsee_content` flow in the GUI LVGL
   JSON package.
 - [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
   mirroring, deferred radio startup, and persisted brightness.
-- [x] Stage System Super and QSee.ai resources in the internal LittleFS image.
-- [ ] Define shared QSee.ai JSON design tokens for the circular 466 x 466
-  display and 320 x 320 safe area.
+- [x] Stage System Super and application resources in the internal LittleFS
+  image.
+- [ ] Define shared JSON design tokens for the circular 466 x 466 display and
+  320 x 320 safe area.
 - [ ] Add Bluetooth, GPS, and CPU indicators to System Super only when an
   official extension point is available; record the framework gap here before
   adding product-specific system chrome.
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
-- [ ] Remove proprietary branding markers (including “QSEE.AI” identifiers/logo mentions) before GitHub open-source publication.
+- [ ] Remove proprietary branding markers (including branded identifiers and
+  logo mentions) before GitHub open-source publication.
 
 ## SD formatting
 
@@ -52,9 +53,9 @@
 
 - [x] Add real per-core CPU utilization samples to `DeviceSnapshotService` using
   ESP-IDF/FreeRTOS idle runtime deltas and explicit availability flags.
-- Keep the UI on `CPU data unavailable` until the first valid previous-sample
+- [x] Keep the UI on `CPU data unavailable` until the first valid previous-sample
   delta exists or runtime statistics are unavailable.
-- Keep hardware refresh non-blocking and outside the UI thread.
+- [x] Keep hardware refresh non-blocking and outside the UI thread.
 
 ## Snapshot integrity
 
@@ -62,23 +63,26 @@
   generation for asynchronous subsystem reports.
 - [x] Apply component freshness TTLs and hide expired numeric telemetry as
   `STALE`.
-- [ ] Add deterministic tests for transaction visibility, TTL expiry, and
-  recovery after a later successful sample.
+- [x] Add deterministic tests for transaction visibility, TTL expiry, and
+  recovery after a later successful sample via `scripts/verify_snapshot_integrity.py`.
 
 ## Sensor fusion
 
+- [x] Add a canonical backend sensor-fusion service behind
+  `DeviceSnapshotService` for gravity-dominant and stationary motion state;
+  keep orientation output unavailable until a validated reference frame exists.
 - The Settings route persists the QMI8658 input low-pass smoothing value and
   enables only the guarded cardinal gravity classifier used for display
   rotation; this is not a general orientation-fusion service.
-- Add a canonical sensor-fusion service behind `DeviceSnapshotService` before
-  exposing algorithm selection, gain, reference-frame controls, or
-  pitch/roll/yaw values in the UI. Until then the snapshot exposes the real
-  filtered/calibrated IMU values with timestamp and availability only.
-- Move stationary calibration to a non-blocking platform worker before adding
-  a Settings calibration action.
+- [x] Keep stationary calibration on a non-blocking platform worker.
+- [ ] Wire a Settings calibration action on top of the worker when the UI work
+  lands.
 
 ## Power and performance profiles
 
+- [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
+  `DisplayOff` transitions, preserving the user's configured brightness and
+  publishing both configured and applied values in `DeviceSnapshotService`.
 - Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
   `DisplayOff` states tied to real inactivity/sleep transitions.
 - When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
@@ -93,9 +97,11 @@
 
 ## Deferred HTTP API activation
 
-- [ ] Add an explicit System Core Settings action for the read-only HTTP API
-  after `ApiKey` and `http_enabled` are deliberately persisted; do not start
-  the server automatically during boot or invent missing settings.
+- [x] Persist and validate `ApiKey` and `http_enabled` through the non-UI
+  backend; keep the server opt-in and prevent key updates from changing its
+  lifecycle implicitly.
+- [ ] Add an explicit System Core Settings action for the read-only HTTP API;
+  do not start the server automatically during boot or invent missing settings.
 
 ## Audio scope visualization
 
@@ -106,10 +112,11 @@
 
 ## Open-source publication prep
 
-- [ ] Scan repository for proprietary identifiers (for example `QSEE.AI`, `qsee.ai`,
-  qsee logos, internal contact/footer signatures) and replace/remove with
-  neutral/open-source equivalents.
-- [ ] Remove or generalize internal/legal notice text from scripts, startup splash,
-  and user-facing docs before publishing to GitHub.
-- [ ] Add a pre-release checklist that includes branding sweep, placeholder
-  replacements, and export-safe defaults.
+- [x] Scan the non-UI release surface for proprietary identifiers and internal
+  contact/footer signatures with `scripts/verify_public_branding.py`.
+- [x] Remove or generalize internal/legal notice text from non-UI scripts and
+  architecture/release docs.
+- [ ] Complete the branding and legal sweep for UI files and startup assets
+  when UI work is authorized.
+- [x] Add a pre-release checklist that includes branding sweep, placeholder
+  replacements, and export-safe defaults via `docs/release/open-source-pre-release-checklist.md`.

@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include "qsee_platform.h"
@@ -197,7 +191,7 @@ const char *outcome_name(qsee::StorageMountOutcome outcome)
     case qsee::StorageMountOutcome::InternalFailed:
         return "internal-failed";
     }
-    invalid_bsp_enum("QSee outcome", static_cast<int>(outcome));
+    invalid_bsp_enum("storage outcome", static_cast<int>(outcome));
 }
 
 MountFailureDisposition classify_mount_failure(
@@ -234,7 +228,7 @@ MountFailureDisposition classify_mount_failure(
         return MountFailureDisposition::Terminal;
     }
     invalid_bsp_enum(
-        "QSee failure disposition outcome",
+        "storage failure disposition outcome",
         static_cast<int>(report.outcome)
     );
 }
@@ -277,7 +271,7 @@ const char *stage_name(qsee::StorageMountStage stage)
     case qsee::StorageMountStage::RuntimeUnmount:
         return "runtime-unmount";
     }
-    invalid_bsp_enum("QSee stage", static_cast<int>(stage));
+    invalid_bsp_enum("storage stage", static_cast<int>(stage));
 }
 
 void clear_format_candidate_locked()

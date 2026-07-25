@@ -71,8 +71,9 @@ CONFIG_BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_LITTLEFS_PARTITION_LABEL="littl
 CONFIG_BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_LITTLEFS_FORMAT_IF_MOUNT_FAILED=n
 CONFIG_BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_FATFS_FLASH=n
 CONFIG_BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_KEY_VALUE_IMPL=y
-# The HAL adaptor intentionally owns only internal LittleFS/NVS. QSee owns the
-# removable microSD lifecycle and never enables the adaptor's SDCARD backend.
+# The HAL adaptor intentionally owns only internal LittleFS/NVS. The firmware
+# owns the removable microSD lifecycle and never enables the adaptor's SDCARD
+# backend.
 CONFIG_BOOST_MATH_ENABLED=n
 CONFIG_BOOST_SERIALIZATION_ENABLED=n
 

@@ -1,7 +1,7 @@
 # Canonical device assets
 
-This directory is the canonical repository for QSee.ai assets used by the
-round ESP32-S3 device.
+This directory is the canonical repository for assets used by the round
+ESP32-S3 device.
 
 - `branding/qsee/source/` contains preserved source artwork.
 - `branding/qsee/generated/` contains device-ready boot assets and previews.

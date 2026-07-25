@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #pragma once
@@ -58,9 +52,10 @@ esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
 uint32_t qsee_hardware_get_imu_smoothing_percent(void);
 
 /**
- * Run an explicit stationary QMI8658 calibration.
+ * Schedule an explicit stationary QMI8658 calibration on the platform worker.
  *
- * The call rejects moving sample sets and keeps the previous valid calibration.
+ * The request rejects moving sample sets, keeps the previous valid calibration,
+ * and returns immediately once the worker accepts the calibration.
  */
 esp_err_t qsee_imu_calibrate(void);
 
@@ -117,6 +112,15 @@ bool qsee_display_get_auto_rotation_enabled(void);
 /** Restore the persisted preference and last successfully applied rotation. */
 esp_err_t qsee_display_apply_saved_auto_rotation(void);
 
+typedef enum {
+    QSEE_DISPLAY_POWER_ACTIVE = 0,
+    QSEE_DISPLAY_POWER_DIMMED = 1,
+    QSEE_DISPLAY_POWER_OFF = 2,
+} qsee_display_power_mode_t;
+
+/** Apply a transient display power mode without changing persisted brightness. */
+esp_err_t qsee_display_set_power_mode(qsee_display_power_mode_t mode);
+
 /**
  * Report the result of an actual speaker playback attempt.
  */
@@ -154,7 +158,8 @@ esp_err_t qsee_audio_capture_pcm16_channels(
 );
 
 /**
- * Start the Wi-Fi station lifecycle and BLE advertising as QSEE-xxxx.
+ * Start the Wi-Fi station lifecycle and BLE advertising with a
+ * device-scoped name.
  */
 esp_err_t qsee_radios_init(void);
 esp_err_t qsee_ble_init(void);

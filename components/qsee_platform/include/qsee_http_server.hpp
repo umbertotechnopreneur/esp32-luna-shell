@@ -1,11 +1,10 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
+ * Copyright (c) 2026
  */
 
-// Read-only HTTP API entry point for QSee device diagnostics.
+// Read-only HTTP API entry point for device diagnostics.
 // Owns server startup and shutdown around the station lifecycle.
 
 #pragma once
@@ -23,5 +22,7 @@ constexpr std::size_t kHttpApiKeyMaxLength = 63;
 esp_err_t httpServerInit();
 /** Persist the HTTP preference and apply it immediately when Wi-Fi is usable. */
 esp_err_t httpServerSetEnabled(bool enabled);
+/** Persist a validated API key and update active authentication without changing lifecycle. */
+esp_err_t httpServerSetApiKey(const char *api_key);
 
 }  // namespace qsee

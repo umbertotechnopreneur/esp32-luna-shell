@@ -33,7 +33,7 @@ sequenceDiagram
 
     Main->>Log: install vprintf tee
     Main->>BSP: display + CST9217
-    Main->>UI: show QSee.ai + INITIALIZING
+    Main->>UI: show device console + INITIALIZING
     Main->>HW: PMU, RTC, IMU, GPS, audio
     Main->>BSP: restore persisted brightness
     Main->>SD: start probe/mount retries without format
@@ -47,8 +47,8 @@ sequenceDiagram
     Main->>Super: init and start
     Super->>HAL: mount LittleFS + initialize NVS
     Note over HAL: automatic formatting disabled
-    Super->>Super: install registered QSee.ai provider
-    Super->>Super: start QSee.ai System Core app
+    Super->>Super: install registered provider
+    Super->>Super: start System Core app
 ```
 
 `qsee_hardware_init()` runs PMU, RTC, IMU, GPS, and audio initialization in a
@@ -60,16 +60,16 @@ is also reported without stopping the handoff.
 
 Logger installation, display startup, the boot screen, persisted brightness,
 and the ready/handoff transition are required and stop `app_main()` on failure.
-A later System Super or QSee.ai app launch failure ends the Brookesia launch
-task while leaving the canonical logger active. No failure is converted to
-success, and ambiguous recovery stops the failing stage.
+A later System Super or app launch failure ends the Brookesia launch task
+while leaving the canonical logger active. No failure is converted to success,
+and ambiguous recovery stops the failing stage.
 
 ## Brookesia application boundary
 
 System Super owns the system lifecycle and services. System Core discovers the
-registered QSee.ai provider, creates its native `IApp`, and drives its
+registered provider, creates its native `IApp`, and drives its
 start/stop/action/timer callbacks. GUI LVGL loads the app document from
-`/littlefs/ai.qsee.device-console/res/root.json` and renders its
+`/littlefs/<app-package>/res/root.json` and renders its
 `qsee_content` screen flow.
 
 The JSON package contains view structure, layout, styles, and action names.
@@ -82,12 +82,12 @@ preferences.
 
 ## Storage separation
 
-`/littlefs` is an internal flash volume containing staged Brookesia and QSee.ai
+`/littlefs` is an internal flash volume containing staged Brookesia and
 application resources. The official Brookesia HAL adaptor mounts it and
 provides the NVS-backed key-value interface, with mount-time formatting
-disabled. `/sdcard` is the removable FAT volume owned by QSee for the mirrored
-canonical log and user data. The HAL adaptor's SD-card backend stays disabled;
-neither volume is used as a fallback for the other.
+disabled. `/sdcard` is the removable FAT volume owned by the firmware for the
+mirrored canonical log and user data. The HAL adaptor's SD-card backend stays
+disabled; neither volume is used as a fallback for the other.
 
 The board has no SD card-detect pin, so a failed SDMMC probe is reported as
 `card/transport unconfirmed`, never as confirmed physical absence. Only
