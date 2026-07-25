@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "port-status", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -186,21 +186,103 @@ function Show-SerialPorts {
     $ports | Format-Table DeviceID, FriendlyName, Status, IsOpenable -AutoSize
 }
 
-function Resolve-Port([string]$RequestedPort) {
-    $ports = Get-SerialPorts
-    $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
-
-    if (($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.IsOpenable }).Count -gt 0) {
-        return $normalizedRequestedPort
+# Validate an explicitly selected COM port without querying USB or PnP state.
+function Normalize-PortName([string]$RequestedPort) {
+    if ([string]::IsNullOrWhiteSpace($RequestedPort)) {
+        throw "Specify the serial port with -Port, for example -Port COM5"
     }
 
-    if (($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort }).Count -gt 0) {
-        Write-Host "Requested port $normalizedRequestedPort is listed by PnP but is not currently openable."
+    $normalizedPort = $RequestedPort.Trim().ToUpperInvariant()
+    if ($normalizedPort -notmatch '^COM\d+$') {
+        throw "Invalid serial port '$RequestedPort'. Use a Windows COM name such as COM5."
+    }
+
+    return $normalizedPort
+}
+
+# List only likely command-line owners; the exclusive open probe remains authoritative.
+function Get-SerialPortProcessCandidates([string]$RequestedPort) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    $portPattern = [regex]::new("(?i)(?<![A-Z0-9])$([regex]::Escape($normalizedPort))(?![0-9])")
+
+    try {
+        $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    } catch {
+        Write-Warning "Unable to inspect process command lines while checking ${normalizedPort}: $($_.Exception.Message)"
+        return @()
+    }
+
+    return @(
+        $processes |
+            Where-Object {
+                $_.ProcessId -ne $PID -and
+                $_.CommandLine -and
+                $portPattern.IsMatch($_.CommandLine)
+            } |
+            Sort-Object ProcessId |
+            ForEach-Object {
+                [PSCustomObject]@{
+                    ProcessId = $_.ProcessId
+                    Name = $_.Name
+                    CommandLine = $_.CommandLine
+                    Detection = "COM name in process command line (advisory)"
+                }
+            }
+    )
+}
+
+# Probe the Windows handle exclusively and always release it before returning.
+function Test-ExclusiveSerialPort([string]$RequestedPort, [int]$ProbeBaud = 115200) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    $probe = [System.IO.Ports.SerialPort]::new($normalizedPort, $ProbeBaud)
+    $openError = $null
+    $isAvailable = $false
+
+    try {
+        $probe.Open()
+        $isAvailable = $true
+    } catch {
+        $openError = $_.Exception.Message
+    } finally {
+        try {
+            if ($probe.IsOpen) {
+                $probe.Close()
+            }
+        } finally {
+            $probe.Dispose()
+        }
+    }
+
+    return [PSCustomObject]@{
+        Port = $normalizedPort
+        IsAvailable = $isAvailable
+        Error = $openError
+    }
+}
+
+# Report availability and likely holders without stopping any external process.
+function Show-PortStatus([string]$RequestedPort) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    $probe = Test-ExclusiveSerialPort $normalizedPort
+    $candidates = @(Get-SerialPortProcessCandidates $normalizedPort)
+
+    Write-Host "Serial port: $normalizedPort"
+    if ($probe.IsAvailable) {
+        Write-Host "Availability: released and exclusively openable."
     } else {
-        Write-Host "Requested port $normalizedRequestedPort was not found."
+        Write-Host "Availability: unavailable or busy. Probe error: $($probe.Error)"
     }
-    Show-SerialPorts
-    throw "No usable serial port found. Windows sees no openable COM port for the device right now."
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "Likely holders: none found from process command lines (this is not proof that no handle exists)."
+    } else {
+        Write-Host "Likely holders (advisory command-line match):"
+        $candidates | Format-Table ProcessId, Name, Detection, CommandLine -AutoSize
+    }
+
+    if (-not $probe.IsAvailable) {
+        throw "Serial port $normalizedPort is not exclusively openable. Close the reported process or reconnect the device, then retry."
+    }
 }
 
 function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
@@ -257,25 +339,23 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     }
 }
 
+# Wait for an exclusive handle and clean only monitor processes known to be stale.
 function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
+    $RequestedPort = Normalize-PortName $RequestedPort
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     $lastError = $null
 
     while ((Get-Date) -lt $deadline) {
-        $probe = [System.IO.Ports.SerialPort]::new($RequestedPort, 115200)
-        try {
-            $probe.Open()
-            $probe.Close()
-            $probe.Dispose()
+        $probe = Test-ExclusiveSerialPort $RequestedPort
+        if ($probe.IsAvailable) {
             Start-Sleep -Milliseconds 500
             Write-Host "Serial port $RequestedPort is released and ready."
             return
-        } catch {
-            $lastError = $_.Exception.Message
-            $probe.Dispose()
-            Stop-StaleMonitorProcesses $RequestedPort
-            Start-Sleep -Milliseconds 500
         }
+
+        $lastError = $probe.Error
+        Stop-StaleMonitorProcesses $RequestedPort
+        Start-Sleep -Milliseconds 500
     }
 
     throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
@@ -363,49 +443,40 @@ try {
         "ports" {
             Show-SerialPorts
         }
+        "port-status" {
+            Show-PortStatus $Port
+        }
         "erase" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Erase failed"
             }
         }
         "flash" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
             }
         }
         "monitor" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
             if ($LASTEXITCODE -ne 0) {
                 throw "Monitor failed"
             }
         }
         "capture" {
-            if (-not $Port) {
-                throw "Specify the serial port with -Port, for example -Port COM5"
-            }
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $Port = Resolve-Port $Port
             $captureArgs = @(
                 "-NoProfile",
                 "-File", $CaptureScript,
@@ -424,9 +495,9 @@ try {
         "combo" {
             Invoke-ProjectBuild $BuildDir
 
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
@@ -450,6 +521,7 @@ try {
         "recover" {
             Invoke-ProjectBuild $BuildDir
 
+            $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             $Port = Wait-ForPort $Port $WaitSeconds
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
