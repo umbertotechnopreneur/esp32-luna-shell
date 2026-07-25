@@ -21,20 +21,18 @@
 
 namespace {
 
-// The top of the panel is circular, so a straight pill wastes the upper
-// corners. Keep the status indicators on a shallow arch instead.
+// The ribbon follows the circular glass: center indicators sit high while
+// the outer indicators descend enough to remain inside the visible panel.
 constexpr int kBarWidth = 300;
-constexpr int kBarHeight = 132;
-constexpr int kBarOffsetY = 3;
+constexpr int kBarHeight = 100;
+constexpr int kBarOffsetY = 2;
 constexpr int kSlotWidth = 40;
 constexpr int kSlotHeight = 47;
 constexpr int kSlotStartX = 3;
 constexpr int kSlotPitch = 50;
 constexpr int kSlotDotY = 38;
-constexpr int kCurveStartAngle = 214;
-constexpr int kCurveEndAngle = 326;
-constexpr int kCurveBandWidth = 48;
-constexpr int kCurveEdgeWidth = 2;
+constexpr int kCurveBandWidth = 44;
+constexpr int kCurveEdgeWidth = 50;
 
 constexpr uint32_t kPillColor = 0x02070B;
 constexpr uint32_t kPillBorderColor = 0x245363;
@@ -46,6 +44,17 @@ constexpr uint32_t kChargeMarkColor = 0xF4FFFF;
 
 constexpr size_t kIndicatorCount = 6;
 constexpr size_t kMaxPartsPerIndicator = 8;
+constexpr std::array<int, kIndicatorCount> kSlotCurveY = {36, 16, 5, 5, 16, 36};
+
+static const lv_point_precise_t kStatusRibbonPoints[] = {
+    {12, 61},
+    {58, 38},
+    {105, 25},
+    {150, 21},
+    {195, 25},
+    {242, 38},
+    {288, 61},
+};
 
 enum class PaintKind : uint8_t {
     Fill,
@@ -204,7 +213,7 @@ lv_obj_t *makeArc(lv_obj_t *parent, int inset)
 
 lv_obj_t *makeCurve(lv_obj_t *parent, int width, uint32_t color, lv_opa_t opa)
 {
-    lv_obj_t *object = lv_arc_create(parent);
+    lv_obj_t *object = lv_line_create(parent);
     if (object == nullptr) {
         return nullptr;
     }
@@ -212,14 +221,11 @@ lv_obj_t *makeCurve(lv_obj_t *parent, int width, uint32_t color, lv_opa_t opa)
     lv_obj_remove_style_all(object);
     lv_obj_set_pos(object, 0, 0);
     lv_obj_set_size(object, kBarWidth, kBarHeight);
-    lv_arc_set_bg_angles(object, kCurveStartAngle, kCurveEndAngle);
-    lv_obj_set_style_bg_opa(object, LV_OPA_TRANSP, LV_PART_MAIN);
-    lv_obj_set_style_arc_width(object, width, LV_PART_MAIN);
-    lv_obj_set_style_arc_color(object, lv_color_hex(color), LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(object, opa, LV_PART_MAIN);
-    lv_obj_set_style_arc_rounded(object, true, LV_PART_MAIN);
-    lv_obj_set_style_arc_opa(object, LV_OPA_TRANSP, LV_PART_INDICATOR);
-    lv_obj_set_style_opa(object, LV_OPA_TRANSP, LV_PART_KNOB);
+    lv_line_set_points(object, kStatusRibbonPoints, std::size(kStatusRibbonPoints));
+    lv_obj_set_style_line_width(object, width, LV_PART_MAIN);
+    lv_obj_set_style_line_color(object, lv_color_hex(color), LV_PART_MAIN);
+    lv_obj_set_style_line_opa(object, opa, LV_PART_MAIN);
+    lv_obj_set_style_line_rounded(object, true, LV_PART_MAIN);
     makePassive(object);
     return object;
 }
@@ -365,11 +371,11 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
     lv_obj_set_style_pad_all(_impl->root, 0, LV_PART_MAIN);
     makePassive(_impl->root);
 
-    _impl->curve_base = makeCurve(
-        _impl->root, kCurveBandWidth, kPillColor, LV_OPA_70
-    );
     _impl->curve_edge = makeCurve(
         _impl->root, kCurveEdgeWidth, kPillBorderColor, LV_OPA_90
+    );
+    _impl->curve_base = makeCurve(
+        _impl->root, kCurveBandWidth, kPillColor, LV_OPA_80
     );
     if (_impl->curve_base == nullptr || _impl->curve_edge == nullptr) {
         Shutdown();
@@ -385,13 +391,10 @@ bool QSeeStatusBar::Begin(lv_obj_t *parent)
         }
 
         lv_obj_remove_style_all(indicator.root);
-        const int distance_from_center_twice =
-            std::abs(5 - (2 * static_cast<int>(i)));
-        const int slot_y = 3 + (distance_from_center_twice * 2);
         lv_obj_set_pos(
             indicator.root,
             kSlotStartX + (static_cast<int>(i) * kSlotPitch),
-            slot_y
+            kSlotCurveY[i]
         );
         lv_obj_set_size(indicator.root, kSlotWidth, kSlotHeight);
         makePassive(indicator.root);

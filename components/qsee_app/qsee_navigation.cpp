@@ -457,17 +457,17 @@ bool Navigation::begin()
 
     // Icon-only actions keep the six destinations legible inside the circular bezel.
     _open_logs = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Logs); });
-    styleArcButton(*_open_logs, 54, 56, 348, kBlue, LV_SYMBOL_LIST);
+    styleArcButton(*_open_logs, 54, 56, 330, kBlue, LV_SYMBOL_LIST);
     _open_audio = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Audio); });
-    styleArcButton(*_open_audio, 54, 114, 348, kBlue, LV_SYMBOL_AUDIO);
+    styleArcButton(*_open_audio, 54, 114, 344, kBlue, LV_SYMBOL_AUDIO);
     _open_imu = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Imu); });
-    styleArcButton(*_open_imu, 54, 172, 348, kTeal, LV_SYMBOL_GPS);
+    styleArcButton(*_open_imu, 54, 172, 360, kTeal, LV_SYMBOL_GPS);
     _open_hardware = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Hardware); });
-    styleArcButton(*_open_hardware, 54, 230, 348, kTeal, LV_SYMBOL_DRIVE);
+    styleArcButton(*_open_hardware, 54, 230, 360, kTeal, LV_SYMBOL_DRIVE);
     _open_about = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::About); });
-    styleArcButton(*_open_about, 54, 288, 348, kBlue, "i");
+    styleArcButton(*_open_about, 54, 288, 344, kBlue, "i");
     _open_settings = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Settings); });
-    styleArcButton(*_open_settings, 54, 346, 348, kBlue, LV_SYMBOL_SETTINGS);
+    styleArcButton(*_open_settings, 54, 346, 330, kBlue, LV_SYMBOL_SETTINGS);
 
     _logs = std::make_unique<LvContainer>(_screen.get());
     _logs->setStyleAttribute(StyleSize::RECT(370, 374));
