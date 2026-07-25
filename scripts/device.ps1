@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "port-status", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "port-status", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -17,6 +17,8 @@ param(
     [int]$DurationSeconds = 30,
 
     [string]$OutputPath,
+
+    [switch]$ResetBeforeCapture,
 
     # Explicit parameters take precedence over the dedicated QSEE_IDF_*
     # environment variables and the workstation defaults below.
@@ -361,6 +363,82 @@ function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSecond
     throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
 }
 
+# Reset the target through esptool without changing any flash contents.
+function Invoke-DeviceReset([string]$RequestedPort, [int]$RequestedBaud) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    Stop-StaleMonitorProcesses $normalizedPort
+    Wait-ForExclusiveSerialPort $normalizedPort $WaitSeconds
+
+    & $PythonExe -m esptool `
+        --chip esp32s3 `
+        --port $normalizedPort `
+        --baud $RequestedBaud `
+        --before default-reset `
+        --after hard-reset `
+        chip-id
+    if ($LASTEXITCODE -ne 0) {
+        throw "Device reset failed on $normalizedPort"
+    }
+}
+
+# Capture serial output for a bounded interval and always release the port.
+function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]$Seconds, [string]$Destination) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    if ($Seconds -lt 1) {
+        throw "Capture duration must be at least one second."
+    }
+
+    $serial = [System.IO.Ports.SerialPort]::new(
+        $normalizedPort,
+        $RequestedBaud,
+        [System.IO.Ports.Parity]::None,
+        8,
+        [System.IO.Ports.StopBits]::One
+    )
+    $serial.ReadTimeout = 100
+    $writer = $null
+
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($Destination)) {
+            $destinationPath = [System.IO.Path]::GetFullPath($Destination)
+            $destinationDirectory = [System.IO.Path]::GetDirectoryName($destinationPath)
+            if (-not (Test-Path -LiteralPath $destinationDirectory -PathType Container)) {
+                throw "Capture output directory not found: $destinationDirectory"
+            }
+
+            $writer = [System.IO.StreamWriter]::new(
+                $destinationPath,
+                $false,
+                [System.Text.UTF8Encoding]::new($false)
+            )
+        }
+
+        $serial.Open()
+        $deadline = (Get-Date).AddSeconds($Seconds)
+        while ((Get-Date) -lt $deadline) {
+            $chunk = $serial.ReadExisting()
+            if (-not [string]::IsNullOrEmpty($chunk)) {
+                [Console]::Write($chunk)
+                if ($null -ne $writer) {
+                    $writer.Write($chunk)
+                    $writer.Flush()
+                }
+            }
+            Start-Sleep -Milliseconds 50
+        }
+    } catch {
+        throw "Serial capture failed on $normalizedPort`: $($_.Exception.Message)"
+    } finally {
+        if ($serial.IsOpen) {
+            $serial.Close()
+        }
+        $serial.Dispose()
+        if ($null -ne $writer) {
+            $writer.Dispose()
+        }
+    }
+}
+
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
     $reconfigure = -not (Test-Path $buildNinja)
@@ -464,6 +542,9 @@ try {
                 throw "Flash failed"
             }
         }
+        "reset" {
+            Invoke-DeviceReset $Port $Baud
+        }
         "monitor" {
             $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
@@ -477,20 +558,10 @@ try {
             $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            $captureArgs = @(
-                "-NoProfile",
-                "-File", $CaptureScript,
-                "-Port", $Port,
-                "-Baud", $Baud,
-                "-DurationSeconds", $DurationSeconds
-            )
-            if ($OutputPath) {
-                $captureArgs += @("-OutputPath", $OutputPath)
+            if ($ResetBeforeCapture) {
+                Invoke-DeviceReset $Port $Baud
             }
-            & pwsh @captureArgs
-            if ($LASTEXITCODE -ne 0) {
-                throw "Serial capture failed"
-            }
+            Invoke-SerialCapture $Port $Baud $DurationSeconds $OutputPath
         }
         "combo" {
             Invoke-ProjectBuild $BuildDir
