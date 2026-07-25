@@ -1,4 +1,4 @@
-# QSee hardware API contract
+# Hardware API contract
 
 `components/qsee_platform` is the reusable hardware boundary for the
 Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS variant. It has no dependency on an
@@ -8,7 +8,7 @@ application screen or navigation route.
 
 - The Waveshare BSP owns display, touch, shared I2C, SDMMC pins, I2S, and board
   GPIO definitions.
-- QSee platform services reuse those BSP handles and never install competing
+- Platform services reuse those BSP handles and never install competing
   bus drivers.
 - The canonical logger starts before platform initialization and receives every
   lifecycle transition and error.
@@ -47,13 +47,13 @@ Service value.
 | --- | --- |
 | `qsee_hardware_init` | Initialize PMU, RTC, QMI8658, LC76G, and the shared audio path; take the bounded initial microphone sample |
 | `qsee_hardware_refresh` | Stage and atomically publish one explicit full-device generation |
-| `qsee_imu_calibrate` | Accept only a stationary 96-sample set and retain the previous calibration on rejection |
+| `qsee_imu_calibrate` | Schedule a stationary 96-sample calibration on the platform worker; keep the previous calibration on rejection or while one is already pending |
 | `qsee_rtc_read` / `qsee_rtc_write` | Read or write UTC calendar time |
 | `qsee_audio_*` | Serialize one shared ES8311/ES7210/I2S route |
 | `qsee_storage_*` | Mount asynchronously; retry only explicit transient failures; format only after an explicit API call |
 | `qsee_wifi_*` | Event-driven ESP-IDF station lifecycle and asynchronous scans |
 | `qsee_provisioning_*` | Security 1 BLE provisioning with explicit lifecycle state |
-| `qsee_power_*` | Native PM policy, input inventory, and explicit sleep entry |
+| `qsee_power_*` / `qsee_display_set_power_mode` | Native PM policy, input inventory, transient Active/Dimmed/DisplayOff transitions, and explicit sleep entry |
 
 ## Bounded behavior
 

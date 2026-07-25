@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include "qsee_platform.h"
@@ -120,6 +114,11 @@ SemaphoreHandle_t s_refresh_mutex;
 
 StaticTask_t s_diagnostic_task_control;
 StackType_t s_diagnostic_task_stack[3072];
+std::atomic<TaskHandle_t> s_imu_calibration_task{nullptr};
+std::atomic_bool s_imu_calibration_request_pending{false};
+std::mutex s_imu_calibration_mutex;
+StaticTask_t s_imu_calibration_task_control;
+StackType_t s_imu_calibration_task_stack[3072];
 char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 int16_t s_microphone_samples[1024];
 
@@ -154,6 +153,29 @@ esp_err_t give_refresh_mutex(
         std::abort();
     }
     return ESP_OK;
+}
+
+template <typename Update>
+esp_err_t update_snapshot(Update update);
+
+void mark_sample_failure(
+    qsee::ComponentSnapshot &component,
+    esp_err_t error,
+    int64_t sampled_at_us
+);
+
+void publish_imu_calibration_failure(
+    esp_err_t error,
+    int64_t attempted_at_us
+)
+{
+    update_snapshot([error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+        mark_sample_failure(
+            snapshot.imu.calibration,
+            error,
+            attempted_at_us
+        );
+    });
 }
 
 qsee::DeviceHealth health_for(bool ready, esp_err_t error)
@@ -1804,6 +1826,83 @@ esp_err_t sample_imu(const char *phase)
         ESP_OK,
         publication_error
     );
+}
+
+void imu_calibration_task(void *arg)
+{
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        if (!s_imu_calibration_request_pending.load(std::memory_order_acquire)) {
+            continue;
+        }
+
+        struct PendingCalibrationReset {
+            std::atomic_bool &pending;
+            ~PendingCalibrationReset()
+            {
+                pending.store(false, std::memory_order_release);
+            }
+        } pending_reset{s_imu_calibration_request_pending};
+
+        const int64_t calibration_attempted_at_us = esp_timer_get_time();
+        SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+        if (refresh_mutex == nullptr) {
+            ESP_LOGE(
+                TAG,
+                "IMU calibration worker failed: refresh mutex allocation failed"
+            );
+            publish_imu_calibration_failure(
+                ESP_ERR_NO_MEM,
+                calibration_attempted_at_us
+            );
+            continue;
+        }
+        if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+            ESP_LOGW(
+                TAG,
+                "IMU calibration rejected: another refresh is still running"
+            );
+            publish_imu_calibration_failure(
+                ESP_ERR_TIMEOUT,
+                calibration_attempted_at_us
+            );
+            continue;
+        }
+
+        esp_err_t final_result = calibrate_imu();
+        if (final_result == ESP_OK) {
+            final_result = sample_imu("post-calibration");
+        }
+        const esp_err_t release_error = give_refresh_mutex(
+            refresh_mutex,
+            "IMU calibration"
+        );
+        record_first_error(release_error, &final_result);
+    }
+}
+
+TaskHandle_t ensure_imu_calibration_task()
+{
+    TaskHandle_t task = s_imu_calibration_task.load(std::memory_order_acquire);
+    if (task != nullptr) {
+        return task;
+    }
+
+    task = xTaskCreateStatic(
+        imu_calibration_task,
+        "qsee_imu_cal",
+        sizeof(s_imu_calibration_task_stack) /
+            sizeof(s_imu_calibration_task_stack[0]),
+        nullptr,
+        3,
+        s_imu_calibration_task_stack,
+        &s_imu_calibration_task_control
+    );
+    if (task != nullptr) {
+        s_imu_calibration_task.store(task, std::memory_order_release);
+    }
+    return task;
 }
 
 esp_err_t init_gps(i2c_master_bus_handle_t bus)
@@ -3541,6 +3640,72 @@ void DeviceSnapshotService::reportDisplayBrightness(
     );
 }
 
+void DeviceSnapshotService::reportDisplayConfiguredBrightness(
+    uint32_t brightness_percent,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK && brightness_percent > 100U
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.ui.configured_brightness_percent = brightness_percent;
+                mark_sample_success(
+                    snapshot.ui.brightness,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.brightness,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Configured-display-brightness report",
+        publication_error
+    );
+}
+
+void DeviceSnapshotService::reportDisplayPowerMode(
+    UiHardwareSnapshot::DisplayPowerMode display_power_mode,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK && display_power_mode == UiHardwareSnapshot::DisplayPowerMode::Unknown
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.ui.display_power_mode_state = display_power_mode;
+                mark_sample_success(
+                    snapshot.ui.display_power_mode,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.display_power_mode,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Display-power-mode report",
+        publication_error
+    );
+}
+
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -3941,28 +4106,50 @@ extern "C" uint32_t qsee_hardware_get_imu_smoothing_percent(void)
 
 extern "C" esp_err_t qsee_imu_calibrate(void)
 {
-    if (!s_initialized || !s_imu_ready) {
-        ESP_LOGE(TAG, "IMU calibration rejected: IMU is not initialized");
+    const int64_t calibration_attempted_at_us = esp_timer_get_time();
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "IMU calibration rejected: hardware is not initialized");
+        publish_imu_calibration_failure(
+            ESP_ERR_INVALID_STATE,
+            calibration_attempted_at_us
+        );
         return ESP_ERR_INVALID_STATE;
     }
-    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
-    if (refresh_mutex == nullptr) {
+    if (!s_imu_ready) {
+        ESP_LOGE(TAG, "IMU calibration rejected: IMU is not ready");
+        publish_imu_calibration_failure(
+            ESP_ERR_INVALID_STATE,
+            calibration_attempted_at_us
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_imu_calibration_mutex);
+    TaskHandle_t calibration_task = ensure_imu_calibration_task();
+    if (calibration_task == nullptr) {
+        publish_imu_calibration_failure(
+            ESP_ERR_NO_MEM,
+            calibration_attempted_at_us
+        );
+        ESP_LOGE(TAG, "IMU calibration task creation failed");
         return ESP_ERR_NO_MEM;
     }
-    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
+
+    if (s_imu_calibration_request_pending.exchange(
+            true,
+            std::memory_order_acq_rel
+        )) {
+        publish_imu_calibration_failure(
+            ESP_ERR_INVALID_STATE,
+            calibration_attempted_at_us
+        );
+        ESP_LOGW(TAG, "IMU calibration rejected: another calibration is running");
+        return ESP_ERR_INVALID_STATE;
     }
-    const esp_err_t result = calibrate_imu();
-    esp_err_t final_result = result;
-    if (result == ESP_OK) {
-        final_result = sample_imu("post-calibration");
-    }
-    const esp_err_t release_error = give_refresh_mutex(
-        refresh_mutex,
-        "IMU calibration"
-    );
-    record_first_error(release_error, &final_result);
-    return final_result;
+
+    xTaskNotifyGive(calibration_task);
+    ESP_LOGI(TAG, "IMU calibration scheduled");
+    return ESP_OK;
 }
 
 extern "C" void qsee_hardware_report_speaker(bool ready, esp_err_t error)

@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include "qsee_platform.h"
@@ -256,7 +250,11 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
 
 extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
 {
-    const esp_err_t result = configure_wakeup(wake_after_us);
+    esp_err_t result = configure_wakeup(wake_after_us);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF);
     if (result != ESP_OK) {
         return result;
     }
@@ -265,15 +263,33 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     const esp_err_t sleep_result = esp_light_sleep_start();
     s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
     publish_inputs();
+    const esp_err_t resume_error = qsee_display_set_power_mode(
+        QSEE_DISPLAY_POWER_ACTIVE
+    );
     ESP_LOGI(TAG, "Light sleep exited: result=%s causes=0x%08lx",
              esp_err_to_name(sleep_result),
              static_cast<unsigned long>(s_inputs.wakeup_cause));
-    return sleep_result;
+    if (sleep_result != ESP_OK) {
+        if (resume_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Light sleep failed (%s); display resume also failed (%s)",
+                esp_err_to_name(sleep_result),
+                esp_err_to_name(resume_error)
+            );
+        }
+        return sleep_result;
+    }
+    return resume_error;
 }
 
 extern "C" esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us)
 {
-    const esp_err_t result = configure_wakeup(wake_after_us);
+    esp_err_t result = configure_wakeup(wake_after_us);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF);
     if (result != ESP_OK) {
         return result;
     }

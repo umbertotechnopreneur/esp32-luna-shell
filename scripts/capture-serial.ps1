@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Compatibility shim for the unified QSee.ai script console.
+Compatibility shim for the script console.
 
 .DESCRIPTION
 Run without parameters to open the shared menu. Pass any parameter, or

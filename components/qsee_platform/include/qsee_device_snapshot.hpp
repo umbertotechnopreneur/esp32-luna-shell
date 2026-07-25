@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #pragma once
@@ -240,7 +234,15 @@ struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
     ComponentSnapshot brightness;
+    ComponentSnapshot display_power_mode;
     uint32_t brightness_percent = 100;
+    uint32_t configured_brightness_percent = 100;
+    enum class DisplayPowerMode : uint8_t {
+        Unknown,
+        Active,
+        Dimmed,
+        DisplayOff,
+    } display_power_mode_state = DisplayPowerMode::Unknown;
 };
 
 struct DiagnosticsSettingsSnapshot {
@@ -341,6 +343,14 @@ public:
     void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
     void reportDiagnosticMonitor(bool monitor_active, esp_err_t error);
     void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);
+    void reportDisplayConfiguredBrightness(
+        uint32_t brightness_percent,
+        esp_err_t error
+    );
+    void reportDisplayPowerMode(
+        UiHardwareSnapshot::DisplayPowerMode display_power_mode,
+        esp_err_t error
+    );
     void reportDisplay(bool ready, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);

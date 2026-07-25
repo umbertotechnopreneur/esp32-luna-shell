@@ -1,7 +1,7 @@
-# QSee.ai round-device firmware
+# Round-device firmware
 
-Firmware and Windows simulator for the QSee.ai application on the GPS variant
-of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
+Firmware and Windows simulator for the device-console application on the GPS
+variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 
 The device application uses the official Espressif ESP-Brookesia 0.8 stack:
 System Super owns the system shell and services, System Core owns the native
@@ -15,8 +15,8 @@ display, touch panel, audio codecs, shared I2C bus, and board-specific pins.
 
 ## Product and UI contract
 
-The AMOLED is a circular 466 x 466 display. QSee.ai defines a 320 x 320 safe
-content square at `(73, 73)`. All information and controls required to finish a
+The AMOLED is a circular 466 x 466 display. The firmware defines a 320 x 320
+safe content square at `(73, 73)`. All information and controls required to finish a
 screen must fit in that square. The curved perimeter is reserved for stable,
 easy-to-learn shell actions:
 
@@ -33,9 +33,9 @@ they represent actual information or an action.
 | Top | Close, menu, or status |
 | Bottom | Contextual primary action |
 
-The minimal QSee.ai branded boot screen is the first application frame. It
-shows only the canonical artwork and the `INITIALIZING` / `OPENING WELCOME`
-handoff state; logs remain off-screen. See
+The minimal boot screen is the first application frame. It shows only the
+canonical artwork and the `INITIALIZING` / `OPENING WELCOME` handoff state;
+logs remain off-screen. See
 [round-display-guidelines.md](docs/ui/round-display-guidelines.md) for the
 complete geometry.
 
@@ -43,7 +43,7 @@ complete geometry.
 
 1. install the canonical logger;
 2. start display and touch through the BSP;
-3. show the minimal QSee.ai boot screen;
+3. show the minimal boot screen;
 4. initialize PMU, RTC, IMU, GPS, and the shared ES7210 microphone path, take
    the bounded initial microphone sample, then restore persisted brightness;
 5. play the boot SFX through the ES8311 speaker path;
@@ -54,8 +54,8 @@ complete geometry.
    and hand off immediately to Brookesia System Super;
 9. let the official HAL adaptor mount internal LittleFS and initialize its NVS
    key-value backend, with mount-time formatting disabled;
-10. launch the registered QSee.ai System Core application. Wi-Fi and BLE start
-    only after the explicit action on the Settings screen.
+10. launch the registered System Core application. Wi-Fi and BLE start only
+    after the explicit action on the Settings screen.
 
 `qsee_hardware_init()` runs its PMU, RTC, IMU, GPS, and audio stages in a fixed
 order and stops that service at the first failure. The startup orchestrator
@@ -101,7 +101,7 @@ marked `STALE` and hidden from consumers.
 The full-device refresh remains explicit. An opt-in diagnostic monitor samples
 only the IMU and microphone periodically at the configured diagnostic cadence;
 SD status polling and native Wi-Fi/BLE events may also publish asynchronous
-state changes. Every QSee.ai UI telemetry view consumes the immutable published
+state changes. Every UI telemetry view consumes the immutable published
 snapshot instead of polling hardware drivers independently. The log viewer
 reads the canonical logger ring, never a hardware driver. The memory and
 processor readings use native ESP-IDF and FreeRTOS APIs. See
@@ -110,7 +110,7 @@ processor readings use native ESP-IDF and FreeRTOS APIs. See
 
 ## Navigation
 
-The QSee.ai native app implements the System Core `IApp` lifecycle. GUI LVGL
+The native app implements the System Core `IApp` lifecycle. GUI LVGL
 loads `components/qsee_app/package/res/root.json`, while its `qsee_content`
 `screenFlow` maps named actions to screens. `qsee_app.cpp` subscribes to those
 actions, refreshes the active screen from `DeviceSnapshotService`, and uses
@@ -137,7 +137,7 @@ the current code-grounded inventory:
 | `Audio` | Implemented, diagnostic | `AUDIO` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
 | `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
 | `Settings` | Implemented | `SETTINGS` | Diagnostic cadence, IMU smoothing, SD log mirroring, deferred radio startup, and persisted brightness |
-| `About` | Implemented | `ABOUT` | Device identity, branding, and contact information |
+| `About` | Implemented | `ABOUT` | Device identity and support information |
 | `AudioSpectrogram` | Planned | Not currently exposed | Test-audio spectrogram page; separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
@@ -296,7 +296,7 @@ the preserved source assets to create a derivative.
 
 ## Source ownership banner
 
-Owned C and C++ sources use the canonical QSee.ai copyright/contact banner.
+Owned C and C++ sources use the canonical source banner.
 Preview or apply it with:
 
 ```powershell
@@ -306,7 +306,7 @@ pwsh -NoProfile -File .\scripts\add-source-banner.ps1 -Apply
 
 The script is idempotent, supports `-Remove -Apply`, and intentionally excludes
 the Waveshare BSP, ESP-Brookesia, managed components, build output, generated
-files, and other third-party code. Contact: `hello@qsee.ai`.
+files, and other third-party code. Personal contact details are omitted from the public tree.
 
 ## Repository map
 
@@ -314,12 +314,12 @@ files, and other third-party code. Contact: `hello@qsee.ai`.
 | --- | --- |
 | `main/` | Ordered application startup |
 | `components/qsee_logger/` | Serial, bounded RAM, and SD logging |
-| `components/qsee_boot/` | Minimal branded boot UI and ES8311 playback |
+| `components/qsee_boot/` | Minimal boot screen and ES8311 playback |
 | `components/qsee_platform/` | Hardware drivers, radios, and snapshots |
 | `components/qsee_app/` | Native System Core app, lifecycle/data binding, and JSON screen package |
 | `components/esp32_s3_touch_amoled_1_75/` | Local Waveshare BSP |
 | `third_party/esp-brookesia/` | Official pinned ESP-Brookesia monorepo submodule |
-| `assets/` | Canonical branding and SFX inputs/derivatives |
+| `assets/` | Canonical artwork and SFX inputs/derivatives |
 | `simulator/windows/` | Synthetic Windows debug build |
 | `scripts/` | Build, flash, serial capture, and asset generation |
 
@@ -334,11 +334,11 @@ values.
 - Run every ESP-IDF workflow through `scripts/device.ps1`.
 - Keep System Super, System Core, and GUI LVGL JSON as the end-to-end UI stack;
   LVGL remains only the rendering backend.
-- Keep QSee.ai telemetry reads behind `DeviceSnapshotService`; the log viewer
+- Keep telemetry reads behind `DeviceSnapshotService`; the log viewer
   may read only the canonical logger.
 - Keep internal `/littlefs` application resources separate from the removable
   `/sdcard` data and logger volume. The Brookesia HAL adaptor owns internal
-  LittleFS/NVS; QSee owns the removable SD lifecycle.
+  LittleFS/NVS; the firmware owns the removable SD lifecycle.
 - Never enable automatic SD formatting.
 - Reuse the BSP I2C handle; do not initialize a competing bus driver.
 - Prefer official ESP-IDF, FreeRTOS, BSP, and managed-component APIs.

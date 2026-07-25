@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include "qsee_platform.h"
@@ -838,7 +832,7 @@ extern "C" esp_err_t qsee_ble_init(void)
     snprintf(
         device_name,
         sizeof(device_name),
-        "QSEE-%02X%02X",
+        "DEVICE-%02X%02X",
         mac[4],
         mac[5]
     );
@@ -848,7 +842,7 @@ extern "C" esp_err_t qsee_ble_init(void)
     ble_svc_gap_init();
     ble_svc_gatt_init();
     ble_svc_dis_init();
-    int rc = ble_svc_dis_manufacturer_name_set("QSee.ai");
+    int rc = ble_svc_dis_manufacturer_name_set("Device firmware");
     if (rc == 0) {
         rc = ble_svc_dis_model_number_set(
             "Waveshare ESP32-S3 AMOLED 1.75"
@@ -879,9 +873,9 @@ extern "C" esp_err_t qsee_ble_init(void)
         rc = ble_gatts_add_svcs(s_qsee_services);
     }
     if (rc != 0) {
-        ESP_LOGE(TAG, "BLE: QSee GATT service registration failed (%d)", rc);
+        ESP_LOGE(TAG, "BLE: GATT service registration failed (%d)", rc);
         return fail_ble_initialization_after_port(
-            "QSee GATT service registration",
+            "GATT service registration",
             ESP_FAIL
         );
     }

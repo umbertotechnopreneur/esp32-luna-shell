@@ -1,11 +1,10 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
+ * Copyright (c) 2026
  */
 
-// Read-only HTTP API entry point for QSee device diagnostics.
+// Read-only HTTP API entry point for device diagnostics.
 // Owns server startup and shutdown around the station lifecycle.
 
 #pragma once

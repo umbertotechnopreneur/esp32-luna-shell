@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include "qsee_platform.h"
@@ -26,6 +20,8 @@ constexpr char kBrightnessSetting[] = "brightness";
 constexpr uint32_t kBrightnessDefaultPercent = 100;
 constexpr uint32_t kBrightnessMinPercent = 10;
 constexpr uint32_t kBrightnessMaxPercent = 100;
+constexpr uint32_t kDimmedBrightnessNumerator = 50;
+constexpr uint32_t kDimmedBrightnessDenominator = 100;
 std::mutex s_brightness_mutex;
 
 esp_err_t read_applied_brightness(uint32_t *percent)
@@ -56,6 +52,65 @@ void publish_brightness(uint32_t percent, esp_err_t error)
         percent,
         error
     );
+}
+
+void publish_configured_brightness(uint32_t percent, esp_err_t error)
+{
+    qsee::DeviceSnapshotService::instance().reportDisplayConfiguredBrightness(
+        percent,
+        error
+    );
+}
+
+esp_err_t read_configured_brightness(uint32_t *percent)
+{
+    if (percent == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        return init_error;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    esp_err_t error = settings.getUInt32(kBrightnessSetting, percent);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        *percent = kBrightnessDefaultPercent;
+        ESP_LOGI(
+            kTag,
+            "Brightness: first boot key '%s' absent; persisting explicit default %lu",
+            kBrightnessSetting,
+            static_cast<unsigned long>(*percent)
+        );
+        error = settings.setUInt32(kBrightnessSetting, *percent);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (*percent < kBrightnessMinPercent ||
+        *percent > kBrightnessMaxPercent) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
+esp_err_t apply_panel_brightness(
+    uint32_t percent,
+    qsee::UiHardwareSnapshot::DisplayPowerMode mode
+)
+{
+    // This BSP exposes the backlight power boundary, not a panel enable API.
+    esp_err_t error = bsp_display_backlight_on();
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = bsp_display_brightness_set(static_cast<int>(percent));
+    if (error != ESP_OK) {
+        return error;
+    }
+    publish_brightness(percent, ESP_OK);
+    qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(mode, ESP_OK);
+    return ESP_OK;
 }
 
 }  // namespace
@@ -100,6 +155,17 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
         return read_error;
     }
 
+    const esp_err_t panel_error = bsp_display_backlight_on();
+    if (panel_error != ESP_OK) {
+        publish_brightness(previous_percent, panel_error);
+        ESP_LOGE(
+            kTag,
+            "Enabling display panel failed (%s)",
+            esp_err_to_name(panel_error)
+        );
+        return panel_error;
+    }
+
     const esp_err_t display_error =
         bsp_display_brightness_set(static_cast<int>(percent));
     if (display_error != ESP_OK) {
@@ -136,6 +202,11 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
     }
 
     publish_brightness(percent, ESP_OK);
+    publish_configured_brightness(percent, ESP_OK);
+    qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+        qsee::UiHardwareSnapshot::DisplayPowerMode::Active,
+        ESP_OK
+    );
     ESP_LOGI(kTag, "AMOLED brightness: %lu%%",
              static_cast<unsigned long>(percent));
     return ESP_OK;
@@ -222,15 +293,102 @@ extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
 
     ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
              static_cast<unsigned long>(brightness));
+    const esp_err_t panel_error = bsp_display_backlight_on();
+    if (panel_error != ESP_OK) {
+        publish_brightness(0, panel_error);
+        publish_configured_brightness(brightness, panel_error);
+        ESP_LOGE(
+            kTag,
+            "Enabling display panel for saved brightness failed (%s)",
+            esp_err_to_name(panel_error)
+        );
+        return panel_error;
+    }
+
     const esp_err_t display_error =
         bsp_display_brightness_set(static_cast<int>(brightness));
     publish_brightness(brightness, display_error);
+    publish_configured_brightness(brightness, display_error);
     if (display_error != ESP_OK) {
         ESP_LOGE(
             kTag,
             "Applying persisted brightness failed (%s)",
             esp_err_to_name(display_error)
         );
+    } else {
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Active,
+            ESP_OK
+        );
     }
     return display_error;
+}
+
+extern "C" esp_err_t qsee_display_set_power_mode(
+    qsee_display_power_mode_t mode
+)
+{
+    std::lock_guard<std::mutex> lock(s_brightness_mutex);
+    const auto report_failure = [&](esp_err_t error) {
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+            error
+        );
+        ESP_LOGE(
+            kTag,
+            "Display power mode %d failed (%s)",
+            static_cast<int>(mode),
+            esp_err_to_name(error)
+        );
+        return error;
+    };
+
+    switch (mode) {
+    case QSEE_DISPLAY_POWER_ACTIVE:
+    case QSEE_DISPLAY_POWER_DIMMED: {
+        uint32_t configured_brightness = 0;
+        esp_err_t error = read_configured_brightness(&configured_brightness);
+        if (error != ESP_OK) {
+            publish_configured_brightness(configured_brightness, error);
+            return report_failure(error);
+        }
+        const uint32_t applied_brightness =
+            mode == QSEE_DISPLAY_POWER_DIMMED
+                ? configured_brightness * kDimmedBrightnessNumerator /
+                      kDimmedBrightnessDenominator
+                : configured_brightness;
+        error = apply_panel_brightness(
+            applied_brightness,
+            mode == QSEE_DISPLAY_POWER_DIMMED
+                ? qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed
+                : qsee::UiHardwareSnapshot::DisplayPowerMode::Active
+        );
+        publish_configured_brightness(configured_brightness, error);
+        if (error != ESP_OK) {
+            return report_failure(error);
+        }
+        ESP_LOGI(
+            kTag,
+            "Display power mode %s: configured=%lu applied=%lu",
+            mode == QSEE_DISPLAY_POWER_DIMMED ? "dimmed" : "active",
+            static_cast<unsigned long>(configured_brightness),
+            static_cast<unsigned long>(applied_brightness)
+        );
+        return ESP_OK;
+    }
+    case QSEE_DISPLAY_POWER_OFF: {
+        const esp_err_t error = bsp_display_backlight_off();
+        if (error != ESP_OK) {
+            return report_failure(error);
+        }
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff,
+            ESP_OK
+        );
+        ESP_LOGI(kTag, "Display power mode off");
+        return ESP_OK;
+    }
+    default:
+        return report_failure(ESP_ERR_INVALID_ARG);
+    }
 }

@@ -1,8 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
+ * Copyright (c) 2026
  *
  * This file owns bounded JSON serialization. HTTP lifecycle, authentication,
  * rate limiting, and Wi-Fi event handling remain in qsee_http_server.cpp.
@@ -302,6 +301,21 @@ void writeStorage(qsee::HttpJsonWriter &json, const qsee::StorageSnapshot &stora
 }
 
 // Serialize UI hardware using only values committed by the snapshot service.
+const char *displayPowerModeName(qsee::UiHardwareSnapshot::DisplayPowerMode mode)
+{
+    switch (mode) {
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Active:
+        return "active";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed:
+        return "dimmed";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff:
+        return "display-off";
+    case qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown:
+    default:
+        return "unknown";
+    }
+}
+
 void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
 {
     (void)json.raw("{\"display\":");
@@ -310,8 +324,13 @@ void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
     writeComponentFields(json, ui.touch);
     (void)json.raw(",\"brightness\":");
     writeComponentFields(json, ui.brightness);
-    (void)json.format(",\"brightness_percent\":%lu}",
-                      static_cast<unsigned long>(ui.brightness_percent));
+    (void)json.raw(",\"display_power_mode\":");
+    (void)json.quoted(displayPowerModeName(ui.display_power_mode_state));
+    (void)json.format(
+        ",\"brightness_percent\":%lu,\"configured_brightness_percent\":%lu}",
+        static_cast<unsigned long>(ui.brightness_percent),
+        static_cast<unsigned long>(ui.configured_brightness_percent)
+    );
     (void)json.raw("}");
 }
 

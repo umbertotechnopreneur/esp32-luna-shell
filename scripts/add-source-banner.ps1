@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Compatibility shim for the unified QSee.ai source-banner workflow.
+Compatibility shim for the source-banner workflow.
 
 .DESCRIPTION
 Run without parameters to open the shared menu. Explicit parameters preserve

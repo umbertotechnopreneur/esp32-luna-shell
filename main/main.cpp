@@ -1,13 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
- *
- * Author: Umberto Giacobbi
- * QSee.ai: https://qsee.ai
- * Author website: https://umbertogiacobbi.biz
- * Contact: hello@qsee.ai
+ * Copyright (c) 2026
  */
 
 #include <memory>
@@ -100,20 +94,20 @@ bool start_brookesia()
         }
         auto app_start_result = s_system->start_app(app.app_id);
         if (!app_start_result) {
-            ESP_LOGE(kTag, "QSee.ai app start failed: %s", app_start_result.error().c_str());
+            ESP_LOGE(kTag, "Application start failed: %s", app_start_result.error().c_str());
             s_system->deinit();
             s_system.reset();
             return false;
         }
         ESP_LOGI(
             kTag,
-            "Brookesia System Super ready; QSee.ai app id=%lu",
+            "Brookesia System Super ready; application id=%lu",
             static_cast<unsigned long>(app.app_id)
         );
         return true;
     }
 
-    ESP_LOGE(kTag, "QSee.ai provider was not installed by Brookesia System Core");
+    ESP_LOGE(kTag, "Application provider was not installed by Brookesia System Core");
     s_system->deinit();
     s_system.reset();
     return false;
@@ -132,7 +126,7 @@ void brookesia_task(void *)
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(qsee_logger_init());
-    ESP_LOGI(kTag, "QSee.ai firmware boot");
+    ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Display contract: round 466x466, safe square 320x320 at (73,73)");
 
     ESP_LOGI(kTag, "Display: starting official Waveshare BSP");

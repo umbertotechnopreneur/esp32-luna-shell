@@ -1,8 +1,7 @@
 /*
- * QSEE.AI
- * Clear signals. Confident decisions.
+ * Firmware backend support module.
  *
- * Copyright (c) 2026 QSee.ai. All rights reserved.
+ * Copyright (c) 2026
  *
  * The HTTP API is intentionally read-only. Transport, authentication and
  * lifecycle handling live here; JSON serialization is kept in

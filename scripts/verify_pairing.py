@@ -1,4 +1,4 @@
-"""Hardware-free checks for BLE provisioning and the current System Core UI."""
+"""Hardware-free checks for BLE provisioning and the current System Core contract."""
 
 import json
 from pathlib import Path

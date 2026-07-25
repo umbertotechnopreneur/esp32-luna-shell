@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Compatibility shim for QSee.ai device-asset generation.
+Compatibility shim for device-asset generation.
 
 .DESCRIPTION
 Run without parameters to open the shared menu. Use -NonInteractive, or pass an

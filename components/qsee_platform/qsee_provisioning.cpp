@@ -480,7 +480,7 @@ esp_err_t ProvisioningService::rebuildIdentity()
     std::snprintf(
         _service_name,
         sizeof(_service_name),
-        "PROV_QSEE-%02X%02X",
+        "PROV_DEVICE-%02X%02X",
         mac[4],
         mac[5]
     );

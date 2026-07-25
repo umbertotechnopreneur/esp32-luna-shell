@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Compatibility shim for deterministic QSee.ai SFX generation.
+Compatibility shim for deterministic SFX generation.
 
 .DESCRIPTION
 Run without parameters to open the shared menu. Use -NonInteractive, or pass a

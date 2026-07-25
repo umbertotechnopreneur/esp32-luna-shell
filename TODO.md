@@ -15,20 +15,21 @@
 
 ## ESP-Brookesia integration
 
-- [x] Run the QSee.ai application as a native System Core `IApp` under System
-  Super.
+- [x] Run the application as a native System Core `IApp` under System Super.
 - [x] Express the seven current screens and `qsee_content` flow in the GUI LVGL
   JSON package.
 - [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
   mirroring, deferred radio startup, and persisted brightness.
-- [x] Stage System Super and QSee.ai resources in the internal LittleFS image.
-- [ ] Define shared QSee.ai JSON design tokens for the circular 466 x 466
-  display and 320 x 320 safe area.
+- [x] Stage System Super and application resources in the internal LittleFS
+  image.
+- [ ] Define shared JSON design tokens for the circular 466 x 466 display and
+  320 x 320 safe area.
 - [ ] Add Bluetooth, GPS, and CPU indicators to System Super only when an
   official extension point is available; record the framework gap here before
   adding product-specific system chrome.
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
-- [ ] Remove proprietary branding markers (including “QSEE.AI” identifiers/logo mentions) before GitHub open-source publication.
+- [ ] Remove proprietary branding markers (including branded identifiers and
+  logo mentions) before GitHub open-source publication.
 
 ## SD formatting
 
@@ -62,8 +63,8 @@
   generation for asynchronous subsystem reports.
 - [x] Apply component freshness TTLs and hide expired numeric telemetry as
   `STALE`.
-- [ ] Add deterministic tests for transaction visibility, TTL expiry, and
-  recovery after a later successful sample.
+- [x] Add deterministic tests for transaction visibility, TTL expiry, and
+  recovery after a later successful sample via `scripts/verify_snapshot_integrity.py`.
 
 ## Sensor fusion
 
@@ -74,11 +75,14 @@
   exposing algorithm selection, gain, reference-frame controls, or
   pitch/roll/yaw values in the UI. Until then the snapshot exposes the real
   filtered/calibrated IMU values with timestamp and availability only.
-- Move stationary calibration to a non-blocking platform worker before adding
-  a Settings calibration action.
+- Stationary calibration now runs on a non-blocking platform worker; wire a
+  Settings calibration action on top of it when the UI work lands.
 
 ## Power and performance profiles
 
+- [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
+  `DisplayOff` transitions, preserving the user's configured brightness and
+  publishing both configured and applied values in `DeviceSnapshotService`.
 - Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
   `DisplayOff` states tied to real inactivity/sleep transitions.
 - When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
@@ -106,10 +110,10 @@
 
 ## Open-source publication prep
 
-- [ ] Scan repository for proprietary identifiers (for example `QSEE.AI`, `qsee.ai`,
-  qsee logos, internal contact/footer signatures) and replace/remove with
+- [ ] Scan repository for proprietary identifiers (for example branded names,
+  logos, internal contact/footer signatures) and replace/remove with
   neutral/open-source equivalents.
 - [ ] Remove or generalize internal/legal notice text from scripts, startup splash,
   and user-facing docs before publishing to GitHub.
-- [ ] Add a pre-release checklist that includes branding sweep, placeholder
-  replacements, and export-safe defaults.
+- [x] Add a pre-release checklist that includes branding sweep, placeholder
+  replacements, and export-safe defaults via `docs/release/open-source-pre-release-checklist.md`.

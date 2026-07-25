@@ -125,11 +125,25 @@ function Get-ToolCommand([string]$Name) {
 $CMakeCommand = Get-ToolCommand "cmake"
 $NinjaCommand = Get-ToolCommand "ninja"
 $ToolchainCommand = Get-ToolCommand "xtensa-esp32s3-elf-gcc"
-$IdfVersion = (& $PythonExe $IdfPy --version | Out-String).Trim()
+$IdfVersionOutput = & $PythonExe $IdfPy --version 2>&1
 if ($LASTEXITCODE -ne 0) {
     throw "Impossibile determinare la versione ESP-IDF"
 }
-$PythonVersion = (& $PythonExe --version | Out-String).Trim()
+$IdfVersion = @(
+    $IdfVersionOutput |
+        ForEach-Object { $_.ToString().Trim() } |
+        Where-Object { $_ -match '^ESP-IDF v6\.0\.2(?:\s|$)' } |
+        Select-Object -First 1
+)
+if ([string]::IsNullOrWhiteSpace($IdfVersion)) {
+    $IdfVersion = @(
+        $IdfVersionOutput |
+            ForEach-Object { $_.ToString().Trim() } |
+            Where-Object { $_ -ne "" } |
+            Select-Object -Last 1
+    )
+}
+$PythonVersion = (& $PythonExe --version 2>&1 | ForEach-Object { $_.ToString().Trim() } | Where-Object { $_ -ne "" } | Select-Object -Last 1)
 if ($IdfVersion -notmatch '^ESP-IDF v6\.0\.2(?:\s|$)') {
     throw "Versione ESP-IDF non supportata: '$IdfVersion'. Il repository richiede ESP-IDF v6.0.2."
 }

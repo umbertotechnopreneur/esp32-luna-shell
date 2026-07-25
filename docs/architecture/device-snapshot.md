@@ -33,7 +33,7 @@ full-refresh boundary for future sensor fusion.
 | IMU | acceleration, angular velocity, sensor temperature, calibration quality and biases |
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
-| UI/storage/radios | display, touch, SD/logger mirror and card/transport state, Wi-Fi, BLE |
+| UI/storage/radios | display, touch, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
 | Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |
 
@@ -76,3 +76,9 @@ state:
 Snapshot logs include a sequence number and reason. The sequence advances once
 per committed full refresh, diagnostic transaction, or asynchronous subsystem
 report, so a runtime trace can identify the published generation that changed.
+
+## Verification
+
+`scripts/verify_snapshot_integrity.py` runs deterministic, hardware-free checks
+for transaction visibility, TTL expiry, and recovery after a later successful
+sample.
