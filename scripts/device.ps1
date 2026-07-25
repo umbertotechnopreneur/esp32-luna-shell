@@ -125,9 +125,25 @@ function Get-ToolCommand([string]$Name) {
 $CMakeCommand = Get-ToolCommand "cmake"
 $NinjaCommand = Get-ToolCommand "ninja"
 $ToolchainCommand = Get-ToolCommand "xtensa-esp32s3-elf-gcc"
-$IdfVersion = (& $PythonExe $IdfPy --version | Out-String).Trim()
+$IdfVersionOutput = @(& $PythonExe $IdfPy --version 2>&1 | ForEach-Object {
+    "$_".Trim()
+})
 if ($LASTEXITCODE -ne 0) {
-    throw "Impossibile determinare la versione ESP-IDF"
+    throw "Impossibile determinare la versione ESP-IDF: $($IdfVersionOutput -join ' | ')"
+}
+$IdfVersionLines = @($IdfVersionOutput | Where-Object {
+    $_ -match '^ESP-IDF v\d+\.\d+\.\d+(?:\s|$)'
+})
+if ($IdfVersionLines.Count -ne 1) {
+    throw "Output versione ESP-IDF ambiguo: $($IdfVersionOutput -join ' | ')"
+}
+$IdfVersion = $IdfVersionLines[0]
+foreach ($diagnostic in @($IdfVersionOutput | Where-Object {
+    $_ -ne $IdfVersion
+})) {
+    if ($diagnostic) {
+        Write-Warning "Diagnostica probe ESP-IDF: $diagnostic"
+    }
 }
 $PythonVersion = (& $PythonExe --version | Out-String).Trim()
 if ($IdfVersion -notmatch '^ESP-IDF v6\.0\.2(?:\s|$)') {
@@ -258,6 +274,8 @@ function Test-ExclusiveSerialPort([string]$RequestedPort, [int]$ProbeBaud = 1152
     return [PSCustomObject]@{
         Port = $normalizedPort
         IsAvailable = $isAvailable
+        IsMissing = -not $isAvailable -and $openError -match
+            '(?i)could not find file|cannot find|does not exist|no such file'
         Error = $openError
     }
 }
@@ -365,6 +383,9 @@ function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSecond
             Start-Sleep -Milliseconds 500
             Write-Host "Serial port $RequestedPort is released and ready."
             return
+        }
+        if ($probe.IsMissing) {
+            throw "Serial port $RequestedPort is not present. Reconnect the device before retrying."
         }
 
         $lastError = $probe.Error

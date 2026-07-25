@@ -1,0 +1,67 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_command_button",
+    "node": {
+        "type": "button",
+        "events": [],
+        "commonProps": {
+            "scrollable": false,
+            "pressLock": false,
+            "clickable": true
+        },
+        "bindings": {
+            "commonProps.clickable": "clickable",
+            "style.opacity": "opacity"
+        },
+        "style": {
+            "bgColor": "#3478c8",
+            "bgGradientColor": "#183e70",
+            "bgGradientDirection": "vertical",
+            "borderColor": "#69b9ff",
+            "borderWidth": "2dp",
+            "radius": "27dp",
+            "padding": 0,
+            "opacity": 255
+        },
+        "stateStyles": {
+            "pressed": {
+                "bgColor": "#1b4f84",
+                "bgGradientColor": "#183e70",
+                "borderColor": "#8dceff",
+                "borderWidth": "2dp"
+            },
+            "disabled": {
+                "opacity": 0
+            }
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "54dp",
+            "height": "54dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "icon",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "labelProps": {
+                    "text": ""
+                },
+                "style": {
+                    "textColor": "#ffffff",
+                    "fontSize": "28sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "relative",
+                    "align": "center"
+                }
+            }
+        ]
+    }
+}

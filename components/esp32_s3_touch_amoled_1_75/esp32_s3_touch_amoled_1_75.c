@@ -35,6 +35,7 @@ static bool i2c_initialized = false;
 static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
 static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
+static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 
 #define BSP_SDCARD_MAX_FILES               5
@@ -1995,43 +1996,143 @@ lv_indev_t *bsp_display_get_input_dev(void)
     return disp_indev;
 }
 
+typedef struct {
+    bool panel_swap_xy;
+    bool panel_mirror_x;
+    bool panel_mirror_y;
+    int panel_x_gap;
+    int panel_y_gap;
+    bool touch_swap_xy;
+    bool touch_mirror_x;
+    bool touch_mirror_y;
+} bsp_display_rotation_config_t;
+
+// Keep CO5300 scan direction and CST9217 coordinates in the same cardinal frame.
+static bool bsp_display_rotation_config(
+    bsp_display_rotation_t rotation,
+    bsp_display_rotation_config_t *config
+)
+{
+    if (config == NULL) {
+        return false;
+    }
+
+    switch (rotation) {
+    case BSP_DISPLAY_ROTATE_0:
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = false, .panel_mirror_x = false, .panel_mirror_y = false,
+            .panel_x_gap = 6, .panel_y_gap = 0,
+            .touch_swap_xy = false, .touch_mirror_x = true, .touch_mirror_y = true,
+        };
+        return true;
+    case BSP_DISPLAY_ROTATE_90:
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = true, .panel_mirror_x = true, .panel_mirror_y = false,
+            .panel_x_gap = 0, .panel_y_gap = 6,
+            .touch_swap_xy = true, .touch_mirror_x = false, .touch_mirror_y = true,
+        };
+        return true;
+    case BSP_DISPLAY_ROTATE_180:
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = false, .panel_mirror_x = true, .panel_mirror_y = true,
+            .panel_x_gap = 6, .panel_y_gap = 0,
+            .touch_swap_xy = false, .touch_mirror_x = false, .touch_mirror_y = false,
+        };
+        return true;
+    case BSP_DISPLAY_ROTATE_270:
+        *config = (bsp_display_rotation_config_t){
+            .panel_swap_xy = true, .panel_mirror_x = false, .panel_mirror_y = true,
+            .panel_x_gap = 0, .panel_y_gap = 6,
+            .touch_swap_xy = true, .touch_mirror_x = true, .touch_mirror_y = false,
+        };
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Apply a complete rotation atomically enough that visible pixels and touches agree.
+static esp_err_t bsp_display_apply_rotation_config(
+    const bsp_display_rotation_config_t *config
+)
+{
+    esp_err_t result = esp_lcd_panel_swap_xy(panel_handle, config->panel_swap_xy);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = esp_lcd_panel_mirror(
+        panel_handle, config->panel_mirror_x, config->panel_mirror_y
+    );
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = esp_lcd_panel_set_gap(
+        panel_handle, config->panel_x_gap, config->panel_y_gap
+    );
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = esp_lcd_touch_set_swap_xy(tp, config->touch_swap_xy);
+    if (result != ESP_OK) {
+        return result;
+    }
+    result = esp_lcd_touch_set_mirror_x(tp, config->touch_mirror_x);
+    if (result != ESP_OK) {
+        return result;
+    }
+    return esp_lcd_touch_set_mirror_y(tp, config->touch_mirror_y);
+}
+
+// Rotate only between touch releases, preserving the logical LVGL coordinate system.
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 {
-    if (panel_handle == NULL || io_handle == NULL)
-    {
-        ESP_LOGE(TAG, "Panel or IO handle is not initialized");
+    if (panel_handle == NULL || tp == NULL || display_handle == NULL) {
+        ESP_LOGE(TAG, "Display or touch handle is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
-    uint8_t madctl = 0x00;
-
-    switch (rotation)
-    {
-    case BSP_DISPLAY_ROTATE_0:
-        madctl = 0x00;
-        break;
-    case BSP_DISPLAY_ROTATE_90:
-        madctl = 0x60;
-        break;
-    case BSP_DISPLAY_ROTATE_180:
-        madctl = 0xC0;
-        break;
-    case BSP_DISPLAY_ROTATE_270:
-        madctl = 0xA0;
-        break;
-    default:
+    bsp_display_rotation_config_t requested_config;
+    if (!bsp_display_rotation_config(rotation, &requested_config)) {
         ESP_LOGE(TAG, "Invalid rotation value: %d", rotation);
         return ESP_ERR_INVALID_ARG;
     }
 
-    uint32_t lcd_cmd = 0x36;
-    lcd_cmd &= 0xff;
-    lcd_cmd <<= 8;
-    lcd_cmd |= 0x02 << 24;
+    const esp_err_t lock_result = bsp_display_lock(100);
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
+    if (rotation == current_rotation) {
+        bsp_display_unlock();
+        return ESP_OK;
+    }
+    if (disp_indev != NULL && lv_indev_get_state(disp_indev) == LV_INDEV_STATE_PRESSED) {
+        bsp_display_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
 
-    ESP_LOGI(TAG, "Set display rotation: %d (MADCTL=0x%02X)", rotation, madctl);
+    bsp_display_rotation_config_t previous_config;
+    (void)bsp_display_rotation_config(current_rotation, &previous_config);
+    const esp_err_t apply_result = bsp_display_apply_rotation_config(&requested_config);
+    if (apply_result != ESP_OK) {
+        ESP_LOGE(TAG, "Display rotation %d failed (%s)", rotation, esp_err_to_name(apply_result));
+        (void)bsp_display_apply_rotation_config(&previous_config);
+        bsp_display_unlock();
+        return apply_result;
+    }
 
-    return esp_lcd_panel_io_tx_param(io_handle, lcd_cmd, &madctl, 1);
+    current_rotation = rotation;
+    lv_obj_t *screen = lv_display_get_screen_active(display_handle);
+    if (screen != NULL) {
+        lv_obj_invalidate(screen);
+    }
+    bsp_display_unlock();
+    ESP_LOGI(TAG, "CO5300 + CST9217 rotation: %d degrees", rotation * 90);
+    return ESP_OK;
+}
+
+bsp_display_rotation_t bsp_display_rotation_get(void)
+{
+    return current_rotation;
 }
 
 esp_err_t bsp_display_lock(uint32_t timeout_ms)

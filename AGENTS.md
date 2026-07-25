@@ -74,3 +74,11 @@ These rules apply to the entire Distanziamoci firmware repository.
   simulator checks, `git diff --check`, dependency/legacy scans, and a
   changed-files secret scan.
 - Do not claim hardware behavior from host-only validation.
+
+## Work Tracking
+
+- Treat `TODO.md` as the active backlog for open work.
+- Move completed items to `done.md`, stored next to `TODO.md`, during periodic
+  cleanup so the active list stays focused.
+- Record recurring repository lessons in `lessons.md` and check it before
+  changing boot, startup, or Brookesia integration behavior.

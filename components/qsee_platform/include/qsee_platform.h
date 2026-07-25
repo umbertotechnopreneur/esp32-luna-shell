@@ -108,6 +108,15 @@ esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
 esp_err_t qsee_display_get_brightness_percent(uint32_t *percent);
 esp_err_t qsee_display_apply_saved_brightness(void);
 
+/** Persist the automatic cardinal-rotation preference. */
+esp_err_t qsee_display_set_auto_rotation_enabled(bool enabled);
+
+/** Return the active automatic cardinal-rotation preference. */
+bool qsee_display_get_auto_rotation_enabled(void);
+
+/** Restore the persisted preference and last successfully applied rotation. */
+esp_err_t qsee_display_apply_saved_auto_rotation(void);
+
 /**
  * Report the result of an actual speaker playback attempt.
  */

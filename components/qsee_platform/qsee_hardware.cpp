@@ -14,6 +14,7 @@
 #include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -68,11 +69,32 @@ namespace {
 const char *TAG = "qsee_snapshot";
 constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
 constexpr char kImuSmoothingSetting[] = "imu_smooth";
+constexpr char kAutoRotationSetting[] = "auto_rotate";
+constexpr char kDisplayRotationSetting[] = "display_rot";
 constexpr uint32_t kDiagnosticPeriodDefaultMs = 300;
 constexpr uint32_t kDiagnosticPeriodMinMs = 100;
 constexpr uint32_t kDiagnosticPeriodMaxMs = 2000;
 constexpr uint32_t kImuSmoothingDefaultPercent = 70;
 constexpr uint32_t kImuSmoothingMaxPercent = 90;
+constexpr uint32_t kOrientationSamplePeriodMs = 100;
+constexpr int64_t kOrientationStableUs = 300000;
+constexpr float kOrientationMagnitudeMin = 7.0F;
+constexpr float kOrientationMagnitudeMax = 12.5F;
+constexpr float kOrientationPlanarEnter = 5.5F;
+constexpr float kOrientationPlanarExit = 4.5F;
+constexpr float kOrientationDominance = 1.25F;
+constexpr float kOrientationFilterAlpha = 0.35F;
+constexpr float kOrientationGyroDeadbandDps = 4.0F;
+constexpr float kOrientationGyroSnapDegrees = 50.0F;
+constexpr float kOrientationGyroMaxStepSeconds = 0.25F;
+constexpr size_t kAudioSpectrumFrameCount = 256;
+constexpr float kAudioSpectrumFullScale = 32768.0F;
+constexpr float kAudioSpectrumFloor = 0.001F;
+constexpr float kAudioSpectrumTwoPi = 6.28318530718F;
+constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
+    1, 2, 3, 4, 6, 8, 11, 16,
+    23, 32, 45, 64, 90, 110, 120, 127,
+};
 constexpr int64_t kMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
 constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
 
@@ -105,9 +127,36 @@ bool s_gps_ready;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 std::atomic_bool s_diagnostic_monitor_active{false};
+std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
+std::atomic_bool s_auto_rotation_enabled{false};
 std::mutex s_diagnostic_settings_mutex;
+
+struct OrientationState {
+    bool observed_enabled = false;
+    bool filter_ready = false;
+    bool planar_active = false;
+    bool gravity_valid = false;
+    bool candidate_valid = false;
+    float gravity_mps2[3] = {};
+    float gyro_physical_degrees = 0.0F;
+    int64_t gyro_sampled_at_us = 0;
+    uint16_t candidate_physical_degrees = 0;
+    int64_t candidate_since_us = 0;
+    uint16_t physical_degrees = 0;
+    uint16_t desired_rendering_degrees = 0;
+    uint16_t applied_rendering_degrees = 0;
+    bool persisted_rendering_valid = false;
+    uint16_t persisted_rendering_degrees = 0;
+    uint32_t change_sequence = 0;
+    int64_t sampled_at_us = 0;
+    int64_t changed_at_us = 0;
+    int64_t last_error_log_us = 0;
+    qsee::ComponentSnapshot component;
+};
+
+OrientationState s_orientation;
 
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
@@ -120,8 +169,37 @@ SemaphoreHandle_t s_refresh_mutex;
 
 StaticTask_t s_diagnostic_task_control;
 StackType_t s_diagnostic_task_stack[3072];
+qsee::DeviceSnapshot *s_diagnostic_stage_snapshot;
 char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 int16_t s_microphone_samples[1024];
+
+struct AudioSpectrumBands {
+    uint8_t value[2][qsee::kAudioSpectrumBandCount] = {};
+};
+
+// Keep the large diagnostic staging snapshot in PSRAM for the task lifetime.
+esp_err_t ensure_diagnostic_stage_snapshot()
+{
+    if (s_diagnostic_stage_snapshot != nullptr) {
+        return ESP_OK;
+    }
+
+    s_diagnostic_stage_snapshot =
+        static_cast<qsee::DeviceSnapshot *>(heap_caps_calloc(
+            1,
+            sizeof(qsee::DeviceSnapshot),
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+        ));
+    if (s_diagnostic_stage_snapshot == nullptr) {
+        ESP_LOGE(
+            TAG,
+            "Diagnostic staging allocation failed: %u PSRAM bytes required",
+            static_cast<unsigned>(sizeof(qsee::DeviceSnapshot))
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
 
 SemaphoreHandle_t ensure_snapshot_mutex()
 {
@@ -418,6 +496,12 @@ void merge_staged_microphone(
         staged.channel_peak_level,
         sizeof(current.channel_peak_level)
     );
+    std::memcpy(
+        current.channel_spectrum,
+        staged.channel_spectrum,
+        sizeof(current.channel_spectrum)
+    );
+    current.spectrum_sequence = staged.spectrum_sequence;
 }
 
 enum class SnapshotStageKind {
@@ -448,6 +532,12 @@ void merge_snapshot_stage(
     }
     if (stage_is_newer(staged.imu, current.imu)) {
         current.imu = staged.imu;
+    }
+    if (stage_is_newer(
+            staged.ui.orientation,
+            current.ui.orientation
+        )) {
+        current.ui.orientation = staged.ui.orientation;
     }
     merge_staged_microphone(current.audio, staged.audio);
     current.last_update_attempt_at_us =
@@ -558,6 +648,9 @@ void apply_measured_sample_aging(
     age_measured_sample(snapshot.imu, now_us);
     age_measured_sample(snapshot.gps, now_us);
     age_measured_sample(snapshot.audio.microphone, now_us);
+    if (snapshot.ui.orientation.auto_rotation_enabled) {
+        age_measured_sample(snapshot.ui.orientation, now_us);
+    }
     age_measured_sample(snapshot.memory, now_us);
     age_measured_sample(snapshot.processor, now_us);
 }
@@ -675,6 +768,447 @@ esp_err_t load_or_create_uint32_setting(
 
     *value = persisted;
     return ESP_OK;
+}
+
+// Load a boolean setting without inventing a value after first boot.
+esp_err_t load_or_create_bool_setting(
+    qsee::UserSettingsService &settings,
+    const char *key,
+    const char *label,
+    bool first_boot_default,
+    bool *value
+)
+{
+    if (value == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    bool persisted = false;
+    esp_err_t error = settings.getBool(key, &persisted);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(
+            TAG,
+            "%s: first boot key '%s' absent; persisting explicit default %s",
+            label,
+            key,
+            first_boot_default ? "true" : "false"
+        );
+        error = settings.setBool(key, first_boot_default);
+        if (error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "%s: persisting first-boot default failed (%s)",
+                label,
+                esp_err_to_name(error)
+            );
+            return error;
+        }
+        *value = first_boot_default;
+        return ESP_OK;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "%s: reading persisted key '%s' failed (%s)",
+            label,
+            key,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+
+    *value = persisted;
+    return ESP_OK;
+}
+
+// Return the inverse cardinal turn that keeps content upright.
+uint16_t rendering_rotation_for_physical(uint16_t physical_degrees)
+{
+    switch (physical_degrees) {
+    case 90:
+        return 270;
+    case 180:
+        return 180;
+    case 270:
+        return 90;
+    case 0:
+        return 0;
+    default:
+        ESP_LOGE(
+            TAG,
+            "Non-cardinal physical orientation rejected: %u",
+            static_cast<unsigned>(physical_degrees)
+        );
+        std::abort();
+    }
+}
+
+// Keep an integrated gyro angle within one physical revolution.
+float normalize_orientation_degrees(float degrees)
+{
+    while (degrees >= 360.0F) {
+        degrees -= 360.0F;
+    }
+    while (degrees < 0.0F) {
+        degrees += 360.0F;
+    }
+    return degrees;
+}
+
+// Measure the shortest signed turn from a cardinal reference to an angle.
+float signed_orientation_delta(float angle, uint16_t reference_degrees)
+{
+    float delta = angle - static_cast<float>(reference_degrees);
+    while (delta > 180.0F) {
+        delta -= 360.0F;
+    }
+    while (delta <= -180.0F) {
+        delta += 360.0F;
+    }
+    return delta;
+}
+
+// Copy the service state into the only snapshot contract consumed by UI and HTTP.
+void copy_orientation_snapshot(qsee::OrientationSnapshot &snapshot)
+{
+    static_cast<qsee::ComponentSnapshot &>(snapshot) =
+        s_orientation.component;
+    snapshot.auto_rotation_enabled =
+        s_auto_rotation_enabled.load(std::memory_order_relaxed);
+    snapshot.gravity_valid = s_orientation.gravity_valid;
+    snapshot.rotation_pending =
+        s_orientation.desired_rendering_degrees !=
+        s_orientation.applied_rendering_degrees;
+    snapshot.physical_orientation_degrees =
+        s_orientation.physical_degrees;
+    snapshot.rendering_rotation_degrees =
+        s_orientation.applied_rendering_degrees;
+    snapshot.change_sequence = s_orientation.change_sequence;
+    snapshot.sampled_at_us = s_orientation.sampled_at_us;
+    snapshot.changed_at_us = s_orientation.changed_at_us;
+}
+
+// Publish orientation changes without exposing BSP state to consumers.
+esp_err_t publish_orientation_state()
+{
+    return update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+        copy_orientation_snapshot(snapshot.ui.orientation);
+    });
+}
+
+// Publish one new physical cardinal and its inverse render rotation.
+void commit_cardinal_orientation(
+    uint16_t physical_degrees,
+    int64_t sampled_at_us,
+    const char *source
+)
+{
+    s_orientation.candidate_valid = false;
+    s_orientation.physical_degrees = physical_degrees % 360U;
+    s_orientation.desired_rendering_degrees =
+        rendering_rotation_for_physical(s_orientation.physical_degrees);
+    ++s_orientation.change_sequence;
+    s_orientation.changed_at_us = sampled_at_us;
+    ESP_LOGI(
+        TAG,
+        "Cardinal orientation stable: source=%s physical=%u rendering=%u",
+        source,
+        static_cast<unsigned>(s_orientation.physical_degrees),
+        static_cast<unsigned>(s_orientation.desired_rendering_degrees)
+    );
+}
+
+// Track flat-table turns from gyro Z and emit only cardinal steps.
+void process_gyro_cardinal_sample(
+    const qmi8658_data_t &data,
+    int64_t sampled_at_us,
+    bool gravity_controls_orientation
+)
+{
+    const int64_t previous_sample_us = s_orientation.gyro_sampled_at_us;
+    s_orientation.gyro_sampled_at_us = sampled_at_us;
+    if (previous_sample_us == 0 || sampled_at_us <= previous_sample_us) {
+        s_orientation.gyro_physical_degrees =
+            static_cast<float>(s_orientation.physical_degrees);
+        return;
+    }
+
+    if (gravity_controls_orientation) {
+        s_orientation.gyro_physical_degrees =
+            static_cast<float>(s_orientation.physical_degrees);
+        return;
+    }
+
+    float step_seconds =
+        static_cast<float>(sampled_at_us - previous_sample_us) / 1000000.0F;
+    step_seconds = std::min(step_seconds, kOrientationGyroMaxStepSeconds);
+    const float gyro_z_dps =
+        data.gyroZ - (s_imu_calibrated ? s_gyro_bias[2] : 0.0F);
+    if (std::fabs(gyro_z_dps) < kOrientationGyroDeadbandDps) {
+        return;
+    }
+
+    s_orientation.gyro_physical_degrees = normalize_orientation_degrees(
+        s_orientation.gyro_physical_degrees + gyro_z_dps * step_seconds
+    );
+    const float delta = signed_orientation_delta(
+        s_orientation.gyro_physical_degrees,
+        s_orientation.physical_degrees
+    );
+    uint16_t next_physical_degrees = s_orientation.physical_degrees;
+    if (delta >= kOrientationGyroSnapDegrees) {
+        next_physical_degrees =
+            static_cast<uint16_t>((next_physical_degrees + 90U) % 360U);
+    } else if (delta <= -kOrientationGyroSnapDegrees) {
+        next_physical_degrees =
+            static_cast<uint16_t>((next_physical_degrees + 270U) % 360U);
+    } else {
+        return;
+    }
+
+    commit_cardinal_orientation(
+        next_physical_degrees,
+        sampled_at_us,
+        "gyro"
+    );
+}
+
+// Reset filtering and dwell whenever the persisted runtime preference changes.
+bool observe_auto_rotation_state(bool enabled)
+{
+    if (s_orientation.observed_enabled == enabled) {
+        return false;
+    }
+
+    s_orientation.observed_enabled = enabled;
+    s_orientation.filter_ready = false;
+    s_orientation.planar_active = false;
+    s_orientation.gravity_valid = false;
+    s_orientation.candidate_valid = false;
+    s_orientation.candidate_since_us = 0;
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(s_orientation.physical_degrees);
+    s_orientation.gyro_sampled_at_us = 0;
+    const int64_t changed_at_us = esp_timer_get_time();
+    if (!enabled) {
+        s_orientation.desired_rendering_degrees = 0;
+        s_orientation.sampled_at_us = changed_at_us;
+        mark_sample_success(s_orientation.component, changed_at_us);
+    }
+    return true;
+}
+
+// Classify raw gravity into a stable cardinal physical orientation.
+void process_orientation_sample(
+    const qmi8658_data_t &data,
+    int64_t sampled_at_us
+)
+{
+    const float raw[3] = {data.accelX, data.accelY, data.accelZ};
+    const float magnitude = std::sqrt(
+        raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]
+    );
+    s_orientation.sampled_at_us = sampled_at_us;
+    mark_sample_success(s_orientation.component, sampled_at_us);
+
+    if (magnitude < kOrientationMagnitudeMin ||
+        magnitude > kOrientationMagnitudeMax) {
+        s_orientation.gravity_valid = false;
+        s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
+        return;
+    }
+
+    if (!s_orientation.filter_ready) {
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            s_orientation.gravity_mps2[axis] = raw[axis];
+        }
+        s_orientation.filter_ready = true;
+    } else {
+        for (unsigned axis = 0; axis < 3; ++axis) {
+            s_orientation.gravity_mps2[axis] =
+                s_orientation.gravity_mps2[axis] *
+                    (1.0F - kOrientationFilterAlpha) +
+                raw[axis] * kOrientationFilterAlpha;
+        }
+    }
+
+    const float accel_x = s_orientation.gravity_mps2[0];
+    const float accel_y = s_orientation.gravity_mps2[1];
+    const float planar = std::sqrt(accel_x * accel_x + accel_y * accel_y);
+    if (s_orientation.planar_active) {
+        if (planar < kOrientationPlanarExit) {
+            s_orientation.planar_active = false;
+        }
+    } else if (planar >= kOrientationPlanarEnter) {
+        s_orientation.planar_active = true;
+    }
+
+    if (!s_orientation.planar_active) {
+        s_orientation.gravity_valid = false;
+        s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
+        return;
+    }
+
+    const float abs_x = std::fabs(accel_x);
+    const float abs_y = std::fabs(accel_y);
+    const float major = abs_x >= abs_y ? abs_x : abs_y;
+    const float minor = abs_x >= abs_y ? abs_y : abs_x;
+    if (major < minor * kOrientationDominance) {
+        s_orientation.gravity_valid = false;
+        s_orientation.candidate_valid = false;
+        process_gyro_cardinal_sample(data, sampled_at_us, false);
+        return;
+    }
+
+    uint16_t physical_degrees = 0;
+    if (abs_x >= abs_y) {
+        physical_degrees = accel_x >= 0.0F ? 0 : 180;
+    } else {
+        physical_degrees = accel_y < 0.0F ? 90 : 270;
+    }
+    s_orientation.gravity_valid = true;
+    process_gyro_cardinal_sample(data, sampled_at_us, true);
+
+    if (physical_degrees == s_orientation.physical_degrees &&
+        s_orientation.desired_rendering_degrees ==
+            rendering_rotation_for_physical(physical_degrees)) {
+        s_orientation.candidate_valid = false;
+        return;
+    }
+
+    if (!s_orientation.candidate_valid ||
+        s_orientation.candidate_physical_degrees != physical_degrees) {
+        s_orientation.candidate_valid = true;
+        s_orientation.candidate_physical_degrees = physical_degrees;
+        s_orientation.candidate_since_us = sampled_at_us;
+        return;
+    }
+
+    if (sampled_at_us - s_orientation.candidate_since_us <
+        kOrientationStableUs) {
+        return;
+    }
+
+    commit_cardinal_orientation(
+        physical_degrees,
+        sampled_at_us,
+        "gravity"
+    );
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(physical_degrees);
+}
+
+// Accept only rotations that the panel and touch transforms implement exactly.
+bool is_cardinal_rotation(uint32_t degrees)
+{
+    return degrees == 0U || degrees == 90U ||
+           degrees == 180U || degrees == 270U;
+}
+
+// Convert only a previously validated cardinal degree value.
+bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
+{
+    switch (degrees) {
+    case 0:
+        return BSP_DISPLAY_ROTATE_0;
+    case 90:
+        return BSP_DISPLAY_ROTATE_90;
+    case 180:
+        return BSP_DISPLAY_ROTATE_180;
+    case 270:
+        return BSP_DISPLAY_ROTATE_270;
+    default:
+        ESP_LOGE(
+            TAG,
+            "Non-cardinal render rotation rejected: %u",
+            static_cast<unsigned>(degrees)
+        );
+        std::abort();
+    }
+}
+
+// Commit only a newly applied cardinal angle to avoid redundant NVS writes.
+esp_err_t persist_display_rotation(uint16_t rendering_degrees)
+{
+    if (!is_cardinal_rotation(rendering_degrees)) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_orientation.persisted_rendering_valid &&
+        s_orientation.persisted_rendering_degrees == rendering_degrees) {
+        return ESP_OK;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    const esp_err_t init_error = settings.isInitialized()
+        ? ESP_OK
+        : settings.initialize();
+    if (init_error != ESP_OK) {
+        return init_error;
+    }
+    const esp_err_t error =
+        settings.setUInt32(kDisplayRotationSetting, rendering_degrees);
+    if (error == ESP_OK) {
+        s_orientation.persisted_rendering_valid = true;
+        s_orientation.persisted_rendering_degrees = rendering_degrees;
+        ESP_LOGI(
+            TAG,
+            "Saved cardinal display rotation: %u deg",
+            static_cast<unsigned>(rendering_degrees)
+        );
+    }
+    return error;
+}
+
+// Commit the desired panel angle while allowing touch activity to defer it.
+esp_err_t apply_pending_display_rotation()
+{
+    if (s_orientation.desired_rendering_degrees ==
+        s_orientation.applied_rendering_degrees) {
+        return ESP_OK;
+    }
+
+    const esp_err_t result = bsp_display_rotation_set(
+        bsp_rotation_for_degrees(s_orientation.desired_rendering_degrees)
+    );
+    if (result == ESP_OK) {
+        s_orientation.applied_rendering_degrees =
+            s_orientation.desired_rendering_degrees;
+        const esp_err_t persist_error = persist_display_rotation(
+            s_orientation.applied_rendering_degrees
+        );
+        if (persist_error != ESP_OK) {
+            mark_sample_failure(
+                s_orientation.component,
+                persist_error,
+                esp_timer_get_time()
+            );
+            (void)publish_orientation_state();
+            ESP_LOGE(
+                TAG,
+                "Cardinal display rotation persistence failed (%s)",
+                esp_err_to_name(persist_error)
+            );
+            return persist_error;
+        }
+        mark_sample_success(
+            s_orientation.component,
+            esp_timer_get_time()
+        );
+        return publish_orientation_state();
+    }
+
+    const int64_t now = esp_timer_get_time();
+    if (now - s_orientation.last_error_log_us >= 5000000) {
+        s_orientation.last_error_log_us = now;
+        ESP_LOGW(
+            TAG,
+            "Cardinal display rotation pending (%s)",
+            esp_err_to_name(result)
+        );
+    }
+    return result;
 }
 
 esp_err_t add_i2c_device(
@@ -1699,17 +2233,35 @@ esp_err_t calibrate_imu()
     return ESP_OK;
 }
 
-esp_err_t sample_imu(const char *phase)
+// Publish calibrated motion and optionally classify the same raw sample for rotation.
+esp_err_t sample_imu(
+    const char *phase,
+    bool verbose = true,
+    bool track_orientation = false
+)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
         const esp_err_t publication_error = update_snapshot(
-            [attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+            [attempted_at_us, track_orientation](
+                qsee::DeviceSnapshot &snapshot
+            ) {
                 mark_sample_failure(
                     snapshot.imu,
                     ESP_ERR_INVALID_STATE,
                     attempted_at_us
                 );
+                if (track_orientation) {
+                    s_orientation.gravity_valid = false;
+                    s_orientation.candidate_valid = false;
+                    s_orientation.sampled_at_us = attempted_at_us;
+                    mark_sample_failure(
+                        s_orientation.component,
+                        ESP_ERR_INVALID_STATE,
+                        attempted_at_us
+                    );
+                    copy_orientation_snapshot(snapshot.ui.orientation);
+                }
             }
         );
         ESP_LOGE(TAG, "IMU QMI8658: smoothing setting is invalid");
@@ -1762,14 +2314,39 @@ esp_err_t sample_imu(const char *phase)
         }
         s_imu_filter_ready = true;
         sample.temperature_c = data.temperature;
+        if (track_orientation) {
+            process_orientation_sample(data, attempted_at_us);
+        }
     }
     if (error != ESP_OK) {
         const esp_err_t publication_error = update_snapshot(
-            [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+            [error, attempted_at_us, track_orientation](
+                qsee::DeviceSnapshot &snapshot
+            ) {
                 mark_sample_failure(snapshot.imu, error, attempted_at_us);
+                if (track_orientation) {
+                    s_orientation.gravity_valid = false;
+                    s_orientation.candidate_valid = false;
+                    s_orientation.sampled_at_us = attempted_at_us;
+                    mark_sample_failure(
+                        s_orientation.component,
+                        error,
+                        attempted_at_us
+                    );
+                    copy_orientation_snapshot(snapshot.ui.orientation);
+                }
             }
         );
-        ESP_LOGW(TAG, "IMU QMI8658: %s sample failed (%s)", phase, esp_err_to_name(error));
+        const int64_t now = esp_timer_get_time();
+        if (verbose || now - s_orientation.last_error_log_us >= 5000000) {
+            s_orientation.last_error_log_us = now;
+            ESP_LOGW(
+                TAG,
+                "IMU QMI8658: %s sample failed (%s)",
+                phase,
+                esp_err_to_name(error)
+            );
+        }
         return sample_publication_result(
             "IMU QMI8658",
             phase,
@@ -1779,25 +2356,30 @@ esp_err_t sample_imu(const char *phase)
     }
     mark_sample_success(sample, attempted_at_us);
     const esp_err_t publication_error = update_snapshot(
-        [&sample](qsee::DeviceSnapshot &snapshot) {
+        [&sample, track_orientation](qsee::DeviceSnapshot &snapshot) {
             const qsee::ComponentSnapshot calibration =
                 snapshot.imu.calibration;
             snapshot.imu = sample;
             snapshot.imu.calibration = calibration;
+            if (track_orientation) {
+                copy_orientation_snapshot(snapshot.ui.orientation);
+            }
         }
     );
-    ESP_LOGI(
-        TAG,
-        "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
-        phase,
-        sample.acceleration_mps2[0],
-        sample.acceleration_mps2[1],
-        sample.acceleration_mps2[2],
-        sample.angular_velocity_dps[0],
-        sample.angular_velocity_dps[1],
-        sample.angular_velocity_dps[2],
-        data.temperature
-    );
+    if (verbose) {
+        ESP_LOGI(
+            TAG,
+            "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
+            phase,
+            sample.acceleration_mps2[0],
+            sample.acceleration_mps2[1],
+            sample.acceleration_mps2[2],
+            sample.angular_velocity_dps[0],
+            sample.angular_velocity_dps[1],
+            sample.angular_velocity_dps[2],
+            data.temperature
+        );
+    }
     return sample_publication_result(
         "IMU QMI8658",
         phase,
@@ -2482,6 +3064,51 @@ esp_err_t sample_gps(const char *phase)
     return aggregate;
 }
 
+// Project one captured stereo window onto the original compact DFT bank.
+void build_audio_spectrum(AudioSpectrumBands &spectrum)
+{
+    constexpr size_t channel_count = 2;
+    for (size_t band = 0; band < qsee::kAudioSpectrumBandCount; ++band) {
+        const float coefficient = 2.0F * std::cos(
+            kAudioSpectrumTwoPi *
+            static_cast<float>(kAudioSpectrumBins[band]) /
+            static_cast<float>(kAudioSpectrumFrameCount)
+        );
+        for (size_t channel = 0; channel < channel_count; ++channel) {
+            float previous = 0.0F;
+            float previous_previous = 0.0F;
+            for (size_t frame = 0; frame < kAudioSpectrumFrameCount; ++frame) {
+                const float current = static_cast<float>(
+                    s_microphone_samples[frame * channel_count + channel]
+                ) + coefficient * previous - previous_previous;
+                previous_previous = previous;
+                previous = current;
+            }
+            const float power = std::max(
+                0.0F,
+                previous * previous +
+                    previous_previous * previous_previous -
+                    coefficient * previous * previous_previous
+            );
+            const float normalized =
+                2.0F * std::sqrt(power) /
+                (static_cast<float>(kAudioSpectrumFrameCount) *
+                 kAudioSpectrumFullScale);
+            const float dbfs = 20.0F * std::log10(
+                std::max(normalized, kAudioSpectrumFloor)
+            );
+            const float intensity = std::clamp(
+                (dbfs + 60.0F) * (100.0F / 60.0F),
+                0.0F,
+                100.0F
+            );
+            spectrum.value[channel][band] =
+                static_cast<uint8_t>(intensity + 0.5F);
+        }
+    }
+}
+
+// Capture one stereo window and publish levels plus the validated DFT bank.
 esp_err_t sample_microphone(const char *phase)
 {
     constexpr size_t channel_count = 2;
@@ -2521,6 +3148,7 @@ esp_err_t sample_microphone(const char *phase)
 
     uint32_t absolute_sum[2] = {};
     uint32_t peak[2] = {};
+    AudioSpectrumBands spectrum;
     for (size_t index = 0; index < frame_count; ++index) {
         for (size_t channel = 0; channel < channel_count; ++channel) {
             const int16_t raw =
@@ -2535,6 +3163,7 @@ esp_err_t sample_microphone(const char *phase)
             }
         }
     }
+    build_audio_spectrum(spectrum);
     const uint32_t mean = (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
     const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
     const uint32_t channel_mean0 = absolute_sum[0] / frame_count;
@@ -2542,8 +3171,8 @@ esp_err_t sample_microphone(const char *phase)
     const uint32_t channel_peak0 = peak[0];
     const uint32_t channel_peak1 = peak[1];
     const esp_err_t publication_error = update_snapshot(
-        [mean, aggregate_peak, channel_count, channel_mean0, channel_mean1,
-         channel_peak0, channel_peak1,
+        [&spectrum, mean, aggregate_peak, channel_count, channel_mean0,
+         channel_mean1, channel_peak0, channel_peak1,
          attempted_at_us](qsee::DeviceSnapshot &snapshot) {
             mark_sample_success(
                 snapshot.audio.microphone,
@@ -2558,6 +3187,12 @@ esp_err_t sample_microphone(const char *phase)
             snapshot.audio.channel_mean_level[1] = channel_mean1;
             snapshot.audio.channel_peak_level[0] = channel_peak0;
             snapshot.audio.channel_peak_level[1] = channel_peak1;
+            std::memcpy(
+                snapshot.audio.channel_spectrum,
+                spectrum.value,
+                sizeof(snapshot.audio.channel_spectrum)
+            );
+            ++snapshot.audio.spectrum_sequence;
         }
     );
     ESP_LOGI(TAG, "Microphones ES7210 %s: ch0=%lu/%lu ch1=%lu/%lu",
@@ -2574,22 +3209,48 @@ esp_err_t sample_microphone(const char *phase)
     );
 }
 
+// Share one PSRAM-backed sampler between diagnostics and faster orientation updates.
 void diagnostic_monitor_task(void *arg)
 {
     (void)arg;
+    configASSERT(s_diagnostic_stage_snapshot != nullptr);
+    TickType_t last_diagnostic_sample = 0;
+
     for (;;) {
         const bool monitor_active =
             s_diagnostic_monitor_active.load(std::memory_order_relaxed);
-        if (monitor_active) {
+        const bool auto_rotation_active =
+            s_auto_rotation_enabled.load(std::memory_order_relaxed);
+        if (observe_auto_rotation_state(auto_rotation_active)) {
+            log_snapshot_publication_failure(
+                "Auto-rotation state",
+                publish_orientation_state()
+            );
+        }
+
+        const TickType_t now = xTaskGetTickCount();
+        const TickType_t diagnostic_period = pdMS_TO_TICKS(
+            s_diagnostic_period_ms.load(std::memory_order_relaxed)
+        );
+        const bool diagnostic_due =
+            monitor_active &&
+            (last_diagnostic_sample == 0 ||
+             now - last_diagnostic_sample >= diagnostic_period);
+        const bool orientation_due =
+            auto_rotation_active && s_imu_ready;
+        const bool sampling_due = diagnostic_due || orientation_due;
+
+        if (sampling_due) {
             esp_err_t aggregate = ESP_OK;
-            bool result_published = false;
-            qsee::DeviceSnapshot staged_snapshot;
+            bool diagnostic_result_published = false;
+            qsee::DeviceSnapshot &staged_snapshot =
+                *s_diagnostic_stage_snapshot;
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
             if (refresh_mutex == nullptr) {
                 aggregate = ESP_ERR_NO_MEM;
                 ESP_LOGE(
                     TAG,
-                    "Diagnostic sample failed: refresh mutex allocation failed"
+                    "Hardware monitor sample failed: refresh mutex allocation failed"
                 );
             } else if (
                 xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(250)) != pdTRUE
@@ -2597,64 +3258,120 @@ void diagnostic_monitor_task(void *arg)
                 aggregate = ESP_ERR_TIMEOUT;
                 ESP_LOGW(
                     TAG,
-                    "Diagnostic sample rejected: refresh mutex take timed out"
+                    "Hardware monitor sample rejected: refresh mutex take timed out"
                 );
             } else {
                 const esp_err_t snapshot_lock_error =
                     begin_snapshot_stage(
                         staged_snapshot,
                         pdMS_TO_TICKS(250),
-                        "diagnostic stage"
+                        "hardware monitor stage"
                     );
                 record_first_error(snapshot_lock_error, &aggregate);
                 if (snapshot_lock_error == ESP_OK) {
                     record_first_error(
-                        sample_imu("diagnostic-ui"),
+                        sample_imu(
+                            diagnostic_due
+                                ? "diagnostic-ui"
+                                : "auto-rotation",
+                            diagnostic_due,
+                            orientation_due
+                        ),
                         &aggregate
                     );
-                    record_first_error(
-                        sample_microphone("diagnostic-ui"),
-                        &aggregate
-                    );
-                    record_first_error(
-                        publish_update_result("diagnostic-ui", aggregate),
-                        &aggregate
-                    );
+                    if (diagnostic_due) {
+                        record_first_error(
+                            sample_microphone("diagnostic-ui"),
+                            &aggregate
+                        );
+                        record_first_error(
+                            publish_update_result(
+                                "diagnostic-ui",
+                                aggregate
+                            ),
+                            &aggregate
+                        );
+                    }
                     const esp_err_t commit_error = commit_snapshot_stage(
                         staged_snapshot,
                         SnapshotStageKind::Diagnostic,
                         pdMS_TO_TICKS(250),
-                        "diagnostic commit",
+                        "hardware monitor commit",
                         nullptr
                     );
                     record_first_error(commit_error, &aggregate);
-                    result_published = commit_error == ESP_OK;
+                    diagnostic_result_published =
+                        diagnostic_due && commit_error == ESP_OK;
                 }
                 record_first_error(
                     give_refresh_mutex(
                         refresh_mutex,
-                        "Diagnostic sample"
+                        "Hardware monitor sample"
                     ),
                     &aggregate
                 );
             }
-            if (!result_published) {
-                record_first_error(
-                    publish_update_result("diagnostic-ui", aggregate),
-                    &aggregate
-                );
+
+            if (diagnostic_due) {
+                last_diagnostic_sample = now;
+                if (!diagnostic_result_published) {
+                    record_first_error(
+                        publish_update_result(
+                            "diagnostic-ui",
+                            aggregate
+                        ),
+                        &aggregate
+                    );
+                }
+                if (aggregate != ESP_OK) {
+                    ESP_LOGW(
+                        TAG,
+                        "Diagnostic sample failed (%s)",
+                        esp_err_to_name(aggregate)
+                    );
+                }
+                if (s_diagnostic_stack_report_pending.exchange(
+                        false,
+                        std::memory_order_relaxed
+                    )) {
+                    ESP_LOGI(
+                        TAG,
+                        "Hardware monitor stack high-water mark: %lu bytes",
+                        static_cast<unsigned long>(
+                            uxTaskGetStackHighWaterMark(nullptr) *
+                            sizeof(StackType_t)
+                        )
+                    );
+                }
             }
-            if (aggregate != ESP_OK) {
-                ESP_LOGW(
-                    TAG,
-                    "Diagnostic sample failed (%s)",
-                    esp_err_to_name(aggregate)
+        } else {
+            last_diagnostic_sample = 0;
+        }
+
+        if (s_orientation.desired_rendering_degrees !=
+            s_orientation.applied_rendering_degrees) {
+            SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+            if (refresh_mutex != nullptr &&
+                xSemaphoreTake(
+                    refresh_mutex,
+                    pdMS_TO_TICKS(250)
+                ) == pdTRUE) {
+                (void)apply_pending_display_rotation();
+                (void)give_refresh_mutex(
+                    refresh_mutex,
+                    "Cardinal display rotation"
                 );
             }
         }
-        const uint32_t delay_ms = monitor_active
-            ? s_diagnostic_period_ms.load(std::memory_order_relaxed)
-            : 250U;
+
+        const uint32_t delay_ms =
+            auto_rotation_active ||
+            s_orientation.desired_rendering_degrees !=
+                s_orientation.applied_rendering_degrees
+                ? kOrientationSamplePeriodMs
+                : monitor_active
+                      ? s_diagnostic_period_ms.load(std::memory_order_relaxed)
+                      : 250U;
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
@@ -3758,6 +4475,37 @@ void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
 
 }  // namespace qsee
 
+// Allocate and start the shared diagnostics/orientation task once.
+static esp_err_t ensure_hardware_monitor_task_locked()
+{
+    if (s_diagnostic_monitor_started) {
+        return ESP_OK;
+    }
+
+    const esp_err_t allocation_error =
+        ensure_diagnostic_stage_snapshot();
+    if (allocation_error != ESP_OK) {
+        return allocation_error;
+    }
+    s_diagnostic_monitor_active.store(false, std::memory_order_relaxed);
+    TaskHandle_t task = xTaskCreateStatic(
+        diagnostic_monitor_task,
+        "qsee_diag_monitor",
+        sizeof(s_diagnostic_task_stack) / sizeof(s_diagnostic_task_stack[0]),
+        nullptr,
+        3,
+        s_diagnostic_task_stack,
+        &s_diagnostic_task_control
+    );
+    s_diagnostic_monitor_started = task != nullptr;
+    if (!s_diagnostic_monitor_started) {
+        ESP_LOGE(TAG, "Hardware monitor task creation failed");
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "Hardware diagnostics/orientation monitor ready");
+    return ESP_OK;
+}
+
 extern "C" esp_err_t qsee_hardware_init(void)
 {
     return qsee::DeviceSnapshotService::instance().initialize();
@@ -3787,30 +4535,204 @@ extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
     }
 
     std::lock_guard<std::mutex> lock(s_diagnostic_settings_mutex);
-    if (!s_diagnostic_monitor_started) {
-        s_diagnostic_monitor_active.store(false, std::memory_order_relaxed);
-        TaskHandle_t task = xTaskCreateStatic(
-            diagnostic_monitor_task,
-            "qsee_diag_monitor",
-            sizeof(s_diagnostic_task_stack) / sizeof(s_diagnostic_task_stack[0]),
-            nullptr,
-            3,
-            s_diagnostic_task_stack,
-            &s_diagnostic_task_control
-        );
-        s_diagnostic_monitor_started = task != nullptr;
-        if (!s_diagnostic_monitor_started) {
-            publish_diagnostic_monitor(ESP_ERR_NO_MEM);
-            ESP_LOGE(TAG, "Diagnostic monitor task creation failed");
-            return ESP_ERR_NO_MEM;
-        }
+    const esp_err_t task_error =
+        ensure_hardware_monitor_task_locked();
+    if (task_error != ESP_OK) {
+        publish_diagnostic_monitor(task_error);
+        return task_error;
     }
 
+    if (enabled) {
+        s_diagnostic_stack_report_pending.store(true, std::memory_order_relaxed);
+    }
     s_diagnostic_monitor_active.store(enabled, std::memory_order_relaxed);
     publish_diagnostic_monitor(ESP_OK);
     ESP_LOGI(TAG, "Diagnostic monitor: %s",
              enabled ? "active" : "standby");
     return ESP_OK;
+}
+
+// Change rotation state only after the shared monitor and snapshot are ready.
+static esp_err_t set_auto_rotation_runtime(bool enabled)
+{
+    if (!s_initialized || !s_imu_ready) {
+        ESP_LOGE(
+            TAG,
+            "Auto-rotation rejected: hardware or IMU is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_diagnostic_settings_mutex);
+    const esp_err_t task_error =
+        ensure_hardware_monitor_task_locked();
+    if (task_error != ESP_OK) {
+        return task_error;
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    s_auto_rotation_enabled.store(enabled, std::memory_order_relaxed);
+    (void)observe_auto_rotation_state(enabled);
+    const esp_err_t publication_error = publish_orientation_state();
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex,
+        "Auto-rotation runtime update"
+    );
+    if (publication_error != ESP_OK) {
+        return publication_error;
+    }
+    return release_error;
+}
+
+// Persist the preference before changing the active sampling policy.
+extern "C" esp_err_t qsee_display_set_auto_rotation_enabled(bool enabled)
+{
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Auto-rotation settings initialization failed (%s)",
+            esp_err_to_name(init_error)
+        );
+        return init_error;
+    }
+
+    auto &settings = qsee::UserSettingsService::instance();
+    const esp_err_t persist_error =
+        settings.setBool(kAutoRotationSetting, enabled);
+    if (persist_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Auto-rotation preference persistence failed (%s)",
+            esp_err_to_name(persist_error)
+        );
+        return persist_error;
+    }
+
+    const esp_err_t runtime_error =
+        set_auto_rotation_runtime(enabled);
+    if (runtime_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Persisted auto-rotation could not be applied (%s)",
+            esp_err_to_name(runtime_error)
+        );
+        return runtime_error;
+    }
+    ESP_LOGI(
+        TAG,
+        "Cardinal display auto-rotation: %s",
+        enabled ? "on" : "off"
+    );
+    return ESP_OK;
+}
+
+extern "C" bool qsee_display_get_auto_rotation_enabled(void)
+{
+    return s_auto_rotation_enabled.load(std::memory_order_relaxed);
+}
+
+// Restore both saved values exactly; invalid persisted data requires an explicit reset.
+extern "C" esp_err_t qsee_display_apply_saved_auto_rotation(void)
+{
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        return init_error;
+    }
+    auto &settings = qsee::UserSettingsService::instance();
+
+    bool enabled = false;
+    esp_err_t error = load_or_create_bool_setting(
+        settings,
+        kAutoRotationSetting,
+        "Cardinal display auto-rotation",
+        true,
+        &enabled
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+
+    uint32_t saved_rendering_degrees = 0;
+    error = load_or_create_uint32_setting(
+        settings,
+        kDisplayRotationSetting,
+        "Cardinal display rotation",
+        0,
+        0,
+        270,
+        &saved_rendering_degrees
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!is_cardinal_rotation(saved_rendering_degrees)) {
+        ESP_LOGE(
+            TAG,
+            "Persisted display rotation is non-cardinal: %lu",
+            static_cast<unsigned long>(saved_rendering_degrees)
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const uint16_t applied_degrees = static_cast<uint16_t>(
+        static_cast<unsigned>(bsp_display_rotation_get()) * 90U
+    );
+    s_orientation.persisted_rendering_valid = true;
+    s_orientation.persisted_rendering_degrees =
+        static_cast<uint16_t>(saved_rendering_degrees);
+    s_orientation.applied_rendering_degrees = applied_degrees;
+    s_orientation.physical_degrees = rendering_rotation_for_physical(
+        static_cast<uint16_t>(saved_rendering_degrees)
+    );
+    s_orientation.desired_rendering_degrees =
+        static_cast<uint16_t>(saved_rendering_degrees);
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(s_orientation.physical_degrees);
+    s_orientation.gyro_sampled_at_us = 0;
+    s_orientation.candidate_valid = false;
+    const int64_t restored_at_us = esp_timer_get_time();
+    s_orientation.sampled_at_us = restored_at_us;
+    if (s_orientation.desired_rendering_degrees !=
+        s_orientation.applied_rendering_degrees) {
+        ++s_orientation.change_sequence;
+        s_orientation.changed_at_us = restored_at_us;
+    }
+    mark_sample_success(s_orientation.component, restored_at_us);
+    const esp_err_t publication_error = publish_orientation_state();
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex,
+        "Saved cardinal rotation restore"
+    );
+    if (publication_error != ESP_OK) {
+        return publication_error;
+    }
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "Restored display state: auto-rotation=%s rendering=%lu deg",
+        enabled ? "on" : "off",
+        static_cast<unsigned long>(saved_rendering_degrees)
+    );
+    return set_auto_rotation_runtime(enabled);
 }
 
 extern "C" esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms)

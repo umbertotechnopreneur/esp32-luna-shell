@@ -1,7 +1,7 @@
 # QSee.ai round-device firmware
 
 Firmware and Windows simulator for the QSee.ai application on the GPS variant
-of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
+of the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp32-s3-touch-amoled-1.75.html) and its [wiki page](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75).
 
 The device application uses the official Espressif ESP-Brookesia 0.8 stack:
 System Super owns the system shell and services, System Core owns the native

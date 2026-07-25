@@ -310,8 +310,31 @@ void writeUi(qsee::HttpJsonWriter &json, const qsee::UiHardwareSnapshot &ui)
     writeComponentFields(json, ui.touch);
     (void)json.raw(",\"brightness\":");
     writeComponentFields(json, ui.brightness);
-    (void)json.format(",\"brightness_percent\":%lu}",
-                      static_cast<unsigned long>(ui.brightness_percent));
+    (void)json.format(
+        ",\"brightness_percent\":%lu,\"orientation\":{\"health\":",
+        static_cast<unsigned long>(ui.brightness_percent)
+    );
+    (void)json.quoted(qsee::deviceHealthName(ui.orientation.health));
+    (void)json.raw(",\"last_error\":");
+    (void)json.quoted(esp_err_to_name(ui.orientation.last_error));
+    (void)json.raw(",\"data_valid\":");
+    (void)json.boolean(ui.orientation.data_valid);
+    (void)json.raw(",\"data_stale\":");
+    (void)json.boolean(ui.orientation.data_stale);
+    (void)json.raw(",\"auto_rotation_enabled\":");
+    (void)json.boolean(ui.orientation.auto_rotation_enabled);
+    (void)json.raw(",\"gravity_valid\":");
+    (void)json.boolean(ui.orientation.gravity_valid);
+    (void)json.raw(",\"rotation_pending\":");
+    (void)json.boolean(ui.orientation.rotation_pending);
+    (void)json.format(
+        ",\"physical_degrees\":%u,\"rendering_degrees\":%u,\"change_sequence\":%lu,\"sampled_at_us\":%lld,\"changed_at_us\":%lld}",
+        static_cast<unsigned>(ui.orientation.physical_orientation_degrees),
+        static_cast<unsigned>(ui.orientation.rendering_rotation_degrees),
+        static_cast<unsigned long>(ui.orientation.change_sequence),
+        static_cast<long long>(ui.orientation.sampled_at_us),
+        static_cast<long long>(ui.orientation.changed_at_us)
+    );
     (void)json.raw("}");
 }
 

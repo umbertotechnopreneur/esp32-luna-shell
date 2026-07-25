@@ -126,6 +126,18 @@ void brookesia_task()
 {
     if (!start_brookesia()) {
         ESP_LOGE(kTag, "Brookesia launch failed; canonical logger remains active");
+        return;
+    }
+
+    const esp_err_t rotation_result =
+        qsee_display_apply_saved_auto_rotation();
+    if (rotation_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Saved display auto-rotation could not start: %s",
+            esp_err_to_name(rotation_result)
+        );
+        return;
     }
 
     const UBaseType_t stack_remaining_words = uxTaskGetStackHighWaterMark(nullptr);

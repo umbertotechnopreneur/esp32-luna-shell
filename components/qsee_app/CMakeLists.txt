@@ -1,5 +1,8 @@
 idf_component_register(
-    SRCS "qsee_app.cpp"
+    SRCS
+        "qsee_app.cpp"
+        "qsee_adaptive_command_bar.cpp"
+        "qsee_background_asset.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         brookesia_system_core

@@ -19,10 +19,13 @@
 #include <string_view>
 
 #include "brookesia/system_core.hpp"
+#include "qsee_adaptive_command_bar.hpp"
 
 namespace qsee {
 
 inline constexpr std::string_view kAppManifestId = "ai.qsee.device-console";
+
+struct DeviceSnapshot;
 
 class App final : public esp_brookesia::system::core::IApp {
 public:
@@ -57,6 +60,7 @@ private:
         Logs,
         Hardware,
         Audio,
+        AudioFft,
         Imu,
         Settings,
         About,
@@ -67,8 +71,20 @@ private:
         Screen screen,
         std::string_view action
     );
+    // Register the route-specific command and status paths with the adaptive controller.
+    std::expected<void, std::string> configure_adaptive_chrome(
+        esp_brookesia::system::core::AppContext &context
+    );
     std::expected<void, std::string> refresh(
         esp_brookesia::system::core::AppContext &context
+    );
+    // Register and bind the PSRAM background only after its worker publishes it.
+    std::expected<void, std::string> refresh_background(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_chrome(
+        esp_brookesia::system::core::AppContext &context,
+        const DeviceSnapshot &snapshot
     );
     std::expected<void, std::string> refresh_welcome(
         esp_brookesia::system::core::AppContext &context
@@ -80,6 +96,9 @@ private:
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_audio(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_audio_fft(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_imu(
@@ -116,6 +135,9 @@ private:
     Screen screen_ = Screen::Welcome;
     bool logs_paused_ = false;
     bool logs_follow_latest_ = true;
+    bool background_registered_ = false;
+    bool background_bound_ = false;
+    AdaptiveCommandBar adaptive_command_bar_;
     uint8_t log_filter_mode_ = 0;
     int64_t diagnostic_activation_sample_at_us_ = 0;
     std::string log_query_;

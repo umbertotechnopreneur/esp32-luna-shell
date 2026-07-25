@@ -1,0 +1,25 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_background",
+    "node": {
+        "type": "image",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "bindings": {
+            "imageProps.src": "src"
+        },
+        "imageProps": {
+            "src": "",
+            "innerAlign": "stretch"
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "466dp",
+            "height": "466dp"
+        }
+    }
+}

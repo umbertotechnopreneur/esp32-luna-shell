@@ -18,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 #include <memory>
 #include <new>
 #include <string>
@@ -25,6 +26,7 @@
 #include <vector>
 
 #include "esp_log.h"
+#include "qsee_background_asset.hpp"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
@@ -41,7 +43,18 @@ constexpr char kTag[] = "qsee_app";
 constexpr char kGuiRoot[] = "res/root.json";
 constexpr char kScreenFlow[] = "qsee_content";
 constexpr char kRefreshTimer[] = "qsee.refresh";
+constexpr char kBackgroundImageId[] = "qsee.background";
 constexpr size_t kLogBufferBytes = 4096;
+constexpr char kStatusReady[] = "#20dfc1";
+constexpr char kStatusWarning[] = "#f0b44d";
+constexpr char kStatusMissing[] = "#eb4d5c";
+constexpr char kStatusFault[] = "#ff3859";
+constexpr char kStatusMuted[] = "#607889";
+constexpr double kAudioMeterFloorDbfs = -60.0;
+constexpr double kPcm16FullScale = 32768.0;
+constexpr std::array<uint32_t, 7> kChromeTimeoutSeconds = {
+    10U, 15U, 30U, 60U, 120U, 300U, 600U,
+};
 // Fifteen worst-case 256-byte ring lines fit in the persistent 4 KB buffer.
 constexpr size_t kLogSnapshotLines = 15;
 
@@ -92,6 +105,112 @@ bool component_ready(const qsee::ComponentSnapshot &component)
     return component.health == qsee::DeviceHealth::Ready &&
            component.last_error == ESP_OK &&
            component.data_valid && !component.data_stale;
+}
+
+// Convert one validated unsigned PCM16 peak to a finite dBFS floor.
+double audio_peak_dbfs(uint32_t peak)
+{
+    if (peak == 0U) {
+        return kAudioMeterFloorDbfs;
+    }
+    const double normalized = std::min(
+        1.0,
+        static_cast<double>(peak) / kPcm16FullScale
+    );
+    return 20.0 * std::log10(normalized);
+}
+
+// Preserve low-level microphone visibility on the logarithmic meter.
+int audio_peak_meter_value(uint32_t peak)
+{
+    if (peak == 0U) {
+        return 0;
+    }
+    const double dbfs = std::max(
+        kAudioMeterFloorDbfs,
+        audio_peak_dbfs(peak)
+    );
+    return static_cast<int>(
+        ((dbfs - kAudioMeterFloorDbfs) * 100.0 /
+         -kAudioMeterFloorDbfs) +
+        0.5
+    );
+}
+
+// Report a real peak in both full-scale percentage and dBFS.
+void format_audio_peak(
+    char *text,
+    size_t text_size,
+    unsigned channel,
+    uint32_t peak
+)
+{
+    const double percent_full_scale = std::min(
+        100.0,
+        static_cast<double>(peak) * 100.0 / kPcm16FullScale
+    );
+    if (peak == 0U) {
+        std::snprintf(
+            text,
+            text_size,
+            "PEAK CH%u  %.2f %%FS | -inf dBFS",
+            channel,
+            percent_full_scale
+        );
+        return;
+    }
+    std::snprintf(
+        text,
+        text_size,
+        "PEAK CH%u  %.2f %%FS | %.1f dBFS",
+        channel,
+        percent_full_scale,
+        audio_peak_dbfs(peak)
+    );
+}
+
+// Map only canonical component health to the status-bar semantic palette.
+const char *component_status_color(const qsee::ComponentSnapshot &component)
+{
+    if (component.last_error != ESP_OK) {
+        return kStatusFault;
+    }
+    if (component.data_stale) {
+        return kStatusWarning;
+    }
+    switch (component.health) {
+    case qsee::DeviceHealth::Ready:
+        return component.data_valid ? kStatusReady : kStatusWarning;
+    case qsee::DeviceHealth::Degraded:
+        return kStatusWarning;
+    case qsee::DeviceHealth::Missing:
+        return kStatusMissing;
+    case qsee::DeviceHealth::Unknown:
+        return kStatusMuted;
+    }
+    std::abort();
+}
+
+// Select the battery glyph from a validated percentage without inventing a level.
+const char *battery_status_icon(const qsee::BatterySnapshot &battery)
+{
+    if (!component_ready(battery) || !battery.battery_present ||
+        battery.level_percent < 0 || battery.level_percent > 100) {
+        return "\xef\x89\x84";
+    }
+    if (battery.level_percent <= 12) {
+        return "\xef\x89\x84";
+    }
+    if (battery.level_percent <= 35) {
+        return "\xef\x89\x83";
+    }
+    if (battery.level_percent <= 60) {
+        return "\xef\x89\x82";
+    }
+    if (battery.level_percent <= 85) {
+        return "\xef\x89\x81";
+    }
+    return "\xef\x89\x80";
 }
 
 bool gps_fix_valid(const qsee::GpsSnapshot &gps)
@@ -188,20 +307,6 @@ void format_component_status(
         component_state(component),
         component_reason(component)
     );
-}
-
-const char *log_filter_name(uint8_t mode)
-{
-    switch (mode) {
-    case 1:
-        return "WARN";
-    case 2:
-        return "ERROR";
-    case 3:
-        return "INFO";
-    default:
-        return "ALL";
-    }
 }
 
 bool log_line_matches(const char *line, const std::string &query, uint8_t filter_mode)
@@ -315,6 +420,27 @@ std::expected<void, std::string> set_hidden(
     return {};
 }
 
+std::expected<void, std::string> set_binding_text(
+    AppContext &context,
+    std::string_view path,
+    std::string_view binding,
+    std::string_view value
+)
+{
+    auto result = context.gui().set_binding_value(
+        path,
+        binding,
+        std::string(value)
+    );
+    if (!result) {
+        return std::unexpected(
+            "Failed to update QSee binding '" + std::string(path) + "/" +
+            std::string(binding) + "': " + result.error()
+        );
+    }
+    return {};
+}
+
 }  // namespace
 
 namespace qsee {
@@ -364,6 +490,8 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     screen_ = Screen::Welcome;
     logs_paused_ = false;
     logs_follow_latest_ = true;
+    background_registered_ = false;
+    background_bound_ = false;
     log_filter_mode_ = 0;
     diagnostic_activation_sample_at_us_ = 0;
     log_query_.clear();
@@ -377,18 +505,28 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     }
     log_source_buffer_[0] = '\0';
     log_filtered_buffer_[0] = '\0';
+    BackgroundAssetCache::instance().request();
+    if (auto result = adaptive_command_bar_.begin(); !result) {
+        log_source_buffer_.reset();
+        log_filtered_buffer_.reset();
+        context_ = nullptr;
+        return result;
+    }
 
     const std::vector<std::string> actions = {
+        "qsee.chrome.activity",
         "qsee.open.welcome",
         "qsee.open.logs",
         "qsee.open.hardware",
         "qsee.open.audio",
+        "qsee.open.audio_fft",
         "qsee.open.imu",
         "qsee.open.settings",
         "qsee.open.about",
         "qsee.logs.back",
         "qsee.hardware.back",
         "qsee.audio.back",
+        "qsee.audio_fft.back",
         "qsee.imu.back",
         "qsee.settings.back",
         "qsee.about.back",
@@ -407,6 +545,8 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         "qsee.settings.radios.start",
         "qsee.settings.display.brightness_down",
         "qsee.settings.display.brightness_up",
+        "qsee.settings.display.rotation.toggle",
+        "qsee.settings.chrome.timeout.next",
     };
     auto subscription_result = context.gui().subscribe_actions(actions);
     if (!subscription_result) {
@@ -417,9 +557,17 @@ std::expected<void, std::string> App::on_start(AppContext &context)
             "Failed to subscribe QSee UI actions: " + subscription_result.error()
         );
     }
+    if (auto result = configure_adaptive_chrome(context); !result) {
+        adaptive_command_bar_.shutdown(context.gui());
+        log_source_buffer_.reset();
+        log_filtered_buffer_.reset();
+        context_ = nullptr;
+        return result;
+    }
 
     const esp_err_t monitor_result = qsee_hardware_set_diagnostic_monitor(false);
     if (monitor_result != ESP_OK) {
+        adaptive_command_bar_.shutdown(context.gui());
         log_source_buffer_.reset();
         log_filtered_buffer_.reset();
         context_ = nullptr;
@@ -431,6 +579,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 
     auto timer_result = context.timer().start_periodic(kRefreshTimer, 1000);
     if (!timer_result) {
+        adaptive_command_bar_.shutdown(context.gui());
         log_source_buffer_.reset();
         log_filtered_buffer_.reset();
         context_ = nullptr;
@@ -444,6 +593,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
             ESP_LOGE(kTag, "Failed to stop QSee refresh timer after startup failure");
         }
         refresh_timer_ = esp_brookesia::system::core::INVALID_TIMER_ID;
+        adaptive_command_bar_.shutdown(context.gui());
         log_source_buffer_.reset();
         log_filtered_buffer_.reset();
         context_ = nullptr;
@@ -456,7 +606,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
-    (void)context;
+    adaptive_command_bar_.shutdown(context.gui());
     const esp_err_t result = qsee_hardware_set_diagnostic_monitor(false);
     if (result != ESP_OK) {
         return std::unexpected(
@@ -472,11 +622,15 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     if (auto result = apply_diagnostic_monitor(context, screen_); !result) {
         return result;
     }
+    if (auto result = configure_adaptive_chrome(context); !result) {
+        return result;
+    }
     return refresh(context);
 }
 
 std::expected<void, std::string> App::on_stop(AppContext &context)
 {
+    adaptive_command_bar_.shutdown(context.gui());
     const esp_err_t monitor_result = qsee_hardware_set_diagnostic_monitor(false);
     std::string stop_error;
     if (monitor_result != ESP_OK) {
@@ -532,6 +686,15 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         }
         error_dialog_ = esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
     }
+    if (background_registered_ &&
+        !context.gui().unregister_image(kBackgroundImageId)) {
+        ESP_LOGE(kTag, "Failed to unregister QSee background image");
+        if (stop_error.empty()) {
+            stop_error = "Failed to unregister QSee background image";
+        }
+    }
+    background_registered_ = false;
+    background_bound_ = false;
 
     log_source_buffer_.reset();
     log_filtered_buffer_.reset();
@@ -548,11 +711,14 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
     Screen screen
 )
 {
-    const bool enabled = screen == Screen::Audio || screen == Screen::Imu;
+    const bool enabled =
+        screen == Screen::Audio ||
+        screen == Screen::AudioFft ||
+        screen == Screen::Imu;
     if (enabled) {
         const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
         diagnostic_activation_sample_at_us_ =
-            screen == Screen::Audio
+            screen == Screen::Audio || screen == Screen::AudioFft
                 ? snapshot.audio.microphone.last_success_at_us
                 : snapshot.imu.last_success_at_us;
     }
@@ -583,6 +749,116 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
     return std::unexpected(details.data());
 }
 
+// Select only the lower commands and passive status chrome for the active route.
+std::expected<void, std::string> App::configure_adaptive_chrome(
+    AppContext &context
+)
+{
+    static constexpr std::array<std::string_view, 0> kNoControls{};
+    static constexpr std::array<std::string_view, 6> kWelcomeControls = {
+        "/qsee_welcome/surface/menu/logs",
+        "/qsee_welcome/surface/menu/audio",
+        "/qsee_welcome/surface/menu/imu",
+        "/qsee_welcome/surface/menu/hardware",
+        "/qsee_welcome/surface/menu/about",
+        "/qsee_welcome/surface/menu/settings",
+    };
+    static constexpr std::array<std::string_view, 5> kLogControls = {
+        "/qsee_logs/surface/controls/pause",
+        "/qsee_logs/surface/controls/clear",
+        "/qsee_logs/surface/controls/follow",
+        "/qsee_logs/surface/controls/filter",
+        "/qsee_logs/surface/controls/search",
+    };
+    static constexpr std::array<std::string_view, 1> kAudioControls = {
+        "/qsee_audio/fft",
+    };
+    static constexpr std::array<std::string_view, 1> kWelcomeVisuals = {
+        "/qsee_welcome/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kLogVisuals = {
+        "/qsee_logs/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kHardwareVisuals = {
+        "/qsee_hardware/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kAudioVisuals = {
+        "/qsee_audio/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kAudioFftVisuals = {
+        "/qsee_audio_fft/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kImuVisuals = {
+        "/qsee_imu/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kSettingsVisuals = {
+        "/qsee_settings/chrome/status",
+    };
+    static constexpr std::array<std::string_view, 1> kAboutVisuals = {
+        "/qsee_about/chrome/status",
+    };
+
+    switch (screen_) {
+    case Screen::Welcome:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kWelcomeControls,
+            kWelcomeVisuals,
+            "/qsee_welcome/chrome/wake"
+        );
+    case Screen::Logs:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kLogControls,
+            kLogVisuals,
+            "/qsee_logs/chrome/wake"
+        );
+    case Screen::Hardware:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kNoControls,
+            kHardwareVisuals,
+            "/qsee_hardware/chrome/wake"
+        );
+    case Screen::Audio:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kAudioControls,
+            kAudioVisuals,
+            "/qsee_audio/chrome/wake"
+        );
+    case Screen::AudioFft:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kNoControls,
+            kAudioFftVisuals,
+            "/qsee_audio_fft/chrome/wake"
+        );
+    case Screen::Imu:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kNoControls,
+            kImuVisuals,
+            "/qsee_imu/chrome/wake"
+        );
+    case Screen::Settings:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kNoControls,
+            kSettingsVisuals,
+            "/qsee_settings/chrome/wake"
+        );
+    case Screen::About:
+        return adaptive_command_bar_.activate(
+            context.gui(),
+            kNoControls,
+            kAboutVisuals,
+            "/qsee_about/chrome/wake"
+        );
+    }
+    return std::unexpected("Unknown QSee route for adaptive chrome");
+}
+
 std::expected<void, std::string> App::open_screen(
     AppContext &context,
     Screen screen,
@@ -594,6 +870,9 @@ std::expected<void, std::string> App::open_screen(
         return std::unexpected("QSee navigation failed: " + result.error());
     }
     screen_ = screen;
+    if (auto chrome_result = configure_adaptive_chrome(context); !chrome_result) {
+        return chrome_result;
+    }
     if (auto monitor_result = apply_diagnostic_monitor(context, screen); !monitor_result) {
         return monitor_result;
     }
@@ -605,6 +884,12 @@ std::expected<void, std::string> App::on_action(
     std::string_view action
 )
 {
+    if (auto result = adaptive_command_bar_.note_activity(context.gui()); !result) {
+        return result;
+    }
+    if (action == "qsee.chrome.activity") {
+        return {};
+    }
     if (action == "qsee.open.welcome") {
         return open_screen(context, Screen::Welcome, action);
     }
@@ -617,6 +902,9 @@ std::expected<void, std::string> App::on_action(
     if (action == "qsee.open.audio") {
         return open_screen(context, Screen::Audio, action);
     }
+    if (action == "qsee.open.audio_fft") {
+        return open_screen(context, Screen::AudioFft, action);
+    }
     if (action == "qsee.open.imu") {
         return open_screen(context, Screen::Imu, action);
     }
@@ -625,6 +913,9 @@ std::expected<void, std::string> App::on_action(
     }
     if (action == "qsee.open.about") {
         return open_screen(context, Screen::About, action);
+    }
+    if (action == "qsee.audio_fft.back") {
+        return open_screen(context, Screen::Audio, "qsee.open.audio");
     }
     if (action == "qsee.logs.back" || action == "qsee.hardware.back" ||
         action == "qsee.audio.back" || action == "qsee.imu.back" ||
@@ -834,6 +1125,50 @@ std::expected<void, std::string> App::on_action(
         }
         return finish_settings_command(result, "Radio startup");
     }
+    if (action == "qsee.settings.display.rotation.toggle") {
+        const DeviceSnapshot snapshot =
+            DeviceSnapshotService::instance().snapshot();
+        if (!component_ready(snapshot.ui.orientation)) {
+            const esp_err_t error =
+                snapshot.ui.orientation.last_error != ESP_OK
+                    ? snapshot.ui.orientation.last_error
+                    : ESP_ERR_INVALID_STATE;
+            return finish_settings_command(error, "Automatic rotation");
+        }
+        return finish_settings_command(
+            qsee_display_set_auto_rotation_enabled(
+                !snapshot.ui.orientation.auto_rotation_enabled
+            ),
+            "Automatic rotation"
+        );
+    }
+    if (action == "qsee.settings.chrome.timeout.next") {
+        const uint32_t current = adaptive_command_bar_.timeout_seconds();
+        const auto current_it = std::find(
+            kChromeTimeoutSeconds.begin(),
+            kChromeTimeoutSeconds.end(),
+            current
+        );
+        if (current_it == kChromeTimeoutSeconds.end()) {
+            ESP_LOGE(
+                kTag,
+                "Adaptive chrome timeout is outside the declared presets: %lu s",
+                static_cast<unsigned long>(current)
+            );
+            return finish_settings_command(
+                ESP_ERR_INVALID_STATE,
+                "Adaptive interface timeout"
+            );
+        }
+        const auto next_it = std::next(current_it) ==
+                                     kChromeTimeoutSeconds.end()
+            ? kChromeTimeoutSeconds.begin()
+            : std::next(current_it);
+        return finish_settings_command(
+            adaptive_command_bar_.set_timeout_seconds(*next_it),
+            "Adaptive interface timeout"
+        );
+    }
     if (action == "qsee.settings.display.brightness_down" ||
         action == "qsee.settings.display.brightness_up") {
         const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -893,8 +1228,226 @@ std::expected<void, std::string> App::on_timer(
     return refresh(context);
 }
 
+// Refresh the reusable curved chrome from the same canonical device state.
+std::expected<void, std::string> App::refresh_chrome(
+    AppContext &context,
+    const DeviceSnapshot &snapshot
+)
+{
+    const char *screen_id = nullptr;
+    switch (screen_) {
+    case Screen::Welcome:
+        screen_id = "qsee_welcome";
+        break;
+    case Screen::Logs:
+        screen_id = "qsee_logs";
+        break;
+    case Screen::Hardware:
+        screen_id = "qsee_hardware";
+        break;
+    case Screen::Audio:
+        screen_id = "qsee_audio";
+        break;
+    case Screen::AudioFft:
+        screen_id = "qsee_audio_fft";
+        break;
+    case Screen::Imu:
+        screen_id = "qsee_imu";
+        break;
+    case Screen::Settings:
+        screen_id = "qsee_settings";
+        break;
+    case Screen::About:
+        screen_id = "qsee_about";
+        break;
+    }
+    if (auto result =
+            adaptive_command_bar_.update(context.gui(), snapshot);
+        !result) {
+        return result;
+    }
+
+    const auto update_status_item =
+        [&](const char *item, const char *color)
+        -> std::expected<void, std::string> {
+        std::array<char, 96> path{};
+        std::snprintf(
+            path.data(),
+            path.size(),
+            "/%s/chrome/status/%s/icon",
+            screen_id,
+            item
+        );
+        if (auto result =
+                set_binding_text(context, path.data(), "color", color);
+            !result) {
+            return result;
+        }
+        std::snprintf(
+            path.data(),
+            path.size(),
+            "/%s/chrome/status/%s/dot",
+            screen_id,
+            item
+        );
+        return set_binding_text(context, path.data(), "color", color);
+    };
+
+    const char *battery_color = component_status_color(snapshot.battery);
+    const char *usb_color = battery_color;
+    if (component_ready(snapshot.battery)) {
+        usb_color = snapshot.battery.usb_present ? kStatusReady : kStatusMuted;
+        if (!snapshot.battery.battery_present) {
+            battery_color = kStatusMuted;
+        } else if (snapshot.battery.level_percent < 0 ||
+                   snapshot.battery.level_percent > 100) {
+            battery_color = kStatusFault;
+        } else if (snapshot.battery.level_percent <= 12) {
+            battery_color = kStatusFault;
+        } else if (snapshot.battery.level_percent <= 30) {
+            battery_color = kStatusWarning;
+        }
+    }
+
+    const char *ble_color = component_status_color(snapshot.radios.ble);
+    if (component_ready(snapshot.radios.ble)) {
+        ble_color = snapshot.radios.ble.connected ||
+                    snapshot.radios.ble.provisioning ||
+                    snapshot.radios.ble.advertising
+                        ? kStatusReady
+                        : kStatusWarning;
+    }
+
+    const char *wifi_color = component_status_color(snapshot.radios.wifi);
+    if (component_ready(snapshot.radios.wifi)) {
+        wifi_color = snapshot.radios.wifi.connected
+            ? kStatusReady
+            : snapshot.radios.wifi.started ? kStatusWarning : kStatusMuted;
+    }
+
+    const char *gps_color = component_status_color(snapshot.gps);
+    if (component_ready(snapshot.gps)) {
+        gps_color = gps_fix_valid(snapshot.gps)
+            ? kStatusReady
+            : snapshot.gps.has_fix ? kStatusFault : kStatusWarning;
+    }
+
+    const char *sd_color = component_status_color(snapshot.storage);
+    if (storage_cleanup_failed(snapshot.storage)) {
+        sd_color = kStatusFault;
+    } else if (storage_format_required(snapshot.storage)) {
+        sd_color = kStatusWarning;
+    } else if (storage_mounted_ready(snapshot.storage)) {
+        sd_color = kStatusReady;
+    }
+
+    if (auto result = update_status_item("usb", usb_color); !result) {
+        return result;
+    }
+    if (auto result = update_status_item("battery", battery_color); !result) {
+        return result;
+    }
+    if (auto result = update_status_item("ble", ble_color); !result) {
+        return result;
+    }
+    if (auto result = update_status_item("wifi", wifi_color); !result) {
+        return result;
+    }
+    if (auto result = update_status_item("gps", gps_color); !result) {
+        return result;
+    }
+    if (auto result = update_status_item("sd", sd_color); !result) {
+        return result;
+    }
+
+    std::array<char, 96> battery_path{};
+    std::snprintf(
+        battery_path.data(),
+        battery_path.size(),
+        "/%s/chrome/status/battery/icon",
+        screen_id
+    );
+    return set_binding_text(
+        context,
+        battery_path.data(),
+        "icon",
+        battery_status_icon(snapshot.battery)
+    );
+}
+
+// Publish the original radial atmosphere through Brookesia's native image registry.
+std::expected<void, std::string> App::refresh_background(AppContext &context)
+{
+    auto &asset = BackgroundAssetCache::instance();
+    if (asset.failed()) {
+        return std::unexpected(
+            "QSee background generation failed; inspect qsee_background logs"
+        );
+    }
+
+    const lv_image_dsc_t *image = asset.image();
+    if (image == nullptr) {
+        return {};
+    }
+
+    if (!background_registered_) {
+        auto result = context.gui().register_image(
+            esp_brookesia::gui::RuntimeImageResource{
+                .id = kBackgroundImageId,
+                .primary_src = "",
+                .native_src = reinterpret_cast<uintptr_t>(image),
+                .width = 466,
+                .height = 466,
+                .preload = false,
+            }
+        );
+        if (!result) {
+            return std::unexpected(
+                "Failed to register QSee background image: " + result.error()
+            );
+        }
+        background_registered_ = true;
+    }
+
+    if (background_bound_) {
+        return {};
+    }
+
+    constexpr std::array<std::string_view, 8> kScreenIds = {
+        "qsee_welcome",
+        "qsee_logs",
+        "qsee_hardware",
+        "qsee_audio",
+        "qsee_audio_fft",
+        "qsee_imu",
+        "qsee_settings",
+        "qsee_about",
+    };
+    for (std::string_view screen_id : kScreenIds) {
+        std::array<char, 64> path{};
+        std::snprintf(
+            path.data(),
+            path.size(),
+            "/%.*s/background",
+            static_cast<int>(screen_id.size()),
+            screen_id.data()
+        );
+        if (auto result =
+                set_binding_text(context, path.data(), "src", kBackgroundImageId);
+            !result) {
+            return result;
+        }
+    }
+    background_bound_ = true;
+    ESP_LOGI(kTag, "QSee radial background bound through Brookesia");
+    return {};
+}
+
 std::expected<void, std::string> App::refresh(AppContext &context)
 {
+    if (auto result = refresh_background(context); !result) {
+        return result;
+    }
     switch (screen_) {
     case Screen::Welcome:
         return refresh_welcome(context);
@@ -904,12 +1457,17 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_hardware(context);
     case Screen::Audio:
         return refresh_audio(context);
+    case Screen::AudioFft:
+        return refresh_audio_fft(context);
     case Screen::Imu:
         return refresh_imu(context);
     case Screen::Settings:
         return refresh_settings(context);
-    case Screen::About:
-        return {};
+    case Screen::About: {
+        const DeviceSnapshot snapshot =
+            DeviceSnapshotService::instance().snapshot();
+        return refresh_chrome(context, snapshot);
+    }
     }
     return {};
 }
@@ -917,6 +1475,9 @@ std::expected<void, std::string> App::refresh(AppContext &context)
 std::expected<void, std::string> App::refresh_welcome(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
     std::array<char, 256> text{};
 
     const bool heap_valid =
@@ -1192,6 +1753,10 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
 
 std::expected<void, std::string> App::refresh_logs(AppContext &context)
 {
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
     if (log_source_buffer_ == nullptr || log_filtered_buffer_ == nullptr) {
         return std::unexpected("Persistent QSee log buffers are unavailable");
     }
@@ -1274,41 +1839,18 @@ std::expected<void, std::string> App::refresh_logs(AppContext &context)
 
     if (auto result = set_text(
             context,
-            "/qsee_logs/surface/controls/pause/label",
-            logs_paused_ ? "RESUME" : "PAUSE"
+            "/qsee_logs/surface/controls/pause/icon",
+            logs_paused_ ? "\xef\x81\x8b" : "\xef\x81\x8c"
         );
         !result) {
         return result;
     }
     if (auto result = set_text(
             context,
-            "/qsee_logs/surface/controls/follow/label",
-            logs_follow_latest_ ? "FOLLOW ON" : "FOLLOW OFF"
+            "/qsee_logs/surface/controls/follow/icon",
+            logs_follow_latest_ ? "\xef\x81\xae" : "\xef\x81\xb0"
         );
         !result) {
-        return result;
-    }
-
-    std::array<char, 64> label{};
-    std::snprintf(label.data(), label.size(), "FILTER %s", log_filter_name(log_filter_mode_));
-    if (auto result = set_text(
-            context,
-            "/qsee_logs/surface/controls/filter/label",
-            label.data()
-        ); !result) {
-        return result;
-    }
-    std::snprintf(
-        label.data(),
-        label.size(),
-        "SEARCH %s",
-        log_query_.empty() ? "ALL" : log_query_.c_str()
-    );
-    if (auto result = set_text(
-            context,
-            "/qsee_logs/surface/controls/search/label",
-            label.data()
-        ); !result) {
         return result;
     }
 
@@ -1339,6 +1881,9 @@ std::expected<void, std::string> App::refresh_logs(AppContext &context)
 std::expected<void, std::string> App::refresh_hardware(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
     std::array<char, 2048> details{};
     if (snapshot_available(snapshot)) {
         if (snapshot.last_update_complete && snapshot.last_update_error == ESP_OK) {
@@ -1617,25 +2162,15 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
         return result;
     }
 
-    const char *format_label = storage_cleanup_failed(snapshot.storage)
-        ? "SD CLEANUP ERROR"
-        : storage_format_required(snapshot.storage)
-            ? "FORMAT SD"
-            : storage_mounted_ready(snapshot.storage)
-                ? "SD READY"
-                : !snapshot.storage.card_response_verified
-                    ? "SD UNCONFIRMED"
-                    : component_state(snapshot.storage);
-    return set_text(
-        context,
-        "/qsee_hardware/surface/actions/format/label",
-        format_label
-    );
+    return {};
 }
 
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
     std::array<char, 256> status{};
     std::array<char, 256> values{};
     int level0 = 0;
@@ -1767,29 +2302,53 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
             static_cast<unsigned long>(snapshot.audio.sample_rate_hz),
             static_cast<long long>(snapshot.audio.microphone.last_success_at_us)
         );
-        level0 =
-            static_cast<int>(snapshot.audio.channel_mean_level[0] / 328U);
+        level0 = audio_peak_meter_value(
+            snapshot.audio.channel_peak_level[0]
+        );
         level0_valid = true;
+        std::array<char, 64> peak0{};
+        std::array<char, 64> peak1{};
+        format_audio_peak(
+            peak0.data(),
+            peak0.size(),
+            0U,
+            snapshot.audio.channel_peak_level[0]
+        );
         if (snapshot.audio.channel_count > 1) {
-            level1 =
-                static_cast<int>(snapshot.audio.channel_mean_level[1] / 328U);
+            level1 = audio_peak_meter_value(
+                snapshot.audio.channel_peak_level[1]
+            );
             level1_valid = true;
+            format_audio_peak(
+                peak1.data(),
+                peak1.size(),
+                1U,
+                snapshot.audio.channel_peak_level[1]
+            );
             std::snprintf(
                 values.data(),
                 values.size(),
-                "CH0 mean %lu peak %lu\nCH1 mean %lu peak %lu",
-                static_cast<unsigned long>(snapshot.audio.channel_mean_level[0]),
-                static_cast<unsigned long>(snapshot.audio.channel_peak_level[0]),
-                static_cast<unsigned long>(snapshot.audio.channel_mean_level[1]),
-                static_cast<unsigned long>(snapshot.audio.channel_peak_level[1])
+                "FORMAT     SIGNED PCM / 16-bit\n"
+                "RATE       %.2f kHz\n"
+                "CHANNELS   %u\n"
+                "%s\n"
+                "%s",
+                static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
+                static_cast<unsigned>(snapshot.audio.channel_count),
+                peak0.data(),
+                peak1.data()
             );
         } else {
             std::snprintf(
                 values.data(),
                 values.size(),
-                "CH0 mean %lu peak %lu\nCH1 UNAVAILABLE (CHANNEL NOT PRESENT)",
-                static_cast<unsigned long>(snapshot.audio.channel_mean_level[0]),
-                static_cast<unsigned long>(snapshot.audio.channel_peak_level[0])
+                "FORMAT     SIGNED PCM / 16-bit\n"
+                "RATE       %.2f kHz\n"
+                "CHANNELS   1\n"
+                "%s\n"
+                "PEAK CH1   UNAVAILABLE",
+                static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
+                peak0.data()
             );
         }
     }
@@ -1837,46 +2396,176 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
     return set_text(context, "/qsee_audio/surface/audio_values", values.data());
 }
 
+// Render the restored compact DFT bank without bypassing the Brookesia view tree.
+std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
+{
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    std::array<char, 160> status{};
+    bool spectrum_valid = true;
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM UNAVAILABLE (SNAPSHOT NOT READY)"
+        );
+        spectrum_valid = false;
+    } else if (!component_ready(snapshot.audio.microphone)) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM %s (%s)",
+            component_state(snapshot.audio.microphone),
+            component_reason(snapshot.audio.microphone)
+        );
+        spectrum_valid = false;
+    } else if (!component_ready(snapshot.diagnostics.monitor) ||
+               !snapshot.diagnostics.monitor_active) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM UNAVAILABLE (DIAGNOSTIC MONITOR OFF)"
+        );
+        spectrum_valid = false;
+    } else if (snapshot.audio.microphone.last_success_at_us <=
+               diagnostic_activation_sample_at_us_) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM STALE (WAITING FOR NEW SAMPLE)"
+        );
+        spectrum_valid = false;
+    } else if (snapshot.audio.channel_count != 2U ||
+               snapshot.audio.sample_rate_hz != 22050U ||
+               snapshot.audio.spectrum_sequence == 0U) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM ERROR (INVALID PCM OR FFT METADATA)"
+        );
+        spectrum_valid = false;
+    } else {
+        for (size_t channel = 0; channel < 2U && spectrum_valid; ++channel) {
+            for (size_t band = 0;
+                 band < kAudioSpectrumBandCount;
+                 ++band) {
+                if (snapshot.audio.channel_spectrum[channel][band] > 100U) {
+                    spectrum_valid = false;
+                    ESP_LOGE(
+                        kTag,
+                        "Invalid FFT bin: channel=%u band=%u value=%u",
+                        static_cast<unsigned>(channel),
+                        static_cast<unsigned>(band),
+                        static_cast<unsigned>(
+                            snapshot.audio.channel_spectrum[channel][band]
+                        )
+                    );
+                    break;
+                }
+            }
+        }
+        if (spectrum_valid) {
+            std::snprintf(
+                status.data(),
+                status.size(),
+                "SPECTRUM READY | SEQ %lu | 22.05 kHz",
+                static_cast<unsigned long>(snapshot.audio.spectrum_sequence)
+            );
+        } else {
+            std::snprintf(
+                status.data(),
+                status.size(),
+                "SPECTRUM ERROR (BIN OUT OF RANGE)"
+            );
+        }
+    }
+
+    if (auto result = set_text(
+            context,
+            "/qsee_audio_fft/surface/spectrum_status",
+            status.data()
+        ); !result) {
+        return result;
+    }
+    if (!spectrum_valid) {
+        return set_hidden(
+            context,
+            "/qsee_audio_fft/surface/bands",
+            true
+        );
+    }
+
+    for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
+        std::array<char, 80> path{};
+        for (size_t channel = 0; channel < 2U; ++channel) {
+            std::snprintf(
+                path.data(),
+                path.size(),
+                "/qsee_audio_fft/surface/bands/band%02u/mic%u",
+                static_cast<unsigned>(band),
+                static_cast<unsigned>(channel)
+            );
+            if (auto result = set_value(
+                    context,
+                    path.data(),
+                    snapshot.audio.channel_spectrum[channel][band]
+                ); !result) {
+                return result;
+            }
+        }
+    }
+    return set_hidden(context, "/qsee_audio_fft/surface/bands", false);
+}
+
+// Render only fresh canonical IMU samples into the restored instrument panel.
 std::expected<void, std::string> App::refresh_imu(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-    std::array<char, 512> text{};
-    if (!component_ready(snapshot.imu)) {
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    std::array<char, 160> status{};
+    std::array<char, 96> calibration{};
+    bool sample_valid = false;
+    if (!snapshot_available(snapshot)) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 %s\n%s\n\nIMU MEASUREMENTS %s",
-            component_state(snapshot.imu),
-            component_reason(snapshot.imu),
-            component_state(snapshot.imu)
+            status.data(),
+            status.size(),
+            "QMI8658 UNAVAILABLE (SNAPSHOT NOT READY)"
         );
-    } else if (!snapshot_available(snapshot)) {
+    } else if (!component_ready(snapshot.imu)) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 UNAVAILABLE\nSNAPSHOT NOT READY\n\nIMU MEASUREMENTS UNAVAILABLE"
+            status.data(),
+            status.size(),
+            "QMI8658 %s (%s)",
+            component_state(snapshot.imu),
+            component_reason(snapshot.imu)
         );
     } else if (!component_ready(snapshot.diagnostics.monitor)) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 %s\nMONITOR %s\n\nIMU MEASUREMENTS %s",
+            status.data(),
+            status.size(),
+            "QMI8658 UNAVAILABLE | MONITOR %s (%s)",
             component_state(snapshot.diagnostics.monitor),
-            component_reason(snapshot.diagnostics.monitor),
-            component_state(snapshot.diagnostics.monitor)
+            component_reason(snapshot.diagnostics.monitor)
         );
     } else if (!snapshot.diagnostics.monitor_active) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 UNAVAILABLE\nDIAGNOSTIC MONITOR OFF\n\n"
-            "IMU MEASUREMENTS UNAVAILABLE"
+            status.data(),
+            status.size(),
+            "QMI8658 UNAVAILABLE (DIAGNOSTIC MONITOR OFF)"
         );
-    } else if (snapshot.imu.last_success_at_us <= diagnostic_activation_sample_at_us_) {
+    } else if (snapshot.imu.last_success_at_us <=
+               diagnostic_activation_sample_at_us_) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 STALE\nWAITING FOR NEW SAMPLE\n\nIMU MEASUREMENTS STALE"
+            status.data(),
+            status.size(),
+            "QMI8658 STALE (WAITING FOR NEW SAMPLE)"
         );
     } else if (!std::isfinite(snapshot.imu.acceleration_mps2[0]) ||
                !std::isfinite(snapshot.imu.acceleration_mps2[1]) ||
@@ -1886,48 +2575,171 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
                !std::isfinite(snapshot.imu.angular_velocity_dps[2]) ||
                !std::isfinite(snapshot.imu.temperature_c)) {
         std::snprintf(
-            text.data(),
-            text.size(),
-            "QMI8658 ERROR\nNON-FINITE SENSOR SAMPLE\n\nIMU MEASUREMENTS ERROR"
+            status.data(),
+            status.size(),
+            "QMI8658 ERROR (NON-FINITE SENSOR SAMPLE)"
         );
     } else {
-        append_format(
-            text,
-            "QMI8658 READY | t=%lld us\n\n"
-            "ACC\nX %+.2f  Y %+.2f  Z %+.2f m/s2\n\n"
-            "GYRO\nX %+.2f  Y %+.2f  Z %+.2f dps\n\n"
-            "TEMP %.1f C\n",
-            static_cast<long long>(snapshot.imu.last_success_at_us),
-            snapshot.imu.acceleration_mps2[0],
-            snapshot.imu.acceleration_mps2[1],
-            snapshot.imu.acceleration_mps2[2],
-            snapshot.imu.angular_velocity_dps[0],
-            snapshot.imu.angular_velocity_dps[1],
-            snapshot.imu.angular_velocity_dps[2],
-            snapshot.imu.temperature_c
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "QMI8658 READY | t=%lld us",
+            static_cast<long long>(snapshot.imu.last_success_at_us)
         );
-        if (component_ready(snapshot.imu.calibration)) {
-            append_format(
-                text,
-                "CALIBRATION %s | %u samples",
-                snapshot.imu.calibrated ? "READY" : "PENDING",
-                static_cast<unsigned>(snapshot.imu.calibration_samples)
-            );
-        } else {
-            append_format(
-                text,
-                "CALIBRATION %s (%s)",
-                component_state(snapshot.imu.calibration),
-                component_reason(snapshot.imu.calibration)
-            );
+        sample_valid = true;
+    }
+
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            calibration.data(),
+            calibration.size(),
+            "CALIB UNAVAILABLE"
+        );
+    } else if (!component_ready(snapshot.imu.calibration)) {
+        std::snprintf(
+            calibration.data(),
+            calibration.size(),
+            "CALIB %s (%s)",
+            component_state(snapshot.imu.calibration),
+            component_reason(snapshot.imu.calibration)
+        );
+    } else {
+        std::snprintf(
+            calibration.data(),
+            calibration.size(),
+            "CALIB %s | %u",
+            snapshot.imu.calibrated ? "READY" : "PENDING",
+            static_cast<unsigned>(snapshot.imu.calibration_samples)
+        );
+    }
+
+    if (auto result = set_text(
+            context,
+            "/qsee_imu/surface/imu_status",
+            status.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_imu/surface/calibration",
+            calibration.data()
+        ); !result) {
+        return result;
+    }
+
+    static constexpr std::array<const char *, 3> kAccelPaths = {
+        "/qsee_imu/surface/accel_x",
+        "/qsee_imu/surface/accel_y",
+        "/qsee_imu/surface/accel_z",
+    };
+    static constexpr std::array<const char *, 3> kGyroPaths = {
+        "/qsee_imu/surface/gyro_x",
+        "/qsee_imu/surface/gyro_y",
+        "/qsee_imu/surface/gyro_z",
+    };
+    static constexpr std::array<const char *, 3> kGyroArcPaths = {
+        "/qsee_imu/surface/gyro_x_arc",
+        "/qsee_imu/surface/gyro_y_arc",
+        "/qsee_imu/surface/gyro_z_arc",
+    };
+
+    if (!sample_valid) {
+        for (size_t axis = 0; axis < kAccelPaths.size(); ++axis) {
+            if (auto result = set_text(context, kAccelPaths[axis], "--");
+                !result) {
+                return result;
+            }
+            if (auto result = set_text(context, kGyroPaths[axis], "--");
+                !result) {
+                return result;
+            }
+            if (auto result = set_hidden(context, kGyroArcPaths[axis], true);
+                !result) {
+                return result;
+            }
+        }
+        return set_text(context, "/qsee_imu/surface/temperature", "-- C");
+    }
+
+    std::array<char, 32> value{};
+    for (size_t axis = 0; axis < kAccelPaths.size(); ++axis) {
+        std::snprintf(
+            value.data(),
+            value.size(),
+            "%c %+.2f",
+            static_cast<int>('X' + axis),
+            snapshot.imu.acceleration_mps2[axis]
+        );
+        if (auto result = set_text(
+                context,
+                kAccelPaths[axis],
+                value.data()
+            ); !result) {
+            return result;
+        }
+
+        std::snprintf(
+            value.data(),
+            value.size(),
+            "%c %+.2f",
+            static_cast<int>('X' + axis),
+            snapshot.imu.angular_velocity_dps[axis]
+        );
+        if (auto result = set_text(
+                context,
+                kGyroPaths[axis],
+                value.data()
+            ); !result) {
+            return result;
+        }
+
+        const float normalized_activity = std::clamp(
+            std::fabs(snapshot.imu.angular_velocity_dps[axis]) / 128.0F,
+            0.0F,
+            1.0F
+        );
+        std::array<char, 12> opacity{};
+        std::snprintf(
+            opacity.data(),
+            opacity.size(),
+            "%d",
+            77 + static_cast<int>(
+                std::lround(normalized_activity * 178.0F)
+            )
+        );
+        if (auto result = set_binding_text(
+                context,
+                kGyroArcPaths[axis],
+                "opacity",
+                opacity.data()
+            ); !result) {
+            return result;
+        }
+        if (auto result = set_hidden(
+                context,
+                kGyroArcPaths[axis],
+                false
+            ); !result) {
+            return result;
         }
     }
-    return set_text(context, "/qsee_imu/surface/imu_values", text.data());
+
+    std::snprintf(
+        value.data(),
+        value.size(),
+        "%.1f C",
+        snapshot.imu.temperature_c
+    );
+    return set_text(context, "/qsee_imu/surface/temperature", value.data());
 }
 
 std::expected<void, std::string> App::refresh_settings(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
     std::array<char, 256> text{};
 
     if (!component_ready(snapshot.diagnostics.sample_period)) {
@@ -2094,9 +2906,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "/qsee_settings/surface/settings_scroller/mirror/label",
             component_ready(snapshot.storage.logger_mirror)
                 ? snapshot.storage.logger_mirror_requested
-                    ? "LOG MIRROR ON"
-                    : "LOG MIRROR OFF"
-                : component_state(snapshot.storage.logger_mirror)
+                    ? "\xef\x81\xae"
+                    : "\xef\x81\xb0"
+                : "\xef\x81\xb1"
         ); !result) {
         return result;
     }
@@ -2146,7 +2958,140 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     if (auto result = set_text(
             context,
             "/qsee_settings/surface/settings_scroller/radio_start/label",
-            "INITIALIZE / SCAN"
+            "\xef\x80\xa1"
+        ); !result) {
+        return result;
+    }
+
+    if (!component_ready(snapshot.radios.wifi)) {
+        std::array<char, 96> wifi_detail{};
+        format_component_status(wifi_detail, snapshot.radios.wifi);
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | %s",
+            wifi_detail.data()
+        );
+    } else if (snapshot.radios.wifi.connected &&
+               snapshot.radios.wifi.ssid[0] == '\0') {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | ERROR (CONNECTED WITHOUT SSID)"
+        );
+    } else if (snapshot.radios.wifi.ip_acquired &&
+               snapshot.radios.wifi.ip_address[0] == '\0') {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | ERROR (IP ACQUIRED WITHOUT ADDRESS)"
+        );
+    } else if (snapshot.radios.wifi.connected) {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | CONNECTED\nSSID %s | IP %s\nCH %u | RSSI %d dBm",
+            snapshot.radios.wifi.ssid,
+            snapshot.radios.wifi.ip_acquired
+                ? snapshot.radios.wifi.ip_address
+                : "PENDING",
+            static_cast<unsigned>(snapshot.radios.wifi.channel),
+            static_cast<int>(snapshot.radios.wifi.rssi)
+        );
+    } else {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | %s\nCREDENTIALS %s | RECONNECT %s",
+            snapshot.radios.wifi.started ? "STARTED" : "STOPPED",
+            snapshot.radios.wifi.credentials_configured ? "SET" : "NOT SET",
+            snapshot.radios.wifi.reconnect_pending ? "PENDING" : "IDLE"
+        );
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/wifi_detail",
+            text.data()
+        ); !result) {
+        return result;
+    }
+
+    if (!component_ready(snapshot.radios.ble)) {
+        std::array<char, 96> ble_detail{};
+        format_component_status(ble_detail, snapshot.radios.ble);
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "BLUETOOTH | %s",
+            ble_detail.data()
+        );
+    } else if (snapshot.radios.ble.device_name[0] == '\0') {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "BLUETOOTH | ERROR (EMPTY DEVICE NAME)"
+        );
+    } else {
+        const char *ble_mode =
+            snapshot.radios.ble.connected
+                ? "CONNECTED"
+                : snapshot.radios.ble.provisioning
+                    ? "PROVISIONING"
+                    : snapshot.radios.ble.advertising
+                        ? "ADVERTISING"
+                        : "IDLE";
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "BLUETOOTH | %s\nDEVICE %s | LINKS %lu",
+            ble_mode,
+            snapshot.radios.ble.device_name,
+            static_cast<unsigned long>(
+                snapshot.radios.ble.connection_count
+            )
+        );
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/ble_detail",
+            text.data()
+        ); !result) {
+        return result;
+    }
+
+    if (!component_ready(snapshot.gps)) {
+        std::array<char, 96> gps_detail{};
+        format_component_status(gps_detail, snapshot.gps);
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "GPS | %s",
+            gps_detail.data()
+        );
+    } else if (!gps_fix_valid(snapshot.gps)) {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "GPS | NO VALID FIX\nQUALITY %u | SATELLITES %u",
+            static_cast<unsigned>(snapshot.gps.fix_quality),
+            static_cast<unsigned>(snapshot.gps.satellites)
+        );
+    } else {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "GPS | FIX %u | SAT %u | HDOP %.1f\n%.5f, %.5f",
+            static_cast<unsigned>(snapshot.gps.fix_quality),
+            static_cast<unsigned>(snapshot.gps.satellites),
+            static_cast<double>(snapshot.gps.hdop),
+            snapshot.gps.latitude_degrees,
+            snapshot.gps.longitude_degrees
+        );
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/gps_detail",
+            text.data()
         ); !result) {
         return result;
     }
@@ -2183,9 +3128,68 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             static_cast<unsigned long>(snapshot.ui.brightness_percent)
         );
     }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/brightness_value",
+            text.data()
+        ); !result) {
+        return result;
+    }
+
+    const OrientationSnapshot &orientation = snapshot.ui.orientation;
+    if (!component_ready(orientation)) {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "AUTO ROTATION | %s (%s)",
+            component_state(orientation),
+            component_reason(orientation)
+        );
+    } else {
+        const char *source =
+            !orientation.auto_rotation_enabled
+                ? "DISABLED"
+                : orientation.gravity_valid
+                    ? "GRAVITY LOCKED"
+                    : component_ready(snapshot.imu)
+                        ? "GYRO TRACKING"
+                        : "IMU WAITING";
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "AUTO ROTATION | %s%s\nPHYSICAL %u° | RENDER %u°",
+            source,
+            orientation.rotation_pending ? " / PENDING" : "",
+            static_cast<unsigned>(orientation.physical_orientation_degrees),
+            static_cast<unsigned>(orientation.rendering_rotation_degrees)
+        );
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/rotation_value",
+            text.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_settings/surface/settings_scroller/rotation_toggle/label",
+            orientation.auto_rotation_enabled
+                ? "\xef\x88\x85"
+                : "\xef\x88\x84"
+        ); !result) {
+        return result;
+    }
+
+    std::snprintf(
+        text.data(),
+        text.size(),
+        "ADAPTIVE INTERFACE | %lu s\nTOUCH OR MOVEMENT REVEALS CHROME",
+        static_cast<unsigned long>(adaptive_command_bar_.timeout_seconds())
+    );
     return set_text(
         context,
-        "/qsee_settings/surface/settings_scroller/brightness_value",
+        "/qsee_settings/surface/settings_scroller/chrome_timeout_value",
         text.data()
     );
 }

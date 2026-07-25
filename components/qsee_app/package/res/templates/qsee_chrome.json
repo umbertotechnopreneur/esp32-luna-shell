@@ -1,0 +1,603 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_chrome",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "padding": 0
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "466dp",
+            "height": "466dp"
+        },
+        "children": [
+            {
+                "type": "button",
+                "id": "wake",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false,
+                    "hidden": true
+                },
+                "bindings": {
+                    "commonProps.clickable": "clickable",
+                    "commonProps.hidden": "hidden"
+                },
+                "events": [
+                    {
+                        "type": "pressed",
+                        "action": "qsee.chrome.activity"
+                    }
+                ],
+                "style": {
+                    "bgColor": "#000000",
+                    "bgOpacity": 0,
+                    "borderWidth": "0dp",
+                    "padding": 0
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "466dp",
+                    "height": "466dp"
+                }
+            },
+            {
+                "type": "container",
+                "id": "status",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "style.opacity": "opacity"
+                },
+                "style": {
+                    "padding": 0,
+                    "opacity": 255
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "83dp",
+                    "y": "2dp",
+                    "width": "300dp",
+                    "height": "100dp"
+                },
+                "animations": [
+                    {
+                        "id": "status_mount_fade",
+                        "trigger": "mount",
+                        "property": "opacity",
+                        "from": 0,
+                        "to": 255,
+                        "duration": 280,
+                        "easing": "easeInOut"
+                    }
+                ],
+                "children": [
+                    {
+                        "type": "line",
+                        "id": "curve_edge",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "lineProps": {
+                            "points": [
+                                { "x": 12, "y": 61 },
+                                { "x": 58, "y": 38 },
+                                { "x": 105, "y": 25 },
+                                { "x": 150, "y": 21 },
+                                { "x": 195, "y": 25 },
+                                { "x": 242, "y": 38 },
+                                { "x": 288, "y": 61 }
+                            ]
+                        },
+                        "style": {
+                            "lineColor": "#245363",
+                            "lineWidth": "50dp",
+                            "opacity": 230
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": 0,
+                            "y": 0,
+                            "width": "300dp",
+                            "height": "100dp"
+                        }
+                    },
+                    {
+                        "type": "line",
+                        "id": "curve_base",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "lineProps": {
+                            "points": [
+                                { "x": 12, "y": 61 },
+                                { "x": 58, "y": 38 },
+                                { "x": 105, "y": 25 },
+                                { "x": 150, "y": 21 },
+                                { "x": 195, "y": 25 },
+                                { "x": 242, "y": 38 },
+                                { "x": 288, "y": 61 }
+                            ]
+                        },
+                        "style": {
+                            "lineColor": "#02070b",
+                            "lineWidth": "44dp",
+                            "opacity": 204
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": 0,
+                            "y": 0,
+                            "width": "300dp",
+                            "height": "100dp"
+                        }
+                    },
+                    {
+                        "type": "container",
+                        "id": "usb",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "3dp",
+                            "y": "36dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf287"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "container",
+                        "id": "battery",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "53dp",
+                            "y": "16dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "labelProps.text": "icon",
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf244"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "container",
+                        "id": "ble",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "103dp",
+                            "y": "5dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf293"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "container",
+                        "id": "wifi",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "153dp",
+                            "y": "5dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf1eb"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "container",
+                        "id": "gps",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "203dp",
+                            "y": "16dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf041"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    },
+                    {
+                        "type": "container",
+                        "id": "sd",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "style": {
+                            "padding": 0
+                        },
+                        "placement": {
+                            "mode": "absolute",
+                            "x": "253dp",
+                            "y": "36dp",
+                            "width": "40dp",
+                            "height": "47dp"
+                        },
+                        "children": [
+                            {
+                                "type": "label",
+                                "id": "icon",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "\uf7c2"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "24sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": 0,
+                                    "width": "40dp",
+                                    "height": "31dp"
+                                }
+                            },
+                            {
+                                "type": "label",
+                                "id": "dot",
+                                "bindings": {
+                                    "style.textColor": "color"
+                                },
+                                "labelProps": {
+                                    "text": "•"
+                                },
+                                "style": {
+                                    "textColor": "#607889",
+                                    "fontSize": "12sp",
+                                    "textAlign": "center"
+                                },
+                                "placement": {
+                                    "mode": "absolute",
+                                    "x": 0,
+                                    "y": "31dp",
+                                    "width": "40dp",
+                                    "height": "16dp"
+                                }
+                            }
+                        ]
+                    }
+                ]
+            },
+            {
+                "type": "button",
+                "id": "back",
+                "events": [
+                    {
+                        "type": "clicked",
+                        "action": "qsee.open.welcome"
+                    }
+                ],
+                "commonProps": {
+                    "pressLock": false
+                },
+                "style": {
+                    "bgColor": "#20bf91",
+                    "bgGradientColor": "#0a6c53",
+                    "bgGradientDirection": "vertical",
+                    "borderColor": "#63ffd0",
+                    "borderWidth": "1dp",
+                    "radius": "30dp",
+                    "shadowColor": "#63ffd0",
+                    "shadowWidth": "16dp",
+                    "padding": 0
+                },
+                "stateStyles": {
+                    "pressed": {
+                        "bgColor": "#0d7359",
+                        "bgGradientColor": "#0a6c53",
+                        "borderColor": "#63ffd0",
+                        "borderWidth": "1dp"
+                    },
+                    "disabled": {
+                        "opacity": 128
+                    }
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "10dp",
+                    "y": "203dp",
+                    "width": "60dp",
+                    "height": "60dp"
+                },
+                "children": [
+                    {
+                        "type": "label",
+                        "id": "icon",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "labelProps": {
+                            "text": "\uf053"
+                        },
+                        "style": {
+                            "textColor": "#f3fffb",
+                            "fontSize": "28sp",
+                            "textAlign": "center"
+                        },
+                        "placement": {
+                            "mode": "relative",
+                            "align": "center",
+                            "x": "-2dp",
+                            "y": "-2dp"
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+}

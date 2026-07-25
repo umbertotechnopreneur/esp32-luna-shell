@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "esp_err.h"
@@ -91,6 +92,8 @@ struct GpsSnapshot : ComponentSnapshot {
     char first_sentence[181] = {};
 };
 
+constexpr std::size_t kAudioSpectrumBandCount = 16;
+
 struct AudioSnapshot {
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
@@ -100,6 +103,8 @@ struct AudioSnapshot {
     uint32_t microphone_peak_level = 0;
     uint32_t channel_mean_level[2] = {};
     uint32_t channel_peak_level[2] = {};
+    uint8_t channel_spectrum[2][kAudioSpectrumBandCount] = {};
+    uint32_t spectrum_sequence = 0;
 };
 
 struct WifiSnapshot : ComponentSnapshot {
@@ -236,11 +241,23 @@ struct StorageSnapshot : ComponentSnapshot {
     uint32_t logger_mirror_failure_count = 0;
 };
 
+struct OrientationSnapshot : ComponentSnapshot {
+    bool auto_rotation_enabled = false;
+    bool gravity_valid = false;
+    bool rotation_pending = false;
+    uint16_t physical_orientation_degrees = 0;
+    uint16_t rendering_rotation_degrees = 0;
+    uint32_t change_sequence = 0;
+    int64_t sampled_at_us = 0;
+    int64_t changed_at_us = 0;
+};
+
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
     ComponentSnapshot brightness;
     uint32_t brightness_percent = 100;
+    OrientationSnapshot orientation;
 };
 
 struct DiagnosticsSettingsSnapshot {
