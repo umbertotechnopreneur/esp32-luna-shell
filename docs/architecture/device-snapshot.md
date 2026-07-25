@@ -7,18 +7,22 @@ fusion.
 ## Contract
 
 - `initialize()` configures the supported peripherals against the shared
-  Waveshare BSP resources.
-- `refresh(reason)` samples all initialized devices and system metrics into one
-  coherent point-in-time value. Concurrent refreshes are serialized with a
+  Waveshare BSP resources in a fixed order and returns the first failed stage.
+- `refresh(reason)` stages all initialized-device and system samples, then
+  commits them as one generation. Concurrent refreshes are serialized with a
   bounded wait.
 - `snapshot()` returns a copy protected by a static FreeRTOS mutex.
 - `report*()` methods let subsystem owners publish state that cannot be sampled
   by the service directly, including display, touch, SD, speaker, Wi-Fi, and
-  BLE.
+  BLE. Each report is a separate committed generation. Failure to publish a
+  generation is a fatal synchronization invariant, never a log-only event.
 
-No periodic sensor loop exists. A caller requests a refresh when a coherent
-update is needed. This prevents hidden bus traffic and gives future sensor
-fusion an explicit sample boundary.
+The full-device refresh is explicit; there is no always-on full sensor loop.
+When the diagnostic monitor is enabled, it periodically samples only the IMU
+and microphone at the persisted diagnostic cadence. Native Wi-Fi/BLE events
+and mounted-SD status polling may publish their own generations independently.
+This keeps periodic work visible and bounded while preserving an explicit
+full-refresh boundary for future sensor fusion.
 
 ## Snapshot content
 
@@ -29,7 +33,7 @@ fusion an explicit sample boundary.
 | IMU | acceleration, angular velocity, sensor temperature, calibration quality and biases |
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
-| UI/storage/radios | display, touch, SD/logger mirror, Wi-Fi, BLE |
+| UI/storage/radios | display, touch, SD/logger mirror and card/transport state, Wi-Fi, BLE |
 | Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |
 
@@ -37,9 +41,26 @@ Each component has `Unknown`, `Ready`, `Degraded`, or `Missing` health and the
 last `esp_err_t`. BLE provisioning and telemetry advertising are represented
 as separate states rather than collapsing provisioning to `Unknown`.
 
+Numeric telemetry is consumable only when health is `Ready`, the last error is
+`ESP_OK`, data is valid, and its freshness TTL has not expired. Every component
+records its last attempt and last successful sample. TTL expiry marks an older
+sample `STALE`; the timestamp remains diagnostic evidence, but consumers do not
+render its numeric value.
+
+The SD board wiring has no card-detect pin. A failed SDMMC probe therefore
+publishes `card/transport unconfirmed`, not physical absence. `format-required`
+is possible only after card initialization and an exact FatFs
+`FR_NO_FILESYSTEM` result. Poisoned or incomplete cleanup is published
+separately with its cleanup stage and error and is terminal for the current
+boot.
+
 The LC76G bridge is command-gated: address `0x54` is read only after a command
 to `0x50`. Backlogs are drained in fixed 4096-byte chunks into static storage,
 so a large valid NMEA queue cannot trigger an unbounded allocation.
+A published fix requires coherent valid GGA quality and RMC active status in
+the same payload. A malformed supported sentence, a missing counterpart, or
+contradictory fix states rejects the complete sample; no partial coordinates
+or zero-filled fix fields are published.
 
 ## Native system APIs
 
@@ -52,5 +73,6 @@ state:
 - `xTaskGetCurrentTaskHandleForCore()`, `pcTaskGetName()`,
   `uxTaskPriorityGet()`, and `uxTaskGetStackHighWaterMark()`.
 
-Snapshot logs include a sequence number and reason so a runtime trace can show
-exactly when the state changed.
+Snapshot logs include a sequence number and reason. The sequence advances once
+per committed full refresh, diagnostic transaction, or asynchronous subsystem
+report, so a runtime trace can identify the published generation that changed.

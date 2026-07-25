@@ -14,7 +14,10 @@
 #include "qsee_platform.h"
 
 #include <stddef.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
@@ -30,6 +33,15 @@ static StackType_t s_audio_task_stack[3072];
 static StaticSemaphore_t s_audio_done_control;
 static SemaphoreHandle_t s_audio_done;
 static volatile esp_err_t s_audio_result;
+static atomic_bool s_audio_started;
+
+static void signal_audio_complete(void)
+{
+    if (xSemaphoreGive(s_audio_done) != pdTRUE) {
+        ESP_LOGE(TAG, "Boot SFX completion signal failed");
+        abort();
+    }
+}
 
 static void audio_task(void *arg)
 {
@@ -39,7 +51,7 @@ static void audio_task(void *arg)
         qsee_hardware_report_speaker(false, ESP_ERR_INVALID_SIZE);
         ESP_LOGW(TAG, "Boot SFX asset is invalid");
         s_audio_result = ESP_ERR_INVALID_SIZE;
-        xSemaphoreGive(s_audio_done);
+        signal_audio_complete();
         vTaskDelete(NULL);
         return;
     }
@@ -59,14 +71,22 @@ static void audio_task(void *arg)
         ESP_LOGW(TAG, "Boot SFX playback failed (%s)", esp_err_to_name(result));
     }
     s_audio_result = result;
-    xSemaphoreGive(s_audio_done);
+    signal_audio_complete();
     vTaskDelete(NULL);
 }
 
 esp_err_t qsee_boot_audio_play(void)
 {
+    bool expected = false;
+    if (!atomic_compare_exchange_strong(&s_audio_started, &expected, true)) {
+        ESP_LOGE(TAG, "Boot SFX playback was already started");
+        return ESP_ERR_INVALID_STATE;
+    }
+
     s_audio_done = xSemaphoreCreateBinaryStatic(&s_audio_done_control);
     if (s_audio_done == NULL) {
+        atomic_store(&s_audio_started, false);
+        ESP_LOGE(TAG, "Creating boot SFX completion signal failed");
         return ESP_ERR_NO_MEM;
     }
 
@@ -80,9 +100,14 @@ esp_err_t qsee_boot_audio_play(void)
         &s_audio_task_control
     );
     if (task == NULL) {
+        atomic_store(&s_audio_started, false);
+        ESP_LOGE(TAG, "Creating boot SFX task failed");
         return ESP_ERR_NO_MEM;
     }
 
-    (void)xSemaphoreTake(s_audio_done, portMAX_DELAY);
+    if (xSemaphoreTake(s_audio_done, portMAX_DELAY) != pdTRUE) {
+        ESP_LOGE(TAG, "Waiting for boot SFX completion failed");
+        return ESP_FAIL;
+    }
     return s_audio_result;
 }

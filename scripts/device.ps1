@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "erase", "reconfigure", "set-target", "size", "combo", "ports", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -12,6 +12,11 @@ param(
     [string]$BuildDir = "build",
 
     [int]$WaitSeconds = 30,
+
+    [ValidateRange(1, 86400)]
+    [int]$DurationSeconds = 30,
+
+    [string]$OutputPath,
 
     # Explicit parameters take precedence over the dedicated QSEE_IDF_*
     # environment variables and the workstation defaults below.
@@ -123,6 +128,12 @@ if ($LASTEXITCODE -ne 0) {
     throw "Impossibile determinare la versione ESP-IDF"
 }
 $PythonVersion = (& $PythonExe --version | Out-String).Trim()
+if ($IdfVersion -notmatch '^ESP-IDF v6\.0\.2(?:\s|$)') {
+    throw "Versione ESP-IDF non supportata: '$IdfVersion'. Il repository richiede ESP-IDF v6.0.2."
+}
+if ($PythonVersion -ne "Python 3.13.7") {
+    throw "Versione Python non supportata: '$PythonVersion'. Il repository richiede Python 3.13.7."
+}
 $CMakeVersion = (& $CMakeCommand.Source --version | Select-Object -First 1)
 $NinjaVersion = (& $NinjaCommand.Source --version | Select-Object -First 1)
 $ToolchainVersion = (& $ToolchainCommand.Source --version | Select-Object -First 1)
@@ -133,6 +144,7 @@ Write-Host "Ninja: $NinjaVersion ($($NinjaCommand.Source))"
 Write-Host "Toolchain: $ToolchainVersion ($($ToolchainCommand.Source))"
 
 $MonitorScript = Join-Path $PSScriptRoot "device.ps1"
+$CaptureScript = Join-Path $PSScriptRoot "capture-serial.ps1"
 
 function Get-SerialPorts {
     $openablePorts = @([System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpperInvariant() })
@@ -223,7 +235,7 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     )
 
     $genericMonitorPattern = [regex]::new(
-        "(?i)(device\.ps1.*monitor.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
+        "(?i)(device\.ps1.*(?:monitor|capture).*-Port\s+$normalizedRequestedPort|capture-serial\.ps1.*-Port\s+$normalizedRequestedPort|idf\.py.*-p\s+$normalizedRequestedPort.*monitor|idf_monitor\.py.*-p\s+$normalizedRequestedPort|esp_idf_monitor.*-p\s+$normalizedRequestedPort)"
     )
 
     $toStop = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
@@ -243,6 +255,30 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
             Write-Warning "Could not stop stale monitor process $($process.ProcessId): $($_.Exception.Message)"
         }
     }
+}
+
+function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    $lastError = $null
+
+    while ((Get-Date) -lt $deadline) {
+        $probe = [System.IO.Ports.SerialPort]::new($RequestedPort, 115200)
+        try {
+            $probe.Open()
+            $probe.Close()
+            $probe.Dispose()
+            Start-Sleep -Milliseconds 500
+            Write-Host "Serial port $RequestedPort is released and ready."
+            return
+        } catch {
+            $lastError = $_.Exception.Message
+            $probe.Dispose()
+            Stop-StaleMonitorProcesses $RequestedPort
+            Start-Sleep -Milliseconds 500
+        }
+    }
+
+    throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
 }
 
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
@@ -296,15 +332,27 @@ try {
         }
         "clean" {
             & $PythonExe $IdfPy @commonArgs clean
+            if ($LASTEXITCODE -ne 0) {
+                throw "Clean failed"
+            }
         }
         "fullclean" {
             & $PythonExe $IdfPy @commonArgs fullclean
+            if ($LASTEXITCODE -ne 0) {
+                throw "Full clean failed"
+            }
         }
         "reconfigure" {
             & $PythonExe $IdfPy @commonArgs reconfigure
+            if ($LASTEXITCODE -ne 0) {
+                throw "Reconfigure failed"
+            }
         }
         "set-target" {
             & $PythonExe $IdfPy @commonArgs set-target esp32s3
+            if ($LASTEXITCODE -ne 0) {
+                throw "Set target failed"
+            }
         }
         "size" {
             & $PythonExe $IdfPy @commonArgs size
@@ -319,8 +367,9 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
+            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Erase failed"
@@ -330,8 +379,9 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
-            $Port = Resolve-Port $Port
             Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
+            $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
@@ -341,12 +391,41 @@ try {
             if (-not $Port) {
                 throw "Specify the serial port with -Port, for example -Port COM5"
             }
+            Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
+            if ($LASTEXITCODE -ne 0) {
+                throw "Monitor failed"
+            }
+        }
+        "capture" {
+            if (-not $Port) {
+                throw "Specify the serial port with -Port, for example -Port COM5"
+            }
+            Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
+            $Port = Resolve-Port $Port
+            $captureArgs = @(
+                "-NoProfile",
+                "-File", $CaptureScript,
+                "-Port", $Port,
+                "-Baud", $Baud,
+                "-DurationSeconds", $DurationSeconds
+            )
+            if ($OutputPath) {
+                $captureArgs += @("-OutputPath", $OutputPath)
+            }
+            & pwsh @captureArgs
+            if ($LASTEXITCODE -ne 0) {
+                throw "Serial capture failed"
+            }
         }
         "combo" {
             Invoke-ProjectBuild $BuildDir
 
+            Stop-StaleMonitorProcesses $Port
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             $Port = Resolve-Port $Port
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
@@ -371,8 +450,9 @@ try {
         "recover" {
             Invoke-ProjectBuild $BuildDir
 
-            $Port = Wait-ForPort $Port $WaitSeconds
             Stop-StaleMonitorProcesses $Port
+            $Port = Wait-ForPort $Port $WaitSeconds
+            Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud flash
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"

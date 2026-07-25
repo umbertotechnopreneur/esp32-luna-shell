@@ -13,7 +13,9 @@ behavior.
 
 Every ESP-IDF action on Windows runs through `scripts/device.ps1`. The script
 selects and validates the toolchain, applies project defaults, scopes port
-handling, and preserves one reproducible command surface. Do not bypass it.
+handling, and preserves one reproducible command surface. Its `capture` action
+also owns bounded serial capture, waits for exclusive port access, and removes
+stale monitor/capture processes scoped to that port. Do not bypass it.
 
 Its default toolchain is:
 
@@ -80,6 +82,7 @@ graph.
 | `espressif/brookesia_system_super` | 0.8.1 |
 | `espressif/brookesia_system_core` | 0.8.1 |
 | `espressif/brookesia_gui_lvgl` | 0.8.1 |
+| `espressif/brookesia_hal_adaptor` | 0.8.2 |
 | `espressif/brookesia_service_helper` | 0.8.2 |
 | `joltwallet/littlefs` | 1.20.4 |
 | `lvgl/lvgl` | 9.5.0 |
@@ -96,10 +99,22 @@ graph.
   provider and started by System Super.
 - Screen structure, layout, styling, action names, and transitions live in
   `components/qsee_app/package/res/root.json`.
+- The current package contains seven screens: Welcome, Logs, Hardware, Audio,
+  IMU, Settings, and About. Settings exposes diagnostic cadence, IMU
+  smoothing, SD-log mirroring, persisted brightness, and the explicit
+  Wi-Fi/BLE start action.
 - C++ handles lifecycle and data binding through the System Core and GUI
   interfaces. It does not build application screens with direct LVGL calls.
 - UI hardware telemetry comes only from `DeviceSnapshotService`. The Logs
-  screen reads the canonical logger ring.
+  screen reads the canonical logger ring. Numeric sensor fields are rendered
+  only when their component sample is valid and within its freshness TTL;
+  failed or expired reads expose the original error or `STALE` rather than a
+  zero-filled or old substitute. Full refreshes commit transactionally as one
+  generation, and each asynchronous subsystem report commits a new generation.
+- Full-device refresh remains explicit. The opt-in diagnostic monitor is the
+  only periodic sensor sampler and reads only IMU and microphone at its
+  configured cadence; mounted-SD status and radio state have their own
+  polling/event paths.
 - Search uses the System Super keyboard service. SD formatting uses its
   destructive message-dialog service and calls the storage abstraction only
   after explicit confirmation.
@@ -114,6 +129,15 @@ graph.
 - Obsolete or duplicate Kconfig defaults were removed. Provisioning Security 1
   remains enabled, and the current BLE-only flow intentionally operates
   without a proof-of-possession value.
+- Wi-Fi and BLE are no longer allocated during boot. The pre-UI snapshot is
+  created first, and `qsee_radios_init()` runs only from Settings.
+- The firmware has no ESP-IDF 5.x or Brookesia 0.6/0.7 compatibility path.
+  Partial initialization is returned as failure, invalid persisted settings
+  are rejected, and only genuinely absent first-boot keys receive documented,
+  logged, persisted defaults.
+- The Waveshare LVGL port uses two 50-line buffers in PSRAM. The boot screen is
+  a minimal artwork/status frame with no live log, RichText, or shadow layer;
+  it is repainted black immediately before System Super takes over.
 - The I2S standard-mode, I2C master, SDMMC, ESP-NETIF SNTP, NVS, and FATFS
   implementations already use the current driver families.
 
@@ -125,18 +149,29 @@ and
 ## Storage boundary
 
 The partition table contains an internal `littlefs_data` partition for staged
-System Super and QSee.ai application resources. Firmware mounts it at
-`/littlefs` with mount-time formatting disabled.
+System Super and QSee.ai application resources. The official Brookesia HAL
+adaptor mounts it at `/littlefs` and exposes its NVS key-value backend.
+Mount-time formatting is disabled.
 
 This internal volume is separate from the removable FAT SD volume at
-`/sdcard`. The SD card stores user data and the mirrored canonical log; it is
-never a fallback location for application resources. The UI reports its
-absent, ready, or format-required state through `DeviceSnapshotService`.
+`/sdcard`. QSee owns the removable-card lifecycle; the HAL adaptor's SD backend
+is deliberately disabled. The card stores user data and the mirrored canonical
+log and is never a fallback location for application resources. The board has
+no card-detect pin, so the UI reports card/transport unconfirmed, ready, or
+format-required through `DeviceSnapshotService`; an SDMMC failure is not
+presented as physical absence.
 
-Ordinary SD mounting never formats the card, and
-`CONFIG_BSP_SD_FORMAT_ON_MOUNT_FAIL=n` remains set. A format attempt requires a
-responding card with a failed FAT mount plus explicit acceptance of the
-destructive System Super confirmation.
+Ordinary SD mounting never formats the card, and there is no format-on-mount
+configuration. A format attempt is permitted only after FatFs reports
+exactly `FR_NO_FILESYSTEM` and the user explicitly accepts the destructive
+System Super confirmation. That single-use authorization is bound to every
+observed CID field plus capacity and is consumed by the immediate attempt,
+including a card mismatch, missing card, transport failure, or no-longer-needed
+format. Mounted-card status is polled; failure invalidates and unmounts the
+volume before transient retries resume. A verified `format-required` state
+pauses probes until explicit authorization. Internal, destructive, poisoned,
+or incompletely cleaned failures stop retries for the current boot and expose
+their cleanup stage and error in the UI.
 
 ## Validation boundary
 
@@ -147,9 +182,10 @@ The host-side acceptance sequence is:
 3. a second incremental build;
 4. the project size report;
 5. JSON syntax validation for the staged QSee.ai package;
-6. syntax and hidden-window smoke checks for the Windows simulator;
-7. its existing executable packaging flow;
-8. `git diff --check` and a scan for stale framework references.
+6. the BLE provisioning/System Core static verifier;
+7. syntax and hidden-window smoke checks for the Windows simulator;
+8. its existing executable packaging flow;
+9. `git diff --check` and a scan for stale framework references.
 
 Run all ESP-IDF items in that sequence through `scripts/device.ps1`. Exact
 artifact sizes and hashes belong in the final branch handoff because later
@@ -159,3 +195,5 @@ This migration document makes no physical-device claim. Flash, serial monitor,
 erase, recovery, COM-port access, display, touch, BLE provisioning, Wi-Fi, TLS
 endpoints, audio, sleep/wake behavior, GPS, and removable-SD operation remain
 checks for a later hardware session.
+The dated `COM12` observations in the hardware inventory describe an earlier
+firmware/hardware session only and are not validation evidence for this commit.

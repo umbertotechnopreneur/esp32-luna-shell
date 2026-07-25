@@ -18,6 +18,7 @@
 #include "esp_log.h"
 #include "esp_pm.h"
 #include "esp_sleep.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -51,12 +52,22 @@ void set_input_component(
     esp_err_t error
 )
 {
+    const int64_t attempted_at_us = esp_timer_get_time();
     component.health = ready
         ? qsee::DeviceHealth::Ready
         : (error == ESP_ERR_NOT_FOUND
                ? qsee::DeviceHealth::Missing
                : qsee::DeviceHealth::Degraded);
     component.last_error = error;
+    component.last_attempt_at_us = attempted_at_us;
+    if (ready && error == ESP_OK) {
+        component.data_valid = true;
+        component.data_stale = false;
+        component.last_success_at_us = attempted_at_us;
+    } else {
+        component.data_valid = false;
+        component.data_stale = component.last_success_at_us > 0;
+    }
 }
 
 bool poll_button(
@@ -165,6 +176,10 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
     };
     esp_err_t result = gpio_config(&config);
     if (result != ESP_OK) {
+        set_input_component(s_inputs.boot_button, false, result);
+        set_input_component(s_inputs.power_button, false, result);
+        publish_inputs();
+        ESP_LOGE(TAG, "Button GPIO configuration failed (%s)", esp_err_to_name(result));
         return result;
     }
 
@@ -176,21 +191,43 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
     };
     result = esp_pm_configure(&power_policy);
     if (result != ESP_OK) {
-        ESP_LOGW(TAG, "Dynamic frequency policy failed: %s", esp_err_to_name(result));
+        ESP_LOGE(TAG, "Dynamic frequency policy failed: %s", esp_err_to_name(result));
+        return result;
     } else {
         ESP_LOGI(TAG, "Power policy: dynamic CPU 80-240 MHz; automatic light sleep disabled");
     }
 #endif
 
     s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
+    s_boot.raw_pressed = gpio_get_level(kBootButton) == 0;
+    s_boot.stable_pressed = s_boot.raw_pressed;
+    s_power.raw_pressed = gpio_get_level(kPowerButton) == 0;
+    s_power.stable_pressed = s_power.raw_pressed;
     set_input_component(s_inputs.boot_button, true, ESP_OK);
     set_input_component(s_inputs.power_button, true, ESP_OK);
-    const esp_io_expander_handle_t expander = bsp_io_expander_init();
+    esp_io_expander_handle_t expander = nullptr;
+    const esp_err_t expander_error =
+        bsp_io_expander_init(&expander);
     set_input_component(
         s_inputs.io_expander,
-        expander != nullptr,
-        expander != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND
+        expander_error == ESP_OK && expander != nullptr,
+        expander_error == ESP_OK && expander == nullptr
+            ? ESP_ERR_INVALID_STATE
+            : expander_error
     );
+    if (expander_error != ESP_OK || expander == nullptr) {
+        const esp_err_t effective_error =
+            expander_error != ESP_OK
+                ? expander_error
+                : ESP_ERR_INVALID_STATE;
+        publish_inputs();
+        ESP_LOGE(
+            TAG,
+            "Input expander initialization failed (%s)",
+            esp_err_to_name(effective_error)
+        );
+        return effective_error;
+    }
 
     s_task = xTaskCreateStatic(
         input_task,
@@ -202,6 +239,10 @@ extern "C" esp_err_t qsee_power_inputs_init(void)
         &s_task_control
     );
     if (s_task == nullptr) {
+        set_input_component(s_inputs.boot_button, false, ESP_ERR_NO_MEM);
+        set_input_component(s_inputs.power_button, false, ESP_ERR_NO_MEM);
+        publish_inputs();
+        ESP_LOGE(TAG, "Input task creation failed");
         return ESP_ERR_NO_MEM;
     }
     ESP_LOGI(

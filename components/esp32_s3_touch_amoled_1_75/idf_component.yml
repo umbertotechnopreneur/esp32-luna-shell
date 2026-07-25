@@ -9,24 +9,22 @@ tags:
 - bsp
 
 dependencies:
-  usb:
-    version: "^1.0.0"
+  espressif/usb:
+    version: "1.5.0"
     public: true
-    rules:
-     - if: "idf_version >=6.0"
-  idf: ">=5.5"
-  lvgl/lvgl: ">=8,<10"
-  esp_lcd_co5300: "*"
-  waveshare/esp_lcd_touch_cst9217: "*"
+  idf: ">=6.0,<6.1"
+  lvgl/lvgl: "9.5.0"
+  espressif/esp_lcd_co5300: "2.1.0"
+  waveshare/esp_lcd_touch_cst9217: "2.0.0"
   espressif/esp_lvgl_adapter:
-    version: "~0.6"
+    version: "0.6.2"
     public: true
 
-  esp_codec_dev:
-    version: "~1.5"
+  espressif/esp_codec_dev:
+    version: "1.5.11"
     public: true
 
-  esp_lcd_panel_io_additions: "^1"
-  esp_io_expander_tca9554:
-    version: "^2"
+  espressif/esp_lcd_panel_io_additions: "1.0.1~1"
+  espressif/esp_io_expander_tca9554:
+    version: "2.0.3"
     public: true

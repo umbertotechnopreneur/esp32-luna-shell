@@ -28,6 +28,10 @@ enum class DeviceHealth : uint8_t {
 struct ComponentSnapshot {
     DeviceHealth health = DeviceHealth::Unknown;
     esp_err_t last_error = ESP_ERR_INVALID_STATE;
+    bool data_valid = false;
+    bool data_stale = false;
+    int64_t last_attempt_at_us = 0;
+    int64_t last_success_at_us = 0;
 };
 
 struct BatterySnapshot : ComponentSnapshot {
@@ -42,6 +46,7 @@ struct BatterySnapshot : ComponentSnapshot {
 };
 
 struct ImuSnapshot : ComponentSnapshot {
+    ComponentSnapshot calibration;
     float acceleration_mps2[3] = {};
     float angular_velocity_dps[3] = {};
     float temperature_c = 0.0F;
@@ -55,6 +60,7 @@ struct ImuSnapshot : ComponentSnapshot {
 };
 
 struct RtcSnapshot : ComponentSnapshot {
+    ComponentSnapshot system_time;
     bool clock_integrity = false;
     bool system_time_valid = false;
     bool synchronized = false;
@@ -71,6 +77,7 @@ struct RtcSnapshot : ComponentSnapshot {
 struct GpsSnapshot : ComponentSnapshot {
     uint32_t pending_nmea_bytes = 0;
     bool has_fix = false;
+    bool utc_valid = false;
     uint8_t fix_quality = 0;
     uint8_t satellites = 0;
     double latitude_degrees = 0.0;
@@ -129,20 +136,120 @@ struct RadioSnapshot {
     BleSnapshot ble;
 };
 
-struct StorageSnapshot : ComponentSnapshot {
-    bool card_present = false;
+enum class StorageMountOutcome : uint8_t {
+    NotAttempted,
+    Mounted,
+    CardOrTransportFailed,
+    FormatRequired,
+    FilesystemFailed,
+    FormatFailed,
+    InternalFailed,
+};
+
+enum class StorageMountStage : uint8_t {
+    None,
+    Request,
+    HostInit,
+    SlotInit,
+    CardInit,
+    CardIdentity,
+    DriveAlloc,
+    DiskIoRegister,
+    VfsRegister,
+    FatMount,
+    PreFormatUnmount,
+    Partition,
+    Format,
+    PostFormatMount,
+    RuntimeStatus,
+    RuntimeFilesystem,
+    RuntimeUnmount,
+};
+
+enum class StorageCleanupStage : uint8_t {
+    None,
+    FatUnmount,
+    VfsUnregister,
+    HostDeinit,
+};
+
+struct StorageMountReport {
+    StorageMountOutcome outcome = StorageMountOutcome::NotAttempted;
+    StorageMountStage stage = StorageMountStage::None;
+    StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+    esp_err_t cleanup_error = ESP_OK;
+    bool initial_fatfs_result_valid = false;
+    int32_t initial_fatfs_result = 0;
+    bool fatfs_result_valid = false;
+    int32_t fatfs_result = 0;
+    bool cleanup_fatfs_result_valid = false;
+    int32_t cleanup_fatfs_result = 0;
+    bool cleanup_complete = true;
+    bool poisoned = false;
+    bool mounted = false;
+    bool card_response_verified = false;
+    bool format_required = false;
+    bool authorization_consumed = false;
+    bool authorization_identity_matched = false;
     bool format_attempted = false;
+    bool partition_written = false;
     bool formatted = false;
     uint32_t mount_attempt_count = 0;
     uint64_t capacity_bytes = 0;
     uint64_t filesystem_total_bytes = 0;
     uint64_t free_bytes = 0;
+    bool logger_mirror_requested = true;
     bool logger_mirror_enabled = false;
+};
+
+struct StorageSnapshot : ComponentSnapshot {
+    ComponentSnapshot logger_mirror;
+    StorageMountOutcome mount_outcome = StorageMountOutcome::NotAttempted;
+    StorageMountStage mount_stage = StorageMountStage::None;
+    StorageCleanupStage cleanup_stage = StorageCleanupStage::None;
+    esp_err_t cleanup_error = ESP_OK;
+    bool initial_fatfs_result_valid = false;
+    int32_t initial_fatfs_result = 0;
+    bool fatfs_result_valid = false;
+    int32_t fatfs_result = 0;
+    bool cleanup_fatfs_result_valid = false;
+    int32_t cleanup_fatfs_result = 0;
+    bool cleanup_complete = true;
+    bool poisoned = false;
+    bool mounted = false;
+    bool card_response_verified = false;
+    bool format_required = false;
+    bool authorization_consumed = false;
+    bool authorization_identity_matched = false;
+    bool format_attempted = false;
+    bool partition_written = false;
+    bool formatted = false;
+    uint32_t mount_attempt_count = 0;
+    uint64_t capacity_bytes = 0;
+    uint64_t filesystem_total_bytes = 0;
+    uint64_t free_bytes = 0;
+    bool logger_mirror_requested = true;
+    bool logger_mirror_enabled = false;
+    int logger_mirror_errno = 0;
+    int64_t logger_mirror_changed_at_us = 0;
+    uint32_t logger_mirror_failure_count = 0;
 };
 
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
     ComponentSnapshot touch;
+    ComponentSnapshot brightness;
+    uint32_t brightness_percent = 100;
+};
+
+struct DiagnosticsSettingsSnapshot {
+    ComponentSnapshot sample_period;
+    ComponentSnapshot imu_smoothing;
+    ComponentSnapshot monitor;
+    uint32_t sample_period_ms = 300;
+    uint32_t imu_smoothing_percent = 70;
+    bool monitor_active = false;
 };
 
 struct InputSnapshot {
@@ -157,7 +264,7 @@ struct InputSnapshot {
     uint32_t wakeup_cause = 0;
 };
 
-struct MemorySnapshot {
+struct MemorySnapshot : ComponentSnapshot {
     uint32_t flash_capacity_bytes = 0;
     uint32_t app_partition_bytes = 0;
     uint32_t firmware_image_bytes = 0;
@@ -174,12 +281,13 @@ struct MemorySnapshot {
 };
 
 struct CoreSnapshot {
-    char current_task[24] = "unknown";
+    bool available = false;
+    char current_task[24] = "unavailable";
     uint32_t stack_high_water_words = 0;
     uint32_t priority = 0;
 };
 
-struct ProcessorSnapshot {
+struct ProcessorSnapshot : ComponentSnapshot {
     uint8_t core_count = 0;
     uint8_t sampling_core = 0;
     CoreSnapshot cores[2];
@@ -187,7 +295,9 @@ struct ProcessorSnapshot {
 
 struct DeviceSnapshot {
     uint32_t sequence = 0;
-    int64_t refreshed_at_us = 0;
+    int64_t last_update_attempt_at_us = 0;
+    bool last_update_complete = false;
+    esp_err_t last_update_error = ESP_ERR_INVALID_STATE;
     char reason[32] = "not-refreshed";
     BatterySnapshot battery;
     ImuSnapshot imu;
@@ -196,6 +306,7 @@ struct DeviceSnapshot {
     AudioSnapshot audio;
     RadioSnapshot radios;
     StorageSnapshot storage;
+    DiagnosticsSettingsSnapshot diagnostics;
     UiHardwareSnapshot ui;
     InputSnapshot input;
     MemorySnapshot memory;
@@ -217,18 +328,19 @@ public:
     esp_err_t refresh(const char *reason = "manual");
     DeviceSnapshot snapshot() const;
 
-    void reportStorage(
-        bool mounted,
-        bool card_present,
-        bool format_attempted,
-        bool formatted,
-        uint32_t mount_attempt_count,
-        uint64_t capacity_bytes,
-        uint64_t filesystem_total_bytes,
-        uint64_t free_bytes,
-        bool logger_mirror,
-        esp_err_t error
+    void reportStorage(const StorageMountReport &report);
+    void reportStorageMirror(
+        bool requested,
+        bool enabled,
+        esp_err_t error,
+        int last_errno,
+        int64_t changed_at_us,
+        uint32_t failure_count
     );
+    void reportDiagnosticPeriod(uint32_t sample_period_ms, esp_err_t error);
+    void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
+    void reportDiagnosticMonitor(bool monitor_active, esp_err_t error);
+    void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);
     void reportDisplay(bool ready, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
     void reportSpeaker(bool ready, esp_err_t error);
@@ -248,7 +360,8 @@ public:
         bool system_time_valid,
         bool synchronized,
         const char *source,
-        const char *timezone
+        const char *timezone,
+        esp_err_t error
     );
     void reportInputs(const InputSnapshot &inputs);
 

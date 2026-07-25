@@ -13,26 +13,17 @@
 #include "qsee_boot.h"
 
 #include <stdbool.h>
-#include <string.h>
 
 #include "bsp/esp-bsp.h"
 #include "esp_log.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/semphr.h"
 #include "lvgl.h"
-#include "qsee_logger.h"
 
 extern const uint8_t qsee_boot_rgb565_start[] asm("_binary_qsee_boot_rgb565_start");
 extern const uint8_t qsee_boot_rgb565_end[] asm("_binary_qsee_boot_rgb565_end");
 
 static const char *TAG = "qsee_boot";
 static lv_obj_t *s_screen;
-static lv_obj_t *s_log_rich_text;
 static lv_obj_t *s_continue_label;
-static lv_timer_t *s_log_timer;
-static SemaphoreHandle_t s_continue_semaphore;
-static StaticSemaphore_t s_continue_semaphore_control;
-static bool s_ready;
 
 static lv_image_dsc_t s_boot_image = {
     .header.magic = LV_IMAGE_HEADER_MAGIC,
@@ -50,9 +41,6 @@ typedef struct {
     int border_width_px;
     uint32_t color_hex;
     lv_opa_t border_opa;
-    int shadow_width_px;
-    int shadow_spread_px;
-    lv_opa_t shadow_opa;
 } boot_ring_layer_t;
 
 static void create_boot_glow_ring(lv_obj_t *parent)
@@ -63,27 +51,18 @@ static void create_boot_glow_ring(lv_obj_t *parent)
             .border_width_px = 2,
             .color_hex = 0x143E78,
             .border_opa = LV_OPA_40,
-            .shadow_width_px = 18,
-            .shadow_spread_px = 1,
-            .shadow_opa = LV_OPA_30,
         },
         {
             .inset_px = 7,
             .border_width_px = 3,
             .color_hex = 0x258CFF,
             .border_opa = LV_OPA_80,
-            .shadow_width_px = 12,
-            .shadow_spread_px = 1,
-            .shadow_opa = LV_OPA_40,
         },
         {
             .inset_px = 10,
             .border_width_px = 2,
             .color_hex = 0x9FE8FF,
             .border_opa = LV_OPA_COVER,
-            .shadow_width_px = 0,
-            .shadow_spread_px = 0,
-            .shadow_opa = LV_OPA_TRANSP,
         },
     };
 
@@ -100,100 +79,8 @@ static void create_boot_glow_ring(lv_obj_t *parent)
         lv_obj_set_style_border_width(ring, layer->border_width_px, 0);
         lv_obj_set_style_border_color(ring, lv_color_hex(layer->color_hex), 0);
         lv_obj_set_style_border_opa(ring, layer->border_opa, 0);
-        lv_obj_set_style_shadow_color(ring, lv_color_hex(layer->color_hex), 0);
-        lv_obj_set_style_shadow_width(ring, layer->shadow_width_px, 0);
-        lv_obj_set_style_shadow_spread(ring, layer->shadow_spread_px, 0);
-        lv_obj_set_style_shadow_opa(ring, layer->shadow_opa, 0);
         lv_obj_clear_flag(ring, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE);
     }
-}
-
-static lv_color_t log_level_color(const char *line, size_t length)
-{
-    size_t first = 0;
-    while (first < length && (line[first] == ' ' || line[first] == '\t')) {
-        ++first;
-    }
-
-    if (first < length && (line[first] == 'W' || line[first] == 'w')) {
-        return lv_color_hex(0xF6AD55);
-    }
-    if (first < length && (line[first] == 'E' || line[first] == 'e' ||
-                           line[first] == 'A' || line[first] == 'a')) {
-        return lv_color_hex(0xFC8181);
-    }
-    if (first < length && (line[first] == 'I' || line[first] == 'i')) {
-        return lv_color_hex(0x68D391);
-    }
-    if (first < length && (line[first] == 'D' || line[first] == 'd')) {
-        return lv_color_hex(0xA0AEC0);
-    }
-    return lv_color_hex(0xEAF1F6);
-}
-
-static void refresh_log_label(lv_timer_t *timer)
-{
-    (void)timer;
-    char snapshot[1100];
-    qsee_logger_snapshot(snapshot, sizeof(snapshot), 7);
-    if (s_log_rich_text == NULL) {
-        return;
-    }
-
-    while (lv_spangroup_get_span_count(s_log_rich_text) > 0U) {
-        lv_span_t *span = lv_spangroup_get_child(s_log_rich_text, 0);
-        if (span == NULL) {
-            break;
-        }
-        lv_spangroup_delete_span(s_log_rich_text, span);
-    }
-
-    const size_t length = strlen(snapshot);
-    size_t line_start = 0;
-    while (line_start < length || (length == 0U && line_start == 0U)) {
-        size_t line_end = line_start;
-        while (line_end < length && snapshot[line_end] != '\n') {
-            ++line_end;
-        }
-
-        char line[256];
-        const size_t line_length = line_end - line_start;
-        const size_t copy_length = line_length < sizeof(line) - 2U
-            ? line_length : sizeof(line) - 2U;
-        memcpy(line, snapshot + line_start, copy_length);
-        line[copy_length] = '\n';
-        line[copy_length + 1U] = '\0';
-
-        lv_span_t *span = lv_spangroup_add_span(s_log_rich_text);
-        if (span == NULL) {
-            break;
-        }
-        lv_span_set_text(span, line);
-        lv_style_set_text_color(lv_span_get_style(span),
-                                log_level_color(line, copy_length));
-        lv_style_set_text_font(lv_span_get_style(span), &lv_font_unscii_8);
-
-        if (line_end >= length) {
-            break;
-        }
-        line_start = line_end + 1U;
-    }
-    lv_spangroup_refresh(s_log_rich_text);
-}
-
-static void boot_touch_event(lv_event_t *event)
-{
-    if (lv_event_get_code(event) != LV_EVENT_CLICKED) {
-        return;
-    }
-
-    if (!s_ready) {
-        ESP_LOGI(TAG, "Touch received; startup still in progress");
-        return;
-    }
-
-    ESP_LOGI(TAG, "Touch confirmed; opening ESP-Brookesia");
-    xSemaphoreGive(s_continue_semaphore);
 }
 
 esp_err_t qsee_boot_ui_show(void)
@@ -202,105 +89,137 @@ esp_err_t qsee_boot_ui_show(void)
         return ESP_ERR_INVALID_STATE;
     }
 
-    s_continue_semaphore = xSemaphoreCreateBinaryStatic(&s_continue_semaphore_control);
-    if (s_continue_semaphore == NULL) {
-        return ESP_ERR_NO_MEM;
-    }
-
     ESP_LOGI(TAG, "Boot UI: acquiring LVGL lock");
-    if (bsp_display_lock(1000) != ESP_OK) {
-        ESP_LOGE(TAG, "Boot UI: LVGL lock timed out");
-        return ESP_ERR_TIMEOUT;
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI: LVGL lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
     }
 
     ESP_LOGI(TAG, "Boot UI: creating screen");
     s_screen = lv_obj_create(NULL);
+    if (s_screen == NULL) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: screen allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_obj_remove_style_all(s_screen);
     lv_obj_set_size(s_screen, 466, 466);
     lv_obj_set_style_bg_color(s_screen, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
-    lv_obj_add_flag(s_screen, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(s_screen, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(s_screen, boot_touch_event, LV_EVENT_CLICKED, NULL);
+    lv_obj_clear_flag(
+        s_screen,
+        LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_SCROLLABLE
+    );
 
     ESP_LOGI(TAG, "Boot UI: attaching RGB565 branding");
     lv_obj_t *image = lv_image_create(s_screen);
+    if (image == NULL) {
+        lv_obj_delete(s_screen);
+        s_screen = NULL;
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: image allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_image_set_src(image, &s_boot_image);
     lv_obj_align(image, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(image, LV_OBJ_FLAG_CLICKABLE);
 
     create_boot_glow_ring(s_screen);
 
-    ESP_LOGI(TAG, "Boot UI: creating canonical log panel");
-    lv_obj_t *panel = lv_obj_create(s_screen);
-    lv_obj_set_pos(panel, 73, 222);
-    lv_obj_set_size(panel, 320, 152);
-    lv_obj_set_style_radius(panel, 20, 0);
-    lv_obj_set_style_bg_color(panel, lv_color_hex(0x071A2C), 0);
-    lv_obj_set_style_bg_opa(panel, LV_OPA_90, 0);
-    lv_obj_set_style_border_width(panel, 1, 0);
-    lv_obj_set_style_border_color(panel, lv_color_hex(0x2F80ED), 0);
-    lv_obj_set_style_pad_all(panel, 12, 0);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_clear_flag(panel, LV_OBJ_FLAG_CLICKABLE);
-
-    s_log_rich_text = lv_spangroup_create(panel);
-    lv_obj_set_width(s_log_rich_text, 294);
-    lv_obj_set_height(s_log_rich_text, 128);
-    lv_spangroup_set_overflow(s_log_rich_text, LV_SPAN_OVERFLOW_CLIP);
-    lv_obj_set_scroll_dir(s_log_rich_text, LV_DIR_VER);
-    lv_obj_set_scrollbar_mode(s_log_rich_text, LV_SCROLLBAR_MODE_AUTO);
-
     s_continue_label = lv_label_create(s_screen);
+    if (s_continue_label == NULL) {
+        lv_obj_delete(s_screen);
+        s_screen = NULL;
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI: label allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
     lv_obj_align(s_continue_label, LV_ALIGN_BOTTOM_MID, 0, -28);
     lv_obj_set_style_text_color(s_continue_label, lv_color_hex(0x2F80ED), 0);
     lv_obj_set_style_text_font(s_continue_label, &lv_font_montserrat_16, 0);
     lv_label_set_text(s_continue_label, "INITIALIZING");
 
     ESP_LOGI(TAG, "Boot UI: loading screen");
-    s_log_timer = lv_timer_create(refresh_log_label, 180, NULL);
-    refresh_log_label(NULL);
     lv_screen_load(s_screen);
     bsp_display_unlock();
 
-    ESP_LOGI(TAG, "Boot screen online: QSee.ai + canonical live log");
+    ESP_LOGI(TAG, "Minimal boot screen online; canonical logs remain off-screen");
     return ESP_OK;
 }
 
-void qsee_boot_ui_mark_ready(void)
+esp_err_t qsee_boot_ui_mark_ready(void)
 {
-    s_ready = true;
-    if (bsp_display_lock(1000) == ESP_OK) {
-        if (s_continue_label != NULL) {
-            lv_label_set_text(s_continue_label, "OPENING WELCOME");
-        }
+    if (s_screen == NULL || s_continue_label == NULL) {
+        ESP_LOGE(TAG, "Boot UI cannot transition before it is initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI ready transition lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
+    }
+
+    lv_display_t *display = lv_display_get_default();
+    if (display == NULL) {
         bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI ready transition has no default display");
+        return ESP_ERR_INVALID_STATE;
     }
-    ESP_LOGI(TAG, "Startup complete; touch to continue");
+    lv_label_set_text(s_continue_label, "OPENING WELCOME");
+    lv_refr_now(display);
+    bsp_display_unlock();
+    ESP_LOGI(TAG, "Startup complete; opening Welcome");
+    return ESP_OK;
 }
 
-void qsee_boot_ui_wait_for_continue(void)
+esp_err_t qsee_boot_ui_hide(void)
 {
-    if (s_continue_semaphore != NULL) {
-        xSemaphoreTake(s_continue_semaphore, portMAX_DELAY);
-    }
-}
-
-void qsee_boot_ui_hide(void)
-{
-    if (bsp_display_lock(1000) != ESP_OK) {
-        return;
+    if (s_screen == NULL) {
+        ESP_LOGE(TAG, "Boot UI cannot hide before it is initialized");
+        return ESP_ERR_INVALID_STATE;
     }
 
-    if (s_log_timer != NULL) {
-        lv_timer_delete(s_log_timer);
-        s_log_timer = NULL;
+    const esp_err_t lock_result = bsp_display_lock(1000);
+    if (lock_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Boot UI hide lock failed: %s",
+            esp_err_to_name(lock_result)
+        );
+        return lock_result;
     }
-    if (s_screen != NULL) {
-        lv_obj_delete_async(s_screen);
-        s_screen = NULL;
+
+    lv_display_t *display = lv_display_get_default();
+    if (display == NULL) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Boot UI hide has no default display");
+        return ESP_ERR_INVALID_STATE;
     }
-    s_log_rich_text = NULL;
+
+    /*
+     * Brookesia replaces this screen immediately after this call. Clean and
+     * repaint it first so the AMOLED does not retain untouched strips from the
+     * full-screen RGB565 boot artwork around the round app area.
+     */
+    lv_obj_clean(s_screen);
+    lv_obj_remove_style_all(s_screen);
+    lv_obj_set_size(s_screen, 466, 466);
+    lv_obj_set_style_bg_color(s_screen, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(s_screen, LV_OPA_COVER, 0);
+    lv_obj_invalidate(s_screen);
+    lv_refr_now(display);
+    s_screen = NULL;
     s_continue_label = NULL;
     bsp_display_unlock();
+    return ESP_OK;
 }

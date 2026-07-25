@@ -70,17 +70,18 @@ esp_err_t UserSettingsService::setBool(const char *key, bool value)
     return error == ESP_OK ? nvs_commit(_handle) : error;
 }
 
-esp_err_t UserSettingsService::getBool(const char *key, bool default_value, bool *value) const
+esp_err_t UserSettingsService::getBool(const char *key, bool *value) const
 {
     if (value == nullptr) return ESP_ERR_INVALID_ARG;
     std::lock_guard<std::mutex> lock(_mutex);
     esp_err_t error = ensureInitialized();
     if (error != ESP_OK || key == nullptr) return error != ESP_OK ? error : ESP_ERR_INVALID_ARG;
-    uint8_t raw = default_value ? 1 : 0;
+    uint8_t raw = 0;
     error = nvs_get_u8(_handle, key, &raw);
-    if (error == ESP_ERR_NVS_NOT_FOUND) error = ESP_OK;
-    if (error == ESP_OK) *value = raw != 0;
-    return error;
+    if (error != ESP_OK) return error;
+    if (raw > 1U) return ESP_ERR_INVALID_RESPONSE;
+    *value = raw == 1U;
+    return ESP_OK;
 }
 
 #define QSEE_SETTINGS_INT_METHODS(Suffix, Type, SetFn, GetFn) \
@@ -92,15 +93,16 @@ esp_err_t UserSettingsService::set##Suffix(const char *key, Type value) \
     error = SetFn(_handle, key, value); \
     return error == ESP_OK ? nvs_commit(_handle) : error; \
 } \
-esp_err_t UserSettingsService::get##Suffix(const char *key, Type default_value, Type *value) const \
+esp_err_t UserSettingsService::get##Suffix(const char *key, Type *value) const \
 { \
     if (value == nullptr) return ESP_ERR_INVALID_ARG; \
     std::lock_guard<std::mutex> lock(_mutex); \
     esp_err_t error = ensureInitialized(); \
     if (error != ESP_OK || key == nullptr) return error != ESP_OK ? error : ESP_ERR_INVALID_ARG; \
-    *value = default_value; \
-    error = GetFn(_handle, key, value); \
-    return error == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : error; \
+    Type raw = 0; \
+    error = GetFn(_handle, key, &raw); \
+    if (error == ESP_OK) *value = raw; \
+    return error; \
 }
 
 QSEE_SETTINGS_INT_METHODS(Int32, int32_t, nvs_set_i32, nvs_get_i32)
@@ -115,10 +117,9 @@ esp_err_t UserSettingsService::setFloat(const char *key, float value)
     return setBlob(key, &value, sizeof(value));
 }
 
-esp_err_t UserSettingsService::getFloat(const char *key, float default_value, float *value) const
+esp_err_t UserSettingsService::getFloat(const char *key, float *value) const
 {
     if (value == nullptr) return ESP_ERR_INVALID_ARG;
-    *value = default_value;
     std::vector<uint8_t> data;
     esp_err_t error = getBlob(key, &data);
     if (error != ESP_OK) return error;
@@ -137,7 +138,7 @@ esp_err_t UserSettingsService::setString(const char *key, const char *value)
     return error == ESP_OK ? nvs_commit(_handle) : error;
 }
 
-esp_err_t UserSettingsService::getString(const char *key, const char *default_value, std::string *value) const
+esp_err_t UserSettingsService::getString(const char *key, std::string *value) const
 {
     if (key == nullptr || value == nullptr) return ESP_ERR_INVALID_ARG;
     std::lock_guard<std::mutex> lock(_mutex);
@@ -145,10 +146,6 @@ esp_err_t UserSettingsService::getString(const char *key, const char *default_va
     if (error != ESP_OK) return error;
     size_t length = 0;
     error = nvs_get_str(_handle, key, nullptr, &length);
-    if (error == ESP_ERR_NVS_NOT_FOUND) {
-        *value = default_value != nullptr ? default_value : "";
-        return ESP_OK;
-    }
     if (error != ESP_OK) return error;
     std::string buffer(length, '\0');
     error = nvs_get_str(_handle, key, buffer.data(), &length);
@@ -174,43 +171,13 @@ esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *da
     if (error != ESP_OK) return error;
     size_t size = 0;
     error = nvs_get_blob(_handle, key, nullptr, &size);
-    if (error == ESP_ERR_NVS_NOT_FOUND) {
-        data->clear();
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
     if (error != ESP_OK) return error;
-    data->resize(size);
-    return nvs_get_blob(_handle, key, data->data(), &size);
-}
-
-bool UserSettingsService::contains(const char *key) const
-{
-    if (key == nullptr) return false;
-    std::lock_guard<std::mutex> lock(_mutex);
-    if (ensureInitialized() != ESP_OK) return false;
-    nvs_iterator_t iterator = nullptr;
-    esp_err_t err = nvs_entry_find_in_handle(_handle, NVS_TYPE_ANY, &iterator);
-    while (err == ESP_OK && iterator != nullptr) {
-        nvs_entry_info_t info{};
-        if (nvs_entry_info(iterator, &info) == ESP_OK && std::strcmp(info.key, key) == 0) {
-            nvs_release_iterator(iterator);
-            return true;
-        }
-        err = nvs_entry_next(&iterator);
+    std::vector<uint8_t> buffer(size);
+    error = nvs_get_blob(_handle, key, buffer.data(), &size);
+    if (error == ESP_OK) {
+        *data = buffer;
     }
-    nvs_release_iterator(iterator);
-    return false;
-}
-
-esp_err_t UserSettingsService::erase(const char *key)
-{
-    if (key == nullptr) return ESP_ERR_INVALID_ARG;
-    std::lock_guard<std::mutex> lock(_mutex);
-    esp_err_t error = ensureInitialized();
-    if (error != ESP_OK) return error;
-    error = nvs_erase_key(_handle, key);
-    if (error == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
-    return error == ESP_OK ? nvs_commit(_handle) : error;
+    return error;
 }
 
 esp_err_t UserSettingsService::clear()

@@ -1,5 +1,8 @@
 #pragma once
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
@@ -11,6 +14,7 @@
 
 #include "esp_io_expander_tca9554.h"
 
+#include "ff.h"
 #include "lvgl.h"
 #include "esp_lv_adapter.h"
 
@@ -103,11 +107,11 @@ esp_err_t bsp_i2c_deinit(void);
 /**
  * @brief Get I2C driver handle
  *
- * @return
- *      - I2C handle
+ * @param[out] out_handle Initialized I2C master bus handle
+ * @return ESP_OK or the exact I2C initialization error
  *
  */
-i2c_master_bus_handle_t bsp_i2c_get_handle(void);
+esp_err_t bsp_i2c_get_handle(i2c_master_bus_handle_t *out_handle);
 
 
 /**************************************************************************************************
@@ -117,9 +121,8 @@ i2c_master_bus_handle_t bsp_i2c_get_handle(void);
  * There are two devices connected to the I2S peripheral:
  *  - Codec ES8311 for output(playback) and input(recording) path
  *
- * For speaker initialization use bsp_audio_codec_speaker_init() which is inside initialize I2S with bsp_audio_init().
- * For microphone initialization use bsp_audio_codec_microphone_init() which is inside initialize I2S with bsp_audio_init().
- * After speaker or microphone initialization, use functions from esp_codec_dev for play/record audio.
+ * bsp_audio_codec_init() creates the complete speaker + microphone route as
+ * one transaction. After initialization, use esp_codec_dev for play/record.
  * Example audio play:
  * \code{.c}
  * esp_codec_dev_set_out_vol(spk_codec_dev, DEFAULT_VOLUME);
@@ -132,8 +135,6 @@ i2c_master_bus_handle_t bsp_i2c_get_handle(void);
 /**
  * @brief Init audio
  *
- * @note There is no deinit audio function. Users can free audio resources by calling i2s_del_channel()
- * @warning The type of i2s_config param is depending on IDF version.
  * @param[in]  i2s_config I2S configuration. Pass NULL to use default values (Mono, duplex, 16bit, 22050 Hz)
  * @return
  *      - ESP_OK                On success
@@ -146,18 +147,25 @@ i2c_master_bus_handle_t bsp_i2c_get_handle(void);
 esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config);
 
 /**
- * @brief Initialize speaker codec device
+ * @brief Initialize the complete speaker and microphone codec route
  *
- * @return Pointer to codec device handle or NULL when error occurred
+ * @param[out] out_speaker Initialized ES8311 codec device
+ * @param[out] out_microphone Initialized ES7210 codec device
+ * @return ESP_OK or the exact initialization error. Outputs remain NULL on
+ *         failure.
  */
-esp_codec_dev_handle_t bsp_audio_codec_speaker_init(void);
+esp_err_t bsp_audio_codec_init(
+    esp_codec_dev_handle_t *out_speaker,
+    esp_codec_dev_handle_t *out_microphone
+);
 
 /**
- * @brief Initialize microphone codec device
+ * @brief Close and release all BSP-owned codec and I2S resources
  *
- * @return Pointer to codec device handle or NULL when error occurred
+ * @return ESP_OK when cleanup is complete. A cleanup failure poisons the
+ *         audio route and is returned explicitly.
  */
-esp_codec_dev_handle_t bsp_audio_codec_microphone_init(void);
+esp_err_t bsp_audio_codec_deinit(void);
 
 /**************************************************************************************************
  *
@@ -207,49 +215,147 @@ esp_err_t bsp_spiffs_unmount(void);
 #define BSP_SD_MOUNT_POINT      CONFIG_BSP_SD_MOUNT_POINT
 extern sdmmc_card_t *bsp_sdcard;
 
-/**
- * @brief Mount microSD card to virtual file system
- *
- * @return
- *      - ESP_OK on success
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_sdmmc_mount was already called
- *      - ESP_ERR_NO_MEM if memory cannot be allocated
- *      - ESP_FAIL if partition cannot be mounted
- *      - other error codes from SDMMC or SPI drivers, SDMMC protocol, or FATFS drivers
- */
-esp_err_t bsp_sdcard_mount(void);
+typedef struct {
+    int32_t manufacturer_id;
+    int32_t oem_id;
+    char product_name[8];
+    int32_t revision;
+    int32_t serial;
+    int32_t manufacturing_date;
+    uint64_t capacity_bytes;
+} bsp_sdcard_identity_t;
+
+typedef struct {
+    /**
+     * Single-use permission for this call only. When true,
+     * expected_identity_valid must also be true.
+     */
+    bool format_authorized;
+    bool expected_identity_valid;
+    bsp_sdcard_identity_t expected_identity;
+} bsp_sdcard_mount_request_t;
+
+typedef enum {
+    BSP_SDCARD_MOUNT_OUTCOME_MOUNTED = 0,
+    BSP_SDCARD_MOUNT_OUTCOME_CARD_OR_TRANSPORT_FAILED,
+    BSP_SDCARD_MOUNT_OUTCOME_FORMAT_REQUIRED,
+    BSP_SDCARD_MOUNT_OUTCOME_FILESYSTEM_FAILED,
+    BSP_SDCARD_MOUNT_OUTCOME_FORMAT_FAILED,
+    BSP_SDCARD_MOUNT_OUTCOME_INTERNAL_FAILED,
+} bsp_sdcard_mount_outcome_t;
+
+typedef enum {
+    BSP_SDCARD_STAGE_NONE = 0,
+    BSP_SDCARD_STAGE_REQUEST,
+    BSP_SDCARD_STAGE_HOST_INIT,
+    BSP_SDCARD_STAGE_SLOT_INIT,
+    BSP_SDCARD_STAGE_CARD_INIT,
+    BSP_SDCARD_STAGE_CARD_IDENTITY,
+    BSP_SDCARD_STAGE_DRIVE_ALLOC,
+    BSP_SDCARD_STAGE_DISKIO_REGISTER,
+    BSP_SDCARD_STAGE_VFS_REGISTER,
+    BSP_SDCARD_STAGE_FAT_MOUNT,
+    BSP_SDCARD_STAGE_PRE_FORMAT_UNMOUNT,
+    BSP_SDCARD_STAGE_PARTITION,
+    BSP_SDCARD_STAGE_FORMAT,
+    BSP_SDCARD_STAGE_POST_FORMAT_MOUNT,
+} bsp_sdcard_mount_stage_t;
+
+typedef enum {
+    BSP_SDCARD_CLEANUP_NONE = 0,
+    BSP_SDCARD_CLEANUP_FAT_UNMOUNT,
+    BSP_SDCARD_CLEANUP_VFS_UNREGISTER,
+    BSP_SDCARD_CLEANUP_HOST_DEINIT,
+} bsp_sdcard_cleanup_stage_t;
+
+typedef struct {
+    bsp_sdcard_mount_outcome_t outcome;
+    bsp_sdcard_mount_stage_t stage;
+    esp_err_t error;
+
+    FRESULT initial_mount_result;
+    bool initial_mount_result_valid;
+    FRESULT fatfs_result;
+    bool fatfs_result_valid;
+
+    esp_err_t cleanup_error;
+    bsp_sdcard_cleanup_stage_t cleanup_stage;
+    FRESULT cleanup_fatfs_result;
+    bool cleanup_fatfs_result_valid;
+    bool cleanup_complete;
+    bool poisoned;
+
+    bool card_initialized;
+    bool observed_identity_valid;
+    bsp_sdcard_identity_t observed_identity;
+
+    bool authorization_consumed;
+    bool authorization_identity_matched;
+    bool format_attempted;   /**< Destructive sequence entered; partial writes are possible on failure. */
+    bool partition_written;  /**< f_fdisk completed successfully. */
+    bool formatted;          /**< f_mkfs completed successfully, even if the following mount failed. */
+    bool mounted;
+} bsp_sdcard_mount_result_t;
+
+typedef struct {
+    esp_err_t error;
+    bsp_sdcard_cleanup_stage_t stage;
+    FRESULT fatfs_result;
+    bool fatfs_result_valid;
+    bool complete;
+    bool poisoned;
+} bsp_sdcard_unmount_result_t;
 
 /**
- * @brief Mount microSD card with an explicit FAT formatting policy
+ * @brief Probe and mount the removable microSD card.
  *
- * @param format_if_mount_failed Format only after SDMMC transport and card
- *                               initialization have succeeded but FAT mount fails.
+ * Formatting is considered only when the immediate FAT probe returns exactly
+ * FR_NO_FILESYSTEM and the single-use authorization identity matches the
+ * initialized card field by field. An authorization is consumed by this call
+ * even when the card is absent, its identity differs, initialization fails, or
+ * formatting is not required.
+ *
+ * @param request Mount request and optional identity-bound format permission.
+ * @param[out] out_result Exact stage, ESP-IDF error, FatFs result, formatting
+ *                        progress, and cleanup state.
+ * @return ESP_OK only when the card is mounted; otherwise the primary
+ *         ESP-IDF error or the specific ESP-IDF mapping of the exact FRESULT
+ *         retained in out_result.
  */
-esp_err_t bsp_sdcard_mount_with_format(bool format_if_mount_failed);
+esp_err_t bsp_sdcard_mount(
+    const bsp_sdcard_mount_request_t *request,
+    bsp_sdcard_mount_result_t *out_result
+);
 
 /**
- * @brief Unmount microSD card from virtual file system
+ * @brief Unmount the microSD card and release all BSP-owned resources.
  *
- * @return
- *      - ESP_OK on success
- *      - ESP_ERR_NOT_FOUND if the partition table does not contain FATFS partition with given label
- *      - ESP_ERR_INVALID_STATE if esp_vfs_fat_spiflash_mount was already called
- *      - ESP_ERR_NO_MEM if memory can not be allocated
- *      - ESP_FAIL if partition can not be mounted
- *      - other error codes from wear levelling library, SPI flash driver, or FATFS drivers
+ * A failed cleanup poisons the BSP storage state. Further mount, status, and
+ * unmount calls then fail with ESP_ERR_INVALID_STATE instead of attempting an
+ * ambiguous recovery.
+ *
+ * @param[out] out_result Exact cleanup stage, FatFs result, and ownership
+ *                        state. The result is populated on every return path.
  */
-esp_err_t bsp_sdcard_unmount(void);
+esp_err_t bsp_sdcard_unmount(bsp_sdcard_unmount_result_t *out_result);
 
 /**
- * @brief Init IO expander chip TCA9554
+ * @brief Check the currently mounted card through the SDMMC protocol.
  *
- * @note If the device was already initialized, users can also use it to get handle.
- * @note This function will be called in `bsp_display_start()` when using LCD sub-board 2 with the resolution of 480x480.
- * @note This function will be called in `bsp_audio_init()`.
- *
- * @return Pointer to device handle or NULL when error occurred
+ * @return ESP_OK when the mounted card responds, the exact sdmmc_get_status()
+ *         error, or ESP_ERR_INVALID_STATE when no usable mount exists.
  */
-esp_io_expander_handle_t bsp_io_expander_init(void);
+esp_err_t bsp_sdcard_get_status(void);
+
+/**
+ * @brief Initialize or get the IO expander chip TCA9554
+ *
+ * @param[out] out_handle Initialized expander handle
+ * @return ESP_OK or the exact I2C/driver error
+ */
+esp_err_t bsp_io_expander_init(
+    esp_io_expander_handle_t *out_handle
+);
 
 
 /**************************************************************************************************
@@ -285,9 +391,10 @@ typedef struct {
  *
  * This function initializes SPI, display controller and starts LVGL handling task.
  *
- * @return Pointer to LVGL display or NULL when error occurred
+ * @param[out] out_display Initialized LVGL display
+ * @return ESP_OK or the exact startup error
  */
-lv_display_t *bsp_display_start(void);
+esp_err_t bsp_display_start(lv_display_t **out_display);
 
 /**
  * @brief Initialize display
@@ -296,10 +403,14 @@ lv_display_t *bsp_display_start(void);
  * LCD backlight must be enabled separately by calling bsp_display_brightness_set()
  *
  * @param cfg display configuration
+ * @param[out] out_display Initialized LVGL display
  *
- * @return Pointer to LVGL display or NULL when error occurred
+ * @return ESP_OK or the exact startup error
  */
-lv_display_t *bsp_display_start_with_config(bsp_display_cfg_t *cfg);
+esp_err_t bsp_display_start_with_config(
+    const bsp_display_cfg_t *cfg,
+    lv_display_t **out_display
+);
 
 /**
  * @brief Get pointer to input device (touch, buttons, ...)

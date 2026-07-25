@@ -16,7 +16,10 @@ enum class ProvisioningState {
     Connecting,
     Success,
     Failed,
+    Stopping,
+    Deinitializing,
     Stopped,
+    Poisoned,
 };
 
 /** BLE-only Espressif network provisioning facade for Wi-Fi credentials. */
@@ -27,9 +30,11 @@ public:
     esp_err_t initialize();
     esp_err_t start();
     esp_err_t stop();
+    esp_err_t deinitializeForBleTelemetry();
     esp_err_t isProvisioned(bool *provisioned) const;
     esp_err_t connectionSummary(char *buffer, size_t buffer_size) const;
 
+    bool isInitialized() const;
     ProvisioningState state() const;
     const char *serviceName() const;
     const char *qrPayload() const;
@@ -41,11 +46,22 @@ private:
 
     static void onEvent(void *user_data, network_prov_cb_event_t event, void *event_data);
     void handleEvent(network_prov_cb_event_t event, void *event_data);
-    void rebuildIdentity();
+    esp_err_t rebuildIdentity();
+
+    enum class Operation {
+        None,
+        Initialize,
+        Start,
+        Stop,
+        Deinitialize,
+    };
 
     mutable std::mutex _mutex;
     bool _initialized = false;
     bool _running = false;
+    bool _poisoned = false;
+    Operation _operation = Operation::None;
+    esp_err_t _last_error = ESP_OK;
     ProvisioningState _state = ProvisioningState::Idle;
     char _service_name[24]{};
     char _qr_payload[192]{};

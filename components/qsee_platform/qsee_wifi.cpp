@@ -13,6 +13,7 @@
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
 
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 
@@ -44,6 +45,8 @@ esp_event_handler_instance_t s_wifi_event_instance;
 esp_event_handler_instance_t s_ip_event_instance;
 bool s_initialized;
 bool s_driver_initialized;
+bool s_driver_started;
+esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_connect_requested;
 uint8_t s_consecutive_disconnects;
 qsee_wifi_status_t s_status;
@@ -123,22 +126,51 @@ void record_error(esp_err_t error)
     publish_snapshot();
 }
 
-void cancel_reconnect()
+[[noreturn]] void abort_incomplete_cleanup(
+    const char *operation,
+    esp_err_t error
+)
 {
-    if (s_reconnect_timer != nullptr) {
-        (void)xTimerStop(s_reconnect_timer, 0);
+    ESP_LOGE(
+        TAG,
+        "%s failed; Wi-Fi ownership is indeterminate (%s)",
+        operation,
+        esp_err_to_name(error)
+    );
+    wifi_lock();
+    s_initialized = false;
+    s_status.initialized = false;
+    s_status.started = s_driver_started;
+    s_status.last_error = error;
+    s_initialization_result = error;
+    ++s_status.event_sequence;
+    wifi_unlock();
+    publish_snapshot();
+    std::abort();
+}
+
+esp_err_t cancel_reconnect()
+{
+    if (s_reconnect_timer == nullptr) {
+        ESP_LOGE(TAG, "Reconnect cancellation failed: timer unavailable");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xTimerStop(s_reconnect_timer, 0) != pdPASS) {
+        ESP_LOGE(TAG, "Reconnect cancellation failed: timer queue full");
+        return ESP_ERR_TIMEOUT;
     }
     wifi_lock();
     s_status.reconnect_pending = false;
     s_status.reconnect_delay_ms = 0;
     wifi_unlock();
+    return ESP_OK;
 }
 
-void schedule_reconnect(uint32_t delay_ms)
+esp_err_t schedule_reconnect(uint32_t delay_ms)
 {
     if (s_reconnect_timer == nullptr) {
         record_error(ESP_ERR_INVALID_STATE);
-        return;
+        return ESP_ERR_INVALID_STATE;
     }
     if (delay_ms < WIFI_RECONNECT_INITIAL_MS) {
         delay_ms = WIFI_RECONNECT_INITIAL_MS;
@@ -154,8 +186,11 @@ void schedule_reconnect(uint32_t delay_ms)
     publish_snapshot();
 
     if (xTimerChangePeriod(s_reconnect_timer, pdMS_TO_TICKS(delay_ms), 0) != pdPASS) {
+        ESP_LOGE(TAG, "Scheduling Wi-Fi reconnect failed: timer queue full");
         record_error(ESP_ERR_TIMEOUT);
+        return ESP_ERR_TIMEOUT;
     }
+    return ESP_OK;
 }
 
 void reconnect_timer_callback(TimerHandle_t timer)
@@ -178,7 +213,16 @@ void reconnect_timer_callback(TimerHandle_t timer)
     }
     const esp_err_t error = esp_wifi_connect();
     if (error == ESP_ERR_WIFI_STATE) {
-        schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+        record_error(error);
+        const esp_err_t schedule_error =
+            schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+        if (schedule_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Reconnect retry could not be scheduled (%s)",
+                esp_err_to_name(schedule_error)
+            );
+        }
     } else {
         record_error(error);
     }
@@ -239,14 +283,19 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
 
         case WIFI_EVENT_STA_CONNECTED: {
             const auto *connected = static_cast<const wifi_event_sta_connected_t *>(event_data);
+            const esp_err_t event_error =
+                connected != nullptr ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
             wifi_lock();
             s_status.connected = true;
             s_status.ip_acquired = false;
             s_status.channel = connected != nullptr ? connected->channel : 0;
-            s_status.last_error = ESP_OK;
+            s_status.last_error = event_error;
             ++s_status.event_sequence;
             wifi_unlock();
             publish_snapshot();
+            if (event_error != ESP_OK) {
+                ESP_LOGE(TAG, "Connected event had no payload");
+            }
             ESP_LOGI(TAG, "Associated with %s on channel %u; waiting for DHCP",
                      s_status.ssid, static_cast<unsigned>(s_status.channel));
             break;
@@ -266,9 +315,12 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.gateway[0] = '\0';
             ++s_status.disconnect_count;
             s_status.last_disconnect_reason = disconnected != nullptr ? disconnected->reason : 0;
-            s_status.last_error = ESP_OK;
-            ++s_status.event_sequence;
             reconnect = s_connect_requested;
+            s_status.last_error =
+                disconnected == nullptr
+                    ? ESP_ERR_INVALID_RESPONSE
+                    : (reconnect ? ESP_ERR_WIFI_CONN : ESP_OK);
+            ++s_status.event_sequence;
             if (reconnect) {
                 const uint8_t shift = s_consecutive_disconnects < 5 ? s_consecutive_disconnects : 5;
                 delay_ms = WIFI_RECONNECT_INITIAL_MS << shift;
@@ -284,7 +336,15 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
                      reconnect ? "yes" : "no",
                      static_cast<unsigned long>(delay_ms));
             if (reconnect) {
-                schedule_reconnect(delay_ms);
+                const esp_err_t schedule_error =
+                    schedule_reconnect(delay_ms);
+                if (schedule_error != ESP_OK) {
+                    ESP_LOGE(
+                        TAG,
+                        "Disconnect recovery could not be scheduled (%s)",
+                        esp_err_to_name(schedule_error)
+                    );
+                }
             }
             break;
         }
@@ -293,17 +353,22 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             handle_scan_done();
             break;
 
-        case WIFI_EVENT_STA_STOP:
-            cancel_reconnect();
+        case WIFI_EVENT_STA_STOP: {
+            const esp_err_t cancel_error = cancel_reconnect();
             wifi_lock();
             s_status.started = false;
             s_status.connected = false;
             s_status.ip_acquired = false;
+            s_status.last_error =
+                cancel_error == ESP_OK
+                    ? ESP_ERR_INVALID_STATE
+                    : cancel_error;
             ++s_status.event_sequence;
             wifi_unlock();
             publish_snapshot();
             ESP_LOGI(TAG, "Station driver stopped");
             break;
+        }
 
         default:
             break;
@@ -317,20 +382,41 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
     if (event_id == IP_EVENT_STA_GOT_IP) {
         const auto *got_ip = static_cast<const ip_event_got_ip_t *>(event_data);
         wifi_ap_record_t access_point = {};
-        (void)esp_wifi_sta_get_ap_info(&access_point);
+        const esp_err_t access_point_error =
+            esp_wifi_sta_get_ap_info(&access_point);
+        esp_err_t event_error =
+            got_ip == nullptr
+                ? ESP_ERR_INVALID_RESPONSE
+                : access_point_error;
+        const esp_err_t cancel_error = cancel_reconnect();
+        if (event_error == ESP_OK && cancel_error != ESP_OK) {
+            event_error = cancel_error;
+        }
 
         wifi_lock();
         s_status.connected = true;
-        s_status.ip_acquired = true;
+        s_status.ip_acquired = got_ip != nullptr;
         s_status.credentials_configured = true;
         s_status.connect_requested = true;
-        s_status.rssi = access_point.rssi;
-        s_status.channel = access_point.primary;
-        s_status.reconnect_pending = false;
-        s_status.reconnect_delay_ms = 0;
+        if (access_point_error == ESP_OK) {
+            s_status.rssi = access_point.rssi;
+            s_status.channel = access_point.primary;
+            copy_ssid(
+                s_status.ssid,
+                sizeof(s_status.ssid),
+                access_point.ssid,
+                sizeof(access_point.ssid)
+            );
+        }
+        if (cancel_error == ESP_OK) {
+            s_status.reconnect_pending = false;
+            s_status.reconnect_delay_ms = 0;
+        }
         s_status.last_disconnect_reason = 0;
-        s_status.last_error = ESP_OK;
-        copy_ssid(s_status.ssid, sizeof(s_status.ssid), access_point.ssid, sizeof(access_point.ssid));
+        s_status.last_error = event_error;
+        if (event_error == ESP_OK) {
+            s_initialization_result = ESP_OK;
+        }
         if (got_ip != nullptr) {
             ip4addr_ntoa_r(
                 reinterpret_cast<const ip4_addr_t *>(&got_ip->ip_info.ip),
@@ -351,17 +437,38 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         ++s_status.event_sequence;
         s_consecutive_disconnects = 0;
         wifi_unlock();
-        cancel_reconnect();
         publish_snapshot();
-        ESP_LOGI(TAG, "Online: SSID=%s IP=%s RSSI=%d dBm",
-                 s_status.ssid, s_status.ip_address, s_status.rssi);
-        (void)qsee_time_notify_wifi_online();
+        if (event_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Got-IP event incomplete (%s)",
+                esp_err_to_name(event_error)
+            );
+            return;
+        }
+        ESP_LOGI(
+            TAG,
+            "Online: SSID=%s IP=%s RSSI=%d dBm",
+            s_status.ssid,
+            s_status.ip_address,
+            s_status.rssi
+        );
+        const esp_err_t time_error = qsee_time_notify_wifi_online();
+        if (time_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Starting SNTP after DHCP failed (%s)",
+                esp_err_to_name(time_error)
+            );
+        }
     } else if (event_id == IP_EVENT_STA_LOST_IP) {
         wifi_lock();
         s_status.ip_acquired = false;
         s_status.ip_address[0] = '\0';
         s_status.netmask[0] = '\0';
         s_status.gateway[0] = '\0';
+        s_status.last_error =
+            s_connect_requested ? ESP_ERR_WIFI_CONN : ESP_OK;
         ++s_status.event_sequence;
         wifi_unlock();
         publish_snapshot();
@@ -371,13 +478,13 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
 
 esp_err_t initialize_nvs()
 {
-    esp_err_t error = nvs_flash_init();
-    if (error == ESP_ERR_NVS_NO_FREE_PAGES || error == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_LOGW(TAG, "NVS requires recovery: %s", esp_err_to_name(error));
-        error = nvs_flash_erase();
-        if (error == ESP_OK) {
-            error = nvs_flash_init();
-        }
+    const esp_err_t error = nvs_flash_init();
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "NVS initialization failed; explicit recovery required (%s)",
+            esp_err_to_name(error)
+        );
     }
     return error;
 }
@@ -387,7 +494,27 @@ esp_err_t initialize_nvs()
 extern "C" esp_err_t qsee_wifi_init(void)
 {
     if (s_initialized) {
-        return ESP_OK;
+        wifi_lock();
+        const esp_err_t result = s_initialization_result;
+        wifi_unlock();
+        return result;
+    }
+    if (s_ip_event_instance != nullptr ||
+        s_wifi_event_instance != nullptr ||
+        s_driver_initialized ||
+        s_driver_started ||
+        s_station_netif != nullptr) {
+        const esp_err_t residual_error =
+            s_initialization_result != ESP_OK
+                ? s_initialization_result
+                : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi initialization retry rejected after incomplete cleanup "
+            "(%s)",
+            esp_err_to_name(residual_error)
+        );
+        return residual_error;
     }
 
     if (s_lock == nullptr) {
@@ -472,6 +599,7 @@ extern "C" esp_err_t qsee_wifi_init(void)
     if (error != ESP_OK) {
         goto fail;
     }
+    s_driver_started = true;
     error = esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
     if (error != ESP_OK) {
         goto fail;
@@ -481,7 +609,11 @@ extern "C" esp_err_t qsee_wifi_init(void)
     {
         uint8_t mac[6] = {};
         wifi_config_t stored = {};
-        (void)esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        error = esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "Reading Wi-Fi MAC failed (%s)", esp_err_to_name(error));
+            goto fail;
+        }
         std::snprintf(
             s_status.mac_address,
             sizeof(s_status.mac_address),
@@ -489,7 +621,16 @@ extern "C" esp_err_t qsee_wifi_init(void)
             mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]
         );
         const esp_err_t stored_result = esp_wifi_get_config(WIFI_IF_STA, &stored);
-        const bool has_profile = stored_result == ESP_OK && stored.sta.ssid[0] != '\0';
+        if (stored_result != ESP_OK) {
+            error = stored_result;
+            ESP_LOGE(
+                TAG,
+                "Reading persisted Wi-Fi profile failed (%s)",
+                esp_err_to_name(error)
+            );
+            goto fail;
+        }
+        const bool has_profile = stored.sta.ssid[0] != '\0';
 
         wifi_lock();
         s_initialized = true;
@@ -498,6 +639,7 @@ extern "C" esp_err_t qsee_wifi_init(void)
         s_status.credentials_configured = has_profile;
         s_status.connect_requested = has_profile;
         s_connect_requested = has_profile;
+        s_initialization_result = ESP_OK;
         if (has_profile) {
             copy_ssid(s_status.ssid, sizeof(s_status.ssid), stored.sta.ssid, sizeof(stored.sta.ssid));
         }
@@ -512,7 +654,10 @@ extern "C" esp_err_t qsee_wifi_init(void)
             ++s_status.connect_attempt_count;
             wifi_unlock();
             error = esp_wifi_connect();
-            if (error != ESP_OK && error != ESP_ERR_WIFI_STATE) {
+            if (error != ESP_OK) {
+                wifi_lock();
+                s_initialization_result = error;
+                wifi_unlock();
                 record_error(error);
                 return error;
             }
@@ -521,17 +666,55 @@ extern "C" esp_err_t qsee_wifi_init(void)
     return ESP_OK;
 
 fail:
+    if (s_driver_started) {
+        const esp_err_t cleanup_error = esp_wifi_stop();
+        if (cleanup_error != ESP_OK) {
+            abort_incomplete_cleanup("Wi-Fi driver stop", cleanup_error);
+        }
+        s_driver_started = false;
+    }
     if (s_ip_event_instance != nullptr) {
-        (void)esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_event_instance);
-        s_ip_event_instance = nullptr;
+        const esp_err_t cleanup_error =
+            esp_event_handler_instance_unregister(
+                IP_EVENT,
+                ESP_EVENT_ANY_ID,
+                s_ip_event_instance
+            );
+        if (cleanup_error == ESP_OK) {
+            s_ip_event_instance = nullptr;
+        } else {
+            abort_incomplete_cleanup(
+                "IP event handler cleanup",
+                cleanup_error
+            );
+        }
     }
     if (s_wifi_event_instance != nullptr) {
-        (void)esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_wifi_event_instance);
-        s_wifi_event_instance = nullptr;
+        const esp_err_t cleanup_error =
+            esp_event_handler_instance_unregister(
+                WIFI_EVENT,
+                ESP_EVENT_ANY_ID,
+                s_wifi_event_instance
+            );
+        if (cleanup_error == ESP_OK) {
+            s_wifi_event_instance = nullptr;
+        } else {
+            abort_incomplete_cleanup(
+                "Wi-Fi event handler cleanup",
+                cleanup_error
+            );
+        }
     }
     if (s_driver_initialized) {
-        (void)esp_wifi_deinit();
-        s_driver_initialized = false;
+        const esp_err_t cleanup_error = esp_wifi_deinit();
+        if (cleanup_error == ESP_OK) {
+            s_driver_initialized = false;
+        } else {
+            abort_incomplete_cleanup(
+                "Wi-Fi driver cleanup",
+                cleanup_error
+            );
+        }
     }
     if (s_station_netif != nullptr) {
         esp_netif_destroy_default_wifi(s_station_netif);
@@ -542,6 +725,7 @@ fail:
     s_status.initialized = false;
     s_status.started = false;
     s_status.last_error = error;
+    s_initialization_result = error;
     ++s_status.event_sequence;
     wifi_unlock();
     publish_snapshot();
@@ -569,8 +753,14 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
     config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     config.sta.threshold.authmode = safe_password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
 
-    cancel_reconnect();
-    esp_err_t error = esp_wifi_set_storage(persist ? WIFI_STORAGE_FLASH : WIFI_STORAGE_RAM);
+    esp_err_t error = cancel_reconnect();
+    if (error != ESP_OK) {
+        record_error(error);
+        return error;
+    }
+    error = esp_wifi_set_storage(
+        persist ? WIFI_STORAGE_FLASH : WIFI_STORAGE_RAM
+    );
     if (error == ESP_OK) {
         error = esp_wifi_set_config(WIFI_IF_STA, &config);
     }
@@ -595,8 +785,17 @@ extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, b
     ESP_LOGI(TAG, "Connecting to SSID=%s, persistence=%s", ssid, persist ? "NVS" : "RAM");
     error = esp_wifi_connect();
     if (error == ESP_ERR_WIFI_STATE) {
-        schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
-        return ESP_OK;
+        record_error(error);
+        const esp_err_t schedule_error =
+            schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+        if (schedule_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Initial retry could not be scheduled (%s)",
+                esp_err_to_name(schedule_error)
+            );
+        }
+        return error;
     }
     record_error(error);
     return error;
@@ -607,7 +806,7 @@ extern "C" esp_err_t qsee_wifi_disconnect(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    cancel_reconnect();
+    esp_err_t aggregate = cancel_reconnect();
     wifi_lock();
     s_connect_requested = false;
     s_status.connect_requested = false;
@@ -623,13 +822,12 @@ extern "C" esp_err_t qsee_wifi_disconnect(void)
     wifi_unlock();
     publish_snapshot();
 
-    const esp_err_t error = esp_wifi_disconnect();
-    if (error == ESP_ERR_WIFI_NOT_CONNECT) {
-        record_error(ESP_OK);
-        return ESP_OK;
+    const esp_err_t disconnect_error = esp_wifi_disconnect();
+    if (aggregate == ESP_OK && disconnect_error != ESP_OK) {
+        aggregate = disconnect_error;
     }
-    record_error(error);
-    return error;
+    record_error(aggregate);
+    return aggregate;
 }
 
 extern "C" esp_err_t qsee_wifi_start_scan(void)
@@ -640,7 +838,9 @@ extern "C" esp_err_t qsee_wifi_start_scan(void)
     wifi_lock();
     if (s_status.scanning) {
         wifi_unlock();
-        return ESP_OK;
+        ESP_LOGE(TAG, "Wi-Fi scan rejected: a scan is already active");
+        record_error(ESP_ERR_INVALID_STATE);
+        return ESP_ERR_INVALID_STATE;
     }
     s_status.scanning = true;
     ++s_status.event_sequence;

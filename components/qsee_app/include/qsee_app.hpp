@@ -14,6 +14,7 @@
 
 #include <cstdint>
 #include <expected>
+#include <memory>
 #include <string>
 #include <string_view>
 
@@ -29,6 +30,12 @@ public:
     esp_brookesia::system::core::AppGuiDescriptor get_gui_descriptor() const override;
 
     std::expected<void, std::string> on_start(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_pause(
+        esp_brookesia::system::core::AppContext &context
+    ) override;
+    std::expected<void, std::string> on_resume(
         esp_brookesia::system::core::AppContext &context
     ) override;
     std::expected<void, std::string> on_stop(
@@ -51,6 +58,7 @@ private:
         Hardware,
         Audio,
         Imu,
+        Settings,
         About,
     };
 
@@ -77,11 +85,23 @@ private:
     std::expected<void, std::string> refresh_imu(
         esp_brookesia::system::core::AppContext &context
     );
+    std::expected<void, std::string> refresh_settings(
+        esp_brookesia::system::core::AppContext &context
+    );
     std::expected<void, std::string> request_log_search(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> request_sd_format(
         esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> show_error_dialog(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view title,
+        std::string_view details
+    );
+    std::expected<void, std::string> apply_diagnostic_monitor(
+        esp_brookesia::system::core::AppContext &context,
+        Screen screen
     );
 
     esp_brookesia::system::core::AppContext *context_ = nullptr;
@@ -91,11 +111,16 @@ private:
         esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
     esp_brookesia::system::core::MessageDialogRequestId format_dialog_ =
         esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
+    esp_brookesia::system::core::MessageDialogRequestId error_dialog_ =
+        esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
     Screen screen_ = Screen::Welcome;
     bool logs_paused_ = false;
     bool logs_follow_latest_ = true;
     uint8_t log_filter_mode_ = 0;
+    int64_t diagnostic_activation_sample_at_us_ = 0;
     std::string log_query_;
+    std::unique_ptr<char[]> log_source_buffer_;
+    std::unique_ptr<char[]> log_filtered_buffer_;
 };
 
 }  // namespace qsee

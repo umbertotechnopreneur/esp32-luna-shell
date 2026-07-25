@@ -12,7 +12,7 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 | GPS / GNSS | LC76G GPS variant, external ceramic antenna | Command-gated I2C bridge at control `0x50`, read `0x54`; bounded NMEA chunks, no-fix is allowed |
 | Storage | User-added 8 GB microSD | SDMMC 1-bit; mount only, never auto-format |
 | Audio out | ES8311 codec + speaker amplifier | Embedded 22.05 kHz mono PCM16 boot SFX |
-| Audio in | Dual microphones / ES7210 path | Delayed 22.05 kHz mono PCM16 initialization and bounded level sample |
+| Audio in | Dual microphones / ES7210 path | Shared 22.05 kHz mono PCM16 initialization and bounded level sample |
 | RTC | PCF85063 | Initialized and sampled with clock-integrity reporting |
 | I/O expander | TCA9554 at I2C `0x20` | Managed by the official BSP |
 | Wi-Fi | ESP32-S3 2.4 GHz 802.11 b/g/n | STA driver started with RAM-only config; no credentials embedded |
@@ -36,9 +36,10 @@ I2C driver.
 
 ## SD preparation
 
-The 8 GB card is currently removed. When reinserted, prepare it as FAT32 with
-an MBR partition before device validation. Runtime mount failures are logged;
-they never trigger an implicit format.
+This board has no SD card-detect pin. A failed initialization therefore means
+card/transport unconfirmed and must not be presented as confirmed physical
+absence. Prepare a disposable validation card as FAT32 with an MBR partition.
+Runtime mount failures are logged and never trigger an implicit format.
 
 Expected runtime path:
 
@@ -48,19 +49,22 @@ Expected runtime path:
 
 The logger rotates the file at 2 MB to `qsee.log.1`.
 
-An SDMMC OCR timeout happens before FAT parsing. It means that the card did not
-complete protocol initialization, so it should be investigated separately from
-the still-required FAT32 formatting.
+An SDMMC OCR timeout happens before FAT parsing. It means that protocol
+initialization did not complete, so card presence and transport remain
+unconfirmed and no filesystem or formatting conclusion is valid.
 
-## Runtime inventory evidence
+## Historical runtime inventory evidence
 
-The physical board on `COM12` has confirmed PMU, RTC, calibrated IMU, display,
-touch, Wi-Fi, BLE provisioning advertising, ES8311 speaker playback, and
-ES7210 capture. The 2026-07-25 validation removed a redundant post-start
-brightness command that raced the first panel flush. The LC76G command-gated
-bridge has returned and parsed real NMEA traffic in two bounded chunks; the
-indoor pass had no fix. With the card removed, SDMMC correctly reports an OCR
-timeout and schedules a non-blocking retry.
+An earlier 2026-07-25 session used a physical board then assigned to `COM12`.
+That older firmware run observed PMU, RTC, calibrated IMU, display, touch,
+Wi-Fi, BLE provisioning advertising, ES8311 speaker playback, and ES7210
+capture. It also returned and parsed two bounded LC76G NMEA chunks; the indoor
+pass had no fix. With the card intentionally removed for that session, the
+SDMMC probe timed out and scheduled a non-blocking retry.
+
+These observations predate the current tree and do not validate this commit,
+its binaries, or its present runtime behavior. Current validation must produce
+new build identity and serial evidence.
 
 The platform snapshot also records native ESP-IDF heap and PSRAM metrics,
 largest allocatable blocks, chip core count, and FreeRTOS task/stack state for

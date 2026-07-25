@@ -35,8 +35,9 @@ typedef struct {
 /**
  * Probe and initialize hardware attached to the Waveshare BSP I2C bus.
  *
- * Every peripheral is fail-open: a missing optional sensor is logged but does
- * not prevent the application from starting.
+ * Returns the original initialization error from the first failing peripheral.
+ * Any decision to continue after an optional-device failure belongs to the
+ * caller; this platform layer never converts a partial failure into success.
  */
 esp_err_t qsee_hardware_init(void);
 
@@ -47,15 +48,20 @@ esp_err_t qsee_hardware_refresh(const char *reason);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/** Configure the active diagnostic sample period (100-2000 ms). */
+esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
+/** Return the current diagnostic sample period in milliseconds. */
+uint32_t qsee_hardware_get_diagnostic_period_ms(void);
+/** Configure low-pass smoothing of calibrated IMU input (0-90 percent). */
+esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
+/** Return the persisted IMU input smoothing percentage. */
+uint32_t qsee_hardware_get_imu_smoothing_percent(void);
 
 /**
  * Run an explicit stationary QMI8658 calibration.
  *
  * The call rejects moving sample sets and keeps the previous valid calibration.
  */
-/** Enable or disable the background monitor used by diagnostic screens. */
-esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
-/** Run the explicit stationary IMU calibration sequence. */
 esp_err_t qsee_imu_calibrate(void);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
@@ -88,9 +94,19 @@ esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us);
 /** Start non-blocking SD detection/mount retries. Never formats automatically. */
 esp_err_t qsee_storage_init(void);
 
-/** Arm one format attempt after explicit user authorization. No UI is implied. */
+/**
+ * Arm one immediate format attempt after explicit user authorization.
+ *
+ * The authorization is accepted only for the exact card identity from the
+ * latest verified FR_NO_FILESYSTEM probe and expires when consumed.
+ */
 esp_err_t qsee_storage_request_format(void);
-bool qsee_storage_mounted(void);
+esp_err_t qsee_storage_set_logger_mirror(bool enabled);
+
+/** Persist and apply AMOLED brightness (10-100 percent). */
+esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
+esp_err_t qsee_display_get_brightness_percent(uint32_t *percent);
+esp_err_t qsee_display_apply_saved_brightness(void);
 
 /**
  * Report the result of an actual speaker playback attempt.
@@ -203,6 +219,10 @@ void qsee_wifi_get_status(qsee_wifi_status_t *status);
 esp_err_t qsee_provisioning_init(void);
 esp_err_t qsee_provisioning_start(void);
 esp_err_t qsee_provisioning_stop(void);
+/** Release provisioning BLE ownership before starting telemetry NimBLE. */
+esp_err_t qsee_provisioning_deinit_for_ble(void);
+/** True while the provisioning manager owns, or is changing, BLE lifecycle. */
+bool qsee_provisioning_initialized(void);
 bool qsee_provisioning_active(void);
 const char *qsee_provisioning_service_name(void);
 const char *qsee_provisioning_pop(void);

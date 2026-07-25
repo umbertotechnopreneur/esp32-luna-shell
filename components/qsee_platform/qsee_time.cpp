@@ -13,6 +13,7 @@
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
 
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -27,6 +28,7 @@ namespace {
 const char *TAG = "qsee_time";
 bool s_initialized;
 bool s_sntp_started;
+esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 char s_timezone[40] = "UTC0";
 
 bool epoch_valid(time_t epoch)
@@ -38,11 +40,23 @@ bool epoch_valid(time_t epoch)
 
 bool calendar_valid(const qsee_calendar_time_t &calendar)
 {
-    return calendar.year >= 2024 && calendar.year <= 2099 &&
-           calendar.month >= 1 && calendar.month <= 12 &&
-           calendar.day >= 1 && calendar.day <= 31 &&
-           calendar.hour <= 23 && calendar.minute <= 59 &&
-           calendar.second <= 59;
+    if (calendar.year < 2024 || calendar.year > 2099 ||
+        calendar.month < 1 || calendar.month > 12 ||
+        calendar.hour > 23 || calendar.minute > 59 ||
+        calendar.second > 59) {
+        return false;
+    }
+    static constexpr uint8_t days_per_month[] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    };
+    uint8_t maximum_day = days_per_month[calendar.month - 1U];
+    const bool leap =
+        (calendar.year % 4U == 0U && calendar.year % 100U != 0U) ||
+        calendar.year % 400U == 0U;
+    if (calendar.month == 2U && leap) {
+        maximum_day = 29;
+    }
+    return calendar.day >= 1U && calendar.day <= maximum_day;
 }
 
 // Convert a UTC civil date without relying on the host timezone or timegm().
@@ -75,13 +89,112 @@ time_t utc_epoch(
     );
 }
 
-void report_time(bool valid, bool synchronized, const char *source)
+esp_err_t timezone_errno_to_esp(int error_number)
+{
+    if (error_number == ENOMEM) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (error_number == EINVAL) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_FAIL;
+}
+
+esp_err_t apply_timezone(const char *timezone)
+{
+    errno = 0;
+    if (setenv("TZ", timezone, 1) != 0) {
+        const int error_number = errno;
+        const esp_err_t error = timezone_errno_to_esp(error_number);
+        ESP_LOGE(
+            TAG,
+            "Time service setenv(TZ=%s) failed: errno=%d (%s)",
+            timezone,
+            error_number,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+
+    tzset();
+    const char *applied_timezone = getenv("TZ");
+    if (applied_timezone == nullptr ||
+        std::strcmp(applied_timezone, timezone) != 0) {
+        ESP_LOGE(
+            TAG,
+            "Time service tzset verification failed: requested=%s observed=%s",
+            timezone,
+            applied_timezone != nullptr ? applied_timezone : "<unset>"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    // tzset() has no return value, so verify the active conversion state.
+    const time_t probe_epoch = utc_epoch(2024, 1, 1, 0, 0, 0);
+    struct tm probe_local = {};
+    errno = 0;
+    if (localtime_r(&probe_epoch, &probe_local) == nullptr) {
+        const int error_number = errno;
+        const esp_err_t error = timezone_errno_to_esp(error_number);
+        ESP_LOGE(
+            TAG,
+            "Time service tzset localtime verification failed: timezone=%s errno=%d (%s)",
+            timezone,
+            error_number,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    if (std::strcmp(timezone, "UTC0") == 0) {
+        struct tm probe_utc = {};
+        if (gmtime_r(&probe_epoch, &probe_utc) == nullptr ||
+            probe_local.tm_year != probe_utc.tm_year ||
+            probe_local.tm_mon != probe_utc.tm_mon ||
+            probe_local.tm_mday != probe_utc.tm_mday ||
+            probe_local.tm_hour != probe_utc.tm_hour ||
+            probe_local.tm_min != probe_utc.tm_min ||
+            probe_local.tm_sec != probe_utc.tm_sec ||
+            probe_local.tm_isdst != 0) {
+            ESP_LOGE(
+                TAG,
+                "Time service tzset UTC verification failed"
+            );
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    struct tm round_trip_local = probe_local;
+    errno = 0;
+    const time_t round_trip_epoch = mktime(&round_trip_local);
+    if (round_trip_epoch != probe_epoch) {
+        const int error_number = errno;
+        ESP_LOGE(
+            TAG,
+            "Time service tzset round-trip verification failed: timezone=%s errno=%d",
+            timezone,
+            error_number
+        );
+        return error_number != 0
+                   ? timezone_errno_to_esp(error_number)
+                   : ESP_ERR_INVALID_RESPONSE;
+    }
+
+    strlcpy(s_timezone, timezone, sizeof(s_timezone));
+    return ESP_OK;
+}
+
+void report_time(
+    bool valid,
+    bool synchronized,
+    const char *source,
+    esp_err_t error
+)
 {
     qsee::DeviceSnapshotService::instance().reportTime(
         valid,
         synchronized,
         source,
-        s_timezone
+        s_timezone,
+        error
     );
 }
 
@@ -105,25 +218,33 @@ void sntp_sync_callback(struct timeval *time_value)
 {
     if (time_value == nullptr || !epoch_valid(time_value->tv_sec)) {
         ESP_LOGW(TAG, "SNTP callback supplied an invalid epoch");
-        report_time(false, false, "none");
+        report_time(false, false, "none", ESP_ERR_INVALID_RESPONSE);
         return;
     }
 
     const esp_err_t rtc_result = persist_epoch_to_rtc(time_value->tv_sec);
     struct tm utc = {};
     gmtime_r(&time_value->tv_sec, &utc);
-    ESP_LOGI(
-        TAG,
-        "SNTP synchronized UTC=%04d-%02d-%02d %02d:%02d:%02d RTC=%s",
-        utc.tm_year + 1900,
-        utc.tm_mon + 1,
-        utc.tm_mday,
-        utc.tm_hour,
-        utc.tm_min,
-        utc.tm_sec,
-        esp_err_to_name(rtc_result)
-    );
-    report_time(true, true, "sntp");
+    if (rtc_result == ESP_OK) {
+        ESP_LOGI(
+            TAG,
+            "SNTP synchronized UTC=%04d-%02d-%02d %02d:%02d:%02d",
+            utc.tm_year + 1900,
+            utc.tm_mon + 1,
+            utc.tm_mday,
+            utc.tm_hour,
+            utc.tm_min,
+            utc.tm_sec
+        );
+    } else {
+        ESP_LOGE(
+            TAG,
+            "SNTP set system UTC but RTC persistence failed (%s)",
+            esp_err_to_name(rtc_result)
+        );
+    }
+    s_initialization_result = rtc_result;
+    report_time(true, true, "sntp", rtc_result);
 }
 
 esp_err_t apply_utc_calendar(
@@ -136,6 +257,23 @@ esp_err_t apply_utc_calendar(
     const char *source
 )
 {
+    const qsee_calendar_time_t calendar = {
+        .clock_integrity = true,
+        .year = year,
+        .month = month,
+        .day = day,
+        .hour = hour,
+        .minute = minute,
+        .second = second,
+    };
+    if (!calendar_valid(calendar)) {
+        ESP_LOGE(
+            TAG,
+            "%s time rejected: invalid UTC calendar",
+            source != nullptr ? source : "unknown"
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
     const time_t epoch = utc_epoch(year, month, day, hour, minute, second);
     if (epoch <= 0 || !epoch_valid(epoch)) {
         return ESP_ERR_INVALID_ARG;
@@ -146,11 +284,12 @@ esp_err_t apply_utc_calendar(
         .tv_usec = 0,
     };
     if (settimeofday(&system_time, nullptr) != 0) {
+        report_time(false, false, "none", ESP_FAIL);
         return ESP_FAIL;
     }
 
     const esp_err_t rtc_result = persist_epoch_to_rtc(epoch);
-    report_time(true, true, source);
+    report_time(true, true, source, rtc_result);
     ESP_LOGI(
         TAG,
         "%s synchronized UTC=%04u-%02u-%02u %02u:%02u:%02u RTC=%s",
@@ -171,20 +310,31 @@ esp_err_t apply_utc_calendar(
 extern "C" esp_err_t qsee_time_init(const char *timezone)
 {
     if (s_initialized) {
-        return ESP_OK;
+        return s_initialization_result;
     }
 
-    if (timezone != nullptr && timezone[0] != '\0' &&
-        std::strlen(timezone) < sizeof(s_timezone)) {
-        strlcpy(s_timezone, timezone, sizeof(s_timezone));
+    if (timezone == nullptr || timezone[0] == '\0' ||
+        std::strlen(timezone) >= sizeof(s_timezone)) {
+        ESP_LOGE(TAG, "Time service rejected invalid timezone");
+        return ESP_ERR_INVALID_ARG;
     }
-    setenv("TZ", s_timezone, 1);
-    tzset();
+    const esp_err_t timezone_result = apply_timezone(timezone);
+    if (timezone_result != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportTime(
+            false,
+            false,
+            "none",
+            timezone,
+            timezone_result
+        );
+        return timezone_result;
+    }
 
     bool restored = false;
+    esp_err_t restore_result = ESP_OK;
     qsee_calendar_time_t rtc = {};
     const esp_err_t rtc_result = qsee_rtc_read(&rtc);
-    if (rtc_result == ESP_OK && rtc.clock_integrity && calendar_valid(rtc)) {
+    if (rtc_result == ESP_OK) {
         const time_t epoch = utc_epoch(
             rtc.year,
             rtc.month,
@@ -198,11 +348,21 @@ extern "C" esp_err_t qsee_time_init(const char *timezone)
             .tv_usec = 0,
         };
         restored = epoch_valid(epoch) && settimeofday(&system_time, nullptr) == 0;
+        if (!restored) {
+            restore_result = ESP_FAIL;
+        }
+    } else {
+        restore_result = rtc_result;
     }
 
     const esp_err_t netif_result = esp_netif_init();
     if (netif_result != ESP_OK && netif_result != ESP_ERR_INVALID_STATE) {
-        report_time(restored, restored, restored ? "rtc" : "none");
+        report_time(
+            restored,
+            restored,
+            restored ? "rtc" : "none",
+            netif_result
+        );
         return netif_result;
     }
 
@@ -212,13 +372,24 @@ extern "C" esp_err_t qsee_time_init(const char *timezone)
     config.sync_cb = sntp_sync_callback;
     const esp_err_t sntp_result = esp_netif_sntp_init(&config);
     if (sntp_result != ESP_OK) {
-        ESP_LOGW(TAG, "SNTP initialization failed: %s", esp_err_to_name(sntp_result));
-        report_time(restored, restored, restored ? "rtc" : "none");
+        ESP_LOGE(TAG, "SNTP initialization failed: %s", esp_err_to_name(sntp_result));
+        report_time(
+            restored,
+            restored,
+            restored ? "rtc" : "none",
+            sntp_result
+        );
         return sntp_result;
     }
 
     s_initialized = true;
-    report_time(restored, restored, restored ? "rtc" : "none");
+    s_initialization_result = restore_result;
+    report_time(
+        restored,
+        restored,
+        restored ? "rtc" : "none",
+        restore_result
+    );
     ESP_LOGI(
         TAG,
         "Time service ready: timezone=%s RTC=%s restored=%s",
@@ -226,7 +397,7 @@ extern "C" esp_err_t qsee_time_init(const char *timezone)
         esp_err_to_name(rtc_result),
         restored ? "yes" : "no"
     );
-    return ESP_OK;
+    return restore_result;
 }
 
 extern "C" esp_err_t qsee_time_notify_wifi_online(void)
