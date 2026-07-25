@@ -105,8 +105,7 @@ void styleArcButton(
     int x,
     int y,
     uint32_t color,
-    const char *symbol,
-    const char *caption
+    const char *symbol
 )
 {
     button.setText("");
@@ -135,26 +134,12 @@ void styleArcButton(
     lv_obj_set_style_text_color(icon, lv_color_hex(kWhite), LV_PART_MAIN);
     lv_obj_set_style_text_font(
         icon,
-        size >= 90 ? &lv_font_montserrat_28 : &lv_font_montserrat_18,
+        size >= 52 ? &lv_font_montserrat_28 : &lv_font_montserrat_18,
         LV_PART_MAIN
     );
-    lv_obj_align(icon, LV_ALIGN_CENTER, 0, size >= 90 ? -13 : -10);
+    lv_obj_align(icon, LV_ALIGN_CENTER, 0, 0);
     lv_obj_clear_flag(icon, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_clear_flag(icon, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *label = lv_label_create(native);
-    lv_label_set_text(label, caption);
-    lv_obj_set_width(label, size - 8);
-    lv_obj_set_style_text_align(label, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
-    lv_obj_set_style_text_color(label, lv_color_hex(kWhite), LV_PART_MAIN);
-    lv_obj_set_style_text_font(
-        label,
-        size >= 90 ? &lv_font_montserrat_12 : &lv_font_montserrat_10,
-        LV_PART_MAIN
-    );
-    lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -8);
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_clear_flag(label, LV_OBJ_FLAG_SCROLLABLE);
 }
 
 void transparentPanel(LvContainer &panel, bool scrollable)
@@ -242,8 +227,8 @@ void makeMetric(qsee::Navigation::Metric &metric, const LvObject *parent, const 
     );
     lv_obj_clear_flag(metric.card->getNativeHandle(), LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_radius(metric.card->getNativeHandle(), 8, LV_PART_MAIN);
-    metric.label = makeLabel(metric.card.get(), name, 104, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 3);
-    metric.value = makeLabel(metric.card.get(), "--", 118, 14, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 1);
+    metric.label = makeLabel(metric.card.get(), name, 92, 12, kMuted, STYLE_ALIGN_TYPE_TOP_LEFT, 8, 3);
+    metric.value = makeLabel(metric.card.get(), "--", 136, 12, kNavy, STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 3);
     lv_label_set_long_mode(metric.value->getNativeHandle(), LV_LABEL_LONG_MODE_DOTS);
     metric.bar = std::make_unique<AppProgressBar>(metric.card.get());
     metric.bar->setRange(0, 100);
@@ -302,9 +287,15 @@ const char *hardwareStateText(
     const qsee::DeviceHealth *states
 )
 {
-    if (index == 10U && !snapshot.storage.card_present) return "ABSENT";
+    if (index == 10U && !snapshot.storage.card_present) return "NO CARD";
     if (index == 10U && storageFormatRequired(snapshot.storage)) return "FORMAT";
-    return health(states[index]);
+    switch (states[index]) {
+    case qsee::DeviceHealth::Ready: return "OK";
+    case qsee::DeviceHealth::Degraded: return "WARN";
+    case qsee::DeviceHealth::Missing: return "MISS";
+    case qsee::DeviceHealth::Unknown:
+    default: return "UNK";
+    }
 }
 
 uint32_t hardwareStatusColor(
@@ -363,9 +354,15 @@ void filterLogs(const char *source, const char *query, uint8_t filter_mode,
         std::memcpy(line, cursor, line_length);
         line[line_length] = '\0';
         if (logLineMatches(line, query, filter_mode)) {
-            const size_t copy_length = line_length < output_size - used - 1U
-                ? line_length : output_size - used - 1U;
+            constexpr size_t kVisibleLogColumns = 42U;
+            const size_t visible_length = line_length < kVisibleLogColumns
+                ? line_length : kVisibleLogColumns;
+            const size_t copy_length = visible_length < output_size - used - 1U
+                ? visible_length : output_size - used - 1U;
             std::memcpy(output + used, line, copy_length);
+            if (line_length > kVisibleLogColumns && copy_length > 0U) {
+                output[used + copy_length - 1U] = '~';
+            }
             used += copy_length;
             if (used + 1U < output_size) output[used++] = '\n';
             output[used] = '\0';
@@ -458,33 +455,33 @@ bool Navigation::begin()
     lv_obj_set_style_translate_x(_sd_action->getNativeHandle(), 0, kPressedSelector);
     lv_obj_set_style_translate_y(_sd_action->getNativeHandle(), 0, kPressedSelector);
 
-    // The chosen mockup uses a fixed six-action arc in the circular bezel area.
+    // Icon-only actions keep the six destinations legible inside the circular bezel.
     _open_logs = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Logs); });
-    styleArcButton(*_open_logs, 66, 8, 340, kBlue, LV_SYMBOL_LIST, "LIVE LOGS");
+    styleArcButton(*_open_logs, 54, 56, 348, kBlue, LV_SYMBOL_LIST);
     _open_audio = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Audio); });
-    styleArcButton(*_open_audio, 78, 66, 350, kBlue, LV_SYMBOL_AUDIO, "AUDIO SCOPE");
+    styleArcButton(*_open_audio, 54, 114, 348, kBlue, LV_SYMBOL_AUDIO);
     _open_imu = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Imu); });
-    styleArcButton(*_open_imu, 90, 136, 356, kTeal, LV_SYMBOL_GPS, "IMU LEVEL");
+    styleArcButton(*_open_imu, 54, 172, 348, kTeal, LV_SYMBOL_GPS);
     _open_hardware = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Hardware); });
-    styleArcButton(*_open_hardware, 90, 240, 356, kTeal, LV_SYMBOL_DRIVE, "HARDWARE");
+    styleArcButton(*_open_hardware, 54, 230, 348, kTeal, LV_SYMBOL_DRIVE);
     _open_about = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::About); });
-    styleArcButton(*_open_about, 78, 322, 350, kBlue, "i", "ABOUT");
+    styleArcButton(*_open_about, 54, 288, 348, kBlue, "i");
     _open_settings = std::make_unique<AppButton>(_screen.get(), [this]() { show(Screen::Settings); });
-    styleArcButton(*_open_settings, 66, 392, 340, kBlue, LV_SYMBOL_SETTINGS, "SETTINGS");
+    styleArcButton(*_open_settings, 54, 346, 348, kBlue, LV_SYMBOL_SETTINGS);
 
-    _logs = std::make_unique<LvContainer>(_surface.get());
-    _logs->setStyleAttribute(StyleSize::RECT(kWidth, 232));
-    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_MID, 0, 44});
+    _logs = std::make_unique<LvContainer>(_screen.get());
+    _logs->setStyleAttribute(StyleSize::RECT(370, 374));
+    _logs->setStyleAttribute(StyleAlign{STYLE_ALIGN_TYPE_TOP_RIGHT, -6, 82});
     transparentPanel(*_logs, false);
     _log_search = std::make_unique<AppTextBox>(_logs.get());
-    _log_search->setWidth(164);
+    _log_search->setWidth(220);
     _log_search->setHeight(32);
     _log_search->setOneLine();
     _log_search->setPlaceholder("Search logs");
     _log_search->setFont(StyleFont::SIZE(12));
     _log_search->setTextColor(StyleColor::COLOR(kNavy));
     _log_search->setBackgroundColor(StyleColor::COLOR(kSurface));
-    _log_search->align({STYLE_ALIGN_TYPE_TOP_LEFT, 4, 0});
+    _log_search->align({STYLE_ALIGN_TYPE_TOP_LEFT, 8, 0});
     _log_filter = std::make_unique<AppButton>(_logs.get(), [this]() {
         _log_filter_mode = static_cast<uint8_t>((_log_filter_mode + 1U) % 4U);
         char filter[24];
@@ -493,15 +490,16 @@ bool Navigation::begin()
         updateLogView();
     });
     _log_filter->setText("FILTER ALL");
-    buttonStyle(*_log_filter, 96, 30, kBlue);
-    _log_filter->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -4, 1});
+    buttonStyle(*_log_filter, 116, 30, kBlue);
+    _log_filter->align({STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 1});
     _log_box = std::make_unique<AppRichText>(_logs.get());
-    _log_box->setWidth(kWidth);
-    _log_box->setHeight(154);
-    _log_box->setFont(StyleFont::SIZE(12));
+    _log_box->setWidth(354);
+    _log_box->setHeight(286);
+    _log_box->setFont(StyleFont::SIZE(8));
     _log_box->setTextColor(StyleColor::COLOR(0xEAF1F6));
     _log_box->setBackgroundColor(StyleColor::COLOR(0x12263A));
-    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 36});
+    _log_box->align({STYLE_ALIGN_TYPE_TOP_MID, 0, 50});
+    lv_obj_set_scrollbar_mode(_log_box->getNativeHandle(), LV_SCROLLBAR_MODE_OFF);
 
     _logs_pause = std::make_unique<AppButton>(_logs.get(), [this]() {
         _logs_paused = !_logs_paused;
@@ -524,8 +522,8 @@ bool Navigation::begin()
     _logs_follow->setText("FOLLOW ON");
     buttonStyle(*_logs_follow, 92, 30, kBlue);
     _logs_follow->align({STYLE_ALIGN_TYPE_BOTTOM_RIGHT, -8, -2});
-    _logs_live = makeLabel(_logs.get(), "LIVE", 54, 12, kTeal,
-                           STYLE_ALIGN_TYPE_TOP_RIGHT, -8, 40);
+    _logs_live = makeLabel(_logs.get(), "LIVE", 46, 10, kTeal,
+                           STYLE_ALIGN_TYPE_TOP_LEFT, 8, 36);
 
     _hardware = std::make_unique<LvContainer>(_surface.get());
     _hardware->setStyleAttribute(StyleSize::RECT(kWidth, 226));
@@ -896,6 +894,7 @@ void Navigation::show(Screen screen)
         ESP_LOGW("qsee_navigation", "System monitor toggle failed for %s (%s)",
                  route, esp_err_to_name(system_monitor_result));
     }
+    setVisible(*_title_bar, screen != Screen::Logs);
     setVisible(*_welcome, screen == Screen::Welcome);
     setVisible(*_logs, screen == Screen::Logs);
     setVisible(*_hardware, screen == Screen::Hardware);
@@ -1233,9 +1232,8 @@ void Navigation::refresh()
             std::snprintf(
                 value,
                 sizeof(value),
-                "%u%%  %s",
-                static_cast<unsigned>(snapshot.processor.cores[core].utilization_percent),
-                snapshot.processor.cores[core].current_task
+                "%u%%",
+                static_cast<unsigned>(snapshot.processor.cores[core].utilization_percent)
             );
             updateMetric(
                 *cpu_metrics[core],
@@ -1271,9 +1269,9 @@ void Navigation::updateDiagnosticViews()
     _audio_status->setText(text);
     _audio_mic0->setValue(level0, true);
     _audio_mic1->setValue(level1, true);
-    std::snprintf(text, sizeof(text), "PCM %u ch  |  %lu Hz  |  peak %lu / %lu",
+    std::snprintf(text, sizeof(text), "PCM16 | %.2f kHz | %u ch | pk %lu/%lu",
+                  static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
                   static_cast<unsigned>(snapshot.audio.channel_count),
-                  static_cast<unsigned long>(snapshot.audio.sample_rate_hz),
                   static_cast<unsigned long>(snapshot.audio.channel_peak_level[0]),
                   static_cast<unsigned long>(snapshot.audio.channel_peak_level[1]));
     _audio_channels->setText(text);

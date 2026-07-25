@@ -319,7 +319,8 @@ bool AppRichText::setText(const char *text, bool follow_latest)
         if (span == nullptr) return false;
         lv_span_set_text(span, line.c_str());
         lv_style_set_text_color(lv_span_get_style(span), lv_color_hex(color));
-        lv_style_set_text_font(lv_span_get_style(span), &lv_font_unscii_16);
+        // Compact monospace keeps one diagnostic event per line on the round display.
+        lv_style_set_text_font(lv_span_get_style(span), &lv_font_unscii_8);
         if (line_end >= length) break;
         line_start = line_end + 1U;
     }
