@@ -47,14 +47,20 @@ esp_err_t qsee_hardware_refresh(const char *reason);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/** Configure the active diagnostic sample period (100-2000 ms). */
+esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
+/** Return the current diagnostic sample period in milliseconds. */
+uint32_t qsee_hardware_get_diagnostic_period_ms(void);
+/** Configure low-pass smoothing of calibrated IMU input (0-90 percent). */
+esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent);
+/** Return the persisted IMU input smoothing percentage. */
+uint32_t qsee_hardware_get_imu_smoothing_percent(void);
 
 /**
  * Run an explicit stationary QMI8658 calibration.
  *
  * The call rejects moving sample sets and keeps the previous valid calibration.
  */
-/** Enable or disable the background monitor used by diagnostic screens. */
-esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
 /** Run the explicit stationary IMU calibration sequence. */
 esp_err_t qsee_imu_calibrate(void);
 
@@ -91,6 +97,13 @@ esp_err_t qsee_storage_init(void);
 /** Arm one format attempt after explicit user authorization. No UI is implied. */
 esp_err_t qsee_storage_request_format(void);
 bool qsee_storage_mounted(void);
+esp_err_t qsee_storage_set_logger_mirror(bool enabled);
+bool qsee_storage_get_logger_mirror_preference(void);
+
+/** Persist and apply AMOLED brightness (10-100 percent). */
+esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
+uint32_t qsee_display_get_brightness_percent(void);
+esp_err_t qsee_display_apply_saved_brightness(void);
 
 /**
  * Report the result of an actual speaker playback attempt.

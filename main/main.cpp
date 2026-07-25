@@ -54,30 +54,8 @@ bool start_brookesia(lv_indev_t *touch)
 
     auto phone_stylesheet = ESP_BROOKESIA_PHONE_480_480_DARK_STYLESHEET();
     phone_stylesheet.core.screen_size = esp_brookesia::gui::StyleSize::RECT(466, 466);
-    auto &status_bar = phone_stylesheet.display.status_bar.data;
-    status_bar.main.size = esp_brookesia::gui::StyleSize::RECT(264, 30);
-    status_bar.main.size.radius = 15;
-    status_bar.main.offset_y = 43;
-    status_bar.main.background_color = esp_brookesia::gui::StyleColor::COLOR(0x03070B);
-    status_bar.main.background_gradient_color = esp_brookesia::gui::StyleColor::COLOR(0x0B222A);
-    status_bar.main.enable_background_gradient = true;
-    status_bar.main.text_font = esp_brookesia::gui::StyleFont::SIZE(12);
-    status_bar.main.text_color = esp_brookesia::gui::StyleColor::COLOR(0xECF8FA);
-    status_bar.area.num = 1;
-    status_bar.area.data[0] = {
-        .size = esp_brookesia::gui::StyleSize::RECT_PERCENT(100, 100),
-        .layout_column_align = esp_brookesia::systems::phone::StatusBar::AreaAlign::CENTER,
-        .layout_column_start_offset = 0,
-        .layout_column_pad = 4,
-    };
-    // Text telemetry is denser and clearer than the stock phone icons at this
-    // diameter; battery, radios, GPS and SD state share one compact line.
-    status_bar.flags.enable_battery_icon = 0;
-    status_bar.flags.enable_battery_icon_common_size = 0;
-    status_bar.flags.enable_battery_label = 0;
-    status_bar.flags.enable_wifi_icon = 0;
-    status_bar.flags.enable_wifi_icon_common_size = 0;
-    status_bar.flags.enable_clock = 0;
+    // QSee renders a geometry-only status bar sized for the circular chord.
+    phone_stylesheet.display.flags.enable_status_bar = 0;
     // The circular device has no recents gesture surface. Disabling that
     // unused 480px layout also avoids allocating its snapshot layers.
     phone_stylesheet.display.flags.enable_recents_screen = 0;
@@ -164,6 +142,7 @@ extern "C" void app_main(void)
     ESP_LOGI(TAG, "Touch CST9217: %s", touch != nullptr ? "ready" : "unavailable");
 
     (void)qsee_hardware_init();
+    ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_display_apply_saved_brightness());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_time_init("UTC0"));
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_power_inputs_init());
     ESP_ERROR_CHECK_WITHOUT_ABORT(qsee_boot_audio_play());

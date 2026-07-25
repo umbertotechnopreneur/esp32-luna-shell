@@ -13,6 +13,7 @@
 #include "qsee_app.hpp"
 
 #include <cstdio>
+#include <cstring>
 #include <memory>
 
 #include "esp_brookesia.hpp"
@@ -22,19 +23,22 @@
 #include "qsee_navigation.hpp"
 
 namespace {
-constexpr int kStatusTextId = 0x5141;
-
-const char *statusCode(qsee::DeviceHealth health)
+qsee::StatusIndicatorState indicatorState(qsee::DeviceHealth health, esp_err_t error)
 {
-    return health == qsee::DeviceHealth::Ready ? "+" :
-           health == qsee::DeviceHealth::Degraded ? "!" :
-           health == qsee::DeviceHealth::Missing ? "-" : "?";
-}
-
-bool storageFormatRequired(const qsee::StorageSnapshot &storage)
-{
-    return storage.card_present && !storage.formatted &&
-           (storage.last_error == ESP_FAIL || storage.format_attempted);
+    switch (health) {
+    case qsee::DeviceHealth::Ready:
+        return qsee::StatusIndicatorState::Ready;
+    case qsee::DeviceHealth::Degraded:
+        return error == ESP_FAIL || error == ESP_ERR_INVALID_STATE ||
+                       error == ESP_ERR_NO_MEM
+                   ? qsee::StatusIndicatorState::Fault
+                   : qsee::StatusIndicatorState::Degraded;
+    case qsee::DeviceHealth::Missing:
+        return qsee::StatusIndicatorState::Missing;
+    case qsee::DeviceHealth::Unknown:
+    default:
+        return qsee::StatusIndicatorState::Unknown;
+    }
 }
 }
 
@@ -64,37 +68,55 @@ App::App():
 bool App::run()
 {
     ESP_LOGI("qsee_app", "QSee.ai app started");
+    if (!s_navigation.begin()) {
+        return false;
+    }
+    _status_bar = std::make_unique<QSeeStatusBar>();
+    if (!_status_bar->Begin(lv_screen_active())) {
+        ESP_LOGW("qsee_app", "Custom status bar unavailable");
+        _status_bar.reset();
+    }
     _status_timer = std::make_unique<esp_brookesia::gui::AppTimer>(1000, [this]() { syncStatusBar(); });
     syncStatusBar();
-    return s_navigation.begin();
+    return true;
 }
 
 void App::syncStatusBar()
 {
-    auto *status_bar = getSystem()->getDisplay().getStatusBar();
-    if (status_bar == nullptr) return;
+    if (_status_bar == nullptr) return;
 
     const auto snapshot = qsee::DeviceSnapshotService::instance().snapshot();
-    if (!_status_text_added) {
-        _status_text_added = status_bar->addText("P--  BT?  WI?  G?  SD?", 0, kStatusTextId);
+    StatusBarState state;
+    state.usb = snapshot.battery.usb_present
+        ? StatusIndicatorState::Ready
+        : StatusIndicatorState::Missing;
+    state.battery = indicatorState(
+        snapshot.battery.health,
+        snapshot.battery.last_error
+    );
+    state.bluetooth = indicatorState(
+        snapshot.radios.ble.health,
+        snapshot.radios.ble.last_error
+    );
+    state.wifi = indicatorState(
+        snapshot.radios.wifi.health,
+        snapshot.radios.wifi.last_error
+    );
+    state.gps = indicatorState(snapshot.gps.health, snapshot.gps.last_error);
+    state.sd = indicatorState(
+        snapshot.storage.health,
+        snapshot.storage.last_error
+    );
+    state.battery_percent = static_cast<int8_t>(snapshot.battery.level_percent);
+    state.battery_charging =
+        std::strstr(snapshot.battery.power_state, "charg") != nullptr;
+    if (snapshot.radios.wifi.connected) {
+        state.wifi_bars = snapshot.radios.wifi.rssi <= -80 ? 1 :
+                          snapshot.radios.wifi.rssi <= -65 ? 2 : 3;
     }
-    char power[16];
-    if (snapshot.battery.battery_present && snapshot.battery.level_percent >= 0) {
-        std::snprintf(power, sizeof(power), "P%d%%", snapshot.battery.level_percent);
-    } else {
-        std::snprintf(power, sizeof(power), "%s", snapshot.battery.usb_present ? "USB" : "P--");
-    }
-    char status_text[80];
-    std::snprintf(status_text, sizeof(status_text), "%s  BT%s  WI%s  G%s  SD%s",
-                  power,
-                  statusCode(snapshot.radios.ble.health),
-                  statusCode(snapshot.radios.wifi.health),
-                  statusCode(snapshot.gps.health),
-                  storageFormatRequired(snapshot.storage) ? "!" :
-                  statusCode(snapshot.storage.health));
-    if (_status_text_added) {
-        (void)status_bar->setText(kStatusTextId, status_text);
-    }
+    state.gps_has_fix = snapshot.gps.has_fix;
+    state.sd_mounted = snapshot.storage.health == DeviceHealth::Ready;
+    _status_bar->Update(state);
 }
 
 bool App::back()
@@ -106,7 +128,10 @@ bool App::back()
 
     ESP_LOGI("qsee_app", "Returning to ESP-Brookesia launcher");
     _status_timer.reset();
-    _status_text_added = false;
+    if (_status_bar != nullptr) {
+        _status_bar->Shutdown();
+        _status_bar.reset();
+    }
     s_navigation.shutdown();
     return notifyCoreClosed();
 }

@@ -1,7 +1,9 @@
 idf_component_register(
     SRCS
         "qsee_app.cpp"
+        "qsee_edge_navigation.cpp"
         "qsee_navigation.cpp"
+        "qsee_status_bar.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         brookesia_core
@@ -14,6 +16,8 @@ idf_component_register(
 
 set_source_files_properties(
     qsee_app.cpp
+    qsee_edge_navigation.cpp
     qsee_navigation.cpp
+    qsee_status_bar.cpp
     PROPERTIES COMPILE_FLAGS "-Wno-missing-field-initializers"
 )

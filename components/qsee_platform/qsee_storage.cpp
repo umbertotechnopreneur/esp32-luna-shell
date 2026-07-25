@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "qsee_logger.h"
+#include "qsee_settings.hpp"
 
 namespace {
 
@@ -28,7 +29,9 @@ const char *TAG = "qsee_storage";
 TaskHandle_t s_storage_task;
 uint32_t s_mount_attempt_count;
 bool s_mounted;
+bool s_logger_mirror_preference = true;
 std::atomic_bool s_format_requested;
+constexpr char kLoggerMirrorSetting[] = "sd_mirror";
 
 void report_failure(esp_err_t error, bool card_responded, bool format_attempted)
 {
@@ -94,7 +97,9 @@ esp_err_t mount_once()
     if (info_result != ESP_OK) {
         ESP_LOGW(TAG, "SD space query failed: %s", esp_err_to_name(info_result));
     }
-    const esp_err_t logger_result = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
+    const esp_err_t logger_result = s_logger_mirror_preference
+        ? qsee_logger_enable_sd(BSP_SD_MOUNT_POINT)
+        : ESP_OK;
     qsee::DeviceSnapshotService::instance().reportStorage(
         true,
         true,
@@ -104,7 +109,7 @@ esp_err_t mount_once()
         capacity,
         filesystem_total,
         filesystem_free,
-        logger_result == ESP_OK,
+        s_logger_mirror_preference && logger_result == ESP_OK,
         ESP_OK
     );
     s_mounted = true;
@@ -114,6 +119,7 @@ esp_err_t mount_once()
         static_cast<unsigned long long>(capacity / (1024ULL * 1024ULL)),
         static_cast<unsigned long long>(filesystem_free / (1024ULL * 1024ULL)),
         formatted ? "yes" : "no",
+        !s_logger_mirror_preference ? "disabled by user" :
         logger_result == ESP_OK ? "mirrored" : esp_err_to_name(logger_result)
     );
     return ESP_OK;
@@ -152,6 +158,15 @@ extern "C" esp_err_t qsee_storage_init(void)
     if (s_mounted || s_storage_task != nullptr) {
         return ESP_OK;
     }
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        (void)settings.initialize();
+    }
+    bool saved_mirror = true;
+    if (settings.isInitialized() &&
+        settings.getBool(kLoggerMirrorSetting, true, &saved_mirror) == ESP_OK) {
+        s_logger_mirror_preference = saved_mirror;
+    }
     if (xTaskCreate(
             storage_task,
             "qsee_storage",
@@ -189,4 +204,47 @@ extern "C" esp_err_t qsee_storage_request_format(void)
 extern "C" bool qsee_storage_mounted(void)
 {
     return s_mounted;
+}
+
+extern "C" esp_err_t qsee_storage_set_logger_mirror(bool enabled)
+{
+    auto &settings = qsee::UserSettingsService::instance();
+    if (!settings.isInitialized()) {
+        const esp_err_t init_error = settings.initialize();
+        if (init_error != ESP_OK) return init_error;
+    }
+    const esp_err_t persist_error =
+        settings.setBool(kLoggerMirrorSetting, enabled);
+    if (persist_error != ESP_OK) return persist_error;
+    s_logger_mirror_preference = enabled;
+
+    esp_err_t apply_error = ESP_OK;
+    if (s_mounted) {
+        if (enabled) {
+            apply_error = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
+        } else {
+            qsee_logger_disable_sd();
+        }
+        const qsee::DeviceSnapshot snapshot =
+            qsee::DeviceSnapshotService::instance().snapshot();
+        qsee::DeviceSnapshotService::instance().reportStorage(
+            s_mounted,
+            snapshot.storage.card_present,
+            snapshot.storage.format_attempted,
+            snapshot.storage.formatted,
+            snapshot.storage.mount_attempt_count,
+            snapshot.storage.capacity_bytes,
+            snapshot.storage.filesystem_total_bytes,
+            snapshot.storage.free_bytes,
+            enabled && apply_error == ESP_OK,
+            snapshot.storage.last_error
+        );
+    }
+    ESP_LOGI(TAG, "SD log mirror preference: %s", enabled ? "enabled" : "disabled");
+    return apply_error;
+}
+
+extern "C" bool qsee_storage_get_logger_mirror_preference(void)
+{
+    return s_logger_mirror_preference;
 }

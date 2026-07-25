@@ -16,6 +16,7 @@
 
 #include "systems/phone/esp_brookesia_phone_app.hpp"
 #include "gui/lvgl/esp_brookesia_app_widgets.hpp"
+#include "qsee_status_bar.hpp"
 
 namespace qsee {
 
@@ -33,7 +34,7 @@ protected:
 private:
     static App *_instance;
     std::unique_ptr<esp_brookesia::gui::AppTimer> _status_timer;
-    bool _status_text_added = false;
+    std::unique_ptr<QSeeStatusBar> _status_bar;
 };
 
 } // namespace qsee

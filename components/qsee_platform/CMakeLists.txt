@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "qsee_hardware.cpp"
         "qsee_audio.cpp"
+        "qsee_display_settings.cpp"
         "qsee_power.cpp"
         "qsee_storage.cpp"
         "qsee_time.cpp"

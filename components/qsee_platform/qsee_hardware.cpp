@@ -12,6 +12,7 @@
 
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_settings.hpp"
 
 #include <cstdint>
 #include <cstdio>
@@ -58,6 +59,8 @@
 namespace {
 
 const char *TAG = "qsee_snapshot";
+constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
+constexpr char kImuSmoothingSetting[] = "imu_smooth";
 
 i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
@@ -77,11 +80,16 @@ float s_imu_calibration_accel_max_span;
 float s_imu_calibration_gyro_max_span;
 float s_accel_bias[3];
 float s_gyro_bias[3];
+float s_accel_filtered[3];
+float s_gyro_filtered[3];
+bool s_imu_filter_ready;
+volatile uint32_t s_imu_smoothing_percent = 70;
 bool s_gps_ready;
 bool s_microphone_worker_started;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 volatile bool s_diagnostic_monitor_active;
+volatile uint32_t s_diagnostic_period_ms = 300;
 
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
@@ -588,14 +596,30 @@ esp_err_t sample_imu(const char *phase)
         sample.calibration_gyro_max_span_dps = s_imu_calibration_gyro_max_span;
         const float acceleration[] = {data.accelX, data.accelY, data.accelZ};
         const float angular_velocity[] = {data.gyroX, data.gyroY, data.gyroZ};
+        const float smoothing =
+            static_cast<float>(s_imu_smoothing_percent) / 100.0F;
         for (unsigned axis = 0; axis < 3; ++axis) {
             sample.acceleration_bias_mps2[axis] = s_accel_bias[axis];
             sample.angular_velocity_bias_dps[axis] = s_gyro_bias[axis];
-            sample.acceleration_mps2[axis] =
+            const float acceleration_corrected =
                 acceleration[axis] - (s_imu_calibrated ? s_accel_bias[axis] : 0.0F);
-            sample.angular_velocity_dps[axis] =
+            const float angular_velocity_corrected =
                 angular_velocity[axis] - (s_imu_calibrated ? s_gyro_bias[axis] : 0.0F);
+            if (!s_imu_filter_ready) {
+                s_accel_filtered[axis] = acceleration_corrected;
+                s_gyro_filtered[axis] = angular_velocity_corrected;
+            } else {
+                s_accel_filtered[axis] =
+                    s_accel_filtered[axis] * smoothing +
+                    acceleration_corrected * (1.0F - smoothing);
+                s_gyro_filtered[axis] =
+                    s_gyro_filtered[axis] * smoothing +
+                    angular_velocity_corrected * (1.0F - smoothing);
+            }
+            sample.acceleration_mps2[axis] = s_accel_filtered[axis];
+            sample.angular_velocity_dps[axis] = s_gyro_filtered[axis];
         }
+        s_imu_filter_ready = true;
         sample.temperature_c = data.temperature;
     }
     update_snapshot([&sample](qsee::DeviceSnapshot &snapshot) { snapshot.imu = sample; });
@@ -1006,9 +1030,30 @@ void diagnostic_monitor_task(void *arg)
     (void)arg;
     for (;;) {
         if (s_diagnostic_monitor_active) {
-            (void)qsee::DeviceSnapshotService::instance().refresh("diagnostic-ui");
+            SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+            if (refresh_mutex != nullptr &&
+                xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(250)) == pdTRUE) {
+                esp_err_t aggregate = ESP_OK;
+                if (s_imu_ready && sample_imu("diagnostic-ui") != ESP_OK) {
+                    aggregate = ESP_FAIL;
+                }
+                if (s_microphone_ready && sample_microphone("diagnostic-ui") != ESP_OK) {
+                    aggregate = ESP_FAIL;
+                }
+                update_snapshot([](qsee::DeviceSnapshot &snapshot) {
+                    ++snapshot.sequence;
+                    snapshot.refreshed_at_us = esp_timer_get_time();
+                    strlcpy(snapshot.reason, "diagnostic-ui", sizeof(snapshot.reason));
+                });
+                xSemaphoreGive(refresh_mutex);
+                if (aggregate != ESP_OK) {
+                    ESP_LOGW(TAG, "Diagnostic sample completed with degraded inputs");
+                }
+            }
         }
-        vTaskDelay(pdMS_TO_TICKS(120));
+        const uint32_t delay_ms =
+            s_diagnostic_monitor_active ? s_diagnostic_period_ms : 250U;
+        vTaskDelay(pdMS_TO_TICKS(delay_ms));
     }
 }
 
@@ -1187,6 +1232,22 @@ esp_err_t DeviceSnapshotService::initialize()
     if (ensure_refresh_mutex() == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    auto &settings = UserSettingsService::instance();
+    const esp_err_t settings_error = settings.initialize();
+    if (settings_error == ESP_OK) {
+        uint32_t saved_period_ms = 300;
+        if (settings.getUInt32(kDiagnosticPeriodSetting, 300, &saved_period_ms) == ESP_OK) {
+            s_diagnostic_period_ms = saved_period_ms < 100U ? 100U :
+                                     saved_period_ms > 2000U ? 2000U :
+                                     saved_period_ms;
+        }
+        uint32_t saved_smoothing = 70;
+        if (settings.getUInt32(kImuSmoothingSetting, 70, &saved_smoothing) == ESP_OK) {
+            s_imu_smoothing_percent = saved_smoothing > 90U ? 90U : saved_smoothing;
+        }
+    } else {
+        ESP_LOGW(TAG, "User settings unavailable; diagnostic period uses default");
+    }
 
     i2c_master_bus_handle_t bus = bsp_i2c_get_handle();
     if (bus == nullptr) {
@@ -1223,6 +1284,11 @@ esp_err_t DeviceSnapshotService::initialize()
              s_microphone_worker_started ? "started" : "failed");
 
     s_initialized = true;
+    const esp_err_t diagnostic_task = qsee_hardware_set_diagnostic_monitor(false);
+    if (diagnostic_task != ESP_OK) {
+        ESP_LOGW(TAG, "Diagnostic monitor task unavailable (%s)",
+                 esp_err_to_name(diagnostic_task));
+    }
     if (pmu != ESP_OK || rtc != ESP_OK || imu != ESP_OK || gps != ESP_OK) {
         ESP_LOGW(TAG, "Hardware initialization completed with degraded devices");
     } else {
@@ -1399,10 +1465,11 @@ extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
 
 extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
 {
-    s_diagnostic_monitor_active = enabled;
-    if (!enabled || s_diagnostic_monitor_started) {
+    if (s_diagnostic_monitor_started) {
+        s_diagnostic_monitor_active = enabled;
         return ESP_OK;
     }
+    s_diagnostic_monitor_active = false;
     TaskHandle_t task = xTaskCreateStatic(
         diagnostic_monitor_task,
         "qsee_diag_monitor",
@@ -1414,10 +1481,62 @@ extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
     );
     s_diagnostic_monitor_started = task != nullptr;
     if (!s_diagnostic_monitor_started) {
-        s_diagnostic_monitor_active = false;
         return ESP_ERR_NO_MEM;
     }
+    s_diagnostic_monitor_active = enabled;
+    ESP_LOGI(TAG, "Diagnostic monitor task ready (%s)",
+             enabled ? "active" : "standby");
     return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms)
+{
+    if (period_ms < 100U || period_ms > 2000U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_diagnostic_period_ms = period_ms;
+    auto &settings = qsee::UserSettingsService::instance();
+    if (settings.isInitialized()) {
+        const esp_err_t persist_error =
+            settings.setUInt32(kDiagnosticPeriodSetting, period_ms);
+        if (persist_error != ESP_OK) {
+            ESP_LOGW(TAG, "Diagnostic period persistence failed (%s)",
+                     esp_err_to_name(persist_error));
+        }
+    }
+    ESP_LOGI(TAG, "Diagnostic sample period: %lu ms",
+             static_cast<unsigned long>(period_ms));
+    return ESP_OK;
+}
+
+extern "C" uint32_t qsee_hardware_get_diagnostic_period_ms(void)
+{
+    return s_diagnostic_period_ms;
+}
+
+extern "C" esp_err_t qsee_hardware_set_imu_smoothing_percent(uint32_t percent)
+{
+    if (percent > 90U) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    s_imu_smoothing_percent = percent;
+    s_imu_filter_ready = false;
+    auto &settings = qsee::UserSettingsService::instance();
+    if (settings.isInitialized()) {
+        const esp_err_t persist_error =
+            settings.setUInt32(kImuSmoothingSetting, percent);
+        if (persist_error != ESP_OK) {
+            return persist_error;
+        }
+    }
+    ESP_LOGI(TAG, "IMU input smoothing: %lu%%",
+             static_cast<unsigned long>(percent));
+    return ESP_OK;
+}
+
+extern "C" uint32_t qsee_hardware_get_imu_smoothing_percent(void)
+{
+    return s_imu_smoothing_percent;
 }
 
 extern "C" esp_err_t qsee_imu_calibrate(void)

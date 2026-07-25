@@ -28,3 +28,12 @@
 - Add CPU utilization samples to `DeviceSnapshotService` when sensor fusion exposes them.
 - Keep the UI on `CPU data unavailable` until real samples are available.
 - Keep hardware refresh non-blocking and outside the UI thread.
+
+## Sensor fusion
+
+- The Settings route currently persists and applies the QMI8658 input
+  low-pass smoothing value; it does not claim to provide orientation fusion.
+- Add a canonical sensor-fusion service behind `DeviceSnapshotService` before
+  exposing algorithm selection, gain, or reference-frame controls in the UI.
+- Move stationary calibration to a non-blocking platform worker before adding
+  a Settings calibration action.

@@ -6,12 +6,13 @@
 #include <vector>
 
 #include "gui/lvgl/esp_brookesia_app_widgets.hpp"
+#include "qsee_edge_navigation.hpp"
 
 namespace qsee {
 
 class Navigation final {
 public:
-    enum class Screen { Welcome, Logs, Hardware, Audio, Imu, About };
+    enum class Screen { Welcome, Logs, Hardware, Audio, Imu, About, Settings };
 
     struct Metric {
         std::unique_ptr<esp_brookesia::gui::LvContainer> card;
@@ -42,6 +43,12 @@ private:
     void closeDialog();
     void requestFormat();
     void updateDiagnosticViews();
+    void adjustDiagnosticPeriod(int delta_ms);
+    void adjustImuSmoothing(int delta_percent);
+    void toggleSdMirror();
+    void startWifi();
+    void adjustBrightness(int delta_percent);
+    void updateSettings();
 
     std::unique_ptr<esp_brookesia::gui::AppScreen> _screen;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _surface;
@@ -53,14 +60,17 @@ private:
     std::unique_ptr<esp_brookesia::gui::LvContainer> _hardware;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _audio;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _imu;
-    std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_cards;
+    std::unique_ptr<esp_brookesia::gui::LvContainer> _settings;
+    std::vector<std::unique_ptr<esp_brookesia::gui::LvContainer>> _hardware_rows;
     std::vector<std::unique_ptr<esp_brookesia::gui::AppButton>> _hardware_actions;
+    std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _content_labels;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_logs;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_hardware;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_audio;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_imu;
     std::unique_ptr<esp_brookesia::gui::AppButton> _open_about;
-    std::unique_ptr<esp_brookesia::gui::AppButton> _back;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _open_settings;
+    std::unique_ptr<EdgeNavigation> _edge_navigation;
     std::unique_ptr<esp_brookesia::gui::AppButton> _format_sd;
     std::unique_ptr<esp_brookesia::gui::AppButton> _sd_action;
     std::unique_ptr<esp_brookesia::gui::AppButton> _logs_pause;
@@ -73,11 +83,24 @@ private:
     std::vector<std::unique_ptr<esp_brookesia::gui::AppLabel>> _hardware_labels;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _hardware_summary;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _about;
-    std::unique_ptr<esp_brookesia::gui::AppImage> _about_logo;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_tagline;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_website;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_email;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _about_copyright;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_period;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_faster;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_slower;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_default;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_smoothing;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_smoothing_less;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_smoothing_more;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_storage;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_sd_mirror;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_wifi;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_wifi_start;
+    std::unique_ptr<esp_brookesia::gui::AppLabel> _settings_brightness;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_brightness_down;
+    std::unique_ptr<esp_brookesia::gui::AppButton> _settings_brightness_up;
     std::unique_ptr<esp_brookesia::gui::LvContainer> _dialog;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _dialog_title;
     std::unique_ptr<esp_brookesia::gui::AppLabel> _dialog_text;
@@ -101,8 +124,11 @@ private:
     std::unique_ptr<esp_brookesia::gui::AppTimer> _refresh_timer;
     bool _logs_paused = false;
     bool _logs_follow_latest = true;
+    bool _dialog_requires_confirmation = false;
     uint8_t _log_filter_mode = 0;
     size_t _selected_component = 0;
+    char *_log_snapshot_buffer = nullptr;
+    char *_log_filtered_buffer = nullptr;
     Screen _current{Screen::Welcome};
 };
 

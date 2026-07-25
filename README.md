@@ -105,7 +105,7 @@ This is the current code-grounded inventory:
 | `Audio` | Implemented diagnostic | `AUDIO SCOPE` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Microphone channel levels and PCM capture status; this is not yet a waveform or spectrogram |
 | `Imu` | Implemented diagnostic | `IMU LEVEL` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Accelerometer, gyroscope, temperature, and calibration status |
 | `About` | Implemented | `ABOUT` | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Device identity, branding, and contact information |
-| `Settings` | Planned | Not currently exposed | No route or screen implementation yet | User and device settings, including deferred Wi-Fi/BLE activation |
+| `Settings` | Implemented | `SETTINGS` on the scrollable Welcome panel | [`qsee_navigation.hpp`](components/qsee_app/include/qsee_navigation.hpp) / [`qsee_navigation.cpp`](components/qsee_app/qsee_navigation.cpp) | Persistent diagnostic period, IMU input smoothing, SD log-mirror preference, Wi-Fi start action, and AMOLED brightness |
 | `AudioSpectrogram` | Planned | Not currently exposed | No route or screen implementation yet | Test-audio waveform/spectrogram page, separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | No route or screen implementation yet | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
@@ -115,6 +115,10 @@ declaration, screen construction, visibility logic, and entry control. The
 change is incomplete unless the index contains the resulting route name,
 implemented/planned status, actual entry point, and declaration/implementation
 file, and those fields agree with the code review diff.
+
+Back is rendered on the left circular perimeter outside the 320 x 320 safe
+area. Contextual OK or Close is rendered on the right perimeter. Route content
+must not place duplicate navigation controls inside the safe-area panel.
 
 ## Hardware
 
