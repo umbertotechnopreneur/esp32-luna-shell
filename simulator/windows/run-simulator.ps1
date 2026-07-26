@@ -3,7 +3,7 @@ param(
     [ValidateSet("healthy", "sd-unformatted", "gps-searching")]
     [string]$Scenario = "healthy",
 
-    [ValidateSet("home", "settings", "audio", "fft", "imu")]
+    [ValidateSet("home", "settings", "audio", "fft", "fft-detail", "imu")]
     [string]$Screen = "home",
 
     [string]$Capture,

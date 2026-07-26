@@ -21,7 +21,10 @@
             "stateStyles.pressed.bgGradientColor": "pressed_bottom",
             "stateStyles.pressed.borderColor": "pressed_border",
             "placement.x": "x",
-            "placement.y": "y"
+            "placement.y": "y",
+            "placement.width": "size",
+            "placement.height": "size",
+            "style.radius": "radius"
         },
         "style": {
             "bgColor": "#247fd6",
@@ -72,14 +75,14 @@
                 },
                 "style": {
                     "textColor": "#ffffff",
-                    "fontSize": "25sp",
+                    "fontSize": "23sp",
                     "textAlign": "center"
                 },
                 "placement": {
                     "mode": "relative",
                     "align": "center",
                     "x": "0dp",
-                    "y": "-1dp"
+                    "y": "0dp"
                 }
             }
         ]

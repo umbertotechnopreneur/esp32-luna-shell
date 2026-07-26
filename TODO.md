@@ -7,26 +7,49 @@
 - [x] Defer Wi-Fi/BLE allocation until the explicit Settings action.
 - [x] Hardware-free backend and System Core UI verification:
   `scripts/verify_pairing.py`.
-- [ ] Design and implement an on-device provisioning/QR experience if the
-  product requires one; no pairing wizard or QR route exists today.
+- [x] Restore the on-device Espressif provisioning wizard, dynamic QR route,
+  and shared singleton Back/Next edge navigation under System Core.
 - [ ] Validate the BLE credential flow with the physical radio and the
   Espressif mobile app.
 - [ ] Verify reboot persistence, repeated pairing, timeout and BLE shutdown on hardware.
 
+## Hardware status: immediate UI improvements
+
+- [x] In the existing Hardware page, render a clear boot-state label for RTC,
+  GPS, Wi-Fi, and BLE from `DeviceSnapshotService`: `READY`, `NO FIX`,
+  `OFF BY POLICY`, or the real initialization error. Do not use an ambiguous
+  generic "unavailable" state.
+- [x] Show the distinction between a completed boot check and live use: RTC
+  time restored versus unavailable; GPS receiver initialized versus current
+  fix; Wi-Fi/BLE deliberately deferred until the user asks for them versus
+  failed startup.
+- [x] Add a single `Refresh hardware status` action that re-renders the latest
+  snapshot without initializing radios, polling sensors directly from the UI,
+  or changing device state.
+- [x] On the Settings radios row, state the current policy explicitly: Wi-Fi
+  and BLE stay off after boot and are started only by the existing user-driven
+  actions. Surface the real startup error if either action fails.
+- [x] Keep the legacy inventory names and ordering where useful, but derive all
+  displayed status and timestamps from the current snapshot rather than a
+  parallel inventory/probe path.
+
 ## ESP-Brookesia integration
 
-- [x] Run the application as a native System Core `IApp` under System Super.
+- [x] Run the application as the only native `IApp` on System Core, without
+  installing or starting the optional System Super shell.
 - [x] Express the seven current screens and `qsee_content` flow in the GUI LVGL
   JSON package.
 - [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
   mirroring, deferred radio startup, and persisted brightness.
-- [x] Stage System Super and application resources in the internal LittleFS
-  image.
+- [x] Stage only the QSee application resources in the internal LittleFS
+  image; do not ship the unused System Super shell resources.
 - [ ] Define shared JSON design tokens for the circular 466 x 466 display and
   320 x 320 safe area.
-- [ ] Add Bluetooth, GPS, and CPU indicators to System Super only when an
-  official extension point is available; record the framework gap here before
-  adding product-specific system chrome.
+- [ ] Complete hardware validation of the QSee-owned Bluetooth, GPS, and CPU
+  status bar under the single-app System Core runtime.
+- [ ] Replace the removed Shell keyboard and message-dialog services with
+  QSee-owned declarative components before exposing log search or destructive
+  confirmation actions on the System Core-only build.
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
 - [ ] Remove proprietary branding markers (including branded identifiers and
   logo mentions) before GitHub open-source publication.
@@ -39,8 +62,8 @@
   through `DeviceSnapshotService`; the board has no card-detect pin, so a
   failed SDMMC probe is never reported as physical absence.
 - [x] Make only an exact FatFs `FR_NO_FILESYSTEM` result eligible for format.
-- [x] Arm `qsee_storage_request_format()` only after the destructive System
-  Super confirmation is accepted, bind that one-shot permission to the
+- [x] Arm `qsee_storage_request_format()` only after an explicit destructive
+  confirmation is accepted, bind that one-shot permission to the
   observed CID fields and capacity, and consume it on the immediate attempt.
 - [x] Poll a mounted card and invalidate/unmount it when status reports removal
   or a transport failure.

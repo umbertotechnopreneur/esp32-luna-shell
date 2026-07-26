@@ -275,9 +275,13 @@ struct DiagnosticsSettingsSnapshot {
     ComponentSnapshot sample_period;
     ComponentSnapshot imu_smoothing;
     ComponentSnapshot monitor;
+    ComponentSnapshot full_snapshot_period;
+    ComponentSnapshot full_snapshot_monitor;
     uint32_t sample_period_ms = 300;
     uint32_t imu_smoothing_percent = 70;
+    uint32_t full_snapshot_period_ms = 1000;
     bool monitor_active = false;
+    bool full_snapshot_monitor_active = false;
 };
 
 struct InputSnapshot {
@@ -345,9 +349,9 @@ struct DeviceSnapshot {
 /**
  * Canonical point-in-time hardware state.
  *
- * Drivers are sampled only when refresh() is explicitly requested. This keeps
- * sensor acquisition deterministic and gives future sensor fusion one coherent
- * input boundary.
+ * Drivers are sampled only through refresh(). Manual requests and the periodic
+ * Full Snapshot worker share that serialized input boundary, while lightweight
+ * diagnostic publication remains separate.
  */
 class DeviceSnapshotService final {
 public:
@@ -368,6 +372,11 @@ public:
     );
     void reportDiagnosticPeriod(uint32_t sample_period_ms, esp_err_t error);
     void reportImuSmoothing(uint32_t imu_smoothing_percent, esp_err_t error);
+    void reportFullSnapshotPeriod(
+        uint32_t full_snapshot_period_ms,
+        esp_err_t error
+    );
+    void reportFullSnapshotMonitor(bool monitor_active, esp_err_t error);
     void reportSensorFusion(
         const SensorFusionResult &result,
         esp_err_t error

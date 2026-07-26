@@ -1,5 +1,6 @@
 #include "qsee_provisioning.hpp"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_platform.h"
 
 #include <mutex>
 #include <cstdio>
@@ -14,6 +15,37 @@
 
 namespace {
 constexpr char kTag[] = "qsee_prov";
+
+qsee_provisioning_state_t to_c_state(qsee::ProvisioningState state)
+{
+    switch (state) {
+    case qsee::ProvisioningState::Idle:
+        return QSEE_PROVISIONING_STATE_IDLE;
+    case qsee::ProvisioningState::Starting:
+        return QSEE_PROVISIONING_STATE_STARTING;
+    case qsee::ProvisioningState::WaitingForApp:
+        return QSEE_PROVISIONING_STATE_WAITING_FOR_APP;
+    case qsee::ProvisioningState::CredentialsReceived:
+        return QSEE_PROVISIONING_STATE_CREDENTIALS_RECEIVED;
+    case qsee::ProvisioningState::Connecting:
+        return QSEE_PROVISIONING_STATE_CONNECTING;
+    case qsee::ProvisioningState::Success:
+        return QSEE_PROVISIONING_STATE_SUCCESS;
+    case qsee::ProvisioningState::Failed:
+        return QSEE_PROVISIONING_STATE_FAILED;
+    case qsee::ProvisioningState::Stopping:
+        return QSEE_PROVISIONING_STATE_STOPPING;
+    case qsee::ProvisioningState::Deinitializing:
+        return QSEE_PROVISIONING_STATE_DEINITIALIZING;
+    case qsee::ProvisioningState::Stopped:
+        return QSEE_PROVISIONING_STATE_STOPPED;
+    case qsee::ProvisioningState::Poisoned:
+        return QSEE_PROVISIONING_STATE_POISONED;
+    }
+
+    ESP_LOGE(kTag, "unknown provisioning state %d", static_cast<int>(state));
+    return QSEE_PROVISIONING_STATE_FAILED;
+}
 }
 
 namespace qsee {
@@ -528,9 +560,30 @@ extern "C" bool qsee_provisioning_active(void)
            state == qsee::ProvisioningState::Connecting;
 }
 
+extern "C" qsee_provisioning_state_t qsee_provisioning_state(void)
+{
+    return to_c_state(qsee::ProvisioningService::instance().state());
+}
+
+extern "C" esp_err_t qsee_provisioning_connection_summary(
+    char *buffer,
+    size_t buffer_size
+)
+{
+    return qsee::ProvisioningService::instance().connectionSummary(
+        buffer,
+        buffer_size
+    );
+}
+
 extern "C" const char *qsee_provisioning_service_name(void)
 {
     return qsee::ProvisioningService::instance().serviceName();
+}
+
+extern "C" const char *qsee_provisioning_qr_payload(void)
+{
+    return qsee::ProvisioningService::instance().qrPayload();
 }
 
 extern "C" const char *qsee_provisioning_pop(void)

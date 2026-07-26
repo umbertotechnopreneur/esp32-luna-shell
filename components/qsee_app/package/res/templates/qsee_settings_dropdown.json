@@ -1,0 +1,44 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_settings_dropdown",
+    "node": {
+        "type": "dropdown",
+        "events": [],
+        "bindings": {
+            "dropdownProps.selectedIndex": "selectedIndex"
+        },
+        "dropdownProps": {
+            "options": [
+                "10 seconds",
+                "15 seconds",
+                "30 seconds",
+                "1 minute",
+                "2 minutes",
+                "5 minutes",
+                "10 minutes"
+            ],
+            "selectedIndex": 0
+        },
+        "style": {
+            "bgColor": "#0d2836",
+            "bgGradientColor": "#07131c",
+            "bgGradientDirection": "vertical",
+            "borderColor": "#2c6077",
+            "borderWidth": "1dp",
+            "radius": "10dp",
+            "textColor": "#f3f7fa",
+            "fontSize": "12sp",
+            "padding": "9dp"
+        },
+        "stateStyles": {
+            "focused": {
+                "borderColor": "#20dfc1",
+                "borderWidth": "1dp"
+            }
+        },
+        "placement": {
+            "width": "282dp",
+            "height": "44dp"
+        }
+    }
+}

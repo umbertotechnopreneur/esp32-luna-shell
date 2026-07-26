@@ -20,16 +20,31 @@ using qsee::snapshot_semantics::storage_cleanup_failed;
 using qsee::snapshot_semantics::storage_format_required;
 using qsee::snapshot_semantics::storage_mounted_ready;
 
+bool component_standby(const qsee::ComponentSnapshot &component)
+{
+    return component.health == qsee::DeviceHealth::Unknown &&
+           component.last_error == ESP_ERR_INVALID_STATE &&
+           !component.data_valid &&
+           !component.data_stale &&
+           component.last_attempt_at_us == 0 &&
+           component.last_success_at_us == 0;
+}
+
+bool radio_deferred_by_policy(const qsee::ComponentSnapshot &radio)
+{
+    return component_standby(radio);
+}
+
 std::string_view component_color(const qsee::ComponentSnapshot &component)
 {
-    if (component.last_error != ESP_OK) {
-        return qsee::palette::kStatusFault;
-    }
     if (component.data_stale) {
         return qsee::palette::kStatusWarning;
     }
     switch (component.health) {
     case qsee::DeviceHealth::Ready:
+        if (component.last_error != ESP_OK) {
+            return qsee::palette::kStatusFault;
+        }
         return component.data_valid
             ? qsee::palette::kStatusReady
             : qsee::palette::kStatusWarning;
@@ -38,7 +53,12 @@ std::string_view component_color(const qsee::ComponentSnapshot &component)
     case qsee::DeviceHealth::Missing:
         return qsee::palette::kStatusMissing;
     case qsee::DeviceHealth::Unknown:
-        return qsee::palette::kStatusWarning;
+        if (component_standby(component)) {
+            return qsee::palette::kStatusMuted;
+        }
+        return component.last_error == ESP_OK
+            ? qsee::palette::kStatusWarning
+            : qsee::palette::kStatusFault;
     }
     std::abort();
 }
@@ -119,9 +139,9 @@ std::expected<void, std::string> QSeeStatusBar::update(
     if (component_ready(snapshot.battery)) {
         usb_color = snapshot.battery.usb_present
             ? palette::kStatusReady
-            : palette::kStatusMissing;
+            : palette::kStatusMuted;
         if (!snapshot.battery.battery_present) {
-            battery_color = palette::kStatusMissing;
+            battery_color = palette::kStatusMuted;
         } else if (snapshot.battery.level_percent < 0 ||
                    snapshot.battery.level_percent > 100 ||
                    snapshot.battery.level_percent <= 12) {
@@ -132,7 +152,9 @@ std::expected<void, std::string> QSeeStatusBar::update(
     }
 
     std::string_view ble_color = component_color(snapshot.radios.ble);
-    if (component_ready(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+        ble_color = palette::kStatusMuted;
+    } else if (component_ready(snapshot.radios.ble)) {
         ble_color = snapshot.radios.ble.connected ||
                     snapshot.radios.ble.provisioning ||
                     snapshot.radios.ble.advertising
@@ -141,12 +163,12 @@ std::expected<void, std::string> QSeeStatusBar::update(
     }
 
     std::string_view wifi_color = component_color(snapshot.radios.wifi);
-    if (component_ready(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+        wifi_color = palette::kStatusMuted;
+    } else if (component_ready(snapshot.radios.wifi)) {
         wifi_color = snapshot.radios.wifi.connected
             ? palette::kStatusReady
-            : snapshot.radios.wifi.started
-                ? palette::kStatusWarning
-                : palette::kStatusMissing;
+            : palette::kStatusWarning;
     }
 
     std::string_view gps_color = component_color(snapshot.gps);
@@ -165,6 +187,8 @@ std::expected<void, std::string> QSeeStatusBar::update(
         sd_color = palette::kStatusWarning;
     } else if (storage_mounted_ready(snapshot.storage)) {
         sd_color = palette::kStatusReady;
+    } else if (!snapshot.storage.card_response_verified) {
+        sd_color = palette::kStatusWarning;
     }
 
     const VisualState next_state{

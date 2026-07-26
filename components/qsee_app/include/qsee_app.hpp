@@ -18,10 +18,12 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "brookesia/system_core.hpp"
+#include "qsee_adaptive_chrome.hpp"
 #include "qsee_alert_service.hpp"
-#include "qsee_adaptive_command_bar.hpp"
+#include "qsee_background_asset.hpp"
 #include "qsee_edge_navigation.hpp"
 #include "qsee_navigation_service.hpp"
 #include "qsee_pairing_qr.hpp"
@@ -96,6 +98,9 @@ private:
     std::expected<void, std::string> refresh(
         esp_brookesia::system::core::AppContext &context
     );
+    std::expected<void, std::string> refresh_background(
+        esp_brookesia::system::core::AppContext &context
+    );
     std::expected<void, std::string> refresh_chrome(
         esp_brookesia::system::core::AppContext &context,
         const DeviceSnapshot &snapshot
@@ -115,6 +120,9 @@ private:
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_audio_fft(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_audio_detail(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_imu(
@@ -169,9 +177,18 @@ private:
         esp_brookesia::system::core::AppContext &context,
         Screen screen
     );
+    void handle_chrome_timing_event(
+        AdaptiveChromeTiming timing,
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_full_snapshot_period_event(
+        const esp_brookesia::gui::Event &event
+    );
 
     esp_brookesia::system::core::AppContext *context_ = nullptr;
     esp_brookesia::system::core::TimerId refresh_timer_ =
+        esp_brookesia::system::core::INVALID_TIMER_ID;
+    esp_brookesia::system::core::TimerId chrome_policy_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
     esp_brookesia::system::core::KeyboardRequestId search_keyboard_ =
         esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
@@ -181,8 +198,11 @@ private:
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;
+    std::vector<esp_brookesia::gui::ScopedConnection>
+        chrome_timing_connections_;
     AlertService alert_service_;
-    AdaptiveCommandBar adaptive_command_bar_;
+    AdaptiveChromeController adaptive_chrome_;
+    bool background_asset_registered_ = false;
     EdgeNavigation edge_navigation_;
     NavigationService navigation_;
     PairingQrAsset pairing_qr_;

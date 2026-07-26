@@ -11,6 +11,7 @@ enum class Route {
     Hardware,
     Audio,
     AudioFft,
+    AudioDetail,
     Imu,
     Settings,
     About,

@@ -25,38 +25,6 @@
         },
         "children": [
             {
-                "type": "button",
-                "id": "wake",
-                "commonProps": {
-                    "clickable": false,
-                    "scrollable": false,
-                    "hidden": true
-                },
-                "bindings": {
-                    "commonProps.clickable": "clickable",
-                    "commonProps.hidden": "hidden"
-                },
-                "events": [
-                    {
-                        "type": "pressed",
-                        "action": "qsee.chrome.activity"
-                    }
-                ],
-                "style": {
-                    "bgColor": "#000000",
-                    "bgOpacity": 0,
-                    "borderWidth": "0dp",
-                    "padding": 0
-                },
-                "placement": {
-                    "mode": "absolute",
-                    "x": 0,
-                    "y": 0,
-                    "width": "466dp",
-                    "height": "466dp"
-                }
-            },
-            {
                 "type": "templateRef",
                 "id": "slot0",
                 "templateId": "qsee_command_button",
@@ -126,21 +94,6 @@
                             {
                                 "type": "clicked",
                                 "action": "qsee.command.4"
-                            }
-                        ]
-                    }
-                }
-            },
-            {
-                "type": "templateRef",
-                "id": "slot5",
-                "templateId": "qsee_command_button",
-                "overrides": {
-                    ".": {
-                        "events": [
-                            {
-                                "type": "clicked",
-                                "action": "qsee.command.5"
                             }
                         ]
                     }

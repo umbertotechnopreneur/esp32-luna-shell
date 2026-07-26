@@ -5,9 +5,12 @@
         "templates/qsee_command_button.json",
         "templates/qsee_status_indicator.json",
         "templates/qsee_status_bar.json",
+        "templates/qsee_settings_dropdown.json",
         "templates/qsee_chrome.json",
         "templates/qsee_pairing_stage.json",
         "templates/qsee_spectrum_band.json",
+        "templates/qsee_spectrum_bar.json",
+        "templates/qsee_spectrum_detail_bar.json",
         {
             "type": "viewScreen",
             "id": "qsee_background_screen",
@@ -82,12 +85,12 @@
                             },
                             "style": {
                                 "textColor": "#ffffff",
-                                "fontSize": "24sp",
-                                "textAlign": "center"
+                                "fontSize": "26sp",
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
-                                "height": "30dp"
+                                "width": "292dp",
+                                "height": "32dp"
                             }
                         },
                         {
@@ -98,12 +101,12 @@
                             },
                             "style": {
                                 "textColor": "#c9edff",
-                                "fontSize": "8sp",
-                                "textAlign": "center"
+                                "fontSize": "11sp",
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
-                                "height": "30dp"
+                                "width": "292dp",
+                                "height": "46dp"
                             }
                         },
                         {
@@ -113,11 +116,7 @@
                                 "scrollable": false
                             },
                             "style": {
-                                "bgColor": "#0a2347",
-                                "borderColor": "#1164ad",
-                                "borderWidth": "1dp",
-                                "radius": "10dp",
-                                "padding": "5dp"
+                                "padding": "2dp"
                             },
                             "layout": {
                                 "type": "flex",
@@ -126,7 +125,7 @@
                             },
                             "placement": {
                                 "width": "292dp",
-                                "height": "42dp"
+                                "height": "50dp"
                             },
                             "children": [
                                 {
@@ -137,11 +136,11 @@
                                     },
                                     "style": {
                                         "textColor": "#e7f7ff",
-                                        "fontSize": "9sp"
+                                        "fontSize": "11sp"
                                     },
                                     "placement": {
-                                        "width": "282dp",
-                                        "height": "16dp"
+                                        "width": "288dp",
+                                        "height": "26dp"
                                     }
                                 },
                                 {
@@ -171,8 +170,8 @@
                                         }
                                     },
                                     "placement": {
-                                        "width": "282dp",
-                                        "height": "8dp"
+                                        "width": "288dp",
+                                        "height": "7dp"
                                     }
                                 }
                             ]
@@ -184,11 +183,7 @@
                                 "scrollable": false
                             },
                             "style": {
-                                "bgColor": "#0a2347",
-                                "borderColor": "#1164ad",
-                                "borderWidth": "1dp",
-                                "radius": "10dp",
-                                "padding": "5dp"
+                                "padding": "2dp"
                             },
                             "layout": {
                                 "type": "flex",
@@ -197,7 +192,7 @@
                             },
                             "placement": {
                                 "width": "292dp",
-                                "height": "42dp"
+                                "height": "50dp"
                             },
                             "children": [
                                 {
@@ -208,11 +203,11 @@
                                     },
                                     "style": {
                                         "textColor": "#e7f7ff",
-                                        "fontSize": "9sp"
+                                        "fontSize": "11sp"
                                     },
                                     "placement": {
-                                        "width": "282dp",
-                                        "height": "16dp"
+                                        "width": "288dp",
+                                        "height": "26dp"
                                     }
                                 },
                                 {
@@ -242,8 +237,8 @@
                                         }
                                     },
                                     "placement": {
-                                        "width": "282dp",
-                                        "height": "8dp"
+                                        "width": "288dp",
+                                        "height": "7dp"
                                     }
                                 }
                             ]
@@ -256,12 +251,12 @@
                             },
                             "style": {
                                 "textColor": "#80dfff",
-                                "fontSize": "8sp",
-                                "textAlign": "center"
+                                "fontSize": "11sp",
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
-                                "height": "28dp"
+                                "width": "292dp",
+                                "height": "42dp"
                             }
                         }
                     ]
@@ -435,11 +430,27 @@
                             "style": {
                                 "textColor": "#f3f7fa",
                                 "fontSize": "20sp",
-                                "textAlign": "center"
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
+                                "width": "282dp",
                                 "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "All controls - swipe to scroll"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "10sp",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
                             }
                         },
                         {
@@ -613,6 +624,30 @@
                     },
                     "children": [
                         {
+                            "type": "container",
+                            "id": "audio_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "bgGradientColor": "#07131c",
+                                "bgGradientDirection": "vertical",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "14dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "86dp",
+                                "width": "292dp",
+                                "height": "198dp"
+                            }
+                        },
+                        {
                             "type": "label",
                             "id": "title",
                             "labelProps": {
@@ -626,7 +661,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": 0,
+                                "y": "42dp",
                                 "width": "292dp",
                                 "height": "26dp"
                             }
@@ -645,7 +680,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": "25dp",
+                                "y": "68dp",
                                 "width": "292dp",
                                 "height": "16dp"
                             }
@@ -664,7 +699,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": "50dp",
+                                "y": "92dp",
                                 "width": "292dp",
                                 "height": "22dp"
                             }
@@ -682,7 +717,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "79dp",
+                                "y": "118dp",
                                 "width": "280dp",
                                 "height": "16dp"
                             }
@@ -716,7 +751,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "99dp",
+                                "y": "138dp",
                                 "width": "280dp",
                                 "height": "14dp"
                             }
@@ -734,7 +769,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "123dp",
+                                "y": "166dp",
                                 "width": "280dp",
                                 "height": "16dp"
                             }
@@ -768,7 +803,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "143dp",
+                                "y": "186dp",
                                 "width": "280dp",
                                 "height": "14dp"
                             }
@@ -787,7 +822,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "169dp",
+                                "y": "212dp",
                                 "width": "280dp",
                                 "height": "76dp"
                             }
@@ -806,7 +841,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "22dp",
-                                "y": "247dp",
+                                "y": "266dp",
                                 "width": "280dp",
                                 "height": "16dp"
                             }
@@ -845,6 +880,30 @@
                         "height": "320dp"
                     },
                     "children": [
+                        {
+                            "type": "container",
+                            "id": "spectrum_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "bgGradientColor": "#07131c",
+                                "bgGradientDirection": "vertical",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "14dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "34dp",
+                                "y": "96dp",
+                                "width": "252dp",
+                                "height": "156dp"
+                            }
+                        },
                         {
                             "type": "label",
                             "id": "title",
@@ -887,7 +946,7 @@
                             "type": "label",
                             "id": "legend",
                             "labelProps": {
-                                "text": "MIC 1  \u2022  MIC 2     16 DFT BINS     0 - 11 kHz"
+                                "text": "MEAN MIC 1 + MIC 2     16 DFT BINS     0 - 11 kHz"
                             },
                             "style": {
                                 "textColor": "#51c7f2",
@@ -930,29 +989,29 @@
                                 "height": "98dp"
                             },
                             "children": [
-                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_band" },
-                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_band" }
+                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_bar" },
+                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_bar" }
                             ]
                         },
                         {
                             "type": "label",
                             "id": "spectrum_footer",
                             "labelProps": {
-                                "text": "LIVE SELECTED-BIN SPECTRUM | CANONICAL SNAPSHOT"
+                                "text": "MEAN SPECTRUM | MIC 1 + MIC 2"
                             },
                             "style": {
                                 "textColor": "#607889",
@@ -963,6 +1022,256 @@
                                 "mode": "absolute",
                                 "x": "14dp",
                                 "y": "228dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_audio_detail",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "container",
+                            "id": "spectrum_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "bgGradientColor": "#07131c",
+                                "bgGradientDirection": "vertical",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "14dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "34dp",
+                                "y": "92dp",
+                                "width": "252dp",
+                                "height": "188dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": { "text": "AUDIO DETAIL" },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "20sp",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "44dp",
+                                "width": "292dp",
+                                "height": "28dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_status",
+                            "labelProps": {
+                                "text": "SPECTRUM UNAVAILABLE (WAITING FOR SAMPLE)"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "10sp",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "72dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "legend",
+                            "labelProps": {
+                                "text": "MIC 1 + MIC 2     16 DFT BINS     0 - 11 kHz"
+                            },
+                            "style": {
+                                "textColor": "#51c7f2",
+                                "fontSize": "9sp",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "94dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic0_label",
+                            "labelProps": { "text": "MIC 1 | BLUE -> MAGENTA" },
+                            "style": {
+                                "textColor": "#78cfff",
+                                "fontSize": "9sp",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "44dp",
+                                "y": "112dp",
+                                "width": "232dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "mic0_bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": { "commonProps.hidden": "hidden" },
+                            "style": { "padding": 0 },
+                            "layout": {
+                                "type": "flex",
+                                "mainAlign": "center",
+                                "crossAlign": "end",
+                                "gap": "1dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "128dp",
+                                "width": "236dp",
+                                "height": "68dp"
+                            },
+                            "children": [
+                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_detail_bar" }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic1_label",
+                            "labelProps": { "text": "MIC 2 | ORANGE -> GREEN" },
+                            "style": {
+                                "textColor": "#ffca70",
+                                "fontSize": "9sp",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "44dp",
+                                "y": "198dp",
+                                "width": "232dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "mic1_bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": { "commonProps.hidden": "hidden" },
+                            "style": { "padding": 0 },
+                            "layout": {
+                                "type": "flex",
+                                "mainAlign": "center",
+                                "crossAlign": "end",
+                                "gap": "1dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "214dp",
+                                "width": "236dp",
+                                "height": "68dp"
+                            },
+                            "children": [
+                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_detail_bar" },
+                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_detail_bar" }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_footer",
+                            "labelProps": {
+                                "text": "LIVE DETAIL | TWO INDEPENDENT MICROPHONES"
+                            },
+                            "style": {
+                                "textColor": "#607889",
+                                "fontSize": "9sp",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "288dp",
                                 "width": "292dp",
                                 "height": "20dp"
                             }
@@ -1002,6 +1311,30 @@
                     },
                     "children": [
                         {
+                            "type": "container",
+                            "id": "imu_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "bgGradientColor": "#07131c",
+                                "bgGradientDirection": "vertical",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "16dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "4dp",
+                                "y": "84dp",
+                                "width": "312dp",
+                                "height": "228dp"
+                            }
+                        },
+                        {
                             "type": "label",
                             "id": "title",
                             "labelProps": {
@@ -1015,7 +1348,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": 0,
+                                "y": "42dp",
                                 "width": "292dp",
                                 "height": "26dp"
                             }
@@ -1034,7 +1367,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": "25dp",
+                                "y": "68dp",
                                 "width": "292dp",
                                 "height": "16dp"
                             }
@@ -1053,7 +1386,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "8dp",
-                                "y": "46dp",
+                                "y": "88dp",
                                 "width": "122dp",
                                 "height": "18dp"
                             }
@@ -1072,7 +1405,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "180dp",
-                                "y": "47dp",
+                                "y": "89dp",
                                 "width": "132dp",
                                 "height": "16dp"
                             }
@@ -1091,7 +1424,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "8dp",
-                                "y": "71dp",
+                                "y": "113dp",
                                 "width": "126dp",
                                 "height": "16dp"
                             }
@@ -1110,7 +1443,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "148dp",
-                                "y": "71dp",
+                                "y": "113dp",
                                 "width": "116dp",
                                 "height": "16dp"
                             }
@@ -1138,7 +1471,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "66dp",
-                                "y": "147dp",
+                                "y": "189dp",
                                 "width": "55dp",
                                 "height": "9dp"
                             }
@@ -1166,7 +1499,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "62dp",
-                                "y": "95dp",
+                                "y": "137dp",
                                 "width": "9dp",
                                 "height": "57dp"
                             }
@@ -1194,7 +1527,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "27dp",
-                                "y": "151dp",
+                                "y": "193dp",
                                 "width": "40dp",
                                 "height": "40dp"
                             }
@@ -1212,7 +1545,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "76dp",
-                                "y": "131dp",
+                                "y": "173dp",
                                 "width": "58dp",
                                 "height": "16dp"
                             }
@@ -1230,7 +1563,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "73dp",
-                                "y": "95dp",
+                                "y": "137dp",
                                 "width": "58dp",
                                 "height": "16dp"
                             }
@@ -1248,7 +1581,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "8dp",
-                                "y": "195dp",
+                                "y": "237dp",
                                 "width": "76dp",
                                 "height": "16dp"
                             }
@@ -1268,7 +1601,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "136dp",
-                                "y": "75dp",
+                                "y": "117dp",
                                 "width": "1dp",
                                 "height": "151dp"
                             }
@@ -1302,7 +1635,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "169dp",
-                                "y": "92dp",
+                                "y": "134dp",
                                 "width": "74dp",
                                 "height": "74dp"
                             }
@@ -1336,7 +1669,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "169dp",
-                                "y": "92dp",
+                                "y": "134dp",
                                 "width": "74dp",
                                 "height": "74dp"
                             }
@@ -1370,7 +1703,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "169dp",
-                                "y": "92dp",
+                                "y": "134dp",
                                 "width": "74dp",
                                 "height": "74dp"
                             }
@@ -1389,7 +1722,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "192dp",
-                                "y": "116dp",
+                                "y": "158dp",
                                 "width": "28dp",
                                 "height": "24dp"
                             }
@@ -1407,7 +1740,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "150dp",
-                                "y": "174dp",
+                                "y": "216dp",
                                 "width": "112dp",
                                 "height": "16dp"
                             }
@@ -1425,7 +1758,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "150dp",
-                                "y": "192dp",
+                                "y": "234dp",
                                 "width": "112dp",
                                 "height": "16dp"
                             }
@@ -1443,7 +1776,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "150dp",
-                                "y": "210dp",
+                                "y": "252dp",
                                 "width": "112dp",
                                 "height": "16dp"
                             }
@@ -1462,7 +1795,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "10dp",
-                                "y": "238dp",
+                                "y": "280dp",
                                 "width": "22dp",
                                 "height": "30dp"
                             }
@@ -1480,7 +1813,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "36dp",
-                                "y": "245dp",
+                                "y": "287dp",
                                 "width": "92dp",
                                 "height": "22dp"
                             }
@@ -1537,11 +1870,27 @@
                             "style": {
                                 "textColor": "#f3f7fa",
                                 "fontSize": "20sp",
-                                "textAlign": "center"
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
+                                "width": "282dp",
                                 "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "All controls - swipe to scroll"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "10sp",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
                             }
                         },
                         {
@@ -1557,8 +1906,6 @@
                                 }
                             ],
                             "style": {
-                                "bgColor": "#0a2347",
-                                "radius": "8dp",
                                 "padding": "7dp"
                             },
                             "layout": {
@@ -1569,7 +1916,7 @@
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "164dp"
+                                "height": "142dp"
                             },
                             "children": [
                                 {
@@ -1579,7 +1926,7 @@
                                         "text": "DIAGNOSTICS"
                                     },
                                     "style": {
-                                        "textColor": "#00e7c5",
+                                        "textColor": "#20dfc1",
                                         "fontSize": "15sp",
                                         "textAlign": "left"
                                     },
@@ -1592,7 +1939,7 @@
                                     "type": "label",
                                     "id": "diagnostics_description",
                                     "labelProps": {
-                                        "text": "Sampling cadence and motion filtering"
+                                        "text": "Full snapshots and live diagnostic sampling"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -1606,9 +1953,68 @@
                                 },
                                 {
                                     "type": "label",
+                                    "id": "full_snapshot_period_label",
+                                    "labelProps": {
+                                        "text": "Full Snapshot cadence"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "full_snapshot_period",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "300 ms",
+                                                    "500 ms",
+                                                    "1 Hz",
+                                                    "2 seconds",
+                                                    "3 seconds",
+                                                    "5 seconds",
+                                                    "10 seconds"
+                                                ],
+                                                "selectedIndex": 2
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.full_snapshot.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "full_snapshot_status",
+                                    "labelProps": {
+                                        "text": "FULL SNAPSHOT | UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
                                     "id": "period_value",
                                     "labelProps": {
-                                        "text": "Sampling interval | unavailable"
+                                        "text": "Diagnostic stream | unavailable"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -2299,52 +2705,259 @@
                                 },
                                 {
                                     "type": "label",
-                                    "id": "chrome_timeout_value",
+                                    "id": "adaptive_chrome_title",
                                     "labelProps": {
-                                        "text": "ADAPTIVE INTERFACE | 10 s\nTOUCH OR MOVEMENT REVEALS CHROME"
+                                        "text": "ADAPTIVE CHROME"
                                     },
                                     "style": {
-                                        "textColor": "#f3f7fa",
-                                        "fontSize": "11sp",
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "15sp",
                                         "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "42dp"
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "adaptive_chrome_description",
+                                    "labelProps": {
+                                        "text": "Touch or movement restores both arcs"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "command_arc_timeout_label",
+                                    "labelProps": {
+                                        "text": "Hide Command Arc after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "command_arc_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.command_arc.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "status_arc_timeout_label",
+                                    "labelProps": {
+                                        "text": "Hide Status Arc after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "status_arc_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.status_arc.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "power_title",
+                                    "labelProps": {
+                                        "text": "POWER"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "15sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "power_description",
+                                    "labelProps": {
+                                        "text": "Two-stage AMOLED inactivity policy"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_dim_timeout_label",
+                                    "labelProps": {
+                                        "text": "Dim display to 50% after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display_dim_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "15 seconds",
+                                                    "30 seconds",
+                                                    "1 minute",
+                                                    "2 minutes",
+                                                    "Never"
+                                                ]
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display_dim.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_off_delay_label",
+                                    "labelProps": {
+                                        "text": "Turn display off after dimming"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display_off_delay",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "15 seconds",
+                                                    "30 seconds",
+                                                    "1 minute",
+                                                    "2 minutes",
+                                                    "5 minutes",
+                                                    "Never"
+                                                ]
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display_off.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "adaptive_saved_note",
+                                    "labelProps": {
+                                        "text": "Changes are saved automatically."
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "10sp",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
                                     }
                                 },
                                 {
                                     "type": "button",
-                                    "id": "chrome_timeout_next",
+                                    "id": "about_action",
                                     "commonProps": {
                                         "pressLock": false
                                     },
                                     "events": [
                                         {
                                             "type": "clicked",
-                                            "action": "qsee.settings.chrome.timeout.next"
+                                            "action": "qsee.open.about"
                                         }
                                     ],
                                     "style": {
-                                        "bgColor": "#3478c8",
-                                        "bgGradientColor": "#183e70",
+                                        "bgColor": "#247fd6",
+                                        "bgGradientColor": "#0a346b",
                                         "bgGradientDirection": "vertical",
-                                        "borderColor": "#69b9ff",
+                                        "borderColor": "#65c8ff",
                                         "borderWidth": "1dp",
-                                        "radius": "20dp",
+                                        "radius": "10dp",
                                         "padding": 0
                                     },
                                     "stateStyles": {
                                         "pressed": {
-                                            "bgColor": "#1b4f84",
-                                            "bgGradientColor": "#183e70",
-                                            "borderColor": "#8dceff",
+                                            "bgColor": "#1765ad",
+                                            "bgGradientColor": "#082955",
+                                            "borderColor": "#9cddff",
                                             "borderWidth": "1dp"
                                         }
                                     },
                                     "placement": {
-                                        "width": "40dp",
-                                        "height": "40dp"
+                                        "width": "180dp",
+                                        "height": "42dp"
                                     },
                                     "children": [
                                         {
@@ -2355,11 +2968,11 @@
                                                 "scrollable": false
                                             },
                                             "labelProps": {
-                                                "text": "\uf017"
+                                                "text": "ABOUT QSEE.AI"
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "20sp",
+                                                "fontSize": "12sp",
                                                 "textAlign": "center"
                                             },
                                             "placement": {
@@ -2508,6 +3121,7 @@
                 "qsee_hardware",
                 "qsee_audio",
                 "qsee_audio_fft",
+                "qsee_audio_detail",
                 "qsee_imu",
                 "qsee_settings",
                 "qsee_about",
@@ -2539,6 +3153,11 @@
                 "from": [],
                 "action": "qsee.open.audio_fft",
                 "to": "qsee_audio_fft"
+            },
+            {
+                "from": [],
+                "action": "qsee.open.audio_detail",
+                "to": "qsee_audio_detail"
             },
                 {
                     "from": [],

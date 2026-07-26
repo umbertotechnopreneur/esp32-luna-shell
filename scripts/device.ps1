@@ -2,7 +2,7 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "port-status", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "discovery", "port-status", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
@@ -39,6 +39,102 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
+
+# Serial discovery does not need ESP-IDF. Run it before initializing the
+# toolchain so a missing device is not obscured by unrelated environment output.
+function Show-SerialDiscovery {
+    try {
+        $presentPorts = @(
+            Get-PnpDevice -PresentOnly -Class Ports -ErrorAction Stop |
+                Where-Object {
+                    $_.FriendlyName -match '\(COM\d+\)' -and
+                    ($_.InstanceId -match '^(USB|FTDIBUS)\\')
+                }
+        )
+        $usbEnumerationErrors = @(
+            Get-PnpDevice -PresentOnly -Class USB -ErrorAction Stop |
+                Where-Object { $_.Status -ne "OK" }
+        )
+    } catch {
+        throw "Unable to discover present USB serial devices: $($_.Exception.Message)"
+    }
+
+    $candidates = @(
+        foreach ($device in $presentPorts) {
+            if ($device.FriendlyName -notmatch '\((COM\d+)\)') {
+                continue
+            }
+
+            $port = $Matches[1].ToUpperInvariant()
+            $serial = [System.IO.Ports.SerialPort]::new($port, 115200)
+            $openError = $null
+            $isOpenable = $false
+            try {
+                $serial.Open()
+                $isOpenable = $true
+            } catch {
+                $openError = $_.Exception.Message
+            } finally {
+                try {
+                    if ($serial.IsOpen) {
+                        $serial.Close()
+                    }
+                } finally {
+                    $serial.Dispose()
+                }
+            }
+
+            $isEspressif = $device.InstanceId -match '(?i)VID_303A'
+            [PSCustomObject]@{
+                Port = $port
+                Availability = if ($isOpenable) { "Openable" } else { "Busy" }
+                IsEspressif = $isEspressif
+                Reason = if ($isEspressif) {
+                    "Espressif USB VID_303A"
+                } else {
+                    "Present USB serial device"
+                }
+                FriendlyName = $device.FriendlyName
+                InstanceId = $device.InstanceId
+                ProbeError = $openError
+            }
+        }
+    )
+
+    if ($candidates.Count -eq 0) {
+        Write-Host "No present USB serial candidates found."
+        if ($usbEnumerationErrors.Count -gt 0) {
+            Write-Host "USB enumeration errors (no COM port assigned):"
+            $usbEnumerationErrors |
+                Format-Table Status, FriendlyName, InstanceId -AutoSize
+        }
+        return
+    }
+
+    Write-Host "Present USB serial candidates:"
+    $candidates |
+        Sort-Object @{ Expression = "IsEspressif"; Descending = $true }, Port |
+        Format-Table Port, Availability, IsEspressif, Reason, FriendlyName -AutoSize
+
+    foreach ($candidate in @($candidates | Where-Object { $_.Availability -ne "Openable" })) {
+        Write-Host "$($candidate.Port) probe: $($candidate.ProbeError)"
+    }
+    Write-Host "Hardware identifiers:"
+    $candidates |
+        Sort-Object Port |
+        Format-Table Port, InstanceId -AutoSize
+
+    if ($usbEnumerationErrors.Count -gt 0) {
+        Write-Host "Other USB enumeration errors (no COM port assigned):"
+        $usbEnumerationErrors |
+            Format-Table Status, FriendlyName, InstanceId -AutoSize
+    }
+}
+
+if ($Action -eq "discovery") {
+    Show-SerialDiscovery
+    return
+}
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
@@ -177,6 +273,7 @@ Write-Host "Toolchain: $ToolchainVersion ($($ToolchainCommand.Source))"
 
 $MonitorScript = Join-Path $PSScriptRoot "device.ps1"
 $CaptureScript = Join-Path $PSScriptRoot "capture-serial.ps1"
+$PortReleaseGraceMilliseconds = 2000
 
 function Get-SerialPorts {
     $openablePorts = @([System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpperInvariant() })
@@ -232,35 +329,149 @@ function Normalize-PortName([string]$RequestedPort) {
     return $normalizedPort
 }
 
-# List only likely command-line owners; the exclusive open probe remains authoritative.
-function Get-SerialPortProcessCandidates([string]$RequestedPort) {
+# Protect this script and its caller chain from any automatic port cleanup.
+function Get-ProtectedProcessIds([object[]]$AllProcesses) {
+    $protectedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
+    $ancestorId = $PID
+    while ($ancestorId -gt 0 -and $protectedProcessIds.Add([int]$ancestorId)) {
+        $ancestor = $AllProcesses |
+            Where-Object { $_.ProcessId -eq $ancestorId } |
+            Select-Object -First 1
+        if ($null -eq $ancestor -or $ancestor.ParentProcessId -eq $ancestorId) {
+            break
+        }
+        $ancestorId = [int]$ancestor.ParentProcessId
+    }
+
+    return ,$protectedProcessIds
+}
+
+# List likely command-line owners; the exclusive open probe remains authoritative.
+function Get-SerialPortProcessCandidates(
+    [string]$RequestedPort,
+    [object[]]$AllProcesses = $null,
+    [System.Collections.Generic.HashSet[int]]$ProtectedProcessIds = $null
+) {
     $normalizedPort = Normalize-PortName $RequestedPort
     $portPattern = [regex]::new("(?i)(?<![A-Z0-9])$([regex]::Escape($normalizedPort))(?![0-9])")
+    $knownSerialToolPattern = [regex]::new(
+        "(?i)(device\.ps1|capture-serial\.ps1|idf\.py|idf_monitor|esp_idf_monitor|esptool|pyserial|putty|plink|teraterm|ttermpro|arduino|platformio|serial)"
+    )
 
-    try {
-        $processes = @(Get-CimInstance Win32_Process -ErrorAction Stop)
-    } catch {
-        Write-Warning "Unable to inspect process command lines while checking ${normalizedPort}: $($_.Exception.Message)"
-        return @()
+    if ($null -eq $AllProcesses) {
+        try {
+            $AllProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+        } catch {
+            Write-Warning "Unable to inspect process command lines while checking ${normalizedPort}: $($_.Exception.Message)"
+            return @()
+        }
+    }
+    if ($null -eq $ProtectedProcessIds) {
+        $ProtectedProcessIds = Get-ProtectedProcessIds $AllProcesses
     }
 
     return @(
-        $processes |
+        $AllProcesses |
             Where-Object {
-                $_.ProcessId -ne $PID -and
+                -not $ProtectedProcessIds.Contains([int]$_.ProcessId) -and
                 $_.CommandLine -and
                 $portPattern.IsMatch($_.CommandLine)
             } |
             Sort-Object ProcessId |
             ForEach-Object {
+                $detection = if ($knownSerialToolPattern.IsMatch($_.CommandLine)) {
+                    "COM name in serial-tool command line"
+                } else {
+                    "COM name in process command line"
+                }
                 [PSCustomObject]@{
                     ProcessId = $_.ProcessId
+                    ParentProcessId = $_.ParentProcessId
                     Name = $_.Name
                     CommandLine = $_.CommandLine
-                    Detection = "COM name in process command line (advisory)"
+                    Detection = $detection
                 }
             }
     )
+}
+
+function Format-SerialPortProcessCandidates([object[]]$Candidates) {
+    if ($Candidates.Count -eq 0) {
+        return "no command-line process candidates found"
+    }
+
+    return ($Candidates | ForEach-Object {
+        "$($_.ProcessId) $($_.Name) [$($_.Detection)]"
+    }) -join "; "
+}
+
+function Get-ProcessTreeIds(
+    [int[]]$RootProcessIds,
+    [object[]]$AllProcesses,
+    [System.Collections.Generic.HashSet[int]]$ProtectedProcessIds
+) {
+    $treeIds = [System.Collections.Generic.HashSet[int]]::new()
+    $queue = [System.Collections.Generic.Queue[int]]::new()
+
+    foreach ($rootProcessId in $RootProcessIds) {
+        if (-not $ProtectedProcessIds.Contains([int]$rootProcessId) -and $treeIds.Add([int]$rootProcessId)) {
+            $queue.Enqueue([int]$rootProcessId)
+        }
+    }
+
+    while ($queue.Count -gt 0) {
+        $parentProcessId = $queue.Dequeue()
+        foreach ($child in @($AllProcesses | Where-Object { $_.ParentProcessId -eq $parentProcessId })) {
+            $childProcessId = [int]$child.ProcessId
+            if ($ProtectedProcessIds.Contains($childProcessId)) {
+                continue
+            }
+            if ($treeIds.Add($childProcessId)) {
+                $queue.Enqueue($childProcessId)
+            }
+        }
+    }
+
+    return @($treeIds)
+}
+
+function Stop-ProcessTreeById(
+    [int[]]$RootProcessIds,
+    [object[]]$AllProcesses,
+    [System.Collections.Generic.HashSet[int]]$ProtectedProcessIds,
+    [string]$Reason
+) {
+    $treeIds = @(Get-ProcessTreeIds $RootProcessIds $AllProcesses $ProtectedProcessIds)
+    $treeProcesses = @(
+        foreach ($treeId in $treeIds) {
+            $AllProcesses | Where-Object { $_.ProcessId -eq $treeId } | Select-Object -First 1
+        }
+    ) | Where-Object { $null -ne $_ } | Sort-Object ProcessId -Descending
+
+    foreach ($process in $treeProcesses) {
+        $processId = [int]$process.ProcessId
+        try {
+            Stop-Process -Id $processId -Force -ErrorAction Stop
+            Write-Host "Stopped process $processId ($($process.Name)): $Reason."
+        } catch {
+            if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+                throw "Could not stop process $processId ($($process.Name)) while clearing the serial port: $($_.Exception.Message)"
+            }
+        }
+    }
+
+    foreach ($process in $treeProcesses) {
+        $processId = [int]$process.ProcessId
+        if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+            try {
+                Wait-Process -Id $processId -Timeout 2 -ErrorAction Stop
+            } catch {
+                if (Get-Process -Id $processId -ErrorAction SilentlyContinue) {
+                    throw "Process $processId ($($process.Name)) did not exit after being stopped."
+                }
+            }
+        }
+    }
 }
 
 # Probe the Windows handle exclusively and always release it before returning.
@@ -356,15 +567,7 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
     )
 
     $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue)
-    $protectedProcessIds = [System.Collections.Generic.HashSet[int]]::new()
-    $ancestorId = $PID
-    while ($ancestorId -gt 0 -and $protectedProcessIds.Add($ancestorId)) {
-        $ancestor = $allProcesses | Where-Object { $_.ProcessId -eq $ancestorId } | Select-Object -First 1
-        if ($null -eq $ancestor -or $ancestor.ParentProcessId -eq $ancestorId) {
-            break
-        }
-        $ancestorId = [int]$ancestor.ParentProcessId
-    }
+    $protectedProcessIds = Get-ProtectedProcessIds $allProcesses
 
     $toStop = $allProcesses |
         Where-Object {
@@ -375,39 +578,88 @@ function Stop-StaleMonitorProcesses([string]$RequestedPort) {
         } |
         Sort-Object ProcessId -Descending
 
-    foreach ($process in $toStop) {
-        try {
-            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
-            Write-Host "Stopped stale monitor process $($process.ProcessId) ($($process.Name))."
-        } catch {
-            Write-Warning "Could not stop stale monitor process $($process.ProcessId): $($_.Exception.Message)"
-        }
+    if (@($toStop).Count -eq 0) {
+        return
     }
+
+    Stop-ProcessTreeById `
+        -RootProcessIds @($toStop | ForEach-Object { [int]$_.ProcessId }) `
+        -AllProcesses $allProcesses `
+        -ProtectedProcessIds $protectedProcessIds `
+        -Reason "stale serial monitor for $normalizedRequestedPort"
 }
 
-# Wait for an exclusive handle and clean only monitor processes known to be stale.
+function Stop-SerialPortOwnerProcesses([string]$RequestedPort) {
+    $normalizedRequestedPort = Normalize-PortName $RequestedPort
+    try {
+        $allProcesses = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    } catch {
+        throw "Serial port $normalizedRequestedPort is busy, and process inspection failed: $($_.Exception.Message)"
+    }
+
+    $protectedProcessIds = Get-ProtectedProcessIds $allProcesses
+    $candidates = @(Get-SerialPortProcessCandidates `
+        -RequestedPort $normalizedRequestedPort `
+        -AllProcesses $allProcesses `
+        -ProtectedProcessIds $protectedProcessIds)
+
+    if ($candidates.Count -eq 0) {
+        return @()
+    }
+
+    Write-Host "Serial port $normalizedRequestedPort is busy; stopping owner candidates: $(Format-SerialPortProcessCandidates $candidates)"
+    Stop-ProcessTreeById `
+        -RootProcessIds @($candidates | ForEach-Object { [int]$_.ProcessId }) `
+        -AllProcesses $allProcesses `
+        -ProtectedProcessIds $protectedProcessIds `
+        -Reason "serial port $normalizedRequestedPort owner candidate"
+
+    return $candidates
+}
+
+# Wait for an exclusive handle. Busy ports are cleared decisively instead of
+# burning the full timeout on a known owner.
 function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     $RequestedPort = Normalize-PortName $RequestedPort
-    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $lastError = $null
+    $probe = Test-ExclusiveSerialPort $RequestedPort
+    if ($probe.IsAvailable) {
+        Start-Sleep -Milliseconds 250
+        Write-Host "Serial port $RequestedPort is released and ready."
+        return
+    }
+    if ($probe.IsMissing) {
+        throw "Serial port $RequestedPort is not present. Reconnect the device before retrying."
+    }
+
+    $initialError = $probe.Error
+    $stoppedCandidates = @(Stop-SerialPortOwnerProcesses $RequestedPort)
+    $releaseGraceMilliseconds = [Math]::Max(
+        200,
+        [Math]::Min($PortReleaseGraceMilliseconds, [Math]::Max(0, $TimeoutSeconds) * 1000)
+    )
+    $deadline = (Get-Date).AddMilliseconds($releaseGraceMilliseconds)
 
     while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 200
         $probe = Test-ExclusiveSerialPort $RequestedPort
         if ($probe.IsAvailable) {
-            Start-Sleep -Milliseconds 500
-            Write-Host "Serial port $RequestedPort is released and ready."
+            Write-Host "Serial port $RequestedPort released after owner cleanup."
             return
         }
         if ($probe.IsMissing) {
-            throw "Serial port $RequestedPort is not present. Reconnect the device before retrying."
+            throw "Serial port $RequestedPort disappeared while waiting for release."
         }
-
-        $lastError = $probe.Error
-        Stop-StaleMonitorProcesses $RequestedPort
-        Start-Sleep -Milliseconds 500
     }
 
-    throw "Serial port $RequestedPort stayed busy for $TimeoutSeconds seconds. Last error: $lastError"
+    $remainingCandidates = @(Get-SerialPortProcessCandidates $RequestedPort)
+    $candidateSummary = if ($stoppedCandidates.Count -gt 0) {
+        "Stopped candidates: $(Format-SerialPortProcessCandidates $stoppedCandidates)."
+    } else {
+        "No process command line named $RequestedPort."
+    }
+    $remainingSummary = "Current candidates: $(Format-SerialPortProcessCandidates $remainingCandidates)."
+    $lastError = if ($probe.Error) { $probe.Error } else { $initialError }
+    throw "Serial port $RequestedPort stayed busy after direct cleanup. $candidateSummary $remainingSummary Last probe error: $lastError"
 }
 
 # Reset the target through esptool without changing any flash contents.
@@ -567,6 +819,9 @@ try {
         }
         "ports" {
             Show-SerialPorts
+        }
+        "discovery" {
+            Show-SerialDiscovery
         }
         "port-status" {
             Show-PortStatus $Port

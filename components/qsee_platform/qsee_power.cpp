@@ -153,6 +153,19 @@ esp_err_t configure_wakeup(uint64_t wake_after_us)
     return result;
 }
 
+esp_err_t allow_disabled_display(const char *operation, esp_err_t result)
+{
+    if (result == ESP_ERR_NOT_SUPPORTED) {
+        ESP_LOGI(
+            TAG,
+            "Display power transition '%s' skipped: display stack disabled by build profile",
+            operation
+        );
+        return ESP_OK;
+    }
+    return result;
+}
+
 }  // namespace
 
 extern "C" esp_err_t qsee_power_inputs_init(void)
@@ -254,7 +267,10 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     if (result != ESP_OK) {
         return result;
     }
-    result = qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF);
+    result = allow_disabled_display(
+        "light-sleep-off",
+        qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF)
+    );
     if (result != ESP_OK) {
         return result;
     }
@@ -263,8 +279,9 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
     const esp_err_t sleep_result = esp_light_sleep_start();
     s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
     publish_inputs();
-    const esp_err_t resume_error = qsee_display_set_power_mode(
-        QSEE_DISPLAY_POWER_ACTIVE
+    const esp_err_t resume_error = allow_disabled_display(
+        "light-sleep-resume",
+        qsee_display_set_power_mode(QSEE_DISPLAY_POWER_ACTIVE)
     );
     ESP_LOGI(TAG, "Light sleep exited: result=%s causes=0x%08lx",
              esp_err_to_name(sleep_result),
@@ -289,7 +306,10 @@ extern "C" esp_err_t qsee_power_enter_deep_sleep(uint64_t wake_after_us)
     if (result != ESP_OK) {
         return result;
     }
-    result = qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF);
+    result = allow_disabled_display(
+        "deep-sleep-off",
+        qsee_display_set_power_mode(QSEE_DISPLAY_POWER_OFF)
+    );
     if (result != ESP_OK) {
         return result;
     }

@@ -4,21 +4,23 @@
  * Copyright (c) 2026
  */
 
+#include <exception>
 #include <memory>
+#include <new>
 #include <string_view>
 #include <utility>
 
 #include "brookesia/gui_lvgl.hpp"
 #include "brookesia/lib_utils.hpp"
-#include "brookesia/system_super.hpp"
+#include "brookesia/system_core.hpp"
 #include "bsp/esp-bsp.h"
 #include "boost/thread.hpp"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "qsee_app.hpp"
-#include "qsee_boot.h"
+#include "../components/qsee_app/include/qsee_app.hpp"
+#include "../components/qsee_boot/include/qsee_boot.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
@@ -27,7 +29,7 @@ namespace {
 
 constexpr char kTag[] = "qsee_main";
 
-std::unique_ptr<esp_brookesia::system::super::System> s_system;
+std::unique_ptr<esp_brookesia::system::core::System> s_system;
 
 void report_optional_startup_failure(
     std::string_view stage,
@@ -49,8 +51,9 @@ void report_optional_startup_failure(
 
 bool start_brookesia()
 {
-    // Leave a fully repainted black frame immediately before System Super
-    // replaces the boot screen with its own shell and application surfaces.
+#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
+    // Leave a fully repainted black frame immediately before System Core
+    // replaces the boot screen with the single QSee application surface.
     const esp_err_t hide_result = qsee_boot_ui_hide();
     if (hide_result != ESP_OK) {
         ESP_LOGE(
@@ -60,59 +63,83 @@ bool start_brookesia()
         );
         return false;
     }
+#endif
 
-    s_system = std::make_unique<esp_brookesia::system::super::System>();
+    try {
+        s_system = std::make_unique<esp_brookesia::system::core::System>();
 
-    esp_brookesia::system::super::System::Config config;
-    config.core_config.gui_backend =
-        std::make_unique<esp_brookesia::gui::lvgl::Backend>();
-    config.core_config.environment.width_px = 466;
-    config.core_config.environment.height_px = 466;
-    config.core_config.environment.density = 1.0F;
-    config.core_config.environment.font_scale = 1.0F;
-    config.core_config.environment.language = "en";
-    config.core_config.install_registered_apps = true;
-    config.core_config.install_package_apps = false;
-    config.core_config.storage.default_install_target =
-        esp_brookesia::system::core::StorageInstallTarget::Internal;
+        esp_brookesia::system::core::System::Config config;
+        config.gui_backend =
+            std::make_unique<esp_brookesia::gui::lvgl::Backend>();
+        config.environment.width_px = 466;
+        config.environment.height_px = 466;
+        config.environment.density = 1.0F;
+        config.environment.font_scale = 1.0F;
+        config.environment.language = "en";
+        config.startup_overlay.enabled = false;
+        config.app_launch_transition.enabled = false;
+        config.install_registered_apps = true;
+        config.install_package_apps = false;
+        config.storage.default_install_target =
+            esp_brookesia::system::core::StorageInstallTarget::Internal;
 
-    auto init_result = s_system->init(std::move(config));
-    if (!init_result) {
-        ESP_LOGE(kTag, "Brookesia System Super init failed: %s", init_result.error().c_str());
-        s_system.reset();
-        return false;
-    }
-
-    auto start_result = s_system->start();
-    if (!start_result) {
-        ESP_LOGE(kTag, "Brookesia System Super start failed: %s", start_result.error().c_str());
-        s_system->deinit();
-        s_system.reset();
-        return false;
-    }
-
-    for (const auto &app : s_system->list_apps()) {
-        if (app.manifest.id != qsee::kAppManifestId) {
-            continue;
+        auto init_result = s_system->init(std::move(config));
+        if (!init_result) {
+            ESP_LOGE(kTag, "Brookesia System Core init failed: %s", init_result.error().c_str());
+            s_system.reset();
+            return false;
         }
-        auto app_start_result = s_system->start_app(app.app_id);
-        if (!app_start_result) {
-            ESP_LOGE(kTag, "Application start failed: %s", app_start_result.error().c_str());
+
+        auto start_result = s_system->start();
+        if (!start_result) {
+            ESP_LOGE(kTag, "Brookesia System Core start failed: %s", start_result.error().c_str());
             s_system->deinit();
             s_system.reset();
             return false;
         }
-        ESP_LOGI(
+
+        for (const auto &app : s_system->list_apps()) {
+            if (app.manifest.id != qsee::kAppManifestId) {
+                continue;
+            }
+            auto app_start_result = s_system->start_app(app.app_id);
+            if (!app_start_result) {
+                ESP_LOGE(kTag, "Application start failed: %s", app_start_result.error().c_str());
+                s_system->deinit();
+                s_system.reset();
+                return false;
+            }
+            ESP_LOGI(
+                kTag,
+                "Brookesia System Core single-app runtime ready; application id=%lu",
+                static_cast<unsigned long>(app.app_id)
+            );
+            return true;
+        }
+
+        ESP_LOGE(kTag, "Application provider was not installed by Brookesia System Core");
+        s_system->deinit();
+        s_system.reset();
+        return false;
+    } catch (const std::bad_alloc &) {
+        ESP_LOGE(
             kTag,
-            "Brookesia System Super ready; application id=%lu",
-            static_cast<unsigned long>(app.app_id)
+            "Brookesia launch aborted: memory allocation failed"
         );
-        return true;
+    } catch (const std::exception &error) {
+        ESP_LOGE(
+            kTag,
+            "Brookesia launch aborted by exception: %s",
+            error.what()
+        );
+    } catch (...) {
+        ESP_LOGE(kTag, "Brookesia launch aborted by an unknown exception");
     }
 
-    ESP_LOGE(kTag, "Application provider was not installed by Brookesia System Core");
-    s_system->deinit();
-    s_system.reset();
+    if (s_system != nullptr) {
+        s_system->deinit();
+        s_system.reset();
+    }
     return false;
 }
 
@@ -176,6 +203,7 @@ extern "C" void app_main(void)
     }
     qsee::DeviceSnapshotService::instance().reportDisplay(true, ESP_OK);
 
+#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
     const esp_err_t boot_ui_result = qsee_boot_ui_show();
     if (boot_ui_result != ESP_OK) {
         ESP_LOGE(
@@ -185,6 +213,7 @@ extern "C" void app_main(void)
         );
         return;
     }
+#endif
 
     lv_indev_t *touch = bsp_display_get_input_dev();
     qsee::DeviceSnapshotService::instance().reportTouch(
@@ -208,7 +237,9 @@ extern "C" void app_main(void)
 
     report_optional_startup_failure("time", qsee_time_init("UTC0"));
     report_optional_startup_failure("power inputs", qsee_power_inputs_init());
+#if CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO
     report_optional_startup_failure("boot audio", qsee_boot_audio_play());
+#endif
     report_optional_startup_failure("removable storage", qsee_storage_init());
     // Wi-Fi and BLE reserve a large part of internal SRAM on this S3. The
     // Settings action starts them explicitly after the UI is already usable.
@@ -218,6 +249,7 @@ extern "C" void app_main(void)
         qsee_hardware_refresh("pre-ui")
     );
 
+#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
     const esp_err_t ready_result = qsee_boot_ui_mark_ready();
     if (ready_result != ESP_OK) {
         ESP_LOGE(
@@ -227,11 +259,15 @@ extern "C" void app_main(void)
         );
         return;
     }
+#endif
 
-    // Match the upstream System Super setup: reserve its deep C++ stack in PSRAM.
+    // Keep the temporary bootstrap stack internal for the flash-backed runtime
+    // initialization. The large declarative GUI worker stays in PSRAM; QSee
+    // settings and Brookesia Storage own separate internal-stack executors.
     {
         BROOKESIA_THREAD_CONFIG_GUARD({
-            .stack_size = 40 * 1024,
+            .stack_size = 24 * 1024,
+            .stack_in_ext = false,
         });
         boost::thread(brookesia_task).detach();
     }

@@ -42,9 +42,10 @@ the in-memory credential and never starts or stops the server as a side effect.
 The key is never written to logs.
 
 All data routes serialize one coherent point-in-time copy returned by
-`DeviceSnapshotService::snapshot()`. A bounded task refreshes the hardware
-snapshot every five seconds while the HTTP server is online; request handlers
-never access peripheral drivers directly. JSON data responses use a versioned
+`DeviceSnapshotService::snapshot()`. The HTTP service never owns an acquisition
+task: it consumes the same Full Snapshot generations as the UI and reports the
+active user cadence through `/api/v1/capabilities`. Request handlers never
+access peripheral drivers directly. JSON data responses use a versioned
 envelope with `sequence`, `last_update_attempt_at_us`,
 `last_update_complete` and `age_ms`. The timestamp is explicitly the last
 refresh attempt, so an incomplete refresh cannot be presented as a successful

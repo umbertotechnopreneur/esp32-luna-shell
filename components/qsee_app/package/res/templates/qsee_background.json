@@ -22,6 +22,31 @@
             "y": 0,
             "width": "466dp",
             "height": "466dp"
-        }
+        },
+        "children": [
+            {
+                "type": "image",
+                "id": "asset",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false,
+                    "hidden": true
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden",
+                    "imageProps.src": "src"
+                },
+                "imageProps": {
+                    "src": ""
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "466dp",
+                    "height": "466dp"
+                }
+            }
+        ]
     }
 }

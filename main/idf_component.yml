@@ -8,8 +8,11 @@ dependencies:
   espressif/brookesia_gui_lvgl:
     version: "0.8.1"
     override_path: ../third_party/esp-brookesia/gui/brookesia_gui_lvgl
-  espressif/brookesia_system_super:
+  espressif/brookesia_system_core:
     version: "0.8.1"
-    override_path: ../third_party/esp-brookesia/system/brookesia_system_super
+    override_path: ../third_party/esp-brookesia/system/brookesia_system_core
+  espressif/brookesia_lib_utils:
+    version: "0.8.1"
+    override_path: ../third_party/esp-brookesia/utils/brookesia_lib_utils
   joltwallet/littlefs:
     version: "1.20.4"

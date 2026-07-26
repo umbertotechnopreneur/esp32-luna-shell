@@ -17,12 +17,17 @@ fusion.
   BLE. Each report is a separate committed generation. Failure to publish a
   generation is a fatal synchronization invariant, never a log-only event.
 
-The full-device refresh is explicit; there is no always-on full sensor loop.
-When the diagnostic monitor is enabled, it periodically samples only the IMU
-and microphone at the persisted diagnostic cadence. Native Wi-Fi/BLE events
-and mounted-SD status polling may publish their own generations independently.
-This keeps periodic work visible and bounded while preserving an explicit
-full-refresh boundary for future sensor fusion.
+The full-device refresh has one explicit serialized entry point. A dedicated
+platform worker invokes that entry point at the persisted user cadence: 300 ms,
+500 ms, 1 Hz, 2 s, 3 s, 5 s, or 10 s. The worker never overlaps two full
+refreshes and publishes the real acquisition result.
+
+The Full Snapshot worker is independent from the Diagnostic Stream. When the
+diagnostic monitor is enabled, it samples only the IMU and microphone at its
+own persisted cadence for live pages. Native Wi-Fi/BLE events and mounted-SD
+status polling may publish their own generations independently. The 1 Hz UI
+refresh only binds the latest immutable snapshot and never initiates hardware
+sampling.
 
 ## Snapshot content
 
@@ -34,6 +39,7 @@ full-refresh boundary for future sensor fusion.
 | Sensor fusion | gravity-dominant motion state, stationary gate, acceleration magnitude, and angular speed; no unvalidated pitch/roll/yaw |
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
+| Diagnostics | Full Snapshot cadence/worker state, Diagnostic Stream cadence/state, and IMU smoothing |
 | UI/storage/radios | display, touch, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
 | Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |

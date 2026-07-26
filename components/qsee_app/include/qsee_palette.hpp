@@ -107,13 +107,13 @@ constexpr const ActionColors &action_colors(ActionRole role)
 
 inline constexpr std::string_view kButtonText = "#ffffff";
 
-inline constexpr std::string_view kStatusRibbon = "#010609";
-inline constexpr std::string_view kStatusRibbonEdge = "#0a8fc7";
-inline constexpr std::string_view kStatusRibbonGlow = "#075f7d";
-inline constexpr std::string_view kStatusReady = "#00e7c5";
-inline constexpr std::string_view kStatusWarning = "#ffb547";
-inline constexpr std::string_view kStatusMissing = "#ff5a6a";
-inline constexpr std::string_view kStatusFault = "#ff365e";
+inline constexpr std::string_view kStatusRibbon = "#02070b";
+inline constexpr std::string_view kStatusRibbonEdge = "#245363";
+inline constexpr std::string_view kStatusRibbonGlow = "#063f52";
+inline constexpr std::string_view kStatusReady = "#20dfc1";
+inline constexpr std::string_view kStatusWarning = "#f0b44d";
+inline constexpr std::string_view kStatusMissing = "#eb4d5c";
+inline constexpr std::string_view kStatusFault = "#ff3859";
 inline constexpr std::string_view kStatusMuted = "#617f91";
 inline constexpr std::string_view kStatusCharge = "#f4ffff";
 

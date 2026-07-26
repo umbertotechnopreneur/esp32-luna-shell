@@ -26,8 +26,6 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_http_json.hpp"
 #include "qsee_platform.h"
@@ -40,11 +38,9 @@ constexpr const char *kApiKeySetting = "ApiKey";
 constexpr const char *kEnabledSetting = "http_enabled";
 constexpr std::size_t kAuthorizationPrefixLength = 7U;
 
-constexpr uint32_t kSnapshotRefreshIntervalMs = 5000U;
 constexpr uint64_t kAuthFailureWindowUs = 60ULL * 1000000ULL;
 constexpr uint32_t kAuthFailureLimit = 20U;
 constexpr std::size_t kAuthHeaderCapacity = 96U;
-constexpr std::size_t kSnapshotTaskStackWords = 3072U;
 
 constexpr const char *kHealthPath = "/api/v1/health";
 constexpr const char *kCapabilitiesPath = "/api/v1/capabilities";
@@ -77,11 +73,6 @@ HttpMetricsState s_metrics{};
 
 esp_event_handler_instance_t s_ip_event_instance = nullptr;
 esp_event_handler_instance_t s_wifi_event_instance = nullptr;
-
-StaticTask_t s_snapshot_task_control{};
-StackType_t s_snapshot_task_stack[kSnapshotTaskStackWords] = {};
-TaskHandle_t s_snapshot_task = nullptr;
-bool s_snapshot_task_started = false;
 
 void resetAuthWindowIfExpired(uint64_t now_us)
 {
@@ -308,38 +299,6 @@ esp_err_t sendError(
     return httpd_resp_send(request, body, length);
 }
 
-// Refresh API data periodically even when no client is polling.
-void snapshotRefreshTask(void *)
-{
-    for (;;) {
-        if (s_server_running.load()) {
-            (void)qsee_hardware_refresh("http-api");
-        }
-        vTaskDelay(pdMS_TO_TICKS(kSnapshotRefreshIntervalMs));
-    }
-}
-
-bool startSnapshotRefreshTask()
-{
-    if (s_snapshot_task_started) {
-        return true;
-    }
-    s_snapshot_task = xTaskCreateStatic(
-        snapshotRefreshTask,
-        "qsee_http_refresh",
-        kSnapshotTaskStackWords,
-        nullptr,
-        3,
-        s_snapshot_task_stack,
-        &s_snapshot_task_control
-    );
-    s_snapshot_task_started = s_snapshot_task != nullptr;
-    if (!s_snapshot_task_started) {
-        ESP_LOGW(kTag, "Snapshot refresh task could not be created");
-    }
-    return s_snapshot_task_started;
-}
-
 // Record lifecycle failures without inventing an HTTP component snapshot.
 void reportLifecycle(esp_err_t error = ESP_OK)
 {
@@ -374,7 +333,15 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     if (is_health) {
         qsee::httpJsonWriteHealth(response, snapshot, s_server_running.load());
     } else if (std::strcmp(route, kCapabilitiesPath) == 0) {
-        qsee::httpJsonWriteCapabilities(response, kSnapshotRefreshIntervalMs);
+        const uint32_t refresh_interval_ms =
+            snapshot.diagnostics.full_snapshot_period.health ==
+                    qsee::DeviceHealth::Ready &&
+                snapshot.diagnostics.full_snapshot_period.last_error ==
+                    ESP_OK &&
+                snapshot.diagnostics.full_snapshot_period.data_valid
+                ? snapshot.diagnostics.full_snapshot_period_ms
+                : 0U;
+        qsee::httpJsonWriteCapabilities(response, refresh_interval_ms);
     } else if (std::strcmp(route, kInfoPath) == 0) {
         qsee::httpJsonWriteInfo(response, snapshot, false);
     } else if (std::strcmp(route, kDiagnosticsPath) == 0) {
@@ -396,7 +363,7 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     return ESP_OK;
 }
 
-// Start the read-only routes once a refresh task is available.
+// Start read-only routes; the canonical Full Snapshot worker owns acquisition.
 esp_err_t startServer()
 {
     std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
@@ -407,12 +374,6 @@ esp_err_t startServer()
     if (s_server != nullptr) {
         return ESP_OK;
     }
-    if (!startSnapshotRefreshTask()) {
-        recordServerStartFailure();
-        reportLifecycle(ESP_ERR_NO_MEM);
-        return ESP_ERR_NO_MEM;
-    }
-
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = qsee::kHttpServerPort;
     config.max_open_sockets = 4;

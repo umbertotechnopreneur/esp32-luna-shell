@@ -35,13 +35,29 @@ typedef struct {
  */
 esp_err_t qsee_hardware_init(void);
 
-/**
- * Refresh the canonical hardware snapshot once. No background polling occurs.
- */
+/** Refresh the canonical hardware snapshot once. */
 esp_err_t qsee_hardware_refresh(const char *reason);
+
+/**
+ * Start or stop the periodic Full Snapshot worker.
+ *
+ * The worker serializes complete hardware refreshes and publishes every result
+ * through DeviceSnapshotService. It is independent from diagnostic sampling.
+ */
+esp_err_t qsee_hardware_start_full_snapshot_monitor(void);
+esp_err_t qsee_hardware_stop_full_snapshot_monitor(void);
+/** Persist one supported Full Snapshot cadence: 300-10000 ms presets only. */
+esp_err_t qsee_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
 
 /** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
 esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/**
+ * Enable or disable lightweight IMU publication for adaptive UI wake.
+ *
+ * The monitor publishes only measured IMU samples through DeviceSnapshotService;
+ * it does not poll microphones or expose a second sensor-data path to the UI.
+ */
+esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */
@@ -230,6 +246,21 @@ size_t qsee_wifi_get_networks(qsee_wifi_network_t *networks, size_t capacity);
 void qsee_wifi_get_status(qsee_wifi_status_t *status);
 
 /** Start/stop secure stock ESP-IDF BLE Wi-Fi provisioning. */
+typedef enum {
+    QSEE_PROVISIONING_STATE_IDLE = 0,
+    QSEE_PROVISIONING_STATE_STARTING,
+    QSEE_PROVISIONING_STATE_WAITING_FOR_APP,
+    QSEE_PROVISIONING_STATE_CREDENTIALS_RECEIVED,
+    QSEE_PROVISIONING_STATE_CONNECTING,
+    QSEE_PROVISIONING_STATE_SUCCESS,
+    QSEE_PROVISIONING_STATE_FAILED,
+    QSEE_PROVISIONING_STATE_STOPPING,
+    QSEE_PROVISIONING_STATE_DEINITIALIZING,
+    QSEE_PROVISIONING_STATE_STOPPED,
+    QSEE_PROVISIONING_STATE_POISONED,
+    QSEE_PROVISIONING_STATE_UNAVAILABLE,
+} qsee_provisioning_state_t;
+
 esp_err_t qsee_provisioning_init(void);
 esp_err_t qsee_provisioning_start(void);
 esp_err_t qsee_provisioning_stop(void);
@@ -238,7 +269,10 @@ esp_err_t qsee_provisioning_deinit_for_ble(void);
 /** True while the provisioning manager owns, or is changing, BLE lifecycle. */
 bool qsee_provisioning_initialized(void);
 bool qsee_provisioning_active(void);
+qsee_provisioning_state_t qsee_provisioning_state(void);
+esp_err_t qsee_provisioning_connection_summary(char *buffer, size_t buffer_size);
 const char *qsee_provisioning_service_name(void);
+const char *qsee_provisioning_qr_payload(void);
 const char *qsee_provisioning_pop(void);
 
 #ifdef __cplusplus

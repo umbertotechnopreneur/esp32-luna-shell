@@ -1,0 +1,166 @@
+menu "QSee build profiles"
+
+choice QSEE_BUILD_PROFILE
+    prompt "QSee firmware profile"
+    default QSEE_BUILD_PROFILE_FULL
+    help
+        Select whether to build the full Waveshare device experience or a
+        reduced runtime with selected hardware and radio blocks removed from
+        the firmware image.
+
+config QSEE_BUILD_PROFILE_FULL
+    bool "Full Waveshare device runtime"
+
+config QSEE_BUILD_PROFILE_HEADLESS
+    bool "Headless runtime"
+
+endchoice
+
+menu "QSee board hardware drivers"
+
+choice QSEE_BUILD_DISPLAY_DRIVER
+    prompt "Display and touch board driver"
+    default QSEE_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED
+    help
+        Select the physical display and touch implementation. The current
+        Waveshare BSP owns both paths as one board-level driver.
+
+config QSEE_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED
+    bool "Waveshare 1.75 inch AMOLED with CST9217 touch"
+
+config QSEE_BUILD_DISPLAY_DRIVER_NONE
+    bool "No display or touch hardware"
+
+endchoice
+
+choice QSEE_BUILD_AUDIO_DRIVER
+    prompt "Audio codec board driver"
+    default QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
+    help
+        Select the physical audio codec route. The current board exposes the
+        ES8311 speaker codec and ES7210 microphone ADC as one BSP-owned route.
+
+config QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
+    bool "Waveshare ES8311 speaker and ES7210 microphones"
+
+config QSEE_BUILD_AUDIO_DRIVER_NONE
+    bool "No audio codec hardware"
+
+endchoice
+
+choice QSEE_BUILD_PMU_DRIVER
+    prompt "PMU board driver"
+    default QSEE_BUILD_PMU_DRIVER_AXP2101
+
+config QSEE_BUILD_PMU_DRIVER_AXP2101
+    bool "AXP2101 PMU"
+
+config QSEE_BUILD_PMU_DRIVER_NONE
+    bool "No PMU hardware"
+
+endchoice
+
+choice QSEE_BUILD_RTC_DRIVER
+    prompt "RTC board driver"
+    default QSEE_BUILD_RTC_DRIVER_PCF85063
+
+config QSEE_BUILD_RTC_DRIVER_PCF85063
+    bool "PCF85063 RTC"
+
+config QSEE_BUILD_RTC_DRIVER_NONE
+    bool "No RTC hardware"
+
+endchoice
+
+choice QSEE_BUILD_IMU_DRIVER
+    prompt "IMU board driver"
+    default QSEE_BUILD_IMU_DRIVER_QMI8658
+    help
+        Choose one physical IMU driver. A selected driver reports its actual
+        initialization error when the expected hardware is missing; it never
+        probes unrelated chips as a fallback.
+
+config QSEE_BUILD_IMU_DRIVER_QMI8658
+    bool "QMI8658 IMU"
+
+config QSEE_BUILD_IMU_DRIVER_NONE
+    bool "No IMU hardware"
+
+endchoice
+
+choice QSEE_BUILD_GNSS_DRIVER
+    prompt "GNSS board driver"
+    default QSEE_BUILD_GNSS_DRIVER_LC76G
+
+config QSEE_BUILD_GNSS_DRIVER_LC76G
+    bool "LC76G GNSS"
+
+config QSEE_BUILD_GNSS_DRIVER_NONE
+    bool "No GNSS hardware"
+
+endchoice
+
+endmenu
+
+config QSEE_BUILD_ENABLE_UI
+    bool "Enable display and touch UI stack"
+    depends on QSEE_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED
+    default y if QSEE_BUILD_PROFILE_FULL
+    default n if QSEE_BUILD_PROFILE_HEADLESS
+    help
+        Builds the Brookesia application runtime plus the Waveshare display
+        path. The current BSP couples touch input to this stack, so disabling
+        this option also removes touch support from the build.
+
+config QSEE_BUILD_ENABLE_BOOT_UI
+    bool "Enable boot splash screen"
+    depends on QSEE_BUILD_ENABLE_UI
+    default y
+
+config QSEE_BUILD_ENABLE_AUDIO
+    bool "Enable speaker and microphone audio path"
+    depends on QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
+    default y
+
+config QSEE_BUILD_ENABLE_BOOT_AUDIO
+    bool "Enable boot sound effect"
+    depends on QSEE_BUILD_ENABLE_AUDIO
+    default y
+
+config QSEE_BUILD_ENABLE_WIFI
+    bool "Enable Wi-Fi station stack"
+    default y
+
+config QSEE_BUILD_ENABLE_BLUETOOTH
+    bool "Enable Bluetooth telemetry stack"
+    default y
+
+config QSEE_BUILD_ENABLE_PROVISIONING
+    bool "Enable Bluetooth Wi-Fi pairing flow"
+    depends on QSEE_BUILD_ENABLE_WIFI
+    depends on QSEE_BUILD_ENABLE_BLUETOOTH
+    default y
+    help
+        Keeps the BLE transport used by the secure Wi-Fi provisioning flow.
+
+config QSEE_BUILD_ENABLE_IMU
+    bool "Enable IMU motion pipeline"
+    depends on QSEE_BUILD_IMU_DRIVER_QMI8658
+    default y
+
+config QSEE_BUILD_ENABLE_POWER_INPUTS
+    bool "Enable button and power-management pipeline"
+    depends on QSEE_BUILD_PMU_DRIVER_AXP2101
+    default y
+
+config QSEE_BUILD_ENABLE_RTC
+    bool "Enable RTC time pipeline"
+    depends on QSEE_BUILD_RTC_DRIVER_PCF85063
+    default y
+
+config QSEE_BUILD_ENABLE_GNSS
+    bool "Enable GNSS position pipeline"
+    depends on QSEE_BUILD_GNSS_DRIVER_LC76G
+    default y
+
+endmenu

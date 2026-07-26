@@ -98,13 +98,15 @@ asynchronous subsystem reports commit their own generations. Component
 timestamps are aged against freshness TTLs, so expired numeric telemetry is
 marked `STALE` and hidden from consumers.
 
-The full-device refresh remains explicit. An opt-in diagnostic monitor samples
-only the IMU and microphone periodically at the configured diagnostic cadence;
-SD status polling and native Wi-Fi/BLE events may also publish asynchronous
-state changes. Every UI telemetry view consumes the immutable published
-snapshot instead of polling hardware drivers independently. The log viewer
-reads the canonical logger ring, never a hardware driver. The memory and
-processor readings use native ESP-IDF and FreeRTOS APIs. See
+One serial platform worker requests the complete snapshot at the persisted
+user cadence: 300 ms, 500 ms, 1 Hz, 2 s, 3 s, 5 s, or 10 s. This Full Snapshot
+cadence is independent from both the 1 Hz UI binding refresh and the opt-in
+Diagnostic Stream, which samples only the IMU and microphone while their live
+pages are open. SD status polling and native Wi-Fi/BLE events may also publish
+asynchronous state changes. Every UI telemetry view consumes the immutable
+published snapshot instead of polling hardware drivers independently. The log
+viewer reads the canonical logger ring, never a hardware driver. The memory
+and processor readings use native ESP-IDF and FreeRTOS APIs. See
 [device-snapshot.md](docs/architecture/device-snapshot.md) and
 [hardware-api.md](docs/architecture/hardware-api.md).
 
@@ -121,6 +123,27 @@ The JSON document owns view structure, layout, styles, and action names. C++
 owns lifecycle and data binding. App code does not construct a second widget
 framework or call LVGL directly.
 
+### UI glossary
+
+| Name | Meaning |
+| --- | --- |
+| `App Background` | The single full-screen dark radial atmosphere behind every route and shell component |
+| `Safe Content Surface` | The transparent 320 x 320 central area reserved for route content |
+| `Status Arc` | The fixed-size upper arc of six semantic device-state indicators, rendered from one immutable snapshot |
+| `Command Arc` | The lower curved row of up to five route actions |
+| `Main Command` | The single Command Arc action centered on the horizontal axis; it is largest and defines the route's primary intent |
+| `Edge Navigation` | Contextual Back, Next, Confirm, or Cancel control placed on the circular edge |
+| `Wake Surface` | The transparent full-display touch target used only while Adaptive Chrome is hidden or the display is dimmed/off |
+| `Adaptive Chrome` | The shared controller for Status Arc, Command Arc, independent hide timings, display dim/off stages, and touch/motion wake |
+| `Full Snapshot` | One serialized complete hardware and system acquisition, scheduled at the user-selected 300 ms to 10 s cadence |
+| `Diagnostic Stream` | The separate IMU/microphone live sampler enabled only by diagnostic routes |
+| `UI Refresh` | The 1 Hz pass that binds the latest immutable snapshot to the visible route; it never samples hardware |
+
+The standard page names are `Welcome`, `Live Logs`, `Hardware`, `Audio Scope`,
+`Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `About`, and
+`Pairing Flow`. Use these names in code reviews, issues, screenshots, and
+documentation.
+
 ### Route index
 
 The route registry lives in
@@ -134,11 +157,12 @@ the current code-grounded inventory:
 | `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
 | `Logs` | Implemented | `LIVE LOGS` | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
 | `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, per-component details, and SD action dialog |
-| `Audio` | Implemented, diagnostic | `AUDIO` | Microphone channel levels and PCM capture status; this is not yet a waveform/spectrogram view |
+| `Audio` | Implemented, diagnostic | `AUDIO SCOPE` | Microphone channel levels and PCM capture status |
+| `AudioFft` | Implemented, diagnostic | `AUDIO FFT` | Frequency-domain microphone spectrum |
+| `AudioDetail` | Implemented, diagnostic | `AUDIO DETAIL` | Expanded live spectrum detail |
 | `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
-| `Settings` | Implemented | `SETTINGS` | Diagnostic cadence, IMU smoothing, SD log mirroring, deferred radio startup, and persisted brightness |
+| `Settings` | Implemented | `SETTINGS` | Full Snapshot cadence, Diagnostic Stream, Adaptive Chrome, display power, IMU smoothing, storage, radios, and brightness |
 | `About` | Implemented | `ABOUT` | Device identity and support information |
-| `AudioSpectrogram` | Planned | Not currently exposed | Test-audio spectrogram page; separate from the current audio-level diagnostics |
 | `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
 The index is part of the screen-flow contract. Whenever a route is created,
@@ -221,6 +245,114 @@ Show the application and static memory size report:
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-idf6
 ```
+
+## Build profiles and feature flags
+
+Build-time feature switches live in
+[`main/Kconfig.projbuild`](main/Kconfig.projbuild). They are exposed as
+`CONFIG_QSEE_BUILD_*` options and are intended to remove whole runtime paths
+from the firmware image, not just hide them at runtime.
+
+Persist a profile in [`sdkconfig.defaults`](sdkconfig.defaults), then run
+`reconfigure` or `build` again through `scripts/device.ps1`. Do not rely on the
+generated `sdkconfig` file as a source-controlled configuration surface.
+
+The available profile selectors are:
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `CONFIG_QSEE_BUILD_PROFILE_FULL` | `y` | Full Waveshare device runtime with the normal UI-first experience |
+| `CONFIG_QSEE_BUILD_PROFILE_HEADLESS` | `n` | Headless runtime that boots without the Brookesia UI stack and uses `main_headless.cpp` |
+
+The available subsystem flags are:
+
+| Flag | Default | Effect |
+| --- | --- | --- |
+| `CONFIG_QSEE_BUILD_ENABLE_UI` | `y` | Includes the display and touch UI stack; disabling it removes the Brookesia app runtime and current BSP touch path from the build |
+| `CONFIG_QSEE_BUILD_ENABLE_BOOT_UI` | `y` | Keeps the boot splash screen; depends on the UI stack |
+| `CONFIG_QSEE_BUILD_ENABLE_AUDIO` | `y` | Includes the ES8311 speaker path, ES7210 microphone path, and related audio runtime |
+| `CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO` | `y` | Keeps the boot sound effect; depends on the audio path |
+| `CONFIG_QSEE_BUILD_ENABLE_WIFI` | `y` | Includes the Wi-Fi station stack |
+| `CONFIG_QSEE_BUILD_ENABLE_BLUETOOTH` | `y` | Includes the Bluetooth telemetry stack |
+| `CONFIG_QSEE_BUILD_ENABLE_PROVISIONING` | `y` | Includes the BLE Wi-Fi pairing flow used to provision Wi-Fi credentials; depends on Wi-Fi and Bluetooth |
+| `CONFIG_QSEE_BUILD_ENABLE_IMU` | `y` | Includes the QMI8658 motion pipeline and calibration path |
+| `CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS` | `y` | Includes the button and power-management pipeline |
+| `CONFIG_QSEE_BUILD_ENABLE_RTC` | `y` | Includes the RTC time pipeline |
+| `CONFIG_QSEE_BUILD_ENABLE_GNSS` | `y` | Includes the GNSS position pipeline |
+
+When a subsystem is disabled, the firmware now compiles the corresponding stub
+entry points so higher layers receive explicit `ESP_ERR_NOT_SUPPORTED` results
+instead of fake data. UI-disabled builds also switch the application entrypoint
+from `main.cpp` to `main_headless.cpp`.
+
+### Enabling a subsystem vs selecting board hardware
+
+The flags above answer **whether a capability is present in this firmware
+image**. The board-driver choices below answer which physical implementation is
+compiled for it. Selecting `NONE` prevents that driver from being initialized;
+the corresponding snapshot component is explicitly `UNAVAILABLE` rather than
+showing synthetic data.
+
+| Choice | Current implementation | Explicit off state |
+| --- | --- | --- |
+| `QSEE_BUILD_DISPLAY_DRIVER` | Waveshare AMOLED with CST9217 touch | `QSEE_BUILD_DISPLAY_DRIVER_NONE` |
+| `QSEE_BUILD_AUDIO_DRIVER` | ES8311 speaker codec with ES7210 microphone ADC | `QSEE_BUILD_AUDIO_DRIVER_NONE` |
+| `QSEE_BUILD_PMU_DRIVER` | AXP2101 | `QSEE_BUILD_PMU_DRIVER_NONE` |
+| `QSEE_BUILD_RTC_DRIVER` | PCF85063 | `QSEE_BUILD_RTC_DRIVER_NONE` |
+| `QSEE_BUILD_IMU_DRIVER` | QMI8658 | `QSEE_BUILD_IMU_DRIVER_NONE` |
+| `QSEE_BUILD_GNSS_DRIVER` | LC76G | `QSEE_BUILD_GNSS_DRIVER_NONE` |
+
+For example, `CONFIG_QSEE_BUILD_ENABLE_IMU=n` removes the motion pipeline,
+while `CONFIG_QSEE_BUILD_IMU_DRIVER_NONE=y` declares that the selected board
+has no IMU. The default full profile selects the current Waveshare hardware.
+
+If a future board has another IMU, do not make the firmware probe several
+drivers and silently choose one. Add one explicit board/IMU selection in
+`main/Kconfig.projbuild`, choose exactly one driver at build time, and make the
+selected driver fail with its real error if that expected hardware is absent.
+The existing shape is:
+
+```text
+QSEE_BUILD_ENABLE_IMU = n             no IMU code
+QSEE_BUILD_ENABLE_IMU = y
+  QSEE_BUILD_IMU_DRIVER_QMI8658 = y   current Waveshare board
+  QSEE_BUILD_IMU_DRIVER_<NEW_CHIP> = y future board
+  QSEE_BUILD_IMU_DRIVER_NONE = y      explicit board with no IMU
+```
+
+The IMU selector is a mutually exclusive Kconfig `choice`, with the board
+profile selecting its default. Each selected implementation must provide the
+same internal, normalized contract: initialise, read acceleration and
+gyroscope in SI units, expose temperature where the chip supports it, perform
+calibration where supported, and publish validity, timestamp, and the original
+error. UI, sensor fusion, HTTP, and diagnostic routes then remain independent
+of the chip model. The QMI8658 adapter now translates its native sample into
+that normalized contract before it reaches the shared pipeline.
+
+Adding a new IMU therefore requires four contained changes: register only its
+driver dependency for the selected option; add a small driver adapter instead
+of including the chip API throughout `qsee_hardware.cpp`; put its I2C/SPI bus,
+address, interrupt pin, axis orientation, and supported ranges in the board
+configuration; and validate both the selected build and the real board. The
+new adapter must be the only driver selected by its board profile. The current
+QMI8658 adapter is the reference implementation in
+`components/qsee_platform/qsee_hardware.cpp`.
+
+Use this same split for display, touch, audio codecs, PMU, GNSS, and storage:
+one flag controls whether the subsystem exists, while a board selector chooses
+the one physical driver implementation. This keeps smaller product variants
+small, makes board swaps reviewable, and prevents a wrong driver from being
+treated as a working sensor.
+
+At boot, PMU, RTC, IMU, GNSS, and audio are now inventoried independently. A
+chip that is selected but missing or faulty records its original error in the
+snapshot and log, while initialization continues with the remaining chips. The
+hardware service returns the first real optional-chip error to its caller, so
+the startup orchestrator can report degradation without freezing the app.
+
+IPv6 remains enabled because the ESP-Boost Asio surface used by Brookesia
+compiles the IPv6 socket types. The dependency stays registry-managed; no local
+Boost fork or compatibility layer is required.
 
 Flash the currently dedicated device:
 
@@ -342,8 +474,8 @@ values.
 - Never enable automatic SD formatting.
 - Reuse the BSP I2C handle; do not initialize a competing bus driver.
 - Prefer official ESP-IDF, FreeRTOS, BSP, and managed-component APIs.
-- Keep the full-device refresh explicit; periodic sampling remains limited to
-  the opt-in diagnostic monitor until the sensor-fusion design exists.
+- Keep one serialized Full Snapshot worker at the persisted user cadence;
+  never add a second acquisition loop in UI, HTTP, or a subsystem.
 - Treat serial logs as runtime evidence and report degraded devices honestly.
 - Keep generated builds, `sdkconfig`, runtime logs, managed components, caches,
   and local virtual environments out of Git.

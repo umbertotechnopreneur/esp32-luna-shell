@@ -1773,8 +1773,10 @@ static esp_err_t bsp_display_lcd_init(
     }
     *out_display = NULL;
 
-    // The SPI bounce buffer lives in internal DMA RAM; 20 lines fit after Brookesia starts.
-    const size_t transfer_height = 20;
+    // Feed QSPI from two small internal buffers so LVGL can render the next
+    // strip while SPI transfers the current one. Keeping both buffers internal
+    // avoids the per-transfer PSRAM bounce allocation that exhausted DMA RAM.
+    const size_t transfer_height = 10;
 
     const bsp_display_config_t disp_config = {
         .max_transfer_sz = BSP_LCD_H_RES * transfer_height * BSP_LCD_BITS_PER_PIXEL / 8,
@@ -1795,9 +1797,9 @@ static esp_err_t bsp_display_lcd_init(
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            // The adapter and panel use the same bounded transfer height.
+            // The adapter and panel use the same bounded DMA transfer height.
             .buffer_height = transfer_height,
-            .use_psram = true,
+            .use_psram = false,
             .enable_ppa_accel = false,
             .require_double_buffer = true,
         },

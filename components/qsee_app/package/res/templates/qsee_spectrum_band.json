@@ -25,7 +25,9 @@
                 "type": "progressBar",
                 "id": "mic0",
                 "bindings": {
-                    "rangeProps.value": "value"
+                    "rangeProps.value": "value",
+                    "partStyles.indicator.style.bgColor": "color",
+                    "partStyles.indicator.style.bgGradientColor": "colorEnd"
                 },
                 "rangeProps": {
                     "value": 0,
@@ -53,7 +55,9 @@
                 "type": "progressBar",
                 "id": "mic1",
                 "bindings": {
-                    "rangeProps.value": "value"
+                    "rangeProps.value": "value",
+                    "partStyles.indicator.style.bgColor": "color",
+                    "partStyles.indicator.style.bgGradientColor": "colorEnd"
                 },
                 "rangeProps": {
                     "value": 0,

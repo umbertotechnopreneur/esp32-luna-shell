@@ -29,7 +29,7 @@
                     "text": ""
                 },
                 "style": {
-                    "textColor": "#ffb547",
+                    "textColor": "#f0b44d",
                     "fontSize": "24sp",
                     "textAlign": "center"
                 },
@@ -79,7 +79,7 @@
                     "text": "•"
                 },
                 "style": {
-                    "textColor": "#ffb547",
+                    "textColor": "#f0b44d",
                     "fontSize": "12sp",
                     "textAlign": "center"
                 },

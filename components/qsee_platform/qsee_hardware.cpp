@@ -8,6 +8,7 @@
 #include "qsee_device_snapshot.hpp"
 #include "qsee_sensor_fusion.hpp"
 #include "qsee_settings.hpp"
+#include "qsee_snapshot_cadence.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -36,14 +37,18 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
 // The Waveshare header defines the standard M_PI macro unconditionally.
 #pragma push_macro("M_PI")
 #undef M_PI
 #include "qmi8658.h"
 #pragma pop_macro("M_PI")
+#endif
 
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
 #define XPOWERS_CHIP_AXP2101
 #include "XPowersLib.h"
+#endif
 
 #define I2C_TIMEOUT_MS 100
 #define GPS_MAX_PAYLOAD 4096
@@ -72,6 +77,7 @@ constexpr uint32_t kDiagnosticPeriodMaxMs = 2000;
 constexpr uint32_t kImuSmoothingDefaultPercent = 70;
 constexpr uint32_t kImuSmoothingMaxPercent = 90;
 constexpr uint32_t kOrientationSamplePeriodMs = 100;
+constexpr uint32_t kUiMotionSamplePeriodMs = 100;
 constexpr int64_t kOrientationStableUs = 300000;
 constexpr float kOrientationMagnitudeMin = 7.0F;
 constexpr float kOrientationMagnitudeMax = 12.5F;
@@ -97,8 +103,12 @@ i2c_master_bus_handle_t s_i2c_bus;
 i2c_master_dev_handle_t s_rtc;
 i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
 qmi8658_dev_t s_imu;
+#endif
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
 XPowersPMU s_power;
+#endif
 
 bool s_initialized;
 bool s_initialization_attempted;
@@ -122,11 +132,23 @@ bool s_gps_ready;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 std::atomic_bool s_diagnostic_monitor_active{false};
+std::atomic_bool s_ui_motion_monitor_active{false};
 std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
 std::atomic_bool s_auto_rotation_enabled{false};
 std::mutex s_diagnostic_settings_mutex;
+
+// Chip-specific adapters return this normalized sample to the shared pipeline.
+struct ImuRawSample {
+    float accelX;
+    float accelY;
+    float accelZ;
+    float gyroX;
+    float gyroY;
+    float gyroZ;
+    float temperature;
+};
 
 struct OrientationState {
     bool observed_enabled = false;
@@ -638,6 +660,14 @@ const char *component_summary_state(
     if (component.health == qsee::DeviceHealth::Missing) {
         return "missing";
     }
+    if (component.health == qsee::DeviceHealth::Unknown &&
+        component.last_error == ESP_ERR_INVALID_STATE &&
+        !component.data_valid &&
+        !component.data_stale &&
+        component.last_attempt_at_us == 0 &&
+        component.last_success_at_us == 0) {
+        return "standby";
+    }
     if (component.last_error != ESP_OK ||
         component.health == qsee::DeviceHealth::Degraded) {
         return "error";
@@ -646,6 +676,27 @@ const char *component_summary_state(
         return "stale";
     }
     return "unavailable";
+}
+
+const char *gps_summary_state(const qsee::GpsSnapshot &gps)
+{
+    if (component_has_current_data(gps)) {
+        return gps.has_fix ? "fix" : "no-fix";
+    }
+    return component_summary_state(gps);
+}
+
+const char *radio_summary_state(const qsee::ComponentSnapshot &radio)
+{
+    if (radio.health == qsee::DeviceHealth::Unknown &&
+        radio.last_error == ESP_ERR_INVALID_STATE &&
+        !radio.data_valid &&
+        !radio.data_stale &&
+        radio.last_attempt_at_us == 0 &&
+        radio.last_success_at_us == 0) {
+        return "off-policy";
+    }
+    return component_summary_state(radio);
 }
 
 void age_measured_sample(
@@ -947,7 +998,7 @@ void commit_cardinal_orientation(
 
 // Track flat-table turns from gyro Z and emit only cardinal steps.
 void process_gyro_cardinal_sample(
-    const qmi8658_data_t &data,
+    const ImuRawSample &data,
     int64_t sampled_at_us,
     bool gravity_controls_orientation
 )
@@ -1027,7 +1078,7 @@ bool observe_auto_rotation_state(bool enabled)
 
 // Classify raw gravity into a stable cardinal physical orientation.
 void process_orientation_sample(
-    const qmi8658_data_t &data,
+    const ImuRawSample &data,
     int64_t sampled_at_us
 )
 {
@@ -1286,6 +1337,7 @@ esp_err_t write_registers(
     return i2c_master_transmit(device, payload, length + 1, I2C_TIMEOUT_MS);
 }
 
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
 esp_err_t read_pmu_registers(
     uint8_t reg,
     uint8_t *data,
@@ -1408,6 +1460,7 @@ esp_err_t verify_pmu_termination_current(
     );
     return error;
 }
+#endif
 
 uint8_t bcd_to_decimal(uint8_t value)
 {
@@ -1444,7 +1497,7 @@ bool valid_bcd(uint8_t value)
     return (value & 0x0FU) <= 9U && ((value >> 4U) & 0x0FU) <= 9U;
 }
 
-bool finite_imu_sample(const qmi8658_data_t &data)
+bool finite_imu_sample(const ImuRawSample &data)
 {
     return std::isfinite(data.accelX) &&
            std::isfinite(data.accelY) &&
@@ -1457,6 +1510,7 @@ bool finite_imu_sample(const qmi8658_data_t &data)
 
 esp_err_t sample_pmu(const char *phase)
 {
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
     qsee::BatterySnapshot sample;
     const int64_t attempted_at_us = esp_timer_get_time();
     esp_err_t error =
@@ -1682,10 +1736,25 @@ esp_err_t sample_pmu(const char *phase)
         ESP_OK,
         publication_error
     );
+#else
+    const esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    const esp_err_t publication_error = update_snapshot(
+        [error](qsee::DeviceSnapshot &snapshot) {
+            set_component(snapshot.battery, false, error);
+        }
+    );
+    return sample_publication_result(
+        "PMU",
+        phase,
+        error,
+        publication_error
+    );
+#endif
 }
 
 esp_err_t init_pmu(i2c_master_bus_handle_t bus)
 {
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
     esp_err_t error = i2c_master_probe(bus, AXP2101_ADDRESS, I2C_TIMEOUT_MS);
     if (error == ESP_OK && !s_power.begin(bus, AXP2101_ADDRESS)) {
         error = ESP_FAIL;
@@ -1809,6 +1878,15 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         "PMU AXP2101: ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
     );
     return ESP_OK;
+#else
+    (void)bus;
+    const esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
+        set_component(snapshot.battery, false, error);
+    });
+    ESP_LOGI(TAG, "PMU: disabled by board hardware selection");
+    return error;
+#endif
 }
 
 esp_err_t init_rtc(i2c_master_bus_handle_t bus)
@@ -1886,6 +1964,17 @@ esp_err_t read_rtc_calendar(qsee_calendar_time_t *time)
     if (!valid_bcd(seconds) || !valid_bcd(minutes) ||
         !valid_bcd(hours) || !valid_bcd(day) ||
         !valid_bcd(month) || !valid_bcd(raw[6])) {
+        ESP_LOGE(
+            TAG,
+            "RTC PCF85063 rejected non-BCD calendar: raw=[%02x %02x %02x %02x %02x %02x %02x]",
+            raw[0],
+            raw[1],
+            raw[2],
+            raw[3],
+            raw[4],
+            raw[5],
+            raw[6]
+        );
         return ESP_ERR_INVALID_RESPONSE;
     }
 
@@ -1899,10 +1988,41 @@ esp_err_t read_rtc_calendar(qsee_calendar_time_t *time)
         .second = bcd_to_decimal(seconds),
     };
     if (!valid_calendar_time(decoded)) {
+        ESP_LOGE(
+            TAG,
+            "RTC PCF85063 rejected calendar range: decoded=%04u-%02u-%02u %02u:%02u:%02u raw=[%02x %02x %02x %02x %02x %02x %02x]",
+            decoded.year,
+            decoded.month,
+            decoded.day,
+            decoded.hour,
+            decoded.minute,
+            decoded.second,
+            raw[0],
+            raw[1],
+            raw[2],
+            raw[3],
+            raw[4],
+            raw[5],
+            raw[6]
+        );
         return ESP_ERR_INVALID_RESPONSE;
     }
     *time = decoded;
-    return decoded.clock_integrity ? ESP_OK : ESP_ERR_INVALID_STATE;
+    if (!decoded.clock_integrity) {
+        ESP_LOGW(
+            TAG,
+            "RTC PCF85063 calendar integrity unavailable: raw=[%02x %02x %02x %02x %02x %02x %02x]",
+            raw[0],
+            raw[1],
+            raw[2],
+            raw[3],
+            raw[4],
+            raw[5],
+            raw[6]
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
 }
 
 esp_err_t publish_rtc_read(
@@ -2001,8 +2121,35 @@ esp_err_t sample_rtc(const char *phase)
     );
 }
 
+esp_err_t read_imu_sample(ImuRawSample *sample)
+{
+    if (sample == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+    qmi8658_data_t raw = {};
+    const esp_err_t error = qmi8658_read_sensor_data(&s_imu, &raw);
+    if (error != ESP_OK) {
+        return error;
+    }
+    *sample = {
+        .accelX = raw.accelX,
+        .accelY = raw.accelY,
+        .accelZ = raw.accelZ,
+        .gyroX = raw.gyroX,
+        .gyroY = raw.gyroY,
+        .gyroZ = raw.gyroZ,
+        .temperature = raw.temperature,
+    };
+    return ESP_OK;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 esp_err_t init_imu(i2c_master_bus_handle_t bus)
 {
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
     const uint8_t addresses[] = {QMI8658_ADDRESS_HIGH, QMI8658_ADDRESS_LOW};
     esp_err_t error = ESP_ERR_NOT_FOUND;
     for (size_t i = 0; i < sizeof(addresses) / sizeof(addresses[0]); ++i) {
@@ -2035,8 +2182,8 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
             // Let the first filtered samples settle before calibration.
             vTaskDelay(pdMS_TO_TICKS(150));
             for (unsigned discard = 0; discard < 16; ++discard) {
-                qmi8658_data_t ignored = {};
-                error = qmi8658_read_sensor_data(&s_imu, &ignored);
+                ImuRawSample ignored = {};
+                error = read_imu_sample(&ignored);
                 if (error != ESP_OK || !finite_imu_sample(ignored)) {
                     if (error == ESP_OK) {
                         error = ESP_ERR_INVALID_RESPONSE;
@@ -2078,6 +2225,15 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         ESP_LOGW(TAG, "IMU QMI8658: not detected");
     }
     return error;
+#else
+    (void)bus;
+    const esp_err_t error = ESP_ERR_NOT_SUPPORTED;
+    update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
+        set_component(snapshot.imu, false, error);
+    });
+    ESP_LOGI(TAG, "IMU: disabled by board hardware selection");
+    return error;
+#endif
 }
 
 esp_err_t calibrate_imu()
@@ -2105,8 +2261,8 @@ esp_err_t calibrate_imu()
     float gyro_max[3] = {-10000.0F, -10000.0F, -10000.0F};
 
     for (uint16_t index = 0; index < sample_count; ++index) {
-        qmi8658_data_t data = {};
-        esp_err_t error = qmi8658_read_sensor_data(&s_imu, &data);
+        ImuRawSample data = {};
+        esp_err_t error = read_imu_sample(&data);
         if (error == ESP_OK && !finite_imu_sample(data)) {
             error = ESP_ERR_INVALID_RESPONSE;
         }
@@ -2268,6 +2424,38 @@ esp_err_t sample_imu(
 )
 {
     const int64_t attempted_at_us = esp_timer_get_time();
+#if !CONFIG_QSEE_BUILD_ENABLE_IMU
+    qsee::DeviceSnapshotService::instance().reportSensorFusion(
+        {},
+        ESP_ERR_NOT_SUPPORTED
+    );
+    const esp_err_t publication_error = update_snapshot(
+        [attempted_at_us, track_orientation](qsee::DeviceSnapshot &snapshot) {
+            mark_sample_failure(
+                snapshot.imu,
+                ESP_ERR_NOT_SUPPORTED,
+                attempted_at_us
+            );
+            if (track_orientation) {
+                s_orientation.gravity_valid = false;
+                s_orientation.candidate_valid = false;
+                s_orientation.sampled_at_us = attempted_at_us;
+                mark_sample_failure(
+                    s_orientation.component,
+                    ESP_ERR_NOT_SUPPORTED,
+                    attempted_at_us
+                );
+                copy_orientation_snapshot(snapshot.ui.orientation);
+            }
+        }
+    );
+    return sample_publication_result(
+        "IMU QMI8658",
+        phase,
+        ESP_OK,
+        publication_error
+    );
+#endif
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
         qsee::DeviceSnapshotService::instance().reportSensorFusion(
             {},
@@ -2305,8 +2493,8 @@ esp_err_t sample_imu(
     }
 
     qsee::ImuSnapshot sample;
-    qmi8658_data_t data = {};
-    esp_err_t error = qmi8658_read_sensor_data(&s_imu, &data);
+    ImuRawSample data = {};
+    esp_err_t error = read_imu_sample(&data);
     if (error == ESP_OK && !finite_imu_sample(data)) {
         error = ESP_ERR_INVALID_RESPONSE;
     }
@@ -3109,8 +3297,6 @@ esp_err_t sample_gps(const char *phase)
                 error = ESP_ERR_INVALID_RESPONSE;
             }
         }
-    } else if (error == ESP_OK) {
-        error = ESP_ERR_NOT_FOUND;
     }
 
     if (error != ESP_OK) {
@@ -3246,6 +3432,23 @@ esp_err_t sample_microphone(const char *phase)
     constexpr size_t channel_count = 2;
     constexpr size_t frame_count = sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
     const int64_t attempted_at_us = esp_timer_get_time();
+    if (!s_microphone_ready) {
+        const esp_err_t publication_error = update_snapshot(
+            [attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+                mark_sample_failure(
+                    snapshot.audio.microphone,
+                    ESP_ERR_NOT_SUPPORTED,
+                    attempted_at_us
+                );
+            }
+        );
+        return sample_publication_result(
+            "Microphones ES7210",
+            phase,
+            ESP_OK,
+            publication_error
+        );
+    }
     const esp_err_t error = qsee_audio_capture_pcm16_channels(
         s_microphone_samples,
         frame_count,
@@ -3347,10 +3550,13 @@ void diagnostic_monitor_task(void *arg)
     (void)arg;
     configASSERT(s_diagnostic_stage_snapshot != nullptr);
     TickType_t last_diagnostic_sample = 0;
+    TickType_t last_ui_motion_sample = 0;
 
     for (;;) {
         const bool monitor_active =
             s_diagnostic_monitor_active.load(std::memory_order_relaxed);
+        const bool ui_motion_active =
+            s_ui_motion_monitor_active.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         if (observe_auto_rotation_state(auto_rotation_active)) {
@@ -3368,9 +3574,17 @@ void diagnostic_monitor_task(void *arg)
             monitor_active &&
             (last_diagnostic_sample == 0 ||
              now - last_diagnostic_sample >= diagnostic_period);
+        const TickType_t ui_motion_period =
+            pdMS_TO_TICKS(kUiMotionSamplePeriodMs);
+        const bool ui_motion_due =
+            ui_motion_active &&
+            s_imu_ready &&
+            (last_ui_motion_sample == 0 ||
+             now - last_ui_motion_sample >= ui_motion_period);
         const bool orientation_due =
             auto_rotation_active && s_imu_ready;
-        const bool sampling_due = diagnostic_due || orientation_due;
+        const bool sampling_due =
+            diagnostic_due || ui_motion_due || orientation_due;
 
         if (sampling_due) {
             esp_err_t aggregate = ESP_OK;
@@ -3405,7 +3619,9 @@ void diagnostic_monitor_task(void *arg)
                         sample_imu(
                             diagnostic_due
                                 ? "diagnostic-ui"
-                                : "auto-rotation",
+                                : ui_motion_due
+                                    ? "adaptive-ui"
+                                    : "auto-rotation",
                             diagnostic_due,
                             orientation_due
                         ),
@@ -3476,8 +3692,16 @@ void diagnostic_monitor_task(void *arg)
                     );
                 }
             }
+            if (ui_motion_due) {
+                last_ui_motion_sample = now;
+            }
         } else {
-            last_diagnostic_sample = 0;
+            if (!monitor_active) {
+                last_diagnostic_sample = 0;
+            }
+            if (!ui_motion_active) {
+                last_ui_motion_sample = 0;
+            }
         }
 
         if (s_orientation.desired_rendering_degrees !=
@@ -3501,7 +3725,9 @@ void diagnostic_monitor_task(void *arg)
             s_orientation.desired_rendering_degrees !=
                 s_orientation.applied_rendering_degrees
                 ? kOrientationSamplePeriodMs
-                : monitor_active
+                : ui_motion_active
+                    ? kUiMotionSamplePeriodMs
+                    : monitor_active
                       ? s_diagnostic_period_ms.load(std::memory_order_relaxed)
                       : 250U;
         vTaskDelay(pdMS_TO_TICKS(delay_ms));
@@ -3518,14 +3744,14 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
         component_summary_state(snapshot.battery),
         component_summary_state(snapshot.rtc),
         component_summary_state(snapshot.imu),
-        component_summary_state(snapshot.gps),
+        gps_summary_state(snapshot.gps),
         component_summary_state(snapshot.audio.microphone),
         component_summary_state(snapshot.audio.speaker),
         component_summary_state(snapshot.storage),
         component_summary_state(snapshot.ui.display),
         component_summary_state(snapshot.ui.touch),
-        component_summary_state(snapshot.radios.wifi),
-        component_summary_state(snapshot.radios.ble),
+        radio_summary_state(snapshot.radios.wifi),
+        radio_summary_state(snapshot.radios.ble),
         component_summary_state(snapshot.memory),
         component_summary_state(snapshot.processor)
     );
@@ -3937,40 +4163,66 @@ esp_err_t DeviceSnapshotService::initialize()
     ESP_LOGI(TAG, "Shared BSP I2C: SDA=%d SCL=%d", BSP_I2C_SDA, BSP_I2C_SCL);
 
     s_initialization_attempted = true;
+    esp_err_t aggregate = ESP_OK;
+    const auto record_optional_chip = [&aggregate](
+                                          const char *chip,
+                                          esp_err_t chip_error
+                                      ) {
+        if (chip_error == ESP_OK || chip_error == ESP_ERR_NOT_SUPPORTED) {
+            return;
+        }
+        ESP_LOGW(
+            TAG,
+            "%s remains unavailable; continuing with the remaining hardware (%s)",
+            chip,
+            esp_err_to_name(chip_error)
+        );
+        record_first_error(chip_error, &aggregate);
+    };
+
     error = init_pmu(bus);
-    if (error != ESP_OK) {
-        s_initialization_result = error;
-        return error;
-    }
+    record_optional_chip("PMU", error);
+
+#if CONFIG_QSEE_BUILD_ENABLE_RTC
     error = init_rtc(bus);
-    if (error != ESP_OK) {
-        s_initialization_result = error;
-        return error;
-    }
+    record_optional_chip("RTC", error);
+#else
+    update_snapshot([](DeviceSnapshot &snapshot) {
+        set_component(snapshot.rtc, false, ESP_ERR_NOT_SUPPORTED);
+    });
+    ESP_LOGI(TAG, "RTC: disabled by build profile");
+#endif
+
     error = init_imu(bus);
-    if (error != ESP_OK) {
-        s_initialization_result = error;
-        return error;
-    }
+    record_optional_chip("IMU", error);
+
+#if CONFIG_QSEE_BUILD_ENABLE_GNSS
     error = init_gps(bus);
-    if (error != ESP_OK) {
-        s_initialization_result = error;
-        return error;
-    }
+    record_optional_chip("GNSS", error);
+#else
+    update_snapshot([](DeviceSnapshot &snapshot) {
+        set_component(snapshot.gps, false, ESP_ERR_NOT_SUPPORTED);
+    });
+    ESP_LOGI(TAG, "GNSS: disabled by build profile");
+#endif
 
     error = qsee_audio_init();
-    if (error != ESP_OK) {
+    if (error == ESP_ERR_NOT_SUPPORTED) {
         update_snapshot([error](DeviceSnapshot &snapshot) {
             set_component(snapshot.audio.microphone, false, error);
+            set_component(snapshot.audio.speaker, false, error);
         });
-        s_initialization_result = error;
-        return error;
-    }
-    s_microphone_ready = true;
-    error = sample_microphone("initial");
-    if (error != ESP_OK) {
-        s_initialization_result = error;
-        return error;
+        ESP_LOGI(TAG, "Audio codecs: disabled by board hardware selection");
+    } else if (error != ESP_OK) {
+        update_snapshot([error](DeviceSnapshot &snapshot) {
+            set_component(snapshot.audio.microphone, false, error);
+            set_component(snapshot.audio.speaker, false, error);
+        });
+        record_optional_chip("audio codecs", error);
+    } else {
+        s_microphone_ready = true;
+        error = sample_microphone("initial");
+        record_optional_chip("microphones", error);
     }
 
     s_initialized = true;
@@ -3980,9 +4232,10 @@ esp_err_t DeviceSnapshotService::initialize()
         return error;
     }
     error = refresh("boot");
-    s_initialization_result = error;
-    if (error != ESP_OK) {
-        return error;
+    record_first_error(error, &aggregate);
+    s_initialization_result = aggregate;
+    if (aggregate != ESP_OK) {
+        return aggregate;
     }
     ESP_LOGI(
         TAG,
@@ -4045,11 +4298,21 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
     );
     record_first_error(snapshot_lock_error, &aggregate);
     if (snapshot_lock_error == ESP_OK) {
-        record_first_error(sample_pmu(phase), &aggregate);
-        record_first_error(sample_rtc(phase), &aggregate);
-        record_first_error(sample_imu(phase), &aggregate);
-        record_first_error(sample_gps(phase), &aggregate);
-        record_first_error(sample_microphone(phase), &aggregate);
+        if (s_pmu_ready) {
+            record_first_error(sample_pmu(phase), &aggregate);
+        }
+        if (s_rtc_ready) {
+            record_first_error(sample_rtc(phase), &aggregate);
+        }
+        if (s_imu_ready) {
+            record_first_error(sample_imu(phase), &aggregate);
+        }
+        if (s_gps_ready) {
+            record_first_error(sample_gps(phase), &aggregate);
+        }
+        if (s_microphone_ready) {
+            record_first_error(sample_microphone(phase), &aggregate);
+        }
         record_first_error(sample_system_state(), &aggregate);
         record_first_error(publish_update_result(phase, aggregate), &aggregate);
         const esp_err_t commit_error = commit_snapshot_stage(
@@ -4323,6 +4586,71 @@ void DeviceSnapshotService::reportImuSmoothing(
     );
     log_snapshot_publication_failure(
         "IMU-smoothing report",
+        publication_error
+    );
+}
+
+void DeviceSnapshotService::reportFullSnapshotPeriod(
+    uint32_t full_snapshot_period_ms,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK &&
+                !isFullSnapshotPeriodSupported(full_snapshot_period_ms)
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.diagnostics.full_snapshot_period_ms =
+                    full_snapshot_period_ms;
+                mark_sample_success(
+                    snapshot.diagnostics.full_snapshot_period,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.full_snapshot_period,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Full-snapshot-period report",
+        publication_error
+    );
+}
+
+void DeviceSnapshotService::reportFullSnapshotMonitor(
+    bool monitor_active,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.diagnostics.full_snapshot_monitor_active =
+                monitor_active;
+            if (error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.diagnostics.full_snapshot_monitor,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.full_snapshot_monitor,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Full-snapshot-monitor report",
         publication_error
     );
 }
@@ -4728,6 +5056,7 @@ static esp_err_t ensure_hardware_monitor_task_locked()
         return allocation_error;
     }
     s_diagnostic_monitor_active.store(false, std::memory_order_relaxed);
+    s_ui_motion_monitor_active.store(false, std::memory_order_relaxed);
     TaskHandle_t task = xTaskCreateStatic(
         diagnostic_monitor_task,
         "qsee_diag_monitor",
@@ -4789,6 +5118,44 @@ extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
     publish_diagnostic_monitor(ESP_OK);
     ESP_LOGI(TAG, "Diagnostic monitor: %s",
              enabled ? "active" : "standby");
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled)
+{
+    if (!s_initialized || !s_imu_ready) {
+        ESP_LOGE(
+            TAG,
+            "Adaptive UI motion monitor rejected: hardware or IMU is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (enabled &&
+        !s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
+        ESP_LOGE(
+            TAG,
+            "Adaptive UI motion monitor rejected: IMU smoothing is invalid"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_diagnostic_settings_mutex);
+    const esp_err_t task_error = ensure_hardware_monitor_task_locked();
+    if (task_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Adaptive UI motion monitor task start failed (%s)",
+            esp_err_to_name(task_error)
+        );
+        return task_error;
+    }
+
+    s_ui_motion_monitor_active.store(enabled, std::memory_order_relaxed);
+    ESP_LOGI(
+        TAG,
+        "Adaptive UI motion monitor: %s",
+        enabled ? "active" : "standby"
+    );
     return ESP_OK;
 }
 
@@ -5104,6 +5471,13 @@ extern "C" uint32_t qsee_hardware_get_imu_smoothing_percent(void)
 extern "C" esp_err_t qsee_imu_calibrate(void)
 {
     const int64_t calibration_attempted_at_us = esp_timer_get_time();
+#if !CONFIG_QSEE_BUILD_ENABLE_IMU
+    publish_imu_calibration_failure(
+        ESP_ERR_NOT_SUPPORTED,
+        calibration_attempted_at_us
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     if (!s_initialized) {
         ESP_LOGE(TAG, "IMU calibration rejected: hardware is not initialized");
         publish_imu_calibration_failure(

@@ -27,16 +27,18 @@ SAFE_ORIGIN = 73
 SAFE_SIZE = 320
 BLUE = "#247fd6"
 NAVY = "#071a2c"
-MUTED = "#69849c"
+MUTED = "#8aa7b6"
+MUTED_BRIGHT = "#9fb1c1"
 BACKGROUND = "#010609"
 SURFACE = "#111922"
 TEXT = "#f3f7fa"
 TRACK = "#263744"
-STATUS_EDGE = "#0a8fc7"
-STATUS_GLOW = "#075f7d"
-STATUS_READY = "#00e7c5"
-STATUS_WARNING = "#ffb547"
-STATUS_MISSING = "#ff5a6a"
+STATUS_EDGE = "#245363"
+STATUS_GLOW = "#063f52"
+STATUS_READY = "#20dfc1"
+STATUS_WARNING = "#f0b44d"
+STATUS_MISSING = "#eb4d5c"
+STATUS_FAULT = "#ff3859"
 PRIMARY_TOP = "#247fd6"
 PRIMARY_BOTTOM = "#0a346b"
 PRIMARY_BORDER = "#65c8ff"
@@ -46,6 +48,93 @@ SUCCESS_BOTTOM = "#045a51"
 SUCCESS_BORDER = "#38f1d7"
 SUCCESS_GLOW = "#009c9d"
 CONTROL_BORDER_PX = 1
+COMMAND_MAIN_DIAMETER = 58
+COMMAND_DIAMETER_STEP = 6
+COMMAND_MIN_DIAMETER = COMMAND_MAIN_DIAMETER - (2 * COMMAND_DIAMETER_STEP)
+COMMAND_BUTTON_GAP = 6
+EDGE_COMMAND_DIAMETER = 54
+COMMAND_CENTER_X = 233
+COMMAND_MAIN_CENTER_Y = 389
+COMMAND_ARC_RISE_LINEAR = 10
+COMMAND_ARC_RISE_QUADRATIC = 5
+FONT_DISPLAY = "Montserrat SemiBold"
+FONT_BODY = "Montserrat"
+FONT_TECH = "Consolas"
+STATUS_CURVE_POINTS = (
+    (95, 84),
+    (106, 78),
+    (156, 58),
+    (206, 47),
+    (256, 47),
+    (306, 58),
+    (356, 78),
+    (371, 84),
+)
+
+
+def command_diameter(count: int, index: int) -> int:
+    main_index = count // 2
+    distance = abs(index - main_index)
+    return max(
+        COMMAND_MIN_DIAMETER,
+        COMMAND_MAIN_DIAMETER - (distance * COMMAND_DIAMETER_STEP),
+    )
+
+
+def command_geometry(count: int, index: int) -> tuple[int, int, int]:
+    if count < 1 or count > 5 or count % 2 == 0:
+        raise ValueError("Command Arc requires one, three, or five commands")
+
+    main_index = count // 2
+    diameters = [command_diameter(count, slot) for slot in range(count)]
+    centers_y = []
+    for slot in range(count):
+        distance = abs(slot - main_index)
+        centers_y.append(
+            COMMAND_MAIN_CENTER_Y
+            - (COMMAND_ARC_RISE_LINEAR * distance)
+            - (COMMAND_ARC_RISE_QUADRATIC * distance * distance)
+        )
+
+    centers_x = [0] * count
+    centers_x[main_index] = COMMAND_CENTER_X
+    for slot in range(main_index, 0, -1):
+        vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
+        target_distance = (
+            (diameters[slot] // 2)
+            + (diameters[slot - 1] // 2)
+            + COMMAND_BUTTON_GAP
+        )
+        horizontal_delta = int(
+            math.sqrt(
+                (target_distance * target_distance)
+                - (vertical_delta * vertical_delta)
+            )
+            + 0.5
+        )
+        centers_x[slot - 1] = centers_x[slot] - horizontal_delta
+    for slot in range(main_index + 1, count):
+        vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
+        target_distance = (
+            (diameters[slot - 1] // 2)
+            + (diameters[slot] // 2)
+            + COMMAND_BUTTON_GAP
+        )
+        horizontal_delta = int(
+            math.sqrt(
+                (target_distance * target_distance)
+                - (vertical_delta * vertical_delta)
+            )
+            + 0.5
+        )
+        centers_x[slot] = centers_x[slot - 1] + horizontal_delta
+
+    diameter = diameters[index]
+    return (
+        centers_x[index] - (diameter // 2),
+        centers_y[index] - (diameter // 2),
+        diameter,
+    )
 
 
 # Resolve assets in both source runs and PyInstaller bundles.
@@ -135,8 +224,14 @@ class QSeeSimulator:
         self.atmosphere_image = self._build_atmosphere()
         self.status_glow_image = self._build_status_glow()
         self.button_images = {
-            False: self._build_command_button(False),
-            True: self._build_command_button(True),
+            (success, diameter): self._build_command_button(success, diameter)
+            for success in (False, True)
+            for diameter in (
+                COMMAND_MIN_DIAMETER,
+                COMMAND_MAIN_DIAMETER - COMMAND_DIAMETER_STEP,
+                EDGE_COMMAND_DIAMETER,
+                COMMAND_MAIN_DIAMETER,
+            )
         }
         self.effect_images: list[ImageTk.PhotoImage] = []
         self._load_assets(play_sound)
@@ -188,8 +283,9 @@ class QSeeSimulator:
         )
 
     def _build_atmosphere(self) -> ImageTk.PhotoImage:
-        start = ImageColor.getrgb("#0b2733")
-        end = ImageColor.getrgb("#010205")
+        start = ImageColor.getrgb("#0d3547")
+        end = ImageColor.getrgb("#010407")
+        lower_blue = ImageColor.getrgb("#071b34")
         pixels: list[tuple[int, int, int, int]] = []
         for y in range(DISPLAY_SIZE):
             for x in range(DISPLAY_SIZE):
@@ -199,11 +295,28 @@ class QSeeSimulator:
                 else:
                     alpha = 255
 
-                progress = min(math.hypot(x - 233, y - 158) / 386, 1.0)
+                progress = min(math.hypot(x - 233, y - 158) / 368, 1.0)
                 progress = progress * progress * (3.0 - (2.0 * progress))
-                channels = tuple(
+                upper_channels = tuple(
                     round(a + ((b - a) * progress))
                     for a, b in zip(start, end)
+                )
+                lower_strength = max(
+                    0.0,
+                    1.0 - (math.hypot(x - 278, y - 286) / 282),
+                ) ** 2
+                vignette = 1.0 - (
+                    max(0.0, min((screen_distance - 152) / 82, 1.0)) * 0.72
+                )
+                channels = tuple(
+                    round(
+                        min(
+                            255,
+                            (channel * vignette) +
+                            (lower * lower_strength * 0.42),
+                        )
+                    )
+                    for channel, lower in zip(upper_channels, lower_blue)
                 )
                 pixels.append((*channels, alpha))
 
@@ -217,30 +330,107 @@ class QSeeSimulator:
         )
         return ImageTk.PhotoImage(image)
 
+    def _draw_panel(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        *,
+        top: str = "#0d2735",
+        bottom: str = "#07131c",
+        border: str = "#24536a",
+        glow: str = STATUS_GLOW,
+        glow_alpha: int = 42,
+        radius: int = 14,
+    ) -> None:
+        scale = 4
+        pad = 10
+        image_size = ((width + (pad * 2)) * scale, (height + (pad * 2)) * scale)
+        image = Image.new("RGBA", image_size, (0, 0, 0, 0))
+        bounds = (
+            pad * scale,
+            pad * scale,
+            (pad + width - 1) * scale,
+            (pad + height - 1) * scale,
+        )
+
+        if glow_alpha > 0:
+            glow_layer = Image.new("RGBA", image_size, (0, 0, 0, 0))
+            ImageDraw.Draw(glow_layer).rounded_rectangle(
+                bounds,
+                radius=radius * scale,
+                fill=(*ImageColor.getrgb(glow), glow_alpha),
+            )
+            image.alpha_composite(
+                glow_layer.filter(ImageFilter.GaussianBlur(7 * scale))
+            )
+
+        mask = Image.new("L", image_size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            bounds,
+            radius=radius * scale,
+            fill=255,
+        )
+        gradient = Image.new("RGBA", image_size, (0, 0, 0, 0))
+        gradient_draw = ImageDraw.Draw(gradient)
+        top_rgb = ImageColor.getrgb(top)
+        bottom_rgb = ImageColor.getrgb(bottom)
+        for row in range(height * scale):
+            progress = row / max(1, (height * scale) - 1)
+            color = tuple(
+                round(a + ((b - a) * progress))
+                for a, b in zip(top_rgb, bottom_rgb)
+            )
+            gradient_draw.line(
+                (
+                    (pad * scale, (pad * scale) + row),
+                    ((pad + width) * scale, (pad * scale) + row),
+                ),
+                fill=(*color, 244),
+            )
+        image.alpha_composite(
+            Image.composite(gradient, Image.new("RGBA", image_size), mask)
+        )
+
+        image = image.resize(
+            (width + (pad * 2), height + (pad * 2)),
+            Image.Resampling.LANCZOS,
+        )
+        ImageDraw.Draw(image).rounded_rectangle(
+            (pad, pad, pad + width - 1, pad + height - 1),
+            radius=radius,
+            outline=(*ImageColor.getrgb(border), 225),
+            width=CONTROL_BORDER_PX,
+        )
+        photo = ImageTk.PhotoImage(image)
+        self.effect_images.append(photo)
+        self.canvas.create_image(
+            x - pad,
+            y - pad,
+            image=photo,
+            anchor="nw",
+            tags="ui",
+        )
+
     def _build_status_glow(self) -> ImageTk.PhotoImage:
         image = Image.new("RGBA", (DISPLAY_SIZE, DISPLAY_SIZE), (0, 0, 0, 0))
         draw = ImageDraw.Draw(image)
-        points = (
-            (95, 63),
-            (141, 40),
-            (188, 27),
-            (233, 23),
-            (278, 27),
-            (325, 40),
-            (371, 63),
-        )
         draw.line(
-            points,
-            fill=(*ImageColor.getrgb(STATUS_GLOW), 145),
-            width=54,
+            STATUS_CURVE_POINTS,
+            fill=(*ImageColor.getrgb(STATUS_GLOW), 80),
+            width=10,
             joint="curve",
         )
-        return ImageTk.PhotoImage(image.filter(ImageFilter.GaussianBlur(7)))
+        return ImageTk.PhotoImage(image.filter(ImageFilter.GaussianBlur(5)))
 
-    def _build_command_button(self, success: bool) -> ImageTk.PhotoImage:
+    def _build_command_button(
+        self,
+        success: bool,
+        circle_size: int,
+    ) -> ImageTk.PhotoImage:
         scale = 4
-        sprite_size = 78
-        circle_size = 54
+        sprite_size = circle_size + 24
         pad = (sprite_size - circle_size) // 2
         top = SUCCESS_TOP if success else PRIMARY_TOP
         bottom = SUCCESS_BOTTOM if success else PRIMARY_BOTTOM
@@ -446,7 +636,7 @@ class QSeeSimulator:
                 )
 
     def _draw_status_bar(self) -> None:
-        points = (95, 63, 141, 40, 188, 27, 233, 23, 278, 27, 325, 40, 371, 63)
+        points = tuple(coordinate for point in STATUS_CURVE_POINTS for coordinate in point)
         self.canvas.create_image(
             0,
             0,
@@ -457,17 +647,7 @@ class QSeeSimulator:
         self.canvas.create_line(
             *points,
             fill=STATUS_EDGE,
-            width=50,
-            smooth=True,
-            splinesteps=24,
-            capstyle=tk.ROUND,
-            joinstyle=tk.ROUND,
-            tags="ui",
-        )
-        self.canvas.create_line(
-            *points,
-            fill=BACKGROUND,
-            width=44,
+            width=2,
             smooth=True,
             splinesteps=24,
             capstyle=tk.ROUND,
@@ -502,43 +682,39 @@ class QSeeSimulator:
         y: int,
         icon: str,
         success: bool,
+        diameter: int = EDGE_COMMAND_DIAMETER,
     ) -> None:
         icon_x, icon_y = {
-            "≡": (0, -1),
-            "♫": (0, -1),
-            "➤": (1, -1),
-            "▰": (0, -1),
-            "▥": (0, -1),
+            "➤": (1, 0),
             "i": (0, -1),
-            "⚙": (0, -1),
             "‹": (0, -2),
-        }.get(icon, (0, -1))
+        }.get(icon, (0, 0))
         self.canvas.create_image(
-            x + 27,
-            y + 27,
-            image=self.button_images[success],
+            x + (diameter / 2),
+            y + (diameter / 2),
+            image=self.button_images[(success, diameter)],
             tags="ui",
         )
         self.canvas.create_text(
-            x + 27 + icon_x,
-            y + 27 + icon_y,
+            x + (diameter / 2) + icon_x,
+            y + (diameter / 2) + icon_y,
             text=icon,
             fill="#ffffff",
-            font=("Segoe UI Symbol", 20, "bold"),
+            font=("Segoe UI Symbol", 18, "bold"),
             tags="ui",
         )
 
     def _draw_command_arc(self) -> None:
         commands = (
-            (56, 330, "≡", False),
-            (114, 344, "♫", False),
-            (172, 360, "➤", True),
-            (230, 360, "▰", True),
-            (288, 344, "i", False),
-            (346, 330, "⚙", False),
+            ("≡", False),
+            ("♫", False),
+            ("▰", True),
+            ("➤", True),
+            ("⚙", False),
         )
-        for x, y, icon, success in commands:
-            self._draw_command_button(x, y, icon, success)
+        for index, (icon, success) in enumerate(commands):
+            x, y, diameter = command_geometry(len(commands), index)
+            self._draw_command_button(x, y, icon, success, diameter)
 
     def _draw_edge_back(self) -> None:
         self._draw_command_button(10, 203, "‹", True)
@@ -549,7 +725,7 @@ class QSeeSimulator:
             108,
             text=f"SYNTHETIC · {self.scenario.name}",
             fill=MUTED,
-            font=("Segoe UI", 9, "bold"),
+            font=(FONT_DISPLAY, 8),
             tags="ui",
         )
 
@@ -559,7 +735,7 @@ class QSeeSimulator:
         if self.boot_image is not None:
             self.canvas.create_image(233, 233, image=self.boot_image, tags="ui")
         else:
-            self.canvas.create_text(233, 135, text="QSee.ai", fill=BLUE, font=("Segoe UI", 36, "bold"), tags="ui")
+            self.canvas.create_text(233, 135, text="QSee.ai", fill=BLUE, font=(FONT_DISPLAY, 34), tags="ui")
         self._draw_scenario_label()
         self.canvas.create_rectangle(73, 222, 393, 374, fill=NAVY, outline=BLUE, width=1, tags="ui")
         self.canvas.create_text(
@@ -629,26 +805,28 @@ class QSeeSimulator:
         elif (
             10 <= event.x <= 70
             and 203 <= event.y <= 263
-            and self.screen in {"audio", "fft", "imu"}
+            and self.screen in {"audio", "fft", "fft-detail", "imu"}
         ):
             self.back()
-        elif 114 <= event.x <= 168 and 344 <= event.y <= 398 and self.screen == "home":
+        elif 147 <= event.x <= 203 and 346 <= event.y <= 402 and self.screen == "home":
             self.show_audio_demo()
-        elif 172 <= event.x <= 226 and 360 <= event.y <= 414 and self.screen == "home":
+        elif 263 <= event.x <= 319 and 346 <= event.y <= 402 and self.screen == "home":
             self.show_imu_demo()
-        elif 346 <= event.x <= 400 and 330 <= event.y <= 384 and self.screen == "home":
+        elif 316 <= event.x <= 370 and 322 <= event.y <= 376 and self.screen == "home":
             self.show_settings_demo()
-        elif 206 <= event.x <= 260 and 362 <= event.y <= 416 and self.screen == "audio":
+        elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "audio":
             self.show_audio_fft_demo()
+        elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "fft":
+            self.show_audio_detail_demo()
 
     def _draw_page_heading(self, title: str, subtitle: str) -> None:
         self.canvas.create_text(
             94,
-            112,
+            110,
             anchor="w",
             text=title,
             fill=TEXT,
-            font=("Segoe UI", 17, "bold"),
+            font=(FONT_DISPLAY, 18),
             tags="ui",
         )
         self.canvas.create_text(
@@ -656,53 +834,50 @@ class QSeeSimulator:
             136,
             anchor="w",
             text=subtitle,
-            fill=MUTED,
-            font=("Segoe UI", 10),
+            fill=MUTED_BRIGHT,
+            font=(FONT_BODY, 10),
+            tags="ui",
+        )
+        self.canvas.create_line(
+            94,
+            154,
+            126,
+            154,
+            fill=STATUS_READY,
+            width=2,
+            capstyle=tk.ROUND,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            134,
+            154,
+            372,
+            154,
+            fill="#163545",
+            width=1,
             tags="ui",
         )
 
     def _draw_settings_control(self, y: int, value: str) -> None:
-        scale = 4
-        width = 282
-        height = 44
-        image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
-        mask = Image.new("L", image.size, 0)
-        ImageDraw.Draw(mask).rounded_rectangle(
-            (0, 0, image.width - 1, image.height - 1),
-            radius=10 * scale,
-            fill=255,
-        )
-        gradient = Image.new("RGBA", image.size, (0, 0, 0, 0))
-        draw = ImageDraw.Draw(gradient)
-        top = ImageColor.getrgb("#173145")
-        bottom = ImageColor.getrgb("#0d1a24")
-        for row in range(image.height):
-            progress = row / max(1, image.height - 1)
-            color = tuple(
-                round(a + ((b - a) * progress))
-                for a, b in zip(top, bottom)
-            )
-            draw.line(((0, row), (image.width, row)), fill=(*color, 245))
-        image.alpha_composite(
-            Image.composite(gradient, Image.new("RGBA", image.size), mask)
-        )
-        image = image.resize((width, height), Image.Resampling.LANCZOS)
-        ImageDraw.Draw(image).rounded_rectangle(
-            (0, 0, width - 1, height - 1),
+        self._draw_panel(
+            92,
+            y,
+            282,
+            44,
+            top="#173145",
+            bottom="#0d1a24",
+            border="#3a6c83",
+            glow="#0b55d9",
+            glow_alpha=25,
             radius=10,
-            outline=(*ImageColor.getrgb("#3a6c83"), 220),
-            width=CONTROL_BORDER_PX,
         )
-        photo = ImageTk.PhotoImage(image)
-        self.effect_images.append(photo)
-        self.canvas.create_image(92, y, image=photo, anchor="nw", tags="ui")
         self.canvas.create_text(
             106,
             y + 22,
             anchor="w",
             text=value,
             fill=TEXT,
-            font=("Segoe UI", 11, "bold"),
+            font=(FONT_DISPLAY, 10),
             tags="ui",
         )
         self.canvas.create_text(
@@ -725,7 +900,7 @@ class QSeeSimulator:
             anchor="w",
             text=title.upper(),
             fill=TEXT,
-            font=("Segoe UI", 18, "bold"),
+            font=(FONT_DISPLAY, 19),
             tags="ui",
         )
         self.canvas.create_text(
@@ -733,13 +908,32 @@ class QSeeSimulator:
             160,
             anchor="nw",
             text=message,
-            width=250,
+            width=300 if primary else 258,
             justify="left",
-            fill=MUTED,
-            font=("Segoe UI", 9),
+            fill=MUTED_BRIGHT,
+            font=(FONT_BODY, 9),
             tags="ui",
         )
         if primary:
+            self.canvas.create_line(
+                118,
+                188,
+                150,
+                188,
+                fill=STATUS_READY,
+                width=2,
+                capstyle=tk.ROUND,
+                tags="ui",
+            )
+            self.canvas.create_line(
+                158,
+                188,
+                350,
+                184,
+                fill="#163545",
+                width=1,
+                tags="ui",
+            )
             self._draw_home_telemetry()
             self._draw_command_arc()
         if actions:
@@ -754,6 +948,15 @@ class QSeeSimulator:
             ("PSRAM", "625/4380 KB", 0.14, STATUS_READY),
             ("FLASH APP", "3508/8192 KB", 0.42, BLUE),
         )
+        self.canvas.create_text(
+            116,
+            197,
+            anchor="w",
+            text="MEMORY / STORAGE",
+            fill="#51c7f2",
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
         y = 210
         for label, value, ratio, color in telemetry:
             self.canvas.create_text(
@@ -762,7 +965,7 @@ class QSeeSimulator:
                 anchor="w",
                 text=label,
                 fill=TEXT,
-                font=("Segoe UI", 9, "bold"),
+                font=(FONT_DISPLAY, 9),
                 tags="ui",
             )
             self.canvas.create_text(
@@ -771,7 +974,7 @@ class QSeeSimulator:
                 anchor="e",
                 text=value,
                 fill=TEXT,
-                font=("Consolas", 9, "bold"),
+                font=(FONT_TECH, 9, "bold"),
                 tags="ui",
             )
             self.canvas.create_line(
@@ -794,44 +997,44 @@ class QSeeSimulator:
                 capstyle=tk.ROUND,
                 tags="ui",
             )
-            y += 48
+            y += 42
 
         wifi_color = STATUS_WARNING
         gps_color = STATUS_WARNING if self.scenario.name == "GPS SEARCHING" else STATUS_READY
         self.canvas.create_text(
             116,
-            307,
+            290,
             anchor="w",
             text="WIFI",
             fill=wifi_color,
-            font=("Segoe UI", 9, "bold"),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
             350,
-            307,
+            290,
             anchor="e",
             text="NOT CONFIGURED",
             fill=wifi_color,
-            font=("Consolas", 8, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
             116,
-            324,
+            307,
             anchor="w",
             text="GPS",
             fill=gps_color,
-            font=("Segoe UI", 9, "bold"),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
             350,
-            324,
+            307,
             anchor="e",
             text="SEARCHING" if self.scenario.name == "GPS SEARCHING" else "3D FIX",
             fill=gps_color,
-            font=("Consolas", 8, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
 
@@ -852,58 +1055,107 @@ class QSeeSimulator:
         self._draw_page_heading("SETTINGS", "All controls · swipe to scroll")
         self.canvas.create_text(
             94,
-            169,
+            174,
             anchor="w",
             text="DIAGNOSTICS",
             fill=STATUS_READY,
-            font=("Segoe UI", 14, "bold"),
+            font=(FONT_DISPLAY, 14),
             tags="ui",
         )
         self.canvas.create_text(
             94,
-            191,
+            196,
             anchor="w",
-            text="Sampling cadence and motion filtering",
-            fill=MUTED,
-            font=("Segoe UI", 9),
+            text="Full snapshots and live diagnostics",
+            fill=MUTED_BRIGHT,
+            font=(FONT_BODY, 9),
             tags="ui",
         )
         self.canvas.create_text(
             94,
             220,
             anchor="w",
-            text="Sampling interval  |  300 ms",
+            text="Full Snapshot cadence",
             fill=TEXT,
-            font=("Segoe UI", 10, "bold"),
+            font=(FONT_DISPLAY, 10),
             tags="ui",
         )
-        self._draw_settings_control(235, "300 ms")
+        self._draw_settings_control(236, "1 Hz")
         self.canvas.create_text(
             94,
-            300,
+            292,
             anchor="w",
-            text="IMU input smoothing  |  70%",
-            fill=TEXT,
-            font=("Segoe UI", 10, "bold"),
+            text="ACTIVE · ONE SERIAL SNAPSHOT WORKER",
+            fill=MUTED,
+            font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
-        self._draw_settings_control(315, "70% · balanced")
+        self.canvas.create_text(
+            94,
+            316,
+            anchor="w",
+            text="Diagnostic Stream",
+            fill=TEXT,
+            font=(FONT_DISPLAY, 10),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            338,
+            anchor="w",
+            text="300 ms · LIVE ROUTES ONLY",
+            fill="#51c7f2",
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        x, y, diameter = command_geometry(1, 0)
+        self._draw_command_button(x, y, "➤", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
-    def _draw_audio_bars(self, y: int, color_start: str, color_end: str, offset: int) -> None:
-        # The simulator keeps the same fast, low-memory bar shape as the target UI.
-        widths = (8, 11, 14, 18, 22, 28, 35, 43, 51, 59, 67, 73, 78, 70, 61, 50)
-        for index, base in enumerate(widths):
-            value = base + int(10 * math.sin((self.audio_phase + index * 3 + offset) / 4.0))
-            x = 98 + index * 16
+    def _draw_audio_bars(
+        self,
+        baseline: int,
+        max_height: int,
+        color_start: str,
+        color_end: str,
+        offset: int,
+    ) -> None:
+        profile = (
+            0.18, 0.24, 0.31, 0.39, 0.48, 0.61, 0.74, 0.88,
+            1.00, 0.94, 0.84, 0.70, 0.58, 0.46, 0.36, 0.27,
+        )
+        for index, base in enumerate(profile):
+            motion = 0.08 * math.sin(
+                (self.audio_phase + (index * 3) + offset) / 4.0
+            )
+            value = max(4, int(max_height * max(0.08, min(1.0, base + motion))))
+            x = 102 + (index * 16)
             self.canvas.create_rectangle(
                 x,
-                y + 82 - value,
-                x + 10,
-                y + 82,
+                baseline - max_height,
+                x + 9,
+                baseline,
+                fill="#0b2632",
+                outline="",
+                tags="audio",
+            )
+            self.canvas.create_rectangle(
+                x,
+                baseline - value,
+                x + 9,
+                baseline,
                 fill=color_start if index < 8 else color_end,
                 outline="",
+                tags="audio",
+            )
+            self.canvas.create_line(
+                x + 1,
+                baseline - value,
+                x + 8,
+                baseline - value,
+                fill="#c9f7ff",
+                width=1,
                 tags="audio",
             )
 
@@ -914,23 +1166,77 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "AUDIO SCOPE",
-            "Synthetic levels · ES7210 · 22.05 kHz",
+            "Synthetic dual-channel · 22.05 kHz",
         )
-
-        self.canvas.create_text(84, 160, text="MIC 1", anchor="w", fill="#61d8ff", font=("Segoe UI", 9, "bold"), tags="ui")
-        self.canvas.create_text(84, 242, text="MIC 2", anchor="w", fill="#ff9d5c", font=("Segoe UI", 9, "bold"), tags="ui")
-        self._draw_audio_bars(150, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(232, "#ffad3d", "#77e37c", 9)
+        self._draw_panel(
+            92,
+            164,
+            282,
+            166,
+            top="#0c2633",
+            bottom="#06131c",
+            border="#24536a",
+            glow_alpha=36,
+            radius=15,
+        )
+        self.canvas.create_text(
+            102,
+            180,
+            text="MIC 1",
+            anchor="w",
+            fill="#61d8ff",
+            font=(FONT_DISPLAY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            364,
+            180,
+            text="-12.4 dBFS",
+            anchor="e",
+            fill=TEXT,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            102,
+            254,
+            text="MIC 2",
+            anchor="w",
+            fill="#ff9d5c",
+            font=(FONT_DISPLAY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            364,
+            254,
+            text="-18.1 dBFS",
+            anchor="e",
+            fill=TEXT,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_line(
+            102,
+            246,
+            364,
+            246,
+            fill="#183949",
+            width=1,
+            tags="ui",
+        )
+        self._draw_audio_bars(239, 43, "#27bdf2", "#c168ff", 0)
+        self._draw_audio_bars(313, 43, "#ffad3d", "#77e37c", 9)
 
         self.canvas.create_text(
             233,
-            332,
-            text="CPU UTILIZATION UNAVAILABLE",
+            347,
+            text="PCM16 · 2 CHANNELS     CPU UNAVAILABLE",
             fill=STATUS_WARNING,
-            font=("Consolas", 8, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
-        self._draw_command_button(206, 362, "▥", True)
+        x, y, diameter = command_geometry(1, 0)
+        self._draw_command_button(x, y, "▥", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
         self._animate_audio()
@@ -945,28 +1251,220 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "AUDIO FFT",
-            "Synthetic spectrum · 16 bands",
+            "Mean of Mic 1 + Mic 2 · 16 bands",
         )
-        heights = (18, 29, 42, 64, 88, 117, 144, 128, 101, 80, 66, 52, 41, 31, 24, 17)
+        self._draw_panel(
+            92,
+            164,
+            282,
+            174,
+            top="#0c2633",
+            bottom="#06131c",
+            border="#24536a",
+            glow_alpha=36,
+            radius=15,
+        )
+        self.canvas.create_text(
+            104,
+            179,
+            anchor="w",
+            text="DOMINANT",
+            fill=MUTED,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            104,
+            194,
+            anchor="w",
+            text="1.72 kHz",
+            fill=STATUS_READY,
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            362,
+            179,
+            anchor="e",
+            text="PEAK",
+            fill=MUTED,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            362,
+            194,
+            anchor="e",
+            text="-8.4 dBFS",
+            fill="#f0b44d",
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        for y, label in ((218, "0"), (263, "-30"), (308, "-60")):
+            self.canvas.create_line(
+                108,
+                y,
+                360,
+                y,
+                fill="#173746",
+                width=1,
+                tags="ui",
+            )
+            self.canvas.create_text(
+                102,
+                y,
+                anchor="e",
+                text=label,
+                fill="#55778a",
+                font=(FONT_TECH, 6),
+                tags="ui",
+            )
+        heights = (
+            12, 20, 31, 45, 62, 82, 102, 92,
+            75, 60, 49, 39, 31, 24, 18, 13,
+        )
         for index, height in enumerate(heights):
-            x = 100 + index * 17
+            x = 108 + index * 15
             color = "#27bdf2" if index < 6 else "#2be7d0" if index < 11 else "#f0b44d"
             self.canvas.create_rectangle(
                 x,
-                310 - height,
-                x + 11,
-                310,
+                309 - height,
+                x + 9,
+                309,
                 fill=color,
                 outline="",
                 tags="ui",
             )
-        self.canvas.create_line(100, 310, 366, 310, fill=TRACK, width=2, tags="ui")
+            self.canvas.create_line(
+                x + 1,
+                309 - height,
+                x + 8,
+                309 - height,
+                fill="#d5fbff",
+                width=1,
+                tags="ui",
+            )
+        self.canvas.create_text(
+            108,
+            325,
+            anchor="w",
+            text="125 Hz",
+            fill=MUTED,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            234,
+            325,
+            text="1 kHz",
+            fill=MUTED,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            360,
+            325,
+            anchor="e",
+            text="8 kHz",
+            fill=MUTED,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
         self.canvas.create_text(
             233,
-            334,
-            text="CANONICAL ROUTE · SYNTHETIC VALUES",
-            fill=MUTED,
-            font=("Consolas", 8),
+            352,
+            text="SELECTED-BIN SPECTRUM · CANONICAL SNAPSHOT",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
+        x, y, diameter = command_geometry(1, 0)
+        self._draw_command_button(x, y, "▥", True, diameter)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_audio_detail_demo(self) -> None:
+        self.screen = "fft-detail"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "AUDIO DETAIL",
+            "Mic 1 + Mic 2 · 16 DFT bands",
+        )
+        self._draw_panel(
+            92,
+            164,
+            282,
+            188,
+            top="#0c2633",
+            bottom="#06131c",
+            border="#24536a",
+            glow_alpha=36,
+            radius=15,
+        )
+        self.canvas.create_text(
+            104,
+            179,
+            anchor="w",
+            text="MIC 1  ·  BLUE → MAGENTA",
+            fill="#78cfff",
+            font=(FONT_DISPLAY, 8),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            104,
+            265,
+            anchor="w",
+            text="MIC 2  ·  ORANGE → GREEN",
+            fill="#ffca70",
+            font=(FONT_DISPLAY, 8),
+            tags="ui",
+        )
+        mic1_colors = (
+            "#078dff", "#0b9dff", "#10afff", "#12c5ff",
+            "#16d9ff", "#28e4f2", "#45d9ee", "#5abcfb",
+            "#709dff", "#8780ff", "#a466ff", "#bd51ff",
+            "#d342ff", "#e834f8", "#f62de7", "#ff35cf",
+        )
+        mic2_colors = (
+            "#ff8700", "#ff9500", "#ffa400", "#ffb300",
+            "#ffc000", "#ffcb19", "#ffd43b", "#f4dd4b",
+            "#e6e45a", "#d4e660", "#bfe365", "#a8df6b",
+            "#8fdb77", "#72d98b", "#4dd6a3", "#25d3bb",
+        )
+        mic1_heights = (16, 28, 22, 39, 31, 48, 42, 27, 35, 43, 30, 52, 45, 34, 25, 38)
+        mic2_heights = (43, 34, 51, 28, 39, 47, 32, 55, 45, 37, 29, 41, 48, 35, 24, 31)
+        for baseline, colors, heights in (
+            (250, mic1_colors, mic1_heights),
+            (336, mic2_colors, mic2_heights),
+        ):
+            for index, height in enumerate(heights):
+                x = 108 + index * 15
+                self.canvas.create_rectangle(
+                    x,
+                    baseline - height,
+                    x + 9,
+                    baseline,
+                    fill=colors[index],
+                    outline="",
+                    tags="ui",
+                )
+                self.canvas.create_line(
+                    x + 1,
+                    baseline - height,
+                    x + 8,
+                    baseline - height,
+                    fill="#f3ffff",
+                    width=1,
+                    tags="ui",
+                )
+        self.canvas.create_text(
+            233,
+            370,
+            text="LIVE DETAIL · TWO MICS",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7),
             tags="ui",
         )
         self._draw_edge_back()
@@ -979,15 +1477,147 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "IMU LEVEL",
-            "QMI8658 · synthetic calibration view",
+            "QMI8658 · synthetic attitude",
         )
-        self.canvas.create_oval(158, 151, 308, 301, outline="#2a6174", width=2, fill="#0d171e", tags="ui")
-        self.canvas.create_line(178, 226, 288, 226, fill="#29404b", tags="ui")
-        self.canvas.create_line(233, 171, 233, 281, fill="#29404b", tags="ui")
-        self.canvas.create_oval(218, 211, 248, 241, fill="#5be4ff", outline="#d8faff", width=2, tags="ui")
-        self.canvas.create_text(96, 320, text="ACC  X +0.02  Y -0.04  Z +9.79 m/s²", anchor="w", fill="#61d8ff", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(96, 340, text="GYRO X +0.10  Y -0.03  Z +0.02 dps", anchor="w", fill="#ff9d5c", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(96, 360, text="CALIBRATION READY · COMPASS UNAVAILABLE", anchor="w", fill=STATUS_READY, font=("Consolas", 8), tags="ui")
+        self._draw_panel(
+            112,
+            164,
+            242,
+            176,
+            top="#0c2633",
+            bottom="#06131c",
+            border="#24536a",
+            glow_alpha=34,
+            radius=18,
+        )
+        self.canvas.create_text(
+            126,
+            180,
+            anchor="w",
+            text="ROLL",
+            fill=MUTED,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            126,
+            195,
+            anchor="w",
+            text="+0.1°",
+            fill="#61d8ff",
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            340,
+            180,
+            anchor="e",
+            text="PITCH",
+            fill=MUTED,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            340,
+            195,
+            anchor="e",
+            text="-0.3°",
+            fill="#ff9d5c",
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        center_x = 233
+        center_y = 261
+        radius = 58
+        self._draw_glow_disc(center_x, center_y, radius, "#0a8fc7", 42)
+        self.canvas.create_oval(
+            center_x - radius,
+            center_y - radius,
+            center_x + radius,
+            center_y + radius,
+            outline="#2d708c",
+            width=1,
+            fill="#081821",
+            tags="ui",
+        )
+        for angle in range(0, 360, 45):
+            radians = math.radians(angle)
+            inner = radius - 6
+            outer = radius
+            self.canvas.create_line(
+                center_x + (math.cos(radians) * inner),
+                center_y + (math.sin(radians) * inner),
+                center_x + (math.cos(radians) * outer),
+                center_y + (math.sin(radians) * outer),
+                fill="#5f91a5",
+                width=1,
+                tags="ui",
+            )
+        self.canvas.create_line(
+            center_x - 48,
+            center_y,
+            center_x + 48,
+            center_y,
+            fill="#294957",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            center_x,
+            center_y - 48,
+            center_x,
+            center_y + 48,
+            fill="#294957",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            center_x - 46,
+            center_y + 3,
+            center_x + 46,
+            center_y - 3,
+            fill=STATUS_READY,
+            width=2,
+            capstyle=tk.ROUND,
+            tags="ui",
+        )
+        self._draw_glow_disc(center_x + 5, center_y - 7, 15, "#5be4ff", 100)
+        self.canvas.create_oval(
+            center_x - 9,
+            center_y - 21,
+            center_x + 19,
+            center_y + 7,
+            fill="#5be4ff",
+            outline="#d8faff",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_text(
+            96,
+            356,
+            text="ACC   X +0.02   Y -0.04   Z +9.79 m/s²",
+            anchor="w",
+            fill="#61d8ff",
+            font=(FONT_TECH, 8),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            96,
+            374,
+            text="GYRO  X +0.10   Y -0.03   Z +0.02 dps",
+            anchor="w",
+            fill="#ff9d5c",
+            font=(FONT_TECH, 8),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            394,
+            text="CALIBRATED  |  COMPASS UNAVAILABLE",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -996,8 +1626,8 @@ class QSeeSimulator:
             return
         self.audio_phase += 1
         self.canvas.delete("audio")
-        self._draw_audio_bars(150, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(232, "#ffad3d", "#77e37c", 9)
+        self._draw_audio_bars(239, 43, "#27bdf2", "#c168ff", 0)
+        self._draw_audio_bars(313, 43, "#ffad3d", "#77e37c", 9)
         self.audio_timer = self.root.after(70, self._animate_audio)
 
     def show_confirmation(self) -> None:
@@ -1026,7 +1656,7 @@ class QSeeSimulator:
         self.show_home()
 
     def back(self) -> None:
-        if self.screen in {"audio", "fft", "imu", "settings"}:
+        if self.screen in {"audio", "fft", "fft-detail", "imu", "settings"}:
             if self.audio_timer is not None:
                 self.root.after_cancel(self.audio_timer)
                 self.audio_timer = None
@@ -1058,7 +1688,7 @@ def main() -> None:
     parser.add_argument("--scenario", choices=SCENARIOS, default="healthy")
     parser.add_argument(
         "--screen",
-        choices=("home", "settings", "audio", "fft", "imu"),
+        choices=("home", "settings", "audio", "fft", "fft-detail", "imu"),
         default="home",
     )
     parser.add_argument("--capture", type=Path)
@@ -1086,6 +1716,7 @@ def main() -> None:
             "settings": simulator.show_settings_demo,
             "audio": simulator.show_audio_demo,
             "fft": simulator.show_audio_fft_demo,
+            "fft-detail": simulator.show_audio_detail_demo,
             "imu": simulator.show_imu_demo,
         }[args.screen]()
         root.geometry("+100+100")
