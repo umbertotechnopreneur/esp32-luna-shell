@@ -9,6 +9,14 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1
 .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
 .\simulator\windows\run-simulator.ps1 -Scenario gps-searching
+.\simulator\windows\run-simulator.ps1 -Screen settings
+```
+
+Capture the current synthetic home screen without touching a device:
+
+```powershell
+.\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
+.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
 ```
 
 Controls:
@@ -19,6 +27,12 @@ Controls:
 - `C`: open confirmation
 - `R`: reboot the synthetic device
 - `F2`: show or hide the 320 x 320 safe-area guide
+
+The persistent upper status ribbon and lower adaptive command arc reproduce the
+firmware geometry, visual hierarchy, and semantic color roles. The Windows
+renderer uses antialiased radial atmosphere, gradients, and restrained bloom so
+captures remain representative of the AMOLED design rather than raw Tk canvas
+primitives. The displayed values remain deterministic simulator-only data.
 
 Build the standalone Windows executable:
 
@@ -31,13 +45,10 @@ the executable to `simulator/windows/dist/QSeeDeviceSimulator.exe`.
 
 ## Audio scope demo
 
-After the synthetic boot completes, click `OPEN AUDIO SCOPE`. The page is a
-black, high-refresh preview of the two-microphone layout. Press `Esc` to
-return. The simulator bars and CPU percentages are deliberately synthetic;
-the firmware page reads memory, task, priority, stack watermark, and audio
-health from `DeviceSnapshotService`. CPU utilization remains explicitly
-unavailable because runtime statistics are disabled in the current
-configuration.
+After the synthetic boot completes, click the Audio command. The page is a
+high-refresh preview of the two-microphone layout. Press `Esc` to return. The
+simulator bars are deliberately synthetic and visibly labelled; CPU utilization
+is shown as unavailable rather than invented.
 
 The firmware audio snapshot now carries two interleaved ES7210 channel levels,
 while the firmware IMU page consumes calibrated QMI8658 acceleration,

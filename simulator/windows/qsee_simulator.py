@@ -8,6 +8,7 @@ synthetic PMU, IMU, GPS, Wi-Fi, BLE, SD, and logger data.
 from __future__ import annotations
 
 import argparse
+import ctypes
 import math
 import queue
 import sys
@@ -18,14 +19,33 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
+from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageTk
+
 
 DISPLAY_SIZE = 466
 SAFE_ORIGIN = 73
 SAFE_SIZE = 320
-BLUE = "#2f80ed"
+BLUE = "#247fd6"
 NAVY = "#071a2c"
 MUTED = "#69849c"
-BACKGROUND = "#f7fbff"
+BACKGROUND = "#010609"
+SURFACE = "#111922"
+TEXT = "#f3f7fa"
+TRACK = "#263744"
+STATUS_EDGE = "#0a8fc7"
+STATUS_GLOW = "#075f7d"
+STATUS_READY = "#00e7c5"
+STATUS_WARNING = "#ffb547"
+STATUS_MISSING = "#ff5a6a"
+PRIMARY_TOP = "#247fd6"
+PRIMARY_BOTTOM = "#0a346b"
+PRIMARY_BORDER = "#65c8ff"
+PRIMARY_GLOW = "#0b55d9"
+SUCCESS_TOP = "#0ab49d"
+SUCCESS_BOTTOM = "#045a51"
+SUCCESS_BORDER = "#38f1d7"
+SUCCESS_GLOW = "#009c9d"
+CONTROL_BORDER_PX = 1
 
 
 # Resolve assets in both source runs and PyInstaller bundles.
@@ -83,7 +103,7 @@ SCENARIOS = {
 
 
 class QSeeSimulator:
-    def __init__(self, root: tk.Tk, scenario: Scenario) -> None:
+    def __init__(self, root: tk.Tk, scenario: Scenario, play_sound: bool = True) -> None:
         self.root = root
         self.scenario = scenario
         self.logger = CanonicalLogger()
@@ -95,7 +115,16 @@ class QSeeSimulator:
             background="#101820",
         )
         self.canvas.pack(padx=18, pady=18)
-        self.canvas.create_oval(0, 0, 465, 465, fill="white", outline=BLUE, width=3, tags="bezel")
+        self.canvas.create_oval(
+            0,
+            0,
+            465,
+            465,
+            fill=BACKGROUND,
+            outline=STATUS_EDGE,
+            width=1,
+            tags="bezel",
+        )
         self.screen = "boot"
         self.audio_phase = 0
         self.audio_timer: str | None = None
@@ -103,18 +132,25 @@ class QSeeSimulator:
         self.safe_guide = False
         self.timeline_index = 0
         self.boot_image: tk.PhotoImage | None = None
-        self._load_assets()
+        self.atmosphere_image = self._build_atmosphere()
+        self.status_glow_image = self._build_status_glow()
+        self.button_images = {
+            False: self._build_command_button(False),
+            True: self._build_command_button(True),
+        }
+        self.effect_images: list[ImageTk.PhotoImage] = []
+        self._load_assets(play_sound)
         self._bind_controls()
         self.show_boot()
         self.root.after(150, self._advance_timeline)
         self.root.after(120, self._refresh_log)
 
-    def _load_assets(self) -> None:
+    def _load_assets(self, play_sound: bool) -> None:
         image_path = resource_path("assets/branding/qsee/generated/qsee-boot-466x466.png")
         if image_path.exists():
             self.boot_image = tk.PhotoImage(file=image_path)
         sound_path = resource_path("assets/sfx/generated/qsee-boot.wav")
-        if sound_path.exists():
+        if play_sound and sound_path.exists():
             winsound.PlaySound(str(sound_path), winsound.SND_FILENAME | winsound.SND_ASYNC)
 
     def _bind_controls(self) -> None:
@@ -127,6 +163,7 @@ class QSeeSimulator:
 
     def _clear(self) -> None:
         self.canvas.delete("ui", "audio")
+        self.effect_images.clear()
 
     def _draw_safe_guide(self) -> None:
         if self.safe_guide:
@@ -141,12 +178,377 @@ class QSeeSimulator:
                 tags="ui",
             )
 
+    def _draw_atmosphere(self) -> None:
+        self.canvas.create_image(
+            0,
+            0,
+            image=self.atmosphere_image,
+            anchor="nw",
+            tags="ui",
+        )
+
+    def _build_atmosphere(self) -> ImageTk.PhotoImage:
+        start = ImageColor.getrgb("#0b2733")
+        end = ImageColor.getrgb("#010205")
+        pixels: list[tuple[int, int, int, int]] = []
+        for y in range(DISPLAY_SIZE):
+            for x in range(DISPLAY_SIZE):
+                screen_distance = math.hypot(x - 232.5, y - 232.5)
+                if screen_distance >= 233:
+                    alpha = max(0, int((234 - screen_distance) * 255))
+                else:
+                    alpha = 255
+
+                progress = min(math.hypot(x - 233, y - 158) / 386, 1.0)
+                progress = progress * progress * (3.0 - (2.0 * progress))
+                channels = tuple(
+                    round(a + ((b - a) * progress))
+                    for a, b in zip(start, end)
+                )
+                pixels.append((*channels, alpha))
+
+        image = Image.new("RGBA", (DISPLAY_SIZE, DISPLAY_SIZE))
+        image.putdata(pixels)
+        draw = ImageDraw.Draw(image)
+        draw.ellipse(
+            (2, 2, DISPLAY_SIZE - 3, DISPLAY_SIZE - 3),
+            outline=(*ImageColor.getrgb(STATUS_EDGE), 190),
+            width=1,
+        )
+        return ImageTk.PhotoImage(image)
+
+    def _build_status_glow(self) -> ImageTk.PhotoImage:
+        image = Image.new("RGBA", (DISPLAY_SIZE, DISPLAY_SIZE), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        points = (
+            (95, 63),
+            (141, 40),
+            (188, 27),
+            (233, 23),
+            (278, 27),
+            (325, 40),
+            (371, 63),
+        )
+        draw.line(
+            points,
+            fill=(*ImageColor.getrgb(STATUS_GLOW), 145),
+            width=54,
+            joint="curve",
+        )
+        return ImageTk.PhotoImage(image.filter(ImageFilter.GaussianBlur(7)))
+
+    def _build_command_button(self, success: bool) -> ImageTk.PhotoImage:
+        scale = 4
+        sprite_size = 78
+        circle_size = 54
+        pad = (sprite_size - circle_size) // 2
+        top = SUCCESS_TOP if success else PRIMARY_TOP
+        bottom = SUCCESS_BOTTOM if success else PRIMARY_BOTTOM
+        border = SUCCESS_BORDER if success else PRIMARY_BORDER
+        glow = SUCCESS_GLOW if success else PRIMARY_GLOW
+
+        canvas = Image.new(
+            "RGBA",
+            (sprite_size * scale, sprite_size * scale),
+            (0, 0, 0, 0),
+        )
+        glow_layer = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        glow_draw = ImageDraw.Draw(glow_layer)
+        glow_draw.ellipse(
+            (
+                pad * scale,
+                pad * scale,
+                (pad + circle_size) * scale,
+                (pad + circle_size) * scale,
+            ),
+            fill=(*ImageColor.getrgb(glow), 175),
+        )
+        glow_layer = glow_layer.filter(ImageFilter.GaussianBlur(7 * scale))
+        canvas.alpha_composite(glow_layer)
+
+        mask = Image.new("L", canvas.size, 0)
+        mask_draw = ImageDraw.Draw(mask)
+        bounds = (
+            pad * scale,
+            pad * scale,
+            (pad + circle_size) * scale,
+            (pad + circle_size) * scale,
+        )
+        mask_draw.ellipse(bounds, fill=255)
+
+        gradient = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+        gradient_draw = ImageDraw.Draw(gradient)
+        top_rgb = ImageColor.getrgb(top)
+        bottom_rgb = ImageColor.getrgb(bottom)
+        for row in range(circle_size * scale):
+            progress = row / max(1, (circle_size * scale) - 1)
+            color = tuple(
+                round(a + ((b - a) * progress))
+                for a, b in zip(top_rgb, bottom_rgb)
+            )
+            y = (pad * scale) + row
+            gradient_draw.line(
+                ((pad * scale, y), ((pad + circle_size) * scale, y)),
+                fill=(*color, 255),
+                width=1,
+            )
+        canvas.alpha_composite(Image.composite(gradient, Image.new("RGBA", canvas.size), mask))
+
+        canvas = canvas.resize(
+            (sprite_size, sprite_size),
+            Image.Resampling.LANCZOS,
+        )
+        ImageDraw.Draw(canvas).ellipse(
+            (
+                pad,
+                pad,
+                pad + circle_size,
+                pad + circle_size,
+            ),
+            outline=(*ImageColor.getrgb(border), 255),
+            width=CONTROL_BORDER_PX,
+        )
+        return ImageTk.PhotoImage(canvas)
+
+    def _draw_glow_disc(
+        self,
+        x: int,
+        y: int,
+        radius: int,
+        color: str,
+        alpha: int = 115,
+    ) -> None:
+        blur = 8
+        size = (radius + blur) * 2
+        image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(image)
+        draw.ellipse(
+            (blur, blur, size - blur, size - blur),
+            fill=(*ImageColor.getrgb(color), alpha),
+        )
+        image = image.filter(ImageFilter.GaussianBlur(blur))
+        photo = ImageTk.PhotoImage(image)
+        self.effect_images.append(photo)
+        self.canvas.create_image(x, y, image=photo, tags="ui")
+
+    def _status_colors(self) -> list[str]:
+        if self.scenario.name == "SD UNFORMATTED":
+            return [
+                STATUS_READY,
+                STATUS_READY,
+                STATUS_READY,
+                STATUS_WARNING,
+                STATUS_READY,
+                STATUS_WARNING,
+            ]
+        if self.scenario.name == "GPS SEARCHING":
+            return [
+                STATUS_READY,
+                STATUS_READY,
+                STATUS_READY,
+                STATUS_WARNING,
+                STATUS_WARNING,
+                STATUS_READY,
+            ]
+        return [
+            STATUS_READY,
+            STATUS_READY,
+            STATUS_READY,
+            STATUS_WARNING,
+            STATUS_READY,
+            STATUS_READY,
+        ]
+
+    def _draw_status_icon(self, kind: str, x: int, y: int, color: str) -> None:
+        if kind == "usb":
+            self.canvas.create_line(x, y - 10, x, y + 8, fill=color, width=3, tags="ui")
+            self.canvas.create_line(x - 7, y - 6, x + 7, y - 6, fill=color, width=3, tags="ui")
+            self.canvas.create_line(x - 5, y - 12, x - 5, y - 5, fill=color, width=2, tags="ui")
+            self.canvas.create_line(x + 5, y - 12, x + 5, y - 5, fill=color, width=2, tags="ui")
+            self.canvas.create_line(x - 4, y + 8, x + 4, y + 8, fill=color, width=3, tags="ui")
+        elif kind == "battery":
+            self.canvas.create_rectangle(
+                x - 11,
+                y - 8,
+                x + 10,
+                y + 8,
+                outline=color,
+                width=2,
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                x + 11,
+                y - 4,
+                x + 14,
+                y + 4,
+                fill=color,
+                outline=color,
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                x - 8,
+                y - 5,
+                x + 5,
+                y + 5,
+                fill=color,
+                outline="",
+                tags="ui",
+            )
+        elif kind == "ble":
+            points = (x, y - 13, x + 8, y - 6, x, y, x + 8, y + 7, x, y + 13, x, y - 13)
+            self.canvas.create_line(*points, fill=color, width=2, tags="ui")
+            self.canvas.create_line(x - 7, y - 7, x, y, x - 7, y + 7, fill=color, width=2, tags="ui")
+        elif kind == "wifi":
+            for inset in (0, 6, 12):
+                self.canvas.create_arc(
+                    x - 15 + inset,
+                    y - 12 + inset,
+                    x + 15 - inset,
+                    y + 14 - inset,
+                    start=35,
+                    extent=110,
+                    style=tk.ARC,
+                    outline=color,
+                    width=2,
+                    tags="ui",
+                )
+            self.canvas.create_oval(x - 2, y + 8, x + 2, y + 12, fill=color, outline="", tags="ui")
+        elif kind == "gps":
+            self.canvas.create_oval(x - 10, y - 12, x + 10, y + 8, outline=color, width=2, tags="ui")
+            self.canvas.create_oval(x - 3, y - 5, x + 3, y + 1, fill=color, outline="", tags="ui")
+            self.canvas.create_line(x - 7, y + 5, x, y + 14, x + 7, y + 5, fill=color, width=2, tags="ui")
+        elif kind == "sd":
+            self.canvas.create_polygon(
+                x - 11,
+                y - 13,
+                x + 4,
+                y - 13,
+                x + 11,
+                y - 6,
+                x + 11,
+                y + 13,
+                x - 11,
+                y + 13,
+                outline=color,
+                fill="",
+                width=2,
+                tags="ui",
+            )
+            for offset in (-5, 0, 5):
+                self.canvas.create_line(
+                    x + offset,
+                    y - 9,
+                    x + offset,
+                    y - 3,
+                    fill=color,
+                    width=2,
+                    tags="ui",
+                )
+
+    def _draw_status_bar(self) -> None:
+        points = (95, 63, 141, 40, 188, 27, 233, 23, 278, 27, 325, 40, 371, 63)
+        self.canvas.create_image(
+            0,
+            0,
+            image=self.status_glow_image,
+            anchor="nw",
+            tags="ui",
+        )
+        self.canvas.create_line(
+            *points,
+            fill=STATUS_EDGE,
+            width=50,
+            smooth=True,
+            splinesteps=24,
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            *points,
+            fill=BACKGROUND,
+            width=44,
+            smooth=True,
+            splinesteps=24,
+            capstyle=tk.ROUND,
+            joinstyle=tk.ROUND,
+            tags="ui",
+        )
+        positions = (
+            ("usb", 106, 53, 78),
+            ("battery", 156, 33, 58),
+            ("ble", 206, 22, 47),
+            ("wifi", 256, 22, 47),
+            ("gps", 306, 33, 58),
+            ("sd", 356, 53, 78),
+        )
+        for (kind, x, icon_y, dot_y), color in zip(positions, self._status_colors()):
+            self._draw_glow_disc(x, icon_y, 12, color, 105)
+            self._draw_glow_disc(x, dot_y, 4, color, 150)
+            self._draw_status_icon(kind, x, icon_y, color)
+            self.canvas.create_oval(
+                x - 3,
+                dot_y - 3,
+                x + 3,
+                dot_y + 3,
+                fill=color,
+                outline="",
+                tags="ui",
+            )
+
+    def _draw_command_button(
+        self,
+        x: int,
+        y: int,
+        icon: str,
+        success: bool,
+    ) -> None:
+        icon_x, icon_y = {
+            "≡": (0, -1),
+            "♫": (0, -1),
+            "➤": (1, -1),
+            "▰": (0, -1),
+            "▥": (0, -1),
+            "i": (0, -1),
+            "⚙": (0, -1),
+            "‹": (0, -2),
+        }.get(icon, (0, -1))
+        self.canvas.create_image(
+            x + 27,
+            y + 27,
+            image=self.button_images[success],
+            tags="ui",
+        )
+        self.canvas.create_text(
+            x + 27 + icon_x,
+            y + 27 + icon_y,
+            text=icon,
+            fill="#ffffff",
+            font=("Segoe UI Symbol", 20, "bold"),
+            tags="ui",
+        )
+
+    def _draw_command_arc(self) -> None:
+        commands = (
+            (56, 330, "≡", False),
+            (114, 344, "♫", False),
+            (172, 360, "➤", True),
+            (230, 360, "▰", True),
+            (288, 344, "i", False),
+            (346, 330, "⚙", False),
+        )
+        for x, y, icon, success in commands:
+            self._draw_command_button(x, y, icon, success)
+
+    def _draw_edge_back(self) -> None:
+        self._draw_command_button(10, 203, "‹", True)
+
     def _draw_scenario_label(self) -> None:
         self.canvas.create_text(
             DISPLAY_SIZE // 2,
-            30,
+            108,
             text=f"SYNTHETIC · {self.scenario.name}",
-            fill=BLUE,
+            fill=MUTED,
             font=("Segoe UI", 9, "bold"),
             tags="ui",
         )
@@ -224,41 +626,122 @@ class QSeeSimulator:
             self.cancel()
         elif 398 <= event.x <= 460 and 190 <= event.y <= 276 and self.screen == "confirmation":
             self.confirm()
-        elif 160 <= event.x <= 306 and 275 <= event.y <= 307 and self.screen == "home":
-            self.show_imu_demo()
-        elif 135 <= event.x <= 331 and 315 <= event.y <= 367:
+        elif (
+            10 <= event.x <= 70
+            and 203 <= event.y <= 263
+            and self.screen in {"audio", "fft", "imu"}
+        ):
+            self.back()
+        elif 114 <= event.x <= 168 and 344 <= event.y <= 398 and self.screen == "home":
             self.show_audio_demo()
-            self.show_confirmation()
+        elif 172 <= event.x <= 226 and 360 <= event.y <= 414 and self.screen == "home":
+            self.show_imu_demo()
+        elif 346 <= event.x <= 400 and 330 <= event.y <= 384 and self.screen == "home":
+            self.show_settings_demo()
+        elif 206 <= event.x <= 260 and 362 <= event.y <= 416 and self.screen == "audio":
+            self.show_audio_fft_demo()
+
+    def _draw_page_heading(self, title: str, subtitle: str) -> None:
+        self.canvas.create_text(
+            94,
+            112,
+            anchor="w",
+            text=title,
+            fill=TEXT,
+            font=("Segoe UI", 17, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            136,
+            anchor="w",
+            text=subtitle,
+            fill=MUTED,
+            font=("Segoe UI", 10),
+            tags="ui",
+        )
+
+    def _draw_settings_control(self, y: int, value: str) -> None:
+        scale = 4
+        width = 282
+        height = 44
+        image = Image.new("RGBA", (width * scale, height * scale), (0, 0, 0, 0))
+        mask = Image.new("L", image.size, 0)
+        ImageDraw.Draw(mask).rounded_rectangle(
+            (0, 0, image.width - 1, image.height - 1),
+            radius=10 * scale,
+            fill=255,
+        )
+        gradient = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(gradient)
+        top = ImageColor.getrgb("#173145")
+        bottom = ImageColor.getrgb("#0d1a24")
+        for row in range(image.height):
+            progress = row / max(1, image.height - 1)
+            color = tuple(
+                round(a + ((b - a) * progress))
+                for a, b in zip(top, bottom)
+            )
+            draw.line(((0, row), (image.width, row)), fill=(*color, 245))
+        image.alpha_composite(
+            Image.composite(gradient, Image.new("RGBA", image.size), mask)
+        )
+        image = image.resize((width, height), Image.Resampling.LANCZOS)
+        ImageDraw.Draw(image).rounded_rectangle(
+            (0, 0, width - 1, height - 1),
+            radius=10,
+            outline=(*ImageColor.getrgb("#3a6c83"), 220),
+            width=CONTROL_BORDER_PX,
+        )
+        photo = ImageTk.PhotoImage(image)
+        self.effect_images.append(photo)
+        self.canvas.create_image(92, y, image=photo, anchor="nw", tags="ui")
+        self.canvas.create_text(
+            106,
+            y + 22,
+            anchor="w",
+            text=value,
+            fill=TEXT,
+            font=("Segoe UI", 11, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            356,
+            y + 22,
+            text="⌄",
+            fill="#d8ecff",
+            font=("Segoe UI Symbol", 15, "bold"),
+            tags="ui",
+        )
 
     def _draw_shell(self, title: str, message: str, primary: bool, actions: bool) -> None:
         self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
         self._draw_scenario_label()
-        self.canvas.create_rectangle(
-            SAFE_ORIGIN,
-            SAFE_ORIGIN,
-            SAFE_ORIGIN + SAFE_SIZE,
-            SAFE_ORIGIN + SAFE_SIZE,
-            fill="white",
-            outline="#d9e9f7",
-            width=2,
+        self.canvas.create_text(
+            118,
+            132,
+            anchor="w",
+            text=title.upper(),
+            fill=TEXT,
+            font=("Segoe UI", 18, "bold"),
             tags="ui",
         )
-        self.canvas.create_text(233, 126, text=title, fill=NAVY, font=("Segoe UI", 25, "bold"), tags="ui")
         self.canvas.create_text(
-            233,
-            222,
+            118,
+            160,
+            anchor="nw",
             text=message,
-            width=258,
-            justify="center",
+            width=250,
+            justify="left",
             fill=MUTED,
-            font=("Segoe UI", 12),
+            font=("Segoe UI", 9),
             tags="ui",
         )
         if primary:
-            self.canvas.create_oval(160, 275, 306, 307, fill="#16384a", outline="", tags="ui")
-            self.canvas.create_text(233, 291, text="OPEN IMU LEVEL", fill="#61d8ff", font=("Segoe UI", 8, "bold"), tags="ui")
-            self.canvas.create_oval(135, 315, 331, 367, fill=BLUE, outline="", tags="ui")
-            self.canvas.create_text(233, 341, text="OPEN AUDIO SCOPE", fill="white", font=("Segoe UI", 10, "bold"), tags="ui")
+            self._draw_home_telemetry()
+            self._draw_command_arc()
         if actions:
             self.canvas.create_oval(6, 190, 68, 276, fill=NAVY, outline="", tags="ui")
             self.canvas.create_text(37, 233, text="CANCEL", fill="white", font=("Segoe UI", 8, "bold"), tags="ui")
@@ -266,14 +749,147 @@ class QSeeSimulator:
             self.canvas.create_text(429, 233, text="OK", fill="white", font=("Segoe UI", 9, "bold"), tags="ui")
         self._draw_safe_guide()
 
+    def _draw_home_telemetry(self) -> None:
+        telemetry = (
+            ("PSRAM", "625/4380 KB", 0.14, STATUS_READY),
+            ("FLASH APP", "3508/8192 KB", 0.42, BLUE),
+        )
+        y = 210
+        for label, value, ratio, color in telemetry:
+            self.canvas.create_text(
+                116,
+                y,
+                anchor="w",
+                text=label,
+                fill=TEXT,
+                font=("Segoe UI", 9, "bold"),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                350,
+                y,
+                anchor="e",
+                text=value,
+                fill=TEXT,
+                font=("Consolas", 9, "bold"),
+                tags="ui",
+            )
+            self.canvas.create_line(
+                116,
+                y + 18,
+                350,
+                y + 18,
+                fill=TRACK,
+                width=5,
+                capstyle=tk.ROUND,
+                tags="ui",
+            )
+            self.canvas.create_line(
+                116,
+                y + 18,
+                116 + int(234 * ratio),
+                y + 18,
+                fill=color,
+                width=5,
+                capstyle=tk.ROUND,
+                tags="ui",
+            )
+            y += 48
+
+        wifi_color = STATUS_WARNING
+        gps_color = STATUS_WARNING if self.scenario.name == "GPS SEARCHING" else STATUS_READY
+        self.canvas.create_text(
+            116,
+            307,
+            anchor="w",
+            text="WIFI",
+            fill=wifi_color,
+            font=("Segoe UI", 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            350,
+            307,
+            anchor="e",
+            text="NOT CONFIGURED",
+            fill=wifi_color,
+            font=("Consolas", 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            116,
+            324,
+            anchor="w",
+            text="GPS",
+            fill=gps_color,
+            font=("Segoe UI", 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            350,
+            324,
+            anchor="e",
+            text="SEARCHING" if self.scenario.name == "GPS SEARCHING" else "3D FIX",
+            fill=gps_color,
+            font=("Consolas", 8, "bold"),
+            tags="ui",
+        )
+
     def show_home(self) -> None:
         self.screen = "home"
         self._draw_shell(
-            "QSee.ai",
-            "Device ready.\nOpen the live two-microphone audio scope.",
+            "Welcome",
+            "Device console · one snapshot",
             primary=True,
             actions=False,
         )
+
+    def show_settings_demo(self) -> None:
+        self.screen = "settings"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading("SETTINGS", "All controls · swipe to scroll")
+        self.canvas.create_text(
+            94,
+            169,
+            anchor="w",
+            text="DIAGNOSTICS",
+            fill=STATUS_READY,
+            font=("Segoe UI", 14, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            191,
+            anchor="w",
+            text="Sampling cadence and motion filtering",
+            fill=MUTED,
+            font=("Segoe UI", 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            220,
+            anchor="w",
+            text="Sampling interval  |  300 ms",
+            fill=TEXT,
+            font=("Segoe UI", 10, "bold"),
+            tags="ui",
+        )
+        self._draw_settings_control(235, "300 ms")
+        self.canvas.create_text(
+            94,
+            300,
+            anchor="w",
+            text="IMU input smoothing  |  70%",
+            fill=TEXT,
+            font=("Segoe UI", 10, "bold"),
+            tags="ui",
+        )
+        self._draw_settings_control(315, "70% · balanced")
+        self._draw_edge_back()
+        self._draw_safe_guide()
 
     def _draw_audio_bars(self, y: int, color_start: str, color_end: str, offset: int) -> None:
         # The simulator keeps the same fast, low-memory bar shape as the target UI.
@@ -294,59 +910,94 @@ class QSeeSimulator:
     def show_audio_demo(self) -> None:
         self.screen = "audio"
         self._clear()
-        self.canvas.create_oval(1, 1, 465, 465, fill="#030508", outline="#16202b", width=2, tags="ui")
-        self.canvas.create_text(233, 46, text="AUDIO SCOPE", fill="#f4f8fb", font=("Segoe UI", 20, "bold"), tags="ui")
-        self.canvas.create_text(233, 72, text="LIVE · ES7210 · 22.05 kHz · DEMO", fill="#6f8292", font=("Consolas", 8), tags="ui")
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "AUDIO SCOPE",
+            "Synthetic levels · ES7210 · 22.05 kHz",
+        )
 
-        self.canvas.create_text(84, 112, text="MIC 1", anchor="w", fill="#61d8ff", font=("Segoe UI", 10, "bold"), tags="ui")
-        self.canvas.create_text(84, 200, text="MIC 2", anchor="w", fill="#ff9d5c", font=("Segoe UI", 10, "bold"), tags="ui")
-        self._draw_audio_bars(112, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(200, "#ffad3d", "#77e37c", 9)
+        self.canvas.create_text(84, 160, text="MIC 1", anchor="w", fill="#61d8ff", font=("Segoe UI", 9, "bold"), tags="ui")
+        self.canvas.create_text(84, 242, text="MIC 2", anchor="w", fill="#ff9d5c", font=("Segoe UI", 9, "bold"), tags="ui")
+        self._draw_audio_bars(150, "#27bdf2", "#c168ff", 0)
+        self._draw_audio_bars(232, "#ffad3d", "#77e37c", 9)
 
-        self.canvas.create_line(84, 302, 382, 302, fill="#17212a", width=1, tags="ui")
-        self.canvas.create_text(84, 324, text="CPU LOAD", anchor="w", fill="#718493", font=("Segoe UI", 9, "bold"), tags="ui")
-        self.canvas.create_text(84, 349, text="CORE 0", anchor="w", fill="#d8e6ef", font=("Consolas", 9), tags="ui")
-        self.canvas.create_text(382, 349, text="23%", anchor="e", fill="#61d8ff", font=("Consolas", 13, "bold"), tags="cpu0")
-        self.canvas.create_text(84, 373, text="CORE 1", anchor="w", fill="#d8e6ef", font=("Consolas", 9), tags="ui")
-        self.canvas.create_text(382, 373, text="18%", anchor="e", fill="#ff9d5c", font=("Consolas", 13, "bold"), tags="cpu1")
+        self.canvas.create_text(
+            233,
+            332,
+            text="CPU UTILIZATION UNAVAILABLE",
+            fill=STATUS_WARNING,
+            font=("Consolas", 8, "bold"),
+            tags="ui",
+        )
+        self._draw_command_button(206, 362, "▥", True)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+        self._animate_audio()
 
-        self.canvas.create_text(84, 407, text="AUDIO DIAGNOSTICS", anchor="w", fill="#718493", font=("Segoe UI", 9, "bold"), tags="ui")
-        self.canvas.create_text(84, 429, text="L/R SYNC   0.4 ms", anchor="w", fill="#9aabb7", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 446, text="PEAK        -12.6 dBFS", anchor="w", fill="#9aabb7", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(382, 438, text="● READY", anchor="e", fill="#61e294", font=("Consolas", 9, "bold"), tags="ui")
+    def show_audio_fft_demo(self) -> None:
+        if self.audio_timer is not None:
+            self.root.after_cancel(self.audio_timer)
+            self.audio_timer = None
+        self.screen = "fft"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "AUDIO FFT",
+            "Synthetic spectrum · 16 bands",
+        )
+        heights = (18, 29, 42, 64, 88, 117, 144, 128, 101, 80, 66, 52, 41, 31, 24, 17)
+        for index, height in enumerate(heights):
+            x = 100 + index * 17
+            color = "#27bdf2" if index < 6 else "#2be7d0" if index < 11 else "#f0b44d"
+            self.canvas.create_rectangle(
+                x,
+                310 - height,
+                x + 11,
+                310,
+                fill=color,
+                outline="",
+                tags="ui",
+            )
+        self.canvas.create_line(100, 310, 366, 310, fill=TRACK, width=2, tags="ui")
+        self.canvas.create_text(
+            233,
+            334,
+            text="CANONICAL ROUTE · SYNTHETIC VALUES",
+            fill=MUTED,
+            font=("Consolas", 8),
+            tags="ui",
+        )
+        self._draw_edge_back()
         self._draw_safe_guide()
 
     def show_imu_demo(self) -> None:
         self.screen = "imu"
         self._clear()
-        self.canvas.create_oval(1, 1, 465, 465, fill="#030508", outline="#16202b", width=2, tags="ui")
-        self.canvas.create_text(233, 42, text="IMU LEVEL", fill="#f4f8fb", font=("Segoe UI", 20, "bold"), tags="ui")
-        self.canvas.create_text(233, 68, text="QMI8658 · CALIBRATION VIEW · SIMULATOR", fill="#6f8292", font=("Consolas", 8), tags="ui")
-        self.canvas.create_oval(148, 88, 318, 258, outline="#2a6174", width=2, fill="#0d171e", tags="ui")
-        self.canvas.create_line(168, 173, 298, 173, fill="#29404b", tags="ui")
-        self.canvas.create_line(233, 108, 233, 238, fill="#29404b", tags="ui")
-        self.canvas.create_oval(218, 158, 248, 188, fill="#5be4ff", outline="#d8faff", width=2, tags="ui")
-        self.canvas.create_text(84, 285, text="ACC X +0.02  Y -0.04  Z +9.79 m/s²", anchor="w", fill="#61d8ff", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 307, text="GYRO X +0.10  Y -0.03  Z +0.02 dps", anchor="w", fill="#ff9d5c", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 329, text="ROLL +0.2°  PITCH -0.1°  |g| 9.80", anchor="w", fill="#f4d35e", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 351, text="TEMP +28.4 C     IMU READY", anchor="w", fill="#61e294", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 373, text="CALIBRATION READY (64/64)", anchor="w", fill="#61e294", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(84, 395, text="COMPASS N/A · no magnetometer", anchor="w", fill="#c5a6ff", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(233, 395, text="Hold flat; bubble centers at 0°", fill="#6f8292", font=("Consolas", 8), tags="ui")
-        self.canvas.create_text(233, 423, text="ESC · BACK", fill="#6f8292", font=("Consolas", 9, "bold"), tags="ui")
-        self._animate_audio()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "IMU LEVEL",
+            "QMI8658 · synthetic calibration view",
+        )
+        self.canvas.create_oval(158, 151, 308, 301, outline="#2a6174", width=2, fill="#0d171e", tags="ui")
+        self.canvas.create_line(178, 226, 288, 226, fill="#29404b", tags="ui")
+        self.canvas.create_line(233, 171, 233, 281, fill="#29404b", tags="ui")
+        self.canvas.create_oval(218, 211, 248, 241, fill="#5be4ff", outline="#d8faff", width=2, tags="ui")
+        self.canvas.create_text(96, 320, text="ACC  X +0.02  Y -0.04  Z +9.79 m/s²", anchor="w", fill="#61d8ff", font=("Consolas", 8), tags="ui")
+        self.canvas.create_text(96, 340, text="GYRO X +0.10  Y -0.03  Z +0.02 dps", anchor="w", fill="#ff9d5c", font=("Consolas", 8), tags="ui")
+        self.canvas.create_text(96, 360, text="CALIBRATION READY · COMPASS UNAVAILABLE", anchor="w", fill=STATUS_READY, font=("Consolas", 8), tags="ui")
+        self._draw_edge_back()
+        self._draw_safe_guide()
 
     def _animate_audio(self) -> None:
         if self.screen != "audio":
             return
         self.audio_phase += 1
         self.canvas.delete("audio")
-        self._draw_audio_bars(112, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(200, "#ffad3d", "#77e37c", 9)
-        cpu0 = 20 + int(7 * math.sin(self.audio_phase / 8.0))
-        cpu1 = 17 + int(6 * math.sin(self.audio_phase / 9.0 + 1.2))
-        self.canvas.itemconfigure("cpu0", text=f"{cpu0}%")
-        self.canvas.itemconfigure("cpu1", text=f"{cpu1}%")
+        self._draw_audio_bars(150, "#27bdf2", "#c168ff", 0)
+        self._draw_audio_bars(232, "#ffad3d", "#77e37c", 9)
         self.audio_timer = self.root.after(70, self._animate_audio)
 
     def show_confirmation(self) -> None:
@@ -375,7 +1026,7 @@ class QSeeSimulator:
         self.show_home()
 
     def back(self) -> None:
-        if self.screen in {"audio", "imu"}:
+        if self.screen in {"audio", "fft", "imu", "settings"}:
             if self.audio_timer is not None:
                 self.root.after_cancel(self.audio_timer)
                 self.audio_timer = None
@@ -405,13 +1056,58 @@ class QSeeSimulator:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--scenario", choices=SCENARIOS, default="healthy")
+    parser.add_argument(
+        "--screen",
+        choices=("home", "settings", "audio", "fft", "imu"),
+        default="home",
+    )
+    parser.add_argument("--capture", type=Path)
+    parser.add_argument("--no-sound", action="store_true")
     args = parser.parse_args()
+
+    if sys.platform == "win32":
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
     root = tk.Tk()
     root.title(f"QSee.ai Device Simulator · {SCENARIOS[args.scenario].name}")
     root.resizable(False, False)
     root.configure(background="#101820")
-    QSeeSimulator(root, SCENARIOS[args.scenario])
+    simulator = QSeeSimulator(
+        root,
+        SCENARIOS[args.scenario],
+        play_sound=not args.no_sound and args.capture is None,
+    )
+    if args.capture is not None:
+        from PIL import ImageGrab
+
+        simulator.ready = True
+        {
+            "home": simulator.show_home,
+            "settings": simulator.show_settings_demo,
+            "audio": simulator.show_audio_demo,
+            "fft": simulator.show_audio_fft_demo,
+            "imu": simulator.show_imu_demo,
+        }[args.screen]()
+        root.geometry("+100+100")
+        root.deiconify()
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
+        root.update_idletasks()
+        root.update()
+        time.sleep(0.25)
+        root.update()
+        args.capture.parent.mkdir(parents=True, exist_ok=True)
+        x = simulator.canvas.winfo_rootx()
+        y = simulator.canvas.winfo_rooty()
+        width = simulator.canvas.winfo_width()
+        height = simulator.canvas.winfo_height()
+        ImageGrab.grab(
+            bbox=(x, y, x + width, y + height),
+            include_layered_windows=True,
+        ).save(args.capture)
+        root.destroy()
+        return
     root.mainloop()
 
 

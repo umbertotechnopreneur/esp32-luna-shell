@@ -26,30 +26,33 @@
 #include <vector>
 
 #include "esp_log.h"
-#include "qsee_background_asset.hpp"
+#include "esp_timer.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_logger.h"
 #include "qsee_platform.h"
+#include "qsee_provisioning.hpp"
+#include "qsee_snapshot_semantics.hpp"
 
 namespace {
 
 using esp_brookesia::system::core::AppContext;
-using esp_brookesia::system::core::MessageDialogButton;
-using esp_brookesia::system::core::MessageDialogButtonRole;
-using esp_brookesia::system::core::MessageDialogIcon;
-using esp_brookesia::system::core::MessageDialogOptions;
+using qsee::snapshot_semantics::component_ready;
+using qsee::snapshot_semantics::gps_fix_valid;
+using qsee::snapshot_semantics::storage_cleanup_failed;
+using qsee::snapshot_semantics::storage_format_required;
+using qsee::snapshot_semantics::storage_mounted_ready;
 
 constexpr char kTag[] = "qsee_app";
 constexpr char kGuiRoot[] = "res/root.json";
+constexpr char kBackgroundFlow[] = "qsee_background_flow";
 constexpr char kScreenFlow[] = "qsee_content";
+constexpr char kChromeFlow[] = "qsee_chrome_flow";
 constexpr char kRefreshTimer[] = "qsee.refresh";
-constexpr char kBackgroundImageId[] = "qsee.background";
+constexpr char kPairingQrImageId[] = "qsee.pairing.qr";
+constexpr char kEspressifAppStoreUrl[] =
+    "https://play.google.com/store/apps/details?id=com.espressif.provble";
+constexpr int64_t kPairingTimeoutUs = 5LL * 60LL * 1000000LL;
 constexpr size_t kLogBufferBytes = 4096;
-constexpr char kStatusReady[] = "#20dfc1";
-constexpr char kStatusWarning[] = "#f0b44d";
-constexpr char kStatusMissing[] = "#eb4d5c";
-constexpr char kStatusFault[] = "#ff3859";
-constexpr char kStatusMuted[] = "#607889";
 constexpr double kAudioMeterFloorDbfs = -60.0;
 constexpr double kPcm16FullScale = 32768.0;
 constexpr std::array<uint32_t, 7> kChromeTimeoutSeconds = {
@@ -57,13 +60,6 @@ constexpr std::array<uint32_t, 7> kChromeTimeoutSeconds = {
 };
 // Fifteen worst-case 256-byte ring lines fit in the persistent 4 KB buffer.
 constexpr size_t kLogSnapshotLines = 15;
-
-bool storage_cleanup_failed(const qsee::StorageSnapshot &storage)
-{
-    return storage.poisoned ||
-           !storage.cleanup_complete ||
-           storage.cleanup_error != ESP_OK;
-}
 
 const char *storage_cleanup_stage_name(
     qsee::StorageCleanupStage stage
@@ -84,27 +80,9 @@ const char *storage_cleanup_stage_name(
     std::abort();
 }
 
-bool storage_format_required(const qsee::StorageSnapshot &storage)
-{
-    return storage.format_required &&
-           storage.mount_outcome == qsee::StorageMountOutcome::FormatRequired &&
-           storage.card_response_verified &&
-           storage.cleanup_complete &&
-           storage.cleanup_error == ESP_OK &&
-           !storage.poisoned &&
-           !storage.mounted;
-}
-
 bool snapshot_available(const qsee::DeviceSnapshot &snapshot)
 {
     return snapshot.sequence > 0 && snapshot.last_update_attempt_at_us > 0;
-}
-
-bool component_ready(const qsee::ComponentSnapshot &component)
-{
-    return component.health == qsee::DeviceHealth::Ready &&
-           component.last_error == ESP_OK &&
-           component.data_valid && !component.data_stale;
 }
 
 // Convert one validated unsigned PCM16 peak to a finite dBFS floor.
@@ -169,81 +147,6 @@ void format_audio_peak(
     );
 }
 
-// Map only canonical component health to the status-bar semantic palette.
-const char *component_status_color(const qsee::ComponentSnapshot &component)
-{
-    if (component.last_error != ESP_OK) {
-        return kStatusFault;
-    }
-    if (component.data_stale) {
-        return kStatusWarning;
-    }
-    switch (component.health) {
-    case qsee::DeviceHealth::Ready:
-        return component.data_valid ? kStatusReady : kStatusWarning;
-    case qsee::DeviceHealth::Degraded:
-        return kStatusWarning;
-    case qsee::DeviceHealth::Missing:
-        return kStatusMissing;
-    case qsee::DeviceHealth::Unknown:
-        return kStatusMuted;
-    }
-    std::abort();
-}
-
-// Select the battery glyph from a validated percentage without inventing a level.
-const char *battery_status_icon(const qsee::BatterySnapshot &battery)
-{
-    if (!component_ready(battery) || !battery.battery_present ||
-        battery.level_percent < 0 || battery.level_percent > 100) {
-        return "\xef\x89\x84";
-    }
-    if (battery.level_percent <= 12) {
-        return "\xef\x89\x84";
-    }
-    if (battery.level_percent <= 35) {
-        return "\xef\x89\x83";
-    }
-    if (battery.level_percent <= 60) {
-        return "\xef\x89\x82";
-    }
-    if (battery.level_percent <= 85) {
-        return "\xef\x89\x81";
-    }
-    return "\xef\x89\x80";
-}
-
-bool gps_fix_valid(const qsee::GpsSnapshot &gps)
-{
-    return gps.has_fix &&
-           gps.utc_valid &&
-           gps.fix_quality > 0 &&
-           gps.satellites > 0 &&
-           std::isfinite(gps.latitude_degrees) &&
-           gps.latitude_degrees >= -90.0 &&
-           gps.latitude_degrees <= 90.0 &&
-           std::isfinite(gps.longitude_degrees) &&
-           gps.longitude_degrees >= -180.0 &&
-           gps.longitude_degrees <= 180.0 &&
-           std::isfinite(gps.altitude_m) &&
-           std::isfinite(gps.hdop) &&
-           gps.hdop >= 0.0F &&
-           std::isfinite(gps.speed_mps) &&
-           gps.speed_mps >= 0.0F &&
-           std::isfinite(gps.course_degrees) &&
-           gps.course_degrees >= 0.0F &&
-           gps.course_degrees <= 360.0F;
-}
-
-bool storage_mounted_ready(const qsee::StorageSnapshot &storage)
-{
-    return component_ready(storage) &&
-           storage.mount_outcome == qsee::StorageMountOutcome::Mounted &&
-           storage.mounted &&
-           storage.card_response_verified &&
-           !storage_cleanup_failed(storage);
-}
-
 const char *component_state(const qsee::ComponentSnapshot &component)
 {
     if (component_ready(component)) {
@@ -270,6 +173,16 @@ const char *component_reason(const qsee::ComponentSnapshot &component)
     return component.data_valid
                ? qsee::deviceHealthName(component.health)
                : "NO VALID DATA";
+}
+
+bool radio_deferred_by_policy(const qsee::ComponentSnapshot &radio)
+{
+    return radio.health == qsee::DeviceHealth::Unknown &&
+           radio.last_error == ESP_ERR_INVALID_STATE &&
+           !radio.data_valid &&
+           !radio.data_stale &&
+           radio.last_attempt_at_us == 0 &&
+           radio.last_success_at_us == 0;
 }
 
 bool rtc_reading_valid(const qsee::RtcSnapshot &rtc)
@@ -477,8 +390,16 @@ esp_brookesia::system::core::AppGuiDescriptor App::get_gui_descriptor() const
         .resources = {},
         .screen_flows = {
             {
+                .screen_flow = kBackgroundFlow,
+                .layer = esp_brookesia::system::core::GuiAppLayer::SystemBottom,
+            },
+            {
                 .screen_flow = kScreenFlow,
                 .layer = esp_brookesia::system::core::GuiAppLayer::AppDefault,
+            },
+            {
+                .screen_flow = kChromeFlow,
+                .layer = esp_brookesia::system::core::GuiAppLayer::AppTop,
             },
         },
     };
@@ -487,55 +408,40 @@ esp_brookesia::system::core::AppGuiDescriptor App::get_gui_descriptor() const
 std::expected<void, std::string> App::on_start(AppContext &context)
 {
     context_ = &context;
+    status_bar_.invalidate();
     screen_ = Screen::Welcome;
+    navigation_.reset(Screen::Welcome);
     logs_paused_ = false;
     logs_follow_latest_ = true;
-    background_registered_ = false;
-    background_bound_ = false;
+    pairing_qr_registered_ = false;
+    pairing_result_success_ = false;
+    pairing_visual_state_.reset();
+    pairing_started_at_us_ = 0;
+    pairing_result_.clear();
     log_filter_mode_ = 0;
     diagnostic_activation_sample_at_us_ = 0;
     log_query_.clear();
-    log_source_buffer_.reset(new (std::nothrow) char[kLogBufferBytes]);
-    log_filtered_buffer_.reset(new (std::nothrow) char[kLogBufferBytes]);
-    if (log_source_buffer_ == nullptr || log_filtered_buffer_ == nullptr) {
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
-        context_ = nullptr;
-        return std::unexpected("Failed to allocate persistent QSee log buffers");
-    }
-    log_source_buffer_[0] = '\0';
-    log_filtered_buffer_[0] = '\0';
-    BackgroundAssetCache::instance().request();
+    release_log_buffers();
     if (auto result = adaptive_command_bar_.begin(); !result) {
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return result;
     }
 
     const std::vector<std::string> actions = {
         "qsee.chrome.activity",
-        "qsee.open.welcome",
-        "qsee.open.logs",
-        "qsee.open.hardware",
-        "qsee.open.audio",
-        "qsee.open.audio_fft",
-        "qsee.open.imu",
-        "qsee.open.settings",
-        "qsee.open.about",
-        "qsee.logs.back",
-        "qsee.hardware.back",
-        "qsee.audio.back",
-        "qsee.audio_fft.back",
-        "qsee.imu.back",
-        "qsee.settings.back",
-        "qsee.about.back",
-        "qsee.logs.pause",
-        "qsee.logs.clear",
-        "qsee.logs.follow",
-        "qsee.logs.filter",
-        "qsee.logs.search",
+        "qsee.chrome.activity.logs",
+        "qsee.chrome.activity.hardware",
+        "qsee.chrome.activity.settings",
+        "qsee.command.0",
+        "qsee.command.1",
+        "qsee.command.2",
+        "qsee.command.3",
+        "qsee.command.4",
+        "qsee.command.5",
+        "qsee.back",
+        "qsee.next",
         "qsee.storage.format",
+        "qsee.hardware.refresh",
         "qsee.settings.diagnostic.faster",
         "qsee.settings.diagnostic.slower",
         "qsee.settings.diagnostic.reset",
@@ -550,17 +456,13 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     };
     auto subscription_result = context.gui().subscribe_actions(actions);
     if (!subscription_result) {
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return std::unexpected(
             "Failed to subscribe QSee UI actions: " + subscription_result.error()
         );
     }
-    if (auto result = configure_adaptive_chrome(context); !result) {
+    if (auto result = configure_chrome(context); !result) {
         adaptive_command_bar_.shutdown(context.gui());
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return result;
     }
@@ -568,8 +470,6 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     const esp_err_t monitor_result = qsee_hardware_set_diagnostic_monitor(false);
     if (monitor_result != ESP_OK) {
         adaptive_command_bar_.shutdown(context.gui());
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return std::unexpected(
             "Failed to disable QSee diagnostic monitor at startup: " +
@@ -580,8 +480,6 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     auto timer_result = context.timer().start_periodic(kRefreshTimer, 1000);
     if (!timer_result) {
         adaptive_command_bar_.shutdown(context.gui());
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return std::unexpected("Failed to start QSee refresh timer: " + timer_result.error());
     }
@@ -594,8 +492,6 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         }
         refresh_timer_ = esp_brookesia::system::core::INVALID_TIMER_ID;
         adaptive_command_bar_.shutdown(context.gui());
-        log_source_buffer_.reset();
-        log_filtered_buffer_.reset();
         context_ = nullptr;
         return refresh_result;
     }
@@ -622,7 +518,7 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     if (auto result = apply_diagnostic_monitor(context, screen_); !result) {
         return result;
     }
-    if (auto result = configure_adaptive_chrome(context); !result) {
+    if (auto result = configure_chrome(context); !result) {
         return result;
     }
     return refresh(context);
@@ -658,46 +554,34 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         }
         search_keyboard_ = esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
     }
-    if (format_dialog_ != esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID) {
-        auto hide_result = context.system_service().hide_message_dialog(format_dialog_);
-        if (!hide_result) {
-            ESP_LOGE(
-                kTag,
-                "Failed to hide QSee format dialog: %s",
-                hide_result.error().c_str()
-            );
-            if (stop_error.empty()) {
-                stop_error = "Failed to hide QSee format dialog: " + hide_result.error();
-            }
-        }
-        format_dialog_ = esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-    }
-    if (error_dialog_ != esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID) {
-        auto hide_result = context.system_service().hide_message_dialog(error_dialog_);
-        if (!hide_result) {
-            ESP_LOGE(
-                kTag,
-                "Failed to hide QSee error dialog: %s",
-                hide_result.error().c_str()
-            );
-            if (stop_error.empty()) {
-                stop_error = "Failed to hide QSee error dialog: " + hide_result.error();
-            }
-        }
-        error_dialog_ = esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-    }
-    if (background_registered_ &&
-        !context.gui().unregister_image(kBackgroundImageId)) {
-        ESP_LOGE(kTag, "Failed to unregister QSee background image");
+    if (auto hide_result = alert_service_.hide_all(context); !hide_result) {
+        ESP_LOGE(kTag, "Failed to hide QSee dialogs: %s", hide_result.error().c_str());
         if (stop_error.empty()) {
-            stop_error = "Failed to unregister QSee background image";
+            stop_error = "Failed to hide QSee dialogs: " + hide_result.error();
         }
     }
-    background_registered_ = false;
-    background_bound_ = false;
-
-    log_source_buffer_.reset();
-    log_filtered_buffer_.reset();
+    if (qsee_provisioning_active()) {
+        const esp_err_t provisioning_result = qsee_provisioning_stop();
+        if (provisioning_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Failed to stop active provisioning: %s",
+                esp_err_to_name(provisioning_result)
+            );
+            if (stop_error.empty()) {
+                stop_error =
+                    "Failed to stop active provisioning: " +
+                    std::string(esp_err_to_name(provisioning_result));
+            }
+        }
+    }
+    if (auto release_result = release_pairing_qr(context); !release_result) {
+        ESP_LOGE(kTag, "%s", release_result.error().c_str());
+        if (stop_error.empty()) {
+            stop_error = std::move(release_result.error());
+        }
+    }
+    release_log_buffers();
     context_ = nullptr;
     ESP_LOGI(kTag, "QSee.ai native app stopped");
     if (!stop_error.empty()) {
@@ -749,128 +633,168 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
     return std::unexpected(details.data());
 }
 
-// Select only the lower commands and passive status chrome for the active route.
-std::expected<void, std::string> App::configure_adaptive_chrome(
+// Publish only route intent; the persistent component owns layout and colors.
+std::expected<void, std::string> App::configure_chrome(
     AppContext &context
 )
 {
-    static constexpr std::array<std::string_view, 0> kNoControls{};
-    static constexpr std::array<std::string_view, 6> kWelcomeControls = {
-        "/qsee_welcome/surface/menu/logs",
-        "/qsee_welcome/surface/menu/audio",
-        "/qsee_welcome/surface/menu/imu",
-        "/qsee_welcome/surface/menu/hardware",
-        "/qsee_welcome/surface/menu/about",
-        "/qsee_welcome/surface/menu/settings",
-    };
-    static constexpr std::array<std::string_view, 5> kLogControls = {
-        "/qsee_logs/surface/controls/pause",
-        "/qsee_logs/surface/controls/clear",
-        "/qsee_logs/surface/controls/follow",
-        "/qsee_logs/surface/controls/filter",
-        "/qsee_logs/surface/controls/search",
-    };
-    static constexpr std::array<std::string_view, 1> kAudioControls = {
-        "/qsee_audio/fft",
-    };
-    static constexpr std::array<std::string_view, 1> kWelcomeVisuals = {
-        "/qsee_welcome/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kLogVisuals = {
-        "/qsee_logs/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kHardwareVisuals = {
-        "/qsee_hardware/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kAudioVisuals = {
-        "/qsee_audio/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kAudioFftVisuals = {
-        "/qsee_audio_fft/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kImuVisuals = {
-        "/qsee_imu/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kSettingsVisuals = {
-        "/qsee_settings/chrome/status",
-    };
-    static constexpr std::array<std::string_view, 1> kAboutVisuals = {
-        "/qsee_about/chrome/status",
-    };
+    using palette::ActionRole;
+    static constexpr std::array<CommandSpec, 0> kNoCommands{};
+    static constexpr std::array<CommandSpec, 6> kWelcomeCommands = {{
+        {"\xef\x80\x8b", "qsee.open.logs", ActionRole::Primary},
+        {"\xef\x80\x81", "qsee.open.audio", ActionRole::Primary},
+        {"\xef\x80\xa1", "qsee.open.imu", ActionRole::Success},
+        {"\xef\x80\x9c", "qsee.open.hardware", ActionRole::Success},
+        {"i", "qsee.open.about", ActionRole::Primary},
+        {"\xef\x80\x93", "qsee.open.settings", ActionRole::Primary},
+    }};
+    const std::array<CommandSpec, 5> log_commands = {{
+        {
+            logs_paused_ ? "\xef\x81\x8b" : "\xef\x81\x8c",
+            "qsee.logs.pause",
+            ActionRole::Success,
+        },
+        {"\xef\x8b\xad", "qsee.logs.clear", ActionRole::Danger},
+        {
+            "\xef\x81\xb9",
+            "qsee.logs.follow",
+            logs_follow_latest_
+                ? ActionRole::Success
+                : ActionRole::Primary,
+        },
+        {
+            "\xef\x82\xb0",
+            "qsee.logs.filter",
+            log_filter_mode_ == 0
+                ? ActionRole::Primary
+                : ActionRole::Warning,
+        },
+        {"\xef\x80\x82", "qsee.logs.search", ActionRole::Primary},
+    }};
+    static constexpr std::array<CommandSpec, 1> kAudioCommands = {{
+        {"\xef\x82\x80", "qsee.open.audio_fft", ActionRole::Success},
+    }};
+    static constexpr std::array<CommandSpec, 1> kSettingsCommands = {{
+        {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success},
+    }};
 
-    switch (screen_) {
-    case Screen::Welcome:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kWelcomeControls,
-            kWelcomeVisuals,
-            "/qsee_welcome/chrome/wake"
-        );
-    case Screen::Logs:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kLogControls,
-            kLogVisuals,
-            "/qsee_logs/chrome/wake"
-        );
-    case Screen::Hardware:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kNoControls,
-            kHardwareVisuals,
-            "/qsee_hardware/chrome/wake"
-        );
-    case Screen::Audio:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kAudioControls,
-            kAudioVisuals,
-            "/qsee_audio/chrome/wake"
-        );
-    case Screen::AudioFft:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kNoControls,
-            kAudioFftVisuals,
-            "/qsee_audio_fft/chrome/wake"
-        );
-    case Screen::Imu:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kNoControls,
-            kImuVisuals,
-            "/qsee_imu/chrome/wake"
-        );
-    case Screen::Settings:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kNoControls,
-            kSettingsVisuals,
-            "/qsee_settings/chrome/wake"
-        );
-    case Screen::About:
-        return adaptive_command_bar_.activate(
-            context.gui(),
-            kNoControls,
-            kAboutVisuals,
-            "/qsee_about/chrome/wake"
-        );
+    auto activate_result = [&]() -> std::expected<void, std::string> {
+        switch (screen_) {
+        case Screen::Welcome:
+            return adaptive_command_bar_.activate(
+                context.gui(),
+                kWelcomeCommands
+            );
+        case Screen::Logs:
+            return adaptive_command_bar_.activate(
+                context.gui(),
+                log_commands
+            );
+        case Screen::Audio:
+            return adaptive_command_bar_.activate(
+                context.gui(),
+                kAudioCommands
+            );
+        case Screen::Settings:
+            return adaptive_command_bar_.activate(
+                context.gui(),
+                kSettingsCommands
+            );
+        case Screen::Hardware:
+        case Screen::AudioFft:
+        case Screen::Imu:
+        case Screen::About:
+        case Screen::PairIntro:
+        case Screen::PairBluetooth:
+        case Screen::PairApp:
+        case Screen::AppStoreQr:
+        case Screen::PairQr:
+        case Screen::PairResult:
+            return adaptive_command_bar_.activate(
+                context.gui(),
+                kNoCommands
+            );
+        }
+        return std::unexpected("Unknown QSee route for adaptive chrome");
+    }();
+    if (!activate_result) {
+        return activate_result;
     }
-    return std::unexpected("Unknown QSee route for adaptive chrome");
+
+    return edge_navigation_.configure(
+        context.gui(),
+        navigation_.can_back(),
+        is_pairing_screen(screen_) && screen_ != Screen::PairQr
+    );
 }
 
 std::expected<void, std::string> App::open_screen(
     AppContext &context,
     Screen screen,
-    std::string_view action
+    std::string_view action,
+    NavigationMode mode
 )
 {
+    const bool leaving_pairing = is_pairing_screen(screen_) &&
+                                 !is_pairing_screen(screen);
+    const bool leaving_pairing_qr = screen != Screen::PairQr &&
+                                    screen != Screen::AppStoreQr;
+    const bool release_live_log_buffers = screen_ == Screen::Logs &&
+                                          screen != Screen::Logs &&
+                                          !logs_paused_;
+    if (leaving_pairing &&
+        qsee_provisioning_active()) {
+        const esp_err_t stop_result = qsee_provisioning_stop();
+        if (stop_result != ESP_OK) {
+            return std::unexpected(
+                "Failed to leave pairing while provisioning is active: " +
+                std::string(esp_err_to_name(stop_result))
+            );
+        }
+        pairing_started_at_us_ = 0;
+    }
     auto result = context.gui().trigger_screen_flow(kScreenFlow, action);
     if (!result) {
         return std::unexpected("QSee navigation failed: " + result.error());
     }
+    if (release_live_log_buffers) {
+        release_log_buffers();
+    }
+    if (leaving_pairing_qr) {
+        if (auto release_result = release_pairing_qr(context); !release_result) {
+            return release_result;
+        }
+    }
+
+    bool history_updated = true;
+    switch (mode) {
+    case NavigationMode::Push:
+        navigation_.navigate(screen);
+        break;
+    case NavigationMode::Back:
+        history_updated = navigation_.commit_back(screen);
+        break;
+    case NavigationMode::Forward:
+        history_updated = navigation_.commit_forward(screen);
+        break;
+    case NavigationMode::Replace:
+        navigation_.replace(screen);
+        break;
+    case NavigationMode::Clear:
+        navigation_.reset(screen);
+        break;
+    case NavigationMode::ReturnTo:
+        history_updated = navigation_.return_to(screen);
+        break;
+    }
+    if (!history_updated) {
+        return std::unexpected(
+            "QSee route changed but navigation history rejected the transition"
+        );
+    }
     screen_ = screen;
-    if (auto chrome_result = configure_adaptive_chrome(context); !chrome_result) {
+    pairing_visual_state_.reset();
+    if (auto chrome_result = configure_chrome(context); !chrome_result) {
         return chrome_result;
     }
     if (auto monitor_result = apply_diagnostic_monitor(context, screen); !monitor_result) {
@@ -887,17 +811,33 @@ std::expected<void, std::string> App::on_action(
     if (auto result = adaptive_command_bar_.note_activity(context.gui()); !result) {
         return result;
     }
-    if (action == "qsee.chrome.activity") {
+    if (const auto resolved =
+            adaptive_command_bar_.resolve_action(action);
+        resolved.has_value()) {
+        action = *resolved;
+    }
+    if (action == "qsee.chrome.activity" ||
+        action == "qsee.chrome.activity.logs" ||
+        action == "qsee.chrome.activity.hardware" ||
+        action == "qsee.chrome.activity.settings") {
         return {};
     }
     if (action == "qsee.open.welcome") {
-        return open_screen(context, Screen::Welcome, action);
+        return open_screen(
+            context,
+            Screen::Welcome,
+            action,
+            NavigationMode::Clear
+        );
     }
     if (action == "qsee.open.logs") {
         return open_screen(context, Screen::Logs, action);
     }
     if (action == "qsee.open.hardware") {
         return open_screen(context, Screen::Hardware, action);
+    }
+    if (action == "qsee.hardware.refresh") {
+        return refresh_hardware(context);
     }
     if (action == "qsee.open.audio") {
         return open_screen(context, Screen::Audio, action);
@@ -914,16 +854,24 @@ std::expected<void, std::string> App::on_action(
     if (action == "qsee.open.about") {
         return open_screen(context, Screen::About, action);
     }
-    if (action == "qsee.audio_fft.back") {
-        return open_screen(context, Screen::Audio, "qsee.open.audio");
+    if (action == "qsee.open.pairing") {
+        return open_screen(
+            context,
+            Screen::PairIntro,
+            "qsee.open.pair_intro"
+        );
     }
-    if (action == "qsee.logs.back" || action == "qsee.hardware.back" ||
-        action == "qsee.audio.back" || action == "qsee.imu.back" ||
-        action == "qsee.settings.back" || action == "qsee.about.back") {
-        return open_screen(context, Screen::Welcome, "qsee.open.welcome");
+    if (action == "qsee.next") {
+        return pairing_next(context);
+    }
+    if (action == "qsee.back") {
+        return navigate_back(context);
     }
     if (action == "qsee.logs.pause") {
         logs_paused_ = !logs_paused_;
+        if (auto result = configure_chrome(context); !result) {
+            return result;
+        }
         return refresh_logs(context);
     }
     if (action == "qsee.logs.clear") {
@@ -950,10 +898,16 @@ std::expected<void, std::string> App::on_action(
     }
     if (action == "qsee.logs.follow") {
         logs_follow_latest_ = !logs_follow_latest_;
+        if (auto result = configure_chrome(context); !result) {
+            return result;
+        }
         return refresh_logs(context);
     }
     if (action == "qsee.logs.filter") {
         log_filter_mode_ = static_cast<uint8_t>((log_filter_mode_ + 1U) % 4U);
+        if (auto result = configure_chrome(context); !result) {
+            return result;
+        }
         return refresh_logs(context);
     }
     if (action == "qsee.logs.search") {
@@ -1234,220 +1188,16 @@ std::expected<void, std::string> App::refresh_chrome(
     const DeviceSnapshot &snapshot
 )
 {
-    const char *screen_id = nullptr;
-    switch (screen_) {
-    case Screen::Welcome:
-        screen_id = "qsee_welcome";
-        break;
-    case Screen::Logs:
-        screen_id = "qsee_logs";
-        break;
-    case Screen::Hardware:
-        screen_id = "qsee_hardware";
-        break;
-    case Screen::Audio:
-        screen_id = "qsee_audio";
-        break;
-    case Screen::AudioFft:
-        screen_id = "qsee_audio_fft";
-        break;
-    case Screen::Imu:
-        screen_id = "qsee_imu";
-        break;
-    case Screen::Settings:
-        screen_id = "qsee_settings";
-        break;
-    case Screen::About:
-        screen_id = "qsee_about";
-        break;
-    }
     if (auto result =
             adaptive_command_bar_.update(context.gui(), snapshot);
         !result) {
         return result;
     }
-
-    const auto update_status_item =
-        [&](const char *item, const char *color)
-        -> std::expected<void, std::string> {
-        std::array<char, 96> path{};
-        std::snprintf(
-            path.data(),
-            path.size(),
-            "/%s/chrome/status/%s/icon",
-            screen_id,
-            item
-        );
-        if (auto result =
-                set_binding_text(context, path.data(), "color", color);
-            !result) {
-            return result;
-        }
-        std::snprintf(
-            path.data(),
-            path.size(),
-            "/%s/chrome/status/%s/dot",
-            screen_id,
-            item
-        );
-        return set_binding_text(context, path.data(), "color", color);
-    };
-
-    const char *battery_color = component_status_color(snapshot.battery);
-    const char *usb_color = battery_color;
-    if (component_ready(snapshot.battery)) {
-        usb_color = snapshot.battery.usb_present ? kStatusReady : kStatusMuted;
-        if (!snapshot.battery.battery_present) {
-            battery_color = kStatusMuted;
-        } else if (snapshot.battery.level_percent < 0 ||
-                   snapshot.battery.level_percent > 100) {
-            battery_color = kStatusFault;
-        } else if (snapshot.battery.level_percent <= 12) {
-            battery_color = kStatusFault;
-        } else if (snapshot.battery.level_percent <= 30) {
-            battery_color = kStatusWarning;
-        }
-    }
-
-    const char *ble_color = component_status_color(snapshot.radios.ble);
-    if (component_ready(snapshot.radios.ble)) {
-        ble_color = snapshot.radios.ble.connected ||
-                    snapshot.radios.ble.provisioning ||
-                    snapshot.radios.ble.advertising
-                        ? kStatusReady
-                        : kStatusWarning;
-    }
-
-    const char *wifi_color = component_status_color(snapshot.radios.wifi);
-    if (component_ready(snapshot.radios.wifi)) {
-        wifi_color = snapshot.radios.wifi.connected
-            ? kStatusReady
-            : snapshot.radios.wifi.started ? kStatusWarning : kStatusMuted;
-    }
-
-    const char *gps_color = component_status_color(snapshot.gps);
-    if (component_ready(snapshot.gps)) {
-        gps_color = gps_fix_valid(snapshot.gps)
-            ? kStatusReady
-            : snapshot.gps.has_fix ? kStatusFault : kStatusWarning;
-    }
-
-    const char *sd_color = component_status_color(snapshot.storage);
-    if (storage_cleanup_failed(snapshot.storage)) {
-        sd_color = kStatusFault;
-    } else if (storage_format_required(snapshot.storage)) {
-        sd_color = kStatusWarning;
-    } else if (storage_mounted_ready(snapshot.storage)) {
-        sd_color = kStatusReady;
-    }
-
-    if (auto result = update_status_item("usb", usb_color); !result) {
-        return result;
-    }
-    if (auto result = update_status_item("battery", battery_color); !result) {
-        return result;
-    }
-    if (auto result = update_status_item("ble", ble_color); !result) {
-        return result;
-    }
-    if (auto result = update_status_item("wifi", wifi_color); !result) {
-        return result;
-    }
-    if (auto result = update_status_item("gps", gps_color); !result) {
-        return result;
-    }
-    if (auto result = update_status_item("sd", sd_color); !result) {
-        return result;
-    }
-
-    std::array<char, 96> battery_path{};
-    std::snprintf(
-        battery_path.data(),
-        battery_path.size(),
-        "/%s/chrome/status/battery/icon",
-        screen_id
-    );
-    return set_binding_text(
-        context,
-        battery_path.data(),
-        "icon",
-        battery_status_icon(snapshot.battery)
-    );
-}
-
-// Publish the original radial atmosphere through Brookesia's native image registry.
-std::expected<void, std::string> App::refresh_background(AppContext &context)
-{
-    auto &asset = BackgroundAssetCache::instance();
-    if (asset.failed()) {
-        return std::unexpected(
-            "QSee background generation failed; inspect qsee_background logs"
-        );
-    }
-
-    const lv_image_dsc_t *image = asset.image();
-    if (image == nullptr) {
-        return {};
-    }
-
-    if (!background_registered_) {
-        auto result = context.gui().register_image(
-            esp_brookesia::gui::RuntimeImageResource{
-                .id = kBackgroundImageId,
-                .primary_src = "",
-                .native_src = reinterpret_cast<uintptr_t>(image),
-                .width = 466,
-                .height = 466,
-                .preload = false,
-            }
-        );
-        if (!result) {
-            return std::unexpected(
-                "Failed to register QSee background image: " + result.error()
-            );
-        }
-        background_registered_ = true;
-    }
-
-    if (background_bound_) {
-        return {};
-    }
-
-    constexpr std::array<std::string_view, 8> kScreenIds = {
-        "qsee_welcome",
-        "qsee_logs",
-        "qsee_hardware",
-        "qsee_audio",
-        "qsee_audio_fft",
-        "qsee_imu",
-        "qsee_settings",
-        "qsee_about",
-    };
-    for (std::string_view screen_id : kScreenIds) {
-        std::array<char, 64> path{};
-        std::snprintf(
-            path.data(),
-            path.size(),
-            "/%.*s/background",
-            static_cast<int>(screen_id.size()),
-            screen_id.data()
-        );
-        if (auto result =
-                set_binding_text(context, path.data(), "src", kBackgroundImageId);
-            !result) {
-            return result;
-        }
-    }
-    background_bound_ = true;
-    ESP_LOGI(kTag, "QSee radial background bound through Brookesia");
-    return {};
+    return status_bar_.update(context.gui(), snapshot);
 }
 
 std::expected<void, std::string> App::refresh(AppContext &context)
 {
-    if (auto result = refresh_background(context); !result) {
-        return result;
-    }
     switch (screen_) {
     case Screen::Welcome:
         return refresh_welcome(context);
@@ -1463,6 +1213,13 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_imu(context);
     case Screen::Settings:
         return refresh_settings(context);
+    case Screen::PairIntro:
+    case Screen::PairBluetooth:
+    case Screen::PairApp:
+    case Screen::AppStoreQr:
+    case Screen::PairQr:
+    case Screen::PairResult:
+        return refresh_pairing(context);
     case Screen::About: {
         const DeviceSnapshot snapshot =
             DeviceSnapshotService::instance().snapshot();
@@ -1751,14 +1508,44 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     return set_text(context, "/qsee_welcome/surface/device_status", text.data());
 }
 
+std::expected<void, std::string> App::ensure_log_buffers()
+{
+    if (log_source_buffer_ != nullptr && log_filtered_buffer_ != nullptr) {
+        return {};
+    }
+    release_log_buffers();
+
+    std::unique_ptr<char[]> source(
+        new (std::nothrow) char[kLogBufferBytes]
+    );
+    std::unique_ptr<char[]> filtered(
+        new (std::nothrow) char[kLogBufferBytes]
+    );
+    if (source == nullptr || filtered == nullptr) {
+        return std::unexpected("Failed to allocate QSee log buffers");
+    }
+
+    source[0] = '\0';
+    filtered[0] = '\0';
+    log_source_buffer_ = std::move(source);
+    log_filtered_buffer_ = std::move(filtered);
+    return {};
+}
+
+void App::release_log_buffers()
+{
+    log_source_buffer_.reset();
+    log_filtered_buffer_.reset();
+}
+
 std::expected<void, std::string> App::refresh_logs(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
     }
-    if (log_source_buffer_ == nullptr || log_filtered_buffer_ == nullptr) {
-        return std::unexpected("Persistent QSee log buffers are unavailable");
+    if (auto result = ensure_log_buffers(); !result) {
+        return result;
     }
     if (!logs_paused_) {
         size_t bytes_written = 0;
@@ -1835,23 +1622,6 @@ std::expected<void, std::string> App::refresh_logs(AppContext &context)
             ); !result) {
             return result;
         }
-    }
-
-    if (auto result = set_text(
-            context,
-            "/qsee_logs/surface/controls/pause/icon",
-            logs_paused_ ? "\xef\x81\x8b" : "\xef\x81\x8c"
-        );
-        !result) {
-        return result;
-    }
-    if (auto result = set_text(
-            context,
-            "/qsee_logs/surface/controls/follow/icon",
-            logs_follow_latest_ ? "\xef\x81\xae" : "\xef\x81\xb0"
-        );
-        !result) {
-        return result;
     }
 
     if (logs_follow_latest_ && !logs_paused_) {
@@ -1944,14 +1714,19 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
     } else {
         append_format(
             details,
-            "RTC         READY %04u-%02u-%02u %02u:%02u:%02u | %s\n",
+            "RTC         READY %04u-%02u-%02u %02u:%02u:%02u | %s | %s\n",
             static_cast<unsigned>(snapshot.rtc.year),
             static_cast<unsigned>(snapshot.rtc.month),
             static_cast<unsigned>(snapshot.rtc.day),
             static_cast<unsigned>(snapshot.rtc.hour),
             static_cast<unsigned>(snapshot.rtc.minute),
             static_cast<unsigned>(snapshot.rtc.second),
-            snapshot.rtc.source
+            snapshot.rtc.source,
+            snapshot.rtc.system_time_valid
+                ? snapshot.rtc.synchronized
+                    ? "SYSTEM TIME SYNCED"
+                    : "SYSTEM TIME RESTORED"
+                : "SYSTEM TIME UNAVAILABLE"
         );
     }
 
@@ -1979,7 +1754,7 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
     if (!component_ready(snapshot.gps)) {
         append_component_error("GPS", snapshot.gps);
     } else if (!snapshot.gps.has_fix) {
-        append_format(details, "GPS         READY | NO FIX\n");
+        append_format(details, "GPS         RECEIVER READY | NO FIX\n");
     } else if (!gps_fix_valid(snapshot.gps)) {
         append_format(details, "GPS         ERROR (INVALID FIX DATA)\n");
     } else {
@@ -1993,7 +1768,9 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
         );
     }
 
-    if (!component_ready(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+        append_format(details, "WIFI        OFF BY POLICY | START IN SETTINGS\n");
+    } else if (!component_ready(snapshot.radios.wifi)) {
         append_component_error("WIFI", snapshot.radios.wifi);
     } else if (snapshot.radios.wifi.connected) {
         append_format(
@@ -2010,7 +1787,9 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
         );
     }
 
-    if (!component_ready(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+        append_format(details, "BLE         OFF BY POLICY | START IN SETTINGS\n");
+    } else if (!component_ready(snapshot.radios.ble)) {
         append_component_error("BLE", snapshot.radios.ble);
     } else {
         append_format(
@@ -2396,6 +2175,519 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
     return set_text(context, "/qsee_audio/surface/audio_values", values.data());
 }
 
+bool App::is_pairing_screen(Screen screen)
+{
+    switch (screen) {
+    case Screen::PairIntro:
+    case Screen::PairBluetooth:
+    case Screen::PairApp:
+    case Screen::AppStoreQr:
+    case Screen::PairQr:
+    case Screen::PairResult:
+        return true;
+    default:
+        return false;
+    }
+}
+
+std::expected<void, std::string> App::prepare_pairing_qr(
+    AppContext &context,
+    const char *payload
+)
+{
+    const esp_err_t generation_result = pairing_qr_.generate(payload);
+    if (generation_result != ESP_OK) {
+        return std::unexpected(
+            "Pairing QR generation failed: " +
+            std::string(esp_err_to_name(generation_result))
+        );
+    }
+    if (pairing_qr_registered_) {
+        return {};
+    }
+
+    const lv_image_dsc_t *image = pairing_qr_.image();
+    if (image == nullptr) {
+        return std::unexpected(
+            "Pairing QR generation completed without an image"
+        );
+    }
+    auto registration_result = context.gui().register_image(
+        esp_brookesia::gui::RuntimeImageResource{
+            .id = kPairingQrImageId,
+            .primary_src = "",
+            .native_src = reinterpret_cast<uintptr_t>(image),
+            .width = PairingQrAsset::kSize,
+            .height = PairingQrAsset::kSize,
+            .preload = false,
+        }
+    );
+    if (!registration_result) {
+        return std::unexpected(
+            "Failed to register pairing QR image: " +
+            registration_result.error()
+        );
+    }
+    pairing_qr_registered_ = true;
+    return {};
+}
+
+std::expected<void, std::string> App::release_pairing_qr(AppContext &context)
+{
+    if (pairing_qr_registered_ &&
+        !context.gui().unregister_image(kPairingQrImageId)) {
+        return std::unexpected("Failed to unregister QSee pairing QR image");
+    }
+    pairing_qr_registered_ = false;
+    pairing_qr_.reset();
+    return {};
+}
+
+std::expected<void, std::string> App::open_app_store_qr(
+    AppContext &context,
+    NavigationMode mode
+)
+{
+    if (auto result = prepare_pairing_qr(
+            context,
+            kEspressifAppStoreUrl
+        ); !result) {
+        return show_pairing_result(
+            context,
+            result.error(),
+            false
+        );
+    }
+    return open_screen(
+        context,
+        Screen::AppStoreQr,
+        "qsee.open.app_store_qr",
+        mode
+    );
+}
+
+std::expected<void, std::string> App::start_pairing_session(
+    AppContext &context,
+    NavigationMode mode
+)
+{
+    esp_err_t result = qsee_wifi_init();
+    if (result == ESP_OK &&
+        !qsee::ProvisioningService::instance().isInitialized()) {
+        result = qsee_provisioning_init();
+    }
+    if (result == ESP_OK) {
+        result = qsee_provisioning_start();
+    }
+    if (result != ESP_OK) {
+        return show_pairing_result(
+            context,
+            "BLE provisioning could not start: " +
+                std::string(esp_err_to_name(result)),
+            false
+        );
+    }
+    if (auto qr_result = prepare_pairing_qr(
+            context,
+            qsee::ProvisioningService::instance().qrPayload()
+        ); !qr_result) {
+        const esp_err_t stop_result = qsee_provisioning_stop();
+        if (stop_result != ESP_OK) {
+            return std::unexpected(
+                qr_result.error() +
+                "; provisioning stop also failed: " +
+                esp_err_to_name(stop_result)
+            );
+        }
+        return show_pairing_result(
+            context,
+            qr_result.error(),
+            false
+        );
+    }
+
+    pairing_started_at_us_ = esp_timer_get_time();
+    return open_screen(
+        context,
+        Screen::PairQr,
+        "qsee.open.pair_qr",
+        mode
+    );
+}
+
+std::expected<void, std::string> App::show_pairing_result(
+    AppContext &context,
+    std::string message,
+    bool success
+)
+{
+    pairing_result_ = std::move(message);
+    pairing_result_success_ = success;
+    pairing_started_at_us_ = 0;
+    return open_screen(
+        context,
+        Screen::PairResult,
+        "qsee.open.pair_result",
+        NavigationMode::Replace
+    );
+}
+
+std::expected<void, std::string> App::pairing_next(AppContext &context)
+{
+    const auto mode_for = [this](Screen target) {
+        const std::optional<Screen> forward =
+            navigation_.forward_target();
+        return forward.has_value() && *forward == target
+            ? NavigationMode::Forward
+            : NavigationMode::Push;
+    };
+
+    switch (screen_) {
+    case Screen::PairIntro:
+        return open_screen(
+            context,
+            Screen::PairBluetooth,
+            "qsee.open.pair_bluetooth",
+            mode_for(Screen::PairBluetooth)
+        );
+    case Screen::PairBluetooth:
+        return open_screen(
+            context,
+            Screen::PairApp,
+            "qsee.open.pair_app",
+            mode_for(Screen::PairApp)
+        );
+    case Screen::PairApp:
+        return open_app_store_qr(
+            context,
+            mode_for(Screen::AppStoreQr)
+        );
+    case Screen::AppStoreQr: {
+        const NavigationMode mode = mode_for(Screen::PairQr);
+        if (!qsee_provisioning_active()) {
+            return start_pairing_session(context, mode);
+        }
+        if (auto result = prepare_pairing_qr(
+                context,
+                qsee::ProvisioningService::instance().qrPayload()
+            ); !result) {
+            return result;
+        }
+        return open_screen(
+            context,
+            Screen::PairQr,
+            "qsee.open.pair_qr",
+            mode
+        );
+    }
+    case Screen::PairResult:
+        if (pairing_result_success_) {
+            return open_screen(
+                context,
+                Screen::Settings,
+                "qsee.open.settings",
+                NavigationMode::ReturnTo
+            );
+        }
+        return start_pairing_session(
+            context,
+            NavigationMode::Replace
+        );
+    case Screen::PairQr:
+        return std::unexpected(
+            "Next action rejected while pairing is in progress"
+        );
+    default:
+        return std::unexpected(
+            "Next action rejected outside the pairing wizard"
+        );
+    }
+}
+
+std::string_view App::screen_action(Screen screen)
+{
+    switch (screen) {
+    case Screen::Welcome:
+        return "qsee.open.welcome";
+    case Screen::Logs:
+        return "qsee.open.logs";
+    case Screen::Hardware:
+        return "qsee.open.hardware";
+    case Screen::Audio:
+        return "qsee.open.audio";
+    case Screen::AudioFft:
+        return "qsee.open.audio_fft";
+    case Screen::Imu:
+        return "qsee.open.imu";
+    case Screen::Settings:
+        return "qsee.open.settings";
+    case Screen::About:
+        return "qsee.open.about";
+    case Screen::PairIntro:
+        return "qsee.open.pair_intro";
+    case Screen::PairBluetooth:
+        return "qsee.open.pair_bluetooth";
+    case Screen::PairApp:
+        return "qsee.open.pair_app";
+    case Screen::AppStoreQr:
+        return "qsee.open.app_store_qr";
+    case Screen::PairQr:
+        return "qsee.open.pair_qr";
+    case Screen::PairResult:
+        return "qsee.open.pair_result";
+    }
+    return "";
+}
+
+std::expected<void, std::string> App::navigate_back(AppContext &context)
+{
+    const std::optional<Screen> target = navigation_.back_target();
+    if (!target.has_value()) {
+        return std::unexpected(
+            "Back action rejected because navigation history is empty"
+        );
+    }
+
+    if (*target == Screen::AppStoreQr) {
+        if (auto result = prepare_pairing_qr(
+                context,
+                kEspressifAppStoreUrl
+            ); !result) {
+            return result;
+        }
+    } else if (*target == Screen::PairQr) {
+        if (auto result = prepare_pairing_qr(
+                context,
+                qsee::ProvisioningService::instance().qrPayload()
+            ); !result) {
+            return result;
+        }
+    }
+
+    return open_screen(
+        context,
+        *target,
+        screen_action(*target),
+        NavigationMode::Back
+    );
+}
+
+std::expected<void, std::string> App::refresh_pairing(AppContext &context)
+{
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    const char *root = "/qsee_pairing/surface";
+    const char *title = nullptr;
+    const char *step = nullptr;
+    const char *message = nullptr;
+    const char *detail = "";
+    bool show_qr = false;
+    std::array<char, 192> dynamic_message{};
+
+    switch (screen_) {
+    case Screen::PairIntro:
+        title = "PAIR DEVICE";
+        step = "1 OF 5";
+        message =
+            "Connect QSee to Wi-Fi with Bluetooth provisioning.";
+        detail =
+            "Keep the device near your phone. No PIN or proof-of-possession is required.";
+        break;
+    case Screen::PairBluetooth:
+        title = "BLUETOOTH";
+        step = "2 OF 5";
+        message =
+            "Enable Bluetooth on your phone and allow nearby-device access.";
+        detail =
+            "The QSee radio starts only when you reach the device QR step.";
+        break;
+    case Screen::PairApp:
+        title = "ESPRESSIF APP";
+        step = "3 OF 5";
+        message =
+            "Install and open ESP BLE Provisioning, the official Espressif app.";
+        detail =
+            "Next shows the Google Play QR, then the QR for this QSee device.";
+        break;
+    case Screen::AppStoreQr:
+        title = "INSTALL APP";
+        step = "4 OF 5";
+        message =
+            "Scan this code to open ESP BLE Provisioning on Google Play.";
+        detail = "Press Next when the app is ready.";
+        show_qr = true;
+        break;
+    case Screen::PairQr: {
+        title = "SCAN DEVICE";
+        step = "5 OF 5";
+        show_qr = true;
+        detail = qsee::ProvisioningService::instance().serviceName();
+        const qsee::ProvisioningState state =
+            qsee::ProvisioningService::instance().state();
+        switch (state) {
+        case qsee::ProvisioningState::WaitingForApp:
+            message =
+                "Bluetooth ready. Scan this QR in the Espressif app.";
+            break;
+        case qsee::ProvisioningState::CredentialsReceived:
+            message =
+                "Credentials received. Preparing the Wi-Fi profile...";
+            break;
+        case qsee::ProvisioningState::Connecting:
+            message =
+                "Credentials received. Connecting to Wi-Fi...";
+            break;
+        case qsee::ProvisioningState::Success: {
+            std::array<char, 128> summary{};
+            const esp_err_t summary_result =
+                qsee::ProvisioningService::instance().connectionSummary(
+                    summary.data(),
+                    summary.size()
+                );
+            if (summary_result == ESP_OK) {
+                return show_pairing_result(
+                    context,
+                    summary.data(),
+                    true
+                );
+            }
+            std::snprintf(
+                dynamic_message.data(),
+                dynamic_message.size(),
+                "Wi-Fi connected. Connection summary unavailable (%s).",
+                esp_err_to_name(summary_result)
+            );
+            return show_pairing_result(
+                context,
+                dynamic_message.data(),
+                true
+            );
+        }
+        case qsee::ProvisioningState::Failed:
+            return show_pairing_result(
+                context,
+                "The network rejected the credentials. Check the password and retry.",
+                false
+            );
+        case qsee::ProvisioningState::Poisoned:
+            return show_pairing_result(
+                context,
+                "The provisioning manager entered a terminal error state.",
+                false
+            );
+        default:
+            message = "Starting Bluetooth provisioning...";
+            break;
+        }
+
+        if (pairing_started_at_us_ > 0 &&
+            esp_timer_get_time() - pairing_started_at_us_ >=
+                kPairingTimeoutUs) {
+            const esp_err_t stop_result = qsee_provisioning_stop();
+            if (stop_result != ESP_OK) {
+                std::snprintf(
+                    dynamic_message.data(),
+                    dynamic_message.size(),
+                    "Pairing timed out and BLE could not stop (%s).",
+                    esp_err_to_name(stop_result)
+                );
+            } else {
+                std::snprintf(
+                    dynamic_message.data(),
+                    dynamic_message.size(),
+                    "Pairing timed out after 5 minutes. Retry to start a new session."
+                );
+            }
+            return show_pairing_result(
+                context,
+                dynamic_message.data(),
+                false
+            );
+        }
+        break;
+    }
+    case Screen::PairResult:
+        title = pairing_result_success_
+            ? "WI-FI READY"
+            : "PAIRING FAILED";
+        step = pairing_result_success_ ? "CONNECTED" : "ACTION REQUIRED";
+        message = pairing_result_.c_str();
+        detail = pairing_result_success_
+            ? "Next returns to Settings."
+            : "Next starts a new pairing session.";
+        break;
+    default:
+        return std::unexpected(
+            "Pairing refresh rejected outside the wizard"
+        );
+    }
+
+    const PairingVisualState next_state{
+        .screen = screen_,
+        .title = title,
+        .step = step,
+        .message = message,
+        .detail = detail,
+        .show_qr = show_qr,
+    };
+    if (pairing_visual_state_.has_value() &&
+        *pairing_visual_state_ == next_state) {
+        return {};
+    }
+
+    if (auto result = set_text(
+            context,
+            std::string(root) + "/title",
+            title
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_text(
+            context,
+            std::string(root) + "/step",
+            step
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_text(
+            context,
+            std::string(root) + "/message",
+            message
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_text(
+            context,
+            std::string(root) + "/detail",
+            detail
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_hidden(
+            context,
+            std::string(root) + "/qr",
+            !show_qr
+        ); !result) {
+        return result;
+    }
+    if (show_qr) {
+        if (auto result = set_binding_text(
+                context,
+                std::string(root) + "/qr",
+                "src",
+                kPairingQrImageId
+            ); !result) {
+            return result;
+        }
+    }
+    pairing_visual_state_ = next_state;
+    return {};
+}
+
 // Render the restored compact DFT bank without bypassing the Brookesia view tree.
 std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
 {
@@ -2746,7 +3038,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "DIAGNOSTIC INTERVAL | %s (%s)",
+            "Sampling interval | %s (%s)",
             component_state(snapshot.diagnostics.sample_period),
             component_reason(snapshot.diagnostics.sample_period)
         );
@@ -2755,14 +3047,14 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "DIAGNOSTICS | ERROR (INVALID SAVED INTERVAL: %lu ms)",
+            "Sampling interval | ERROR (INVALID SAVED INTERVAL: %lu ms)",
             static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms)
         );
     } else if (!component_ready(snapshot.diagnostics.monitor)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "DIAGNOSTICS | sample %lu ms | monitor %s (%s)",
+            "Sampling interval | %lu ms | monitor %s (%s)",
             static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms),
             component_state(snapshot.diagnostics.monitor),
             component_reason(snapshot.diagnostics.monitor)
@@ -2771,7 +3063,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "DIAGNOSTICS | sample %lu ms | monitor %s",
+            "Sampling interval | %lu ms | monitor %s",
             static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms),
             snapshot.diagnostics.monitor_active ? "ON" : "OFF"
         );
@@ -2788,7 +3080,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU INPUT SMOOTHING | %s (%s)",
+            "IMU input smoothing | %s (%s)",
             component_state(snapshot.diagnostics.imu_smoothing),
             component_reason(snapshot.diagnostics.imu_smoothing)
         );
@@ -2796,14 +3088,14 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU INPUT SMOOTHING | ERROR (INVALID SAVED VALUE: %lu%%)",
+            "IMU input smoothing | ERROR (INVALID SAVED VALUE: %lu%%)",
             static_cast<unsigned long>(snapshot.diagnostics.imu_smoothing_percent)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU INPUT SMOOTHING | %lu%%",
+            "IMU input smoothing | %lu%%",
             static_cast<unsigned long>(snapshot.diagnostics.imu_smoothing_percent)
         );
     }
@@ -2915,7 +3207,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
 
     std::array<char, 64> wifi_state{};
     std::array<char, 64> ble_state{};
-    if (component_ready(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+        std::snprintf(wifi_state.data(), wifi_state.size(), "OFF BY POLICY");
+    } else if (component_ready(snapshot.radios.wifi)) {
         std::snprintf(
             wifi_state.data(),
             wifi_state.size(),
@@ -2927,7 +3221,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     } else {
         format_component_status(wifi_state, snapshot.radios.wifi);
     }
-    if (component_ready(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+        std::snprintf(ble_state.data(), ble_state.size(), "OFF BY POLICY");
+    } else if (component_ready(snapshot.radios.ble)) {
         std::snprintf(
             ble_state.data(),
             ble_state.size(),
@@ -2963,7 +3259,13 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
 
-    if (!component_ready(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "WI-FI | OFF BY POLICY\nSTART MANUALLY FROM SETTINGS"
+        );
+    } else if (!component_ready(snapshot.radios.wifi)) {
         std::array<char, 96> wifi_detail{};
         format_component_status(wifi_detail, snapshot.radios.wifi);
         std::snprintf(
@@ -3016,7 +3318,13 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
 
-    if (!component_ready(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "BLUETOOTH | OFF BY POLICY\nSTART MANUALLY FROM SETTINGS"
+        );
+    } else if (!component_ready(snapshot.radios.ble)) {
         std::array<char, 96> ble_detail{};
         format_component_status(ble_detail, snapshot.radios.ble);
         std::snprintf(
@@ -3068,6 +3376,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "GPS | %s",
             gps_detail.data()
         );
+    } else if (!snapshot.gps.has_fix) {
+        std::snprintf(text.data(), text.size(), "GPS | RECEIVER READY | NO FIX");
     } else if (!gps_fix_valid(snapshot.gps)) {
         std::snprintf(
             text.data(),
@@ -3100,7 +3410,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED BRIGHTNESS | %s (%s)",
+            "AMOLED brightness | %s (%s)",
             component_state(snapshot.ui.brightness),
             component_reason(snapshot.ui.brightness)
         );
@@ -3117,14 +3427,14 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED BRIGHTNESS | ERROR (INVALID SAVED VALUE: %lu%%)",
+            "AMOLED brightness | ERROR (INVALID SAVED VALUE: %lu%%)",
             static_cast<unsigned long>(snapshot.ui.brightness_percent)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED BRIGHTNESS | %lu%%",
+            "AMOLED brightness | %lu%%",
             static_cast<unsigned long>(snapshot.ui.brightness_percent)
         );
     }
@@ -3200,41 +3510,12 @@ std::expected<void, std::string> App::show_error_dialog(
     std::string_view details
 )
 {
-    if (error_dialog_ != esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID) {
-        auto hide_result = context.system_service().hide_message_dialog(error_dialog_);
-        if (!hide_result) {
-            return std::unexpected(
-                "Failed to replace the visible QSee error dialog: " +
-                hide_result.error()
-            );
-        }
-        error_dialog_ = esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-    }
-
-    MessageDialogOptions options = {
-        .text = std::string(title),
-        .informative_text = std::string(details),
-        .icon = MessageDialogIcon::Critical,
-        .buttons = {
-            MessageDialogButton{
-                .text = "OK",
-                .role = MessageDialogButtonRole::Accept,
-            },
-        },
-        .auto_close_ms = 0,
-    };
-    auto result = context.system_service().show_message_dialog(
-        std::move(options),
-        [this](const auto &) {
-            error_dialog_ =
-                esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-        }
+    return alert_service_.show_alert(
+        context,
+        title,
+        details,
+        esp_brookesia::system::core::MessageDialogIcon::Critical
     );
-    if (!result) {
-        return std::unexpected("Failed to show QSee error dialog: " + result.error());
-    }
-    error_dialog_ = *result;
-    return {};
 }
 
 std::expected<void, std::string> App::request_log_search(AppContext &context)
@@ -3275,8 +3556,7 @@ std::expected<void, std::string> App::request_log_search(AppContext &context)
 
 std::expected<void, std::string> App::request_sd_format(AppContext &context)
 {
-    if (format_dialog_ !=
-        esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID) {
+    if (alert_service_.dialog_visible()) {
         return {};
     }
 
@@ -3317,31 +3597,17 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
                 component_reason(storage)
             );
         }
-        MessageDialogOptions info = {
-            .text = "SD format is not available",
-            .informative_text = informative_text.data(),
-            .icon = std::strcmp(component_state(storage), "ERROR") == 0
-                ? MessageDialogIcon::Critical
-                : MessageDialogIcon::Information,
-            .buttons = {
-                MessageDialogButton{
-                    .text = "OK",
-                    .role = MessageDialogButtonRole::Accept,
-                },
-            },
-            .auto_close_ms = 0,
-        };
-        auto result = context.system_service().show_message_dialog(
-            std::move(info),
-            [this](const auto &) {
-                format_dialog_ =
-                    esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-            }
+        auto result = alert_service_.show_notice(
+            context,
+            "SD format is not available",
+            informative_text.data(),
+            std::strcmp(component_state(storage), "ERROR") == 0
+                ? esp_brookesia::system::core::MessageDialogIcon::Critical
+                : esp_brookesia::system::core::MessageDialogIcon::Information
         );
         if (!result) {
             return std::unexpected("Failed to show SD status dialog: " + result.error());
         }
-        format_dialog_ = *result;
         if (std::strcmp(component_state(storage), "ERROR") == 0) {
             return std::unexpected(
                 "SD format status failed: " + std::string(component_reason(storage))
@@ -3350,32 +3616,14 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
         return {};
     }
 
-    MessageDialogOptions options = {
-        .text = "Format SD card?",
-        .informative_text =
-            "This erases the card. Formatting starts only after you press FORMAT.",
-        .icon = MessageDialogIcon::Warning,
-        .buttons = {
-            MessageDialogButton{
-                .text = "CANCEL",
-                .role = MessageDialogButtonRole::No,
-            },
-            MessageDialogButton{
-                .text = "FORMAT",
-                .role = MessageDialogButtonRole::Destructive,
-            },
-        },
-        .auto_close_ms = 0,
-    };
-    auto result = context.system_service().show_message_dialog(
-        std::move(options),
-        [this](const esp_brookesia::system::core::MessageDialogResult &dialog_result) {
-            format_dialog_ =
-                esp_brookesia::system::core::INVALID_MESSAGE_DIALOG_REQUEST_ID;
-            if (dialog_result.button_role != MessageDialogButtonRole::Destructive) {
-                return;
-            }
-
+    auto result = alert_service_.show_confirmation(
+        context,
+        "Format SD card?",
+        "This erases the card. Formatting starts only after you press FORMAT.",
+        "CANCEL",
+        "FORMAT",
+        esp_brookesia::system::core::MessageDialogButtonRole::Destructive,
+        [this]() {
             const esp_err_t format_result = qsee_storage_request_format();
             if (format_result != ESP_OK) {
                 ESP_LOGE(
@@ -3416,7 +3664,6 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
     if (!result) {
         return std::unexpected("Failed to show SD format confirmation: " + result.error());
     }
-    format_dialog_ = *result;
     return {};
 }
 

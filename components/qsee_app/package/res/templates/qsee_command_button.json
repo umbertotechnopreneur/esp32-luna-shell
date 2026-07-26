@@ -7,28 +7,42 @@
         "commonProps": {
             "scrollable": false,
             "pressLock": false,
-            "clickable": true
+            "clickable": false,
+            "hidden": true
         },
         "bindings": {
+            "commonProps.hidden": "hidden",
             "commonProps.clickable": "clickable",
-            "style.opacity": "opacity"
+            "style.bgColor": "top",
+            "style.bgGradientColor": "bottom",
+            "style.borderColor": "border",
+            "style.shadowColor": "glow",
+            "stateStyles.pressed.bgColor": "pressed_top",
+            "stateStyles.pressed.bgGradientColor": "pressed_bottom",
+            "stateStyles.pressed.borderColor": "pressed_border",
+            "placement.x": "x",
+            "placement.y": "y"
         },
         "style": {
-            "bgColor": "#3478c8",
-            "bgGradientColor": "#183e70",
+            "bgColor": "#247fd6",
+            "bgGradientColor": "#0a346b",
             "bgGradientDirection": "vertical",
-            "borderColor": "#69b9ff",
-            "borderWidth": "2dp",
+            "borderColor": "#65c8ff",
+            "borderWidth": "1dp",
             "radius": "27dp",
+            "shadowColor": "#0b55d9",
+            "shadowWidth": "10dp",
+            "shadowOffsetX": "0dp",
+            "shadowOffsetY": "0dp",
             "padding": 0,
             "opacity": 255
         },
         "stateStyles": {
             "pressed": {
-                "bgColor": "#1b4f84",
-                "bgGradientColor": "#183e70",
-                "borderColor": "#8dceff",
-                "borderWidth": "2dp"
+                "bgColor": "#1765ad",
+                "bgGradientColor": "#082955",
+                "borderColor": "#9cddff",
+                "borderWidth": "1dp"
             },
             "disabled": {
                 "opacity": 0
@@ -45,6 +59,10 @@
             {
                 "type": "label",
                 "id": "icon",
+                "bindings": {
+                    "labelProps.text": "icon",
+                    "style.textColor": "color"
+                },
                 "commonProps": {
                     "clickable": false,
                     "scrollable": false
@@ -54,12 +72,14 @@
                 },
                 "style": {
                     "textColor": "#ffffff",
-                    "fontSize": "28sp",
+                    "fontSize": "25sp",
                     "textAlign": "center"
                 },
                 "placement": {
                     "mode": "relative",
-                    "align": "center"
+                    "align": "center",
+                    "x": "0dp",
+                    "y": "-1dp"
                 }
             }
         ]

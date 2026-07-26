@@ -15,7 +15,7 @@ if (-not (Test-Path $Python)) {
     python -m venv $Venv
 }
 
-& $Python -m pip install --disable-pip-version-check "pyinstaller==6.14.2"
+& $Python -m pip install --disable-pip-version-check "pyinstaller==6.14.2" "pillow==11.3.0"
 & $Python -m PyInstaller `
     --noconfirm `
     --clean `

@@ -2,17 +2,19 @@
     "type": "viewTemplate",
     "id": "qsee_background",
     "node": {
-        "type": "image",
+        "type": "container",
         "commonProps": {
             "clickable": false,
             "scrollable": false
         },
-        "bindings": {
-            "imageProps.src": "src"
-        },
-        "imageProps": {
-            "src": "",
-            "innerAlign": "stretch"
+        "style": {
+            "bgColor": "#0b2733",
+            "bgGradientColor": "#010205",
+            "bgGradientDirection": "radial",
+            "bgGradientCenterX": "233dp",
+            "bgGradientCenterY": "158dp",
+            "bgGradientEndX": "619dp",
+            "bgGradientEndY": "158dp"
         },
         "placement": {
             "mode": "absolute",

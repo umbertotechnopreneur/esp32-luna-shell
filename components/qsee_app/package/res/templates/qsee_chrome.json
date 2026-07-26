@@ -1,8 +1,18 @@
 {
-    "type": "viewTemplate",
-    "id": "qsee_chrome",
-    "node": {
+    "type": "viewScreen",
+    "id": "qsee_chrome_screen",
+    "commonProps": {
+        "clickable": false,
+        "scrollable": false
+    },
+    "style": {
+        "bgOpacity": 0,
+        "padding": 0
+    },
+    "children": [
+        {
         "type": "container",
+        "id": "chrome",
         "commonProps": {
             "clickable": false,
             "scrollable": false
@@ -19,45 +29,20 @@
         },
         "children": [
             {
-                "type": "button",
-                "id": "wake",
+                "type": "templateRef",
+                "id": "status",
+                "templateId": "qsee_status_bar"
+            },
+            {
+                "type": "container",
+                "id": "commands",
                 "commonProps": {
                     "clickable": false,
                     "scrollable": false,
                     "hidden": true
                 },
                 "bindings": {
-                    "commonProps.clickable": "clickable",
-                    "commonProps.hidden": "hidden"
-                },
-                "events": [
-                    {
-                        "type": "pressed",
-                        "action": "qsee.chrome.activity"
-                    }
-                ],
-                "style": {
-                    "bgColor": "#000000",
-                    "bgOpacity": 0,
-                    "borderWidth": "0dp",
-                    "padding": 0
-                },
-                "placement": {
-                    "mode": "absolute",
-                    "x": 0,
-                    "y": 0,
-                    "width": "466dp",
-                    "height": "466dp"
-                }
-            },
-            {
-                "type": "container",
-                "id": "status",
-                "commonProps": {
-                    "clickable": false,
-                    "scrollable": false
-                },
-                "bindings": {
+                    "commonProps.hidden": "hidden",
                     "style.opacity": "opacity"
                 },
                 "style": {
@@ -66,469 +51,133 @@
                 },
                 "placement": {
                     "mode": "absolute",
-                    "x": "83dp",
-                    "y": "2dp",
-                    "width": "300dp",
-                    "height": "100dp"
+                    "x": 0,
+                    "y": 0,
+                    "width": "466dp",
+                    "height": "466dp"
                 },
-                "animations": [
-                    {
-                        "id": "status_mount_fade",
-                        "trigger": "mount",
-                        "property": "opacity",
-                        "from": 0,
-                        "to": 255,
-                        "duration": 280,
-                        "easing": "easeInOut"
-                    }
-                ],
                 "children": [
                     {
-                        "type": "line",
-                        "id": "curve_edge",
+                        "type": "button",
+                        "id": "wake",
                         "commonProps": {
                             "clickable": false,
-                            "scrollable": false
+                            "scrollable": false,
+                            "hidden": true
                         },
-                        "lineProps": {
-                            "points": [
-                                { "x": 12, "y": 61 },
-                                { "x": 58, "y": 38 },
-                                { "x": 105, "y": 25 },
-                                { "x": 150, "y": 21 },
-                                { "x": 195, "y": 25 },
-                                { "x": 242, "y": 38 },
-                                { "x": 288, "y": 61 }
-                            ]
+                        "bindings": {
+                            "commonProps.clickable": "clickable",
+                            "commonProps.hidden": "hidden"
                         },
+                        "events": [
+                            {
+                                "type": "pressed",
+                                "action": "qsee.chrome.activity"
+                            }
+                        ],
                         "style": {
-                            "lineColor": "#245363",
-                            "lineWidth": "50dp",
-                            "opacity": 230
+                            "bgColor": "#000000",
+                            "bgOpacity": 0,
+                            "borderWidth": "0dp",
+                            "padding": 0
                         },
                         "placement": {
                             "mode": "absolute",
                             "x": 0,
                             "y": 0,
-                            "width": "300dp",
-                            "height": "100dp"
+                            "width": "466dp",
+                            "height": "466dp"
                         }
                     },
                     {
-                        "type": "line",
-                        "id": "curve_base",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "lineProps": {
-                            "points": [
-                                { "x": 12, "y": 61 },
-                                { "x": 58, "y": 38 },
-                                { "x": 105, "y": 25 },
-                                { "x": 150, "y": 21 },
-                                { "x": 195, "y": 25 },
-                                { "x": 242, "y": 38 },
-                                { "x": 288, "y": 61 }
-                            ]
-                        },
-                        "style": {
-                            "lineColor": "#02070b",
-                            "lineWidth": "44dp",
-                            "opacity": 204
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": 0,
-                            "y": 0,
-                            "width": "300dp",
-                            "height": "100dp"
+                        "type": "templateRef",
+                        "id": "slot0",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.0"
+                                    }
+                                ]
+                            }
                         }
                     },
                     {
-                        "type": "container",
-                        "id": "usb",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "3dp",
-                            "y": "36dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf287"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
+                        "type": "templateRef",
+                        "id": "slot1",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.1"
+                                    }
+                                ]
                             }
-                        ]
+                        }
                     },
                     {
-                        "type": "container",
-                        "id": "battery",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "53dp",
-                            "y": "16dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "labelProps.text": "icon",
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf244"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
+                        "type": "templateRef",
+                        "id": "slot2",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.2"
+                                    }
+                                ]
                             }
-                        ]
+                        }
                     },
                     {
-                        "type": "container",
-                        "id": "ble",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "103dp",
-                            "y": "5dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf293"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
+                        "type": "templateRef",
+                        "id": "slot3",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.3"
+                                    }
+                                ]
                             }
-                        ]
+                        }
                     },
                     {
-                        "type": "container",
-                        "id": "wifi",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "153dp",
-                            "y": "5dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf1eb"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
+                        "type": "templateRef",
+                        "id": "slot4",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.4"
+                                    }
+                                ]
                             }
-                        ]
+                        }
                     },
                     {
-                        "type": "container",
-                        "id": "gps",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "203dp",
-                            "y": "16dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf041"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
+                        "type": "templateRef",
+                        "id": "slot5",
+                        "templateId": "qsee_command_button",
+                        "overrides": {
+                            ".": {
+                                "events": [
+                                    {
+                                        "type": "clicked",
+                                        "action": "qsee.command.5"
+                                    }
+                                ]
                             }
-                        ]
-                    },
-                    {
-                        "type": "container",
-                        "id": "sd",
-                        "commonProps": {
-                            "clickable": false,
-                            "scrollable": false
-                        },
-                        "style": {
-                            "padding": 0
-                        },
-                        "placement": {
-                            "mode": "absolute",
-                            "x": "253dp",
-                            "y": "36dp",
-                            "width": "40dp",
-                            "height": "47dp"
-                        },
-                        "children": [
-                            {
-                                "type": "label",
-                                "id": "icon",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "\uf7c2"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "24sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": 0,
-                                    "width": "40dp",
-                                    "height": "31dp"
-                                }
-                            },
-                            {
-                                "type": "label",
-                                "id": "dot",
-                                "bindings": {
-                                    "style.textColor": "color"
-                                },
-                                "labelProps": {
-                                    "text": "•"
-                                },
-                                "style": {
-                                    "textColor": "#607889",
-                                    "fontSize": "12sp",
-                                    "textAlign": "center"
-                                },
-                                "placement": {
-                                    "mode": "absolute",
-                                    "x": 0,
-                                    "y": "31dp",
-                                    "width": "40dp",
-                                    "height": "16dp"
-                                }
-                            }
-                        ]
+                        }
                     }
                 ]
             },
@@ -538,28 +187,41 @@
                 "events": [
                     {
                         "type": "clicked",
-                        "action": "qsee.open.welcome"
+                        "action": "qsee.back"
                     }
                 ],
                 "commonProps": {
+                    "clickable": false,
+                    "hidden": true,
                     "pressLock": false
                 },
+                "bindings": {
+                    "commonProps.clickable": "clickable",
+                    "commonProps.hidden": "hidden",
+                    "style.bgColor": "top",
+                    "style.bgGradientColor": "bottom",
+                    "style.borderColor": "border",
+                    "style.shadowColor": "shadow",
+                    "stateStyles.pressed.bgColor": "pressed_top",
+                    "stateStyles.pressed.bgGradientColor": "pressed_bottom",
+                    "stateStyles.pressed.borderColor": "pressed_border"
+                },
                 "style": {
-                    "bgColor": "#20bf91",
-                    "bgGradientColor": "#0a6c53",
+                    "bgColor": "#0ab49d",
+                    "bgGradientColor": "#045a51",
                     "bgGradientDirection": "vertical",
-                    "borderColor": "#63ffd0",
+                    "borderColor": "#38f1d7",
                     "borderWidth": "1dp",
                     "radius": "30dp",
-                    "shadowColor": "#63ffd0",
-                    "shadowWidth": "16dp",
+                    "shadowColor": "#009c9d",
+                    "shadowWidth": "12dp",
                     "padding": 0
                 },
                 "stateStyles": {
                     "pressed": {
-                        "bgColor": "#0d7359",
-                        "bgGradientColor": "#0a6c53",
-                        "borderColor": "#63ffd0",
+                        "bgColor": "#078f7e",
+                        "bgGradientColor": "#03473f",
+                        "borderColor": "#7dffe9",
                         "borderWidth": "1dp"
                     },
                     "disabled": {
@@ -585,19 +247,99 @@
                             "text": "\uf053"
                         },
                         "style": {
-                            "textColor": "#f3fffb",
-                            "fontSize": "28sp",
+                            "textColor": "#ffffff",
+                            "fontSize": "25sp",
                             "textAlign": "center"
                         },
                         "placement": {
                             "mode": "relative",
                             "align": "center",
-                            "x": "-2dp",
-                            "y": "-2dp"
+                            "x": "0dp",
+                            "y": "-1dp"
+                        }
+                    }
+                ]
+            },
+            {
+                "type": "button",
+                "id": "next",
+                "events": [
+                    {
+                        "type": "clicked",
+                        "action": "qsee.next"
+                    }
+                ],
+                "commonProps": {
+                    "clickable": false,
+                    "hidden": true,
+                    "pressLock": false
+                },
+                "bindings": {
+                    "commonProps.clickable": "clickable",
+                    "commonProps.hidden": "hidden",
+                    "style.bgColor": "top",
+                    "style.bgGradientColor": "bottom",
+                    "style.borderColor": "border",
+                    "style.shadowColor": "shadow",
+                    "stateStyles.pressed.bgColor": "pressed_top",
+                    "stateStyles.pressed.bgGradientColor": "pressed_bottom",
+                    "stateStyles.pressed.borderColor": "pressed_border"
+                },
+                "style": {
+                    "bgColor": "#0ab49d",
+                    "bgGradientColor": "#045a51",
+                    "bgGradientDirection": "vertical",
+                    "borderColor": "#38f1d7",
+                    "borderWidth": "1dp",
+                    "radius": "30dp",
+                    "shadowColor": "#009c9d",
+                    "shadowWidth": "12dp",
+                    "padding": 0
+                },
+                "stateStyles": {
+                    "pressed": {
+                        "bgColor": "#078f7e",
+                        "bgGradientColor": "#03473f",
+                        "borderColor": "#7dffe9",
+                        "borderWidth": "1dp"
+                    },
+                    "disabled": {
+                        "opacity": 128
+                    }
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "396dp",
+                    "y": "203dp",
+                    "width": "60dp",
+                    "height": "60dp"
+                },
+                "children": [
+                    {
+                        "type": "label",
+                        "id": "icon",
+                        "commonProps": {
+                            "clickable": false,
+                            "scrollable": false
+                        },
+                        "labelProps": {
+                            "text": "\uf054"
+                        },
+                        "style": {
+                            "textColor": "#ffffff",
+                            "fontSize": "25sp",
+                            "textAlign": "center"
+                        },
+                        "placement": {
+                            "mode": "relative",
+                            "align": "center",
+                            "x": "0dp",
+                            "y": "-1dp"
                         }
                     }
                 ]
             }
         ]
-    }
+        }
+    ]
 }

@@ -1,0 +1,96 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_status_indicator",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "padding": 0
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "40dp",
+            "height": "47dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "icon",
+                "bindings": {
+                    "labelProps.text": "icon",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": ""
+                },
+                "style": {
+                    "textColor": "#ffb547",
+                    "fontSize": "24sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "40dp",
+                    "height": "31dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "charge",
+                "commonProps": {
+                    "hidden": true,
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "\uf0e7"
+                },
+                "style": {
+                    "textColor": "#f4ffff",
+                    "fontSize": "9sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "27dp",
+                    "y": "-1dp",
+                    "width": "12dp",
+                    "height": "14dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "dot",
+                "bindings": {
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "•"
+                },
+                "style": {
+                    "textColor": "#ffb547",
+                    "fontSize": "12sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": "31dp",
+                    "width": "40dp",
+                    "height": "16dp"
+                }
+            }
+        ]
+    }
+}

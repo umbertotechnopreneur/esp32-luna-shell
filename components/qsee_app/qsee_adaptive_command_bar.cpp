@@ -13,8 +13,11 @@
 #include "qsee_adaptive_command_bar.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iterator>
+#include <string>
+#include <vector>
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -27,8 +30,54 @@ constexpr char kTimeoutSetting[] = "cmd_arc_s";
 constexpr uint32_t kFadeDurationMs = 280;
 constexpr float kAccelerationDeltaThresholdMps2 = 0.25F;
 constexpr float kAngularVelocityThresholdDps = 2.5F;
+constexpr std::string_view kCommandRoot =
+    "/qsee_chrome_screen/chrome/commands";
+constexpr std::string_view kWakePath =
+    "/qsee_chrome_screen/chrome/commands/wake";
+constexpr std::array<std::string_view, qsee::AdaptiveCommandBar::kSlotCount>
+    kSlotActions = {
+        "qsee.command.0",
+        "qsee.command.1",
+        "qsee.command.2",
+        "qsee.command.3",
+        "qsee.command.4",
+        "qsee.command.5",
+    };
 
-// Accept only the timeout values exposed by the original Settings selector.
+struct ArcPoint {
+    int x;
+    int y;
+};
+
+constexpr std::array<ArcPoint, 1> kLayout1 = {{{206, 362}}};
+constexpr std::array<ArcPoint, 2> kLayout2 = {{{177, 358}, {235, 358}}};
+constexpr std::array<ArcPoint, 3> kLayout3 = {{
+    {148, 350},
+    {206, 362},
+    {264, 350},
+}};
+constexpr std::array<ArcPoint, 4> kLayout4 = {{
+    {119, 342},
+    {177, 358},
+    {235, 358},
+    {293, 342},
+}};
+constexpr std::array<ArcPoint, 5> kLayout5 = {{
+    {90, 330},
+    {148, 348},
+    {206, 358},
+    {264, 348},
+    {322, 330},
+}};
+constexpr std::array<ArcPoint, 6> kLayout6 = {{
+    {56, 330},
+    {114, 344},
+    {172, 360},
+    {230, 360},
+    {288, 344},
+    {346, 330},
+}};
+
 bool is_supported_timeout(uint32_t seconds)
 {
     switch (seconds) {
@@ -45,29 +94,49 @@ bool is_supported_timeout(uint32_t seconds)
     }
 }
 
-// Update one declared Brookesia binding and retain the failing path in the error.
-std::expected<void, std::string> set_binding(
-    const esp_brookesia::system::core::AppGuiRuntime &gui,
+ArcPoint arc_point(size_t count, size_t index)
+{
+    switch (count) {
+    case 1:
+        return kLayout1[index];
+    case 2:
+        return kLayout2[index];
+    case 3:
+        return kLayout3[index];
+    case 4:
+        return kLayout4[index];
+    case 5:
+        return kLayout5[index];
+    case 6:
+        return kLayout6[index];
+    default:
+        return {0, 0};
+    }
+}
+
+std::string slot_path(size_t index)
+{
+    return std::string(kCommandRoot) + "/slot" + std::to_string(index);
+}
+
+void add_binding(
+    std::vector<esp_brookesia::gui::BindingValueUpdate> &updates,
     std::string_view path,
     std::string_view key,
     std::string_view value
 )
 {
-    auto result = gui.set_binding_value(path, key, std::string(value));
-    if (!result) {
-        return std::unexpected(
-            "Failed to update adaptive chrome '" + std::string(path) +
-            "/" + std::string(key) + "': " + result.error()
-        );
-    }
-    return {};
+    updates.push_back({
+        .absolute_path = std::string(path),
+        .key = std::string(key),
+        .value = std::string(value),
+    });
 }
 
 }  // namespace
 
 namespace qsee {
 
-// Load a valid saved timeout or explicitly create the first-boot value.
 std::expected<void, std::string> AdaptiveCommandBar::begin()
 {
     auto &settings = UserSettingsService::instance();
@@ -76,7 +145,7 @@ std::expected<void, std::string> AdaptiveCommandBar::begin()
         : settings.initialize();
     if (result != ESP_OK) {
         return std::unexpected(
-            "Adaptive chrome settings initialization failed: " +
+            "Adaptive command settings initialization failed: " +
             std::string(esp_err_to_name(result))
         );
     }
@@ -88,7 +157,7 @@ std::expected<void, std::string> AdaptiveCommandBar::begin()
         result = settings.setUInt32(kTimeoutSetting, saved_seconds);
         if (result != ESP_OK) {
             return std::unexpected(
-                "Adaptive chrome first-boot timeout persistence failed: " +
+                "Adaptive command first-boot timeout persistence failed: " +
                 std::string(esp_err_to_name(result))
             );
         }
@@ -99,14 +168,14 @@ std::expected<void, std::string> AdaptiveCommandBar::begin()
         );
     } else if (result != ESP_OK) {
         return std::unexpected(
-            "Adaptive chrome timeout read failed: " +
+            "Adaptive command timeout read failed: " +
             std::string(esp_err_to_name(result))
         );
     }
 
     if (!is_supported_timeout(saved_seconds)) {
         return std::unexpected(
-            "Adaptive chrome timeout is invalid: " +
+            "Adaptive command timeout is invalid: " +
             std::to_string(saved_seconds)
         );
     }
@@ -114,39 +183,132 @@ std::expected<void, std::string> AdaptiveCommandBar::begin()
     return {};
 }
 
-// Replace route targets and make every new route fully visible before refresh.
 std::expected<void, std::string> AdaptiveCommandBar::activate(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
-    std::span<const std::string_view> controls,
-    std::span<const std::string_view> visuals,
-    std::string_view wake_path
+    std::span<const CommandSpec> commands
 )
 {
+    if (commands.size() > kSlotCount) {
+        return std::unexpected(
+            "Adaptive command arc rejected " +
+            std::to_string(commands.size()) +
+            " commands; maximum is " + std::to_string(kSlotCount)
+        );
+    }
+    for (const CommandSpec &command : commands) {
+        if (command.icon.empty() || command.action.empty()) {
+            return std::unexpected(
+                "Adaptive command arc rejected an empty icon or action"
+            );
+        }
+    }
+
     stop_animations(gui);
-    controls_.assign(controls.begin(), controls.end());
-    visuals_.assign(visuals.begin(), visuals.end());
-    wake_path_.assign(wake_path);
-    active_ = !controls_.empty() || !visuals_.empty();
+    command_count_ = commands.size();
+    for (std::string &action : actions_) {
+        action.clear();
+    }
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+    updates.reserve(80);
+    add_binding(
+        updates,
+        std::string(kCommandRoot),
+        "hidden",
+        commands.empty() ? "true" : "false"
+    );
+    add_binding(
+        updates,
+        std::string(kCommandRoot),
+        "opacity",
+        "255"
+    );
+    add_binding(updates, std::string(kWakePath), "hidden", "true");
+    add_binding(updates, std::string(kWakePath), "clickable", "false");
+
+    for (size_t index = 0; index < kSlotCount; ++index) {
+        const std::string path = slot_path(index);
+        const bool present = index < commands.size();
+        add_binding(
+            updates,
+            path,
+            "hidden",
+            present ? "false" : "true"
+        );
+        add_binding(
+            updates,
+            path,
+            "clickable",
+            present ? "true" : "false"
+        );
+        if (!present) {
+            continue;
+        }
+
+        const CommandSpec &command = commands[index];
+        actions_[index].assign(command.action);
+        const ArcPoint point = arc_point(commands.size(), index);
+        const palette::ActionColors &colors =
+            palette::action_colors(command.role);
+        add_binding(updates, path, "x", std::to_string(point.x));
+        add_binding(updates, path, "y", std::to_string(point.y));
+        add_binding(updates, path, "top", colors.top);
+        add_binding(updates, path, "bottom", colors.bottom);
+        add_binding(updates, path, "border", colors.border);
+        add_binding(updates, path, "glow", colors.glow);
+        add_binding(updates, path, "pressed_top", colors.pressed_top);
+        add_binding(updates, path, "pressed_bottom", colors.pressed_bottom);
+        add_binding(updates, path, "pressed_border", colors.pressed_border);
+        add_binding(
+            updates,
+            path + "/icon",
+            "icon",
+            command.icon
+        );
+        add_binding(
+            updates,
+            path + "/icon",
+            "color",
+            palette::kButtonText
+        );
+    }
+
+    auto result = gui.set_binding_values(updates);
+    if (!result) {
+        command_count_ = 0;
+        for (std::string &action : actions_) {
+            action.clear();
+        }
+        active_ = false;
+        return std::unexpected(
+            "Failed to configure reusable adaptive command arc: " +
+            result.error()
+        );
+    }
+
+    active_ = !commands.empty();
     visible_ = true;
     animation_target_visible_ = true;
     last_activity_us_ = esp_timer_get_time();
     last_imu_sample_us_ = 0;
     motion_baseline_ready_ = false;
-
-    for (const std::string &path : visuals_) {
-        if (auto result = set_binding(gui, path, "opacity", "255"); !result) {
-            return result;
-        }
-    }
-    for (const std::string &path : controls_) {
-        if (auto result = set_binding(gui, path, "opacity", "255"); !result) {
-            return result;
-        }
-    }
-    return set_hit_testing(gui, true);
+    return {};
 }
 
-// Reset inactivity and reverse an in-flight fade before dispatching the action.
+std::optional<std::string_view> AdaptiveCommandBar::resolve_action(
+    std::string_view slot_action
+) const
+{
+    for (size_t index = 0; index < kSlotActions.size(); ++index) {
+        if (slot_action == kSlotActions[index] &&
+            index < command_count_ &&
+            !actions_[index].empty()) {
+            return actions_[index];
+        }
+    }
+    return std::nullopt;
+}
+
 std::expected<void, std::string> AdaptiveCommandBar::note_activity(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
@@ -155,7 +317,7 @@ std::expected<void, std::string> AdaptiveCommandBar::note_activity(
         return {};
     }
     last_activity_us_ = esp_timer_get_time();
-    if (visible_ && animation_target_visible_ && pending_animations_ == 0) {
+    if (visible_ && animation_target_visible_ && animation_id_ == 0) {
         return {};
     }
     if (auto result = set_hit_testing(gui, true); !result) {
@@ -164,17 +326,15 @@ std::expected<void, std::string> AdaptiveCommandBar::note_activity(
     return animate_to(gui, true);
 }
 
-// Combine inactivity and canonical IMU motion without reading LVGL or hardware.
 std::expected<void, std::string> AdaptiveCommandBar::update(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     const DeviceSnapshot &snapshot
 )
 {
-    const bool motion_activity = detect_motion(snapshot.imu);
     if (!active_) {
         return {};
     }
-    if (motion_activity) {
+    if (detect_motion(snapshot.imu)) {
         return note_activity(gui);
     }
 
@@ -187,25 +347,42 @@ std::expected<void, std::string> AdaptiveCommandBar::update(
     return {};
 }
 
-// Invalidate callbacks before the Brookesia document can disappear.
 void AdaptiveCommandBar::shutdown(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
     stop_animations(gui);
-    controls_.clear();
-    visuals_.clear();
-    wake_path_.clear();
+    std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+    updates.reserve((kSlotCount * 2U) + 3U);
+    add_binding(updates, std::string(kCommandRoot), "hidden", "true");
+    add_binding(updates, std::string(kWakePath), "hidden", "true");
+    add_binding(updates, std::string(kWakePath), "clickable", "false");
+    for (size_t index = 0; index < kSlotCount; ++index) {
+        const std::string path = slot_path(index);
+        add_binding(updates, path, "hidden", "true");
+        add_binding(updates, path, "clickable", "false");
+        actions_[index].clear();
+    }
+    auto result = gui.set_binding_values(updates);
+    if (!result) {
+        ESP_LOGE(
+            kTag,
+            "Failed to hide adaptive command arc during shutdown: %s",
+            result.error().c_str()
+        );
+    }
+    command_count_ = 0;
     active_ = false;
+    visible_ = true;
+    animation_target_visible_ = true;
 }
 
-// Reject undeclared values and keep runtime state unchanged if persistence fails.
 esp_err_t AdaptiveCommandBar::set_timeout_seconds(uint32_t seconds)
 {
     if (!is_supported_timeout(seconds)) {
         ESP_LOGE(
             kTag,
-            "Adaptive chrome timeout is unsupported: %lu s",
+            "Adaptive command timeout is unsupported: %lu s",
             static_cast<unsigned long>(seconds)
         );
         return ESP_ERR_INVALID_ARG;
@@ -215,7 +392,7 @@ esp_err_t AdaptiveCommandBar::set_timeout_seconds(uint32_t seconds)
     if (result != ESP_OK) {
         ESP_LOGE(
             kTag,
-            "Adaptive chrome timeout persistence failed (%s)",
+            "Adaptive command timeout persistence failed (%s)",
             esp_err_to_name(result)
         );
         return result;
@@ -224,7 +401,7 @@ esp_err_t AdaptiveCommandBar::set_timeout_seconds(uint32_t seconds)
     last_activity_us_ = esp_timer_get_time();
     ESP_LOGI(
         kTag,
-        "Adaptive chrome timeout updated: %lu s",
+        "Adaptive command timeout updated: %lu s",
         static_cast<unsigned long>(seconds)
     );
     return ESP_OK;
@@ -235,7 +412,6 @@ uint32_t AdaptiveCommandBar::timeout_seconds() const
     return timeout_seconds_;
 }
 
-// Reject stale, unavailable, or non-finite samples before comparing motion.
 bool AdaptiveCommandBar::detect_motion(const ImuSnapshot &imu)
 {
     const bool valid =
@@ -292,17 +468,16 @@ bool AdaptiveCommandBar::detect_motion(const ImuSnapshot &imu)
                    kAngularVelocityThresholdDps;
 }
 
-// Start one opacity animation per path and finalize only after the full set completes.
 std::expected<void, std::string> AdaptiveCommandBar::animate_to(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     bool visible
 )
 {
-    if (animation_target_visible_ == visible && pending_animations_ != 0) {
+    if (animation_target_visible_ == visible && animation_id_ != 0) {
         return {};
     }
-    if (visible_ == visible && pending_animations_ == 0) {
-        return visible ? set_hit_testing(gui, true) : set_hit_testing(gui, false);
+    if (visible_ == visible && animation_id_ == 0) {
+        return set_hit_testing(gui, visible);
     }
 
     stop_animations(gui);
@@ -313,140 +488,96 @@ std::expected<void, std::string> AdaptiveCommandBar::animate_to(
         }
     }
 
-    pending_animations_ = controls_.size() + visuals_.size();
-    if (pending_animations_ == 0) {
-        visible_ = visible;
-        return set_hit_testing(gui, visible);
-    }
-
     const uint32_t generation = animation_generation_;
-    const auto start_path =
-        [this, &gui, generation, visible](const std::string &path)
-        -> std::expected<void, std::string> {
-        esp_brookesia::gui::Animation animation{
-            .id = "qsee_adaptive_fade",
-            .trigger = esp_brookesia::gui::AnimationTrigger::Manual,
-            .property = esp_brookesia::gui::AnimationProperty::Opacity,
-            .from_mode = esp_brookesia::gui::AnimationValueMode::Current,
-            .from = 0,
-            .to_mode = esp_brookesia::gui::AnimationValueMode::Absolute,
-            .to = visible ? 255 : 0,
-            .duration = static_cast<int32_t>(kFadeDurationMs),
-            .delay = 0,
-            .easing = esp_brookesia::gui::AnimationEasing::EaseInOut,
-            .repeat = 0,
-            .playback = false,
-        };
-        auto result = gui.start_view_animation_with_result(
-            path,
-            animation,
-            [this, gui, generation]() {
-                animation_completed(gui, generation);
-            }
-        );
-        if (!result) {
-            return std::unexpected(
-                "Failed to animate adaptive chrome '" + path +
-                "': " + result.error()
-            );
-        }
-        animation_ids_.push_back(result->subscription_id);
-        return {};
+    esp_brookesia::gui::Animation animation{
+        .id = "qsee_adaptive_command_fade",
+        .trigger = esp_brookesia::gui::AnimationTrigger::Manual,
+        .property = esp_brookesia::gui::AnimationProperty::Opacity,
+        .from_mode = esp_brookesia::gui::AnimationValueMode::Current,
+        .from = 0,
+        .to_mode = esp_brookesia::gui::AnimationValueMode::Absolute,
+        .to = visible ? 255 : 0,
+        .duration = static_cast<int32_t>(kFadeDurationMs),
+        .delay = 0,
+        .easing = esp_brookesia::gui::AnimationEasing::EaseInOut,
+        .repeat = 0,
+        .playback = false,
     };
-
-    for (const std::string &path : visuals_) {
-        if (auto result = start_path(path); !result) {
-            stop_animations(gui);
-            return result;
+    auto result = gui.start_view_animation_with_result(
+        kCommandRoot,
+        animation,
+        [this, gui, generation]() {
+            animation_completed(gui, generation);
         }
+    );
+    if (!result) {
+        return std::unexpected(
+            "Failed to animate reusable adaptive command arc: " +
+            result.error()
+        );
     }
-    for (const std::string &path : controls_) {
-        if (auto result = start_path(path); !result) {
-            stop_animations(gui);
-            return result;
-        }
-    }
-
-    if (pending_animations_ == 0) {
-        animation_ids_.clear();
-    }
+    animation_id_ = result->subscription_id;
     return {};
 }
 
-// Keep hidden commands inert and expose one transparent wake target instead.
 std::expected<void, std::string> AdaptiveCommandBar::set_hit_testing(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     bool chrome_visible
 )
 {
-    if (!chrome_visible) {
-        for (const std::string &path : controls_) {
-            if (auto result = set_binding(gui, path, "clickable", "false"); !result) {
-                return result;
-            }
-        }
+    std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+    updates.reserve(command_count_ + 2U);
+    for (size_t index = 0; index < command_count_; ++index) {
+        add_binding(
+            updates,
+            slot_path(index),
+            "clickable",
+            chrome_visible ? "true" : "false"
+        );
     }
-
-    if (!wake_path_.empty()) {
-        if (auto result = set_binding(
-                gui,
-                wake_path_,
-                "hidden",
-                chrome_visible ? "true" : "false"
-            ); !result) {
-            return result;
-        }
-        if (auto result = set_binding(
-                gui,
-                wake_path_,
-                "clickable",
-                chrome_visible ? "false" : "true"
-            ); !result) {
-            return result;
-        }
-    }
-
-    if (chrome_visible) {
-        for (const std::string &path : controls_) {
-            if (auto result = set_binding(gui, path, "clickable", "true"); !result) {
-                return result;
-            }
-        }
+    add_binding(
+        updates,
+        std::string(kWakePath),
+        "hidden",
+        chrome_visible || !active_ ? "true" : "false"
+    );
+    add_binding(
+        updates,
+        std::string(kWakePath),
+        "clickable",
+        chrome_visible || !active_ ? "false" : "true"
+    );
+    auto result = gui.set_binding_values(updates);
+    if (!result) {
+        return std::unexpected(
+            "Failed to update adaptive command hit testing: " +
+            result.error()
+        );
     }
     return {};
 }
 
-// Stop subscriptions and invalidate every completion callback from the old generation.
 void AdaptiveCommandBar::stop_animations(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
     ++animation_generation_;
-    for (esp_brookesia::gui::SubscriptionId animation_id : animation_ids_) {
-        if (animation_id != 0) {
-            (void)gui.stop_animation(animation_id);
-        }
+    if (animation_id_ != 0) {
+        (void)gui.stop_animation(animation_id_);
+        animation_id_ = 0;
     }
-    animation_ids_.clear();
-    pending_animations_ = 0;
 }
 
-// Disable commands only after every path reaches zero opacity.
 void AdaptiveCommandBar::animation_completed(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     uint32_t generation
 )
 {
-    if (generation != animation_generation_ || pending_animations_ == 0) {
+    if (generation != animation_generation_) {
         return;
     }
-    --pending_animations_;
-    if (pending_animations_ != 0) {
-        return;
-    }
-
+    animation_id_ = 0;
     visible_ = animation_target_visible_;
-    animation_ids_.clear();
     if (!visible_) {
         if (auto result = set_hit_testing(gui, false); !result) {
             ESP_LOGE(kTag, "%s", result.error().c_str());

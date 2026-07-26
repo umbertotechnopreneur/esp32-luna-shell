@@ -3,18 +3,46 @@
     "assets": [
         "templates/qsee_background.json",
         "templates/qsee_command_button.json",
+        "templates/qsee_status_indicator.json",
+        "templates/qsee_status_bar.json",
         "templates/qsee_chrome.json",
+        "templates/qsee_pairing_stage.json",
         "templates/qsee_spectrum_band.json",
         {
             "type": "viewScreen",
+            "id": "qsee_background_screen",
+            "commonProps": {
+                "clickable": false,
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "children": [
+                {
+                    "type": "templateRef",
+                    "id": "background",
+                    "templateId": "qsee_background"
+                }
+            ]
+        },
+        {
+            "type": "screenFlow",
+            "id": "qsee_background_flow",
+            "screens": [
+                "qsee_background_screen"
+            ],
+            "initial": "qsee_background_screen",
+            "transitions": []
+        },
+        {
+            "type": "viewScreen",
             "id": "qsee_welcome",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -23,11 +51,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -240,229 +263,19 @@
                                 "width": "300dp",
                                 "height": "28dp"
                             }
-                        },
-                        {
-                            "type": "container",
-                            "id": "menu",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
-                            },
-                            "style": {
-                                "padding": 0
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "-17dp",
-                                "y": "257dp",
-                                "width": "374dp",
-                                "height": "84dp"
-                            },
-                            "children": [
-                                {
-                                    "type": "templateRef",
-                                    "id": "logs",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.logs"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": 0,
-                                                "y": 0
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf00b"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "audio",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.audio"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "58dp",
-                                                "y": "14dp"
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf001"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "imu",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.imu"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#20bf91",
-                                                "bgGradientColor": "#0a6c53",
-                                                "borderColor": "#63ffd0"
-                                            },
-                                            "placement": {
-                                                "x": "116dp",
-                                                "y": "30dp"
-                                            },
-                                            "stateStyles": {
-                                                "pressed": {
-                                                    "bgColor": "#0d7359",
-                                                    "bgGradientColor": "#0a6c53",
-                                                    "borderColor": "#8dffe0",
-                                                    "borderWidth": "2dp"
-                                                },
-                                                "disabled": {
-                                                    "opacity": 0
-                                                }
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf021"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "hardware",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.hardware"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#20bf91",
-                                                "bgGradientColor": "#0a6c53",
-                                                "borderColor": "#63ffd0"
-                                            },
-                                            "placement": {
-                                                "x": "174dp",
-                                                "y": "30dp"
-                                            },
-                                            "stateStyles": {
-                                                "pressed": {
-                                                    "bgColor": "#0d7359",
-                                                    "bgGradientColor": "#0a6c53",
-                                                    "borderColor": "#8dffe0",
-                                                    "borderWidth": "2dp"
-                                                },
-                                                "disabled": {
-                                                    "opacity": 0
-                                                }
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf01c"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "about",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.about"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "232dp",
-                                                "y": "14dp"
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "i"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "settings",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.open.settings"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "290dp",
-                                                "y": 0
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf013"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "commonProps": {
-                                "hidden": true
-                            }
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_logs",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -471,11 +284,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -507,185 +315,29 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
-                                "textAlign": "center"
+                                "fontSize": "18sp",
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "width": "300dp",
-                                "height": "26dp"
+                                "width": "282dp",
+                                "height": "22dp"
                             }
                         },
                         {
-                            "type": "container",
-                            "id": "controls",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "All controls - swipe to scroll"
                             },
                             "style": {
-                                "padding": 0
+                                "textColor": "#9fb1c1",
+                                "fontSize": "10sp",
+                                "textAlign": "left"
                             },
                             "placement": {
-                                "mode": "absolute",
-                                "x": 0,
-                                "y": "257dp",
-                                "width": "320dp",
-                                "height": "84dp"
-                            },
-                            "children": [
-                                {
-                                    "type": "templateRef",
-                                    "id": "pause",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.logs.pause"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#20bf91",
-                                                "bgGradientColor": "#0a6c53",
-                                                "borderColor": "#63ffd0"
-                                            },
-                                            "placement": {
-                                                "x": "13dp",
-                                                "y": "14dp"
-                                            },
-                                            "stateStyles": {
-                                                "pressed": {
-                                                    "bgColor": "#0d7359",
-                                                    "bgGradientColor": "#0a6c53",
-                                                    "borderColor": "#8dffe0",
-                                                    "borderWidth": "2dp"
-                                                },
-                                                "disabled": {
-                                                    "opacity": 0
-                                                }
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf04c"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "clear",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.logs.clear"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "71dp",
-                                                "y": "28dp"
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf2ed"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "follow",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.logs.follow"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#20bf91",
-                                                "bgGradientColor": "#0a6c53",
-                                                "borderColor": "#63ffd0"
-                                            },
-                                            "placement": {
-                                                "x": "129dp",
-                                                "y": "34dp"
-                                            },
-                                            "stateStyles": {
-                                                "pressed": {
-                                                    "bgColor": "#0d7359",
-                                                    "bgGradientColor": "#0a6c53",
-                                                    "borderColor": "#8dffe0",
-                                                    "borderWidth": "2dp"
-                                                },
-                                                "disabled": {
-                                                    "opacity": 0
-                                                }
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf079"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "filter",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.logs.filter"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "187dp",
-                                                "y": "28dp"
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf0b0"
-                                            }
-                                        }
-                                    }
-                                },
-                                {
-                                    "type": "templateRef",
-                                    "id": "search",
-                                    "templateId": "qsee_command_button",
-                                    "overrides": {
-                                        ".": {
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.logs.search"
-                                                }
-                                            ],
-                                            "placement": {
-                                                "x": "245dp",
-                                                "y": "14dp"
-                                            }
-                                        },
-                                        "icon": {
-                                            "labelProps": {
-                                                "text": "\uf002"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
                         },
                         {
                             "type": "container",
@@ -696,7 +348,7 @@
                             "events": [
                                 {
                                     "type": "scroll",
-                                    "action": "qsee.chrome.activity"
+                                    "action": "qsee.chrome.activity.logs"
                                 }
                             ],
                             "style": {
@@ -732,34 +384,17 @@
                             ]
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.logs.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_hardware",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -768,11 +403,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -821,12 +451,14 @@
                             "events": [
                                 {
                                     "type": "scroll",
-                                    "action": "qsee.chrome.activity"
+                                    "action": "qsee.chrome.activity.hardware"
                                 }
                             ],
                             "style": {
-                                "bgColor": "#0a2347",
-                                "radius": "8dp",
+                                "bgColor": "#07141e",
+                                "bgOpacity": 72,
+                                "borderWidth": "0dp",
+                                "radius": "10dp",
                                 "padding": "7dp"
                             },
                             "placement": {
@@ -874,9 +506,9 @@
                                 "height": "40dp"
                             },
                             "children": [
-                                {
-                                    "type": "button",
-                                    "id": "format",
+                                    {
+                                      "type": "button",
+                                      "id": "format",
                                     "events": [
                                         {
                                             "type": "clicked",
@@ -907,39 +539,57 @@
                                                 "align": "center"
                                             }
                                         }
-                                    ]
-                                }
-                            ]
+                                      ]
+                                    },
+                                    {
+                                      "type": "button",
+                                      "id": "refresh",
+                                      "events": [
+                                        {
+                                          "type": "clicked",
+                                          "action": "qsee.hardware.refresh"
+                                        }
+                                      ],
+                                      "style": {
+                                        "bgColor": "#009c9d",
+                                        "radius": "20dp"
+                                      },
+                                      "placement": {
+                                        "width": "112dp",
+                                        "height": "40dp"
+                                      },
+                                      "children": [
+                                        {
+                                          "type": "label",
+                                          "id": "label",
+                                          "labelProps": {
+                                            "text": "REFRESH"
+                                          },
+                                          "style": {
+                                            "textColor": "#ffffff",
+                                            "fontSize": "10sp"
+                                          },
+                                          "placement": {
+                                            "mode": "relative",
+                                            "align": "center"
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.hardware.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_audio",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -948,11 +598,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -1167,74 +812,17 @@
                             }
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "fft",
-                    "templateId": "qsee_command_button",
-                    "overrides": {
-                        ".": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.open.audio_fft"
-                                }
-                            ],
-                            "style": {
-                                "bgColor": "#20bf91",
-                                "bgGradientColor": "#0a6c53",
-                                "borderColor": "#63ffd0"
-                            },
-                            "placement": {
-                                "x": "206dp",
-                                "y": "352dp"
-                            },
-                            "stateStyles": {
-                                "pressed": {
-                                    "bgColor": "#0d7359",
-                                    "bgGradientColor": "#0a6c53",
-                                    "borderColor": "#8dffe0",
-                                    "borderWidth": "2dp"
-                                },
-                                "disabled": {
-                                    "opacity": 0
-                                }
-                            }
-                        },
-                        "icon": {
-                            "labelProps": {
-                                "text": "\uf080"
-                            }
-                        }
-                    }
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.audio.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_audio_fft",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -1243,11 +831,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -1385,34 +968,17 @@
                             }
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.audio_fft.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_imu",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -1421,11 +987,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -1925,34 +1486,17 @@
                             }
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.imu.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_settings",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -1961,11 +1505,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -2014,7 +1553,7 @@
                             "events": [
                                 {
                                     "type": "scroll",
-                                    "action": "qsee.chrome.activity"
+                                    "action": "qsee.chrome.activity.settings"
                                 }
                             ],
                             "style": {
@@ -2026,27 +1565,59 @@
                                 "type": "flex",
                                 "flexFlow": "column",
                                 "crossAlign": "center",
-                                "gap": "6dp"
+                                "gap": "8dp"
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "220dp"
+                                "height": "164dp"
                             },
                             "children": [
                                 {
                                     "type": "label",
-                                    "id": "period_value",
+                                    "id": "diagnostics_title",
                                     "labelProps": {
-                                        "text": "DIAGNOSTICS | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "DIAGNOSTICS"
                                     },
                                     "style": {
-                                        "textColor": "#3de0b0",
-                                        "fontSize": "10sp",
-                                        "textAlign": "center"
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "15sp",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "32dp"
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "diagnostics_description",
+                                    "labelProps": {
+                                        "text": "Sampling cadence and motion filtering"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "period_value",
+                                    "labelProps": {
+                                        "text": "Sampling interval | unavailable"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
                                     }
                                 },
                                 {
@@ -2183,13 +1754,13 @@
                                         "text": "IMU INPUT SMOOTHING | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },
                                     "style": {
-                                        "textColor": "#51c7f2",
-                                        "fontSize": "10sp",
-                                        "textAlign": "center"
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "12sp",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "32dp"
+                                        "height": "22dp"
                                     }
                                 },
                                 {
@@ -2286,14 +1857,46 @@
                                 },
                                 {
                                     "type": "label",
+                                    "id": "storage_title",
+                                    "labelProps": {
+                                        "text": "STORAGE"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "15sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "storage_description",
+                                    "labelProps": {
+                                        "text": "Card state and persistent log mirroring"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
                                     "id": "storage_value",
                                     "labelProps": {
                                         "text": "SD UNAVAILABLE (SNAPSHOT NOT READY) | MIRROR UNAVAILABLE"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "9sp",
-                                        "textAlign": "center"
+                                        "fontSize": "11sp",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
@@ -2337,6 +1940,38 @@
                                 },
                                 {
                                     "type": "label",
+                                    "id": "connectivity_title",
+                                    "labelProps": {
+                                        "text": "CONNECTIVITY"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "15sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "connectivity_description",
+                                    "labelProps": {
+                                        "text": "Wi-Fi, Bluetooth and GPS state"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
                                     "id": "radio_value",
                                     "labelProps": {
                                         "text": "RADIOS | UNAVAILABLE (SNAPSHOT NOT READY)"
@@ -2351,9 +1986,9 @@
                                         "height": "36dp"
                                     }
                                 },
-                                {
-                                    "type": "button",
-                                    "id": "radio_start",
+                                    {
+                                      "type": "button",
+                                      "id": "radio_start",
                                     "events": [
                                         {
                                             "type": "clicked",
@@ -2384,11 +2019,27 @@
                                                 "align": "center"
                                             }
                                         }
-                                    ]
-                                },
-                                {
-                                    "type": "label",
-                                    "id": "wifi_detail",
+                                      ]
+                                    },
+                                    {
+                                      "type": "label",
+                                      "id": "radio_policy",
+                                      "labelProps": {
+                                        "text": "RADIOS STAY OFF AFTER BOOT\nSTART MANUALLY FROM SETTINGS"
+                                      },
+                                      "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "9sp",
+                                        "textAlign": "center"
+                                      },
+                                      "placement": {
+                                        "width": "282dp",
+                                        "height": "30dp"
+                                      }
+                                    },
+                                    {
+                                      "type": "label",
+                                      "id": "wifi_detail",
                                     "labelProps": {
                                         "text": "WI-FI | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },
@@ -2409,9 +2060,9 @@
                                         "text": "BLUETOOTH | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },
                                     "style": {
-                                        "textColor": "#51c7f2",
-                                        "fontSize": "10sp",
-                                        "textAlign": "center"
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "11sp",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
@@ -2432,6 +2083,38 @@
                                     "placement": {
                                         "width": "282dp",
                                         "height": "52dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_title",
+                                    "labelProps": {
+                                        "text": "DISPLAY"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "15sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_description",
+                                    "labelProps": {
+                                        "text": "AMOLED brightness and screen behavior"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "10sp",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
                                     }
                                 },
                                 {
@@ -2621,9 +2304,9 @@
                                         "text": "ADAPTIVE INTERFACE | 10 s\nTOUCH OR MOVEMENT REVEALS CHROME"
                                     },
                                     "style": {
-                                        "textColor": "#3de0b0",
-                                        "fontSize": "10sp",
-                                        "textAlign": "center"
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "11sp",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
@@ -2689,34 +2372,17 @@
                             ]
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.settings.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
         },
         {
             "type": "viewScreen",
             "id": "qsee_about",
+            "mountMode": "dynamic",
             "commonProps": {
                 "scrollable": false
             },
             "style": {
-                "bgColor": "#031933",
-                "bgGradientColor": "#020308",
-                "bgGradientDirection": "vertical",
                 "padding": 0
             },
             "layout": {
@@ -2725,11 +2391,6 @@
                 "crossAlign": "center"
             },
             "children": [
-                {
-                    "type": "templateRef",
-                    "id": "background",
-                    "templateId": "qsee_background"
-                },
                 {
                     "type": "container",
                     "id": "surface",
@@ -2803,23 +2464,40 @@
                             }
                         }
                     ]
-                },
-                {
-                    "type": "templateRef",
-                    "id": "chrome",
-                    "templateId": "qsee_chrome",
-                    "overrides": {
-                        "back": {
-                            "events": [
-                                {
-                                    "type": "clicked",
-                                    "action": "qsee.about.back"
-                                }
-                            ]
-                        }
-                    }
                 }
             ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_pairing",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "templateRef",
+                    "id": "surface",
+                    "templateId": "qsee_pairing_stage"
+                }
+            ]
+        },
+        {
+            "type": "screenFlow",
+            "id": "qsee_chrome_flow",
+            "screens": [
+                "qsee_chrome_screen"
+            ],
+            "initial": "qsee_chrome_screen",
+            "transitions": []
         },
         {
             "type": "screenFlow",
@@ -2832,7 +2510,8 @@
                 "qsee_audio_fft",
                 "qsee_imu",
                 "qsee_settings",
-                "qsee_about"
+                "qsee_about",
+                "qsee_pairing"
             ],
             "initial": "qsee_welcome",
             "transitions": [
@@ -2875,6 +2554,36 @@
                     "from": [],
                     "action": "qsee.open.about",
                     "to": "qsee_about"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_intro",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_bluetooth",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_app",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.app_store_qr",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_qr",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_result",
+                    "to": "qsee_pairing"
                 }
             ]
         }

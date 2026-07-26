@@ -1,0 +1,245 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_status_bar",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "padding": 0,
+            "opacity": 255
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": "83dp",
+            "y": "2dp",
+            "width": "300dp",
+            "height": "100dp"
+        },
+        "animations": [
+            {
+                "id": "status_mount_fade",
+                "trigger": "mount",
+                "property": "opacity",
+                "from": 0,
+                "to": 255,
+                "duration": 280,
+                "easing": "easeInOut"
+            }
+        ],
+        "children": [
+            {
+                "type": "line",
+                "id": "curve_glow",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "style.lineColor": "color"
+                },
+                "lineProps": {
+                    "points": [
+                        { "x": 12, "y": 61 },
+                        { "x": 58, "y": 38 },
+                        { "x": 105, "y": 25 },
+                        { "x": 150, "y": 21 },
+                        { "x": 195, "y": 25 },
+                        { "x": 242, "y": 38 },
+                        { "x": 288, "y": 61 }
+                    ]
+                },
+                "style": {
+                    "lineColor": "#075f7d",
+                    "lineWidth": "56dp",
+                    "opacity": 88
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "300dp",
+                    "height": "100dp"
+                }
+            },
+            {
+                "type": "line",
+                "id": "curve_edge",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "style.lineColor": "color"
+                },
+                "lineProps": {
+                    "points": [
+                        { "x": 12, "y": 61 },
+                        { "x": 58, "y": 38 },
+                        { "x": 105, "y": 25 },
+                        { "x": 150, "y": 21 },
+                        { "x": 195, "y": 25 },
+                        { "x": 242, "y": 38 },
+                        { "x": 288, "y": 61 }
+                    ]
+                },
+                "style": {
+                    "lineColor": "#0a8fc7",
+                    "lineWidth": "50dp",
+                    "opacity": 224
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "300dp",
+                    "height": "100dp"
+                }
+            },
+            {
+                "type": "line",
+                "id": "curve_base",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "style.lineColor": "color"
+                },
+                "lineProps": {
+                    "points": [
+                        { "x": 12, "y": 61 },
+                        { "x": 58, "y": 38 },
+                        { "x": 105, "y": 25 },
+                        { "x": 150, "y": 21 },
+                        { "x": 195, "y": 25 },
+                        { "x": 242, "y": 38 },
+                        { "x": 288, "y": 61 }
+                    ]
+                },
+                "style": {
+                    "lineColor": "#010609",
+                    "lineWidth": "44dp",
+                    "opacity": 204
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "300dp",
+                    "height": "100dp"
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "usb",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "3dp",
+                            "y": "36dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf287"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "battery",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "53dp",
+                            "y": "16dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf244"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "ble",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "103dp",
+                            "y": "5dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf293"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "wifi",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "153dp",
+                            "y": "5dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf1eb"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "gps",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "203dp",
+                            "y": "16dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf041"
+                        }
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "sd",
+                "templateId": "qsee_status_indicator",
+                "overrides": {
+                    ".": {
+                        "placement": {
+                            "x": "253dp",
+                            "y": "36dp"
+                        }
+                    },
+                    "icon": {
+                        "labelProps": {
+                            "text": "\uf7c2"
+                        }
+                    }
+                }
+            }
+        ]
+    }
+}

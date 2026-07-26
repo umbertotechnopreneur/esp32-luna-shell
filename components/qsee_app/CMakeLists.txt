@@ -1,13 +1,18 @@
 idf_component_register(
     SRCS
+        "qsee_alert_service.cpp"
         "qsee_app.cpp"
         "qsee_adaptive_command_bar.cpp"
-        "qsee_background_asset.cpp"
+        "qsee_edge_navigation.cpp"
+        "qsee_navigation_service.cpp"
+        "qsee_pairing_qr.cpp"
+        "qsee_status_bar.cpp"
     INCLUDE_DIRS "include"
     REQUIRES
         brookesia_system_core
         qsee_logger
         qsee_platform
+        qrcode
     WHOLE_ARCHIVE
 )
 

@@ -1,0 +1,128 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_pairing_stage",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "radius": "160dp",
+            "padding": "10dp",
+            "paddingTop": "50dp",
+            "paddingBottom": "6dp"
+        },
+        "layout": {
+            "type": "flex",
+            "flexFlow": "column",
+            "crossAlign": "center",
+            "gap": "3dp"
+        },
+        "placement": {
+            "width": "320dp",
+            "height": "320dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "title",
+                "bindings": {
+                    "labelProps.text": "text"
+                },
+                "labelProps": {
+                    "text": "PAIR DEVICE"
+                },
+                "style": {
+                    "textColor": "#f3f7fa",
+                    "fontSize": "20sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "width": "292dp",
+                    "height": "24dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "step",
+                "bindings": {
+                    "labelProps.text": "text"
+                },
+                "labelProps": {
+                    "text": "1 OF 5"
+                },
+                "style": {
+                    "textColor": "#20dfc1",
+                    "fontSize": "9sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "width": "292dp",
+                    "height": "12dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "message",
+                "bindings": {
+                    "labelProps.text": "text"
+                },
+                "labelProps": {
+                    "text": "Preparing pairing..."
+                },
+                "style": {
+                    "textColor": "#ffffff",
+                    "fontSize": "11sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "width": "286dp",
+                    "height": "30dp"
+                }
+            },
+            {
+                "type": "image",
+                "id": "qr",
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false,
+                    "hidden": true
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden",
+                    "imageProps.src": "src"
+                },
+                "imageProps": {
+                    "src": ""
+                },
+                "style": {
+                    "radius": "8dp"
+                },
+                "placement": {
+                    "width": "140dp",
+                    "height": "140dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "detail",
+                "bindings": {
+                    "labelProps.text": "text"
+                },
+                "labelProps": {
+                    "text": ""
+                },
+                "style": {
+                    "textColor": "#9fb1c1",
+                    "fontSize": "9sp",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "width": "286dp",
+                    "height": "24dp"
+                }
+            }
+        ]
+    }
+}

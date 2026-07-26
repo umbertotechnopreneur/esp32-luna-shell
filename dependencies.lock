@@ -185,16 +185,6 @@ dependencies:
       path: third_party/esp-brookesia/service/framework/brookesia_service_manager
       type: local
     version: 0.8.1
-  espressif/brookesia_service_sntp:
-    dependencies:
-    - name: espressif/brookesia_service_storage
-      override_path: ../../system/brookesia_service_storage
-      require: public
-      version: 0.8.*
-    source:
-      path: third_party/esp-brookesia/service/network/brookesia_service_sntp
-      type: local
-    version: 0.8.1
   espressif/brookesia_service_storage:
     dependencies:
     - name: espressif/brookesia_service_helper
@@ -203,16 +193,6 @@ dependencies:
       version: 0.8.*
     source:
       path: third_party/esp-brookesia/service/system/brookesia_service_storage
-      type: local
-    version: 0.8.1
-  espressif/brookesia_service_wifi:
-    dependencies:
-    - name: espressif/brookesia_service_storage
-      override_path: ../../system/brookesia_service_storage
-      require: public
-      version: 0.8.*
-    source:
-      path: third_party/esp-brookesia/service/network/brookesia_service_wifi
       type: local
     version: 0.8.1
   espressif/brookesia_system_core:
@@ -238,36 +218,6 @@ dependencies:
       version: 0.8.*
     source:
       path: third_party/esp-brookesia/system/brookesia_system_core
-      type: local
-    version: 0.8.1
-  espressif/brookesia_system_super:
-    dependencies:
-    - name: espressif/brookesia_system_core
-      override_path: ../brookesia_system_core
-      require: public
-      version: 0.8.*
-    - name: espressif/brookesia_lib_utils
-      override_path: ../../utils/brookesia_lib_utils
-      require: private
-      version: 0.8.*
-    - name: espressif/brookesia_service_storage
-      override_path: ../../service/system/brookesia_service_storage
-      require: private
-      version: 0.8.*
-    - name: espressif/brookesia_service_display
-      override_path: ../../service/media/brookesia_service_display
-      require: private
-      version: 0.8.*
-    - name: espressif/brookesia_service_wifi
-      override_path: ../../service/network/brookesia_service_wifi
-      require: private
-      version: 0.8.*
-    - name: espressif/brookesia_service_sntp
-      override_path: ../../service/network/brookesia_service_sntp
-      require: private
-      version: 0.8.*
-    source:
-      path: third_party/esp-brookesia/system/brookesia_system_super
       type: local
     version: 0.8.1
   espressif/button:
@@ -627,6 +577,13 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 1.2.4
+  espressif/qrcode:
+    component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.1.0~2
   espressif/usb:
     component_hash: 6c2cff118141dbbca181d0d27d71801fdddfc78f7ac03ae43f6e5a8cbd89cb99
     dependencies:
@@ -703,21 +660,22 @@ direct_dependencies:
 - cube32esp/xpowerslib
 - espressif/brookesia_gui_lvgl
 - espressif/brookesia_hal_adaptor
+- espressif/brookesia_lib_utils
 - espressif/brookesia_service_device
 - espressif/brookesia_system_core
-- espressif/brookesia_system_super
 - espressif/esp_codec_dev
 - espressif/esp_io_expander_tca9554
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
 - espressif/esp_lvgl_adapter
 - espressif/network_provisioning
+- espressif/qrcode
 - espressif/usb
 - idf
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/qmi8658
-manifest_hash: 7c976417c402a7c2b532594f313eb2c4c3c1302831fbbf12b2f65ee961ccf1eb
+manifest_hash: 7794278952c749983e52dc01ab8da722b76dad9bc30f23566717fd1a0c95607b
 target: esp32s3
 version: 3.0.0

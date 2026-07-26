@@ -12,34 +12,46 @@
 
 #pragma once
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include "brookesia/system_core.hpp"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_palette.hpp"
 
 namespace qsee {
 
-// Synchronize passive chrome and lower commands without bypassing Brookesia.
+struct CommandSpec {
+    std::string_view icon;
+    std::string_view action;
+    palette::ActionRole role = palette::ActionRole::Primary;
+};
+
+// Owns one persistent, route-configurable command arc under Brookesia.
 class AdaptiveCommandBar final {
 public:
     static constexpr uint32_t kDefaultTimeoutSeconds = 10;
+    static constexpr size_t kSlotCount = 6;
 
     // Load the persisted timeout and create an explicit first-boot value if absent.
     std::expected<void, std::string> begin();
 
-    // Register the active route paths and reset them to a visible interactive state.
+    // Replace the route model while retaining the same mounted visual component.
     std::expected<void, std::string> activate(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
-        std::span<const std::string_view> controls,
-        std::span<const std::string_view> visuals,
-        std::string_view wake_path
+        std::span<const CommandSpec> commands
     );
+
+    // Resolve one persistent slot action to the active route command.
+    [[nodiscard]] std::optional<std::string_view> resolve_action(
+        std::string_view slot_action
+    ) const;
 
     // Wake hidden chrome before handling a user action.
     std::expected<void, std::string> note_activity(
@@ -64,7 +76,7 @@ private:
     // Compare consecutive validated IMU samples without reading hardware directly.
     bool detect_motion(const ImuSnapshot &imu);
 
-    // Animate all registered paths to one shared opacity.
+    // Animate the one mounted command component to the target opacity.
     std::expected<void, std::string> animate_to(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
         bool visible
@@ -76,22 +88,20 @@ private:
         bool chrome_visible
     );
 
-    // Cancel every outstanding Brookesia animation subscription.
+    // Cancel the outstanding Brookesia animation subscription.
     void stop_animations(const esp_brookesia::system::core::AppGuiRuntime &gui);
 
-    // Finalize a transition only after all synchronized paths complete.
+    // Finalize the one component transition.
     void animation_completed(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
         uint32_t generation
     );
 
-    std::vector<std::string> controls_;
-    std::vector<std::string> visuals_;
-    std::vector<esp_brookesia::gui::SubscriptionId> animation_ids_;
-    std::string wake_path_;
+    std::array<std::string, kSlotCount> actions_{};
+    size_t command_count_ = 0;
+    esp_brookesia::gui::SubscriptionId animation_id_ = 0;
     uint32_t timeout_seconds_ = kDefaultTimeoutSeconds;
     uint32_t animation_generation_ = 0;
-    size_t pending_animations_ = 0;
     int64_t last_activity_us_ = 0;
     int64_t last_imu_sample_us_ = 0;
     float last_acceleration_mps2_[3] = {};
