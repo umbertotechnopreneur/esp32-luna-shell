@@ -49,8 +49,14 @@ extern "C" void app_main(void)
         false,
         ESP_ERR_NOT_SUPPORTED
     );
+#if CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE
+    report_optional_startup_failure("voice AFE", qsee_voice_afe_init());
+#endif
     report_optional_startup_failure("time", qsee_time_init("UTC0"));
-    report_optional_startup_failure("power inputs", qsee_power_inputs_init());
+    report_optional_startup_failure(
+        "power-management service",
+        qsee_power_manager_init()
+    );
     report_optional_startup_failure("removable storage", qsee_storage_init());
     ESP_LOGI(kTag, "Wi-Fi/BLE startup deferred until Settings");
     report_optional_startup_failure(

@@ -253,6 +253,8 @@ struct UiHardwareSnapshot {
     ComponentSnapshot touch;
     ComponentSnapshot brightness;
     ComponentSnapshot display_power_mode;
+    uint32_t touch_activity_sequence = 0;
+    int64_t touch_last_activity_at_us = 0;
     uint32_t brightness_percent = 100;
     uint32_t configured_brightness_percent = 100;
     enum class DisplayPowerMode : uint8_t {
@@ -291,9 +293,42 @@ struct InputSnapshot {
     bool boot_pressed = false;
     bool power_pressed = false;
     uint32_t boot_press_count = 0;
+    uint32_t boot_long_press_count = 0;
     uint32_t power_short_press_count = 0;
     uint32_t power_long_press_count = 0;
     uint32_t wakeup_cause = 0;
+};
+
+enum class DeviceOperatingState : uint8_t {
+    Active,
+    EnteringStandby,
+    Standby,
+    Waking,
+};
+
+enum class DeviceStateReason : uint8_t {
+    Startup,
+    BootButton,
+    PowerButton,
+    Touch,
+    ImuMotion,
+};
+
+struct PowerManagementSnapshot : ComponentSnapshot {
+    DeviceOperatingState state = DeviceOperatingState::Active;
+    DeviceStateReason reason = DeviceStateReason::Startup;
+    bool audio_suspended = false;
+    bool command_arc_visible = true;
+    bool status_arc_visible = true;
+    UiHardwareSnapshot::DisplayPowerMode display_idle_stage =
+        UiHardwareSnapshot::DisplayPowerMode::Active;
+    uint32_t command_arc_timeout_seconds = 10;
+    uint32_t status_arc_timeout_seconds = 30;
+    uint32_t display_dim_timeout_seconds = 30;
+    uint32_t display_off_delay_seconds = 60;
+    uint32_t transition_sequence = 0;
+    int64_t last_activity_at_us = 0;
+    int64_t changed_at_us = 0;
 };
 
 struct MemorySnapshot : ComponentSnapshot {
@@ -342,6 +377,7 @@ struct DeviceSnapshot {
     DiagnosticsSettingsSnapshot diagnostics;
     UiHardwareSnapshot ui;
     InputSnapshot input;
+    PowerManagementSnapshot power;
     MemorySnapshot memory;
     ProcessorSnapshot processor;
 };
@@ -393,6 +429,7 @@ public:
     );
     void reportDisplay(bool ready, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
+    void reportTouchActivity();
     void reportSpeaker(bool ready, esp_err_t error);
     void reportWifi(const WifiSnapshot &wifi);
     void reportBle(
@@ -414,6 +451,21 @@ public:
         esp_err_t error
     );
     void reportInputs(const InputSnapshot &inputs);
+    void reportPowerManagement(
+        DeviceOperatingState state,
+        DeviceStateReason reason,
+        bool audio_suspended,
+        bool command_arc_visible,
+        bool status_arc_visible,
+        UiHardwareSnapshot::DisplayPowerMode display_idle_stage,
+        uint32_t command_arc_timeout_seconds,
+        uint32_t status_arc_timeout_seconds,
+        uint32_t display_dim_timeout_seconds,
+        uint32_t display_off_delay_seconds,
+        uint32_t transition_sequence,
+        int64_t last_activity_at_us,
+        esp_err_t error
+    );
 
 private:
     DeviceSnapshotService() = default;

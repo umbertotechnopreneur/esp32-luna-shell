@@ -8,10 +8,13 @@
 #include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
 
+#include <algorithm>
 #include <mutex>
 
 #include "bsp/display.h"
 #include "esp_log.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 namespace {
 
@@ -22,6 +25,7 @@ constexpr uint32_t kBrightnessMinPercent = 10;
 constexpr uint32_t kBrightnessMaxPercent = 100;
 constexpr uint32_t kDimmedBrightnessNumerator = 50;
 constexpr uint32_t kDimmedBrightnessDenominator = 100;
+constexpr uint32_t kFadeStepPeriodMs = 20;
 std::mutex s_brightness_mutex;
 
 esp_err_t read_applied_brightness(uint32_t *percent)
@@ -94,22 +98,132 @@ esp_err_t read_configured_brightness(uint32_t *percent)
     return ESP_OK;
 }
 
-esp_err_t apply_panel_brightness(
-    uint32_t percent,
-    qsee::UiHardwareSnapshot::DisplayPowerMode mode
+qsee::UiHardwareSnapshot::DisplayPowerMode snapshot_power_mode(
+    qsee_display_power_mode_t mode
 )
 {
-    // This BSP exposes the backlight power boundary, not a panel enable API.
-    esp_err_t error = bsp_display_backlight_on();
-    if (error != ESP_OK) {
-        return error;
+    switch (mode) {
+    case QSEE_DISPLAY_POWER_ACTIVE:
+        return qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
+    case QSEE_DISPLAY_POWER_DIMMED:
+        return qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed;
+    case QSEE_DISPLAY_POWER_OFF:
+        return qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
     }
-    error = bsp_display_brightness_set(static_cast<int>(percent));
-    if (error != ESP_OK) {
-        return error;
+    return qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown;
+}
+
+const char *power_mode_name(qsee_display_power_mode_t mode)
+{
+    switch (mode) {
+    case QSEE_DISPLAY_POWER_ACTIVE:
+        return "active";
+    case QSEE_DISPLAY_POWER_DIMMED:
+        return "dimmed";
+    case QSEE_DISPLAY_POWER_OFF:
+        return "off";
     }
-    publish_brightness(percent, ESP_OK);
-    qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(mode, ESP_OK);
+    return "unknown";
+}
+
+esp_err_t transition_power_mode_locked(
+    qsee_display_power_mode_t mode,
+    uint32_t duration_ms
+)
+{
+    const auto report_failure = [&](esp_err_t error) {
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+            error
+        );
+        ESP_LOGE(
+            kTag,
+            "Display transition to %s failed (%s)",
+            power_mode_name(mode),
+            esp_err_to_name(error)
+        );
+        return error;
+    };
+    if (snapshot_power_mode(mode) ==
+        qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown) {
+        return report_failure(ESP_ERR_INVALID_ARG);
+    }
+
+    uint32_t configured_brightness = 0;
+    if (mode != QSEE_DISPLAY_POWER_OFF) {
+        const esp_err_t configured_error =
+            read_configured_brightness(&configured_brightness);
+        publish_configured_brightness(
+            configured_brightness,
+            configured_error
+        );
+        if (configured_error != ESP_OK) {
+            return report_failure(configured_error);
+        }
+    }
+    const uint32_t target_brightness =
+        mode == QSEE_DISPLAY_POWER_ACTIVE
+            ? configured_brightness
+            : mode == QSEE_DISPLAY_POWER_DIMMED
+                ? configured_brightness *
+                      kDimmedBrightnessNumerator /
+                      kDimmedBrightnessDenominator
+                : 0U;
+
+    uint32_t current_brightness = 0;
+    const esp_err_t read_error =
+        read_applied_brightness(&current_brightness);
+    if (read_error != ESP_OK) {
+        publish_brightness(0, read_error);
+        return report_failure(read_error);
+    }
+
+    const uint32_t step_count = duration_ms == 0U
+        ? 1U
+        : std::max<uint32_t>(
+              1,
+              std::min<uint32_t>(
+                  24,
+                  duration_ms / kFadeStepPeriodMs
+              )
+          );
+    for (uint32_t step = 1; step <= step_count; ++step) {
+        const int32_t delta =
+            static_cast<int32_t>(target_brightness) -
+            static_cast<int32_t>(current_brightness);
+        const int32_t interpolated =
+            static_cast<int32_t>(current_brightness) +
+            delta * static_cast<int32_t>(step) /
+                static_cast<int32_t>(step_count);
+        const esp_err_t step_error =
+            bsp_display_brightness_set(interpolated);
+        if (step_error != ESP_OK) {
+            publish_brightness(
+                static_cast<uint32_t>(
+                    std::max<int32_t>(interpolated, 0)
+                ),
+                step_error
+            );
+            return report_failure(step_error);
+        }
+        if (duration_ms > 0U && step < step_count) {
+            vTaskDelay(pdMS_TO_TICKS(duration_ms / step_count));
+        }
+    }
+
+    publish_brightness(target_brightness, ESP_OK);
+    qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+        snapshot_power_mode(mode),
+        ESP_OK
+    );
+    ESP_LOGI(
+        kTag,
+        "Display transition %s: configured=%lu applied=%lu duration=%lu ms",
+        power_mode_name(mode),
+        static_cast<unsigned long>(configured_brightness),
+        static_cast<unsigned long>(target_brightness),
+        static_cast<unsigned long>(duration_ms)
+    );
     return ESP_OK;
 }
 
@@ -153,17 +267,6 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
             esp_err_to_name(read_error)
         );
         return read_error;
-    }
-
-    const esp_err_t panel_error = bsp_display_backlight_on();
-    if (panel_error != ESP_OK) {
-        publish_brightness(previous_percent, panel_error);
-        ESP_LOGE(
-            kTag,
-            "Enabling display panel failed (%s)",
-            esp_err_to_name(panel_error)
-        );
-        return panel_error;
     }
 
     const esp_err_t display_error =
@@ -293,18 +396,6 @@ extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
 
     ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
              static_cast<unsigned long>(brightness));
-    const esp_err_t panel_error = bsp_display_backlight_on();
-    if (panel_error != ESP_OK) {
-        publish_brightness(0, panel_error);
-        publish_configured_brightness(brightness, panel_error);
-        ESP_LOGE(
-            kTag,
-            "Enabling display panel for saved brightness failed (%s)",
-            esp_err_to_name(panel_error)
-        );
-        return panel_error;
-    }
-
     const esp_err_t display_error =
         bsp_display_brightness_set(static_cast<int>(brightness));
     publish_brightness(brightness, display_error);
@@ -329,66 +420,14 @@ extern "C" esp_err_t qsee_display_set_power_mode(
 )
 {
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
-    const auto report_failure = [&](esp_err_t error) {
-        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
-            qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown,
-            error
-        );
-        ESP_LOGE(
-            kTag,
-            "Display power mode %d failed (%s)",
-            static_cast<int>(mode),
-            esp_err_to_name(error)
-        );
-        return error;
-    };
+    return transition_power_mode_locked(mode, 0);
+}
 
-    switch (mode) {
-    case QSEE_DISPLAY_POWER_ACTIVE:
-    case QSEE_DISPLAY_POWER_DIMMED: {
-        uint32_t configured_brightness = 0;
-        esp_err_t error = read_configured_brightness(&configured_brightness);
-        if (error != ESP_OK) {
-            publish_configured_brightness(configured_brightness, error);
-            return report_failure(error);
-        }
-        const uint32_t applied_brightness =
-            mode == QSEE_DISPLAY_POWER_DIMMED
-                ? configured_brightness * kDimmedBrightnessNumerator /
-                      kDimmedBrightnessDenominator
-                : configured_brightness;
-        error = apply_panel_brightness(
-            applied_brightness,
-            mode == QSEE_DISPLAY_POWER_DIMMED
-                ? qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed
-                : qsee::UiHardwareSnapshot::DisplayPowerMode::Active
-        );
-        publish_configured_brightness(configured_brightness, error);
-        if (error != ESP_OK) {
-            return report_failure(error);
-        }
-        ESP_LOGI(
-            kTag,
-            "Display power mode %s: configured=%lu applied=%lu",
-            mode == QSEE_DISPLAY_POWER_DIMMED ? "dimmed" : "active",
-            static_cast<unsigned long>(configured_brightness),
-            static_cast<unsigned long>(applied_brightness)
-        );
-        return ESP_OK;
-    }
-    case QSEE_DISPLAY_POWER_OFF: {
-        const esp_err_t error = bsp_display_backlight_off();
-        if (error != ESP_OK) {
-            return report_failure(error);
-        }
-        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
-            qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff,
-            ESP_OK
-        );
-        ESP_LOGI(kTag, "Display power mode off");
-        return ESP_OK;
-    }
-    default:
-        return report_failure(ESP_ERR_INVALID_ARG);
-    }
+extern "C" esp_err_t qsee_display_fade_to_power_mode(
+    qsee_display_power_mode_t mode,
+    uint32_t duration_ms
+)
+{
+    std::lock_guard<std::mutex> lock(s_brightness_mutex);
+    return transition_power_mode_locked(mode, duration_ms);
 }

@@ -30,7 +30,7 @@
                 },
                 "style": {
                     "textColor": "#f0b44d",
-                    "fontSize": "24sp",
+                    "fontSize": "${constant.typography.control}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -58,7 +58,7 @@
                 },
                 "style": {
                     "textColor": "#f4ffff",
-                    "fontSize": "9sp",
+                    "fontSize": "${constant.typography.caption}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -80,7 +80,7 @@
                 },
                 "style": {
                     "textColor": "#f0b44d",
-                    "fontSize": "12sp",
+                    "fontSize": "${constant.typography.detail}",
                     "textAlign": "center"
                 },
                 "placement": {

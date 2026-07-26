@@ -44,17 +44,19 @@ complete geometry.
 1. install the canonical logger;
 2. start display and touch through the BSP;
 3. show the minimal boot screen;
-4. initialize PMU, RTC, IMU, GPS, and the shared ES7210 microphone path, take
+4. initialize PMU, RTC, IMU, GPS, and the selected microphone path, take
    the bounded initial microphone sample, then restore persisted brightness;
 5. play the boot SFX through the ES8311 speaker path;
-6. start the non-blocking SD service; retry only explicit transient
+6. when enabled, start the 16 kHz ESP-SR speech-recognition AFE after boot
+   audio has completed;
+7. start the non-blocking SD service; retry only explicit transient
    card/transport or filesystem failures, without automatic formatting;
-7. create an explicit pre-UI hardware snapshot while Wi-Fi and BLE remain off;
-8. change the boot state to `OPENING WELCOME`, repaint the full panel black,
+8. create an explicit pre-UI hardware snapshot while Wi-Fi and BLE remain off;
+9. change the boot state to `OPENING WELCOME`, repaint the full panel black,
    and hand off immediately to Brookesia System Super;
-9. let the official HAL adaptor mount internal LittleFS and initialize its NVS
+10. let the official HAL adaptor mount internal LittleFS and initialize its NVS
    key-value backend, with mount-time formatting disabled;
-10. launch the registered System Core application. Wi-Fi and BLE start only
+11. launch the registered System Core application. Wi-Fi and BLE start only
     after the explicit action on the Settings screen.
 
 `qsee_hardware_init()` runs its PMU, RTC, IMU, GPS, and audio stages in a fixed
@@ -134,15 +136,27 @@ framework or call LVGL directly.
 | `Main Command` | The single Command Arc action centered on the horizontal axis; it is largest and defines the route's primary intent |
 | `Edge Navigation` | Contextual Back, Next, Confirm, or Cancel control placed on the circular edge |
 | `Wake Surface` | The transparent full-display touch target used only while Adaptive Chrome is hidden or the display is dimmed/off |
-| `Adaptive Chrome` | The shared controller for Status Arc, Command Arc, independent hide timings, display dim/off stages, and touch/motion wake |
+| `Adaptive Chrome` | The reusable Status Arc and Command Arc renderer; it animates the canonical power state but owns no inactivity policy |
+| `Power Management Service` | The single worker that owns BOOT/PWR input, inactivity timing, arc visibility, AMOLED fade/dim/off, audio standby, and IMU wake |
+| `Device Standby` | The explicit `PWR`-controlled state with the display off and voice capture suspended while the IMU wake monitor remains active |
 | `Full Snapshot` | One serialized complete hardware and system acquisition, scheduled at the user-selected 300 ms to 10 s cadence |
 | `Diagnostic Stream` | The separate IMU/microphone live sampler enabled only by diagnostic routes |
-| `UI Refresh` | The 1 Hz pass that binds the latest immutable snapshot to the visible route; it never samples hardware |
+| `UI Refresh` | The snapshot-to-view binding pass: 1 Hz while active, 0.2 Hz while dimmed, and stopped while the display is off; it never samples hardware |
 
 The standard page names are `Welcome`, `Live Logs`, `Hardware`, `Audio Scope`,
 `Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `About`, and
 `Pairing Flow`. Use these names in code reviews, issues, screenshots, and
 documentation.
+
+The Power Management Service owns one inactivity timeline. The independently
+configured `Command Arc` and `Status Arc` hide first. After the configured
+display timeout, a shared fade reduces brightness to 50% of the user's
+configured value; after the separate off delay, the same fade reaches
+`DisplayOff`. Touch, a command, BOOT short press, or a bias-resistant IMU
+movement restores the active policy. `PWR` short press exclusively toggles
+Device Standby; another `PWR` press or valid IMU movement wakes it. BOOT held
+for three seconds performs a soft reset. Every policy state and transition is
+published in `DeviceSnapshotService`; the UI only animates that immutable state.
 
 ### Route index
 
@@ -270,8 +284,9 @@ The available subsystem flags are:
 | --- | --- | --- |
 | `CONFIG_QSEE_BUILD_ENABLE_UI` | `y` | Includes the display and touch UI stack; disabling it removes the Brookesia app runtime and current BSP touch path from the build |
 | `CONFIG_QSEE_BUILD_ENABLE_BOOT_UI` | `y` | Keeps the boot splash screen; depends on the UI stack |
-| `CONFIG_QSEE_BUILD_ENABLE_AUDIO` | `y` | Includes the ES8311 speaker path, ES7210 microphone path, and related audio runtime |
-| `CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO` | `y` | Keeps the boot sound effect; depends on the audio path |
+| `CONFIG_QSEE_BUILD_ENABLE_AUDIO` | `y` | Includes the selected speaker and microphone paths plus related audio runtime |
+| `CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO` | `y` | Keeps the boot sound effect; depends on the selected ES8311 output path |
+| `CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE` | `n` | Starts the optional ESP-SR 16 kHz speech-recognition AFE; requires a selected ES8311 output and ES7210 input topology |
 | `CONFIG_QSEE_BUILD_ENABLE_WIFI` | `y` | Includes the Wi-Fi station stack |
 | `CONFIG_QSEE_BUILD_ENABLE_BLUETOOTH` | `y` | Includes the Bluetooth telemetry stack |
 | `CONFIG_QSEE_BUILD_ENABLE_PROVISIONING` | `y` | Includes the BLE Wi-Fi pairing flow used to provision Wi-Fi credentials; depends on Wi-Fi and Bluetooth |
@@ -301,6 +316,61 @@ showing synthetic data.
 | `QSEE_BUILD_RTC_DRIVER` | PCF85063 | `QSEE_BUILD_RTC_DRIVER_NONE` |
 | `QSEE_BUILD_IMU_DRIVER` | QMI8658 | `QSEE_BUILD_IMU_DRIVER_NONE` |
 | `QSEE_BUILD_GNSS_DRIVER` | LC76G | `QSEE_BUILD_GNSS_DRIVER_NONE` |
+
+Audio has an additional directional selection so one board definition can
+describe speaker-only, microphone-only, mono-microphone, and dual-microphone
+variants without compiling an imaginary second channel:
+
+| Choice | Current selections | Explicit off state |
+| --- | --- | --- |
+| `QSEE_BUILD_AUDIO_OUTPUT_DRIVER` | ES8311 speaker output | `QSEE_BUILD_AUDIO_OUTPUT_DRIVER_NONE` |
+| `QSEE_BUILD_AUDIO_INPUT_DRIVER` | ES7210 dual microphone or ES7210 mono microphone | `QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE` |
+
+### ESP-SR voice AFE
+
+`CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE=y` adds a dedicated 16 kHz, signed-PCM16
+voice pipeline. It is intentionally separate from the 22.05 kHz diagnostic
+sampling path. On the current board, the ES7210 adapter provides interleaved
+microphone frames and the selected topology determines the ESP-SR input layout:
+
+| Selected input | ESP-SR layout | Meaning |
+| --- | --- | --- |
+| `QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL` | `MMNR` | microphone 0, microphone 1, unused slot, ES8311 speaker reference |
+| `QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO` | `MR` | one microphone and the ES8311 speaker reference |
+
+Every 16 kHz PCM block accepted by the ES8311 output is copied into a bounded
+reference ring immediately before the corresponding speaker write. The AFE
+worker reads that reference together with the selected microphone frames, so it
+never fabricates a second microphone channel. If the reference ring cannot
+accept a block, playback returns the real error and logs it instead of silently
+losing AEC alignment.
+
+The available profiles are
+`CONFIG_QSEE_BUILD_VOICE_AFE_SR_PROFILE_LOW_COST` and
+`CONFIG_QSEE_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF`. Both use the ESP-SR
+speech-recognition AEC path. No `AEC_MODE_FD_*` full-duplex dialogue mode is
+compiled or selected yet. That leaves the future path open without enabling
+two-way conversational behavior prematurely.
+
+The first integration is deliberately AEC-only and uses ESP-SR's built-in
+WebRTC noise suppression and VAD defaults, so it does not add a `model`
+partition or a wake-word model to flash. WakeNet and command recognition attach
+to the already-running fetch worker in a later, explicitly sized model-partition
+change; that decision must include the selected language, commands, flash budget,
+and model update path.
+
+While the AFE is running it owns 16 kHz microphone capture. The normal audio
+diagnostic sampler does not reconfigure the codec underneath it; its previous
+measurement ages naturally to `STALE` until the AFE is stopped. Boot audio
+remains at 22.05 kHz, so the AFE starts only after boot playback.
+
+For a new audio chip, add one mutually-exclusive input or output choice and a
+small adapter that implements the existing normalized PCM contracts: selected
+channel count, interleaved PCM16 capture at 16 kHz, and mono 16 kHz speaker
+reference submission. Do not probe several codecs or duplicate a mono channel
+to simulate a two-microphone board. A selected codec that is absent or fails
+must log and return its original error; startup reports the degraded component
+and continues with unrelated optional hardware.
 
 For example, `CONFIG_QSEE_BUILD_ENABLE_IMU=n` removes the motion pipeline,
 while `CONFIG_QSEE_BUILD_IMU_DRIVER_NONE=y` declares that the selected board

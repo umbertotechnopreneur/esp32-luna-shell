@@ -27,7 +27,7 @@
             "borderWidth": "1dp",
             "radius": "10dp",
             "textColor": "#f3f7fa",
-            "fontSize": "12sp",
+            "fontSize": "${constant.typography.detail}",
             "padding": "9dp"
         },
         "stateStyles": {

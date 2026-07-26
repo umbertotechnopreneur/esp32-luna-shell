@@ -28,8 +28,16 @@
 namespace {
 
 constexpr char kTag[] = "qsee_main";
+constexpr size_t kBrookesiaBootstrapStackSize = 16 * 1024;
 
 std::unique_ptr<esp_brookesia::system::core::System> s_system;
+
+void report_touch_activity(void *user_data)
+{
+    (void)user_data;
+    qsee::DeviceSnapshotService::instance().reportTouchActivity();
+    qsee_power_manager_note_activity();
+}
 
 void report_optional_startup_failure(
     std::string_view stage,
@@ -150,6 +158,12 @@ void brookesia_task()
         return;
     }
 
+#if CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE
+    // System Core owns the critical internal-memory reservations. Voice is
+    // optional and starts only after the single-app UI is fully operational.
+    report_optional_startup_failure("voice AFE", qsee_voice_afe_init());
+#endif
+
     const esp_err_t rotation_result =
         qsee_display_apply_saved_auto_rotation();
     if (rotation_result != ESP_OK) {
@@ -221,6 +235,25 @@ extern "C" void app_main(void)
         touch != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND
     );
     ESP_LOGI(kTag, "Touch CST9217: %s", touch != nullptr ? "ready" : "unavailable");
+    if (touch != nullptr) {
+        const esp_err_t touch_observer_result =
+            bsp_display_set_touch_activity_callback(
+                report_touch_activity,
+                nullptr
+            );
+        if (touch_observer_result != ESP_OK) {
+            qsee::DeviceSnapshotService::instance().reportTouch(
+                false,
+                touch_observer_result
+            );
+            ESP_LOGE(
+                kTag,
+                "Touch activity observer failed: %s",
+                esp_err_to_name(touch_observer_result)
+            );
+            return;
+        }
+    }
 
     const esp_err_t hardware_result = qsee_hardware_init();
     report_optional_startup_failure("hardware inventory", hardware_result);
@@ -236,7 +269,15 @@ extern "C" void app_main(void)
     }
 
     report_optional_startup_failure("time", qsee_time_init("UTC0"));
-    report_optional_startup_failure("power inputs", qsee_power_inputs_init());
+    const esp_err_t power_manager_result = qsee_power_manager_init();
+    if (power_manager_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Power-management service failed: %s",
+            esp_err_to_name(power_manager_result)
+        );
+        return;
+    }
 #if CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO
     report_optional_startup_failure("boot audio", qsee_boot_audio_play());
 #endif
@@ -261,14 +302,24 @@ extern "C" void app_main(void)
     }
 #endif
 
-    // Keep the temporary bootstrap stack internal for the flash-backed runtime
-    // initialization. The large declarative GUI worker stays in PSRAM; QSee
-    // settings and Brookesia Storage own separate internal-stack executors.
-    {
+    // This temporary worker can commit flash-backed runtime state, so its stack
+    // must stay internal. Measured peak use is below 10 KiB; 16 KiB preserves a
+    // generous margin without requiring an unavailable 22 KiB contiguous block.
+    try {
         BROOKESIA_THREAD_CONFIG_GUARD({
-            .stack_size = 24 * 1024,
+            .stack_size = kBrookesiaBootstrapStackSize,
             .stack_in_ext = false,
         });
         boost::thread(brookesia_task).detach();
+    } catch (const std::exception &error) {
+        ESP_LOGE(
+            kTag,
+            "Brookesia bootstrap task creation failed: %s "
+            "(internal-free=%uB largest=%uB requested=%uB)",
+            error.what(),
+            heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+            heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+            static_cast<unsigned int>(kBrookesiaBootstrapStackSize)
+        );
     }
 }

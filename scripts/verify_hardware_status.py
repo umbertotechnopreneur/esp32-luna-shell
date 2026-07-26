@@ -50,7 +50,7 @@ def main() -> None:
 
     gps_start = hardware.index("esp_err_t sample_gps(")
     gps_end = hardware.index(
-        "// Project one captured stereo window",
+        "void build_audio_spectrum(",
         gps_start,
     )
     gps_sample = hardware[gps_start:gps_end]

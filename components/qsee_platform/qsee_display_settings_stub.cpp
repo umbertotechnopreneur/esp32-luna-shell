@@ -43,3 +43,12 @@ extern "C" esp_err_t qsee_display_set_power_mode(qsee_display_power_mode_t mode)
     );
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+extern "C" esp_err_t qsee_display_fade_to_power_mode(
+    qsee_display_power_mode_t mode,
+    uint32_t duration_ms
+)
+{
+    (void)duration_ms;
+    return qsee_display_set_power_mode(mode);
+}

@@ -10,6 +10,8 @@
 #include "esp_log.h"
 #include "esp_check.h"
 #include "esp_heap_caps.h"
+#include "esp_memory_utils.h"
+#include "esp_timer.h"
 #include "esp_vfs_fat.h"
 #include "esp_spiffs.h"
 #include "diskio_impl.h"
@@ -35,12 +37,36 @@ static bool i2c_initialized = false;
 static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
 static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
+static bsp_touch_activity_callback_t touch_activity_callback = NULL;
+static void *touch_activity_user_data = NULL;
 static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
+static uint8_t *display_frame_cache = NULL;
+static bool display_frame_cache_rows[BSP_LCD_V_RES];
+static size_t display_frame_cache_full_row_count = 0;
+static bool display_frame_cache_valid = false;
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
+
+static void bsp_touch_activity_event_cb(lv_event_t *event)
+{
+    (void)event;
+    bsp_touch_activity_callback_t callback = touch_activity_callback;
+    if (callback != NULL) {
+        callback(touch_activity_user_data);
+    }
+}
 
 #define BSP_SDCARD_MAX_FILES               5
 #define BSP_SDCARD_ALLOCATION_UNIT_SIZE    (16U * 1024U)
 #define BSP_SDCARD_FORMAT_WORK_BUFFER_SIZE 4096U
+#define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
+#define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
+#define BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT BSP_DISPLAY_DMA_TRANSFER_HEIGHT
+#define BSP_DISPLAY_CIRCLE_EDGE_PADDING    2
+#define BSP_DISPLAY_FRAME_BYTES            \
+    ((size_t)BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8U)
+#define BSP_DISPLAY_DMA_BUFFER_BYTES        \
+    ((size_t)BSP_LCD_H_RES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT * \
+     BSP_LCD_BITS_PER_PIXEL / 8U)
 
 typedef struct {
     bool host_initialized;
@@ -1524,6 +1550,298 @@ static void rounder_event_cb(lv_event_t *e)
     area->x2 = ((x2 >> 1) << 1) + 1;
     area->y2 = ((y2 >> 1) << 1) + 1;
 }
+
+// Keep LVGL's larger render tiles in PSRAM, but copy them into one short-lived
+// internal DMA buffer before QSPI. The panel underflows when it reads PSRAM
+// directly, while 64-row render tiles avoid exposing short LVGL raster bands.
+static esp_err_t bsp_display_draw_bitmap_bounced(
+    esp_lcd_panel_handle_t panel,
+    int x_start,
+    int y_start,
+    int x_end,
+    int y_end,
+    const void *color_map,
+    size_t source_stride_bytes,
+    uint8_t *bounce_buffer
+)
+{
+    if (panel == NULL || color_map == NULL || bounce_buffer == NULL ||
+        x_start < 0 || y_start < 0 ||
+        x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
+        x_start >= x_end || y_start >= y_end ||
+        source_stride_bytes <
+            (size_t)(x_end - x_start) *
+                (BSP_LCD_BITS_PER_PIXEL / 8U)) {
+        ESP_LOGE(
+            TAG,
+            "Bounced draw rejected: panel=%p pixels=%p buffer=%p "
+            "area=[%d,%d,%d,%d]",
+            panel,
+            color_map,
+            bounce_buffer,
+            x_start,
+            y_start,
+            x_end,
+            y_end
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t bytes_per_pixel = BSP_LCD_BITS_PER_PIXEL / 8U;
+    const size_t source_row_bytes =
+        (size_t)(x_end - x_start) * bytes_per_pixel;
+    const uint8_t *source = (const uint8_t *)color_map;
+    for (int chunk_y = y_start; chunk_y < y_end;
+         chunk_y += (int)BSP_DISPLAY_DMA_TRANSFER_HEIGHT) {
+        const int chunk_end =
+            chunk_y + (int)BSP_DISPLAY_DMA_TRANSFER_HEIGHT < y_end
+                ? chunk_y + (int)BSP_DISPLAY_DMA_TRANSFER_HEIGHT
+                : y_end;
+        const size_t chunk_rows = (size_t)(chunk_end - chunk_y);
+        for (size_t row = 0; row < chunk_rows; ++row) {
+            memcpy(
+                bounce_buffer + row * source_row_bytes,
+                source +
+                    ((size_t)(chunk_y - y_start) + row) *
+                        source_stride_bytes,
+                source_row_bytes
+            );
+        }
+        const esp_err_t draw_result = esp_lcd_panel_draw_bitmap(
+            panel,
+            x_start,
+            chunk_y,
+            x_end,
+            chunk_end,
+            bounce_buffer
+        );
+        if (draw_result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Bounced draw failed at [%d,%d,%d,%d] (%s)",
+                x_start,
+                chunk_y,
+                x_end,
+                chunk_end,
+                esp_err_to_name(draw_result)
+            );
+            return draw_result;
+        }
+        const esp_err_t drain_result =
+            esp_lcd_panel_io_tx_param(io_handle, -1, NULL, 0);
+        if (drain_result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Bounced draw queue drain failed at rows %d-%d (%s)",
+                chunk_y,
+                chunk_end - 1,
+                esp_err_to_name(drain_result)
+            );
+            return drain_result;
+        }
+    }
+    return ESP_OK;
+}
+
+// Keep the last rendered RGB565 frame in PSRAM. Rotation can then replay the
+// already-rasterized UI instead of asking LVGL to redraw every gradient/shadow.
+static esp_err_t bsp_display_draw_bitmap_cached(
+    lv_display_t *display,
+    esp_lcd_panel_handle_t panel,
+    int x_start,
+    int y_start,
+    int x_end,
+    int y_end,
+    const void *color_map,
+    void *user_ctx
+)
+{
+    (void)display;
+    (void)user_ctx;
+    if (panel == NULL || color_map == NULL || display_frame_cache == NULL ||
+        x_start < 0 || y_start < 0 ||
+        x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
+        x_start >= x_end || y_start >= y_end) {
+        ESP_LOGE(
+            TAG,
+            "Cached draw rejected: panel=%p pixels=%p cache=%p area=[%d,%d,%d,%d]",
+            panel,
+            color_map,
+            display_frame_cache,
+            x_start,
+            y_start,
+            x_end,
+            y_end
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    const size_t bytes_per_pixel = BSP_LCD_BITS_PER_PIXEL / 8U;
+    const size_t source_row_bytes =
+        (size_t)(x_end - x_start) * bytes_per_pixel;
+    const size_t bounce_rows =
+        (size_t)(y_end - y_start) < BSP_DISPLAY_DMA_TRANSFER_HEIGHT
+            ? (size_t)(y_end - y_start)
+            : BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
+    const size_t bounce_buffer_bytes = source_row_bytes * bounce_rows;
+    const uint8_t *source = (const uint8_t *)color_map;
+
+    uint8_t *bounce_buffer = heap_caps_aligned_alloc(
+        64,
+        bounce_buffer_bytes,
+        MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+    );
+    if (bounce_buffer == NULL) {
+        ESP_LOGE(
+            TAG,
+            "Allocating the %lu-byte transient display DMA buffer failed",
+            (unsigned long)bounce_buffer_bytes
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    const esp_err_t result = bsp_display_draw_bitmap_bounced(
+        panel,
+        x_start,
+        y_start,
+        x_end,
+        y_end,
+        color_map,
+        source_row_bytes,
+        bounce_buffer
+    );
+    heap_caps_free(bounce_buffer);
+    if (result != ESP_OK) {
+        return result;
+    }
+    for (int y = y_start; y < y_end; ++y) {
+        uint8_t *destination =
+            display_frame_cache +
+            (((size_t)y * BSP_LCD_H_RES + (size_t)x_start) * bytes_per_pixel);
+        memcpy(
+            destination,
+            source + ((size_t)(y - y_start) * source_row_bytes),
+            source_row_bytes
+        );
+    }
+    if (x_start == 0 && x_end == BSP_LCD_H_RES) {
+        for (int y = y_start; y < y_end; ++y) {
+            if (!display_frame_cache_rows[y]) {
+                display_frame_cache_rows[y] = true;
+                ++display_frame_cache_full_row_count;
+            }
+        }
+        display_frame_cache_valid =
+            display_frame_cache_full_row_count == BSP_LCD_V_RES;
+    }
+    return result;
+}
+
+static esp_err_t bsp_display_replay_cached_frame(void)
+{
+    if (!display_frame_cache_valid || display_frame_cache == NULL ||
+        io_handle == NULL) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint8_t *bounce_buffer = heap_caps_aligned_alloc(
+        64,
+        BSP_DISPLAY_DMA_BUFFER_BYTES,
+        MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+    );
+    if (bounce_buffer == NULL) {
+        ESP_LOGE(
+            TAG,
+            "Allocating the %lu-byte rotation DMA buffer failed",
+            (unsigned long)BSP_DISPLAY_DMA_BUFFER_BYTES
+        );
+        return ESP_ERR_NO_MEM;
+    }
+
+    const size_t row_bytes =
+        (size_t)BSP_LCD_H_RES * BSP_LCD_BITS_PER_PIXEL / 8U;
+    const size_t bytes_per_pixel = BSP_LCD_BITS_PER_PIXEL / 8U;
+    size_t replayed_pixels = 0;
+    for (int y = 0; y < BSP_LCD_V_RES;
+         y += (int)BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT) {
+        const int y_end =
+            y + (int)BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT < BSP_LCD_V_RES
+            ? y + (int)BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT
+            : BSP_LCD_V_RES;
+        const int center_twice = BSP_LCD_V_RES - 1;
+        const int radius_twice = BSP_LCD_V_RES;
+        const int first_distance = abs(y * 2 - center_twice);
+        const int last_distance = abs((y_end - 1) * 2 - center_twice);
+        const int nearest_distance =
+            first_distance < last_distance ? first_distance : last_distance;
+        const uint32_t squared_half_width =
+            (uint32_t)(radius_twice * radius_twice -
+                       nearest_distance * nearest_distance);
+        uint32_t half_width_twice = 0;
+        uint32_t test_bit = 1UL << 30;
+        uint32_t remainder = squared_half_width;
+        while (test_bit > remainder) {
+            test_bit >>= 2;
+        }
+        while (test_bit != 0) {
+            if (remainder >= half_width_twice + test_bit) {
+                remainder -= half_width_twice + test_bit;
+                half_width_twice = (half_width_twice >> 1) + test_bit;
+            } else {
+                half_width_twice >>= 1;
+            }
+            test_bit >>= 2;
+        }
+        int x_start =
+            (center_twice - (int)half_width_twice) / 2 -
+            BSP_DISPLAY_CIRCLE_EDGE_PADDING;
+        int x_end =
+            (center_twice + (int)half_width_twice + 1) / 2 + 1 +
+            BSP_DISPLAY_CIRCLE_EDGE_PADDING;
+        if (x_start < 0) {
+            x_start = 0;
+        }
+        if (x_end > BSP_LCD_H_RES) {
+            x_end = BSP_LCD_H_RES;
+        }
+
+        const esp_err_t result = bsp_display_draw_bitmap_bounced(
+            panel_handle,
+            x_start,
+            y,
+            x_end,
+            y_end,
+            display_frame_cache +
+                (size_t)y * row_bytes +
+                (size_t)x_start * bytes_per_pixel,
+            row_bytes,
+            bounce_buffer
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Cached rotation replay failed at [%d,%d,%d,%d] (%s)",
+                x_start,
+                y,
+                x_end,
+                y_end,
+                esp_err_to_name(result)
+            );
+            heap_caps_free(bounce_buffer);
+            return result;
+        }
+        replayed_pixels +=
+            (size_t)(x_end - x_start) * (size_t)(y_end - y);
+    }
+    ESP_LOGD(
+        TAG,
+        "Cached round-frame replay transferred %u/%u pixels",
+        (unsigned int)replayed_pixels,
+        (unsigned int)((size_t)BSP_LCD_H_RES * BSP_LCD_V_RES)
+    );
+    heap_caps_free(bounce_buffer);
+    return ESP_OK;
+}
+
 esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
 {
     esp_err_t ret = ESP_OK;
@@ -1773,13 +2091,12 @@ static esp_err_t bsp_display_lcd_init(
     }
     *out_display = NULL;
 
-    // Feed QSPI from two small internal buffers so LVGL can render the next
-    // strip while SPI transfers the current one. Keeping both buffers internal
-    // avoids the per-transfer PSRAM bounce allocation that exhausted DMA RAM.
-    const size_t transfer_height = 10;
-
+    // Rasterize into tall PSRAM tiles, then feed CO5300 QSPI through the
+    // transient internal bounce buffer owned by each cached draw callback.
     const bsp_display_config_t disp_config = {
-        .max_transfer_sz = BSP_LCD_H_RES * transfer_height * BSP_LCD_BITS_PER_PIXEL / 8,
+        .max_transfer_sz =
+            BSP_LCD_H_RES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT *
+            BSP_LCD_BITS_PER_PIXEL / 8,
     };
 
     ESP_RETURN_ON_ERROR(
@@ -1797,9 +2114,8 @@ static esp_err_t bsp_display_lcd_init(
             .rotation = cfg->rotation,
             .hor_res = BSP_LCD_H_RES,
             .ver_res = BSP_LCD_V_RES,
-            // The adapter and panel use the same bounded DMA transfer height.
-            .buffer_height = transfer_height,
-            .use_psram = false,
+            .buffer_height = BSP_DISPLAY_DRAW_BUFFER_HEIGHT,
+            .use_psram = true,
             .enable_ppa_accel = false,
             .require_double_buffer = true,
         },
@@ -1811,6 +2127,57 @@ static esp_err_t bsp_display_lcd_init(
         ESP_LOGE(TAG, "Registering LCD with the LVGL adapter failed");
         return ESP_FAIL;
     }
+
+    display_frame_cache = heap_caps_aligned_alloc(
+        64,
+        BSP_DISPLAY_FRAME_BYTES,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    );
+    if (display_frame_cache == NULL ||
+        !esp_ptr_external_ram(display_frame_cache)) {
+        if (display_frame_cache != NULL) {
+            heap_caps_free(display_frame_cache);
+            display_frame_cache = NULL;
+        }
+        ESP_LOGE(
+            TAG,
+            "Display frame cache requires %lu bytes of PSRAM",
+            (unsigned long)BSP_DISPLAY_FRAME_BYTES
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    memset(display_frame_cache_rows, 0, sizeof(display_frame_cache_rows));
+    display_frame_cache_full_row_count = 0;
+    display_frame_cache_valid = false;
+
+    const esp_lv_adapter_draw_bitmap_callbacks_t draw_callbacks = {
+        .custom_draw_bitmap = bsp_display_draw_bitmap_cached,
+        .waits_until_complete = true,
+    };
+    const esp_err_t callback_result =
+        esp_lv_adapter_set_draw_bitmap_callbacks(
+            display_handle,
+            &draw_callbacks,
+            NULL
+        );
+    if (callback_result != ESP_OK) {
+        heap_caps_free(display_frame_cache);
+        display_frame_cache = NULL;
+        ESP_LOGE(
+            TAG,
+            "Registering the display frame cache failed (%s)",
+            esp_err_to_name(callback_result)
+        );
+        return callback_result;
+    }
+    ESP_LOGI(
+        TAG,
+        "PSRAM render pipeline ready: draw_rows=%u cache=%lu bytes "
+        "transient_DMA=%lu bytes",
+        (unsigned int)BSP_DISPLAY_DRAW_BUFFER_HEIGHT,
+        (unsigned long)BSP_DISPLAY_FRAME_BYTES,
+        (unsigned long)BSP_DISPLAY_DMA_BUFFER_BYTES
+    );
 
     lv_display_add_event_cb(
         display_handle,
@@ -1844,6 +2211,12 @@ static esp_err_t bsp_display_indev_init(
         ESP_LOGE(TAG, "Registering touch with the LVGL adapter failed");
         return ESP_FAIL;
     }
+    lv_indev_add_event_cb(
+        disp_indev,
+        bsp_touch_activity_event_cb,
+        LV_EVENT_PRESSED,
+        NULL
+    );
     return ESP_OK;
 }
 
@@ -1861,6 +2234,13 @@ static esp_err_t bsp_display_cleanup_failed_start(bool adapter_initialized)
         }
         display_handle = NULL;
         disp_indev = NULL;
+    }
+    if (display_frame_cache != NULL) {
+        heap_caps_free(display_frame_cache);
+        display_frame_cache = NULL;
+        display_frame_cache_full_row_count = 0;
+        display_frame_cache_valid = false;
+        memset(display_frame_cache_rows, 0, sizeof(display_frame_cache_rows));
     }
     if (tp != NULL) {
         const esp_err_t result = esp_lcd_touch_del(tp);
@@ -1998,6 +2378,20 @@ lv_indev_t *bsp_display_get_input_dev(void)
     return disp_indev;
 }
 
+esp_err_t bsp_display_set_touch_activity_callback(
+    bsp_touch_activity_callback_t callback,
+    void *user_data
+)
+{
+    if (disp_indev == NULL) {
+        ESP_LOGE(TAG, "Touch activity observer rejected: input is unavailable");
+        return ESP_ERR_INVALID_STATE;
+    }
+    touch_activity_user_data = user_data;
+    touch_activity_callback = callback;
+    return ESP_OK;
+}
+
 typedef struct {
     bool panel_swap_xy;
     bool panel_mirror_x;
@@ -2114,6 +2508,7 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 
     bsp_display_rotation_config_t previous_config;
     (void)bsp_display_rotation_config(current_rotation, &previous_config);
+    const int64_t started_at_us = esp_timer_get_time();
     const esp_err_t apply_result = bsp_display_apply_rotation_config(&requested_config);
     if (apply_result != ESP_OK) {
         ESP_LOGE(TAG, "Display rotation %d failed (%s)", rotation, esp_err_to_name(apply_result));
@@ -2122,13 +2517,40 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
         return apply_result;
     }
 
+    const bool replay_ready = display_frame_cache_valid;
+    if (replay_ready) {
+        const esp_err_t replay_result = bsp_display_replay_cached_frame();
+        if (replay_result != ESP_OK) {
+            const esp_err_t rollback_result =
+                bsp_display_apply_rotation_config(&previous_config);
+            if (rollback_result != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "Display rotation replay failed (%s); rollback also failed (%s)",
+                    esp_err_to_name(replay_result),
+                    esp_err_to_name(rollback_result)
+                );
+            }
+            bsp_display_unlock();
+            return replay_result;
+        }
+    }
+
     current_rotation = rotation;
-    lv_obj_t *screen = lv_display_get_screen_active(display_handle);
-    if (screen != NULL) {
-        lv_obj_invalidate(screen);
+    if (!replay_ready) {
+        lv_obj_t *screen = lv_display_get_screen_active(display_handle);
+        if (screen != NULL) {
+            lv_obj_invalidate(screen);
+        }
     }
     bsp_display_unlock();
-    ESP_LOGI(TAG, "CO5300 + CST9217 rotation: %d degrees", rotation * 90);
+    ESP_LOGI(
+        TAG,
+        "CO5300 + CST9217 rotation: %d degrees, path=%s, queued=%lld us",
+        rotation * 90,
+        replay_ready ? "PSRAM-cache" : "LVGL-redraw",
+        (long long)(esp_timer_get_time() - started_at_us)
+    );
     return ESP_OK;
 }
 

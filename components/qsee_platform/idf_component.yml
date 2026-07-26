@@ -1,4 +1,6 @@
 dependencies:
+  espressif/esp-sr:
+    version: "2.4.6"
   espressif/network_provisioning:
     version: "1.2.4"
   waveshare/qmi8658:

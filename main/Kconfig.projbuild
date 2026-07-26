@@ -37,14 +37,48 @@ choice QSEE_BUILD_AUDIO_DRIVER
     prompt "Audio codec board driver"
     default QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
     help
-        Select the physical audio codec route. The current board exposes the
-        ES8311 speaker codec and ES7210 microphone ADC as one BSP-owned route.
+        Select the board-owned audio transport. Input and output codecs are
+        selected separately below so a product can include only a microphone,
+        only a speaker, or a different future codec adapter.
 
 config QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
     bool "Waveshare ES8311 speaker and ES7210 microphones"
 
 config QSEE_BUILD_AUDIO_DRIVER_NONE
     bool "No audio codec hardware"
+
+endchoice
+
+choice QSEE_BUILD_AUDIO_OUTPUT_DRIVER
+    prompt "Audio output codec"
+    depends on QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
+    default QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+
+config QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    bool "ES8311 speaker codec"
+
+config QSEE_BUILD_AUDIO_OUTPUT_DRIVER_NONE
+    bool "No speaker output hardware"
+
+endchoice
+
+choice QSEE_BUILD_AUDIO_INPUT_DRIVER
+    prompt "Audio input codec and microphone topology"
+    depends on QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
+    default QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
+    help
+        Choose the physically populated microphone path. The mono ES7210
+        option captures its first channel only; future codec adapters belong
+        in this mutually exclusive choice.
+
+config QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
+    bool "ES7210 dual microphones"
+
+config QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO
+    bool "ES7210 single microphone"
+
+config QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
+    bool "No microphone input hardware"
 
 endchoice
 
@@ -118,13 +152,39 @@ config QSEE_BUILD_ENABLE_BOOT_UI
     default y
 
 config QSEE_BUILD_ENABLE_AUDIO
-    bool "Enable speaker and microphone audio path"
+    bool "Enable selected speaker and microphone paths"
     depends on QSEE_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210
     default y
+
+config QSEE_BUILD_ENABLE_VOICE_AFE
+    bool "Enable ESP-SR 16 kHz voice AFE"
+    depends on QSEE_BUILD_ENABLE_AUDIO
+    depends on QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    depends on QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL || QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO
+    default n
+    help
+        Starts a dedicated 16 kHz PCM16 voice pipeline. It uses MR for one
+        microphone or MMNR for two microphones, and keeps a speaker PCM
+        reference ring for AEC. This is the speech-recognition profile, not a
+        full-duplex conversation path.
+
+choice QSEE_BUILD_VOICE_AFE_SR_PROFILE
+    prompt "Voice AFE speech-recognition profile"
+    depends on QSEE_BUILD_ENABLE_VOICE_AFE
+    default QSEE_BUILD_VOICE_AFE_SR_PROFILE_LOW_COST
+
+config QSEE_BUILD_VOICE_AFE_SR_PROFILE_LOW_COST
+    bool "AEC SR low cost"
+
+config QSEE_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF
+    bool "AEC SR high performance"
+
+endchoice
 
 config QSEE_BUILD_ENABLE_BOOT_AUDIO
     bool "Enable boot sound effect"
     depends on QSEE_BUILD_ENABLE_AUDIO
+    depends on QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     default y
 
 config QSEE_BUILD_ENABLE_WIFI

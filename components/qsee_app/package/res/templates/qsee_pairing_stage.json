@@ -35,7 +35,7 @@
                 },
                 "style": {
                     "textColor": "#f3f7fa",
-                    "fontSize": "20sp",
+                    "fontSize": "${constant.typography.heading}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -54,7 +54,7 @@
                 },
                 "style": {
                     "textColor": "#20dfc1",
-                    "fontSize": "9sp",
+                    "fontSize": "${constant.typography.caption}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -73,7 +73,7 @@
                 },
                 "style": {
                     "textColor": "#ffffff",
-                    "fontSize": "11sp",
+                    "fontSize": "${constant.typography.detail}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -115,7 +115,7 @@
                 },
                 "style": {
                     "textColor": "#9fb1c1",
-                    "fontSize": "9sp",
+                    "fontSize": "${constant.typography.caption}",
                     "textAlign": "center"
                 },
                 "placement": {

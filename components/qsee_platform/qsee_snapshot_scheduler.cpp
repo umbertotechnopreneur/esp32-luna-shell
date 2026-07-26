@@ -25,6 +25,8 @@ constexpr uint32_t kTaskStackBytes = 12U * 1024U;
 constexpr UBaseType_t kTaskPriority = 2;
 std::atomic<uint32_t> s_period_ms{kDefaultPeriodMs};
 std::atomic_bool s_period_valid{false};
+std::atomic_bool s_monitor_requested{false};
+std::atomic_bool s_performance_suspended{false};
 std::atomic_bool s_monitor_active{false};
 bool s_task_started = false;
 TaskHandle_t s_task_handle = nullptr;
@@ -193,6 +195,18 @@ esp_err_t ensure_task_locked()
     return ESP_OK;
 }
 
+void apply_effective_monitor_state_locked()
+{
+    const bool active =
+        s_monitor_requested.load(std::memory_order_relaxed) &&
+        !s_performance_suspended.load(std::memory_order_relaxed);
+    s_monitor_active.store(active, std::memory_order_release);
+    if (s_task_handle != nullptr) {
+        xTaskNotifyGive(s_task_handle);
+    }
+    publish_monitor(active, ESP_OK);
+}
+
 }  // namespace
 
 extern "C" esp_err_t qsee_hardware_start_full_snapshot_monitor(void)
@@ -212,12 +226,13 @@ extern "C" esp_err_t qsee_hardware_start_full_snapshot_monitor(void)
         return task_error;
     }
 
-    s_monitor_active.store(true, std::memory_order_release);
-    xTaskNotifyGive(s_task_handle);
-    publish_monitor(true, ESP_OK);
+    s_monitor_requested.store(true, std::memory_order_relaxed);
+    apply_effective_monitor_state_locked();
+    const bool active = s_monitor_active.load(std::memory_order_acquire);
     ESP_LOGI(
         kTag,
-        "Full Snapshot monitor active at %lu ms",
+        "Full Snapshot monitor %s at %lu ms",
+        active ? "active" : "suppressed by Performance Mode",
         static_cast<unsigned long>(
             s_period_ms.load(std::memory_order_acquire)
         )
@@ -228,12 +243,24 @@ extern "C" esp_err_t qsee_hardware_start_full_snapshot_monitor(void)
 extern "C" esp_err_t qsee_hardware_stop_full_snapshot_monitor(void)
 {
     std::lock_guard<std::mutex> lock(s_settings_mutex);
-    s_monitor_active.store(false, std::memory_order_release);
-    if (s_task_handle != nullptr) {
-        xTaskNotifyGive(s_task_handle);
-    }
-    publish_monitor(false, ESP_OK);
+    s_monitor_requested.store(false, std::memory_order_relaxed);
+    apply_effective_monitor_state_locked();
     ESP_LOGI(kTag, "Full Snapshot monitor standby");
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_hardware_set_full_snapshot_performance_suspended(
+    bool suspended
+)
+{
+    std::lock_guard<std::mutex> lock(s_settings_mutex);
+    s_performance_suspended.store(suspended, std::memory_order_relaxed);
+    apply_effective_monitor_state_locked();
+    ESP_LOGI(
+        kTag,
+        "Full Snapshot Performance Mode suppression: %s",
+        suspended ? "active" : "inactive"
+    );
     return ESP_OK;
 }
 

@@ -73,8 +73,16 @@ STATUS_CURVE_POINTS = (
 
 
 def command_diameter(count: int, index: int) -> int:
-    main_index = count // 2
-    distance = abs(index - main_index)
+    right_center = count // 2
+    if count % 2:
+        distance = abs(index - right_center)
+    else:
+        left_center = right_center - 1
+        distance = (
+            left_center - index
+            if index < left_center
+            else index - right_center if index > right_center else 0
+        )
     return max(
         COMMAND_MIN_DIAMETER,
         COMMAND_MAIN_DIAMETER - (distance * COMMAND_DIAMETER_STEP),
@@ -82,14 +90,22 @@ def command_diameter(count: int, index: int) -> int:
 
 
 def command_geometry(count: int, index: int) -> tuple[int, int, int]:
-    if count < 1 or count > 5 or count % 2 == 0:
-        raise ValueError("Command Arc requires one, three, or five commands")
+    if count < 1 or count > 5:
+        raise ValueError("Command Arc requires between one and five commands")
 
-    main_index = count // 2
+    right_center = count // 2
+    left_center = right_center - 1 if count % 2 == 0 else right_center
     diameters = [command_diameter(count, slot) for slot in range(count)]
     centers_y = []
     for slot in range(count):
-        distance = abs(slot - main_index)
+        if count % 2:
+            distance = abs(slot - right_center)
+        else:
+            distance = (
+                left_center - slot
+                if slot < left_center
+                else slot - right_center if slot > right_center else 0
+            )
         centers_y.append(
             COMMAND_MAIN_CENTER_Y
             - (COMMAND_ARC_RISE_LINEAR * distance)
@@ -97,8 +113,17 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
         )
 
     centers_x = [0] * count
-    centers_x[main_index] = COMMAND_CENTER_X
-    for slot in range(main_index, 0, -1):
+    if left_center == right_center:
+        centers_x[left_center] = COMMAND_CENTER_X
+    else:
+        center_distance = (
+            (diameters[left_center] // 2)
+            + (diameters[right_center] // 2)
+            + COMMAND_BUTTON_GAP
+        )
+        centers_x[left_center] = COMMAND_CENTER_X - (center_distance // 2)
+        centers_x[right_center] = centers_x[left_center] + center_distance
+    for slot in range(left_center, 0, -1):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
             (diameters[slot] // 2)
@@ -113,7 +138,7 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
             + 0.5
         )
         centers_x[slot - 1] = centers_x[slot] - horizontal_delta
-    for slot in range(main_index + 1, count):
+    for slot in range(right_center + 1, count):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
             (diameters[slot - 1] // 2)
@@ -192,9 +217,16 @@ SCENARIOS = {
 
 
 class QSeeSimulator:
-    def __init__(self, root: tk.Tk, scenario: Scenario, play_sound: bool = True) -> None:
+    def __init__(
+        self,
+        root: tk.Tk,
+        scenario: Scenario,
+        play_sound: bool = True,
+        idle_state: str = "active",
+    ) -> None:
         self.root = root
         self.scenario = scenario
+        self.idle_state = idle_state
         self.logger = CanonicalLogger()
         self.canvas = tk.Canvas(
             root,
@@ -217,6 +249,8 @@ class QSeeSimulator:
         self.screen = "boot"
         self.audio_phase = 0
         self.audio_timer: str | None = None
+        self.performance_mode = False
+        self.debug_mode = False
         self.ready = False
         self.safe_guide = False
         self.timeline_index = 0
@@ -254,6 +288,7 @@ class QSeeSimulator:
         self.root.bind("<Return>", lambda _event: self.confirm())
         self.root.bind("c", lambda _event: self.show_confirmation())
         self.root.bind("r", lambda _event: self.reboot())
+        self.root.bind("p", lambda _event: self.toggle_standby())
         self.root.bind("<F2>", lambda _event: self.toggle_safe_guide())
 
     def _clear(self) -> None:
@@ -636,6 +671,8 @@ class QSeeSimulator:
                 )
 
     def _draw_status_bar(self) -> None:
+        if self.idle_state in {"chrome-hidden", "dimmed", "off", "standby"}:
+            return
         points = tuple(coordinate for point in STATUS_CURVE_POINTS for coordinate in point)
         self.canvas.create_image(
             0,
@@ -705,6 +742,14 @@ class QSeeSimulator:
         )
 
     def _draw_command_arc(self) -> None:
+        if self.idle_state == "standby":
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic touch ignored in standby; use PWR or IMU wake",
+            )
+            return
+        if self.idle_state != "active":
+            return
         commands = (
             ("≡", False),
             ("♫", False),
@@ -797,6 +842,12 @@ class QSeeSimulator:
                 self.logger.info("qsee_boot", "Synthetic touch received; startup still in progress")
             return
 
+        if self.idle_state != "active":
+            self.idle_state = "active"
+            self.logger.info("qsee_ui", "Synthetic touch restored Adaptive Chrome")
+            self._redraw_current_screen()
+            return
+
         # Hit boxes mirror the drawn controls on the fixed 466 px canvas.
         if 6 <= event.x <= 68 and 190 <= event.y <= 276 and self.screen == "confirmation":
             self.cancel()
@@ -805,7 +856,7 @@ class QSeeSimulator:
         elif (
             10 <= event.x <= 70
             and 203 <= event.y <= 263
-            and self.screen in {"audio", "fft", "fft-detail", "imu"}
+            and self.screen in {"audio", "fft", "fft-detail", "imu", "settings"}
         ):
             self.back()
         elif 147 <= event.x <= 203 and 346 <= event.y <= 402 and self.screen == "home":
@@ -818,6 +869,31 @@ class QSeeSimulator:
             self.show_audio_fft_demo()
         elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "fft":
             self.show_audio_detail_demo()
+        elif self.screen == "settings":
+            for index in range(4):
+                x, y, diameter = command_geometry(4, index)
+                if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
+                    if index == 1:
+                        self.performance_mode = not self.performance_mode
+                        self.debug_mode = False
+                        self.logger.info(
+                            "qsee_performance",
+                            "Synthetic Performance Mode "
+                            + (
+                                "enabled"
+                                if self.performance_mode
+                                else "disabled"
+                            ),
+                        )
+                    elif index == 2:
+                        self.performance_mode = False
+                        self.debug_mode = True
+                        self.logger.info(
+                            "qsee_debug",
+                            "Synthetic Maximum Debug Mode applied",
+                        )
+                    self.show_settings_demo()
+                    break
 
     def _draw_page_heading(self, title: str, subtitle: str) -> None:
         self.canvas.create_text(
@@ -1057,14 +1133,44 @@ class QSeeSimulator:
             94,
             174,
             anchor="w",
-            text="DIAGNOSTICS",
-            fill=STATUS_READY,
-            font=(FONT_DISPLAY, 14),
+            text="DEBUG MODE" if self.debug_mode else "PERFORMANCE MODE",
+            fill="#51c7f2",
+            font=(FONT_DISPLAY, 12),
             tags="ui",
         )
         self.canvas.create_text(
             94,
             196,
+            anchor="w",
+            text=(
+                "MAX · SNAP 300 ms · STREAM 100 ms · SD"
+                if self.debug_mode
+                else (
+                    "ON · SD/SNAPSHOT PAUSED · VOICE IF ACTIVE"
+                    if self.performance_mode
+                    else "OFF · STANDARD SERVICE POLICY"
+                )
+            ),
+            fill=(
+                STATUS_WARNING
+                if self.debug_mode
+                else STATUS_READY if self.performance_mode else MUTED_BRIGHT
+            ),
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            224,
+            anchor="w",
+            text="DIAGNOSTICS",
+            fill=STATUS_READY,
+            font=(FONT_DISPLAY, 12),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            246,
             anchor="w",
             text="Full snapshots and live diagnostics",
             fill=MUTED_BRIGHT,
@@ -1073,43 +1179,40 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             94,
-            220,
+            272,
             anchor="w",
             text="Full Snapshot cadence",
             fill=TEXT,
             font=(FONT_DISPLAY, 10),
             tags="ui",
         )
-        self._draw_settings_control(236, "1 Hz")
+        self._draw_settings_control(288, "300 ms" if self.debug_mode else "1 Hz")
         self.canvas.create_text(
             94,
-            292,
+            340,
             anchor="w",
-            text="ACTIVE · ONE SERIAL SNAPSHOT WORKER",
-            fill=MUTED,
+            text=(
+                "ACTIVE · MAXIMUM DEBUG PROFILE"
+                if self.debug_mode
+                else (
+                    "STANDBY · PERFORMANCE MODE"
+                    if self.performance_mode
+                    else "ACTIVE · ONE SERIAL SNAPSHOT WORKER"
+                )
+            ),
+            fill="#51c7f2",
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
-        self.canvas.create_text(
-            94,
-            316,
-            anchor="w",
-            text="Diagnostic Stream",
-            fill=TEXT,
-            font=(FONT_DISPLAY, 10),
-            tags="ui",
+        commands = (
+            ("➤", True),
+            ("⚡", self.performance_mode),
+            ("⚙", self.debug_mode),
+            ("i", False),
         )
-        self.canvas.create_text(
-            94,
-            338,
-            anchor="w",
-            text="300 ms · LIVE ROUTES ONLY",
-            fill="#51c7f2",
-            font=(FONT_TECH, 8, "bold"),
-            tags="ui",
-        )
-        x, y, diameter = command_geometry(1, 0)
-        self._draw_command_button(x, y, "➤", True, diameter)
+        for index, (icon, success) in enumerate(commands):
+            x, y, diameter = command_geometry(len(commands), index)
+            self._draw_command_button(x, y, icon, success, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -1673,6 +1776,23 @@ class QSeeSimulator:
         self.show_boot()
         self.root.after(150, self._advance_timeline)
 
+    def toggle_standby(self) -> None:
+        if self.screen == "boot":
+            return
+        if self.idle_state == "standby":
+            self.idle_state = "active"
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic PWR wake completed",
+            )
+        else:
+            self.idle_state = "standby"
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic PWR standby entered; audio suspended, IMU active",
+            )
+        self._redraw_current_screen()
+
     def toggle_safe_guide(self) -> None:
         self.safe_guide = not self.safe_guide
         if self.screen == "boot":
@@ -1681,6 +1801,51 @@ class QSeeSimulator:
             self.show_confirmation()
         else:
             self.show_home()
+
+    def _redraw_current_screen(self) -> None:
+        current_screen = self.screen
+        if self.audio_timer is not None:
+            self.root.after_cancel(self.audio_timer)
+            self.audio_timer = None
+        redraw = {
+            "home": self.show_home,
+            "settings": self.show_settings_demo,
+            "audio": self.show_audio_demo,
+            "fft": self.show_audio_fft_demo,
+            "fft-detail": self.show_audio_detail_demo,
+            "imu": self.show_imu_demo,
+            "confirmation": self.show_confirmation,
+        }.get(current_screen)
+        if redraw is not None:
+            redraw()
+        elif current_screen == "result":
+            self._draw_shell("QSee.ai", "Confirmed", primary=True, actions=False)
+            self.screen = "result"
+        else:
+            self.show_home()
+
+    def apply_idle_overlay(self) -> None:
+        if self.idle_state == "dimmed":
+            self.canvas.create_rectangle(
+                0,
+                0,
+                DISPLAY_SIZE,
+                DISPLAY_SIZE,
+                fill="#000000",
+                stipple="gray50",
+                outline="",
+                tags="idle_overlay",
+            )
+        elif self.idle_state in {"off", "standby"}:
+            self.canvas.create_rectangle(
+                0,
+                0,
+                DISPLAY_SIZE,
+                DISPLAY_SIZE,
+                fill="#000000",
+                outline="",
+                tags="idle_overlay",
+            )
 
 
 def main() -> None:
@@ -1691,8 +1856,15 @@ def main() -> None:
         choices=("home", "settings", "audio", "fft", "fft-detail", "imu"),
         default="home",
     )
+    parser.add_argument(
+        "--idle-state",
+        choices=("active", "command-hidden", "chrome-hidden", "dimmed", "off", "standby"),
+        default="active",
+    )
     parser.add_argument("--capture", type=Path)
     parser.add_argument("--no-sound", action="store_true")
+    parser.add_argument("--performance-mode", action="store_true")
+    parser.add_argument("--debug-mode", action="store_true")
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -1706,7 +1878,10 @@ def main() -> None:
         root,
         SCENARIOS[args.scenario],
         play_sound=not args.no_sound and args.capture is None,
+        idle_state=args.idle_state,
     )
+    simulator.performance_mode = args.performance_mode and not args.debug_mode
+    simulator.debug_mode = args.debug_mode
     if args.capture is not None:
         from PIL import ImageGrab
 
@@ -1719,6 +1894,7 @@ def main() -> None:
             "fft-detail": simulator.show_audio_detail_demo,
             "imu": simulator.show_imu_demo,
         }[args.screen]()
+        simulator.apply_idle_overlay()
         root.geometry("+100+100")
         root.deiconify()
         root.attributes("-topmost", True)

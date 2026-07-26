@@ -388,11 +388,77 @@ void writeInput(qsee::HttpJsonWriter &json, const qsee::InputSnapshot &input)
     (void)json.raw(",\"power_pressed\":");
     (void)json.boolean(input.power_pressed);
     (void)json.format(
-        ",\"boot_press_count\":%lu,\"power_short_press_count\":%lu,\"power_long_press_count\":%lu,\"wakeup_cause\":%lu}",
+        ",\"boot_press_count\":%lu,\"boot_long_press_count\":%lu,\"power_short_press_count\":%lu,\"power_long_press_count\":%lu,\"wakeup_cause\":%lu}",
         static_cast<unsigned long>(input.boot_press_count),
+        static_cast<unsigned long>(input.boot_long_press_count),
         static_cast<unsigned long>(input.power_short_press_count),
         static_cast<unsigned long>(input.power_long_press_count),
         static_cast<unsigned long>(input.wakeup_cause)
+    );
+}
+
+const char *operatingStateName(qsee::DeviceOperatingState state)
+{
+    switch (state) {
+    case qsee::DeviceOperatingState::Active:
+        return "active";
+    case qsee::DeviceOperatingState::EnteringStandby:
+        return "entering-standby";
+    case qsee::DeviceOperatingState::Standby:
+        return "standby";
+    case qsee::DeviceOperatingState::Waking:
+        return "waking";
+    }
+    return "unknown";
+}
+
+const char *deviceStateReasonName(qsee::DeviceStateReason reason)
+{
+    switch (reason) {
+    case qsee::DeviceStateReason::Startup:
+        return "startup";
+    case qsee::DeviceStateReason::BootButton:
+        return "boot-button";
+    case qsee::DeviceStateReason::PowerButton:
+        return "power-button";
+    case qsee::DeviceStateReason::Touch:
+        return "touch";
+    case qsee::DeviceStateReason::ImuMotion:
+        return "imu-motion";
+    }
+    return "unknown";
+}
+
+void writePowerManagement(
+    qsee::HttpJsonWriter &json,
+    const qsee::PowerManagementSnapshot &power
+)
+{
+    (void)json.raw("{\"health\":");
+    (void)json.quoted(qsee::deviceHealthName(power.health));
+    (void)json.raw(",\"last_error\":");
+    (void)json.quoted(esp_err_to_name(power.last_error));
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(operatingStateName(power.state));
+    (void)json.raw(",\"reason\":");
+    (void)json.quoted(deviceStateReasonName(power.reason));
+    (void)json.raw(",\"audio_suspended\":");
+    (void)json.boolean(power.audio_suspended);
+    (void)json.raw(",\"command_arc_visible\":");
+    (void)json.boolean(power.command_arc_visible);
+    (void)json.raw(",\"status_arc_visible\":");
+    (void)json.boolean(power.status_arc_visible);
+    (void)json.raw(",\"display_idle_stage\":");
+    (void)json.quoted(displayPowerModeName(power.display_idle_stage));
+    (void)json.format(
+        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"display_off_delay_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
+        static_cast<unsigned long>(power.command_arc_timeout_seconds),
+        static_cast<unsigned long>(power.status_arc_timeout_seconds),
+        static_cast<unsigned long>(power.display_dim_timeout_seconds),
+        static_cast<unsigned long>(power.display_off_delay_seconds),
+        static_cast<unsigned long>(power.transition_sequence),
+        static_cast<long long>(power.last_activity_at_us),
+        static_cast<long long>(power.changed_at_us)
     );
 }
 
@@ -449,7 +515,7 @@ qsee::DeviceHealth overallHealth(const qsee::DeviceSnapshot &snapshot)
         &snapshot.radios.wifi, &snapshot.radios.ble,
         &snapshot.storage, &snapshot.ui.display, &snapshot.ui.touch,
         &snapshot.input.io_expander, &snapshot.input.boot_button,
-        &snapshot.input.power_button,
+        &snapshot.input.power_button, &snapshot.power,
     };
     bool unknown = false;
     bool degraded = false;
@@ -495,6 +561,8 @@ void writeInfoData(
     writeUi(json, snapshot.ui);
     (void)json.raw(",\"input\":");
     writeInput(json, snapshot.input);
+    (void)json.raw(",\"power\":");
+    writePowerManagement(json, snapshot.power);
     (void)json.raw(",\"memory\":");
     writeMemory(json, snapshot.memory);
     (void)json.raw(",\"processor\":");
@@ -668,6 +736,7 @@ void httpJsonWriteStatus(
         {"storage", &snapshot.storage}, {"display", &snapshot.ui.display},
         {"touch", &snapshot.ui.touch}, {"io_expander", &snapshot.input.io_expander},
         {"boot_button", &snapshot.input.boot_button}, {"power_button", &snapshot.input.power_button},
+        {"power_management", &snapshot.power},
     };
     for (std::size_t index = 0U; index < sizeof(components) / sizeof(components[0]); ++index) {
         if (index != 0U) (void)json.raw(",");

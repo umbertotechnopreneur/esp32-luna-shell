@@ -13,9 +13,16 @@ fusion.
   bounded wait.
 - `snapshot()` returns a copy protected by a static FreeRTOS mutex.
 - `report*()` methods let subsystem owners publish state that cannot be sampled
-  by the service directly, including display, touch, SD, speaker, Wi-Fi, and
-  BLE. Each report is a separate committed generation. Failure to publish a
+  by the service directly, including display, SD, speaker, Wi-Fi, and BLE.
+  Each report is a separate committed generation. Failure to publish a
   generation is a fatal synchronization invariant, never a log-only event.
+- Physical touch activity uses a lock-free monotonic sequence and timestamp.
+  `snapshot()` folds that latch into each returned immutable copy, so the LVGL
+  input callback never waits for a hardware refresh or reads the touch driver.
+- `PowerManagementSnapshot` is the canonical active/standby and inactivity
+  state. It includes the transition reason, audio suspension, both arc
+  visibility flags, display idle stage, persisted timeouts, last activity, and
+  a monotonic transition sequence.
 
 The full-device refresh has one explicit serialized entry point. A dedicated
 platform worker invokes that entry point at the persisted user cadence: 300 ms,
@@ -25,9 +32,9 @@ refreshes and publishes the real acquisition result.
 The Full Snapshot worker is independent from the Diagnostic Stream. When the
 diagnostic monitor is enabled, it samples only the IMU and microphone at its
 own persisted cadence for live pages. Native Wi-Fi/BLE events and mounted-SD
-status polling may publish their own generations independently. The 1 Hz UI
-refresh only binds the latest immutable snapshot and never initiates hardware
-sampling.
+status polling may publish their own generations independently. UI refresh
+binds the latest immutable snapshot at 1 Hz while active, 0.2 Hz while dimmed,
+and stops while the display is off; it never initiates hardware sampling.
 
 ## Snapshot content
 
@@ -40,7 +47,8 @@ sampling.
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
 | Diagnostics | Full Snapshot cadence/worker state, Diagnostic Stream cadence/state, and IMU smoothing |
-| UI/storage/radios | display, touch, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
+| Power management | active/standby transition, PWR/BOOT/IMU/touch reason, audio suspension, Status Arc and Command Arc visibility, display idle stage, and all inactivity timeouts |
+| UI/storage/radios | display, touch health, monotonic touch-activity sequence/timestamp, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
 | Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |
 
@@ -83,6 +91,13 @@ state:
 Snapshot logs include a sequence number and reason. The sequence advances once
 per committed full refresh, diagnostic transaction, or asynchronous subsystem
 report, so a runtime trace can identify the published generation that changed.
+
+The Power Management Service is the only inactivity decision maker. Its one
+worker debounces BOOT and PWR, consumes lock-free touch activity, evaluates IMU
+sample deltas, controls the shared display fade, and pauses or resumes the
+voice AFE. PWR short press toggles standby; BOOT held for three seconds requests
+`esp_restart()`. The Brookesia timer only synchronizes the published power
+snapshot into GUI animations and never owns power-policy timing.
 
 ## Verification
 

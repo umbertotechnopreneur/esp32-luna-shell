@@ -45,19 +45,33 @@ struct CommandGeometry {
     int diameter;
 };
 
-int command_diameter(size_t main_index, size_t index)
+size_t command_center_distance(size_t count, size_t index)
 {
-    const int distance = std::abs(
-        static_cast<int>(index) - static_cast<int>(main_index)
+    const size_t right_center = count / 2U;
+    if ((count % 2U) != 0U) {
+        return static_cast<size_t>(std::abs(
+            static_cast<int>(index) - static_cast<int>(right_center)
+        ));
+    }
+    const size_t left_center = right_center - 1U;
+    return index < left_center
+        ? left_center - index
+        : index > right_center ? index - right_center : 0U;
+}
+
+int command_diameter(size_t count, size_t index)
+{
+    const int distance = static_cast<int>(
+        command_center_distance(count, index)
     );
     return qsee::AdaptiveCommandBar::kMainDiameterDp -
            (distance * qsee::AdaptiveCommandBar::kDiameterStepDp);
 }
 
-int command_center_y(size_t main_index, size_t index)
+int command_center_y(size_t count, size_t index)
 {
-    const int distance = std::abs(
-        static_cast<int>(index) - static_cast<int>(main_index)
+    const int distance = static_cast<int>(
+        command_center_distance(count, index)
     );
     return kMainCenterYDp -
            (kArcRiseLinearDp * distance) -
@@ -84,18 +98,32 @@ int horizontal_center_delta(
 
 CommandGeometry command_geometry(size_t count, size_t index)
 {
-    const size_t main_index = count / 2U;
+    const size_t right_center = count / 2U;
+    const size_t left_center =
+        (count % 2U) == 0U ? right_center - 1U : right_center;
     std::array<int, qsee::AdaptiveCommandBar::kSlotCount> center_x{};
     std::array<int, qsee::AdaptiveCommandBar::kSlotCount> center_y{};
     std::array<int, qsee::AdaptiveCommandBar::kSlotCount> diameter{};
 
     for (size_t slot = 0; slot < count; ++slot) {
-        diameter[slot] = command_diameter(main_index, slot);
-        center_y[slot] = command_center_y(main_index, slot);
+        diameter[slot] = command_diameter(count, slot);
+        center_y[slot] = command_center_y(count, slot);
     }
-    center_x[main_index] = kDisplayCenterXDp;
+    if (left_center == right_center) {
+        center_x[left_center] = kDisplayCenterXDp;
+    } else {
+        const int center_delta = horizontal_center_delta(
+            diameter[left_center],
+            diameter[right_center],
+            0
+        );
+        center_x[left_center] =
+            kDisplayCenterXDp - (center_delta / 2);
+        center_x[right_center] =
+            center_x[left_center] + center_delta;
+    }
 
-    for (size_t slot = main_index; slot > 0; --slot) {
+    for (size_t slot = left_center; slot > 0; --slot) {
         const int vertical_delta =
             std::abs(center_y[slot] - center_y[slot - 1U]);
         center_x[slot - 1U] =
@@ -106,7 +134,7 @@ CommandGeometry command_geometry(size_t count, size_t index)
                 vertical_delta
             );
     }
-    for (size_t slot = main_index + 1U; slot < count; ++slot) {
+    for (size_t slot = right_center + 1U; slot < count; ++slot) {
         const int vertical_delta =
             std::abs(center_y[slot] - center_y[slot - 1U]);
         center_x[slot] =
@@ -159,13 +187,6 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
             " commands; maximum is " + std::to_string(kSlotCount)
         );
     }
-    if (!commands.empty() && (commands.size() % 2U) == 0U) {
-        return std::unexpected(
-            "Command Arc requires an odd command count so one Main Command "
-            "can stay on the horizontal axis"
-        );
-    }
-
     size_t main_count = 0;
     for (size_t index = 0; index < commands.size(); ++index) {
         const CommandSpec &command = commands[index];
@@ -176,16 +197,24 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
         }
         if (command.is_main) {
             ++main_count;
-            if (index != commands.size() / 2U) {
+            const size_t right_center = commands.size() / 2U;
+            const size_t left_center =
+                (commands.size() % 2U) == 0U
+                    ? right_center - 1U
+                    : right_center;
+            if (index != left_center && index != right_center) {
                 return std::unexpected(
-                    "Command Arc Main Command must be the central item"
+                    "Command Arc Main Command must be a central item"
                 );
             }
         }
     }
-    if (!commands.empty() && main_count != 1U) {
+    const size_t expected_main_count =
+        commands.empty() ? 0U : (commands.size() % 2U) == 0U ? 2U : 1U;
+    if (main_count != expected_main_count) {
         return std::unexpected(
-            "Command Arc requires exactly one central Main Command"
+            "Command Arc requires one central Main Command for odd layouts "
+            "or two for even layouts"
         );
     }
 
@@ -381,6 +410,11 @@ std::expected<void, std::string> AdaptiveCommandBar::animate_to(
         );
     }
     animation_id_ = result->subscription_id;
+    ESP_LOGI(
+        kTag,
+        "Command Arc transition: %s",
+        visible ? "visible" : "hidden"
+    );
     return {};
 }
 

@@ -106,15 +106,15 @@
 - [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
   `DisplayOff` transitions, preserving the user's configured brightness and
   publishing both configured and applied values in `DeviceSnapshotService`.
-- Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
+- [x] Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
   `DisplayOff` states tied to real inactivity/sleep transitions.
-- When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
+- [x] When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
   the user's configured value rather than a fixed percentage.
-- While dimmed, slow non-critical UI refresh work from the normal 1 second
+- [x] While dimmed, slow non-critical UI refresh work from the normal 1 second
   cadence to about 5 seconds where the current screen allows it.
-- When the display is fully off, stop GUI refresh timers entirely and resume
+- [x] When the display is fully off, stop GUI refresh timers entirely and resume
   them only after wake.
-- Keep event-driven platform state, critical logs, and fail-fast errors
+- [x] Keep event-driven platform state, critical logs, and fail-fast errors
   truthful; do not keep periodic UI timers alive just to manufacture stale or
   placeholder values.
 

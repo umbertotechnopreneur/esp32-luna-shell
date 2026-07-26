@@ -149,7 +149,7 @@
                 "events": [
                     {
                         "type": "pressed",
-                        "action": "qsee.chrome.activity"
+                        "action": "qsee.chrome.activity.wake"
                     }
                 ],
                 "style": {
@@ -234,7 +234,7 @@
                         },
                         "style": {
                             "textColor": "#ffffff",
-                            "fontSize": "25sp",
+                            "fontSize": "${constant.typography.control}",
                             "textAlign": "center"
                         },
                         "placement": {
@@ -313,7 +313,7 @@
                         },
                         "style": {
                             "textColor": "#ffffff",
-                            "fontSize": "25sp",
+                            "fontSize": "${constant.typography.control}",
                             "textAlign": "center"
                         },
                         "placement": {

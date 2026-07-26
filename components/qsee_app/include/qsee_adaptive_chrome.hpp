@@ -54,7 +54,7 @@ public:
         15, 30, 60, 120, 300, 0,
     };
 
-    // Load every persisted timing and create explicit first-boot values.
+    // Bind to the already initialized global power-management policy.
     std::expected<void, std::string> begin();
 
     // Replace route commands while retaining the single mounted Command Arc.
@@ -67,12 +67,12 @@ public:
         std::string_view slot_action
     ) const;
 
-    // Restore both arcs and full brightness after touch or valid movement.
+    // Publish activity and optimistically restore both arcs.
     std::expected<void, std::string> note_activity(
         const esp_brookesia::system::core::AppGuiRuntime &gui
     );
 
-    // Advance independent arc and display timers from one canonical snapshot.
+    // Render the canonical power-management state without owning timers.
     std::expected<void, std::string> update(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
         const DeviceSnapshot &snapshot
@@ -102,14 +102,9 @@ public:
     [[nodiscard]] DisplayIdleStage display_idle_stage() const;
 
 private:
-    bool detect_motion(const ImuSnapshot &imu);
-
     std::expected<void, std::string> set_status_visible(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
         bool visible
-    );
-    std::expected<void, std::string> set_display_idle_stage(
-        DisplayIdleStage stage
     );
     std::expected<void, std::string> set_wake_surface(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
@@ -125,19 +120,11 @@ private:
 
     AdaptiveCommandBar command_bar_;
     esp_brookesia::gui::SubscriptionId status_animation_id_ = 0;
-    uint32_t command_timeout_seconds_ = 10;
-    uint32_t status_timeout_seconds_ = 30;
-    uint32_t dim_timeout_seconds_ = 30;
-    uint32_t off_delay_seconds_ = 60;
     uint32_t status_animation_generation_ = 0;
-    int64_t last_activity_us_ = 0;
-    int64_t last_imu_sample_us_ = 0;
-    float last_acceleration_mps2_[3] = {};
     DisplayIdleStage display_idle_stage_ = DisplayIdleStage::Active;
     bool active_ = false;
     bool status_visible_ = true;
     bool status_target_visible_ = true;
-    bool motion_baseline_ready_ = false;
 };
 
 }  // namespace qsee

@@ -372,6 +372,8 @@ esp_err_t bsp_io_expander_init(
 
 #if (BSP_CONFIG_NO_GRAPHIC_LIB == 0)
 
+typedef void (*bsp_touch_activity_callback_t)(void *user_data);
+
 /**
  * @brief BSP display configuration structure
  */
@@ -420,6 +422,17 @@ esp_err_t bsp_display_start_with_config(
  * @return Pointer to LVGL input device or NULL when not initialized
  */
 lv_indev_t *bsp_display_get_input_dev(void);
+
+/**
+ * @brief Register the product-level observer for physical touch contacts.
+ *
+ * The callback runs from the LVGL input event context and must not block.
+ * Passing NULL removes the observer without disabling the touch device.
+ */
+esp_err_t bsp_display_set_touch_activity_callback(
+    bsp_touch_activity_callback_t callback,
+    void *user_data
+);
 
 /**
  * @brief Take LVGL mutex

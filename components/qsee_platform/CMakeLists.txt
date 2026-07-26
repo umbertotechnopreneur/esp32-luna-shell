@@ -7,6 +7,7 @@ set(qsee_platform_srcs
     "qsee_settings.cpp"
     "qsee_http_server.cpp"
     "qsee_http_json.cpp"
+    "qsee_performance.cpp"
 )
 
 set(qsee_platform_requires
@@ -34,6 +35,13 @@ if(CONFIG_QSEE_BUILD_ENABLE_AUDIO)
     list(APPEND qsee_platform_requires esp_codec_dev)
 else()
     list(APPEND qsee_platform_srcs "qsee_audio_stub.cpp")
+endif()
+
+if(CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE)
+    list(APPEND qsee_platform_srcs "qsee_voice_afe.cpp")
+    list(APPEND qsee_platform_requires esp-sr)
+else()
+    list(APPEND qsee_platform_srcs "qsee_voice_afe_stub.cpp")
 endif()
 
 if(CONFIG_QSEE_BUILD_ENABLE_UI)
@@ -82,6 +90,9 @@ idf_component_register(
 # entries appended to REQUIRES.
 if(CONFIG_QSEE_BUILD_ENABLE_AUDIO)
     idf_component_optional_requires(PUBLIC esp_codec_dev)
+endif()
+if(CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE)
+    idf_component_optional_requires(PUBLIC esp-sr)
 endif()
 if(CONFIG_QSEE_BUILD_ENABLE_IMU AND CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658)
     idf_component_optional_requires(PUBLIC qmi8658)

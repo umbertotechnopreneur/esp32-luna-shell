@@ -1,0 +1,71 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_metric",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "padding": "2dp"
+        },
+        "layout": {
+            "type": "flex",
+            "flexFlow": "column",
+            "gap": "2dp"
+        },
+        "placement": {
+            "width": "286dp",
+            "height": "42dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "value",
+                "labelProps": {
+                    "text": "UNAVAILABLE"
+                },
+                "style": {
+                    "textColor": "#e7f7ff",
+                    "fontSize": "${constant.typography.detail}"
+                },
+                "placement": {
+                    "width": "282dp",
+                    "height": "25dp"
+                }
+            },
+            {
+                "type": "progressBar",
+                "id": "bar",
+                "commonProps": {
+                    "hidden": true
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden"
+                },
+                "rangeProps": {
+                    "value": 0,
+                    "min": 0,
+                    "max": 100
+                },
+                "style": {
+                    "bgColor": "#1164ad",
+                    "radius": "4dp"
+                },
+                "partStyles": {
+                    "indicator": {
+                        "bgColor": "#009c9d",
+                        "bgGradientColor": "#075f7d",
+                        "bgGradientDirection": "horizontal",
+                        "radius": "4dp"
+                    }
+                },
+                "placement": {
+                    "width": "282dp",
+                    "height": "7dp"
+                }
+            }
+        ]
+    }
+}

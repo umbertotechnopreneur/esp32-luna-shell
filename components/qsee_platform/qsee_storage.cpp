@@ -33,6 +33,7 @@ bool s_mounted;
 bool s_terminal_failure;
 bool s_waiting_for_format_authorization;
 bool s_logger_mirror_requested = true;
+bool s_performance_suspended;
 bool s_logger_mirror_enabled;
 esp_err_t s_last_logged_mirror_error = ESP_ERR_INVALID_STATE;
 uint32_t s_last_logged_mirror_failure_count;
@@ -43,6 +44,11 @@ bool s_format_candidate_valid;
 bsp_sdcard_identity_t s_format_candidate_identity;
 uint32_t s_format_candidate_attempt;
 qsee::StorageMountReport s_last_mount_report;
+
+bool logger_mirror_should_run_locked()
+{
+    return s_logger_mirror_requested && !s_performance_suspended;
+}
 
 struct MountAttempt {
     uint32_t number;
@@ -360,9 +366,9 @@ esp_err_t refresh_logger_status_locked()
 
     s_logger_mirror_enabled = status.enabled;
     esp_err_t reported_error = status.last_error;
-    esp_err_t action_error =
-        s_logger_mirror_requested ? status.last_error : ESP_OK;
-    if (s_mounted && status.enabled != s_logger_mirror_requested) {
+    const bool should_run = logger_mirror_should_run_locked();
+    esp_err_t action_error = should_run ? status.last_error : ESP_OK;
+    if (s_mounted && status.enabled != should_run) {
         action_error = ESP_ERR_INVALID_STATE;
         if (reported_error == ESP_OK) {
             reported_error = action_error;
@@ -572,7 +578,7 @@ esp_err_t mount_once()
         s_terminal_failure = false;
         s_waiting_for_format_authorization = false;
         clear_format_candidate_locked();
-        logger_mirror_requested = s_logger_mirror_requested;
+        logger_mirror_requested = logger_mirror_should_run_locked();
 
         const esp_err_t logger_operation =
             logger_mirror_requested
@@ -602,7 +608,9 @@ esp_err_t mount_once()
         info_error == ESP_OK ? "measured" : "unavailable",
         report.formatted ? "yes" : "no",
         !logger_mirror_requested
-            ? "disabled by user"
+            ? s_performance_suspended
+                ? "suspended by Performance Mode"
+                : "disabled by user"
             : logger_mirror_enabled ? "mirrored" : "failed"
     );
     if (info_error == ESP_OK) {
@@ -1061,10 +1069,11 @@ extern "C" esp_err_t qsee_storage_set_logger_mirror(bool enabled)
     }
     s_logger_mirror_requested = enabled;
 
+    const bool should_run = logger_mirror_should_run_locked();
     esp_err_t apply_error = ESP_OK;
-    if (enabled && s_mounted) {
+    if (should_run && s_mounted) {
         apply_error = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
-    } else if (!enabled) {
+    } else if (!should_run) {
         apply_error = qsee_logger_disable_sd();
     }
     if (apply_error != ESP_OK) {
@@ -1076,7 +1085,7 @@ extern "C" esp_err_t qsee_storage_set_logger_mirror(bool enabled)
     }
     record_first_error(apply_error, &aggregate);
 
-    if (s_mounted || !enabled) {
+    if (s_mounted || !should_run) {
         record_first_error(refresh_logger_status_locked(), &aggregate);
     } else {
         s_logger_mirror_enabled = false;
@@ -1101,4 +1110,68 @@ extern "C" esp_err_t qsee_storage_set_logger_mirror(bool enabled)
         enabled ? "enabled" : "disabled"
     );
     return aggregate;
+}
+
+extern "C" esp_err_t qsee_storage_set_performance_suspended(bool suspended)
+{
+    std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_terminal_failure) {
+        ESP_LOGE(
+            TAG,
+            "Performance Mode storage change rejected: terminal ownership state"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const bool previous = s_performance_suspended;
+    s_performance_suspended = suspended;
+    const bool should_run = logger_mirror_should_run_locked();
+    esp_err_t operation_error = ESP_OK;
+    if (s_mounted && should_run) {
+        operation_error = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
+    } else if (!should_run) {
+        operation_error = qsee_logger_disable_sd();
+    }
+    if (operation_error != ESP_OK) {
+        s_performance_suspended = previous;
+        ESP_LOGE(
+            TAG,
+            "Performance Mode SD mirror transition failed (%s)",
+            esp_err_to_name(operation_error)
+        );
+        return operation_error;
+    }
+
+    const esp_err_t status_error = refresh_logger_status_locked();
+    if (status_error != ESP_OK) {
+        s_performance_suspended = previous;
+        const bool rollback_should_run = logger_mirror_should_run_locked();
+        const esp_err_t rollback_error =
+            s_mounted && rollback_should_run
+                ? qsee_logger_enable_sd(BSP_SD_MOUNT_POINT)
+                : !rollback_should_run
+                    ? qsee_logger_disable_sd()
+                    : ESP_OK;
+        if (rollback_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Performance Mode SD mirror rollback failed (%s)",
+                esp_err_to_name(rollback_error)
+            );
+        }
+        ESP_LOGE(
+            TAG,
+            "Performance Mode SD mirror status failed (%s)",
+            esp_err_to_name(status_error)
+        );
+        return status_error;
+    }
+    publish_mount_report_locked(s_last_mount_report);
+    ESP_LOGI(
+        TAG,
+        "Performance Mode SD mirror suppression: %s (user preference=%s)",
+        suspended ? "active" : "inactive",
+        s_logger_mirror_requested ? "enabled" : "disabled"
+    );
+    return ESP_OK;
 }

@@ -106,16 +106,18 @@ void BackgroundAsset::request()
         return;
     }
 
-    if (xTaskCreate(
+    if (xTaskCreatePinnedToCoreWithCaps(
             worker_entry,
             "qsee_bg_asset",
             6144,
             this,
             tskIDLE_PRIORITY + 1,
-            nullptr
+            nullptr,
+            tskNO_AFFINITY,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
         state_.store(State::Failed, std::memory_order_release);
-        ESP_LOGE(kTag, "Background generator task could not start");
+        ESP_LOGE(kTag, "Background generator PSRAM task could not start");
     }
 }
 

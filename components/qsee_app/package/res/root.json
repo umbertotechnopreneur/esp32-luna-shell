@@ -1,11 +1,36 @@
 {
     "version": "0.2.0",
     "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "8sp",
+                    "caption": "10sp",
+                    "detail": "12sp",
+                    "body": "16sp",
+                    "heading": "20sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
         "templates/qsee_background.json",
         "templates/qsee_command_button.json",
         "templates/qsee_status_indicator.json",
         "templates/qsee_status_bar.json",
         "templates/qsee_settings_dropdown.json",
+        "templates/qsee_metric.json",
+        "templates/qsee_hardware_card.json",
         "templates/qsee_chrome.json",
         "templates/qsee_pairing_stage.json",
         "templates/qsee_spectrum_band.json",
@@ -58,13 +83,18 @@
                     "type": "container",
                     "id": "surface",
                     "commonProps": {
-                        "scrollable": false
+                        "scrollable": true
                     },
+                    "events": [
+                        {
+                            "type": "scroll",
+                            "action": "qsee.chrome.activity"
+                        }
+                    ],
                     "style": {
-                        "radius": "160dp",
                         "padding": "10dp",
                         "paddingTop": "48dp",
-                        "paddingBottom": "8dp"
+                        "paddingBottom": "70dp"
                     },
                     "layout": {
                         "type": "flex",
@@ -85,7 +115,7 @@
                             },
                             "style": {
                                 "textColor": "#ffffff",
-                                "fontSize": "26sp",
+                                "fontSize": "${constant.typography.title}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -97,16 +127,16 @@
                             "type": "label",
                             "id": "device_status",
                             "labelProps": {
-                                "text": "CPU UTILIZATION UNAVAILABLE\nSNAPSHOT UNAVAILABLE (STARTING)"
+                                "text": "QSee device console\nSNAPSHOT UNAVAILABLE (STARTING)"
                             },
                             "style": {
                                 "textColor": "#c9edff",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
                                 "width": "292dp",
-                                "height": "46dp"
+                                "height": "42dp"
                             }
                         },
                         {
@@ -136,7 +166,7 @@
                                     },
                                     "style": {
                                         "textColor": "#e7f7ff",
-                                        "fontSize": "11sp"
+                                        "fontSize": "${constant.typography.detail}"
                                     },
                                     "placement": {
                                         "width": "288dp",
@@ -203,7 +233,7 @@
                                     },
                                     "style": {
                                         "textColor": "#e7f7ff",
-                                        "fontSize": "11sp"
+                                        "fontSize": "${constant.typography.detail}"
                                     },
                                     "placement": {
                                         "width": "288dp",
@@ -244,19 +274,85 @@
                             ]
                         },
                         {
+                            "type": "templateRef",
+                            "id": "psram",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "value": {
+                                    "labelProps": {
+                                        "text": "PSRAM UNAVAILABLE (SNAPSHOT NOT READY)"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "flash",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "value": {
+                                    "labelProps": {
+                                        "text": "FLASH APP UNAVAILABLE (SNAPSHOT NOT READY)"
+                                    }
+                                },
+                                "bar": {
+                                    "partStyles": {
+                                        "indicator": {
+                                            "bgColor": "#0b55d9",
+                                            "bgGradientColor": "#073078",
+                                            "bgGradientDirection": "horizontal",
+                                            "radius": "4dp"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "core0",
+                            "labelProps": {
+                                "text": "CPU CORE 0 UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#e7f7ff",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "286dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "core1",
+                            "labelProps": {
+                                "text": "CPU CORE 1 UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#e7f7ff",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "286dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
                             "type": "label",
                             "id": "radio_status",
                             "labelProps": {
-                                "text": "COMPONENT STATUS UNAVAILABLE (SNAPSHOT NOT READY)"
+                                "text": "HARDWARE STATUS UNAVAILABLE (SNAPSHOT NOT READY)"
                             },
                             "style": {
                                 "textColor": "#80dfff",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
                                 "width": "292dp",
-                                "height": "42dp"
+                                "height": "112dp"
                             }
                         }
                     ]
@@ -310,7 +406,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "18sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -322,11 +418,11 @@
                             "type": "label",
                             "id": "subtitle",
                             "labelProps": {
-                                "text": "All controls - swipe to scroll"
+                                "text": "Tap a component for details - swipe to scroll"
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -366,7 +462,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "8sp"
+                                        "fontSize": "${constant.typography.micro}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
@@ -429,7 +525,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -445,7 +541,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -466,128 +562,396 @@
                                 }
                             ],
                             "style": {
-                                "bgColor": "#07141e",
-                                "bgOpacity": 72,
                                 "borderWidth": "0dp",
-                                "radius": "10dp",
-                                "padding": "7dp"
+                                "padding": "2dp"
+                            },
+                            "layout": {
+                                "type": "grid",
+                                "gridTemplateColumns": [
+                                    "139dp",
+                                    "139dp"
+                                ],
+                                "gridTemplateRows": [
+                                    "24dp",
+                                    "72dp",
+                                    "72dp",
+                                    "72dp",
+                                    "72dp",
+                                    "72dp",
+                                    "72dp"
+                                ],
+                                "gap": "6dp"
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "174dp"
+                                "height": "216dp"
                             },
                             "children": [
                                 {
                                     "type": "label",
-                                    "id": "hardware_text",
+                                    "id": "summary",
                                     "labelProps": {
-                                        "text": "SNAPSHOT UNAVAILABLE (LOADING COMPONENT STATUS)"
+                                        "text": "SNAPSHOT UNAVAILABLE"
                                     },
                                     "style": {
-                                        "textColor": "#f3f7fa",
-                                        "fontSize": "9sp"
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}"
                                     },
                                     "placement": {
-                                        "mode": "absolute",
-                                        "x": "0dp",
-                                        "y": "0dp",
-                                        "width": "282dp",
-                                        "height": "wrap"
+                                        "gridColumn": 0,
+                                        "gridRow": 0,
+                                        "gridColumnSpan": 2
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "battery",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.0"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 1
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BATTERY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "AXP2101"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "rtc",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.1"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 1
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "RTC"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "PCF85063"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "imu",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.2"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 2
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "IMU"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "QMI8658"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "gps",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.3"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 2
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "GPS"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "LC76G"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "wifi",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.4"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 3
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "WIFI"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "ble",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.5"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 3
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BLE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.6"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 4
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "DISPLAY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CO5300"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "touch",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.7"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 4
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "TOUCH"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CST9217"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "speaker",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.8"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 5
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SPEAKER"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES8311"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "microphone",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.9"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 5
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "MICROPHONE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES7210"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sd",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.10"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 6
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SD CARD"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "SDMMC"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "processor",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.11"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 1,
+                                                "gridRow": 6
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "PROCESSOR"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
                                     }
                                 }
                             ]
-                        },
-                        {
-                            "type": "container",
-                            "id": "actions",
-                            "commonProps": {
-                                "scrollable": false
-                            },
-                            "style": {
-                                "padding": 0
-                            },
-                            "layout": {
-                                "type": "flex",
-                                "mainAlign": "center",
-                                "crossAlign": "center",
-                                "gap": "8dp"
-                            },
-                            "placement": {
-                                "width": "300dp",
-                                "height": "40dp"
-                            },
-                            "children": [
-                                    {
-                                      "type": "button",
-                                      "id": "format",
-                                    "events": [
-                                        {
-                                            "type": "clicked",
-                                            "action": "qsee.storage.format"
-                                        }
-                                    ],
-                                    "style": {
-                                        "bgColor": "#0b55d9",
-                                        "radius": "22dp"
-                                    },
-                                    "placement": {
-                                        "width": "44dp",
-                                        "height": "44dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "label",
-                                            "id": "label",
-                                            "labelProps": {
-                                                "text": "\uf021"
-                                            },
-                                            "style": {
-                                                "textColor": "#ffffff",
-                                                "fontSize": "20sp"
-                                            },
-                                            "placement": {
-                                                "mode": "relative",
-                                                "align": "center"
-                                            }
-                                        }
-                                      ]
-                                    },
-                                    {
-                                      "type": "button",
-                                      "id": "refresh",
-                                      "events": [
-                                        {
-                                          "type": "clicked",
-                                          "action": "qsee.hardware.refresh"
-                                        }
-                                      ],
-                                      "style": {
-                                        "bgColor": "#009c9d",
-                                        "radius": "20dp"
-                                      },
-                                      "placement": {
-                                        "width": "112dp",
-                                        "height": "40dp"
-                                      },
-                                      "children": [
-                                        {
-                                          "type": "label",
-                                          "id": "label",
-                                          "labelProps": {
-                                            "text": "REFRESH"
-                                          },
-                                          "style": {
-                                            "textColor": "#ffffff",
-                                            "fontSize": "10sp"
-                                          },
-                                          "placement": {
-                                            "mode": "relative",
-                                            "align": "center"
-                                          }
-                                        }
-                                      ]
-                                    }
-                                  ]
                         }
                     ]
                 }
@@ -655,7 +1019,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -674,7 +1038,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -693,7 +1057,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -712,7 +1076,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -764,7 +1128,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -816,7 +1180,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -835,7 +1199,7 @@
                             },
                             "style": {
                                 "textColor": "#607889",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -912,7 +1276,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -931,7 +1295,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -950,7 +1314,7 @@
                             },
                             "style": {
                                 "textColor": "#51c7f2",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1015,7 +1379,7 @@
                             },
                             "style": {
                                 "textColor": "#607889",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1090,7 +1454,7 @@
                             "labelProps": { "text": "AUDIO DETAIL" },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1109,7 +1473,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1128,7 +1492,7 @@
                             },
                             "style": {
                                 "textColor": "#51c7f2",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1145,7 +1509,7 @@
                             "labelProps": { "text": "MIC 1 | BLUE -> MAGENTA" },
                             "style": {
                                 "textColor": "#78cfff",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1204,7 +1568,7 @@
                             "labelProps": { "text": "MIC 2 | ORANGE -> GREEN" },
                             "style": {
                                 "textColor": "#ffca70",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1265,7 +1629,7 @@
                             },
                             "style": {
                                 "textColor": "#607889",
-                                "fontSize": "9sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1311,30 +1675,6 @@
                     },
                     "children": [
                         {
-                            "type": "container",
-                            "id": "imu_panel",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
-                            },
-                            "style": {
-                                "bgColor": "#0d2836",
-                                "bgGradientColor": "#07131c",
-                                "bgGradientDirection": "vertical",
-                                "borderColor": "#2c6077",
-                                "borderWidth": "1dp",
-                                "radius": "16dp",
-                                "padding": 0
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "4dp",
-                                "y": "84dp",
-                                "width": "312dp",
-                                "height": "228dp"
-                            }
-                        },
-                        {
                             "type": "label",
                             "id": "title",
                             "labelProps": {
@@ -1342,7 +1682,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1361,7 +1701,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1380,7 +1720,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "12sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1399,7 +1739,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "right"
                             },
                             "placement": {
@@ -1418,7 +1758,7 @@
                             },
                             "style": {
                                 "textColor": "#20dfc1",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1437,7 +1777,7 @@
                             },
                             "style": {
                                 "textColor": "#3478c8",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1540,7 +1880,7 @@
                             },
                             "style": {
                                 "textColor": "#20dfc1",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1558,7 +1898,7 @@
                             },
                             "style": {
                                 "textColor": "#3478c8",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1576,7 +1916,7 @@
                             },
                             "style": {
                                 "textColor": "#f0b44d",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1716,7 +2056,7 @@
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
-                                "fontSize": "18sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1735,7 +2075,7 @@
                             },
                             "style": {
                                 "textColor": "#20dfc1",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1753,7 +2093,7 @@
                             },
                             "style": {
                                 "textColor": "#3478c8",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1771,7 +2111,7 @@
                             },
                             "style": {
                                 "textColor": "#f0b44d",
-                                "fontSize": "11sp"
+                                "fontSize": "${constant.typography.detail}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1789,7 +2129,7 @@
                             },
                             "style": {
                                 "textColor": "#3478c8",
-                                "fontSize": "24sp",
+                                "fontSize": "${constant.typography.control}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -1808,7 +2148,7 @@
                             },
                             "style": {
                                 "textColor": "#3478c8",
-                                "fontSize": "15sp"
+                                "fontSize": "${constant.typography.body}"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1869,7 +2209,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "20sp",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1885,7 +2225,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "10sp",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "left"
                             },
                             "placement": {
@@ -1921,13 +2261,29 @@
                             "children": [
                                 {
                                     "type": "label",
+                                    "id": "performance_status",
+                                    "labelProps": {
+                                        "text": "PERFORMANCE MODE | OFF\nSTANDARD SERVICE POLICY ACTIVE"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "48dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
                                     "id": "diagnostics_title",
                                     "labelProps": {
                                         "text": "DIAGNOSTICS"
                                     },
                                     "style": {
                                         "textColor": "#20dfc1",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -1943,7 +2299,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -1959,7 +2315,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2002,7 +2358,7 @@
                                     },
                                     "style": {
                                         "textColor": "#8aa7b6",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2018,7 +2374,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2072,7 +2428,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2107,7 +2463,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2142,7 +2498,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2161,7 +2517,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2215,7 +2571,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2250,7 +2606,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2269,7 +2625,7 @@
                                     },
                                     "style": {
                                         "textColor": "#00e7c5",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2285,7 +2641,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2301,7 +2657,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "11sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2335,7 +2691,7 @@
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "18sp"
+                                                "fontSize": "${constant.typography.heading}"
                                             },
                                             "placement": {
                                                 "mode": "relative",
@@ -2352,7 +2708,7 @@
                                     },
                                     "style": {
                                         "textColor": "#00e7c5",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2368,7 +2724,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2384,7 +2740,7 @@
                                     },
                                     "style": {
                                         "textColor": "#51c7f2",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2418,7 +2774,7 @@
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "18sp"
+                                                "fontSize": "${constant.typography.heading}"
                                             },
                                             "placement": {
                                                 "mode": "relative",
@@ -2435,7 +2791,7 @@
                                       },
                                       "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "9sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                       },
                                       "placement": {
@@ -2451,7 +2807,7 @@
                                     },
                                     "style": {
                                         "textColor": "#20dfc1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2467,7 +2823,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "11sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2483,7 +2839,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f0b44d",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2499,7 +2855,7 @@
                                     },
                                     "style": {
                                         "textColor": "#00e7c5",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2515,7 +2871,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2531,7 +2887,7 @@
                                     },
                                     "style": {
                                         "textColor": "#3de0b0",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2585,7 +2941,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2620,7 +2976,7 @@
                                                     },
                                                     "style": {
                                                         "textColor": "#ffffff",
-                                                        "fontSize": "18sp"
+                                                        "fontSize": "${constant.typography.heading}"
                                                     },
                                                     "placement": {
                                                         "mode": "relative",
@@ -2639,7 +2995,7 @@
                                     },
                                     "style": {
                                         "textColor": "#51c7f2",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2693,7 +3049,7 @@
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "20sp",
+                                                "fontSize": "${constant.typography.heading}",
                                                 "textAlign": "center"
                                             },
                                             "placement": {
@@ -2711,7 +3067,7 @@
                                     },
                                     "style": {
                                         "textColor": "#20dfc1",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2727,7 +3083,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2743,7 +3099,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2774,7 +3130,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2805,7 +3161,7 @@
                                     },
                                     "style": {
                                         "textColor": "#20dfc1",
-                                        "fontSize": "15sp",
+                                        "fontSize": "${constant.typography.body}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2821,7 +3177,7 @@
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2837,7 +3193,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2877,7 +3233,7 @@
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "12sp",
+                                        "fontSize": "${constant.typography.detail}",
                                         "textAlign": "left"
                                     },
                                     "placement": {
@@ -2918,7 +3274,7 @@
                                     },
                                     "style": {
                                         "textColor": "#8aa7b6",
-                                        "fontSize": "10sp",
+                                        "fontSize": "${constant.typography.caption}",
                                         "textAlign": "center"
                                     },
                                     "placement": {
@@ -2972,7 +3328,7 @@
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "12sp",
+                                                "fontSize": "${constant.typography.detail}",
                                                 "textAlign": "center"
                                             },
                                             "placement": {
@@ -3036,7 +3392,7 @@
                             },
                             "style": {
                                 "textColor": "#009c9d",
-                                "fontSize": "34sp",
+                                "fontSize": "${constant.typography.title}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -3052,7 +3408,7 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "13sp",
+                                "fontSize": "${constant.typography.body}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -3068,7 +3424,7 @@
                             },
                             "style": {
                                 "textColor": "#9fb1c1",
-                                "fontSize": "11sp",
+                                "fontSize": "${constant.typography.detail}",
                                 "textAlign": "center"
                             },
                             "placement": {

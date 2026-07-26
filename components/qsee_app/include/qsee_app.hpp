@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <expected>
 #include <memory>
@@ -116,6 +117,10 @@ private:
     std::expected<void, std::string> refresh_hardware(
         esp_brookesia::system::core::AppContext &context
     );
+    std::expected<void, std::string> show_hardware_details(
+        esp_brookesia::system::core::AppContext &context,
+        size_t component_index
+    );
     std::expected<void, std::string> refresh_audio(
         esp_brookesia::system::core::AppContext &context
     );
@@ -177,6 +182,13 @@ private:
         esp_brookesia::system::core::AppContext &context,
         Screen screen
     );
+    std::expected<void, std::string> sync_refresh_timer(
+        esp_brookesia::system::core::AppContext &context,
+        DisplayIdleStage stage
+    );
+    std::expected<void, std::string> note_activity(
+        esp_brookesia::system::core::AppContext &context
+    );
     void handle_chrome_timing_event(
         AdaptiveChromeTiming timing,
         const esp_brookesia::gui::Event &event
@@ -188,13 +200,15 @@ private:
     esp_brookesia::system::core::AppContext *context_ = nullptr;
     esp_brookesia::system::core::TimerId refresh_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
-    esp_brookesia::system::core::TimerId chrome_policy_timer_ =
+    esp_brookesia::system::core::TimerId power_state_sync_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
+    uint32_t refresh_period_ms_ = 0;
     esp_brookesia::system::core::KeyboardRequestId search_keyboard_ =
         esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
     Screen screen_ = Screen::Welcome;
     bool logs_paused_ = false;
     bool logs_follow_latest_ = true;
+    bool performance_mode_enabled_ = false;
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;

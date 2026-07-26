@@ -17,16 +17,24 @@ Capture the current synthetic home screen without touching a device:
 ```powershell
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
+.\simulator\windows\run-simulator.ps1 -IdleState command-hidden -Capture .\simulator\windows\command-hidden.png
+.\simulator\windows\run-simulator.ps1 -IdleState dimmed -Capture .\simulator\windows\dimmed.png
 ```
 
 Controls:
 
 - mouse click: synthetic touch
+- `P`: toggle the synthetic `PWR` standby/awake state
 - `Enter`: confirm
 - `Esc`: back/cancel
 - `C`: open confirmation
-- `R`: reboot the synthetic device
+- `R`: simulate the three-second `BOOT` soft reset
 - `F2`: show or hide the 320 x 320 safe-area guide
+
+The capture-only `-IdleState` option accepts `active`, `command-hidden`,
+`chrome-hidden`, `dimmed`, `off`, and `standby`. It provides deterministic
+visual checks for the power-management stages. A synthetic touch restores the
+active stage except in `standby`, which wakes only through synthetic `PWR`.
 
 The persistent upper status ribbon and lower adaptive command arc reproduce the
 firmware geometry, visual hierarchy, and semantic color roles. The Windows

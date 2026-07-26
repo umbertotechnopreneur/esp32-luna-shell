@@ -1,0 +1,96 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_hardware_card",
+    "node": {
+        "type": "button",
+        "events": [],
+        "commonProps": {
+            "scrollable": false
+        },
+        "bindings": {
+            "style.borderColor": "borderColor"
+        },
+        "style": {
+            "bgColor": "#0d2836",
+            "bgGradientColor": "#07131c",
+            "bgGradientDirection": "vertical",
+            "borderColor": "#2c6077",
+            "borderWidth": "1dp",
+            "radius": "12dp",
+            "padding": "8dp"
+        },
+        "stateStyles": {
+            "pressed": {
+                "bgColor": "#12384a",
+                "bgGradientColor": "#0a1c28",
+                "borderColor": "#80dfff"
+            }
+        },
+        "placement": {
+            "width": "139dp",
+            "height": "72dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "name",
+                "labelProps": {
+                    "text": "HARDWARE"
+                },
+                "style": {
+                    "textColor": "#f3f7fa",
+                    "fontSize": "${constant.typography.detail}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "8dp",
+                    "y": "7dp",
+                    "width": "123dp",
+                    "height": "18dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "part",
+                "labelProps": {
+                    "text": "PART"
+                },
+                "style": {
+                    "textColor": "#80dfff",
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "8dp",
+                    "y": "27dp",
+                    "width": "123dp",
+                    "height": "15dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "status",
+                "bindings": {
+                    "style.textColor": "statusColor"
+                },
+                "labelProps": {
+                    "text": "UNAVAILABLE"
+                },
+                "style": {
+                    "textColor": "#9fb1c1",
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "8dp",
+                    "y": "47dp",
+                    "width": "123dp",
+                    "height": "16dp"
+                }
+            }
+        ]
+    }
+}

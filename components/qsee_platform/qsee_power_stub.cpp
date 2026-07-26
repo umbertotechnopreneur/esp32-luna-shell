@@ -6,8 +6,34 @@
 
 #include "qsee_platform.h"
 
-extern "C" esp_err_t qsee_power_inputs_init(void)
+extern "C" esp_err_t qsee_power_manager_init(void)
 {
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" void qsee_power_manager_note_activity(void)
+{
+}
+
+extern "C" esp_err_t qsee_power_manager_set_timeout(
+    qsee_power_timeout_t timeout,
+    uint32_t seconds
+)
+{
+    (void)timeout;
+    (void)seconds;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" esp_err_t qsee_power_manager_get_timeout(
+    qsee_power_timeout_t timeout,
+    uint32_t *seconds
+)
+{
+    (void)timeout;
+    if (seconds != nullptr) {
+        *seconds = 0;
+    }
     return ESP_ERR_NOT_SUPPORTED;
 }
 

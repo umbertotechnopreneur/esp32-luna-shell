@@ -6,9 +6,16 @@ param(
     [ValidateSet("home", "settings", "audio", "fft", "fft-detail", "imu")]
     [string]$Screen = "home",
 
+    [ValidateSet("active", "command-hidden", "chrome-hidden", "dimmed", "off", "standby")]
+    [string]$IdleState = "active",
+
     [string]$Capture,
 
-    [switch]$NoSound
+    [switch]$NoSound,
+
+    [switch]$PerformanceMode,
+
+    [switch]$DebugMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -17,12 +24,26 @@ $Simulator = Join-Path $PSScriptRoot "qsee_simulator.py"
 
 Push-Location $ProjectRoot
 try {
-    $Arguments = @($Simulator, "--scenario", $Scenario, "--screen", $Screen)
+    $Arguments = @(
+        $Simulator,
+        "--scenario",
+        $Scenario,
+        "--screen",
+        $Screen,
+        "--idle-state",
+        $IdleState
+    )
     if ($Capture) {
         $Arguments += @("--capture", $Capture)
     }
     if ($NoSound) {
         $Arguments += "--no-sound"
+    }
+    if ($PerformanceMode) {
+        $Arguments += "--performance-mode"
+    }
+    if ($DebugMode) {
+        $Arguments += "--debug-mode"
     }
     python @Arguments
 }

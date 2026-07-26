@@ -46,6 +46,8 @@ esp_err_t qsee_hardware_refresh(const char *reason);
  */
 esp_err_t qsee_hardware_start_full_snapshot_monitor(void);
 esp_err_t qsee_hardware_stop_full_snapshot_monitor(void);
+/** Suppress periodic Full Snapshots without changing the requested lifecycle. */
+esp_err_t qsee_hardware_set_full_snapshot_performance_suspended(bool suspended);
 /** Persist one supported Full Snapshot cadence: 300-10000 ms presets only. */
 esp_err_t qsee_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
 
@@ -95,8 +97,30 @@ esp_err_t qsee_time_sync_from_gps(
     uint8_t second
 );
 
-/** Initialize BOOT/PWR observation, PMU events, wake-cause and TCA9554 health. */
-esp_err_t qsee_power_inputs_init(void);
+typedef enum {
+    QSEE_POWER_TIMEOUT_COMMAND_ARC = 0,
+    QSEE_POWER_TIMEOUT_STATUS_ARC = 1,
+    QSEE_POWER_TIMEOUT_DISPLAY_DIM = 2,
+    QSEE_POWER_TIMEOUT_DISPLAY_OFF = 3,
+} qsee_power_timeout_t;
+
+/** Start the single BOOT/PWR, inactivity, display, audio, and IMU service. */
+esp_err_t qsee_power_manager_init(void);
+
+/** Record activity without blocking the touch or UI callback. */
+void qsee_power_manager_note_activity(void);
+
+/** Persist and apply one supported inactivity timeout. */
+esp_err_t qsee_power_manager_set_timeout(
+    qsee_power_timeout_t timeout,
+    uint32_t seconds
+);
+
+/** Read one active inactivity timeout from the power service. */
+esp_err_t qsee_power_manager_get_timeout(
+    qsee_power_timeout_t timeout,
+    uint32_t *seconds
+);
 
 /** Enter explicit low-power states; callers own the surrounding UI lifecycle. */
 esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us);
@@ -113,6 +137,8 @@ esp_err_t qsee_storage_init(void);
  */
 esp_err_t qsee_storage_request_format(void);
 esp_err_t qsee_storage_set_logger_mirror(bool enabled);
+/** Pause effective SD log writes while preserving the user's saved preference. */
+esp_err_t qsee_storage_set_performance_suspended(bool suspended);
 
 /** Persist and apply AMOLED brightness (10-100 percent). */
 esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
@@ -137,16 +163,22 @@ typedef enum {
 /** Apply a transient display power mode without changing persisted brightness. */
 esp_err_t qsee_display_set_power_mode(qsee_display_power_mode_t mode);
 
+/** Fade to a transient display power mode without changing saved brightness. */
+esp_err_t qsee_display_fade_to_power_mode(
+    qsee_display_power_mode_t mode,
+    uint32_t duration_ms
+);
+
 /**
  * Report the result of an actual speaker playback attempt.
  */
 void qsee_hardware_report_speaker(bool ready, esp_err_t error);
 
-/**
- * Initialize the shared ES8311 speaker, ES7210 microphone and I2S transport.
- * The codec handles remain open so playback and capture use one canonical route.
- */
+/** Initialize the selected speaker and microphone codec paths. */
 esp_err_t qsee_audio_init(void);
+
+/** Return the number of physically selected microphone channels: 0, 1, or 2. */
+uint8_t qsee_audio_input_channel_count(void);
 
 /** Play mono signed PCM16 through the board speaker. */
 esp_err_t qsee_audio_play_pcm16(
@@ -156,7 +188,7 @@ esp_err_t qsee_audio_play_pcm16(
     int volume_percent
 );
 
-/** Capture mono signed PCM16 from the board microphone array. */
+/** Capture mono signed PCM16 when the selected board exposes one microphone. */
 esp_err_t qsee_audio_capture_pcm16(
     int16_t *samples,
     size_t sample_count,
@@ -172,6 +204,47 @@ esp_err_t qsee_audio_capture_pcm16_channels(
     uint32_t sample_rate_hz,
     float gain_db
 );
+
+/**
+ * Capture selected microphone channels as interleaved PCM16 at the dedicated
+ * 16 kHz voice rate. This path is owned by the voice AFE worker.
+ */
+esp_err_t qsee_audio_capture_voice_pcm16(
+    int16_t *samples,
+    size_t frame_count,
+    uint8_t channel_count
+);
+
+/** Reconfigure the shared speaker/microphone route for the 16 kHz voice AFE. */
+esp_err_t qsee_audio_prepare_voice_route(void);
+
+/** Close or restore the shared codec streams around global standby. */
+esp_err_t qsee_audio_set_standby(bool standby);
+
+/** Start the optional ESP-SR speech-recognition AFE worker. */
+esp_err_t qsee_voice_afe_init(void);
+
+/** Return whether the dedicated 16 kHz AFE worker owns microphone capture. */
+bool qsee_voice_afe_running(void);
+
+/** Cooperatively pause or resume the AFE capture loop. */
+esp_err_t qsee_voice_afe_set_standby(bool standby);
+/** Add or remove the independent Performance Mode standby reason. */
+esp_err_t qsee_voice_afe_set_performance_suspended(bool suspended);
+
+/**
+ * Queue already-16-kHz speaker PCM as an AEC reference. The worker interleaves
+ * it with microphone channels; callers retain ownership.
+ */
+esp_err_t qsee_voice_afe_push_speaker_pcm16(
+    const int16_t *samples,
+    size_t sample_count,
+    uint32_t sample_rate_hz
+);
+
+/** Apply the runtime UI-performance profile; the selection is session-scoped. */
+esp_err_t qsee_performance_mode_set_enabled(bool enabled);
+bool qsee_performance_mode_get_enabled(void);
 
 /**
  * Start the Wi-Fi station lifecycle and BLE advertising with a

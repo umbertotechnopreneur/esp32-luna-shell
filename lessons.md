@@ -36,3 +36,36 @@
 - Route QSee settings through its fixed internal-stack NVS executor. Keep
   Brookesia's general service workers in PSRAM and use one internal secondary
   scheduler worker for the Storage service.
+
+## Cardinal rotation rendering
+
+- The CO5300/CST9217 cardinal transform keeps LVGL in the same logical
+  466 x 466 coordinate system. Invalidating the active screen after changing
+  the panel scan direction forces an unnecessary full software redraw of every
+  declarative gradient, shadow, border, and glyph.
+- Keep the last successfully flushed RGB565 frame in PSRAM and replay it in
+  bounded QSPI strips after the hardware transform. Fall back to a full LVGL
+  invalidation only before the cache has observed a complete frame.
+- Removable SD is not a render cache: filesystem latency, bus contention, and
+  media wear make it unsuitable for rotation-critical pixels.
+
+## Partial-render scrolling
+
+- A 10-row partial buffer makes slow software rasterization visible as scan
+  bands during scrolling, even when QSPI itself is already configured at
+  40 MHz with a queued double-buffer pipeline.
+- ESP-IDF 6 exposes direct PSRAM DMA for SPI LCD color buffers, but the CO5300
+  QSPI path on this board underflows during the first LVGL flush and leaves a
+  corrupted frame. Use tall PSRAM raster tiles only behind a small internal DMA
+  bounce buffer.
+- Keep the bounce buffer small, internal, and transient for both normal flushes
+  and rotation replay. A persistent 10-row staging buffer fragments enough
+  internal RAM to prevent Brookesia Storage from reading the app JSON.
+
+## Mutually exclusive runtime profiles
+
+- Performance Mode is session-scoped suppression and must not overwrite the
+  user's saved service settings.
+- Maximum Debug Mode deliberately changes persistent diagnostic settings. Apply
+  its preset as one fail-fast transaction and roll back prior values if any
+  individual setting fails.

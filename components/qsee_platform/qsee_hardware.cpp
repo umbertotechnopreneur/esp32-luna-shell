@@ -178,6 +178,8 @@ OrientationState s_orientation;
 qsee::DeviceSnapshot s_snapshot;
 StaticSemaphore_t s_snapshot_mutex_control;
 SemaphoreHandle_t s_snapshot_mutex;
+std::atomic<uint32_t> s_touch_activity_sequence{0};
+std::atomic<int64_t> s_touch_last_activity_at_us{0};
 std::atomic<TaskHandle_t> s_snapshot_stage_owner{nullptr};
 std::atomic<qsee::DeviceSnapshot *> s_snapshot_stage{nullptr};
 bool s_snapshot_stage_dirty;
@@ -3382,10 +3384,9 @@ esp_err_t sample_gps(const char *phase)
     return aggregate;
 }
 
-// Project one captured stereo window onto the original compact DFT bank.
-void build_audio_spectrum(AudioSpectrumBands &spectrum)
+// Project the measured microphone channels onto the compact DFT bank.
+void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
 {
-    constexpr size_t channel_count = 2;
     for (size_t band = 0; band < qsee::kAudioSpectrumBandCount; ++band) {
         const float coefficient = 2.0F * std::cos(
             kAudioSpectrumTwoPi *
@@ -3426,12 +3427,21 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum)
     }
 }
 
-// Capture one stereo window and publish levels plus the validated DFT bank.
+// Capture one selected-microphone window and publish levels plus the validated DFT bank.
 esp_err_t sample_microphone(const char *phase)
 {
-    constexpr size_t channel_count = 2;
-    constexpr size_t frame_count = sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
+    const size_t channel_count = qsee_audio_input_channel_count();
+    if (channel_count == 0) {
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    const size_t frame_count =
+        sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
     const int64_t attempted_at_us = esp_timer_get_time();
+    if (qsee_voice_afe_running()) {
+        // AFE owns the 16 kHz device while active; do not reconfigure it for diagnostics.
+        ESP_LOGD(TAG, "Microphone diagnostics skipped while voice AFE is active");
+        return ESP_OK;
+    }
     if (!s_microphone_ready) {
         const esp_err_t publication_error = update_snapshot(
             [attempted_at_us](qsee::DeviceSnapshot &snapshot) {
@@ -3498,8 +3508,9 @@ esp_err_t sample_microphone(const char *phase)
             }
         }
     }
-    build_audio_spectrum(spectrum);
-    const uint32_t mean = (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
+    build_audio_spectrum(spectrum, channel_count);
+    const uint32_t mean =
+        (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
     const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
     const uint32_t channel_mean0 = absolute_sum[0] / frame_count;
     const uint32_t channel_mean1 = absolute_sum[1] / frame_count;
@@ -3530,12 +3541,16 @@ esp_err_t sample_microphone(const char *phase)
             ++snapshot.audio.spectrum_sequence;
         }
     );
-    ESP_LOGI(TAG, "Microphones ES7210 %s: ch0=%lu/%lu ch1=%lu/%lu",
-             phase,
-             static_cast<unsigned long>(absolute_sum[0] / frame_count),
-             static_cast<unsigned long>(peak[0]),
-             static_cast<unsigned long>(absolute_sum[1] / frame_count),
-             static_cast<unsigned long>(peak[1]));
+    ESP_LOGI(
+        TAG,
+        "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
+        phase,
+        static_cast<unsigned>(channel_count),
+        static_cast<unsigned long>(absolute_sum[0] / frame_count),
+        static_cast<unsigned long>(peak[0]),
+        static_cast<unsigned long>(absolute_sum[1] / frame_count),
+        static_cast<unsigned long>(peak[1])
+    );
     return sample_publication_result(
         "Microphones ES7210",
         phase,
@@ -4220,9 +4235,16 @@ esp_err_t DeviceSnapshotService::initialize()
         });
         record_optional_chip("audio codecs", error);
     } else {
-        s_microphone_ready = true;
-        error = sample_microphone("initial");
-        record_optional_chip("microphones", error);
+        s_microphone_ready = qsee_audio_input_channel_count() > 0;
+        if (s_microphone_ready) {
+            error = sample_microphone("initial");
+            record_optional_chip("microphones", error);
+        } else {
+            update_snapshot([](DeviceSnapshot &snapshot) {
+                set_component(snapshot.audio.microphone, false, ESP_ERR_NOT_SUPPORTED);
+            });
+            ESP_LOGI(TAG, "Microphones: disabled by board hardware selection");
+        }
     }
 
     s_initialized = true;
@@ -4370,6 +4392,10 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
         );
         std::abort();
     }
+    copy.ui.touch_activity_sequence =
+        s_touch_activity_sequence.load(std::memory_order_acquire);
+    copy.ui.touch_last_activity_at_us =
+        s_touch_last_activity_at_us.load(std::memory_order_relaxed);
     return copy;
 }
 
@@ -4868,6 +4894,19 @@ void DeviceSnapshotService::reportTouch(bool ready, esp_err_t error)
     log_snapshot_publication_failure("Touch report", publication_error);
 }
 
+void DeviceSnapshotService::reportTouchActivity()
+{
+    const int64_t activity_at_us = esp_timer_get_time();
+    s_touch_last_activity_at_us.store(
+        activity_at_us,
+        std::memory_order_relaxed
+    );
+    s_touch_activity_sequence.fetch_add(
+        1,
+        std::memory_order_release
+    );
+}
+
 void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -5039,6 +5078,59 @@ void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
         [=](DeviceSnapshot &snapshot) { snapshot.input = inputs; }
     );
     log_snapshot_publication_failure("Input report", publication_error);
+}
+
+void DeviceSnapshotService::reportPowerManagement(
+    DeviceOperatingState state,
+    DeviceStateReason reason,
+    bool audio_suspended,
+    bool command_arc_visible,
+    bool status_arc_visible,
+    UiHardwareSnapshot::DisplayPowerMode display_idle_stage,
+    uint32_t command_arc_timeout_seconds,
+    uint32_t status_arc_timeout_seconds,
+    uint32_t display_dim_timeout_seconds,
+    uint32_t display_off_delay_seconds,
+    uint32_t transition_sequence,
+    int64_t last_activity_at_us,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.power.state = state;
+            snapshot.power.reason = reason;
+            snapshot.power.audio_suspended = audio_suspended;
+            snapshot.power.command_arc_visible = command_arc_visible;
+            snapshot.power.status_arc_visible = status_arc_visible;
+            snapshot.power.display_idle_stage = display_idle_stage;
+            snapshot.power.command_arc_timeout_seconds =
+                command_arc_timeout_seconds;
+            snapshot.power.status_arc_timeout_seconds =
+                status_arc_timeout_seconds;
+            snapshot.power.display_dim_timeout_seconds =
+                display_dim_timeout_seconds;
+            snapshot.power.display_off_delay_seconds =
+                display_off_delay_seconds;
+            snapshot.power.transition_sequence = transition_sequence;
+            snapshot.power.last_activity_at_us = last_activity_at_us;
+            snapshot.power.changed_at_us = attempted_at_us;
+            if (error == ESP_OK) {
+                mark_sample_success(snapshot.power, attempted_at_us);
+            } else {
+                mark_sample_failure(
+                    snapshot.power,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Power-management report",
+        publication_error
+    );
 }
 
 }  // namespace qsee
