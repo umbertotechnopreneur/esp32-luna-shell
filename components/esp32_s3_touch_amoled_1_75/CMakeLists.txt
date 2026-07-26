@@ -1,6 +1,86 @@
 set(REQ esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_sdmmc fatfs)
 set(PRIV_REQ esp_driver_ledc heap)
 
+# The board's PSRAM render path splits one LVGL flush into several synchronous
+# internal-DMA transfers. Patch the pinned adapter so only the logical flush,
+# rather than every transfer strip, releases LVGL's draw buffer.
+set(_adapter_patch
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_synchronous_custom_draw.patch"
+)
+idf_build_get_property(_build_components BUILD_COMPONENTS)
+if(
+    NOT CMAKE_BUILD_EARLY_EXPANSION
+    AND "espressif__esp_lvgl_adapter" IN_LIST _build_components
+)
+    idf_component_get_property(
+        _adapter_dir
+        espressif__esp_lvgl_adapter
+        COMPONENT_DIR
+    )
+    find_package(Git REQUIRED)
+    execute_process(
+        COMMAND ${GIT_EXECUTABLE} rev-parse --show-toplevel
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE _repo_root_result
+        OUTPUT_VARIABLE _repo_root
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(NOT _repo_root_result EQUAL 0)
+        message(FATAL_ERROR "Resolving the repository root failed")
+    endif()
+    file(
+        RELATIVE_PATH
+        _adapter_dir_relative
+        "${_repo_root}"
+        "${_adapter_dir}"
+    )
+    execute_process(
+        COMMAND
+            ${GIT_EXECUTABLE} apply --reverse --check
+            --ignore-space-change
+            "--directory=${_adapter_dir_relative}"
+            -p1 "${_adapter_patch}"
+        WORKING_DIRECTORY "${_repo_root}"
+        RESULT_VARIABLE _adapter_patch_present
+        OUTPUT_QUIET
+        ERROR_QUIET
+    )
+    if(NOT _adapter_patch_present EQUAL 0)
+        execute_process(
+            COMMAND
+                ${GIT_EXECUTABLE} apply --check
+                --ignore-space-change
+                "--directory=${_adapter_dir_relative}"
+                -p1 "${_adapter_patch}"
+            WORKING_DIRECTORY "${_repo_root}"
+            RESULT_VARIABLE _adapter_patch_check
+            OUTPUT_QUIET
+            ERROR_QUIET
+        )
+        if(NOT _adapter_patch_check EQUAL 0)
+            message(FATAL_ERROR
+                "The pinned esp_lvgl_adapter no longer accepts the required "
+                "synchronous custom-draw patch"
+            )
+        endif()
+        execute_process(
+            COMMAND
+                ${GIT_EXECUTABLE} apply
+                --ignore-space-change
+                "--directory=${_adapter_dir_relative}"
+                -p1 "${_adapter_patch}"
+            WORKING_DIRECTORY "${_repo_root}"
+            RESULT_VARIABLE _adapter_patch_result
+        )
+        if(NOT _adapter_patch_result EQUAL 0)
+            message(FATAL_ERROR
+                "Applying the required esp_lvgl_adapter custom-draw patch failed"
+            )
+        endif()
+    endif()
+endif()
+
 idf_component_register(
     SRCS "esp32_s3_touch_amoled_1_75.c" ${SRC_VER}
     INCLUDE_DIRS "include" "include/bsp"

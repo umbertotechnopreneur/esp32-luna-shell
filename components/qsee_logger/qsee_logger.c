@@ -11,6 +11,7 @@
 
 #include <errno.h>
 #include <stdarg.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -58,6 +59,7 @@ static qsee_logger_sd_status_t s_sd_status;
 static uint32_t s_sd_generation;
 static portMUX_TYPE s_sd_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_initialized;
+static atomic_bool s_capture_suspended;
 
 static int serial_printf(const char *format, ...)
 {
@@ -176,6 +178,10 @@ static int qsee_log_vprintf(const char *format, va_list args)
         ? s_serial_vprintf(format, serial_args)
         : vprintf(format, serial_args);
     va_end(serial_args);
+
+    if (atomic_load_explicit(&s_capture_suspended, memory_order_relaxed)) {
+        return serial_result;
+    }
 
     qsee_log_line_t *line = acquire_format_slot();
     if (line == NULL) {
@@ -501,6 +507,7 @@ esp_err_t qsee_logger_init(void)
     s_sd_generation = 1;
     portEXIT_CRITICAL(&s_sd_lock);
     s_initialized = true;
+    atomic_store_explicit(&s_capture_suspended, false, memory_order_relaxed);
     ESP_LOGI(TAG, "Canonical logger online: serial + RAM ring");
     return ESP_OK;
 }
@@ -576,6 +583,29 @@ esp_err_t qsee_logger_disable_sd(void)
         return ESP_ERR_INVALID_STATE;
     }
     return stop_sd_writer();
+}
+
+esp_err_t qsee_logger_set_capture_suspended(bool suspended)
+{
+    if (!s_initialized) {
+        serial_printf(
+            "E (0) %s: Cannot change RAM capture before logger init\n",
+            TAG
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    atomic_store_explicit(
+        &s_capture_suspended,
+        suspended,
+        memory_order_relaxed
+    );
+    ESP_LOGI(
+        TAG,
+        "RAM log capture: %s; serial output remains active",
+        suspended ? "suspended" : "active"
+    );
+    return ESP_OK;
 }
 
 esp_err_t qsee_logger_clear(void)

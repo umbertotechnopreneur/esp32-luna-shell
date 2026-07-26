@@ -14,6 +14,11 @@ extern "C" bool qsee_voice_afe_running(void)
     return false;
 }
 
+extern "C" bool qsee_voice_afe_capture_active(void)
+{
+    return false;
+}
+
 extern "C" esp_err_t qsee_voice_afe_set_standby(bool standby)
 {
     (void)standby;
@@ -21,6 +26,12 @@ extern "C" esp_err_t qsee_voice_afe_set_standby(bool standby)
 }
 
 extern "C" esp_err_t qsee_voice_afe_set_performance_suspended(bool suspended)
+{
+    (void)suspended;
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_voice_afe_set_diagnostic_suspended(bool suspended)
 {
     (void)suspended;
     return ESP_OK;

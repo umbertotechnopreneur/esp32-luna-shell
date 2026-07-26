@@ -12,23 +12,25 @@
         },
         "style": {
             "bgColor": "#0d2836",
+            "bgOpacity": 0,
             "bgGradientColor": "#07131c",
             "bgGradientDirection": "vertical",
             "borderColor": "#2c6077",
-            "borderWidth": "1dp",
-            "radius": "12dp",
+            "borderWidth": "0dp",
+            "radius": "0dp",
             "padding": "8dp"
         },
         "stateStyles": {
             "pressed": {
                 "bgColor": "#12384a",
+                "bgOpacity": 72,
                 "bgGradientColor": "#0a1c28",
                 "borderColor": "#80dfff"
             }
         },
         "placement": {
-            "width": "139dp",
-            "height": "72dp"
+            "width": "282dp",
+            "height": "56dp"
         },
         "children": [
             {
@@ -45,9 +47,9 @@
                 "placement": {
                     "mode": "absolute",
                     "x": "8dp",
-                    "y": "7dp",
-                    "width": "123dp",
-                    "height": "18dp"
+                    "y": "16dp",
+                    "width": "94dp",
+                    "height": "22dp"
                 }
             },
             {
@@ -63,10 +65,10 @@
                 },
                 "placement": {
                     "mode": "absolute",
-                    "x": "8dp",
-                    "y": "27dp",
-                    "width": "123dp",
-                    "height": "15dp"
+                    "x": "104dp",
+                    "y": "18dp",
+                    "width": "74dp",
+                    "height": "18dp"
                 }
             },
             {
@@ -85,10 +87,10 @@
                 },
                 "placement": {
                     "mode": "absolute",
-                    "x": "8dp",
-                    "y": "47dp",
-                    "width": "123dp",
-                    "height": "16dp"
+                    "x": "180dp",
+                    "y": "18dp",
+                    "width": "94dp",
+                    "height": "18dp"
                 }
             }
         ]

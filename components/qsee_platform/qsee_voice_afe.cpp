@@ -62,6 +62,7 @@ std::atomic_bool s_start_cancelled{false};
 std::atomic_bool s_standby_requested{false};
 bool s_power_standby_requested;
 bool s_performance_suspended;
+bool s_diagnostic_suspended;
 std::mutex s_standby_mutex;
 std::atomic_bool s_feed_paused{false};
 std::atomic_bool s_initialization_attempted{false};
@@ -245,12 +246,14 @@ esp_err_t apply_afe_standby_locked(bool standby)
         return ESP_OK;
     }
 
+    // Claim capture before restoring the 16 kHz route so diagnostics cannot
+    // reopen the codec at 22.05 kHz between route setup and the first AFE read.
+    s_standby_requested.store(false, std::memory_order_release);
     const esp_err_t audio_error = qsee_audio_set_standby(false);
     if (audio_error != ESP_OK) {
         s_standby_requested.store(true, std::memory_order_release);
         return audio_error;
     }
-    s_standby_requested.store(false, std::memory_order_release);
     const TickType_t started_at = xTaskGetTickCount();
     while (s_feed_paused.load(std::memory_order_acquire)) {
         if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
@@ -404,7 +407,9 @@ extern "C" esp_err_t qsee_voice_afe_init(void)
     {
         std::lock_guard<std::mutex> lock(s_standby_mutex);
         const bool standby =
-            s_power_standby_requested || s_performance_suspended;
+            s_power_standby_requested ||
+            s_performance_suspended ||
+            s_diagnostic_suspended;
         const esp_err_t standby_error = standby
             ? apply_afe_standby_locked(true)
             : ESP_OK;
@@ -436,18 +441,28 @@ extern "C" bool qsee_voice_afe_running(void)
     return s_running.load(std::memory_order_acquire);
 }
 
+extern "C" bool qsee_voice_afe_capture_active(void)
+{
+    return s_running.load(std::memory_order_acquire) &&
+           !s_standby_requested.load(std::memory_order_acquire);
+}
+
 extern "C" esp_err_t qsee_voice_afe_set_standby(bool standby)
 {
     std::lock_guard<std::mutex> lock(s_standby_mutex);
     const bool previous = s_power_standby_requested;
     s_power_standby_requested = standby;
     const esp_err_t error = apply_afe_standby_locked(
-        s_power_standby_requested || s_performance_suspended
+        s_power_standby_requested ||
+        s_performance_suspended ||
+        s_diagnostic_suspended
     );
     if (error != ESP_OK) {
         s_power_standby_requested = previous;
         const esp_err_t rollback_error = apply_afe_standby_locked(
-            s_power_standby_requested || s_performance_suspended
+            s_power_standby_requested ||
+            s_performance_suspended ||
+            s_diagnostic_suspended
         );
         if (rollback_error != ESP_OK) {
             ESP_LOGE(
@@ -466,12 +481,16 @@ extern "C" esp_err_t qsee_voice_afe_set_performance_suspended(bool suspended)
     const bool previous = s_performance_suspended;
     s_performance_suspended = suspended;
     const esp_err_t error = apply_afe_standby_locked(
-        s_power_standby_requested || s_performance_suspended
+        s_power_standby_requested ||
+        s_performance_suspended ||
+        s_diagnostic_suspended
     );
     if (error != ESP_OK) {
         s_performance_suspended = previous;
         const esp_err_t rollback_error = apply_afe_standby_locked(
-            s_power_standby_requested || s_performance_suspended
+            s_power_standby_requested ||
+            s_performance_suspended ||
+            s_diagnostic_suspended
         );
         if (rollback_error != ESP_OK) {
             ESP_LOGE(
@@ -486,6 +505,44 @@ extern "C" esp_err_t qsee_voice_afe_set_performance_suspended(bool suspended)
         kTag,
         "AFE Performance Mode suppression: %s",
         suspended ? "active" : "inactive"
+    );
+    return ESP_OK;
+}
+
+extern "C" esp_err_t qsee_voice_afe_set_diagnostic_suspended(bool suspended)
+{
+    std::lock_guard<std::mutex> lock(s_standby_mutex);
+    if (s_diagnostic_suspended == suspended) {
+        return ESP_OK;
+    }
+
+    const bool previous = s_diagnostic_suspended;
+    s_diagnostic_suspended = suspended;
+    const esp_err_t error = apply_afe_standby_locked(
+        s_power_standby_requested ||
+        s_performance_suspended ||
+        s_diagnostic_suspended
+    );
+    if (error != ESP_OK) {
+        s_diagnostic_suspended = previous;
+        const esp_err_t rollback_error = apply_afe_standby_locked(
+            s_power_standby_requested ||
+            s_performance_suspended ||
+            s_diagnostic_suspended
+        );
+        if (rollback_error != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "AFE diagnostic-capture rollback failed (%s)",
+                esp_err_to_name(rollback_error)
+            );
+        }
+        return error;
+    }
+    ESP_LOGI(
+        kTag,
+        "AFE diagnostic microphone handoff %s",
+        suspended ? "active" : "released"
     );
     return ESP_OK;
 }

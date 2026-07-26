@@ -8,13 +8,7 @@
             "scrollable": false
         },
         "style": {
-            "bgColor": "#0b2733",
-            "bgGradientColor": "#010205",
-            "bgGradientDirection": "radial",
-            "bgGradientCenterX": "233dp",
-            "bgGradientCenterY": "158dp",
-            "bgGradientEndX": "619dp",
-            "bgGradientEndY": "158dp"
+            "bgColor": "#010205"
         },
         "placement": {
             "mode": "absolute",

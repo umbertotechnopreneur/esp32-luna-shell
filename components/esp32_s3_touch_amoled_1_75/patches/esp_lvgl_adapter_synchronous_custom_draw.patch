@@ -1,0 +1,93 @@
+diff --git a/include/esp_lv_adapter_display.h b/include/esp_lv_adapter_display.h
+index 6d89420..ebc9512 100644
+--- a/include/esp_lv_adapter_display.h
++++ b/include/esp_lv_adapter_display.h
+@@ -355,10 +355,14 @@ esp_err_t esp_lv_adapter_set_area_rounder_cb(lv_display_t *disp,
+  * by the adapter during normal LVGL flush (TEAR_AVOID_MODE_NONE only) and during dummy-draw blit.
+  * All surrounding flush-ready / ISR / task-notify logic remains unchanged.
+  *
+- * On success (ESP_OK) the callback must ensure the completion signal is triggered (e.g. by calling
+- * @c esp_lcd_panel_draw_bitmap internally so its done-ISR fires). On failure the adapter
+- * calls @c lv_display_flush_ready / task-notify itself as a fallback, so the flush handshake
+- * always completes.
++ * By default, on success (ESP_OK) the callback must ensure the completion signal is triggered
++ * (e.g. by calling @c esp_lcd_panel_draw_bitmap internally so its done-ISR fires). A callback
++ * which splits one logical LVGL flush into multiple synchronous panel transfers must set
++ * @c waits_until_complete. The adapter then ignores intermediate color-transfer completion
++ * events and completes the logical LVGL flush once, after the callback returns.
++ *
++ * On failure the adapter calls @c lv_display_flush_ready / task-notify itself as a fallback,
++ * so the flush handshake always completes.
+  *
+  * Not supported for TE-sync flush (TEAR_AVOID_MODE_TE_SYNC): the TE path always calls
+  * @c esp_lcd_panel_draw_bitmap directly and will not invoke this callback.
+@@ -389,6 +393,15 @@ typedef struct {
+                                     esp_lcd_panel_handle_t panel,
+                                     int x_start, int y_start, int x_end, int y_end,
+                                     const void *color_map, void *user_ctx);
++
++    /**
++     * @brief The custom callback returns only after every panel transfer is complete.
++     *
++     * Keep this false for the normal asynchronous callback contract. Set it true only when
++     * the callback waits for all transfers before returning. This lets one logical LVGL flush
++     * use multiple panel transfers without releasing the LVGL draw buffer on the first ISR.
++     */
++    bool waits_until_complete;
+ } esp_lv_adapter_draw_bitmap_callbacks_t;
+ 
+ /**
+diff --git a/src/display/bridge/v9/lvgl_bridge_v9.c b/src/display/bridge/v9/lvgl_bridge_v9.c
+index d455a6a..1e06872 100644
+--- a/src/display/bridge/v9/lvgl_bridge_v9.c
++++ b/src/display/bridge/v9/lvgl_bridge_v9.c
+@@ -119,6 +119,7 @@ typedef struct esp_lv_adapter_display_bridge_v9 {
+     TaskHandle_t dummy_draw_wait_task;
+     uint32_t dummy_draw_wait_mask;
+     bool dummy_draw;
++    volatile bool synchronous_custom_draw_in_progress;
+     int block_size_small;
+     int block_size_large;
+     size_t cache_line_size;
+@@ -1597,6 +1598,9 @@ static bool IRAM_ATTR display_bridge_v9_handle_color_trans_done(esp_lv_adapter_d
+     if ((impl->cfg.base.profile.interface == ESP_LV_ADAPTER_PANEL_IF_OTHER) && impl->cfg.te_ctx) {
+         esp_lv_adapter_te_sync_record_tx_done(impl->cfg.te_ctx);
+     }
++    if (impl->synchronous_custom_draw_in_progress) {
++        return (need_yield == pdTRUE);
++    }
+ 
+     bool vsync = false;
+     if ((impl->cfg.base.profile.interface == ESP_LV_ADAPTER_PANEL_IF_OTHER) ||
+@@ -1743,6 +1747,9 @@ static bool IRAM_ATTR display_bridge_v9_on_io_color_trans_done(esp_lcd_panel_io_
+         }
+         return (need_yield == pdTRUE);
+     }
++    if (impl->synchronous_custom_draw_in_progress) {
++        return (need_yield == pdTRUE);
++    }
+     bool vsync = display_bridge_v9_handle_vsync(impl);
+     return vsync || (need_yield == pdTRUE);
+ }
+@@ -1955,9 +1962,13 @@ static void display_bridge_v9_flush_default(esp_lv_adapter_display_bridge_v9_t *
+     }
+ 
+     if (impl->cfg.draw_bitmap_cbs.custom_draw_bitmap) {
++        const bool waits_until_complete =
++            impl->cfg.draw_bitmap_cbs.waits_until_complete;
++        impl->synchronous_custom_draw_in_progress = waits_until_complete;
+         esp_err_t ret = impl->cfg.draw_bitmap_cbs.custom_draw_bitmap(disp, panel_handle,
+                                                                      offsetx1, offsety1, offsetx2 + 1, offsety2 + 1,
+                                                                      color_map, impl->cfg.draw_bitmap_user_ctx);
++        impl->synchronous_custom_draw_in_progress = false;
+         if (ret != ESP_OK) {
+             if (ret == ESP_ERR_NOT_ALLOWED) {
+                 ESP_LOGD(TAG, "Custom draw bitmap not allowed, skipping");
+@@ -1966,5 +1977,7 @@ static void display_bridge_v9_flush_default(esp_lv_adapter_display_bridge_v9_t *
+             }
+             display_manager_flush_ready(disp);
++        } else if (waits_until_complete) {
++            display_manager_flush_ready(disp);
+         }
+     } else {
+         esp_err_t ret = esp_lcd_panel_draw_bitmap(panel_handle, offsetx1, offsety1, offsetx2 + 1, offsety2 + 1, color_map);

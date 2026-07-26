@@ -14,11 +14,11 @@
                         "24sp",
                         "32sp"
                     ],
-                    "micro": "8sp",
-                    "caption": "10sp",
-                    "detail": "12sp",
-                    "body": "16sp",
-                    "heading": "20sp",
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
                     "control": "24sp",
                     "title": "32sp"
                 }
@@ -411,7 +411,7 @@
                             },
                             "placement": {
                                 "width": "282dp",
-                                "height": "22dp"
+                                "height": "26dp"
                             }
                         },
                         {
@@ -568,19 +568,24 @@
                             "layout": {
                                 "type": "grid",
                                 "gridTemplateColumns": [
-                                    "139dp",
-                                    "139dp"
+                                    "282dp"
                                 ],
                                 "gridTemplateRows": [
                                     "24dp",
-                                    "72dp",
-                                    "72dp",
-                                    "72dp",
-                                    "72dp",
-                                    "72dp",
-                                    "72dp"
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp"
                                 ],
-                                "gap": "6dp"
+                                "gap": "2dp"
                             },
                             "placement": {
                                 "width": "300dp",
@@ -600,7 +605,7 @@
                                     "placement": {
                                         "gridColumn": 0,
                                         "gridRow": 0,
-                                        "gridColumnSpan": 2
+                                        "gridColumnSpan": 1
                                     }
                                 },
                                 {
@@ -645,8 +650,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 1
+                                                "gridColumn": 0,
+                                                "gridRow": 2
                                             }
                                         },
                                         "name": {
@@ -675,7 +680,7 @@
                                             ],
                                             "placement": {
                                                 "gridColumn": 0,
-                                                "gridRow": 2
+                                                "gridRow": 3
                                             }
                                         },
                                         "name": {
@@ -703,8 +708,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 2
+                                                "gridColumn": 0,
+                                                "gridRow": 4
                                             }
                                         },
                                         "name": {
@@ -733,7 +738,7 @@
                                             ],
                                             "placement": {
                                                 "gridColumn": 0,
-                                                "gridRow": 3
+                                                "gridRow": 5
                                             }
                                         },
                                         "name": {
@@ -761,8 +766,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 3
+                                                "gridColumn": 0,
+                                                "gridRow": 6
                                             }
                                         },
                                         "name": {
@@ -791,7 +796,7 @@
                                             ],
                                             "placement": {
                                                 "gridColumn": 0,
-                                                "gridRow": 4
+                                                "gridRow": 7
                                             }
                                         },
                                         "name": {
@@ -819,8 +824,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 4
+                                                "gridColumn": 0,
+                                                "gridRow": 8
                                             }
                                         },
                                         "name": {
@@ -849,7 +854,7 @@
                                             ],
                                             "placement": {
                                                 "gridColumn": 0,
-                                                "gridRow": 5
+                                                "gridRow": 9
                                             }
                                         },
                                         "name": {
@@ -877,8 +882,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 5
+                                                "gridColumn": 0,
+                                                "gridRow": 10
                                             }
                                         },
                                         "name": {
@@ -907,7 +912,7 @@
                                             ],
                                             "placement": {
                                                 "gridColumn": 0,
-                                                "gridRow": 6
+                                                "gridRow": 11
                                             }
                                         },
                                         "name": {
@@ -935,8 +940,8 @@
                                                 }
                                             ],
                                             "placement": {
-                                                "gridColumn": 1,
-                                                "gridRow": 6
+                                                "gridColumn": 0,
+                                                "gridRow": 12
                                             }
                                         },
                                         "name": {
@@ -996,11 +1001,12 @@
                             },
                             "style": {
                                 "bgColor": "#0d2836",
+                                "bgOpacity": 0,
                                 "bgGradientColor": "#07131c",
                                 "bgGradientDirection": "vertical",
                                 "borderColor": "#2c6077",
-                                "borderWidth": "1dp",
-                                "radius": "14dp",
+                                "borderWidth": "0dp",
+                                "radius": "0dp",
                                 "padding": 0
                             },
                             "placement": {
@@ -1176,7 +1182,7 @@
                             "type": "label",
                             "id": "audio_values",
                             "labelProps": {
-                                "text": "FORMAT     SIGNED PCM / 16-bit\nRATE       -- kHz\nCHANNELS   --\nPEAK CH0   -- %FS | -- dBFS\nPEAK CH1   -- %FS | -- dBFS"
+                                "text": "PCM16 | -- kHz | -- CHANNELS\nCH0 -- %FS | -- dBFS\nCH1 -- %FS | -- dBFS"
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
@@ -1188,7 +1194,7 @@
                                 "x": "22dp",
                                 "y": "212dp",
                                 "width": "280dp",
-                                "height": "76dp"
+                                "height": "54dp"
                             }
                         },
                         {
@@ -1253,11 +1259,12 @@
                             },
                             "style": {
                                 "bgColor": "#0d2836",
+                                "bgOpacity": 0,
                                 "bgGradientColor": "#07131c",
                                 "bgGradientDirection": "vertical",
                                 "borderColor": "#2c6077",
-                                "borderWidth": "1dp",
-                                "radius": "14dp",
+                                "borderWidth": "0dp",
+                                "radius": "0dp",
                                 "padding": 0
                             },
                             "placement": {
@@ -1433,11 +1440,12 @@
                             },
                             "style": {
                                 "bgColor": "#0d2836",
+                                "bgOpacity": 0,
                                 "bgGradientColor": "#07131c",
                                 "bgGradientDirection": "vertical",
                                 "borderColor": "#2c6077",
-                                "borderWidth": "1dp",
-                                "radius": "14dp",
+                                "borderWidth": "0dp",
+                                "radius": "0dp",
                                 "padding": 0
                             },
                             "placement": {
@@ -2052,7 +2060,7 @@
                             "type": "label",
                             "id": "gyro_icon",
                             "labelProps": {
-                                "text": "\uf2f1"
+                                "text": "\uf021"
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
@@ -2125,7 +2133,7 @@
                             "type": "label",
                             "id": "temperature_icon",
                             "labelProps": {
-                                "text": "\uf2c9"
+                                "text": "\uf043"
                             },
                             "style": {
                                 "textColor": "#3478c8",
@@ -2202,38 +2210,6 @@
                     },
                     "children": [
                         {
-                            "type": "label",
-                            "id": "title",
-                            "labelProps": {
-                                "text": "SETTINGS"
-                            },
-                            "style": {
-                                "textColor": "#f3f7fa",
-                                "fontSize": "${constant.typography.heading}",
-                                "textAlign": "left"
-                            },
-                            "placement": {
-                                "width": "282dp",
-                                "height": "26dp"
-                            }
-                        },
-                        {
-                            "type": "label",
-                            "id": "subtitle",
-                            "labelProps": {
-                                "text": "All controls - swipe to scroll"
-                            },
-                            "style": {
-                                "textColor": "#9fb1c1",
-                                "fontSize": "${constant.typography.caption}",
-                                "textAlign": "left"
-                            },
-                            "placement": {
-                                "width": "282dp",
-                                "height": "16dp"
-                            }
-                        },
-                        {
                             "type": "container",
                             "id": "settings_scroller",
                             "commonProps": {
@@ -2256,9 +2232,41 @@
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "142dp"
+                                "height": "196dp"
                             },
                             "children": [
+                                {
+                                    "type": "label",
+                                    "id": "title",
+                                    "labelProps": {
+                                        "text": "SETTINGS"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "subtitle",
+                                    "labelProps": {
+                                        "text": "All controls - swipe to scroll"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
                                 {
                                     "type": "label",
                                     "id": "performance_status",
@@ -2295,7 +2303,7 @@
                                     "type": "label",
                                     "id": "diagnostics_description",
                                     "labelProps": {
-                                        "text": "Full snapshots and live diagnostic sampling"
+                                        "text": "Live snapshots and diagnostics"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -3045,7 +3053,7 @@
                                                 "scrollable": false
                                             },
                                             "labelProps": {
-                                                "text": "\uf204"
+                                                "text": "\uf079"
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",

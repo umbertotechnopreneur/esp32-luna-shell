@@ -902,7 +902,7 @@ class QSeeSimulator:
             anchor="w",
             text=title,
             fill=TEXT,
-            font=(FONT_DISPLAY, 18),
+            font=(FONT_DISPLAY, 21),
             tags="ui",
         )
         self.canvas.create_text(
@@ -911,7 +911,7 @@ class QSeeSimulator:
             anchor="w",
             text=subtitle,
             fill=MUTED_BRIGHT,
-            font=(FONT_BODY, 10),
+            font=(FONT_BODY, 12),
             tags="ui",
         )
         self.canvas.create_line(
@@ -933,6 +933,41 @@ class QSeeSimulator:
             width=1,
             tags="ui",
         )
+
+    def _draw_performance_disabled(
+        self,
+        service: str,
+        show_next_command: bool = False,
+    ) -> None:
+        self.canvas.create_text(
+            233,
+            190,
+            text="PERFORMANCE MODE",
+            fill=STATUS_WARNING,
+            font=(FONT_DISPLAY, 14),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            226,
+            text=f"{service} DISABLED",
+            fill=TEXT,
+            font=(FONT_TECH, 11, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            254,
+            text="CONNECTIVITY REMAINS AVAILABLE",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 8),
+            tags="ui",
+        )
+        if show_next_command:
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "▥", True, diameter)
+        self._draw_edge_back()
+        self._draw_safe_guide()
 
     def _draw_settings_control(self, y: int, value: str) -> None:
         self._draw_panel(
@@ -1135,7 +1170,7 @@ class QSeeSimulator:
             anchor="w",
             text="DEBUG MODE" if self.debug_mode else "PERFORMANCE MODE",
             fill="#51c7f2",
-            font=(FONT_DISPLAY, 12),
+            font=(FONT_DISPLAY, 14),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1143,10 +1178,10 @@ class QSeeSimulator:
             196,
             anchor="w",
             text=(
-                "MAX · SNAP 300 ms · STREAM 100 ms · SD"
+                "MAX · SNAP 300 ms · STREAM 100 ms"
                 if self.debug_mode
                 else (
-                    "ON · SD/SNAPSHOT PAUSED · VOICE IF ACTIVE"
+                    "ON · SD/SNAPSHOT/VOICE PAUSED"
                     if self.performance_mode
                     else "OFF · STANDARD SERVICE POLICY"
                 )
@@ -1156,7 +1191,7 @@ class QSeeSimulator:
                 if self.debug_mode
                 else STATUS_READY if self.performance_mode else MUTED_BRIGHT
             ),
-            font=(FONT_TECH, 8, "bold"),
+            font=(FONT_TECH, 9, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1165,16 +1200,16 @@ class QSeeSimulator:
             anchor="w",
             text="DIAGNOSTICS",
             fill=STATUS_READY,
-            font=(FONT_DISPLAY, 12),
+            font=(FONT_DISPLAY, 14),
             tags="ui",
         )
         self.canvas.create_text(
             94,
             246,
             anchor="w",
-            text="Full snapshots and live diagnostics",
+            text="Live snapshots and diagnostics",
             fill=MUTED_BRIGHT,
-            font=(FONT_BODY, 9),
+            font=(FONT_BODY, 11),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1183,7 +1218,7 @@ class QSeeSimulator:
             anchor="w",
             text="Full Snapshot cadence",
             fill=TEXT,
-            font=(FONT_DISPLAY, 10),
+            font=(FONT_DISPLAY, 12),
             tags="ui",
         )
         self._draw_settings_control(288, "300 ms" if self.debug_mode else "1 Hz")
@@ -1201,7 +1236,7 @@ class QSeeSimulator:
                 )
             ),
             fill="#51c7f2",
-            font=(FONT_TECH, 7, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         commands = (
@@ -1269,26 +1304,20 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "AUDIO SCOPE",
-            "Synthetic dual-channel · 22.05 kHz",
+            "Microphones · diagnostics"
+            if self.performance_mode
+            else "Synthetic PCM16 · 22.05 kHz",
         )
-        self._draw_panel(
-            92,
-            164,
-            282,
-            166,
-            top="#0c2633",
-            bottom="#06131c",
-            border="#24536a",
-            glow_alpha=36,
-            radius=15,
-        )
+        if self.performance_mode:
+            self._draw_performance_disabled("AUDIO CAPTURE", True)
+            return
         self.canvas.create_text(
             102,
             180,
             text="MIC 1",
             anchor="w",
             fill="#61d8ff",
-            font=(FONT_DISPLAY, 9),
+            font=(FONT_DISPLAY, 12),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1297,7 +1326,7 @@ class QSeeSimulator:
             text="-12.4 dBFS",
             anchor="e",
             fill=TEXT,
-            font=(FONT_TECH, 8, "bold"),
+            font=(FONT_TECH, 10, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1306,7 +1335,7 @@ class QSeeSimulator:
             text="MIC 2",
             anchor="w",
             fill="#ff9d5c",
-            font=(FONT_DISPLAY, 9),
+            font=(FONT_DISPLAY, 12),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1315,7 +1344,7 @@ class QSeeSimulator:
             text="-18.1 dBFS",
             anchor="e",
             fill=TEXT,
-            font=(FONT_TECH, 8, "bold"),
+            font=(FONT_TECH, 10, "bold"),
             tags="ui",
         )
         self.canvas.create_line(
@@ -1335,7 +1364,7 @@ class QSeeSimulator:
             347,
             text="PCM16 · 2 CHANNELS     CPU UNAVAILABLE",
             fill=STATUS_WARNING,
-            font=(FONT_TECH, 8, "bold"),
+            font=(FONT_TECH, 9, "bold"),
             tags="ui",
         )
         x, y, diameter = command_geometry(1, 0)
@@ -1354,26 +1383,20 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "AUDIO FFT",
-            "Mean of Mic 1 + Mic 2 · 16 bands",
+            "Spectrum diagnostics"
+            if self.performance_mode
+            else "Mean of Mic 1 + Mic 2 · 16 bands",
         )
-        self._draw_panel(
-            92,
-            164,
-            282,
-            174,
-            top="#0c2633",
-            bottom="#06131c",
-            border="#24536a",
-            glow_alpha=36,
-            radius=15,
-        )
+        if self.performance_mode:
+            self._draw_performance_disabled("FFT SAMPLING", True)
+            return
         self.canvas.create_text(
             104,
             179,
             anchor="w",
             text="DOMINANT",
             fill=MUTED,
-            font=(FONT_DISPLAY, 7),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1382,7 +1405,7 @@ class QSeeSimulator:
             anchor="w",
             text="1.72 kHz",
             fill=STATUS_READY,
-            font=(FONT_TECH, 9, "bold"),
+            font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1391,7 +1414,7 @@ class QSeeSimulator:
             anchor="e",
             text="PEAK",
             fill=MUTED,
-            font=(FONT_DISPLAY, 7),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1400,7 +1423,7 @@ class QSeeSimulator:
             anchor="e",
             text="-8.4 dBFS",
             fill="#f0b44d",
-            font=(FONT_TECH, 9, "bold"),
+            font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
         for y, label in ((218, "0"), (263, "-30"), (308, "-60")):
@@ -1419,7 +1442,7 @@ class QSeeSimulator:
                 anchor="e",
                 text=label,
                 fill="#55778a",
-                font=(FONT_TECH, 6),
+                font=(FONT_TECH, 8),
                 tags="ui",
             )
         heights = (
@@ -1453,7 +1476,7 @@ class QSeeSimulator:
             anchor="w",
             text="125 Hz",
             fill=MUTED,
-            font=(FONT_TECH, 7),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1461,7 +1484,7 @@ class QSeeSimulator:
             325,
             text="1 kHz",
             fill=MUTED,
-            font=(FONT_TECH, 7),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1470,7 +1493,7 @@ class QSeeSimulator:
             anchor="e",
             text="8 kHz",
             fill=MUTED,
-            font=(FONT_TECH, 7),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1478,7 +1501,7 @@ class QSeeSimulator:
             352,
             text="SELECTED-BIN SPECTRUM · CANONICAL SNAPSHOT",
             fill=MUTED_BRIGHT,
-            font=(FONT_TECH, 7),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         x, y, diameter = command_geometry(1, 0)
@@ -1493,26 +1516,20 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "AUDIO DETAIL",
-            "Mic 1 + Mic 2 · 16 DFT bands",
+            "Two-channel spectrum"
+            if self.performance_mode
+            else "Mic 1 + Mic 2 · 16 DFT bands",
         )
-        self._draw_panel(
-            92,
-            164,
-            282,
-            188,
-            top="#0c2633",
-            bottom="#06131c",
-            border="#24536a",
-            glow_alpha=36,
-            radius=15,
-        )
+        if self.performance_mode:
+            self._draw_performance_disabled("AUDIO DETAIL")
+            return
         self.canvas.create_text(
             104,
             179,
             anchor="w",
             text="MIC 1  ·  BLUE → MAGENTA",
             fill="#78cfff",
-            font=(FONT_DISPLAY, 8),
+            font=(FONT_DISPLAY, 10),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1521,7 +1538,7 @@ class QSeeSimulator:
             anchor="w",
             text="MIC 2  ·  ORANGE → GREEN",
             fill="#ffca70",
-            font=(FONT_DISPLAY, 8),
+            font=(FONT_DISPLAY, 10),
             tags="ui",
         )
         mic1_colors = (
@@ -1567,7 +1584,7 @@ class QSeeSimulator:
             370,
             text="LIVE DETAIL · TWO MICS",
             fill=MUTED_BRIGHT,
-            font=(FONT_TECH, 7),
+            font=(FONT_TECH, 9),
             tags="ui",
         )
         self._draw_edge_back()
@@ -1580,26 +1597,20 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "IMU LEVEL",
-            "QMI8658 · synthetic attitude",
+            "QMI8658 diagnostics"
+            if self.performance_mode
+            else "QMI8658 · synthetic attitude",
         )
-        self._draw_panel(
-            112,
-            164,
-            242,
-            176,
-            top="#0c2633",
-            bottom="#06131c",
-            border="#24536a",
-            glow_alpha=34,
-            radius=18,
-        )
+        if self.performance_mode:
+            self._draw_performance_disabled("IMU SAMPLING")
+            return
         self.canvas.create_text(
             126,
             180,
             anchor="w",
             text="ROLL",
             fill=MUTED,
-            font=(FONT_DISPLAY, 7),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1608,7 +1619,7 @@ class QSeeSimulator:
             anchor="w",
             text="+0.1°",
             fill="#61d8ff",
-            font=(FONT_TECH, 9, "bold"),
+            font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1617,7 +1628,7 @@ class QSeeSimulator:
             anchor="e",
             text="PITCH",
             fill=MUTED,
-            font=(FONT_DISPLAY, 7),
+            font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1626,7 +1637,7 @@ class QSeeSimulator:
             anchor="e",
             text="-0.3°",
             fill="#ff9d5c",
-            font=(FONT_TECH, 9, "bold"),
+            font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
         center_x = 233
@@ -1696,21 +1707,21 @@ class QSeeSimulator:
             tags="ui",
         )
         self.canvas.create_text(
-            96,
+            72,
             356,
             text="ACC   X +0.02   Y -0.04   Z +9.79 m/s²",
             anchor="w",
             fill="#61d8ff",
-            font=(FONT_TECH, 8),
+            font=(FONT_TECH, 9),
             tags="ui",
         )
         self.canvas.create_text(
-            96,
+            72,
             374,
             text="GYRO  X +0.10   Y -0.03   Z +0.02 dps",
             anchor="w",
             fill="#ff9d5c",
-            font=(FONT_TECH, 8),
+            font=(FONT_TECH, 9),
             tags="ui",
         )
         self.canvas.create_text(
@@ -1718,7 +1729,7 @@ class QSeeSimulator:
             394,
             text="CALIBRATED  |  COMPASS UNAVAILABLE",
             fill=MUTED_BRIGHT,
-            font=(FONT_TECH, 7, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         self._draw_edge_back()

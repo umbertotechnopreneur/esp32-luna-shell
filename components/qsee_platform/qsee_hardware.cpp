@@ -3437,10 +3437,29 @@ esp_err_t sample_microphone(const char *phase)
     const size_t frame_count =
         sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
     const int64_t attempted_at_us = esp_timer_get_time();
-    if (qsee_voice_afe_running()) {
-        // AFE owns the 16 kHz device while active; do not reconfigure it for diagnostics.
-        ESP_LOGD(TAG, "Microphone diagnostics skipped while voice AFE is active");
-        return ESP_OK;
+    if (qsee_voice_afe_capture_active()) {
+        // AFE owns the 16 kHz device while active; publish the real ownership
+        // conflict instead of presenting the previous diagnostic sample as new.
+        constexpr esp_err_t ownership_error = ESP_ERR_NOT_ALLOWED;
+        const esp_err_t publication_error = update_snapshot(
+            [attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+                mark_sample_failure(
+                    snapshot.audio.microphone,
+                    ESP_ERR_NOT_ALLOWED,
+                    attempted_at_us
+                );
+            }
+        );
+        ESP_LOGD(
+            TAG,
+            "Microphone diagnostics rejected while voice AFE owns capture"
+        );
+        return sample_publication_result(
+            "Microphones ES7210",
+            phase,
+            ownership_error,
+            publication_error
+        );
     }
     if (!s_microphone_ready) {
         const esp_err_t publication_error = update_snapshot(
@@ -3643,10 +3662,18 @@ void diagnostic_monitor_task(void *arg)
                         &aggregate
                     );
                     if (diagnostic_due) {
-                        record_first_error(
-                            sample_microphone("diagnostic-ui"),
-                            &aggregate
-                        );
+                        if (qsee_voice_afe_capture_active()) {
+                            ESP_LOGD(
+                                TAG,
+                                "Diagnostic monitor omitted microphone sample "
+                                "while voice AFE owns capture"
+                            );
+                        } else {
+                            record_first_error(
+                                sample_microphone("diagnostic-ui"),
+                                &aggregate
+                            );
+                        }
                         record_first_error(
                             publish_update_result(
                                 "diagnostic-ui",

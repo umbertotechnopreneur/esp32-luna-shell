@@ -61,6 +61,13 @@
 - Keep the bounce buffer small, internal, and transient for both normal flushes
   and rotation replay. A persistent 10-row staging buffer fragments enough
   internal RAM to prevent Brookesia Storage from reading the app JSON.
+- One LVGL flush may be split into several internal-DMA panel transfers, but it
+  still has exactly one logical completion. Intermediate color-transfer ISRs
+  must not release LVGL's draw buffer; signal flush-ready only after the
+  synchronous bounce callback has drained every strip.
+- Do not leave an expensive full-screen vector gradient below an opaque
+  rasterized background. LVGL can repaint both layers for every dirty scroll
+  area even though the lower layer is never visible.
 
 ## Mutually exclusive runtime profiles
 

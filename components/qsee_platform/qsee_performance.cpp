@@ -4,6 +4,7 @@
 #include <mutex>
 
 #include "esp_log.h"
+#include "qsee_logger.h"
 
 namespace {
 
@@ -58,10 +59,34 @@ extern "C" esp_err_t qsee_performance_mode_set_enabled(bool enabled)
             );
             return error;
         }
+        error = qsee_logger_set_capture_suspended(true);
+        if (error != ESP_OK) {
+            log_rollback_failure(
+                "Full Snapshot",
+                qsee_hardware_set_full_snapshot_performance_suspended(false)
+            );
+            log_rollback_failure(
+                "voice AFE",
+                qsee_voice_afe_set_performance_suspended(false)
+            );
+            log_rollback_failure(
+                "SD logger",
+                qsee_storage_set_performance_suspended(false)
+            );
+            return error;
+        }
     } else {
-        esp_err_t error =
+        esp_err_t error = qsee_logger_set_capture_suspended(false);
+        if (error != ESP_OK) {
+            return error;
+        }
+        error =
             qsee_hardware_set_full_snapshot_performance_suspended(false);
         if (error != ESP_OK) {
+            log_rollback_failure(
+                "RAM logger",
+                qsee_logger_set_capture_suspended(true)
+            );
             return error;
         }
         error = qsee_voice_afe_set_performance_suspended(false);
@@ -69,6 +94,10 @@ extern "C" esp_err_t qsee_performance_mode_set_enabled(bool enabled)
             log_rollback_failure(
                 "Full Snapshot",
                 qsee_hardware_set_full_snapshot_performance_suspended(true)
+            );
+            log_rollback_failure(
+                "RAM logger",
+                qsee_logger_set_capture_suspended(true)
             );
             return error;
         }
@@ -82,11 +111,19 @@ extern "C" esp_err_t qsee_performance_mode_set_enabled(bool enabled)
                 "Full Snapshot",
                 qsee_hardware_set_full_snapshot_performance_suspended(true)
             );
+            log_rollback_failure(
+                "RAM logger",
+                qsee_logger_set_capture_suspended(true)
+            );
             return error;
         }
     }
 
     s_enabled.store(enabled, std::memory_order_release);
+    esp_log_level_set(
+        "*",
+        enabled ? ESP_LOG_WARN : ESP_LOG_INFO
+    );
     ESP_LOGI(
         kTag,
         "Performance Mode: %s; connectivity and sensor services unchanged",

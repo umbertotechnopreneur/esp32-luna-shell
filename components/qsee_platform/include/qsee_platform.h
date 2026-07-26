@@ -227,10 +227,15 @@ esp_err_t qsee_voice_afe_init(void);
 /** Return whether the dedicated 16 kHz AFE worker owns microphone capture. */
 bool qsee_voice_afe_running(void);
 
+/** Return whether the AFE is actively consuming microphone samples. */
+bool qsee_voice_afe_capture_active(void);
+
 /** Cooperatively pause or resume the AFE capture loop. */
 esp_err_t qsee_voice_afe_set_standby(bool standby);
 /** Add or remove the independent Performance Mode standby reason. */
 esp_err_t qsee_voice_afe_set_performance_suspended(bool suspended);
+/** Yield microphone ownership while the on-device audio diagnostics are open. */
+esp_err_t qsee_voice_afe_set_diagnostic_suspended(bool suspended);
 
 /**
  * Queue already-16-kHz speaker PCM as an AEC reference. The worker interleaves

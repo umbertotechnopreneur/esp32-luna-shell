@@ -39,6 +39,14 @@ esp_err_t qsee_logger_enable_sd(const char *mount_point);
  */
 esp_err_t qsee_logger_disable_sd(void);
 
+/**
+ * Suspend or resume RAM-ring capture while keeping authoritative serial output.
+ *
+ * Performance Mode uses this to avoid the second formatting pass and ring
+ * synchronization on every log line. SD mirroring is controlled separately.
+ */
+esp_err_t qsee_logger_set_capture_suspended(bool suspended);
+
 typedef struct {
     bool enabled;
     esp_err_t last_error;

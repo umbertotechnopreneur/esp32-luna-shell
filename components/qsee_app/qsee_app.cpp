@@ -51,8 +51,10 @@ constexpr char kChromeFlow[] = "qsee_chrome_flow";
 constexpr char kRefreshTimer[] = "qsee.refresh";
 constexpr char kPowerStateSyncTimer[] = "qsee.power.state_sync";
 constexpr uint32_t kActiveRefreshPeriodMs = 1000;
+constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
 constexpr uint32_t kDimmedRefreshPeriodMs = 5000;
 constexpr uint32_t kPerformanceRefreshPeriodMs = 5000;
+constexpr int64_t kTouchRefreshQuietPeriodUs = 750000;
 constexpr uint32_t kDebugFullSnapshotPeriodMs = 300;
 constexpr uint32_t kDebugDiagnosticPeriodMs = 100;
 constexpr uint32_t kDebugImuSmoothingPercent = 0;
@@ -249,10 +251,11 @@ esp_err_t apply_maximum_debug_profile(
         goto rollback;
     }
 
+    esp_log_level_set("*", ESP_LOG_VERBOSE);
     ESP_LOGI(
         kTag,
         "Maximum Debug Mode active: Full Snapshot=%lu ms "
-        "diagnostics=%lu ms IMU smoothing=%lu%% SD mirror=ON",
+        "diagnostics=%lu ms IMU smoothing=%lu%% SD mirror=ON logs=VERBOSE",
         static_cast<unsigned long>(kDebugFullSnapshotPeriodMs),
         static_cast<unsigned long>(kDebugDiagnosticPeriodMs),
         static_cast<unsigned long>(kDebugImuSmoothingPercent)
@@ -378,7 +381,7 @@ void format_audio_peak(
         std::snprintf(
             text,
             text_size,
-            "PEAK CH%u  %.2f %%FS | -inf dBFS",
+            "CH%u  %.2f %%FS | -inf dBFS",
             channel,
             percent_full_scale
         );
@@ -387,7 +390,7 @@ void format_audio_peak(
     std::snprintf(
         text,
         text_size,
-        "PEAK CH%u  %.2f %%FS | %.1f dBFS",
+        "CH%u  %.2f %%FS | %.1f dBFS",
         channel,
         percent_full_scale,
         audio_peak_dbfs(peak)
@@ -904,6 +907,21 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
             pause_error = error;
         }
     }
+    if (audio_diagnostic_capture_active_) {
+        const esp_err_t audio_result =
+            qsee_voice_afe_set_diagnostic_suspended(false);
+        if (audio_result == ESP_OK) {
+            audio_diagnostic_capture_active_ = false;
+        } else {
+            const std::string error =
+                "Failed to restore voice audio after pausing diagnostics: " +
+                std::string(esp_err_to_name(audio_result));
+            ESP_LOGE(kTag, "%s", error.c_str());
+            if (pause_error.empty()) {
+                pause_error = error;
+            }
+        }
+    }
     const esp_err_t full_snapshot_result =
         qsee_hardware_stop_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
@@ -923,6 +941,30 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
 
 std::expected<void, std::string> App::on_resume(AppContext &context)
 {
+    const auto rollback_diagnostics = [this]() {
+        const esp_err_t monitor_result =
+            qsee_hardware_set_diagnostic_monitor(false);
+        if (monitor_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Diagnostic monitor resume rollback failed: %s",
+                esp_err_to_name(monitor_result)
+            );
+        }
+        if (audio_diagnostic_capture_active_) {
+            const esp_err_t audio_result =
+                qsee_voice_afe_set_diagnostic_suspended(false);
+            if (audio_result == ESP_OK) {
+                audio_diagnostic_capture_active_ = false;
+            } else {
+                ESP_LOGE(
+                    kTag,
+                    "Audio diagnostic resume rollback failed: %s",
+                    esp_err_to_name(audio_result)
+                );
+            }
+        }
+    };
     const esp_err_t full_snapshot_result =
         qsee_hardware_start_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
@@ -932,17 +974,17 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
         );
     }
     if (auto result = apply_diagnostic_monitor(context, screen_); !result) {
-        (void)qsee_hardware_set_diagnostic_monitor(false);
+        rollback_diagnostics();
         (void)qsee_hardware_stop_full_snapshot_monitor();
         return result;
     }
     if (auto result = configure_chrome(context); !result) {
-        (void)qsee_hardware_set_diagnostic_monitor(false);
+        rollback_diagnostics();
         (void)qsee_hardware_stop_full_snapshot_monitor();
         return result;
     }
     if (auto result = adaptive_chrome_.resume(context.gui()); !result) {
-        (void)qsee_hardware_set_diagnostic_monitor(false);
+        rollback_diagnostics();
         (void)qsee_hardware_stop_full_snapshot_monitor();
         return result;
     }
@@ -950,13 +992,13 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
             sync_refresh_timer(context, DisplayIdleStage::Active);
         !result) {
         (void)adaptive_chrome_.shutdown(context.gui());
-        (void)qsee_hardware_set_diagnostic_monitor(false);
+        rollback_diagnostics();
         (void)qsee_hardware_stop_full_snapshot_monitor();
         return result;
     }
     if (auto result = refresh(context); !result) {
         (void)adaptive_chrome_.shutdown(context.gui());
-        (void)qsee_hardware_set_diagnostic_monitor(false);
+        rollback_diagnostics();
         (void)qsee_hardware_stop_full_snapshot_monitor();
         return result;
     }
@@ -981,6 +1023,21 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         ESP_LOGE(kTag, "%s", error.c_str());
         if (stop_error.empty()) {
             stop_error = error;
+        }
+    }
+    if (audio_diagnostic_capture_active_) {
+        const esp_err_t audio_result =
+            qsee_voice_afe_set_diagnostic_suspended(false);
+        if (audio_result == ESP_OK) {
+            audio_diagnostic_capture_active_ = false;
+        } else {
+            const std::string error =
+                "Failed to restore voice audio while stopping QSee: " +
+                std::string(esp_err_to_name(audio_result));
+            ESP_LOGE(kTag, "%s", error.c_str());
+            if (stop_error.empty()) {
+                stop_error = error;
+            }
         }
     }
     const esp_err_t full_snapshot_result =
@@ -1075,23 +1132,68 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
     Screen screen
 )
 {
-    const bool enabled =
+    const bool audio_screen =
         screen == Screen::Audio ||
         screen == Screen::AudioFft ||
-        screen == Screen::AudioDetail ||
-        screen == Screen::Imu;
+        screen == Screen::AudioDetail;
+    const bool diagnostics_allowed = !performance_mode_enabled_;
+    const bool audio_enabled = diagnostics_allowed && audio_screen;
+    const bool enabled =
+        diagnostics_allowed &&
+        (audio_screen || screen == Screen::Imu);
+    const bool handoff_changed =
+        audio_enabled != audio_diagnostic_capture_active_;
+    if (handoff_changed) {
+        const esp_err_t audio_result =
+            qsee_voice_afe_set_diagnostic_suspended(audio_enabled);
+        if (audio_result != ESP_OK) {
+            std::array<char, 128> details{};
+            std::snprintf(
+                details.data(),
+                details.size(),
+                "Microphone ownership could not move to %s: %s",
+                audio_enabled ? "audio diagnostics" : "the voice AFE",
+                esp_err_to_name(audio_result)
+            );
+            if (auto dialog_result = show_error_dialog(
+                    context,
+                    "Audio capture unavailable",
+                    details.data()
+                ); !dialog_result) {
+                ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
+                return std::unexpected(
+                    std::string(details.data()) +
+                    "; error dialog failed: " + dialog_result.error()
+                );
+            }
+            return std::unexpected(details.data());
+        }
+    }
     if (enabled) {
         const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
         diagnostic_activation_sample_at_us_ =
-            screen == Screen::Audio ||
-                screen == Screen::AudioFft ||
-                screen == Screen::AudioDetail
+            audio_enabled
                 ? snapshot.audio.microphone.last_success_at_us
                 : snapshot.imu.last_success_at_us;
     }
     const esp_err_t result = qsee_hardware_set_diagnostic_monitor(enabled);
     if (result == ESP_OK) {
+        audio_diagnostic_capture_active_ = audio_enabled;
         return {};
+    }
+
+    if (handoff_changed) {
+        const esp_err_t rollback_result =
+            qsee_voice_afe_set_diagnostic_suspended(
+                audio_diagnostic_capture_active_
+            );
+        if (rollback_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Audio diagnostic handoff rollback failed: %s",
+                esp_err_to_name(rollback_result)
+            );
+        }
     }
 
     std::array<char, 128> details{};
@@ -1147,24 +1249,24 @@ std::expected<void, std::string> App::configure_chrome(
             true,
         },
         {
-            "\xef\x82\xb0",
+            "\xef\x81\xae",
             "qsee.logs.filter",
             log_filter_mode_ == 0
                 ? ActionRole::Primary
                 : ActionRole::Warning,
             false,
         },
-        {"\xef\x80\x82", "qsee.logs.search", ActionRole::Primary, false},
+        {"\xef\x8c\x84", "qsee.logs.search", ActionRole::Primary, false},
     }};
     static constexpr std::array<CommandSpec, 1> kAudioCommands = {{
-        {"\xef\x82\x80", "qsee.open.audio_fft", ActionRole::Success, true},
+        {"\xef\x83\x89", "qsee.open.audio_fft", ActionRole::Success, true},
     }};
     static constexpr std::array<CommandSpec, 2> kHardwareCommands = {{
         {"\xef\x80\xa1", "qsee.hardware.refresh", ActionRole::Success, true},
         {"\xef\x8b\xad", "qsee.storage.format", ActionRole::Danger, false},
     }};
     static constexpr std::array<CommandSpec, 1> kAudioFftCommands = {{
-        {"\xef\x81\xa6", "qsee.open.audio_detail", ActionRole::Success, true},
+        {"\xef\x81\xae", "qsee.open.audio_detail", ActionRole::Success, true},
     }};
     const DeviceSnapshot settings_snapshot =
         DeviceSnapshotService::instance().snapshot();
@@ -1184,14 +1286,14 @@ std::expected<void, std::string> App::configure_chrome(
             true,
         },
         {
-            "\xef\x86\x88",
+            "\xef\x81\xb1",
             "qsee.settings.debug.maximum",
             maximum_debug_active
                 ? ActionRole::Success
                 : ActionRole::Warning,
             true,
         },
-        {"\xef\x81\x9a", "qsee.open.about", ActionRole::Primary, false},
+        {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, false},
     }};
 
     auto activate_result = [&]() -> std::expected<void, std::string> {
@@ -2063,6 +2165,15 @@ std::expected<void, std::string> App::on_timer(
             DisplayIdleStage::Off) {
             return {};
         }
+        const DeviceSnapshot snapshot =
+            DeviceSnapshotService::instance().snapshot();
+        const int64_t now_us = esp_timer_get_time();
+        if (snapshot.ui.touch_last_activity_at_us > 0 &&
+            now_us >= snapshot.ui.touch_last_activity_at_us &&
+            now_us - snapshot.ui.touch_last_activity_at_us <
+                kTouchRefreshQuietPeriodUs) {
+            return {};
+        }
         return refresh(context);
     }
     return {};
@@ -2073,11 +2184,18 @@ std::expected<void, std::string> App::sync_refresh_timer(
     DisplayIdleStage stage
 )
 {
+    const bool live_diagnostic_screen =
+        screen_ == Screen::Audio ||
+        screen_ == Screen::AudioFft ||
+        screen_ == Screen::AudioDetail ||
+        screen_ == Screen::Imu;
     const uint32_t desired_period_ms =
         stage == DisplayIdleStage::Active
             ? performance_mode_enabled_
                 ? kPerformanceRefreshPeriodMs
-                : kActiveRefreshPeriodMs
+                : live_diagnostic_screen
+                    ? kLiveDiagnosticRefreshPeriodMs
+                    : kActiveRefreshPeriodMs
             : stage == DisplayIdleStage::Dimmed
                 ? kDimmedRefreshPeriodMs
                 : 0U;
@@ -2797,13 +2915,13 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
         std::snprintf(
             summary.data(),
             summary.size(),
-            "SNAPSHOT UNAVAILABLE | TAP A CARD FOR DETAILS"
+            "SNAPSHOT UNAVAILABLE | TAP A ROW"
         );
     } else {
         std::snprintf(
             summary.data(),
             summary.size(),
-            "SNAPSHOT #%lu %s | TAP A CARD FOR DETAILS",
+            "SNAPSHOT #%lu %s | TAP A ROW",
             static_cast<unsigned long>(snapshot.sequence),
             snapshot.last_update_complete &&
                     snapshot.last_update_error == ESP_OK
@@ -3061,11 +3179,22 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
     bool level0_valid = false;
     bool level1_valid = false;
 
-    if (!component_ready(snapshot.audio.microphone)) {
+    if (performance_mode_enabled_) {
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES %s (%s)",
+            "MIC DISABLED | PERFORMANCE MODE"
+        );
+        std::snprintf(
+            values.data(),
+            values.size(),
+            "AUDIO MEASUREMENTS DISABLED\nPERFORMANCE MODE"
+        );
+    } else if (!component_ready(snapshot.audio.microphone)) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "MIC %s | %s",
             component_state(snapshot.audio.microphone),
             component_reason(snapshot.audio.microphone)
         );
@@ -3080,7 +3209,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES UNAVAILABLE (SNAPSHOT NOT READY)"
+            "MIC UNAVAILABLE | SNAPSHOT NOT READY"
         );
         std::snprintf(
             values.data(),
@@ -3091,7 +3220,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES %s (MONITOR %s)",
+            "MIC %s | MONITOR: %s",
             component_state(snapshot.diagnostics.monitor),
             component_reason(snapshot.diagnostics.monitor)
         );
@@ -3106,7 +3235,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES UNAVAILABLE (DIAGNOSTIC MONITOR OFF)"
+            "MIC UNAVAILABLE | MONITOR OFF"
         );
         std::snprintf(
             values.data(),
@@ -3120,7 +3249,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES STALE (WAITING FOR NEW SAMPLE)"
+            "MIC STALE | WAITING FOR NEW SAMPLE"
         );
         std::snprintf(
             values.data(),
@@ -3133,7 +3262,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES ERROR (INVALID PCM METADATA)"
+            "MIC ERROR | INVALID PCM METADATA"
         );
         std::snprintf(
             values.data(),
@@ -3169,7 +3298,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES ERROR (INVALID LEVEL SAMPLE)"
+            "MIC ERROR | INVALID LEVEL SAMPLE"
         );
         std::snprintf(
             values.data(),
@@ -3180,10 +3309,9 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
         std::snprintf(
             status.data(),
             status.size(),
-            "MICROPHONES READY | PCM %u ch @ %lu Hz | t=%lld us",
+            "MIC LIVE | PCM %u ch @ %.2f kHz",
             static_cast<unsigned>(snapshot.audio.channel_count),
-            static_cast<unsigned long>(snapshot.audio.sample_rate_hz),
-            static_cast<long long>(snapshot.audio.microphone.last_success_at_us)
+            static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0
         );
         level0 = audio_peak_meter_value(
             snapshot.audio.channel_peak_level[0]
@@ -3211,9 +3339,7 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
             std::snprintf(
                 values.data(),
                 values.size(),
-                "FORMAT     SIGNED PCM / 16-bit\n"
-                "RATE       %.2f kHz\n"
-                "CHANNELS   %u\n"
+                "PCM16 | %.2f kHz | %u CHANNELS\n"
                 "%s\n"
                 "%s",
                 static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
@@ -3225,11 +3351,9 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
             std::snprintf(
                 values.data(),
                 values.size(),
-                "FORMAT     SIGNED PCM / 16-bit\n"
-                "RATE       %.2f kHz\n"
-                "CHANNELS   1\n"
+                "PCM16 | %.2f kHz | 1 CHANNEL\n"
                 "%s\n"
-                "PEAK CH1   UNAVAILABLE",
+                "CH1 UNAVAILABLE",
                 static_cast<double>(snapshot.audio.sample_rate_hz) / 1000.0,
                 peak0.data()
             );
@@ -3810,7 +3934,14 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
 
     std::array<char, 160> status{};
     bool spectrum_valid = true;
-    if (!snapshot_available(snapshot)) {
+    if (performance_mode_enabled_) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM DISABLED (PERFORMANCE MODE)"
+        );
+        spectrum_valid = false;
+    } else if (!snapshot_available(snapshot)) {
         std::snprintf(
             status.data(),
             status.size(),
@@ -3931,7 +4062,8 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
     }
 
     std::array<char, 160> status{};
-    bool spectrum_valid = snapshot_available(snapshot) &&
+    bool spectrum_valid = !performance_mode_enabled_ &&
+                          snapshot_available(snapshot) &&
                           component_ready(snapshot.audio.microphone) &&
                           component_ready(snapshot.diagnostics.monitor) &&
                           snapshot.diagnostics.monitor_active &&
@@ -3940,7 +4072,10 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
                           snapshot.audio.channel_count == 2U &&
                           snapshot.audio.sample_rate_hz == 22050U &&
                           snapshot.audio.spectrum_sequence != 0U;
-    if (!snapshot_available(snapshot)) {
+    if (performance_mode_enabled_) {
+        std::snprintf(status.data(), status.size(),
+                      "SPECTRUM DISABLED (PERFORMANCE MODE)");
+    } else if (!snapshot_available(snapshot)) {
         std::snprintf(status.data(), status.size(),
                       "SPECTRUM UNAVAILABLE (SNAPSHOT NOT READY)");
     } else if (!component_ready(snapshot.audio.microphone)) {
@@ -4064,7 +4199,13 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
     std::array<char, 160> status{};
     std::array<char, 96> calibration{};
     bool sample_valid = false;
-    if (!snapshot_available(snapshot)) {
+    if (performance_mode_enabled_) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "QMI8658 DISABLED (PERFORMANCE MODE)"
+        );
+    } else if (!snapshot_available(snapshot)) {
         std::snprintf(
             status.data(),
             status.size(),
@@ -4121,7 +4262,13 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
         sample_valid = true;
     }
 
-    if (!snapshot_available(snapshot)) {
+    if (performance_mode_enabled_) {
+        std::snprintf(
+            calibration.data(),
+            calibration.size(),
+            "CALIB DISABLED | PERFORMANCE MODE"
+        );
+    } else if (!snapshot_available(snapshot)) {
         std::snprintf(
             calibration.data(),
             calibration.size(),
@@ -4808,11 +4955,11 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
     if (auto result = set_text(
-            context,
-            "/qsee_settings/surface/settings_scroller/rotation_toggle/label",
-            orientation.auto_rotation_enabled
-                ? "\xef\x88\x85"
-                : "\xef\x88\x84"
+        context,
+        "/qsee_settings/surface/settings_scroller/rotation_toggle/label",
+        orientation.auto_rotation_enabled
+                ? "\xef\x81\xb9"
+                : "\xef\x80\x8d"
         ); !result) {
         return result;
     }
