@@ -84,3 +84,16 @@
 - Maximum Debug Mode deliberately changes persistent diagnostic settings. Apply
   its preset as one fail-fast transaction and roll back prior values if any
   individual setting fails.
+
+## Snapshot-owned adaptive chrome wake
+
+- Touch and motion publish activity intent only. They must not optimistically
+  change Status Arc, Command Arc, or display-idle state in the UI because the
+  preceding snapshot can briefly reverse that local change and make both arcs
+  flash.
+- Route changes preserve the Command Arc visibility target from the latest
+  canonical snapshot. Reconfiguring commands must not reset opacity or hit
+  testing to visible.
+- An active power policy must agree with the display mode and applied brightness
+  published by the display owner. Treat a mismatch as an incomplete wake and
+  restore the configured brightness before publishing the active state.

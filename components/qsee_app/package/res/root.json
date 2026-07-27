@@ -140,143 +140,68 @@
                             }
                         },
                         {
-                            "type": "container",
+                            "type": "templateRef",
                             "id": "ram",
-                            "commonProps": {
-                                "scrollable": false
-                            },
-                            "style": {
-                                "padding": "2dp"
-                            },
-                            "layout": {
-                                "type": "flex",
-                                "flexFlow": "column",
-                                "gap": "2dp"
-                            },
-                            "placement": {
-                                "width": "292dp",
-                                "height": "50dp"
-                            },
-                            "children": [
-                                {
-                                    "type": "label",
-                                    "id": "ram_value",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
                                     "labelProps": {
-                                        "text": "RAM UNAVAILABLE (SNAPSHOT NOT READY)"
-                                    },
-                                    "style": {
-                                        "textColor": "#e7f7ff",
-                                        "fontSize": "${constant.typography.detail}"
-                                    },
-                                    "placement": {
-                                        "width": "288dp",
-                                        "height": "26dp"
+                                        "text": "HEAP"
                                     }
                                 },
-                                {
-                                    "type": "progressBar",
-                                    "id": "ram_bar",
-                                    "commonProps": {
-                                        "hidden": true
-                                    },
-                                    "bindings": {
-                                        "commonProps.hidden": "hidden"
-                                    },
-                                    "rangeProps": {
-                                        "value": 0,
-                                        "min": 0,
-                                        "max": 100
-                                    },
-                                    "style": {
-                                        "bgColor": "#1164ad",
-                                        "radius": "4dp"
-                                    },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                },
+                                "bar": {
                                     "partStyles": {
                                         "indicator": {
-                                            "bgColor": "#009c9d",
+                                            "bgColor": "#20dfc1",
                                             "radius": "4dp"
                                         }
-                                    },
-                                    "placement": {
-                                        "width": "288dp",
-                                        "height": "7dp"
                                     }
                                 }
-                            ]
+                            }
                         },
                         {
-                            "type": "container",
+                            "type": "templateRef",
                             "id": "sd",
-                            "commonProps": {
-                                "scrollable": false
-                            },
-                            "style": {
-                                "padding": "2dp"
-                            },
-                            "layout": {
-                                "type": "flex",
-                                "flexFlow": "column",
-                                "gap": "2dp"
-                            },
-                            "placement": {
-                                "width": "292dp",
-                                "height": "50dp"
-                            },
-                            "children": [
-                                {
-                                    "type": "label",
-                                    "id": "sd_value",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
                                     "labelProps": {
-                                        "text": "SD UNAVAILABLE (SNAPSHOT NOT READY)"
-                                    },
-                                    "style": {
-                                        "textColor": "#e7f7ff",
-                                        "fontSize": "${constant.typography.detail}"
-                                    },
-                                    "placement": {
-                                        "width": "288dp",
-                                        "height": "26dp"
+                                        "text": "SD"
                                     }
                                 },
-                                {
-                                    "type": "progressBar",
-                                    "id": "sd_bar",
-                                    "commonProps": {
-                                        "hidden": true
-                                    },
-                                    "bindings": {
-                                        "commonProps.hidden": "hidden"
-                                    },
-                                    "rangeProps": {
-                                        "value": 0,
-                                        "min": 0,
-                                        "max": 100
-                                    },
-                                    "style": {
-                                        "bgColor": "#1164ad",
-                                        "radius": "4dp"
-                                    },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                },
+                                "bar": {
                                     "partStyles": {
                                         "indicator": {
                                             "bgColor": "#0b55d9",
                                             "radius": "4dp"
                                         }
-                                    },
-                                    "placement": {
-                                        "width": "288dp",
-                                        "height": "7dp"
                                     }
                                 }
-                            ]
+                            }
                         },
                         {
                             "type": "templateRef",
                             "id": "psram",
                             "templateId": "qsee_metric",
                             "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "PSRAM"
+                                    }
+                                },
                                 "value": {
                                     "labelProps": {
-                                        "text": "PSRAM UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "SNAPSHOT NOT READY"
                                     }
                                 }
                             }
@@ -286,9 +211,14 @@
                             "id": "flash",
                             "templateId": "qsee_metric",
                             "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "FLASH APP"
+                                    }
+                                },
                                 "value": {
                                     "labelProps": {
-                                        "text": "FLASH APP UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "SNAPSHOT NOT READY"
                                     }
                                 },
                                 "bar": {

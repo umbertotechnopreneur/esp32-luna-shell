@@ -121,6 +121,7 @@ std::expected<void, std::string> AdaptiveChromeController::begin()
         );
     }
     display_idle_stage_ = DisplayIdleStage::Active;
+    command_target_visible_ = true;
     status_visible_ = true;
     status_target_visible_ = true;
     return {};
@@ -132,7 +133,11 @@ AdaptiveChromeController::configure_commands(
     std::span<const CommandSpec> commands
 )
 {
-    if (auto result = command_bar_.activate(gui, commands); !result) {
+    if (auto result = command_bar_.activate(
+            gui,
+            commands,
+            command_target_visible_
+        ); !result) {
         return result;
     }
     if (active_) {
@@ -157,15 +162,9 @@ AdaptiveChromeController::note_activity(
     if (!active_) {
         return {};
     }
+    (void)gui;
     qsee_power_manager_note_activity();
-    display_idle_stage_ = DisplayIdleStage::Active;
-    if (auto result = set_status_visible(gui, true); !result) {
-        return result;
-    }
-    if (auto result = command_bar_.set_visible(gui, true); !result) {
-        return result;
-    }
-    return update_wake_surface(gui);
+    return {};
 }
 
 std::expected<void, std::string> AdaptiveChromeController::update(
@@ -176,9 +175,10 @@ std::expected<void, std::string> AdaptiveChromeController::update(
     if (!active_) {
         return {};
     }
+    command_target_visible_ = snapshot.power.command_arc_visible;
     if (auto result = command_bar_.set_visible(
             gui,
-            snapshot.power.command_arc_visible
+            command_target_visible_
         ); !result) {
         return result;
     }
@@ -230,6 +230,7 @@ std::expected<void, std::string> AdaptiveChromeController::shutdown(
 
     status_visible_ = true;
     status_target_visible_ = true;
+    command_target_visible_ = true;
     display_idle_stage_ = DisplayIdleStage::Active;
     if (!first_error.empty()) {
         return std::unexpected(std::move(first_error));

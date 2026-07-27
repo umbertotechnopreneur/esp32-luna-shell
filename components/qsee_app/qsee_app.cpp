@@ -2238,20 +2238,7 @@ std::expected<void, std::string> App::sync_refresh_timer(
 
 std::expected<void, std::string> App::note_activity(AppContext &context)
 {
-    const DisplayIdleStage previous_stage =
-        adaptive_chrome_.display_idle_stage();
-    if (auto result = adaptive_chrome_.note_activity(context.gui()); !result) {
-        return result;
-    }
-    if (auto result =
-            sync_refresh_timer(context, DisplayIdleStage::Active);
-        !result) {
-        return result;
-    }
-    if (previous_stage == DisplayIdleStage::Off) {
-        return refresh(context);
-    }
-    return {};
+    return adaptive_chrome_.note_activity(context.gui());
 }
 
 // Refresh the reusable curved chrome from the same canonical device state.
@@ -2310,28 +2297,38 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     std::array<char, 1024> text{};
 
     const bool heap_valid =
-        component_ready(snapshot.memory) && snapshot.memory.heap_free_bytes > 0 &&
+        component_ready(snapshot.memory) &&
+        snapshot.memory.heap_total_bytes > 0 &&
+        snapshot.memory.heap_free_bytes <= snapshot.memory.heap_total_bytes &&
         snapshot.memory.heap_minimum_free_bytes > 0 &&
         snapshot.memory.heap_minimum_free_bytes <= snapshot.memory.heap_free_bytes;
     const bool psram_valid =
         component_ready(snapshot.memory) &&
         snapshot.memory.psram_heap_total_bytes > 0 &&
         snapshot.memory.psram_free_bytes <= snapshot.memory.psram_heap_total_bytes;
+    int heap_percent = 0;
     if (heap_valid) {
+        const uint32_t heap_used_bytes =
+            snapshot.memory.heap_total_bytes - snapshot.memory.heap_free_bytes;
+        heap_percent = static_cast<int>(
+            (static_cast<uint64_t>(heap_used_bytes) * 100U) /
+            snapshot.memory.heap_total_bytes
+        );
         std::snprintf(
             text.data(),
             text.size(),
-            "HEAP %lu KB FREE | MINIMUM %lu KB",
-            static_cast<unsigned long>(snapshot.memory.heap_free_bytes / 1024U),
+            "%lu/%lu KB | %d%%",
+            static_cast<unsigned long>(heap_used_bytes / 1024U),
             static_cast<unsigned long>(
-                snapshot.memory.heap_minimum_free_bytes / 1024U
-            )
+                snapshot.memory.heap_total_bytes / 1024U
+            ),
+            heap_percent
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "RAM %s (%s)",
+            "%s | %s",
             component_ready(snapshot.memory)
                 ? "ERROR"
                 : component_state(snapshot.memory),
@@ -2342,15 +2339,24 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     }
     if (auto result = set_text(
             context,
-            "/qsee_welcome/surface/ram/ram_value",
+            "/qsee_welcome/surface/ram/value",
             text.data()
         ); !result) {
         return result;
     }
+    if (heap_valid) {
+        if (auto result = set_value(
+                context,
+                "/qsee_welcome/surface/ram/bar",
+                heap_percent
+            ); !result) {
+            return result;
+        }
+    }
     if (auto result = set_hidden(
             context,
-            "/qsee_welcome/surface/ram/ram_bar",
-            true
+            "/qsee_welcome/surface/ram/bar",
+            !heap_valid
         ); !result) {
         return result;
     }
@@ -2364,7 +2370,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "PSRAM %lu / %lu KB USED | %d%%",
+            "%lu/%lu KB | %d%%",
             static_cast<unsigned long>(snapshot.memory.psram_used_bytes / 1024U),
             static_cast<unsigned long>(
                 snapshot.memory.psram_heap_total_bytes / 1024U
@@ -2375,7 +2381,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "PSRAM %s (%s)",
+            "%s | %s",
             component_state(snapshot.memory),
             component_reason(snapshot.memory)
         );
@@ -2419,7 +2425,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "FLASH APP %lu / %lu KB USED | %d%%",
+            "%lu/%lu KB | %d%%",
             static_cast<unsigned long>(
                 snapshot.memory.firmware_image_bytes / 1024U
             ),
@@ -2432,7 +2438,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "FLASH APP %s (%s)",
+            "%s | %s",
             component_state(snapshot.memory),
             component_reason(snapshot.memory)
         );
@@ -2467,16 +2473,15 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "SD TERMINAL (CLEANUP %s; %s; poisoned=%s)",
+            "CLEANUP %s | %s",
             storage_cleanup_stage_name(snapshot.storage.cleanup_stage),
-            esp_err_to_name(snapshot.storage.cleanup_error),
-            snapshot.storage.poisoned ? "yes" : "no"
+            esp_err_to_name(snapshot.storage.cleanup_error)
         );
     } else if (storage_format_required(snapshot.storage)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "SD FORMAT REQUIRED (%s)",
+            "FORMAT REQUIRED | %s",
             component_reason(snapshot.storage)
         );
     } else if (storage_mounted_ready(snapshot.storage) &&
@@ -2493,7 +2498,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "SD %llu / %llu MB USED | %d%%%s",
+            "%llu/%llu MB | %d%%%s",
             static_cast<unsigned long long>(
                 used_bytes / (1024ULL * 1024ULL)
             ),
@@ -2507,26 +2512,26 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
                 : ""
         );
     } else if (storage_mounted_ready(snapshot.storage)) {
-        std::snprintf(text.data(), text.size(), "SD ERROR (INVALID CAPACITY SAMPLE)");
+        std::snprintf(text.data(), text.size(), "ERROR | INVALID CAPACITY");
     } else if (!snapshot.storage.card_response_verified) {
         std::snprintf(
             text.data(),
             text.size(),
-            "SD UNAVAILABLE (CARD/TRANSPORT UNCONFIRMED; %s)",
+            "UNCONFIRMED | %s",
             component_reason(snapshot.storage)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "SD %s (%s)",
+            "%s | %s",
             component_state(snapshot.storage),
             component_reason(snapshot.storage)
         );
     }
     if (auto result = set_text(
             context,
-            "/qsee_welcome/surface/sd/sd_value",
+            "/qsee_welcome/surface/sd/value",
             text.data()
         ); !result) {
         return result;
@@ -2534,7 +2539,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     if (storage_percent_valid) {
         if (auto result = set_value(
                 context,
-                "/qsee_welcome/surface/sd/sd_bar",
+                "/qsee_welcome/surface/sd/bar",
                 storage_percent
             ); !result) {
             return result;
@@ -2542,7 +2547,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     }
     if (auto result = set_hidden(
             context,
-            "/qsee_welcome/surface/sd/sd_bar",
+            "/qsee_welcome/surface/sd/bar",
             !storage_percent_valid
         ); !result) {
         return result;

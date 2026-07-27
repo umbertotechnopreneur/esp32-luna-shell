@@ -340,6 +340,7 @@ struct MemorySnapshot : ComponentSnapshot {
     uint32_t flash_capacity_bytes = 0;
     uint32_t app_partition_bytes = 0;
     uint32_t firmware_image_bytes = 0;
+    uint32_t heap_total_bytes = 0;
     uint32_t heap_free_bytes = 0;
     uint32_t heap_minimum_free_bytes = 0;
     uint32_t internal_free_bytes = 0;

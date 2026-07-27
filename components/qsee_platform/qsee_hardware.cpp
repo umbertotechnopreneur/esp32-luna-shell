@@ -3813,8 +3813,9 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
         );
         ESP_LOGI(
             TAG,
-            "Memory: heap=%luB min=%luB internal=%luB largest=%luB pressure=%s PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
+            "Memory: heap free=%luB total=%luB min=%luB internal=%luB largest=%luB pressure=%s PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
             static_cast<unsigned long>(snapshot.memory.heap_free_bytes),
+            static_cast<unsigned long>(snapshot.memory.heap_total_bytes),
             static_cast<unsigned long>(
                 snapshot.memory.heap_minimum_free_bytes
             ),
@@ -3973,8 +3974,16 @@ esp_err_t sample_system_state()
         record_first_error(ESP_ERR_NOT_FOUND, &memory_error);
     }
 
+    memory.heap_total_bytes = static_cast<uint32_t>(
+        heap_caps_get_total_size(MALLOC_CAP_DEFAULT)
+    );
     memory.heap_free_bytes = esp_get_free_heap_size();
     memory.heap_minimum_free_bytes = esp_get_minimum_free_heap_size();
+    if (memory.heap_total_bytes == 0 ||
+        memory.heap_free_bytes > memory.heap_total_bytes ||
+        memory.heap_minimum_free_bytes > memory.heap_free_bytes) {
+        record_first_error(ESP_ERR_INVALID_RESPONSE, &memory_error);
+    }
     memory.internal_free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     memory.internal_largest_block_bytes =
         heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);

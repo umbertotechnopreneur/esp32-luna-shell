@@ -178,7 +178,8 @@ namespace qsee {
 
 std::expected<void, std::string> AdaptiveCommandBar::activate(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
-    std::span<const CommandSpec> commands
+    std::span<const CommandSpec> commands,
+    bool visible
 )
 {
     if (commands.size() > kSlotCount) {
@@ -232,13 +233,23 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
         "hidden",
         commands.empty() ? "true" : "false"
     );
-    add_binding(updates, kCommandRoot, "opacity", "255");
+    add_binding(
+        updates,
+        kCommandRoot,
+        "opacity",
+        visible ? "255" : "0"
+    );
 
     for (size_t index = 0; index < kSlotCount; ++index) {
         const std::string path = slot_path(index);
         const bool present = index < commands.size();
         add_binding(updates, path, "hidden", present ? "false" : "true");
-        add_binding(updates, path, "clickable", present ? "true" : "false");
+        add_binding(
+            updates,
+            path,
+            "clickable",
+            present && visible ? "true" : "false"
+        );
         if (!present) {
             continue;
         }
@@ -294,8 +305,8 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
     }
 
     active_ = !commands.empty();
-    visible_ = true;
-    animation_target_visible_ = true;
+    visible_ = visible;
+    animation_target_visible_ = visible;
     return {};
 }
 

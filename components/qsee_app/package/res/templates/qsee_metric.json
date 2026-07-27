@@ -8,18 +8,32 @@
             "scrollable": false
         },
         "style": {
-            "padding": "2dp"
-        },
-        "layout": {
-            "type": "flex",
-            "flexFlow": "column",
-            "gap": "2dp"
+            "padding": 0
         },
         "placement": {
-            "width": "286dp",
-            "height": "42dp"
+            "width": "292dp",
+            "height": "38dp"
         },
         "children": [
+            {
+                "type": "label",
+                "id": "name",
+                "labelProps": {
+                    "text": "METRIC"
+                },
+                "style": {
+                    "textColor": "#20dfc1",
+                    "fontSize": "${constant.typography.detail}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "2dp",
+                    "y": 0,
+                    "width": "96dp",
+                    "height": "22dp"
+                }
+            },
             {
                 "type": "label",
                 "id": "value",
@@ -28,11 +42,15 @@
                 },
                 "style": {
                     "textColor": "#e7f7ff",
-                    "fontSize": "${constant.typography.detail}"
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "right"
                 },
                 "placement": {
-                    "width": "282dp",
-                    "height": "25dp"
+                    "mode": "absolute",
+                    "x": "100dp",
+                    "y": "2dp",
+                    "width": "190dp",
+                    "height": "18dp"
                 }
             },
             {
@@ -60,8 +78,11 @@
                     }
                 },
                 "placement": {
-                    "width": "282dp",
-                    "height": "7dp"
+                    "mode": "absolute",
+                    "x": "2dp",
+                    "y": "27dp",
+                    "width": "288dp",
+                    "height": "6dp"
                 }
             }
         ]

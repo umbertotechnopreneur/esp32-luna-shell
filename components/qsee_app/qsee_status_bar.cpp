@@ -206,26 +206,7 @@ std::expected<void, std::string> QSeeStatusBar::update(
     }
 
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
-    updates.reserve(22);
-
-    add_binding(
-        updates,
-        std::string(kStatusRoot) + "/curve_glow",
-        "color",
-        palette::kStatusRibbonGlow
-    );
-    add_binding(
-        updates,
-        std::string(kStatusRoot) + "/curve_edge",
-        "color",
-        palette::kStatusRibbonEdge
-    );
-    add_binding(
-        updates,
-        std::string(kStatusRoot) + "/curve_base",
-        "color",
-        palette::kStatusRibbon
-    );
+    updates.reserve(15);
 
     add_indicator(updates, "usb", next_state.usb_color);
     add_indicator(updates, "battery", next_state.battery_color);

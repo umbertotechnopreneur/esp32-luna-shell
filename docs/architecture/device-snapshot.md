@@ -49,7 +49,7 @@ and stops while the display is off; it never initiates hardware sampling.
 | Diagnostics | Full Snapshot cadence/worker state, Diagnostic Stream cadence/state, and IMU smoothing |
 | Power management | active/standby transition, PWR/BOOT/IMU/touch reason, audio suspension, Status Arc and Command Arc visibility, display idle stage, and the four independent inactivity settings |
 | UI/storage/radios | display, touch health, monotonic touch-activity sequence/timestamp, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
-| Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
+| Memory | total/free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |
 
 Each component has `Unknown`, `Ready`, `Degraded`, or `Missing` health and the
@@ -82,7 +82,8 @@ or zero-filled fix fields are published.
 The implementation deliberately uses the SDK instead of estimating system
 state:
 
-- `esp_get_free_heap_size()` and `esp_get_minimum_free_heap_size()`;
+- `heap_caps_get_total_size()`, `esp_get_free_heap_size()`, and
+  `esp_get_minimum_free_heap_size()`;
 - `heap_caps_get_free_size()` and `heap_caps_get_largest_free_block()`;
 - `esp_chip_info()` and `esp_cpu_get_core_id()`;
 - `xTaskGetCurrentTaskHandleForCore()`, `pcTaskGetName()`,

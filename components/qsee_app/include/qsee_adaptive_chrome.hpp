@@ -61,7 +61,7 @@ public:
         std::string_view slot_action
     ) const;
 
-    // Publish activity and optimistically restore both arcs.
+    // Publish activity; the next canonical snapshot owns every visual change.
     std::expected<void, std::string> note_activity(
         const esp_brookesia::system::core::AppGuiRuntime &gui
     );
@@ -117,6 +117,7 @@ private:
     uint32_t status_animation_generation_ = 0;
     DisplayIdleStage display_idle_stage_ = DisplayIdleStage::Active;
     bool active_ = false;
+    bool command_target_visible_ = true;
     bool status_visible_ = true;
     bool status_target_visible_ = true;
 };

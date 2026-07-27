@@ -465,10 +465,11 @@ void writePowerManagement(
 void writeMemory(qsee::HttpJsonWriter &json, const qsee::MemorySnapshot &memory)
 {
     (void)json.format(
-        "{\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu,\"internal_free_bytes\":%lu,\"internal_largest_block_bytes\":%lu,\"internal_memory_pressure\":",
+        "{\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_total_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu,\"internal_free_bytes\":%lu,\"internal_largest_block_bytes\":%lu,\"internal_memory_pressure\":",
         static_cast<unsigned long>(memory.flash_capacity_bytes),
         static_cast<unsigned long>(memory.app_partition_bytes),
         static_cast<unsigned long>(memory.firmware_image_bytes),
+        static_cast<unsigned long>(memory.heap_total_bytes),
         static_cast<unsigned long>(memory.heap_free_bytes),
         static_cast<unsigned long>(memory.heap_minimum_free_bytes),
         static_cast<unsigned long>(memory.internal_free_bytes),

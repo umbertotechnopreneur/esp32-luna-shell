@@ -90,7 +90,7 @@ See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 - SD card capacity, filesystem free space, and logger mirroring;
 - display, touch, event-driven Wi-Fi lifecycle/scan/IP state, and BLE health;
 - physical flash capacity, running firmware image size, and app partition size;
-- free heap, minimum free heap, internal RAM, and PSRAM
+- total/free/minimum heap, internal RAM, and PSRAM
   capacity/total/used/free/largest-block values;
 - ESP32 core count and the current task, priority, and stack watermark sampled
   for each core.

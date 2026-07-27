@@ -60,18 +60,6 @@ COMMAND_ARC_RISE_QUADRATIC = 5
 FONT_DISPLAY = "Montserrat SemiBold"
 FONT_BODY = "Montserrat"
 FONT_TECH = "Consolas"
-STATUS_CURVE_POINTS = (
-    (95, 84),
-    (106, 78),
-    (156, 58),
-    (206, 47),
-    (256, 47),
-    (306, 58),
-    (356, 78),
-    (371, 84),
-)
-
-
 def command_diameter(count: int, index: int) -> int:
     right_center = count // 2
     if count % 2:
@@ -256,7 +244,6 @@ class QSeeSimulator:
         self.timeline_index = 0
         self.boot_image: tk.PhotoImage | None = None
         self.atmosphere_image = self._build_atmosphere()
-        self.status_glow_image = self._build_status_glow()
         self.button_images = {
             (success, diameter): self._build_command_button(success, diameter)
             for success in (False, True)
@@ -447,17 +434,6 @@ class QSeeSimulator:
             anchor="nw",
             tags="ui",
         )
-
-    def _build_status_glow(self) -> ImageTk.PhotoImage:
-        image = Image.new("RGBA", (DISPLAY_SIZE, DISPLAY_SIZE), (0, 0, 0, 0))
-        draw = ImageDraw.Draw(image)
-        draw.line(
-            STATUS_CURVE_POINTS,
-            fill=(*ImageColor.getrgb(STATUS_GLOW), 80),
-            width=10,
-            joint="curve",
-        )
-        return ImageTk.PhotoImage(image.filter(ImageFilter.GaussianBlur(5)))
 
     def _build_command_button(
         self,
@@ -673,24 +649,6 @@ class QSeeSimulator:
     def _draw_status_bar(self) -> None:
         if self.idle_state in {"chrome-hidden", "dimmed", "off", "standby"}:
             return
-        points = tuple(coordinate for point in STATUS_CURVE_POINTS for coordinate in point)
-        self.canvas.create_image(
-            0,
-            0,
-            image=self.status_glow_image,
-            anchor="nw",
-            tags="ui",
-        )
-        self.canvas.create_line(
-            *points,
-            fill=STATUS_EDGE,
-            width=2,
-            smooth=True,
-            splinesteps=24,
-            capstyle=tk.ROUND,
-            joinstyle=tk.ROUND,
-            tags="ui",
-        )
         positions = (
             ("usb", 106, 53, 78),
             ("battery", 156, 33, 58),
@@ -701,13 +659,13 @@ class QSeeSimulator:
         )
         for (kind, x, icon_y, dot_y), color in zip(positions, self._status_colors()):
             self._draw_glow_disc(x, icon_y, 12, color, 105)
-            self._draw_glow_disc(x, dot_y, 4, color, 150)
+            self._draw_glow_disc(x, dot_y, 5, color, 150)
             self._draw_status_icon(kind, x, icon_y, color)
             self.canvas.create_oval(
-                x - 3,
-                dot_y - 3,
-                x + 3,
-                dot_y + 3,
+                x - 4,
+                dot_y - 4,
+                x + 4,
+                dot_y + 4,
                 fill=color,
                 outline="",
                 tags="ui",
@@ -1065,19 +1023,20 @@ class QSeeSimulator:
 
     def _draw_home_telemetry(self) -> None:
         telemetry = (
-            ("PSRAM", "625/4380 KB", 0.14, STATUS_READY),
-            ("FLASH APP", "3508/8192 KB", 0.42, BLUE),
+            ("HEAP", "3894/4711 KB · 82%", 0.82, STATUS_READY),
+            ("PSRAM", "3350/4160 KB · 80%", 0.80, STATUS_READY),
+            ("FLASH APP", "5901/14476 KB · 40%", 0.40, BLUE),
         )
         self.canvas.create_text(
             116,
-            197,
+            193,
             anchor="w",
             text="MEMORY / STORAGE",
             fill="#51c7f2",
             font=(FONT_DISPLAY, 7),
             tags="ui",
         )
-        y = 210
+        y = 212
         for label, value, ratio, color in telemetry:
             self.canvas.create_text(
                 116,
@@ -1089,12 +1048,12 @@ class QSeeSimulator:
                 tags="ui",
             )
             self.canvas.create_text(
-                350,
+                370,
                 y,
                 anchor="e",
                 text=value,
                 fill=TEXT,
-                font=(FONT_TECH, 9, "bold"),
+                font=(FONT_TECH, 6),
                 tags="ui",
             )
             self.canvas.create_line(
@@ -1117,42 +1076,28 @@ class QSeeSimulator:
                 capstyle=tk.ROUND,
                 tags="ui",
             )
-            y += 42
+            y += 31
 
         wifi_color = STATUS_WARNING
         gps_color = STATUS_WARNING if self.scenario.name == "GPS SEARCHING" else STATUS_READY
         self.canvas.create_text(
             116,
-            290,
+            307,
             anchor="w",
-            text="WIFI",
-            fill=wifi_color,
-            font=(FONT_DISPLAY, 9),
-            tags="ui",
-        )
-        self.canvas.create_text(
-            350,
-            290,
-            anchor="e",
-            text="NOT CONFIGURED",
+            text="WIFI  OFF",
             fill=wifi_color,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
-            116,
-            307,
-            anchor="w",
-            text="GPS",
-            fill=gps_color,
-            font=(FONT_DISPLAY, 9),
-            tags="ui",
-        )
-        self.canvas.create_text(
             350,
             307,
             anchor="e",
-            text="SEARCHING" if self.scenario.name == "GPS SEARCHING" else "3D FIX",
+            text=(
+                "GPS  SEARCHING"
+                if self.scenario.name == "GPS SEARCHING"
+                else "GPS  3D FIX"
+            ),
             fill=gps_color,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",

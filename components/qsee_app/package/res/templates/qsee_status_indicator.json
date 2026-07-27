@@ -80,7 +80,7 @@
                 },
                 "style": {
                     "textColor": "#f0b44d",
-                    "fontSize": "${constant.typography.detail}",
+                    "fontSize": "${constant.typography.body}",
                     "textAlign": "center"
                 },
                 "placement": {
@@ -88,7 +88,7 @@
                     "x": 0,
                     "y": "31dp",
                     "width": "40dp",
-                    "height": "16dp"
+                    "height": "20dp"
                 }
             }
         ]

@@ -211,7 +211,32 @@ esp_err_t transition_power_mode_locked(
         }
     }
 
-    publish_brightness(target_brightness, ESP_OK);
+    uint32_t applied_brightness = 0;
+    const esp_err_t verify_error =
+        read_applied_brightness(&applied_brightness);
+    if (verify_error != ESP_OK) {
+        publish_brightness(0, verify_error);
+        return report_failure(verify_error);
+    }
+    const bool target_missed =
+        applied_brightness + 1U < target_brightness ||
+        applied_brightness > target_brightness + 1U;
+    if (target_missed) {
+        publish_brightness(
+            applied_brightness,
+            ESP_ERR_INVALID_RESPONSE
+        );
+        ESP_LOGE(
+            kTag,
+            "Display transition %s missed target: requested=%lu readback=%lu",
+            power_mode_name(mode),
+            static_cast<unsigned long>(target_brightness),
+            static_cast<unsigned long>(applied_brightness)
+        );
+        return report_failure(ESP_ERR_INVALID_RESPONSE);
+    }
+
+    publish_brightness(applied_brightness, ESP_OK);
     qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
         snapshot_power_mode(mode),
         ESP_OK
@@ -221,7 +246,7 @@ esp_err_t transition_power_mode_locked(
         "Display transition %s: configured=%lu applied=%lu duration=%lu ms",
         power_mode_name(mode),
         static_cast<unsigned long>(configured_brightness),
-        static_cast<unsigned long>(target_brightness),
+        static_cast<unsigned long>(applied_brightness),
         static_cast<unsigned long>(duration_ms)
     );
     return ESP_OK;

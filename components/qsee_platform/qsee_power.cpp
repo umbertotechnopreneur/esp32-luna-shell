@@ -268,11 +268,52 @@ bool optional_audio_success(esp_err_t error)
     return error == ESP_OK;
 }
 
-esp_err_t restore_active_policy(qsee::DeviceStateReason reason)
+bool active_display_snapshot_diverged()
+{
+    const qsee::DeviceSnapshot snapshot =
+        qsee::DeviceSnapshotService::instance().snapshot();
+    const auto ready = [](const qsee::ComponentSnapshot &component) {
+        return component.health == qsee::DeviceHealth::Ready &&
+               component.last_error == ESP_OK;
+    };
+    if (ready(snapshot.ui.display_power_mode) &&
+        snapshot.ui.display_power_mode_state !=
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Active) {
+        ESP_LOGW(
+            kTag,
+            "Active display policy disagrees with applied mode; restoring"
+        );
+        return true;
+    }
+    if (!ready(snapshot.ui.brightness)) {
+        return false;
+    }
+
+    const uint32_t applied = snapshot.ui.brightness_percent;
+    const uint32_t configured =
+        snapshot.ui.configured_brightness_percent;
+    const bool brightness_differs =
+        applied + 1U < configured || applied > configured + 1U;
+    if (brightness_differs) {
+        ESP_LOGW(
+            kTag,
+            "Active display brightness diverged: applied=%lu configured=%lu",
+            static_cast<unsigned long>(applied),
+            static_cast<unsigned long>(configured)
+        );
+    }
+    return brightness_differs;
+}
+
+esp_err_t restore_active_policy(
+    qsee::DeviceStateReason reason,
+    bool display_snapshot_diverged
+)
 {
     esp_err_t error = ESP_OK;
-    if (s_display_stage !=
-        qsee::UiHardwareSnapshot::DisplayPowerMode::Active) {
+    if (display_snapshot_diverged ||
+        s_display_stage !=
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Active) {
         error = qsee_display_fade_to_power_mode(
             QSEE_DISPLAY_POWER_ACTIVE,
             kDisplayFadeDurationMs
@@ -615,12 +656,16 @@ void power_task(void *argument)
             } else if (
                 s_state == qsee::DeviceOperatingState::Active) {
                 s_last_activity_at_us = esp_timer_get_time();
+                const bool display_snapshot_diverged =
+                    active_display_snapshot_diverged();
                 if (!s_command_arc_visible ||
                     !s_status_arc_visible ||
                     s_display_stage !=
-                        qsee::UiHardwareSnapshot::DisplayPowerMode::Active) {
+                        qsee::UiHardwareSnapshot::DisplayPowerMode::Active ||
+                    display_snapshot_diverged) {
                     (void)restore_active_policy(
-                        qsee::DeviceStateReason::ImuMotion
+                        qsee::DeviceStateReason::ImuMotion,
+                        display_snapshot_diverged
                     );
                 } else {
                     s_reason = qsee::DeviceStateReason::ImuMotion;
@@ -638,12 +683,16 @@ void power_task(void *argument)
                     s_activity_at_us.load(std::memory_order_relaxed);
                 const qsee::DeviceStateReason activity_reason =
                     s_activity_reason.load(std::memory_order_relaxed);
+                const bool display_snapshot_diverged =
+                    active_display_snapshot_diverged();
                 if (!s_command_arc_visible ||
                     !s_status_arc_visible ||
                     s_display_stage !=
-                        qsee::UiHardwareSnapshot::DisplayPowerMode::Active) {
+                        qsee::UiHardwareSnapshot::DisplayPowerMode::Active ||
+                    display_snapshot_diverged) {
                     (void)restore_active_policy(
-                        activity_reason
+                        activity_reason,
+                        display_snapshot_diverged
                     );
                 } else {
                     s_reason = activity_reason;

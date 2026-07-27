@@ -44,7 +44,8 @@ public:
     // Replace the route model while retaining the same mounted visual component.
     std::expected<void, std::string> activate(
         const esp_brookesia::system::core::AppGuiRuntime &gui,
-        std::span<const CommandSpec> commands
+        std::span<const CommandSpec> commands,
+        bool visible
     );
 
     // Resolve one persistent slot action to the active route command.
