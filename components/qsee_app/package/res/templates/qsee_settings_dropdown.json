@@ -9,6 +9,7 @@
         },
         "dropdownProps": {
             "options": [
+                "10 seconds",
                 "30 seconds",
                 "1 minute",
                 "2 minutes",

@@ -2580,29 +2580,34 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     }
 
     for (size_t core = 0; core < 2; ++core) {
+        const std::string path = core == 0
+            ? "/qsee_welcome/surface/core0"
+            : "/qsee_welcome/surface/core1";
         if (component_ready(snapshot.processor) &&
             core < snapshot.processor.core_count) {
             std::snprintf(
                 text.data(),
                 text.size(),
-                "CPU CORE %u PRESENT | UTILIZATION UNAVAILABLE",
-                static_cast<unsigned>(core)
+                "%s | CPU data unavailable",
+                snapshot.processor.cores[core].available
+                    ? snapshot.processor.cores[core].current_task
+                    : "core unavailable"
             );
         } else {
             std::snprintf(
                 text.data(),
                 text.size(),
-                "CPU CORE %u %s (%s)",
-                static_cast<unsigned>(core),
+                "%s (%s)",
                 component_state(snapshot.processor),
                 component_reason(snapshot.processor)
             );
         }
-        const char *path =
-            core == 0
-                ? "/qsee_welcome/surface/core0"
-                : "/qsee_welcome/surface/core1";
-        if (auto result = set_text(context, path, text.data()); !result) {
+        if (auto result = set_text(context, path + "/value", text.data()); !result) {
+            return result;
+        }
+        if (auto result = set_binding_text(
+                context, path + "/bar", "hidden", "true"
+            ); !result) {
             return result;
         }
     }
@@ -2617,25 +2622,14 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         text.data(),
         text.size(),
         "%s\n"
-        "BATTERY %s | RTC %s\n"
-        "FUSION %s | IMU %s\n"
-        "WIFI %s | BLE %s\n"
-        "GPS %s | SD %s\n"
-        "DISPLAY %s | TOUCH %s\n"
-        "SPEAKER %s | MIC %s",
+        "Battery %s  •  Storage %s\n"
+        "GPS %s  •  Wi-Fi %s\n"
+        "Open Hardware for every device detail",
         snapshot_status.data(),
         hardware_status[0].data(),
-        hardware_status[1].data(),
-        fusion_status.data(),
-        hardware_status[2].data(),
-        hardware_status[4].data(),
-        hardware_status[5].data(),
-        hardware_status[3].data(),
         hardware_status[10].data(),
-        hardware_status[6].data(),
-        hardware_status[7].data(),
-        hardware_status[8].data(),
-        hardware_status[9].data()
+        hardware_status[4].data(),
+        hardware_status[3].data()
     );
     if (auto result = set_text(
             context,
@@ -3150,12 +3144,13 @@ std::expected<void, std::string> App::show_hardware_details(
 
     const std::string title =
         std::string(descriptor.name) + " | " + std::string(descriptor.part);
-    return alert_service_.show_notice(
+    // System Core has no Shell dialog provider. Keep the selected component's
+    // real detail visible in the page header until QSee's declarative modal is
+    // added, instead of pretending a Shell dialog was displayed.
+    return set_text(
         context,
-        title,
-        details.data(),
-        esp_brookesia::system::core::MessageDialogIcon::Information,
-        "CLOSE"
+        "/qsee_hardware/surface/hardware_scroller/summary",
+        title + "\n" + details.data()
     );
 }
 

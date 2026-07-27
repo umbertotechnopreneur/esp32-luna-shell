@@ -12,8 +12,8 @@
 
 namespace qsee::power_policy {
 
-inline constexpr std::array<uint32_t, 6> kChromeTimeoutOptions = {
-    30, 60, 120, 300, 600, 0,
+inline constexpr std::array<uint32_t, 7> kChromeTimeoutOptions = {
+    10, 30, 60, 120, 300, 600, 0,
 };
 inline constexpr std::array<uint32_t, 6> kDisplayDimTimeoutOptions = {
     60, 120, 300, 600, 900, 0,
@@ -22,7 +22,8 @@ inline constexpr std::array<uint32_t, 7> kScreenSleepDelayOptions = {
     30, 60, 120, 300, 600, 900, 0,
 };
 
-inline constexpr uint32_t kDefaultCommandArcTimeoutSeconds = 60;
+// Hide the command buttons quickly; any touch or motion wakes them again.
+inline constexpr uint32_t kDefaultCommandArcTimeoutSeconds = 10;
 inline constexpr uint32_t kDefaultStatusArcTimeoutSeconds = 120;
 inline constexpr uint32_t kDefaultDisplayDimTimeoutSeconds = 300;
 inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
