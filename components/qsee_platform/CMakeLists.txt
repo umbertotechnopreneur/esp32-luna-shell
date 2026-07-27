@@ -15,6 +15,7 @@ set(qsee_platform_requires
     esp_event
     esp_http_server
     esp_timer
+    heap
     esp_driver_gpio
     esp_hw_support
     fatfs
@@ -22,6 +23,7 @@ set(qsee_platform_requires
     bootloader_support
     esp_psram
     spi_flash
+    xtensa
     nvs_flash
     qsee_logger
 )

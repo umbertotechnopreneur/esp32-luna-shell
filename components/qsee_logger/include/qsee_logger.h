@@ -60,8 +60,11 @@ typedef struct {
  */
 esp_err_t qsee_logger_get_sd_status(qsee_logger_sd_status_t *status);
 
+#define QSEE_LOGGER_SNAPSHOT_MAX_LINES 15U
+
 /**
- * Copy the newest complete log lines into a caller-owned text buffer.
+ * Copy up to QSEE_LOGGER_SNAPSHOT_MAX_LINES newest complete log lines into a
+ * caller-owned text buffer.
  */
 esp_err_t qsee_logger_snapshot(
     char *buffer,

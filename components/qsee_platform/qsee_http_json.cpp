@@ -465,24 +465,46 @@ void writePowerManagement(
 void writeMemory(qsee::HttpJsonWriter &json, const qsee::MemorySnapshot &memory)
 {
     (void)json.format(
-        "{\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_total_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu,\"internal_free_bytes\":%lu,\"internal_largest_block_bytes\":%lu,\"internal_memory_pressure\":",
+        "{\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_total_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu",
         static_cast<unsigned long>(memory.flash_capacity_bytes),
         static_cast<unsigned long>(memory.app_partition_bytes),
         static_cast<unsigned long>(memory.firmware_image_bytes),
         static_cast<unsigned long>(memory.heap_total_bytes),
         static_cast<unsigned long>(memory.heap_free_bytes),
-        static_cast<unsigned long>(memory.heap_minimum_free_bytes),
+        static_cast<unsigned long>(memory.heap_minimum_free_bytes)
+    );
+    (void)json.format(
+        ",\"internal_heap_total_bytes\":%lu,\"internal_free_bytes\":%lu,\"internal_largest_block_bytes\":%lu,\"internal_minimum_free_bytes\":%lu,\"internal_allocated_blocks\":%lu,\"internal_free_blocks\":%lu,\"internal_total_blocks\":%lu,\"internal_memory_pressure\":",
+        static_cast<unsigned long>(memory.internal_heap_total_bytes),
         static_cast<unsigned long>(memory.internal_free_bytes),
-        static_cast<unsigned long>(memory.internal_largest_block_bytes)
+        static_cast<unsigned long>(memory.internal_largest_block_bytes),
+        static_cast<unsigned long>(memory.internal_minimum_free_bytes),
+        static_cast<unsigned long>(memory.internal_allocated_blocks),
+        static_cast<unsigned long>(memory.internal_free_blocks),
+        static_cast<unsigned long>(memory.internal_total_blocks)
     );
     (void)json.boolean(memory.internal_memory_pressure);
     (void)json.format(
-        ",\"psram_capacity_bytes\":%lu,\"psram_heap_total_bytes\":%lu,\"psram_free_bytes\":%lu,\"psram_used_bytes\":%lu,\"psram_largest_block_bytes\":%lu}",
+        ",\"psram_capacity_bytes\":%lu,\"psram_heap_total_bytes\":%lu,\"psram_free_bytes\":%lu,\"psram_used_bytes\":%lu,\"psram_largest_block_bytes\":%lu,\"psram_minimum_free_bytes\":%lu",
         static_cast<unsigned long>(memory.psram_capacity_bytes),
         static_cast<unsigned long>(memory.psram_heap_total_bytes),
         static_cast<unsigned long>(memory.psram_free_bytes),
         static_cast<unsigned long>(memory.psram_used_bytes),
-        static_cast<unsigned long>(memory.psram_largest_block_bytes)
+        static_cast<unsigned long>(memory.psram_largest_block_bytes),
+        static_cast<unsigned long>(memory.psram_minimum_free_bytes)
+    );
+    (void)json.format(
+        ",\"psram_allocated_blocks\":%lu,\"psram_free_blocks\":%lu,\"psram_total_blocks\":%lu,\"allocation_failure_monitor_active\":",
+        static_cast<unsigned long>(memory.psram_allocated_blocks),
+        static_cast<unsigned long>(memory.psram_free_blocks),
+        static_cast<unsigned long>(memory.psram_total_blocks)
+    );
+    (void)json.boolean(memory.allocation_failure_monitor_active);
+    (void)json.format(
+        ",\"allocation_failure_count\":%lu,\"largest_failed_allocation_bytes\":%lu,\"failed_allocation_caps_seen_mask\":%lu}",
+        static_cast<unsigned long>(memory.allocation_failure_count),
+        static_cast<unsigned long>(memory.largest_failed_allocation_bytes),
+        static_cast<unsigned long>(memory.failed_allocation_caps_seen_mask)
     );
 }
 

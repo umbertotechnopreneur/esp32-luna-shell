@@ -90,8 +90,8 @@ See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 - SD card capacity, filesystem free space, and logger mirroring;
 - display, touch, event-driven Wi-Fi lifecycle/scan/IP state, and BLE health;
 - physical flash capacity, running firmware image size, and app partition size;
-- total/free/minimum heap, internal RAM, and PSRAM
-  capacity/total/used/free/largest-block values;
+- total/free/minimum heap, internal RAM, and PSRAM capacity, minimum,
+  largest-block, raw block-count, and allocation-failure values;
 - ESP32 core count and the current task, priority, and stack watermark sampled
   for each core.
 
@@ -103,8 +103,10 @@ marked `STALE` and hidden from consumers.
 One serial platform worker requests the complete snapshot at the persisted
 user cadence: 300 ms, 500 ms, 1 Hz, 2 s, 3 s, 5 s, or 10 s. This Full Snapshot
 cadence is independent from both the 1 Hz UI binding refresh and the opt-in
-Diagnostic Stream, which samples only the IMU and microphone while their live
-pages are open. SD status polling and native Wi-Fi/BLE events may also publish
+Diagnostic Stream. The active live page independently requests either measured
+IMU or microphone samples; a fresh committed diagnostic sample may satisfy one
+overlapping Full Snapshot without changing its measurement timestamp. SD status
+polling and native Wi-Fi/BLE events may also publish
 asynchronous state changes. Every UI telemetry view consumes the immutable
 published snapshot instead of polling hardware drivers independently. The log
 viewer reads the canonical logger ring, never a hardware driver. The memory

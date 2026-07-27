@@ -51,6 +51,51 @@ envelope with `sequence`, `last_update_attempt_at_us`,
 refresh attempt, so an incomplete refresh cannot be presented as a successful
 sample.
 
+IMU and microphone diagnostics are separately enabled streams. A periodic Full
+generation may consume one newly committed Diagnostic sample when it is still
+younger than both configured cadences. That one-shot reuse never advances the
+component `last_attempt_at_us` or `last_success_at_us`: HTTP consumers always
+see the timestamp of the real sensor acquisition. Failed, stale,
+already-consumed, time-regressed, or source-mismatched data forces a physical
+read and retains the real failure state.
+
+## Memory telemetry
+
+The `memory` object in `/api/v1/info` and `/api/v1/diagnostics` exposes raw
+allocator observations. Existing aggregate capacity fields remain alongside
+these internal-heap fields:
+
+- `internal_heap_total_bytes`
+- `internal_minimum_free_bytes`
+- `internal_allocated_blocks`
+- `internal_free_blocks`
+- `internal_total_blocks`
+
+The PSRAM allocator is reported independently:
+
+- `psram_minimum_free_bytes`
+- `psram_allocated_blocks`
+- `psram_free_blocks`
+- `psram_total_blocks`
+
+Boot-scoped allocation-failure telemetry uses:
+
+- `allocation_failure_monitor_active`
+- `allocation_failure_count`
+- `largest_failed_allocation_bytes`
+- `failed_allocation_caps_seen_mask`
+
+The failure callback is active before logger, display, and boot UI allocation.
+It records only lock-free bounded aggregates; it does not allocate, log, lock,
+format text, or query time. A zero count means no failed allocation was
+observed only when `allocation_failure_monitor_active` is true.
+
+Free-block counts and largest-free-block sizes are raw values from
+`heap_caps_get_info()`. Clients may derive and label a largest-block/free-space
+ratio, but the API does not publish an invented fragmentation percentage.
+Allocation failures remain visible for the current boot and do not invalidate
+a later successful heap measurement.
+
 `/api/v1/info` deliberately omits Wi-Fi SSID/IP/MAC and the raw GPS sentence.
 Those fields are available only from the authenticated `/api/v1/diagnostics`
 surface. Authentication failures are rate-limited to twenty failures per

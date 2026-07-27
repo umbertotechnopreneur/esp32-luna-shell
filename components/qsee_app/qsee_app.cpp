@@ -74,8 +74,8 @@ constexpr int64_t kPairingTimeoutUs = 5LL * 60LL * 1000000LL;
 constexpr size_t kLogBufferBytes = 4096;
 constexpr double kAudioMeterFloorDbfs = -60.0;
 constexpr double kPcm16FullScale = 32768.0;
-// Fifteen worst-case 256-byte ring lines fit in the persistent 4 KB buffer.
-constexpr size_t kLogSnapshotLines = 15;
+// The logger contract keeps the bounded snapshot inside the persistent 4 KB buffer.
+constexpr size_t kLogSnapshotLines = QSEE_LOGGER_SNAPSHOT_MAX_LINES;
 
 const char *storage_cleanup_stage_name(
     qsee::StorageCleanupStage stage
@@ -459,6 +459,11 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     background_asset_registered_ = false;
     pairing_result_success_ = false;
     pairing_visual_state_.reset();
+    settings_text_cache_valid_ = false;
+    settings_controls_state_.reset();
+    invalidate_audio_screen_cache(Screen::Audio);
+    invalidate_audio_screen_cache(Screen::AudioFft);
+    invalidate_audio_screen_cache(Screen::AudioDetail);
     pairing_started_at_us_ = 0;
     pairing_result_.clear();
     log_filter_mode_ = 0;
@@ -621,7 +626,8 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         return result;
     }
 
-    const esp_err_t monitor_result = qsee_hardware_set_diagnostic_monitor(false);
+    const esp_err_t monitor_result =
+        qsee_hardware_set_diagnostic_streams(false, false);
     if (monitor_result != ESP_OK) {
         (void)adaptive_chrome_.shutdown(context.gui());
         chrome_timing_connections_.clear();
@@ -715,7 +721,7 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         ESP_LOGE(kTag, "%s", pause_error.c_str());
     }
     const esp_err_t diagnostic_result =
-        qsee_hardware_set_diagnostic_monitor(false);
+        qsee_hardware_set_diagnostic_streams(false, false);
     if (diagnostic_result != ESP_OK) {
         const std::string error =
             "Failed to pause QSee diagnostic monitor: " +
@@ -759,9 +765,14 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
 
 std::expected<void, std::string> App::on_resume(AppContext &context)
 {
+    settings_text_cache_valid_ = false;
+    settings_controls_state_.reset();
+    invalidate_audio_screen_cache(Screen::Audio);
+    invalidate_audio_screen_cache(Screen::AudioFft);
+    invalidate_audio_screen_cache(Screen::AudioDetail);
     const auto rollback_diagnostics = [this]() {
         const esp_err_t monitor_result =
-            qsee_hardware_set_diagnostic_monitor(false);
+            qsee_hardware_set_diagnostic_streams(false, false);
         if (monitor_result != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -833,7 +844,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
     }
     chrome_timing_connections_.clear();
     const esp_err_t monitor_result =
-        qsee_hardware_set_diagnostic_monitor(false);
+        qsee_hardware_set_diagnostic_streams(false, false);
     if (monitor_result != ESP_OK) {
         const std::string error =
             "Failed to stop QSee diagnostic monitor: " +
@@ -956,21 +967,22 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         screen == Screen::AudioDetail;
     const bool diagnostics_allowed = !performance_mode_enabled_;
     const bool audio_enabled = diagnostics_allowed && audio_screen;
-    const bool enabled =
-        diagnostics_allowed &&
-        (audio_screen || screen == Screen::Imu);
-    const bool handoff_changed =
-        audio_enabled != audio_diagnostic_capture_active_;
-    if (handoff_changed) {
+    const bool imu_enabled =
+        diagnostics_allowed && screen == Screen::Imu;
+    const bool enabled = audio_enabled || imu_enabled;
+    const bool entering_audio =
+        audio_enabled && !audio_diagnostic_capture_active_;
+    const bool leaving_audio =
+        !audio_enabled && audio_diagnostic_capture_active_;
+    if (entering_audio) {
         const esp_err_t audio_result =
-            qsee_voice_afe_set_diagnostic_suspended(audio_enabled);
+            qsee_voice_afe_set_diagnostic_suspended(true);
         if (audio_result != ESP_OK) {
             std::array<char, 128> details{};
             std::snprintf(
                 details.data(),
                 details.size(),
-                "Microphone ownership could not move to %s: %s",
-                audio_enabled ? "audio diagnostics" : "the voice AFE",
+                "Microphone ownership could not move to audio diagnostics: %s",
                 esp_err_to_name(audio_result)
             );
             if (auto dialog_result = show_error_dialog(
@@ -987,53 +999,91 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
             return std::unexpected(details.data());
         }
     }
+
+    // Stop diagnostic capture before the AFE can reclaim the microphones.
+    const esp_err_t result = qsee_hardware_set_diagnostic_streams(
+        imu_enabled,
+        audio_enabled
+    );
+    if (result != ESP_OK && entering_audio) {
+        const esp_err_t rollback_result =
+            qsee_voice_afe_set_diagnostic_suspended(false);
+        if (rollback_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Audio diagnostic entry rollback failed: %s",
+                esp_err_to_name(rollback_result)
+            );
+        }
+    }
+    if (result != ESP_OK) {
+        std::array<char, 128> details{};
+        std::snprintf(
+            details.data(),
+            details.size(),
+            "The diagnostic sampler could not be %s: %s",
+            enabled ? "started" : "stopped",
+            esp_err_to_name(result)
+        );
+        if (auto dialog_result = show_error_dialog(
+                context,
+                "Diagnostic monitor unavailable",
+                details.data()
+            ); !dialog_result) {
+            ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
+            return std::unexpected(
+                std::string(details.data()) +
+                "; error dialog failed: " + dialog_result.error()
+            );
+        }
+        return std::unexpected(details.data());
+    }
+
+    if (leaving_audio) {
+        const esp_err_t audio_result =
+            qsee_voice_afe_set_diagnostic_suspended(false);
+        if (audio_result != ESP_OK) {
+            const esp_err_t rollback_result =
+                qsee_hardware_set_diagnostic_streams(false, true);
+            if (rollback_result != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "Audio diagnostic exit rollback failed: %s",
+                    esp_err_to_name(rollback_result)
+                );
+            }
+            std::array<char, 160> details{};
+            std::snprintf(
+                details.data(),
+                details.size(),
+                "Microphone ownership could not return to the voice AFE: %s",
+                esp_err_to_name(audio_result)
+            );
+            if (auto dialog_result = show_error_dialog(
+                    context,
+                    "Audio capture unavailable",
+                    details.data()
+                ); !dialog_result) {
+                ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
+                return std::unexpected(
+                    std::string(details.data()) +
+                    "; error dialog failed: " + dialog_result.error()
+                );
+            }
+            return std::unexpected(details.data());
+        }
+    }
+
     if (enabled) {
-        const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+        const DeviceSnapshot snapshot =
+            DeviceSnapshotService::instance().snapshot();
         diagnostic_activation_sample_at_us_ =
             audio_enabled
                 ? snapshot.audio.microphone.last_success_at_us
                 : snapshot.imu.last_success_at_us;
     }
-    const esp_err_t result = qsee_hardware_set_diagnostic_monitor(enabled);
-    if (result == ESP_OK) {
-        audio_diagnostic_capture_active_ = audio_enabled;
-        return {};
-    }
-
-    if (handoff_changed) {
-        const esp_err_t rollback_result =
-            qsee_voice_afe_set_diagnostic_suspended(
-                audio_diagnostic_capture_active_
-            );
-        if (rollback_result != ESP_OK) {
-            ESP_LOGE(
-                kTag,
-                "Audio diagnostic handoff rollback failed: %s",
-                esp_err_to_name(rollback_result)
-            );
-        }
-    }
-
-    std::array<char, 128> details{};
-    std::snprintf(
-        details.data(),
-        details.size(),
-        "The diagnostic sampler could not be %s: %s",
-        enabled ? "started" : "stopped",
-        esp_err_to_name(result)
-    );
-    if (auto dialog_result = show_error_dialog(
-            context,
-            "Diagnostic monitor unavailable",
-            details.data()
-        ); !dialog_result) {
-        ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
-        return std::unexpected(
-            std::string(details.data()) +
-            "; error dialog failed: " + dialog_result.error()
-        );
-    }
-    return std::unexpected(details.data());
+    audio_diagnostic_capture_active_ = audio_enabled;
+    return {};
 }
 
 // Publish only route intent; the persistent component owns layout and colors.
@@ -1311,9 +1361,10 @@ std::expected<void, std::string> App::open_screen(
                                  !is_pairing_screen(screen);
     const bool leaving_pairing_qr = screen != Screen::PairQr &&
                                     screen != Screen::AppStoreQr;
-    const bool release_live_log_buffers = screen_ == Screen::Logs &&
-                                          screen != Screen::Logs &&
-                                          !logs_paused_;
+    if (screen == Screen::Settings && screen_ != Screen::Settings) {
+        settings_text_cache_valid_ = false;
+        settings_controls_state_.reset();
+    }
     if (leaving_pairing &&
         qsee_provisioning_active()) {
         const esp_err_t stop_result = qsee_provisioning_stop();
@@ -1329,9 +1380,7 @@ std::expected<void, std::string> App::open_screen(
     if (!result) {
         return std::unexpected("QSee navigation failed: " + result.error());
     }
-    if (release_live_log_buffers) {
-        release_log_buffers();
-    }
+    invalidate_audio_screen_cache(screen);
     if (leaving_pairing_qr) {
         if (auto release_result = release_pairing_qr(context); !release_result) {
             return release_result;
@@ -2149,32 +2198,68 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
 
     const bool heap_valid =
         component_ready(snapshot.memory) &&
-        snapshot.memory.heap_total_bytes > 0 &&
-        snapshot.memory.heap_free_bytes <= snapshot.memory.heap_total_bytes &&
-        snapshot.memory.heap_minimum_free_bytes > 0 &&
-        snapshot.memory.heap_minimum_free_bytes <= snapshot.memory.heap_free_bytes;
+        snapshot.memory.internal_heap_total_bytes > 0 &&
+        snapshot.memory.internal_free_bytes <=
+            snapshot.memory.internal_heap_total_bytes &&
+        snapshot.memory.internal_largest_block_bytes <=
+            snapshot.memory.internal_free_bytes &&
+        snapshot.memory.internal_minimum_free_bytes <=
+            snapshot.memory.internal_free_bytes &&
+        snapshot.memory.internal_allocated_blocks <=
+            snapshot.memory.internal_total_blocks &&
+        snapshot.memory.internal_free_blocks <=
+            snapshot.memory.internal_total_blocks;
     const bool psram_valid =
         component_ready(snapshot.memory) &&
         snapshot.memory.psram_heap_total_bytes > 0 &&
-        snapshot.memory.psram_free_bytes <= snapshot.memory.psram_heap_total_bytes;
+        snapshot.memory.psram_free_bytes <=
+            snapshot.memory.psram_heap_total_bytes &&
+        snapshot.memory.psram_largest_block_bytes <=
+            snapshot.memory.psram_free_bytes &&
+        snapshot.memory.psram_minimum_free_bytes <=
+            snapshot.memory.psram_free_bytes &&
+        snapshot.memory.psram_allocated_blocks <=
+            snapshot.memory.psram_total_blocks &&
+        snapshot.memory.psram_free_blocks <=
+            snapshot.memory.psram_total_blocks;
     int heap_percent = 0;
     if (heap_valid) {
         const uint32_t heap_used_bytes =
-            snapshot.memory.heap_total_bytes - snapshot.memory.heap_free_bytes;
+            snapshot.memory.internal_heap_total_bytes -
+            snapshot.memory.internal_free_bytes;
         heap_percent = static_cast<int>(
-            (static_cast<uint64_t>(heap_used_bytes) * 100U) /
-            snapshot.memory.heap_total_bytes
+            (static_cast<float>(heap_used_bytes) * 100.0F) /
+            static_cast<float>(snapshot.memory.internal_heap_total_bytes)
         );
-        std::snprintf(
-            text.data(),
-            text.size(),
-            "%lu/%lu KB | %d%%",
-            static_cast<unsigned long>(heap_used_bytes / 1024U),
-            static_cast<unsigned long>(
-                snapshot.memory.heap_total_bytes / 1024U
-            ),
-            heap_percent
-        );
+        if (snapshot.memory.allocation_failure_count > 0U) {
+            std::snprintf(
+                text.data(),
+                text.size(),
+                "ALLOC FAIL #%lu | MAX %lu B",
+                static_cast<unsigned long>(
+                    snapshot.memory.allocation_failure_count
+                ),
+                static_cast<unsigned long>(
+                    snapshot.memory.largest_failed_allocation_bytes
+                )
+            );
+        } else {
+            std::snprintf(
+                text.data(),
+                text.size(),
+                "%lu/%luK L%luK F%lu",
+                static_cast<unsigned long>(heap_used_bytes / 1024U),
+                static_cast<unsigned long>(
+                    snapshot.memory.internal_heap_total_bytes / 1024U
+                ),
+                static_cast<unsigned long>(
+                    snapshot.memory.internal_largest_block_bytes / 1024U
+                ),
+                static_cast<unsigned long>(
+                    snapshot.memory.internal_free_blocks
+                )
+            );
+        }
     } else {
         std::snprintf(
             text.data(),
@@ -2215,18 +2300,21 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     int psram_percent = 0;
     if (psram_valid) {
         psram_percent = static_cast<int>(
-            (static_cast<uint64_t>(snapshot.memory.psram_used_bytes) * 100U) /
-            snapshot.memory.psram_heap_total_bytes
+            (static_cast<float>(snapshot.memory.psram_used_bytes) * 100.0F) /
+            static_cast<float>(snapshot.memory.psram_heap_total_bytes)
         );
         std::snprintf(
             text.data(),
             text.size(),
-            "%lu/%lu KB | %d%%",
+            "%lu/%luK L%luK F%lu",
             static_cast<unsigned long>(snapshot.memory.psram_used_bytes / 1024U),
             static_cast<unsigned long>(
                 snapshot.memory.psram_heap_total_bytes / 1024U
             ),
-            psram_percent
+            static_cast<unsigned long>(
+                snapshot.memory.psram_largest_block_bytes / 1024U
+            ),
+            static_cast<unsigned long>(snapshot.memory.psram_free_blocks)
         );
     } else {
         std::snprintf(
@@ -2485,6 +2573,8 @@ std::expected<void, std::string> App::ensure_log_buffers()
     if (log_source_buffer_ != nullptr && log_filtered_buffer_ != nullptr) {
         return {};
     }
+    // Retain these bounded buffers until app stop so route changes do not
+    // repeatedly split and rejoin the heap.
     release_log_buffers();
 
     std::unique_ptr<char[]> source(
@@ -3005,6 +3095,58 @@ std::expected<void, std::string> App::refresh_hardware_detail(
     );
 }
 
+std::expected<void, std::string> App::set_cached_text(
+    AppContext &context,
+    CachedText &cache,
+    std::string_view path,
+    std::string_view text
+)
+{
+    if (text.size() >= cache.value.size()) {
+        return std::unexpected(
+            "Rejected oversized cached QSee text for '" +
+            std::string(path) + "'"
+        );
+    }
+    if (cache.valid &&
+        cache.length == text.size() &&
+        std::memcmp(cache.value.data(), text.data(), text.size()) == 0) {
+        return {};
+    }
+    if (auto result = set_text(context, path, text); !result) {
+        return result;
+    }
+    std::memcpy(cache.value.data(), text.data(), text.size());
+    cache.value[text.size()] = '\0';
+    cache.length = text.size();
+    cache.valid = true;
+    return {};
+}
+
+void App::invalidate_audio_screen_cache(Screen screen)
+{
+    switch (screen) {
+    case Screen::Audio:
+        audio_status_cache_.valid = false;
+        audio_values_cache_.valid = false;
+        audio_meter_cache_.level_known.fill(false);
+        audio_meter_cache_.hidden_known.fill(false);
+        break;
+    case Screen::AudioFft:
+        audio_fft_status_cache_.valid = false;
+        audio_fft_heights_valid_ = false;
+        audio_fft_hidden_known_ = false;
+        break;
+    case Screen::AudioDetail:
+        audio_detail_status_cache_.valid = false;
+        audio_detail_heights_valid_ = false;
+        audio_detail_hidden_known_ = false;
+        break;
+    default:
+        break;
+    }
+}
+
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -3198,48 +3340,89 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
             );
         }
     }
-    if (auto result = set_text(
+    if (auto result = set_cached_text(
             context,
+            audio_status_cache_,
             "/qsee_audio/surface/audio_status",
             status.data()
         ); !result) {
         return result;
     }
 
-    if (level0_valid) {
+    static constexpr std::array<std::string_view, 2> kMeterPaths = {
+        "/qsee_audio/surface/mic0_bar",
+        "/qsee_audio/surface/mic1_bar",
+    };
+    const std::array<int32_t, 2> levels = {level0, level1};
+    const std::array<bool, 2> level_valid = {
+        level0_valid,
+        level1_valid,
+    };
+    for (size_t channel = 0; channel < kMeterPaths.size(); ++channel) {
+        if (!level_valid[channel] ||
+            (audio_meter_cache_.level_known[channel] &&
+             audio_meter_cache_.levels[channel] == levels[channel])) {
+            continue;
+        }
         if (auto result = set_value(
                 context,
-                "/qsee_audio/surface/mic0_bar",
-                level0
+                kMeterPaths[channel],
+                levels[channel]
             ); !result) {
             return result;
         }
-    }
-    if (auto result = set_hidden(
-            context,
-            "/qsee_audio/surface/mic0_bar",
-            !level0_valid
-        ); !result) {
-        return result;
-    }
-    if (level1_valid) {
-        if (auto result = set_value(
-                context,
-                "/qsee_audio/surface/mic1_bar",
-                level1
-            ); !result) {
-            return result;
-        }
-    }
-    if (auto result = set_hidden(
-            context,
-            "/qsee_audio/surface/mic1_bar",
-            !level1_valid
-        ); !result) {
-        return result;
+        audio_meter_cache_.levels[channel] = levels[channel];
+        audio_meter_cache_.level_known[channel] = true;
     }
 
-    return set_text(context, "/qsee_audio/surface/audio_values", values.data());
+    std::array<bool, 2> hidden_changed{};
+    size_t hidden_change_count = 0;
+    for (size_t channel = 0; channel < kMeterPaths.size(); ++channel) {
+        const bool hidden = !level_valid[channel];
+        hidden_changed[channel] =
+            !audio_meter_cache_.hidden_known[channel] ||
+            audio_meter_cache_.hidden[channel] != hidden;
+        if (hidden_changed[channel]) {
+            ++hidden_change_count;
+        }
+    }
+    if (hidden_change_count > 0U) {
+        std::vector<esp_brookesia::gui::BindingValueUpdate>
+            visibility_updates;
+        visibility_updates.reserve(hidden_change_count);
+        for (size_t channel = 0; channel < kMeterPaths.size(); ++channel) {
+            if (!hidden_changed[channel]) {
+                continue;
+            }
+            visibility_updates.push_back({
+                .absolute_path = std::string(kMeterPaths[channel]),
+                .key = "hidden",
+                .value = level_valid[channel] ? "false" : "true",
+            });
+        }
+        if (auto result =
+                context.gui().set_binding_values(visibility_updates);
+            !result) {
+            return std::unexpected(
+                "Failed to update QSee audio meter visibility: " +
+                result.error()
+            );
+        }
+        for (size_t channel = 0; channel < kMeterPaths.size(); ++channel) {
+            if (!hidden_changed[channel]) {
+                continue;
+            }
+            audio_meter_cache_.hidden[channel] = !level_valid[channel];
+            audio_meter_cache_.hidden_known[channel] = true;
+        }
+    }
+
+    return set_cached_text(
+        context,
+        audio_values_cache_,
+        "/qsee_audio/surface/audio_values",
+        values.data()
+    );
 }
 
 bool App::is_pairing_screen(Screen screen)
@@ -3767,6 +3950,10 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
 // Render the restored compact DFT bank without bypassing the Brookesia view tree.
 std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
 {
+    static_assert(
+        kAudioUiSpectrumBandCount == kAudioSpectrumBandCount,
+        "QSee FFT cache must match the canonical snapshot band count"
+    );
     const DeviceSnapshot snapshot =
         DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
@@ -3859,31 +4046,32 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
         }
     }
 
-    if (auto result = set_text(
+    if (auto result = set_cached_text(
             context,
+            audio_fft_status_cache_,
             "/qsee_audio_fft/surface/spectrum_status",
             status.data()
         ); !result) {
         return result;
     }
     if (!spectrum_valid) {
-        return set_hidden(
-            context,
-            "/qsee_audio_fft/surface/bands",
-            true
-        );
+        if (!audio_fft_hidden_known_ || !audio_fft_hidden_) {
+            if (auto result = set_hidden(
+                    context,
+                    "/qsee_audio_fft/surface/bands",
+                    true
+                ); !result) {
+                return result;
+            }
+            audio_fft_hidden_ = true;
+            audio_fft_hidden_known_ = true;
+        }
+        return {};
     }
 
-    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
-    spectrum_updates.reserve(kAudioSpectrumBandCount);
+    std::array<int16_t, kAudioUiSpectrumBandCount> next_heights{};
+    size_t height_change_count = 0;
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
-        std::array<char, 80> path{};
-        std::snprintf(
-            path.data(),
-            path.size(),
-            "/qsee_audio_fft/surface/bands/band%02u",
-            static_cast<unsigned>(band)
-        );
         const int32_t average =
             (static_cast<int32_t>(snapshot.audio.channel_spectrum[0][band]) +
              static_cast<int32_t>(snapshot.audio.channel_spectrum[1][band]) +
@@ -3891,10 +4079,46 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
             2;
         const int32_t height =
             std::max<int32_t>(1, (average * 94 + 99) / 100);
+        next_heights[band] = static_cast<int16_t>(height);
+        if (!audio_fft_heights_valid_ ||
+            audio_fft_heights_[band] != next_heights[band]) {
+            ++height_change_count;
+        }
+    }
+
+    const bool visibility_changed =
+        !audio_fft_hidden_known_ || audio_fft_hidden_;
+    if (height_change_count == 0U && !visibility_changed) {
+        return {};
+    }
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
+    spectrum_updates.reserve(
+        height_change_count + (visibility_changed ? 1U : 0U)
+    );
+    for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
+        if (audio_fft_heights_valid_ &&
+            audio_fft_heights_[band] == next_heights[band]) {
+            continue;
+        }
+        std::array<char, 80> path{};
+        std::snprintf(
+            path.data(),
+            path.size(),
+            "/qsee_audio_fft/surface/bands/band%02u",
+            static_cast<unsigned>(band)
+        );
         spectrum_updates.push_back({
             .absolute_path = path.data(),
             .key = "height",
-            .value = std::to_string(height) + "dp",
+            .value = std::to_string(next_heights[band]) + "dp",
+        });
+    }
+    if (visibility_changed) {
+        spectrum_updates.push_back({
+            .absolute_path = "/qsee_audio_fft/surface/bands",
+            .key = "hidden",
+            .value = "false",
         });
     }
     if (auto result = context.gui().set_binding_values(spectrum_updates);
@@ -3903,11 +4127,21 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
             "Failed to update QSee FFT band bindings: " + result.error()
         );
     }
-    return set_hidden(context, "/qsee_audio_fft/surface/bands", false);
+    audio_fft_heights_ = next_heights;
+    audio_fft_heights_valid_ = true;
+    if (visibility_changed) {
+        audio_fft_hidden_ = false;
+        audio_fft_hidden_known_ = true;
+    }
+    return {};
 }
 
 std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
 {
+    static_assert(
+        kAudioUiSpectrumBandCount == kAudioSpectrumBandCount,
+        "QSee detail FFT cache must match the canonical snapshot band count"
+    );
     const DeviceSnapshot snapshot =
         DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
@@ -3968,20 +4202,44 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
                       static_cast<unsigned long>(snapshot.audio.spectrum_sequence));
     }
 
-    if (auto result = set_text(context,
-                               "/qsee_audio_detail/surface/spectrum_status",
-                               status.data());
+    if (auto result = set_cached_text(
+            context,
+            audio_detail_status_cache_,
+            "/qsee_audio_detail/surface/spectrum_status",
+            status.data()
+        );
         !result) {
         return result;
     }
     if (!spectrum_valid) {
-        if (auto result = set_hidden(context,
-                                     "/qsee_audio_detail/surface/mic0_bands",
-                                     true);
-            !result) {
-            return result;
+        if (!audio_detail_hidden_known_ || !audio_detail_hidden_) {
+            const std::vector<esp_brookesia::gui::BindingValueUpdate>
+                visibility_updates = {
+                    {
+                        .absolute_path =
+                            "/qsee_audio_detail/surface/mic0_bands",
+                        .key = "hidden",
+                        .value = "true",
+                    },
+                    {
+                        .absolute_path =
+                            "/qsee_audio_detail/surface/mic1_bands",
+                        .key = "hidden",
+                        .value = "true",
+                    },
+                };
+            if (auto result =
+                    context.gui().set_binding_values(visibility_updates);
+                !result) {
+                return std::unexpected(
+                    "Failed to hide QSee detail FFT bands: " +
+                    result.error()
+                );
+            }
+            audio_detail_hidden_ = true;
+            audio_detail_hidden_known_ = true;
         }
-        return set_hidden(context, "/qsee_audio_detail/surface/mic1_bands", true);
+        return {};
     }
 
     static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic0Colors = {
@@ -4025,27 +4283,70 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         }
         audio_detail_palette_applied_ = true;
     }
-    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
-    spectrum_updates.reserve(kAudioSpectrumBandCount * 2U);
+    std::array<int16_t, kAudioUiSpectrumBandCount * 2U> next_heights{};
+    size_t height_change_count = 0;
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         for (size_t channel = 0; channel < 2U; ++channel) {
-            std::array<char, 96> path{};
-            const char *row = channel == 0U ? "mic0_bands" : "mic1_bands";
-            std::snprintf(path.data(), path.size(),
-                          "/qsee_audio_detail/surface/%s/band%02u",
-                          row, static_cast<unsigned>(band));
             const int32_t height = std::max<int32_t>(
                 1,
                 (static_cast<int32_t>(
                     snapshot.audio.channel_spectrum[channel][band]
                 ) * 64 + 99) / 100
             );
+            const size_t index = band * 2U + channel;
+            next_heights[index] = static_cast<int16_t>(height);
+            if (!audio_detail_heights_valid_ ||
+                audio_detail_heights_[index] != next_heights[index]) {
+                ++height_change_count;
+            }
+        }
+    }
+
+    const bool visibility_changed =
+        !audio_detail_hidden_known_ || audio_detail_hidden_;
+    if (height_change_count == 0U && !visibility_changed) {
+        return {};
+    }
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
+    spectrum_updates.reserve(
+        height_change_count + (visibility_changed ? 2U : 0U)
+    );
+    for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
+        for (size_t channel = 0; channel < 2U; ++channel) {
+            const size_t index = band * 2U + channel;
+            if (audio_detail_heights_valid_ &&
+                audio_detail_heights_[index] == next_heights[index]) {
+                continue;
+            }
+            std::array<char, 96> path{};
+            const char *row =
+                channel == 0U ? "mic0_bands" : "mic1_bands";
+            std::snprintf(
+                path.data(),
+                path.size(),
+                "/qsee_audio_detail/surface/%s/band%02u",
+                row,
+                static_cast<unsigned>(band)
+            );
             spectrum_updates.push_back({
                 .absolute_path = path.data(),
                 .key = "height",
-                .value = std::to_string(height) + "dp",
+                .value = std::to_string(next_heights[index]) + "dp",
             });
         }
+    }
+    if (visibility_changed) {
+        spectrum_updates.push_back({
+            .absolute_path = "/qsee_audio_detail/surface/mic0_bands",
+            .key = "hidden",
+            .value = "false",
+        });
+        spectrum_updates.push_back({
+            .absolute_path = "/qsee_audio_detail/surface/mic1_bands",
+            .key = "hidden",
+            .value = "false",
+        });
     }
     if (auto result = context.gui().set_binding_values(spectrum_updates);
         !result) {
@@ -4053,11 +4354,13 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
             "Failed to update QSee detail FFT band bindings: " + result.error()
         );
     }
-    if (auto result = set_hidden(context, "/qsee_audio_detail/surface/mic0_bands", false);
-        !result) {
-        return result;
+    audio_detail_heights_ = next_heights;
+    audio_detail_heights_valid_ = true;
+    if (visibility_changed) {
+        audio_detail_hidden_ = false;
+        audio_detail_hidden_known_ = true;
     }
-    return set_hidden(context, "/qsee_audio_detail/surface/mic1_bands", false);
+    return {};
 }
 
 // Render only fresh canonical IMU samples into the restored instrument panel.
@@ -4285,6 +4588,28 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
     return set_text(context, "/qsee_imu/surface/temperature", value.data());
 }
 
+std::expected<void, std::string> App::set_settings_text(
+    AppContext &context,
+    SettingsTextSlot slot,
+    std::string_view path,
+    std::string_view text
+)
+{
+    const size_t index = static_cast<size_t>(slot);
+    if (index >= settings_text_cache_.size()) {
+        return std::unexpected("Settings text cache slot is out of range");
+    }
+    if (settings_text_cache_valid_ &&
+        settings_text_cache_[index] == text) {
+        return {};
+    }
+    if (auto result = set_text(context, path, text); !result) {
+        return result;
+    }
+    settings_text_cache_[index].assign(text);
+    return {};
+}
+
 std::expected<void, std::string> App::refresh_settings(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -4299,8 +4624,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             ? "Performance profile is active"
             : "Standard service profile"
     );
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Performance,
             "/qsee_settings/surface/settings_scroller/performance_status",
             text.data()
         ); !result) {
@@ -4351,8 +4677,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
                 : "paused"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::FullSnapshot,
             "/qsee_settings/surface/settings_scroller/"
             "full_snapshot_status",
             text.data()
@@ -4389,8 +4716,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             snapshot.diagnostics.monitor_active ? "" : " (paused)"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::DiagnosticPeriod,
             "/qsee_settings/surface/settings_scroller/period_value",
             text.data()
         ); !result) {
@@ -4417,8 +4745,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "Motion smoothing"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::ImuSmoothing,
             "/qsee_settings/surface/settings_scroller/smoothing_value",
             text.data()
         ); !result) {
@@ -4456,8 +4785,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "SD card unavailable"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Storage,
             "/qsee_settings/surface/settings_scroller/storage_value",
             text.data()
         ); !result) {
@@ -4503,8 +4833,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         wifi_state.data(),
         ble_state.data()
     );
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Radios,
             "/qsee_settings/surface/settings_scroller/radio_value",
             text.data()
         ); !result) {
@@ -4554,8 +4885,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             snapshot.radios.wifi.started ? "ready" : "off"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Wifi,
             "/qsee_settings/surface/settings_scroller/wifi_detail",
             text.data()
         ); !result) {
@@ -4597,8 +4929,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             snapshot.radios.ble.device_name
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Bluetooth,
             "/qsee_settings/surface/settings_scroller/ble_detail",
             text.data()
         ); !result) {
@@ -4628,8 +4961,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             static_cast<unsigned>(snapshot.gps.satellites)
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Gps,
             "/qsee_settings/surface/settings_scroller/gps_detail",
             text.data()
         ); !result) {
@@ -4664,8 +4998,9 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "Brightness"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Brightness,
             "/qsee_settings/surface/settings_scroller/brightness_value",
             text.data()
         ); !result) {
@@ -4695,124 +5030,143 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             "Screen orientation is locked"
         );
     }
-    if (auto result = set_text(
+    if (auto result = set_settings_text(
             context,
+            SettingsTextSlot::Rotation,
             "/qsee_settings/surface/settings_scroller/rotation_value",
             text.data()
         ); !result) {
         return result;
     }
-    std::vector<esp_brookesia::gui::BindingValueUpdate>
-        settings_updates = {
-            {
-                .absolute_path =
-                    "/qsee_settings/surface/settings_scroller/"
-                    "command_arc_timeout",
-                .key = "selectedIndex",
-                .value = std::to_string(adaptive_chrome_.selected_index(
-                    AdaptiveChromeTiming::CommandArc
-                )),
-            },
-            {
-                .absolute_path =
-                    "/qsee_settings/surface/settings_scroller/"
-                    "status_arc_timeout",
-                .key = "selectedIndex",
-                .value = std::to_string(adaptive_chrome_.selected_index(
-                    AdaptiveChromeTiming::StatusArc
-                )),
-            },
-            {
-                .absolute_path =
-                    "/qsee_settings/surface/settings_scroller/"
-                    "display_dim_timeout",
-                .key = "selectedIndex",
-                .value = std::to_string(adaptive_chrome_.selected_index(
-                    AdaptiveChromeTiming::DisplayDim
-                )),
-            },
-            {
-                .absolute_path =
-                    "/qsee_settings/surface/settings_scroller/"
-                    "screen_sleep_delay",
-                .key = "selectedIndex",
-                .value = std::to_string(adaptive_chrome_.selected_index(
-                    AdaptiveChromeTiming::ScreenSleep
-                )),
-            },
-        };
     const auto full_snapshot_period = std::find(
         kFullSnapshotPeriodsMs.begin(),
         kFullSnapshotPeriodsMs.end(),
         snapshot.diagnostics.full_snapshot_period_ms
     );
-    if (component_ready(snapshot.diagnostics.full_snapshot_period) &&
-        full_snapshot_period != kFullSnapshotPeriodsMs.end()) {
-        settings_updates.push_back({
-            .absolute_path =
-                "/qsee_settings/surface/settings_scroller/"
-                "full_snapshot_period",
-            .key = "selectedIndex",
-            .value = std::to_string(std::distance(
-                kFullSnapshotPeriodsMs.begin(),
-                full_snapshot_period
-            )),
-        });
-    }
     const auto diagnostic_period = std::find(
         kDiagnosticPeriodsMs.begin(),
         kDiagnosticPeriodsMs.end(),
         snapshot.diagnostics.sample_period_ms
     );
-    if (component_ready(snapshot.diagnostics.sample_period) &&
-        diagnostic_period != kDiagnosticPeriodsMs.end()) {
-        settings_updates.push_back({
-            .absolute_path =
-                "/qsee_settings/surface/settings_scroller/"
-                "diagnostic_period",
-            .key = "selectedIndex",
-            .value = std::to_string(std::distance(
-                kDiagnosticPeriodsMs.begin(),
-                diagnostic_period
-            )),
-        });
-    }
     const auto smoothing = std::find(
         kImuSmoothingPercents.begin(),
         kImuSmoothingPercents.end(),
         snapshot.diagnostics.imu_smoothing_percent
     );
-    if (component_ready(snapshot.diagnostics.imu_smoothing) &&
-        smoothing != kImuSmoothingPercents.end()) {
-        settings_updates.push_back({
-            .absolute_path =
-                "/qsee_settings/surface/settings_scroller/"
-                "imu_smoothing",
-            .key = "selectedIndex",
-            .value = std::to_string(std::distance(
-                kImuSmoothingPercents.begin(),
-                smoothing
-            )),
-        });
-    }
     const auto brightness = std::find(
         kBrightnessPercents.begin(),
         kBrightnessPercents.end(),
         snapshot.ui.brightness_percent
     );
-    if (component_ready(snapshot.ui.brightness) &&
-        component_ready(snapshot.ui.display) &&
-        brightness != kBrightnessPercents.end()) {
-        settings_updates.push_back({
-            .absolute_path =
-                "/qsee_settings/surface/settings_scroller/brightness",
-            .key = "selectedIndex",
-            .value = std::to_string(std::distance(
-                kBrightnessPercents.begin(),
-                brightness
-            )),
-        });
+
+    const auto resolved_index = [](
+        bool available,
+        const auto &values,
+        const auto &entry
+    ) -> int32_t {
+        if (!available || entry == values.end()) {
+            return -1;
+        }
+        return static_cast<int32_t>(std::distance(values.begin(), entry));
+    };
+
+    SettingsControlsState next_controls{};
+    next_controls.selected_indexes = {
+        static_cast<int32_t>(adaptive_chrome_.selected_index(
+            AdaptiveChromeTiming::CommandArc
+        )),
+        static_cast<int32_t>(adaptive_chrome_.selected_index(
+            AdaptiveChromeTiming::StatusArc
+        )),
+        static_cast<int32_t>(adaptive_chrome_.selected_index(
+            AdaptiveChromeTiming::DisplayDim
+        )),
+        static_cast<int32_t>(adaptive_chrome_.selected_index(
+            AdaptiveChromeTiming::ScreenSleep
+        )),
+        resolved_index(
+            component_ready(snapshot.diagnostics.full_snapshot_period),
+            kFullSnapshotPeriodsMs,
+            full_snapshot_period
+        ),
+        resolved_index(
+            component_ready(snapshot.diagnostics.sample_period),
+            kDiagnosticPeriodsMs,
+            diagnostic_period
+        ),
+        resolved_index(
+            component_ready(snapshot.diagnostics.imu_smoothing),
+            kImuSmoothingPercents,
+            smoothing
+        ),
+        resolved_index(
+            component_ready(snapshot.ui.brightness) &&
+                component_ready(snapshot.ui.display),
+            kBrightnessPercents,
+            brightness
+        ),
+    };
+    next_controls.performance_checked = performance_mode_enabled_;
+    next_controls.mirror_checked =
+        snapshot.storage.logger_mirror_requested;
+    next_controls.mirror_disabled =
+        !component_ready(snapshot.storage.logger_mirror);
+    next_controls.rotation_checked = orientation.auto_rotation_enabled;
+    next_controls.rotation_disabled = !component_ready(orientation);
+
+    settings_text_cache_valid_ = true;
+    if (settings_controls_state_ &&
+        *settings_controls_state_ == next_controls) {
+        return {};
     }
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> settings_updates;
+    settings_updates.reserve(13);
+    const auto add_selected_index = [&settings_updates](
+        const char *path,
+        int32_t selected_index
+    ) {
+        if (selected_index < 0) {
+            return;
+        }
+        settings_updates.push_back({
+            .absolute_path = path,
+            .key = "selectedIndex",
+            .value = std::to_string(selected_index),
+        });
+    };
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/command_arc_timeout",
+        next_controls.selected_indexes[0]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/status_arc_timeout",
+        next_controls.selected_indexes[1]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/display_dim_timeout",
+        next_controls.selected_indexes[2]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/screen_sleep_delay",
+        next_controls.selected_indexes[3]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/full_snapshot_period",
+        next_controls.selected_indexes[4]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/diagnostic_period",
+        next_controls.selected_indexes[5]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/imu_smoothing",
+        next_controls.selected_indexes[6]
+    );
+    add_selected_index(
+        "/qsee_settings/surface/settings_scroller/brightness",
+        next_controls.selected_indexes[7]
+    );
     settings_updates.insert(
         settings_updates.end(),
         {
@@ -4821,43 +5175,36 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
                     "/qsee_settings/surface/settings_scroller/"
                     "performance_mode/toggle",
                 .key = "checked",
-                .value = performance_mode_enabled_ ? "true" : "false",
+                .value =
+                    next_controls.performance_checked ? "true" : "false",
             },
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
                     "storage_mirror/toggle",
                 .key = "checked",
-                .value =
-                    snapshot.storage.logger_mirror_requested
-                        ? "true"
-                        : "false",
+                .value = next_controls.mirror_checked ? "true" : "false",
             },
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
                     "storage_mirror/toggle",
                 .key = "disabled",
-                .value =
-                    component_ready(snapshot.storage.logger_mirror)
-                        ? "false"
-                        : "true",
+                .value = next_controls.mirror_disabled ? "true" : "false",
             },
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
                     "auto_rotation/toggle",
                 .key = "checked",
-                .value =
-                    orientation.auto_rotation_enabled ? "true" : "false",
+                .value = next_controls.rotation_checked ? "true" : "false",
             },
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
                     "auto_rotation/toggle",
                 .key = "disabled",
-                .value =
-                    component_ready(orientation) ? "false" : "true",
+                .value = next_controls.rotation_disabled ? "true" : "false",
             },
         }
     );
@@ -4868,6 +5215,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             settings_result.error()
         );
     }
+    settings_controls_state_ = next_controls;
     return {};
 }
 

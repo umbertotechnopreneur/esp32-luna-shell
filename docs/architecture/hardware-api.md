@@ -27,7 +27,9 @@ required. Ambiguous recovery is never attempted.
 
 `qsee_hardware_refresh(reason)` is synchronous, uses static buffers, serializes
 concurrent callers with a five-second bound, and publishes the completed
-refresh as one snapshot generation.
+refresh as one snapshot generation. Explicit boot, manual, BLE-command, and
+headless calls always read available hardware. Only the periodic Full worker
+may supply a non-zero Diagnostic reuse window.
 
 Sensor fusion consumes only current filtered IMU samples and publishes a
 bounded gravity/motion state through `DeviceSnapshotService`. It deliberately
@@ -51,6 +53,7 @@ Service value.
 | --- | --- |
 | `qsee_hardware_init` | Initialize PMU, RTC, QMI8658, LC76G, and the shared audio path; take the bounded initial microphone sample |
 | `qsee_hardware_refresh` | Stage and atomically publish one explicit full-device generation |
+| `qsee_hardware_set_diagnostic_streams` | Independently enable measured IMU and microphone streams for the active live page; disabling one stream cannot leave it implicitly sampled by the other |
 | `qsee_imu_calibrate` | Schedule a stationary 96-sample calibration on the platform worker; keep the previous calibration on rejection or while one is already pending |
 | `qsee_rtc_read` / `qsee_rtc_write` | Read or write UTC calendar time |
 | `qsee_audio_*` | Serialize one shared ES8311/ES7210/I2S route |
@@ -64,13 +67,27 @@ Service value.
 - LC76G reads at most 4096 bytes per refresh and leaves any remaining backlog
   for the next explicit refresh.
 - NMEA payload and microphone capture storage are static.
-- The opt-in diagnostic monitor periodically samples only IMU and microphone;
-  the full-device refresh remains explicit.
+- The opt-in IMU and microphone Diagnostic streams have separate enable state.
+  Audio pages never request an otherwise unused IMU sample, and the IMU page
+  never requests microphone ownership.
+- Disabling microphone diagnostics is a quiescence barrier: stream selection
+  changes under the refresh mutex and the monitor rechecks it after acquiring
+  that mutex, before the voice AFE may reclaim capture.
+- A successful Diagnostic commit records the measured component timestamp.
+  The next periodic Full generation may consume that exact timestamp once when
+  it remains younger than both cadences. Reuse does not advance the component
+  timestamp. A failed/stale sample, source mismatch, clock regression, failed
+  commit, or second consumption forces a physical read.
 - Audio operations share one mutex and wait up to five seconds for the active
   playback or capture to finish.
 - Snapshot copies and updates use a static FreeRTOS mutex.
 - Internal RAM pressure is reported when free internal memory falls below
-  32 KiB or its largest block falls below 16 KiB.
+  32 KiB or its largest block falls below 16 KiB. Raw allocator telemetry also
+  reports internal/PSRAM total, free, lifetime minimum, largest block, and
+  allocated/free/total block counts.
+- Allocation failures are counted from before logger/display startup. The
+  global ESP-IDF callback is IRAM-only and updates lock-free 32-bit aggregates;
+  it never logs, locks, allocates, formats strings, or reads a clock.
 - Transient SD retries are delayed and never block application startup.
   `format-required` pauses until explicit authorization; internal, destructive,
   poisoned, or incompletely cleaned failures are terminal for the current

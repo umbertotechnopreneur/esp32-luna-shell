@@ -188,6 +188,7 @@ void brookesia_task()
 
 extern "C" void app_main(void)
 {
+    ESP_ERROR_CHECK(qsee_memory_telemetry_init());
     ESP_ERROR_CHECK(qsee_logger_init());
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Display contract: round 466x466, safe square 320x320 at (73,73)");

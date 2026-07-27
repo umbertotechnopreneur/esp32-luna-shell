@@ -8,7 +8,24 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HEADER = ROOT / "components/qsee_platform/include/qsee_http_server.hpp"
 SOURCE = ROOT / "components/qsee_platform/qsee_http_server.cpp"
+JSON_SOURCE = ROOT / "components/qsee_platform/qsee_http_json.cpp"
 DOC = ROOT / "docs/architecture/http-device-api.md"
+
+MEMORY_FIELDS = (
+    "internal_heap_total_bytes",
+    "internal_minimum_free_bytes",
+    "internal_allocated_blocks",
+    "internal_free_blocks",
+    "internal_total_blocks",
+    "psram_minimum_free_bytes",
+    "psram_allocated_blocks",
+    "psram_free_blocks",
+    "psram_total_blocks",
+    "allocation_failure_monitor_active",
+    "allocation_failure_count",
+    "largest_failed_allocation_bytes",
+    "failed_allocation_caps_seen_mask",
+)
 
 
 def require_contains(text: str, fragment: str, label: str) -> None:
@@ -19,6 +36,7 @@ def require_contains(text: str, fragment: str, label: str) -> None:
 def main() -> int:
     header = HEADER.read_text(encoding="utf-8")
     source = SOURCE.read_text(encoding="utf-8")
+    json_source = JSON_SOURCE.read_text(encoding="utf-8")
     doc = DOC.read_text(encoding="utf-8")
 
     require_contains(header, "esp_err_t httpServerSetApiKey(const char *api_key);", "header API")
@@ -30,8 +48,22 @@ def main() -> int:
     require_contains(source, "error = loadApiKeyFromSettings();", "persisted key read")
     require_contains(source, "if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)", "station lifecycle start")
     require_contains(doc, "httpServerSetApiKey()", "API documentation")
+    for field in MEMORY_FIELDS:
+        require_contains(
+            json_source,
+            f'\\"{field}\\"',
+            f"memory JSON field {field}",
+        )
+        require_contains(
+            doc,
+            f"`{field}`",
+            f"documented memory JSON field {field}",
+        )
 
-    print("HTTP API contract verification: PASS (bounded key persistence, lifecycle guard)")
+    print(
+        "HTTP API contract verification: PASS "
+        "(bounded key persistence, lifecycle guard, raw heap telemetry)"
+    )
     return 0
 
 

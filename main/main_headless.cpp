@@ -36,6 +36,7 @@ void report_optional_startup_failure(
 
 extern "C" void app_main(void)
 {
+    ESP_ERROR_CHECK(qsee_memory_telemetry_init());
     ESP_ERROR_CHECK(qsee_logger_init());
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Build profile: headless runtime");

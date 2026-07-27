@@ -11,9 +11,11 @@
 #include <mutex>
 
 #include "bsp/esp-bsp.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "qsee_logger.h"
 #include "qsee_settings.hpp"
@@ -949,13 +951,16 @@ extern "C" esp_err_t qsee_storage_init(void)
         0
     );
 
-    if (xTaskCreate(
+    // The owner task only executes SD/FatFs work; keep its long-lived stack out
+    // of the scarce internal heap.
+    if (xTaskCreateWithCaps(
             storage_task,
             "qsee_storage",
             7168,
             nullptr,
             3,
-            &s_storage_task
+            &s_storage_task,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
         s_storage_task = nullptr;
         qsee::StorageMountReport report;

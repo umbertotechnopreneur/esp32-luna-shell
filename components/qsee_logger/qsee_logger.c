@@ -16,14 +16,16 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/queue.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#define QSEE_LOG_RING_LINES 32
+#define QSEE_LOG_RING_LINES QSEE_LOGGER_SNAPSHOT_MAX_LINES
 #define QSEE_LOG_LINE_BYTES 256
 #define QSEE_LOG_QUEUE_LINES 48
 #define QSEE_LOG_FORMAT_SLOTS 4
@@ -31,14 +33,18 @@
 
 typedef struct {
     char text[QSEE_LOG_LINE_BYTES];
+} qsee_ram_log_line_t;
+
+typedef struct {
+    char text[QSEE_LOG_LINE_BYTES];
     uint32_t sd_generation;
 } qsee_log_line_t;
 
 static const char *TAG = "qsee_logger";
-static qsee_log_line_t s_ring[QSEE_LOG_RING_LINES];
+static qsee_ram_log_line_t s_ring[QSEE_LOG_RING_LINES];
 static qsee_log_line_t s_format_slots[QSEE_LOG_FORMAT_SLOTS];
 static bool s_format_slot_used[QSEE_LOG_FORMAT_SLOTS];
-static qsee_log_line_t s_snapshot_copy[QSEE_LOG_RING_LINES];
+static qsee_ram_log_line_t s_snapshot_copy[QSEE_LOGGER_SNAPSHOT_MAX_LINES];
 static size_t s_ring_head;
 static size_t s_ring_count;
 static portMUX_TYPE s_ring_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -50,8 +56,6 @@ static StaticSemaphore_t s_writer_idle_control;
 static QueueHandle_t s_write_queue;
 static StaticQueue_t s_write_queue_control;
 static uint8_t s_write_queue_storage[QSEE_LOG_QUEUE_LINES * sizeof(qsee_log_line_t)];
-static StaticTask_t s_writer_task_control;
-static StackType_t s_writer_task_stack[4096];
 static TaskHandle_t s_writer_task;
 static vprintf_like_t s_serial_vprintf;
 static char s_log_path[160];
@@ -481,16 +485,16 @@ esp_err_t qsee_logger_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    s_writer_task = xTaskCreateStatic(
+    if (xTaskCreateWithCaps(
         writer_task,
         "qsee_log_sd",
-        sizeof(s_writer_task_stack) / sizeof(s_writer_task_stack[0]),
+        4096,
         NULL,
         2,
-        s_writer_task_stack,
-        &s_writer_task_control
-    );
-    if (s_writer_task == NULL) {
+        &s_writer_task,
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    ) != pdPASS) {
+        s_writer_task = NULL;
         return ESP_ERR_NO_MEM;
     }
 
@@ -631,6 +635,7 @@ esp_err_t qsee_logger_snapshot(
 )
 {
     if (buffer == NULL || buffer_size == 0U || max_lines == 0U ||
+        max_lines > QSEE_LOGGER_SNAPSHOT_MAX_LINES ||
         bytes_written == NULL) {
         serial_printf("E (0) %s: Invalid RAM ring snapshot arguments\n", TAG);
         return ESP_ERR_INVALID_ARG;

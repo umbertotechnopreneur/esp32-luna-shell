@@ -147,7 +147,10 @@
                             "overrides": {
                                 "name": {
                                     "labelProps": {
-                                        "text": "HEAP"
+                                        "text": "INTERNAL RAM"
+                                    },
+                                    "style": {
+                                        "fontSize": "13sp"
                                     }
                                 },
                                 "value": {

@@ -133,8 +133,17 @@ void full_snapshot_task(void *)
         }
 
         const int64_t started_at_us = esp_timer_get_time();
+        const uint32_t full_snapshot_period_ms =
+            s_period_ms.load(std::memory_order_acquire);
+        const uint32_t diagnostic_reuse_limit_ms = std::min(
+            full_snapshot_period_ms,
+            qsee_hardware_get_diagnostic_period_ms()
+        );
         const esp_err_t refresh_error =
-            qsee_hardware_refresh(kRefreshReason);
+            qsee::DeviceSnapshotService::instance().refresh(
+                kRefreshReason,
+                diagnostic_reuse_limit_ms
+            );
         if (refresh_error != ESP_OK) {
             ESP_LOGE(
                 kTag,

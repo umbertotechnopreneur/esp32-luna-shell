@@ -1058,8 +1058,8 @@ class QSeeSimulator:
 
     def _draw_home_telemetry(self) -> None:
         telemetry = (
-            ("HEAP", "3894/4711 KB · 82%", 0.82, STATUS_READY),
-            ("PSRAM", "3350/4160 KB · 80%", 0.80, STATUS_READY),
+            ("INTERNAL RAM", "246/320K L62K F74", 0.77, STATUS_READY),
+            ("PSRAM", "3350/4160K L2560K F42", 0.80, STATUS_READY),
             ("FLASH APP", "5901/14476 KB · 40%", 0.40, BLUE),
             ("CORE 0", "18%", 0.18, STATUS_READY),
             ("CORE 1", "34%", 0.34, BLUE),
@@ -1075,13 +1075,14 @@ class QSeeSimulator:
         )
         y = 207
         for label, value, ratio, color in telemetry:
+            label_font_size = 8 if label == "INTERNAL RAM" else 9
             self.canvas.create_text(
                 116,
                 y,
                 anchor="w",
                 text=label,
                 fill=TEXT,
-                font=(FONT_DISPLAY, 9),
+                font=(FONT_DISPLAY, label_font_size),
                 tags="ui",
             )
             self.canvas.create_text(

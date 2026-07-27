@@ -12,6 +12,7 @@ EXPECTED_SCREENS = {
     "qsee_welcome",
     "qsee_logs",
     "qsee_hardware",
+    "qsee_hardware_detail",
     "qsee_audio",
     "qsee_audio_detail",
     "qsee_audio_fft",

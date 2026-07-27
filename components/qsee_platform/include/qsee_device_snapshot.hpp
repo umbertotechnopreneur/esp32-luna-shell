@@ -284,6 +284,8 @@ struct DiagnosticsSettingsSnapshot {
     uint32_t imu_smoothing_percent = 70;
     uint32_t full_snapshot_period_ms = 1000;
     bool monitor_active = false;
+    bool imu_monitor_active = false;
+    bool microphone_monitor_active = false;
     bool full_snapshot_monitor_active = false;
 };
 
@@ -343,14 +345,27 @@ struct MemorySnapshot : ComponentSnapshot {
     uint32_t heap_total_bytes = 0;
     uint32_t heap_free_bytes = 0;
     uint32_t heap_minimum_free_bytes = 0;
+    uint32_t internal_heap_total_bytes = 0;
     uint32_t internal_free_bytes = 0;
     uint32_t internal_largest_block_bytes = 0;
+    uint32_t internal_minimum_free_bytes = 0;
+    uint32_t internal_allocated_blocks = 0;
+    uint32_t internal_free_blocks = 0;
+    uint32_t internal_total_blocks = 0;
     bool internal_memory_pressure = false;
     uint32_t psram_capacity_bytes = 0;
     uint32_t psram_heap_total_bytes = 0;
     uint32_t psram_free_bytes = 0;
     uint32_t psram_used_bytes = 0;
     uint32_t psram_largest_block_bytes = 0;
+    uint32_t psram_minimum_free_bytes = 0;
+    uint32_t psram_allocated_blocks = 0;
+    uint32_t psram_free_blocks = 0;
+    uint32_t psram_total_blocks = 0;
+    bool allocation_failure_monitor_active = false;
+    uint32_t allocation_failure_count = 0;
+    uint32_t largest_failed_allocation_bytes = 0;
+    uint32_t failed_allocation_caps_seen_mask = 0;
 };
 
 struct CoreSnapshot {
@@ -402,7 +417,17 @@ public:
     static DeviceSnapshotService &instance();
 
     esp_err_t initialize();
-    esp_err_t refresh(const char *reason = "manual");
+    /**
+     * Refresh all full-snapshot components.
+     *
+     * The periodic worker may provide a non-zero diagnostic reuse window. A
+     * committed IMU or microphone sample can then be consumed once without
+     * changing the time at which that hardware measurement was taken.
+     */
+    esp_err_t refresh(
+        const char *reason = "manual",
+        uint32_t diagnostic_reuse_limit_ms = 0
+    );
     DeviceSnapshot snapshot() const;
 
     void reportStorage(const StorageMountReport &report);
@@ -425,7 +450,11 @@ public:
         const SensorFusionResult &result,
         esp_err_t error
     );
-    void reportDiagnosticMonitor(bool monitor_active, esp_err_t error);
+    void reportDiagnosticMonitor(
+        bool imu_monitor_active,
+        bool microphone_monitor_active,
+        esp_err_t error
+    );
     void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);
     void reportDisplayConfiguredBrightness(
         uint32_t brightness_percent,

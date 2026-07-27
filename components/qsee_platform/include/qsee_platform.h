@@ -27,6 +27,14 @@ typedef struct {
 } qsee_calendar_time_t;
 
 /**
+ * Register the allocation-failure monitor before other firmware services.
+ *
+ * Registration is idempotent. A registration failure is returned unchanged so
+ * startup code can stop before any unobserved allocation-heavy initialization.
+ */
+esp_err_t qsee_memory_telemetry_init(void);
+
+/**
  * Probe and initialize hardware attached to the Waveshare BSP I2C bus.
  *
  * Returns the original initialization error from the first failing peripheral.
@@ -51,8 +59,16 @@ esp_err_t qsee_hardware_set_full_snapshot_performance_suspended(bool suspended);
 /** Persist one supported Full Snapshot cadence: 300-10000 ms presets only. */
 esp_err_t qsee_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
 
-/** Enable or disable the periodic snapshot monitor used by diagnostic pages. */
-esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled);
+/**
+ * Select the measured streams needed by the active diagnostic page.
+ *
+ * IMU and microphone sampling are independently gated so an audio page never
+ * polls the IMU and the IMU page never claims the microphone.
+ */
+esp_err_t qsee_hardware_set_diagnostic_streams(
+    bool imu_enabled,
+    bool microphone_enabled
+);
 /**
  * Enable or disable lightweight IMU publication for adaptive UI wake.
  *

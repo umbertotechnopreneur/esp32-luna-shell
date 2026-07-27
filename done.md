@@ -23,3 +23,17 @@ Completed items moved out of `TODO.md` live here.
   that its 100 ms diagnostics, 300 ms Full Snapshots, global verbose logging,
   and unavailable SD mirroring could starve the UI. Keep each diagnostic
   setting explicit and independently selectable instead.
+
+## Internal memory and diagnostic sampling
+
+- [x] Bound both the canonical logger ring and its snapshot scratch to 15
+  complete lines, and move the permanent logger, SD storage, and diagnostic
+  task stacks to PSRAM while retaining their FreeRTOS TCBs in internal RAM.
+- [x] Publish raw internal/PSRAM heap block metrics and allocation-failure hook
+  counters so fragmentation and failed requests remain explicit.
+- [x] Reuse each fresh Diagnostic IMU or microphone sample at most once in the
+  next Full Snapshot without changing its measurement timestamp, and gate the
+  two diagnostic streams independently.
+
+Device behavior for these changes has not yet been verified; completion here
+records the implementation only.

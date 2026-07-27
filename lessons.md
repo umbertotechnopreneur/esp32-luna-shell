@@ -37,6 +37,33 @@
   Brookesia's general service workers in PSRAM and use one internal secondary
   scheduler worker for the Storage service.
 
+## Internal-memory optimization invariants
+
+- Keep firmware-owned values, counters, sizes, masks, and arithmetic 32-bit.
+  Never introduce a 64-bit type merely to widen or compare native ESP32-S3
+  data. Retain 64-bit values only where an ESP-IDF API mandates that boundary,
+  such as `esp_timer` timestamps, and do not propagate them into unrelated
+  state.
+- Keep the permanent logger writer, removable-storage owner, and diagnostic
+  monitor stacks in PSRAM while their TCBs remain internal. If a future stop or
+  deinit is added, delete these tasks only with `vTaskDeleteWithCaps`, never
+  `vTaskDelete`.
+- Keep the logger ring and snapshot limit aligned at 15 complete lines so
+  retained history and snapshot scratch follow one explicit contract.
+- Diagnose fragmentation with raw internal/PSRAM heap totals, minima, largest
+  blocks, and allocated/free/total block counts. The failed-allocation hook
+  must remain cache-safe and must not allocate or log from inside the callback.
+- A Full Snapshot may consume a newly committed Diagnostic IMU or microphone
+  sample only once within its reuse window. Preserve the original measurement
+  timestamp and mark it consumed only after the Full Snapshot commits.
+- Gate Diagnostic IMU and microphone streams independently so a page never
+  polls or claims an unrelated sensor stream. Before returning microphone
+  ownership to the AFE, disable diagnostics under the shared refresh mutex and
+  have the monitor recheck the flag after acquiring that same mutex.
+
+These are implementation invariants, not verified device-performance results;
+runtime behavior still requires authorized hardware validation.
+
 ## Cardinal rotation rendering
 
 - The CO5300/CST9217 cardinal transform keeps LVGL in the same logical

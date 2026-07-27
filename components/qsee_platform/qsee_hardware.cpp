@@ -21,6 +21,7 @@
 
 #include "bsp/esp-bsp.h"
 #include "driver/i2c_master.h"
+#include "esp_attr.h"
 #include "esp_bit_defs.h"
 #include "esp_chip_info.h"
 #include "esp_codec_dev.h"
@@ -37,6 +38,7 @@
 #include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "xt_utils.h"
 
 #if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
 // The Waveshare header defines the standard M_PI macro unconditionally.
@@ -101,6 +103,7 @@ constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
     23, 32, 45, 64, 90, 110, 120, 127,
 };
 constexpr int64_t kMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
+constexpr uint32_t kPeriodicSummaryIntervalMs = 30000U;
 constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
 
 i2c_master_bus_handle_t s_i2c_bus;
@@ -135,14 +138,84 @@ std::atomic_bool s_imu_smoothing_valid{false};
 bool s_gps_ready;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
-std::atomic_bool s_diagnostic_monitor_active{false};
+std::atomic_bool s_diagnostic_imu_active{false};
+std::atomic_bool s_diagnostic_microphone_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
 std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
 std::atomic_bool s_auto_rotation_enabled{false};
+int64_t s_last_committed_diagnostic_imu_us;
+int64_t s_last_committed_diagnostic_microphone_us;
+int64_t s_last_full_consumed_diagnostic_imu_us;
+int64_t s_last_full_consumed_diagnostic_microphone_us;
+TickType_t s_last_periodic_summary_tick;
 std::mutex s_diagnostic_settings_mutex;
 std::mutex s_processor_usage_mutex;
+
+static_assert(sizeof(size_t) == sizeof(uint32_t));
+DRAM_ATTR volatile uint32_t s_allocation_failure_count = 0;
+DRAM_ATTR volatile uint32_t s_largest_failed_allocation_bytes = 0;
+DRAM_ATTR volatile uint32_t s_failed_allocation_caps_seen_mask = 0;
+std::atomic_bool s_memory_telemetry_active{false};
+
+FORCE_INLINE_ATTR void allocation_counter_update_max(
+    volatile uint32_t *counter,
+    uint32_t candidate
+)
+{
+    uint32_t observed = *counter;
+    while (observed < candidate) {
+        if (xt_utils_compare_and_set(counter, observed, candidate)) {
+            return;
+        }
+        observed = *counter;
+    }
+}
+
+FORCE_INLINE_ATTR void allocation_counter_or(
+    volatile uint32_t *counter,
+    uint32_t bits
+)
+{
+    uint32_t observed = *counter;
+    while ((observed | bits) != observed) {
+        if (xt_utils_compare_and_set(counter, observed, observed | bits)) {
+            return;
+        }
+        observed = *counter;
+    }
+}
+
+FORCE_INLINE_ATTR void allocation_counter_increment_saturating(
+    volatile uint32_t *counter
+)
+{
+    uint32_t observed = *counter;
+    while (observed != UINT32_MAX) {
+        if (xt_utils_compare_and_set(counter, observed, observed + 1U)) {
+            return;
+        }
+        observed = *counter;
+    }
+}
+
+void IRAM_ATTR allocation_failed_hook(
+    size_t requested_bytes,
+    uint32_t caps,
+    const char *function_name
+)
+{
+    (void)function_name;
+
+    allocation_counter_update_max(
+        &s_largest_failed_allocation_bytes,
+        static_cast<uint32_t>(requested_bytes)
+    );
+    allocation_counter_or(&s_failed_allocation_caps_seen_mask, caps);
+    __asm__ __volatile__("memw" ::: "memory");
+    allocation_counter_increment_saturating(&s_allocation_failure_count);
+}
 
 struct ProcessorUsageState {
     bool initialized = false;
@@ -199,8 +272,6 @@ bool s_snapshot_stage_dirty;
 StaticSemaphore_t s_refresh_mutex_control;
 SemaphoreHandle_t s_refresh_mutex;
 
-StaticTask_t s_diagnostic_task_control;
-StackType_t s_diagnostic_task_stack[3072];
 qsee::DeviceSnapshot *s_diagnostic_stage_snapshot;
 std::atomic<TaskHandle_t> s_imu_calibration_task{nullptr};
 std::atomic_bool s_imu_calibration_request_pending{false};
@@ -665,6 +736,46 @@ bool component_has_current_data(const qsee::ComponentSnapshot &component)
            !component.data_stale;
 }
 
+bool is_new_successful_sample(
+    const qsee::ComponentSnapshot &component,
+    int64_t previous_success_at_us,
+    esp_err_t sample_error
+)
+{
+    return sample_error == ESP_OK &&
+           component_has_current_data(component) &&
+           component.last_attempt_at_us == component.last_success_at_us &&
+           component.last_success_at_us > previous_success_at_us;
+}
+
+bool can_reuse_diagnostic_sample(
+    const qsee::ComponentSnapshot &component,
+    int64_t committed_diagnostic_at_us,
+    int64_t consumed_diagnostic_at_us,
+    int64_t now_us,
+    uint32_t diagnostic_reuse_limit_ms
+)
+{
+    if (diagnostic_reuse_limit_ms == 0U ||
+        !component_has_current_data(component) ||
+        committed_diagnostic_at_us <= consumed_diagnostic_at_us ||
+        component.last_attempt_at_us != component.last_success_at_us ||
+        component.last_success_at_us != committed_diagnostic_at_us ||
+        now_us < committed_diagnostic_at_us) {
+        return false;
+    }
+    const int64_t reuse_limit_us =
+        static_cast<int64_t>(diagnostic_reuse_limit_ms) * 1000LL;
+    return now_us - committed_diagnostic_at_us < reuse_limit_us;
+}
+
+bool high_frequency_sample_phase(const char *phase)
+{
+    return phase != nullptr &&
+           (std::strcmp(phase, "diagnostic-ui") == 0 ||
+            std::strcmp(phase, "periodic-full") == 0);
+}
+
 const char *component_summary_state(
     const qsee::ComponentSnapshot &component
 )
@@ -789,7 +900,8 @@ void publish_imu_smoothing(esp_err_t error)
 void publish_diagnostic_monitor(esp_err_t error)
 {
     qsee::DeviceSnapshotService::instance().reportDiagnosticMonitor(
-        s_diagnostic_monitor_active.load(std::memory_order_relaxed),
+        s_diagnostic_imu_active.load(std::memory_order_relaxed),
+        s_diagnostic_microphone_active.load(std::memory_order_relaxed),
         error
     );
 }
@@ -2467,7 +2579,7 @@ esp_err_t sample_imu(
     return sample_publication_result(
         "IMU QMI8658",
         phase,
-        ESP_OK,
+        ESP_ERR_NOT_SUPPORTED,
         publication_error
     );
 #endif
@@ -2605,18 +2717,33 @@ esp_err_t sample_imu(
         }
     );
     if (verbose) {
-        ESP_LOGI(
-            TAG,
-            "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
-            phase,
-            sample.acceleration_mps2[0],
-            sample.acceleration_mps2[1],
-            sample.acceleration_mps2[2],
-            sample.angular_velocity_dps[0],
-            sample.angular_velocity_dps[1],
-            sample.angular_velocity_dps[2],
-            data.temperature
-        );
+        if (high_frequency_sample_phase(phase)) {
+            ESP_LOGD(
+                TAG,
+                "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
+                phase,
+                sample.acceleration_mps2[0],
+                sample.acceleration_mps2[1],
+                sample.acceleration_mps2[2],
+                sample.angular_velocity_dps[0],
+                sample.angular_velocity_dps[1],
+                sample.angular_velocity_dps[2],
+                data.temperature
+            );
+        } else {
+            ESP_LOGI(
+                TAG,
+                "IMU QMI8658 %s: accel=[%.2f %.2f %.2f]m/s2 gyro=[%.2f %.2f %.2f]dps temp=%.1fC",
+                phase,
+                sample.acceleration_mps2[0],
+                sample.acceleration_mps2[1],
+                sample.acceleration_mps2[2],
+                sample.angular_velocity_dps[0],
+                sample.angular_velocity_dps[1],
+                sample.angular_velocity_dps[2],
+                data.temperature
+            );
+        }
     }
     qsee::SensorFusionResult fusion_result;
     const esp_err_t fusion_error =
@@ -3445,12 +3572,32 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
 esp_err_t sample_microphone(const char *phase)
 {
     const size_t channel_count = qsee_audio_input_channel_count();
-    if (channel_count == 0) {
-        return ESP_ERR_NOT_SUPPORTED;
+    const int64_t attempted_at_us = esp_timer_get_time();
+    if (channel_count == 0U || channel_count > 2U) {
+        const esp_err_t channel_error =
+            channel_count == 0U
+                ? ESP_ERR_NOT_SUPPORTED
+                : ESP_ERR_INVALID_RESPONSE;
+        const esp_err_t publication_error = update_snapshot(
+            [attempted_at_us, channel_error](
+                qsee::DeviceSnapshot &snapshot
+            ) {
+                mark_sample_failure(
+                    snapshot.audio.microphone,
+                    channel_error,
+                    attempted_at_us
+                );
+            }
+        );
+        return sample_publication_result(
+            "Microphones ES7210",
+            phase,
+            channel_error,
+            publication_error
+        );
     }
     const size_t frame_count =
         sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
-    const int64_t attempted_at_us = esp_timer_get_time();
     if (qsee_voice_afe_capture_active()) {
         // AFE owns the 16 kHz device while active; publish the real ownership
         // conflict instead of presenting the previous diagnostic sample as new.
@@ -3488,7 +3635,7 @@ esp_err_t sample_microphone(const char *phase)
         return sample_publication_result(
             "Microphones ES7210",
             phase,
-            ESP_OK,
+            ESP_ERR_NOT_SUPPORTED,
             publication_error
         );
     }
@@ -3574,16 +3721,29 @@ esp_err_t sample_microphone(const char *phase)
             ++snapshot.audio.spectrum_sequence;
         }
     );
-    ESP_LOGI(
-        TAG,
-        "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
-        phase,
-        static_cast<unsigned>(channel_count),
-        static_cast<unsigned long>(absolute_sum[0] / frame_count),
-        static_cast<unsigned long>(peak[0]),
-        static_cast<unsigned long>(absolute_sum[1] / frame_count),
-        static_cast<unsigned long>(peak[1])
-    );
+    if (high_frequency_sample_phase(phase)) {
+        ESP_LOGD(
+            TAG,
+            "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
+            phase,
+            static_cast<unsigned>(channel_count),
+            static_cast<unsigned long>(absolute_sum[0] / frame_count),
+            static_cast<unsigned long>(peak[0]),
+            static_cast<unsigned long>(absolute_sum[1] / frame_count),
+            static_cast<unsigned long>(peak[1])
+        );
+    } else {
+        ESP_LOGI(
+            TAG,
+            "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
+            phase,
+            static_cast<unsigned>(channel_count),
+            static_cast<unsigned long>(absolute_sum[0] / frame_count),
+            static_cast<unsigned long>(peak[0]),
+            static_cast<unsigned long>(absolute_sum[1] / frame_count),
+            static_cast<unsigned long>(peak[1])
+        );
+    }
     return sample_publication_result(
         "Microphones ES7210",
         phase,
@@ -3601,8 +3761,12 @@ void diagnostic_monitor_task(void *arg)
     TickType_t last_ui_motion_sample = 0;
 
     for (;;) {
+        const bool diagnostic_imu_active =
+            s_diagnostic_imu_active.load(std::memory_order_relaxed);
+        const bool diagnostic_microphone_active =
+            s_diagnostic_microphone_active.load(std::memory_order_relaxed);
         const bool monitor_active =
-            s_diagnostic_monitor_active.load(std::memory_order_relaxed);
+            diagnostic_imu_active || diagnostic_microphone_active;
         const bool ui_motion_active =
             s_ui_motion_monitor_active.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
@@ -3631,12 +3795,25 @@ void diagnostic_monitor_task(void *arg)
              now - last_ui_motion_sample >= ui_motion_period);
         const bool orientation_due =
             auto_rotation_active && s_imu_ready;
+        const bool diagnostic_imu_due =
+            diagnostic_due && diagnostic_imu_active;
+        const bool diagnostic_microphone_due =
+            diagnostic_due && diagnostic_microphone_active;
+        const bool imu_sample_due =
+            diagnostic_imu_due || ui_motion_due || orientation_due;
         const bool sampling_due =
-            diagnostic_due || ui_motion_due || orientation_due;
+            imu_sample_due || diagnostic_microphone_due;
+        bool effective_diagnostic_due = diagnostic_due;
+        bool effective_diagnostic_imu_due = diagnostic_imu_due;
+        bool effective_diagnostic_microphone_due =
+            diagnostic_microphone_due;
+        bool effective_imu_sample_due = imu_sample_due;
 
         if (sampling_due) {
             esp_err_t aggregate = ESP_OK;
             bool diagnostic_result_published = false;
+            int64_t committed_imu_sample_at_us = 0;
+            int64_t committed_microphone_sample_at_us = 0;
             qsee::DeviceSnapshot &staged_snapshot =
                 *s_diagnostic_stage_snapshot;
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
@@ -3655,57 +3832,120 @@ void diagnostic_monitor_task(void *arg)
                     "Hardware monitor sample rejected: refresh mutex take timed out"
                 );
             } else {
-                const esp_err_t snapshot_lock_error =
-                    begin_snapshot_stage(
-                        staged_snapshot,
-                        pdMS_TO_TICKS(250),
-                        "hardware monitor stage"
+                // Stream selection can change while this task waits for the
+                // refresh lock. Re-check it under that same lock so disabling
+                // microphone diagnostics is a real quiescence barrier.
+                effective_diagnostic_imu_due =
+                    diagnostic_due &&
+                    s_diagnostic_imu_active.load(std::memory_order_acquire);
+                effective_diagnostic_microphone_due =
+                    diagnostic_due &&
+                    s_diagnostic_microphone_active.load(
+                        std::memory_order_acquire
                     );
-                record_first_error(snapshot_lock_error, &aggregate);
-                if (snapshot_lock_error == ESP_OK) {
-                    record_first_error(
-                        sample_imu(
-                            diagnostic_due
-                                ? "diagnostic-ui"
-                                : ui_motion_due
-                                    ? "adaptive-ui"
-                                    : "auto-rotation",
-                            diagnostic_due,
-                            orientation_due
-                        ),
-                        &aggregate
-                    );
-                    if (diagnostic_due) {
-                        if (qsee_voice_afe_capture_active()) {
-                            ESP_LOGD(
-                                TAG,
-                                "Diagnostic monitor omitted microphone sample "
-                                "while voice AFE owns capture"
+                effective_diagnostic_due =
+                    effective_diagnostic_imu_due ||
+                    effective_diagnostic_microphone_due;
+                effective_imu_sample_due =
+                    effective_diagnostic_imu_due ||
+                    ui_motion_due ||
+                    orientation_due;
+                const bool effective_sampling_due =
+                    effective_imu_sample_due ||
+                    effective_diagnostic_microphone_due;
+                if (effective_sampling_due) {
+                    const esp_err_t snapshot_lock_error =
+                        begin_snapshot_stage(
+                            staged_snapshot,
+                            pdMS_TO_TICKS(250),
+                            "hardware monitor stage"
+                        );
+                    record_first_error(snapshot_lock_error, &aggregate);
+                    if (snapshot_lock_error == ESP_OK) {
+                        const int64_t previous_imu_success_at_us =
+                            staged_snapshot.imu.last_success_at_us;
+                        const int64_t previous_microphone_success_at_us =
+                            staged_snapshot.audio.microphone
+                                .last_success_at_us;
+                        esp_err_t imu_sample_error = ESP_OK;
+                        esp_err_t microphone_sample_error = ESP_OK;
+                        if (effective_imu_sample_due) {
+                            imu_sample_error = sample_imu(
+                                effective_diagnostic_imu_due
+                                    ? "diagnostic-ui"
+                                    : ui_motion_due
+                                        ? "adaptive-ui"
+                                        : "auto-rotation",
+                                effective_diagnostic_imu_due,
+                                orientation_due
                             );
-                        } else {
                             record_first_error(
-                                sample_microphone("diagnostic-ui"),
+                                imu_sample_error,
                                 &aggregate
                             );
                         }
+                        if (effective_diagnostic_due) {
+                            if (effective_diagnostic_microphone_due) {
+                                microphone_sample_error =
+                                    sample_microphone("diagnostic-ui");
+                                record_first_error(
+                                    microphone_sample_error,
+                                    &aggregate
+                                );
+                            }
+                            record_first_error(
+                                publish_update_result(
+                                    "diagnostic-ui",
+                                    aggregate
+                                ),
+                                &aggregate
+                            );
+                        }
+                        const esp_err_t commit_error =
+                            commit_snapshot_stage(
+                                staged_snapshot,
+                                SnapshotStageKind::Diagnostic,
+                                pdMS_TO_TICKS(250),
+                                "hardware monitor commit",
+                                nullptr
+                            );
                         record_first_error(
-                            publish_update_result(
-                                "diagnostic-ui",
-                                aggregate
-                            ),
+                            commit_error,
                             &aggregate
                         );
+                        diagnostic_result_published =
+                            effective_diagnostic_due &&
+                            commit_error == ESP_OK;
+                        if (commit_error == ESP_OK) {
+                            if (effective_diagnostic_imu_due &&
+                                is_new_successful_sample(
+                                    staged_snapshot.imu,
+                                    previous_imu_success_at_us,
+                                    imu_sample_error
+                                )) {
+                                committed_imu_sample_at_us =
+                                    staged_snapshot.imu.last_success_at_us;
+                            }
+                            if (effective_diagnostic_microphone_due &&
+                                is_new_successful_sample(
+                                    staged_snapshot.audio.microphone,
+                                    previous_microphone_success_at_us,
+                                    microphone_sample_error
+                                )) {
+                                committed_microphone_sample_at_us =
+                                    staged_snapshot.audio.microphone
+                                        .last_success_at_us;
+                            }
+                        }
                     }
-                    const esp_err_t commit_error = commit_snapshot_stage(
-                        staged_snapshot,
-                        SnapshotStageKind::Diagnostic,
-                        pdMS_TO_TICKS(250),
-                        "hardware monitor commit",
-                        nullptr
-                    );
-                    record_first_error(commit_error, &aggregate);
-                    diagnostic_result_published =
-                        diagnostic_due && commit_error == ESP_OK;
+                }
+                if (committed_imu_sample_at_us > 0) {
+                    s_last_committed_diagnostic_imu_us =
+                        committed_imu_sample_at_us;
+                }
+                if (committed_microphone_sample_at_us > 0) {
+                    s_last_committed_diagnostic_microphone_us =
+                        committed_microphone_sample_at_us;
                 }
                 record_first_error(
                     give_refresh_mutex(
@@ -3716,7 +3956,7 @@ void diagnostic_monitor_task(void *arg)
                 );
             }
 
-            if (diagnostic_due) {
+            if (effective_diagnostic_due) {
                 last_diagnostic_sample = now;
                 if (!diagnostic_result_published) {
                     record_first_error(
@@ -3827,17 +4067,42 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
         );
         ESP_LOGI(
             TAG,
-            "Memory: heap free=%luB total=%luB min=%luB internal=%luB largest=%luB pressure=%s PSRAM used=%luB free=%luB total=%luB physical=%luB largest=%luB",
+            "Memory: heap free=%luB total=%luB min=%luB allocation-failures=%lu largest-failed=%luB caps=0x%08lx",
             static_cast<unsigned long>(snapshot.memory.heap_free_bytes),
             static_cast<unsigned long>(snapshot.memory.heap_total_bytes),
             static_cast<unsigned long>(
                 snapshot.memory.heap_minimum_free_bytes
             ),
+            static_cast<unsigned long>(
+                snapshot.memory.allocation_failure_count
+            ),
+            static_cast<unsigned long>(
+                snapshot.memory.largest_failed_allocation_bytes
+            ),
+            static_cast<unsigned long>(
+                snapshot.memory.failed_allocation_caps_seen_mask
+            )
+        );
+        ESP_LOGI(
+            TAG,
+            "Internal RAM: free=%luB total=%luB min=%luB largest=%luB blocks=%lu/%lu pressure=%s",
             static_cast<unsigned long>(snapshot.memory.internal_free_bytes),
+            static_cast<unsigned long>(
+                snapshot.memory.internal_heap_total_bytes
+            ),
+            static_cast<unsigned long>(
+                snapshot.memory.internal_minimum_free_bytes
+            ),
             static_cast<unsigned long>(
                 snapshot.memory.internal_largest_block_bytes
             ),
-            snapshot.memory.internal_memory_pressure ? "high" : "normal",
+            static_cast<unsigned long>(snapshot.memory.internal_free_blocks),
+            static_cast<unsigned long>(snapshot.memory.internal_total_blocks),
+            snapshot.memory.internal_memory_pressure ? "high" : "normal"
+        );
+        ESP_LOGI(
+            TAG,
+            "PSRAM: used=%luB free=%luB total=%luB physical=%luB min=%luB largest=%luB blocks=%lu/%lu",
             static_cast<unsigned long>(snapshot.memory.psram_used_bytes),
             static_cast<unsigned long>(snapshot.memory.psram_free_bytes),
             static_cast<unsigned long>(
@@ -3847,7 +4112,16 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
                 snapshot.memory.psram_capacity_bytes
             ),
             static_cast<unsigned long>(
+                snapshot.memory.psram_minimum_free_bytes
+            ),
+            static_cast<unsigned long>(
                 snapshot.memory.psram_largest_block_bytes
+            ),
+            static_cast<unsigned long>(
+                snapshot.memory.psram_free_blocks
+            ),
+            static_cast<unsigned long>(
+                snapshot.memory.psram_total_blocks
             )
         );
     }
@@ -3986,33 +4260,98 @@ esp_err_t sample_system_state()
         record_first_error(ESP_ERR_NOT_FOUND, &memory_error);
     }
 
-    memory.heap_total_bytes = static_cast<uint32_t>(
-        heap_caps_get_total_size(MALLOC_CAP_DEFAULT)
-    );
-    memory.heap_free_bytes = esp_get_free_heap_size();
-    memory.heap_minimum_free_bytes = esp_get_minimum_free_heap_size();
-    if (memory.heap_total_bytes == 0 ||
-        memory.heap_free_bytes > memory.heap_total_bytes ||
-        memory.heap_minimum_free_bytes > memory.heap_free_bytes) {
+    constexpr uint32_t internal_caps =
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    multi_heap_info_t default_heap_info = {};
+    multi_heap_info_t internal_heap_info = {};
+    multi_heap_info_t psram_heap_info = {};
+    heap_caps_get_info(&default_heap_info, MALLOC_CAP_DEFAULT);
+    heap_caps_get_info(&internal_heap_info, internal_caps);
+    heap_caps_get_info(&psram_heap_info, MALLOC_CAP_SPIRAM);
+
+    const auto heap_info_is_valid = [](const multi_heap_info_t &info) {
+        return info.largest_free_block <= info.total_free_bytes &&
+               info.minimum_free_bytes <= info.total_free_bytes &&
+               info.allocated_blocks <= info.total_blocks &&
+               info.free_blocks <= info.total_blocks;
+    };
+    if (!heap_info_is_valid(default_heap_info) ||
+        !heap_info_is_valid(internal_heap_info) ||
+        !heap_info_is_valid(psram_heap_info)) {
         record_first_error(ESP_ERR_INVALID_RESPONSE, &memory_error);
     }
-    memory.internal_free_bytes = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+    const size_t default_heap_total =
+        heap_caps_get_total_size(MALLOC_CAP_DEFAULT);
+    const size_t internal_heap_total =
+        heap_caps_get_total_size(internal_caps);
+    const size_t psram_heap_total =
+        heap_caps_get_total_size(MALLOC_CAP_SPIRAM);
+    const size_t psram_capacity = esp_psram_get_size();
+    if (default_heap_total == 0U ||
+        internal_heap_total == 0U ||
+        psram_heap_total == 0U ||
+        psram_capacity == 0U) {
+        record_first_error(ESP_ERR_INVALID_RESPONSE, &memory_error);
+    }
+
+    memory.heap_total_bytes = static_cast<uint32_t>(default_heap_total);
+    memory.heap_free_bytes =
+        static_cast<uint32_t>(default_heap_info.total_free_bytes);
+    memory.heap_minimum_free_bytes =
+        static_cast<uint32_t>(default_heap_info.minimum_free_bytes);
+    memory.internal_heap_total_bytes =
+        static_cast<uint32_t>(internal_heap_total);
+    memory.internal_free_bytes =
+        static_cast<uint32_t>(internal_heap_info.total_free_bytes);
     memory.internal_largest_block_bytes =
-        heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        static_cast<uint32_t>(internal_heap_info.largest_free_block);
+    memory.internal_minimum_free_bytes =
+        static_cast<uint32_t>(internal_heap_info.minimum_free_bytes);
+    memory.internal_allocated_blocks =
+        static_cast<uint32_t>(internal_heap_info.allocated_blocks);
+    memory.internal_free_blocks =
+        static_cast<uint32_t>(internal_heap_info.free_blocks);
+    memory.internal_total_blocks =
+        static_cast<uint32_t>(internal_heap_info.total_blocks);
     memory.internal_memory_pressure =
         memory.internal_free_bytes < 32768U ||
         memory.internal_largest_block_bytes < 16384U;
-    memory.psram_capacity_bytes = static_cast<uint32_t>(esp_psram_get_size());
+    memory.psram_capacity_bytes = static_cast<uint32_t>(psram_capacity);
     memory.psram_heap_total_bytes =
-        static_cast<uint32_t>(heap_caps_get_total_size(MALLOC_CAP_SPIRAM));
-    memory.psram_free_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    if (memory.psram_free_bytes > memory.psram_heap_total_bytes) {
+        static_cast<uint32_t>(psram_heap_total);
+    memory.psram_free_bytes =
+        static_cast<uint32_t>(psram_heap_info.total_free_bytes);
+    if (memory.heap_free_bytes > memory.heap_total_bytes ||
+        memory.internal_free_bytes > memory.internal_heap_total_bytes ||
+        memory.psram_free_bytes > memory.psram_heap_total_bytes) {
         record_first_error(ESP_ERR_INVALID_RESPONSE, &memory_error);
     } else {
         memory.psram_used_bytes =
             memory.psram_heap_total_bytes - memory.psram_free_bytes;
     }
-    memory.psram_largest_block_bytes = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+    memory.psram_largest_block_bytes =
+        static_cast<uint32_t>(psram_heap_info.largest_free_block);
+    memory.psram_minimum_free_bytes =
+        static_cast<uint32_t>(psram_heap_info.minimum_free_bytes);
+    memory.psram_allocated_blocks =
+        static_cast<uint32_t>(psram_heap_info.allocated_blocks);
+    memory.psram_free_blocks =
+        static_cast<uint32_t>(psram_heap_info.free_blocks);
+    memory.psram_total_blocks =
+        static_cast<uint32_t>(psram_heap_info.total_blocks);
+    memory.allocation_failure_monitor_active =
+        s_memory_telemetry_active.load(std::memory_order_acquire);
+    memory.allocation_failure_count =
+        s_allocation_failure_count;
+    __asm__ __volatile__("memw" ::: "memory");
+    memory.largest_failed_allocation_bytes =
+        s_largest_failed_allocation_bytes;
+    memory.failed_allocation_caps_seen_mask =
+        s_failed_allocation_caps_seen_mask;
+    if (!memory.allocation_failure_monitor_active) {
+        record_first_error(ESP_ERR_INVALID_STATE, &memory_error);
+    }
 
     esp_chip_info_t chip = {};
     esp_chip_info(&chip);
@@ -4204,6 +4543,15 @@ DeviceSnapshotService &DeviceSnapshotService::instance()
 
 esp_err_t DeviceSnapshotService::initialize()
 {
+    const esp_err_t telemetry_error = qsee_memory_telemetry_init();
+    if (telemetry_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Allocation-failure monitor initialization failed (%s)",
+            esp_err_to_name(telemetry_error)
+        );
+        return telemetry_error;
+    }
     if (s_initialization_attempted) {
         return s_initialization_result;
     }
@@ -4352,7 +4700,7 @@ esp_err_t DeviceSnapshotService::initialize()
     }
 
     s_initialized = true;
-    error = qsee_hardware_set_diagnostic_monitor(false);
+    error = qsee_hardware_set_diagnostic_streams(false, false);
     if (error != ESP_OK) {
         s_initialization_result = error;
         return error;
@@ -4370,7 +4718,10 @@ esp_err_t DeviceSnapshotService::initialize()
     return ESP_OK;
 }
 
-esp_err_t DeviceSnapshotService::refresh(const char *reason)
+esp_err_t DeviceSnapshotService::refresh(
+    const char *reason,
+    uint32_t diagnostic_reuse_limit_ms
+)
 {
     if (!s_initialized) {
         const esp_err_t publish_error =
@@ -4416,6 +4767,11 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
     DeviceSnapshot staged_snapshot;
     DeviceSnapshot summary;
     bool summary_available = false;
+    int64_t reused_diagnostic_imu_at_us = 0;
+    int64_t reused_diagnostic_microphone_at_us = 0;
+    const bool diagnostic_reuse_allowed =
+        diagnostic_reuse_limit_ms > 0U &&
+        std::strcmp(phase, "periodic-full") == 0;
 
     const esp_err_t snapshot_lock_error = begin_snapshot_stage(
         staged_snapshot,
@@ -4431,13 +4787,49 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
             record_first_error(sample_rtc(phase), &aggregate);
         }
         if (s_imu_ready) {
-            record_first_error(sample_imu(phase), &aggregate);
+            const int64_t committed_diagnostic_imu_at_us =
+                s_last_committed_diagnostic_imu_us;
+            const int64_t consumed_diagnostic_imu_at_us =
+                s_last_full_consumed_diagnostic_imu_us;
+            if (diagnostic_reuse_allowed &&
+                s_diagnostic_imu_active.load(std::memory_order_acquire) &&
+                can_reuse_diagnostic_sample(
+                    staged_snapshot.imu,
+                    committed_diagnostic_imu_at_us,
+                    consumed_diagnostic_imu_at_us,
+                    esp_timer_get_time(),
+                    diagnostic_reuse_limit_ms
+                )) {
+                reused_diagnostic_imu_at_us =
+                    committed_diagnostic_imu_at_us;
+            } else {
+                record_first_error(sample_imu(phase), &aggregate);
+            }
         }
         if (s_gps_ready) {
             record_first_error(sample_gps(phase), &aggregate);
         }
         if (s_microphone_ready) {
-            record_first_error(sample_microphone(phase), &aggregate);
+            const int64_t committed_diagnostic_microphone_at_us =
+                s_last_committed_diagnostic_microphone_us;
+            const int64_t consumed_diagnostic_microphone_at_us =
+                s_last_full_consumed_diagnostic_microphone_us;
+            if (diagnostic_reuse_allowed &&
+                s_diagnostic_microphone_active.load(
+                    std::memory_order_acquire
+                ) &&
+                can_reuse_diagnostic_sample(
+                    staged_snapshot.audio.microphone,
+                    committed_diagnostic_microphone_at_us,
+                    consumed_diagnostic_microphone_at_us,
+                    esp_timer_get_time(),
+                    diagnostic_reuse_limit_ms
+                )) {
+                reused_diagnostic_microphone_at_us =
+                    committed_diagnostic_microphone_at_us;
+            } else {
+                record_first_error(sample_microphone(phase), &aggregate);
+            }
         }
         record_first_error(sample_system_state(), &aggregate);
         record_first_error(publish_update_result(phase, aggregate), &aggregate);
@@ -4451,6 +4843,14 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
         record_first_error(commit_error, &aggregate);
         summary_available = commit_error == ESP_OK;
         if (summary_available) {
+            if (reused_diagnostic_imu_at_us > 0) {
+                s_last_full_consumed_diagnostic_imu_us =
+                    reused_diagnostic_imu_at_us;
+            }
+            if (reused_diagnostic_microphone_at_us > 0) {
+                s_last_full_consumed_diagnostic_microphone_us =
+                    reused_diagnostic_microphone_at_us;
+            }
             apply_measured_sample_aging(summary, esp_timer_get_time());
         }
     }
@@ -4460,12 +4860,25 @@ esp_err_t DeviceSnapshotService::refresh(const char *reason)
             &aggregate
         );
     }
+    bool should_log_summary =
+        summary_available && std::strcmp(phase, "diagnostic-ui") != 0;
+    if (should_log_summary &&
+        std::strcmp(phase, "periodic-full") == 0) {
+        const TickType_t now_tick = xTaskGetTickCount();
+        const TickType_t interval_ticks =
+            pdMS_TO_TICKS(kPeriodicSummaryIntervalMs);
+        should_log_summary =
+            s_last_periodic_summary_tick == 0U ||
+            now_tick - s_last_periodic_summary_tick >= interval_ticks;
+        if (should_log_summary) {
+            s_last_periodic_summary_tick = now_tick;
+        }
+    }
     record_first_error(
         give_refresh_mutex(refresh_mutex, "Hardware refresh"),
         &aggregate
     );
-    if (summary_available &&
-        std::strcmp(phase, "diagnostic-ui") != 0) {
+    if (should_log_summary) {
         log_summary(summary);
     }
     return aggregate;
@@ -4828,7 +5241,8 @@ void DeviceSnapshotService::reportSensorFusion(
 }
 
 void DeviceSnapshotService::reportDiagnosticMonitor(
-    bool monitor_active,
+    bool imu_monitor_active,
+    bool microphone_monitor_active,
     esp_err_t error
 )
 {
@@ -4836,7 +5250,12 @@ void DeviceSnapshotService::reportDiagnosticMonitor(
     const esp_err_t publication_error = update_snapshot(
         [=](DeviceSnapshot &snapshot) {
             if (error == ESP_OK) {
-                snapshot.diagnostics.monitor_active = monitor_active;
+                snapshot.diagnostics.monitor_active =
+                    imu_monitor_active || microphone_monitor_active;
+                snapshot.diagnostics.imu_monitor_active =
+                    imu_monitor_active;
+                snapshot.diagnostics.microphone_monitor_active =
+                    microphone_monitor_active;
                 mark_sample_success(
                     snapshot.diagnostics.monitor,
                     attempted_at_us
@@ -5239,6 +5658,26 @@ void DeviceSnapshotService::reportPowerManagement(
 
 }  // namespace qsee
 
+extern "C" esp_err_t qsee_memory_telemetry_init(void)
+{
+    bool expected = false;
+    if (!s_memory_telemetry_active.compare_exchange_strong(
+            expected,
+            true,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire
+        )) {
+        return ESP_OK;
+    }
+    const esp_err_t error =
+        heap_caps_register_failed_alloc_callback(allocation_failed_hook);
+    if (error != ESP_OK) {
+        s_memory_telemetry_active.store(false, std::memory_order_release);
+        return error;
+    }
+    return ESP_OK;
+}
+
 // Allocate and start the shared diagnostics/orientation task once.
 static esp_err_t ensure_hardware_monitor_task_locked()
 {
@@ -5251,18 +5690,20 @@ static esp_err_t ensure_hardware_monitor_task_locked()
     if (allocation_error != ESP_OK) {
         return allocation_error;
     }
-    s_diagnostic_monitor_active.store(false, std::memory_order_relaxed);
+    s_diagnostic_imu_active.store(false, std::memory_order_relaxed);
+    s_diagnostic_microphone_active.store(false, std::memory_order_relaxed);
     s_ui_motion_monitor_active.store(false, std::memory_order_relaxed);
-    TaskHandle_t task = xTaskCreateStatic(
-        diagnostic_monitor_task,
-        "qsee_diag_monitor",
-        sizeof(s_diagnostic_task_stack) / sizeof(s_diagnostic_task_stack[0]),
-        nullptr,
-        3,
-        s_diagnostic_task_stack,
-        &s_diagnostic_task_control
-    );
-    s_diagnostic_monitor_started = task != nullptr;
+    TaskHandle_t task = nullptr;
+    s_diagnostic_monitor_started =
+        xTaskCreateWithCaps(
+            diagnostic_monitor_task,
+            "qsee_diag_monitor",
+            3072,
+            nullptr,
+            3,
+            &task,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+        ) == pdPASS;
     if (!s_diagnostic_monitor_started) {
         ESP_LOGE(TAG, "Hardware monitor task creation failed");
         return ESP_ERR_NO_MEM;
@@ -5281,20 +5722,41 @@ extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
     return qsee::DeviceSnapshotService::instance().refresh(reason);
 }
 
-extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
+extern "C" esp_err_t qsee_hardware_set_diagnostic_streams(
+    bool imu_enabled,
+    bool microphone_enabled
+)
 {
     if (!s_initialized) {
         publish_diagnostic_monitor(ESP_ERR_INVALID_STATE);
-        ESP_LOGE(TAG, "Diagnostic monitor rejected: hardware is not initialized");
+        ESP_LOGE(
+            TAG,
+            "Diagnostic streams rejected: hardware is not initialized"
+        );
         return ESP_ERR_INVALID_STATE;
     }
-    if (enabled &&
-        (!s_diagnostic_period_valid.load(std::memory_order_relaxed) ||
+    if ((imu_enabled && !s_imu_ready) ||
+        (microphone_enabled && !s_microphone_ready)) {
+        publish_diagnostic_monitor(ESP_ERR_INVALID_STATE);
+        ESP_LOGE(
+            TAG,
+            "Diagnostic streams rejected: requested hardware is unavailable "
+            "(IMU=%s microphone=%s)",
+            !imu_enabled ? "off" : s_imu_ready ? "ready" : "unavailable",
+            !microphone_enabled
+                ? "off"
+                : s_microphone_ready ? "ready" : "unavailable"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (((imu_enabled || microphone_enabled) &&
+         !s_diagnostic_period_valid.load(std::memory_order_relaxed)) ||
+        (imu_enabled &&
          !s_imu_smoothing_valid.load(std::memory_order_relaxed))) {
         publish_diagnostic_monitor(ESP_ERR_INVALID_STATE);
         ESP_LOGE(
             TAG,
-            "Diagnostic monitor rejected: persisted settings are invalid"
+            "Diagnostic streams rejected: persisted settings are invalid"
         );
         return ESP_ERR_INVALID_STATE;
     }
@@ -5307,13 +5769,48 @@ extern "C" esp_err_t qsee_hardware_set_diagnostic_monitor(bool enabled)
         return task_error;
     }
 
-    if (enabled) {
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        publish_diagnostic_monitor(ESP_ERR_NO_MEM);
+        ESP_LOGE(
+            TAG,
+            "Diagnostic streams rejected: refresh mutex allocation failed"
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        publish_diagnostic_monitor(ESP_ERR_TIMEOUT);
+        ESP_LOGE(
+            TAG,
+            "Diagnostic streams rejected: sampler quiescence timed out"
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (imu_enabled || microphone_enabled) {
         s_diagnostic_stack_report_pending.store(true, std::memory_order_relaxed);
     }
-    s_diagnostic_monitor_active.store(enabled, std::memory_order_relaxed);
+    s_diagnostic_imu_active.store(imu_enabled, std::memory_order_release);
+    s_diagnostic_microphone_active.store(
+        microphone_enabled,
+        std::memory_order_release
+    );
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex,
+        "Diagnostic stream selection"
+    );
+    if (release_error != ESP_OK) {
+        publish_diagnostic_monitor(release_error);
+        return release_error;
+    }
+
     publish_diagnostic_monitor(ESP_OK);
-    ESP_LOGI(TAG, "Diagnostic monitor: %s",
-             enabled ? "active" : "standby");
+    ESP_LOGI(
+        TAG,
+        "Diagnostic streams: IMU=%s microphone=%s",
+        imu_enabled ? "active" : "standby",
+        microphone_enabled ? "active" : "standby"
+    );
     return ESP_OK;
 }
 
