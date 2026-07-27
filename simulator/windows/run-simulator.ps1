@@ -13,9 +13,7 @@ param(
 
     [switch]$NoSound,
 
-    [switch]$PerformanceMode,
-
-    [switch]$DebugMode
+    [switch]$PerformanceMode
 )
 
 $ErrorActionPreference = "Stop"
@@ -41,9 +39,6 @@ try {
     }
     if ($PerformanceMode) {
         $Arguments += "--performance-mode"
-    }
-    if ($DebugMode) {
-        $Arguments += "--debug-mode"
     }
     python @Arguments
 }

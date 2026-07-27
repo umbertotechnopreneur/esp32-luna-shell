@@ -60,7 +60,8 @@
                     "hidden": true
                 },
                 "bindings": {
-                    "commonProps.hidden": "hidden"
+                    "commonProps.hidden": "hidden",
+                    "rangeProps.value": "value"
                 },
                 "rangeProps": {
                     "value": 0,

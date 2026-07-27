@@ -238,7 +238,6 @@ class QSeeSimulator:
         self.audio_phase = 0
         self.audio_timer: str | None = None
         self.performance_mode = False
-        self.debug_mode = False
         self.ready = False
         self.safe_guide = False
         self.timeline_index = 0
@@ -837,28 +836,18 @@ class QSeeSimulator:
         elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "fft":
             self.show_audio_detail_demo()
         elif self.screen == "settings":
-            for index in range(4):
-                x, y, diameter = command_geometry(4, index)
+            if 314 <= event.x <= 374 and 176 <= event.y <= 218:
+                self.performance_mode = not self.performance_mode
+                self.logger.info(
+                    "qsee_performance",
+                    "Synthetic Performance Mode "
+                    + ("enabled" if self.performance_mode else "disabled"),
+                )
+                self.show_settings_demo()
+                return
+            for index in range(2):
+                x, y, diameter = command_geometry(2, index)
                 if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
-                    if index == 1:
-                        self.performance_mode = not self.performance_mode
-                        self.debug_mode = False
-                        self.logger.info(
-                            "qsee_performance",
-                            "Synthetic Performance Mode "
-                            + (
-                                "enabled"
-                                if self.performance_mode
-                                else "disabled"
-                            ),
-                        )
-                    elif index == 2:
-                        self.performance_mode = False
-                        self.debug_mode = True
-                        self.logger.info(
-                            "qsee_debug",
-                            "Synthetic Maximum Debug Mode applied",
-                        )
                     self.show_settings_demo()
                     break
 
@@ -967,6 +956,52 @@ class QSeeSimulator:
             tags="ui",
         )
 
+    def _draw_settings_switch(
+        self,
+        y: int,
+        title: str,
+        subtitle: str,
+        checked: bool,
+    ) -> None:
+        self.canvas.create_text(
+            94,
+            y,
+            anchor="w",
+            text=title,
+            fill=TEXT,
+            font=(FONT_DISPLAY, 11),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            y + 20,
+            anchor="w",
+            text=subtitle,
+            fill=MUTED_BRIGHT,
+            font=(FONT_BODY, 8),
+            tags="ui",
+        )
+        self.canvas.create_oval(
+            318,
+            y - 4,
+            372,
+            y + 26,
+            fill=STATUS_READY if checked else "#243744",
+            outline="#63ffd0" if checked else "#506675",
+            width=2,
+            tags="ui",
+        )
+        knob_x = 356 if checked else 334
+        self.canvas.create_oval(
+            knob_x - 10,
+            y + 1,
+            knob_x + 10,
+            y + 21,
+            fill="#ffffff",
+            outline="",
+            tags="ui",
+        )
+
     def _draw_shell(self, title: str, message: str, primary: bool, actions: bool) -> None:
         self._clear()
         self._draw_atmosphere()
@@ -1026,17 +1061,19 @@ class QSeeSimulator:
             ("HEAP", "3894/4711 KB · 82%", 0.82, STATUS_READY),
             ("PSRAM", "3350/4160 KB · 80%", 0.80, STATUS_READY),
             ("FLASH APP", "5901/14476 KB · 40%", 0.40, BLUE),
+            ("CORE 0", "18%", 0.18, STATUS_READY),
+            ("CORE 1", "34%", 0.34, BLUE),
         )
         self.canvas.create_text(
             116,
             193,
             anchor="w",
-            text="MEMORY / STORAGE",
+            text="SYNTHETIC MEMORY / CPU",
             fill="#51c7f2",
             font=(FONT_DISPLAY, 7),
             tags="ui",
         )
-        y = 212
+        y = 207
         for label, value, ratio, color in telemetry:
             self.canvas.create_text(
                 116,
@@ -1076,13 +1113,13 @@ class QSeeSimulator:
                 capstyle=tk.ROUND,
                 tags="ui",
             )
-            y += 31
+            y += 25
 
         wifi_color = STATUS_WARNING
         gps_color = STATUS_WARNING if self.scenario.name == "GPS SEARCHING" else STATUS_READY
         self.canvas.create_text(
             116,
-            307,
+            337,
             anchor="w",
             text="WIFI  OFF",
             fill=wifi_color,
@@ -1091,7 +1128,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             350,
-            307,
+            337,
             anchor="e",
             text=(
                 "GPS  SEARCHING"
@@ -1122,35 +1159,24 @@ class QSeeSimulator:
             94,
             174,
             anchor="w",
-            text="DEBUG MODE" if self.debug_mode else "PERFORMANCE MODE",
-            fill="#51c7f2",
-            font=(FONT_DISPLAY, 14),
-            tags="ui",
-        )
-        self.canvas.create_text(
-            94,
-            196,
-            anchor="w",
             text=(
-                "MAX · SNAP 300 ms · STREAM 100 ms"
-                if self.debug_mode
-                else (
-                    "ON · SD/SNAPSHOT/VOICE PAUSED"
-                    if self.performance_mode
-                    else "OFF · STANDARD SERVICE POLICY"
-                )
+                "Performance profile is active"
+                if self.performance_mode
+                else "Standard service profile"
             ),
-            fill=(
-                STATUS_WARNING
-                if self.debug_mode
-                else STATUS_READY if self.performance_mode else MUTED_BRIGHT
-            ),
-            font=(FONT_TECH, 9, "bold"),
+            fill="#51c7f2",
+            font=(FONT_BODY, 10),
             tags="ui",
+        )
+        self._draw_settings_switch(
+            198,
+            "Performance mode",
+            "Reduces background checks",
+            self.performance_mode,
         )
         self.canvas.create_text(
             94,
-            224,
+            246,
             anchor="w",
             text="DIAGNOSTICS",
             fill=STATUS_READY,
@@ -1159,7 +1185,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             94,
-            246,
+            266,
             anchor="w",
             text="Live snapshots and diagnostics",
             fill=MUTED_BRIGHT,
@@ -1168,37 +1194,24 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             94,
-            272,
+            290,
             anchor="w",
             text="Full Snapshot cadence",
             fill=TEXT,
             font=(FONT_DISPLAY, 12),
             tags="ui",
         )
-        self._draw_settings_control(288, "300 ms" if self.debug_mode else "1 Hz")
+        self._draw_settings_control(304, "1 Hz")
         self.canvas.create_text(
             94,
-            340,
+            357,
             anchor="w",
-            text=(
-                "ACTIVE · MAXIMUM DEBUG PROFILE"
-                if self.debug_mode
-                else (
-                    "STANDBY · PERFORMANCE MODE"
-                    if self.performance_mode
-                    else "ACTIVE · ONE SERIAL SNAPSHOT WORKER"
-                )
-            ),
+            text="1 Hz updates are active",
             fill="#51c7f2",
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
-        commands = (
-            ("➤", True),
-            ("⚡", self.performance_mode),
-            ("⚙", self.debug_mode),
-            ("i", False),
-        )
+        commands = (("➤", True), ("i", False))
         for index, (icon, success) in enumerate(commands):
             x, y, diameter = command_geometry(len(commands), index)
             self._draw_command_button(x, y, icon, success, diameter)
@@ -1983,7 +1996,6 @@ def main() -> None:
     parser.add_argument("--capture", type=Path)
     parser.add_argument("--no-sound", action="store_true")
     parser.add_argument("--performance-mode", action="store_true")
-    parser.add_argument("--debug-mode", action="store_true")
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -1999,8 +2011,7 @@ def main() -> None:
         play_sound=not args.no_sound and args.capture is None,
         idle_state=args.idle_state,
     )
-    simulator.performance_mode = args.performance_mode and not args.debug_mode
-    simulator.debug_mode = args.debug_mode
+    simulator.performance_mode = args.performance_mode
     if args.capture is not None:
         from PIL import ImageGrab
 

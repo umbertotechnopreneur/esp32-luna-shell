@@ -196,6 +196,28 @@ private:
     void handle_full_snapshot_period_event(
         const esp_brookesia::gui::Event &event
     );
+    void handle_diagnostic_period_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_imu_smoothing_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_brightness_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_performance_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_storage_mirror_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_auto_rotation_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void finish_settings_event(
+        esp_err_t result,
+        std::string_view operation
+    );
 
     esp_brookesia::system::core::AppContext *context_ = nullptr;
     esp_brookesia::system::core::TimerId refresh_timer_ =

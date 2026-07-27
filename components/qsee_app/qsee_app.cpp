@@ -55,9 +55,15 @@ constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
 constexpr uint32_t kDimmedRefreshPeriodMs = 5000;
 constexpr uint32_t kPerformanceRefreshPeriodMs = 5000;
 constexpr int64_t kTouchRefreshQuietPeriodUs = 750000;
-constexpr uint32_t kDebugFullSnapshotPeriodMs = 300;
-constexpr uint32_t kDebugDiagnosticPeriodMs = 100;
-constexpr uint32_t kDebugImuSmoothingPercent = 0;
+constexpr std::array<uint32_t, 6> kDiagnosticPeriodsMs = {
+    100, 200, 300, 500, 1000, 2000,
+};
+constexpr std::array<uint32_t, 10> kImuSmoothingPercents = {
+    0, 10, 20, 30, 40, 50, 60, 70, 80, 90,
+};
+constexpr std::array<uint32_t, 10> kBrightnessPercents = {
+    10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
+};
 constexpr char kPairingQrImageId[] = "qsee.pairing.qr";
 constexpr char kBackgroundImageId[] = "qsee.background.asset";
 constexpr char kBackgroundImagePath[] =
@@ -93,221 +99,6 @@ const char *storage_cleanup_stage_name(
 bool snapshot_available(const qsee::DeviceSnapshot &snapshot)
 {
     return snapshot.sequence > 0 && snapshot.last_update_attempt_at_us > 0;
-}
-
-bool debug_profile_active(
-    const qsee::DeviceSnapshot &snapshot,
-    bool performance_mode_enabled
-)
-{
-    return !performance_mode_enabled &&
-           component_ready(snapshot.diagnostics.full_snapshot_period) &&
-           component_ready(snapshot.diagnostics.sample_period) &&
-           component_ready(snapshot.diagnostics.imu_smoothing) &&
-           component_ready(snapshot.storage.logger_mirror) &&
-           snapshot.diagnostics.full_snapshot_period_ms ==
-               kDebugFullSnapshotPeriodMs &&
-           snapshot.diagnostics.sample_period_ms ==
-               kDebugDiagnosticPeriodMs &&
-           snapshot.diagnostics.imu_smoothing_percent ==
-               kDebugImuSmoothingPercent &&
-           snapshot.storage.logger_mirror_requested;
-}
-
-esp_err_t debug_profile_component_error(
-    const qsee::ComponentSnapshot &component
-)
-{
-    return component.last_error != ESP_OK
-        ? component.last_error
-        : ESP_ERR_INVALID_STATE;
-}
-
-esp_err_t apply_maximum_debug_profile(
-    const qsee::DeviceSnapshot &snapshot,
-    bool performance_mode_enabled
-)
-{
-    const std::array<const qsee::ComponentSnapshot *, 4> required = {
-        &snapshot.diagnostics.full_snapshot_period,
-        &snapshot.diagnostics.sample_period,
-        &snapshot.diagnostics.imu_smoothing,
-        &snapshot.storage.logger_mirror,
-    };
-    for (const qsee::ComponentSnapshot *component : required) {
-        if (!component_ready(*component)) {
-            const esp_err_t error =
-                debug_profile_component_error(*component);
-            ESP_LOGE(
-                kTag,
-                "Maximum Debug Mode rejected because a required setting "
-                "is unavailable (%s)",
-                esp_err_to_name(error)
-            );
-            return error;
-        }
-    }
-    if (!qsee::isFullSnapshotPeriodSupported(
-            snapshot.diagnostics.full_snapshot_period_ms
-        ) ||
-        snapshot.diagnostics.sample_period_ms < 100U ||
-        snapshot.diagnostics.sample_period_ms > 2000U ||
-        snapshot.diagnostics.imu_smoothing_percent > 90U) {
-        ESP_LOGE(
-            kTag,
-            "Maximum Debug Mode rejected invalid current settings "
-            "(snapshot=%lu diagnostic=%lu smoothing=%lu error=%s)",
-            static_cast<unsigned long>(
-                snapshot.diagnostics.full_snapshot_period_ms
-            ),
-            static_cast<unsigned long>(
-                snapshot.diagnostics.sample_period_ms
-            ),
-            static_cast<unsigned long>(
-                snapshot.diagnostics.imu_smoothing_percent
-            ),
-            esp_err_to_name(ESP_ERR_INVALID_STATE)
-        );
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    enum class AppliedSetting : uint8_t {
-        Performance,
-        FullSnapshot,
-        DiagnosticPeriod,
-        ImuSmoothing,
-        SdMirror,
-    };
-    std::array<AppliedSetting, 5> applied{};
-    size_t applied_count = 0;
-    esp_err_t error = ESP_OK;
-
-    const auto record = [&](
-        AppliedSetting setting,
-        const char *operation,
-        esp_err_t result
-    ) {
-        if (result != ESP_OK) {
-            ESP_LOGE(
-                kTag,
-                "Maximum Debug Mode %s failed (%s)",
-                operation,
-                esp_err_to_name(result)
-            );
-            error = result;
-            return false;
-        }
-        applied[applied_count++] = setting;
-        return true;
-    };
-
-    if (performance_mode_enabled &&
-        !record(
-            AppliedSetting::Performance,
-            "Performance Mode disable",
-            qsee_performance_mode_set_enabled(false)
-        )) {
-        return error;
-    }
-    if (snapshot.diagnostics.full_snapshot_period_ms !=
-            kDebugFullSnapshotPeriodMs &&
-        !record(
-            AppliedSetting::FullSnapshot,
-            "Full Snapshot cadence update",
-            qsee_hardware_set_full_snapshot_period_ms(
-                kDebugFullSnapshotPeriodMs
-            )
-        )) {
-        goto rollback;
-    }
-    if (snapshot.diagnostics.sample_period_ms !=
-            kDebugDiagnosticPeriodMs &&
-        !record(
-            AppliedSetting::DiagnosticPeriod,
-            "diagnostic cadence update",
-            qsee_hardware_set_diagnostic_period_ms(
-                kDebugDiagnosticPeriodMs
-            )
-        )) {
-        goto rollback;
-    }
-    if (snapshot.diagnostics.imu_smoothing_percent !=
-            kDebugImuSmoothingPercent &&
-        !record(
-            AppliedSetting::ImuSmoothing,
-            "IMU smoothing update",
-            qsee_hardware_set_imu_smoothing_percent(
-                kDebugImuSmoothingPercent
-            )
-        )) {
-        goto rollback;
-    }
-    if (!snapshot.storage.logger_mirror_requested &&
-        !record(
-            AppliedSetting::SdMirror,
-            "SD log mirror enable",
-            qsee_storage_set_logger_mirror(true)
-        )) {
-        goto rollback;
-    }
-
-    esp_log_level_set("*", ESP_LOG_VERBOSE);
-    ESP_LOGI(
-        kTag,
-        "Maximum Debug Mode active: Full Snapshot=%lu ms "
-        "diagnostics=%lu ms IMU smoothing=%lu%% SD mirror=ON logs=VERBOSE",
-        static_cast<unsigned long>(kDebugFullSnapshotPeriodMs),
-        static_cast<unsigned long>(kDebugDiagnosticPeriodMs),
-        static_cast<unsigned long>(kDebugImuSmoothingPercent)
-    );
-    return ESP_OK;
-
-rollback:
-    while (applied_count > 0U) {
-        const AppliedSetting setting = applied[--applied_count];
-        esp_err_t rollback_error = ESP_OK;
-        const char *rollback_operation = "unknown";
-        switch (setting) {
-        case AppliedSetting::SdMirror:
-            rollback_operation = "SD log mirror";
-            rollback_error = qsee_storage_set_logger_mirror(
-                snapshot.storage.logger_mirror_requested
-            );
-            break;
-        case AppliedSetting::ImuSmoothing:
-            rollback_operation = "IMU smoothing";
-            rollback_error = qsee_hardware_set_imu_smoothing_percent(
-                snapshot.diagnostics.imu_smoothing_percent
-            );
-            break;
-        case AppliedSetting::DiagnosticPeriod:
-            rollback_operation = "diagnostic cadence";
-            rollback_error = qsee_hardware_set_diagnostic_period_ms(
-                snapshot.diagnostics.sample_period_ms
-            );
-            break;
-        case AppliedSetting::FullSnapshot:
-            rollback_operation = "Full Snapshot cadence";
-            rollback_error = qsee_hardware_set_full_snapshot_period_ms(
-                snapshot.diagnostics.full_snapshot_period_ms
-            );
-            break;
-        case AppliedSetting::Performance:
-            rollback_operation = "Performance Mode";
-            rollback_error =
-                qsee_performance_mode_set_enabled(performance_mode_enabled);
-            break;
-        }
-        if (rollback_error != ESP_OK) {
-            ESP_LOGE(
-                kTag,
-                "Maximum Debug Mode rollback failed for %s (%s)",
-                rollback_operation,
-                esp_err_to_name(rollback_error)
-            );
-        }
-    }
-    return error;
 }
 
 void format_full_snapshot_cadence(
@@ -713,18 +504,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         "qsee.hardware.detail.9",
         "qsee.hardware.detail.10",
         "qsee.hardware.detail.11",
-        "qsee.settings.diagnostic.faster",
-        "qsee.settings.diagnostic.slower",
-        "qsee.settings.diagnostic.reset",
-        "qsee.settings.imu_smoothing.less",
-        "qsee.settings.imu_smoothing.more",
-        "qsee.settings.storage.mirror.toggle",
-        "qsee.settings.performance.toggle",
-        "qsee.settings.debug.maximum",
         "qsee.settings.radios.start",
-        "qsee.settings.display.brightness_down",
-        "qsee.settings.display.brightness_up",
-        "qsee.settings.display.rotation.toggle",
     };
     auto subscription_result = context.gui().subscribe_actions(actions);
     if (!subscription_result) {
@@ -776,6 +556,42 @@ std::expected<void, std::string> App::on_start(AppContext &context)
             .action = "qsee.settings.full_snapshot.changed",
             .handler = [this](const esp_brookesia::gui::Event &event) {
                 handle_full_snapshot_period_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.diagnostic.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_diagnostic_period_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.imu_smoothing.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_imu_smoothing_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.display.brightness.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_brightness_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.performance.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_performance_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.storage.mirror.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_storage_mirror_event(event);
+            },
+        },
+        {
+            .action = "qsee.settings.display.rotation.changed",
+            .handler = [this](const esp_brookesia::gui::Event &event) {
+                handle_auto_rotation_event(event);
             },
         },
     };
@@ -1269,31 +1085,8 @@ std::expected<void, std::string> App::configure_chrome(
     static constexpr std::array<CommandSpec, 1> kAudioFftCommands = {{
         {"\xef\x81\xae", "qsee.open.audio_detail", ActionRole::Success, true},
     }};
-    const DeviceSnapshot settings_snapshot =
-        DeviceSnapshotService::instance().snapshot();
-    const bool maximum_debug_active =
-        debug_profile_active(
-            settings_snapshot,
-            performance_mode_enabled_
-        );
-    const std::array<CommandSpec, 4> settings_commands = {{
+    static constexpr std::array<CommandSpec, 2> kSettingsCommands = {{
         {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success, false},
-        {
-            "\xef\x83\xa7",
-            "qsee.settings.performance.toggle",
-            performance_mode_enabled_
-                ? ActionRole::Success
-                : ActionRole::Primary,
-            true,
-        },
-        {
-            "\xef\x81\xb1",
-            "qsee.settings.debug.maximum",
-            maximum_debug_active
-                ? ActionRole::Success
-                : ActionRole::Warning,
-            true,
-        },
         {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, false},
     }};
 
@@ -1322,7 +1115,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::Settings:
             return adaptive_chrome_.configure_commands(
                 context.gui(),
-                settings_commands
+                kSettingsCommands
             );
         case Screen::Hardware:
             return adaptive_chrome_.configure_commands(
@@ -1765,236 +1558,12 @@ std::expected<void, std::string> App::on_action(
         return refresh_settings(context);
     };
 
-    if (action == "qsee.settings.diagnostic.faster" ||
-        action == "qsee.settings.diagnostic.slower" ||
-        action == "qsee.settings.diagnostic.reset") {
-        const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-        if (action != "qsee.settings.diagnostic.reset" &&
-            !component_ready(snapshot.diagnostics.sample_period)) {
-            const esp_err_t error =
-                snapshot.diagnostics.sample_period.last_error != ESP_OK
-                    ? snapshot.diagnostics.sample_period.last_error
-                    : ESP_ERR_INVALID_STATE;
-            return finish_settings_command(
-                error,
-                "Diagnostic sample interval"
-            );
-        }
-        const uint32_t current_period = snapshot.diagnostics.sample_period_ms;
-        if (action != "qsee.settings.diagnostic.reset" &&
-            (current_period < 100U || current_period > 2000U)) {
-            ESP_LOGE(
-                kTag,
-                "Diagnostic sample interval rejected: current=%lu error=%s",
-                static_cast<unsigned long>(current_period),
-                esp_err_to_name(ESP_ERR_INVALID_STATE)
-            );
-            return finish_settings_command(
-                ESP_ERR_INVALID_STATE,
-                "Diagnostic sample interval"
-            );
-        }
-        const int current = static_cast<int>(current_period);
-        const int requested = action == "qsee.settings.diagnostic.reset"
-            ? 300
-            : current +
-                  (action == "qsee.settings.diagnostic.faster" ? -100 : 100);
-        if (requested < 100 || requested > 2000) {
-            ESP_LOGE(
-                kTag,
-                "Diagnostic sample interval request rejected: "
-                "current=%d requested=%d",
-                current,
-                requested
-            );
-            return finish_settings_command(
-                ESP_ERR_INVALID_ARG,
-                "Diagnostic sample interval"
-            );
-        }
-        return finish_settings_command(
-            qsee_hardware_set_diagnostic_period_ms(static_cast<uint32_t>(requested)),
-            "Diagnostic sample interval"
-        );
-    }
-    if (action == "qsee.settings.imu_smoothing.less" ||
-        action == "qsee.settings.imu_smoothing.more") {
-        const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-        if (!component_ready(snapshot.diagnostics.imu_smoothing)) {
-            const esp_err_t error =
-                snapshot.diagnostics.imu_smoothing.last_error != ESP_OK
-                    ? snapshot.diagnostics.imu_smoothing.last_error
-                    : ESP_ERR_INVALID_STATE;
-            return finish_settings_command(
-                error,
-                "IMU input smoothing"
-            );
-        }
-        if (snapshot.diagnostics.imu_smoothing_percent > 90U) {
-            ESP_LOGE(
-                kTag,
-                "IMU smoothing adjustment rejected: current=%lu error=%s",
-                static_cast<unsigned long>(
-                    snapshot.diagnostics.imu_smoothing_percent
-                ),
-                esp_err_to_name(ESP_ERR_INVALID_STATE)
-            );
-            return finish_settings_command(
-                ESP_ERR_INVALID_STATE,
-                "IMU input smoothing"
-            );
-        }
-        const int requested =
-            static_cast<int>(snapshot.diagnostics.imu_smoothing_percent) +
-            (action == "qsee.settings.imu_smoothing.less" ? -10 : 10);
-        if (requested < 0 || requested > 90) {
-            ESP_LOGE(
-                kTag,
-                "IMU smoothing request rejected: current=%lu requested=%d",
-                static_cast<unsigned long>(
-                    snapshot.diagnostics.imu_smoothing_percent
-                ),
-                requested
-            );
-            return finish_settings_command(
-                ESP_ERR_INVALID_ARG,
-                "IMU input smoothing"
-            );
-        }
-        return finish_settings_command(
-            qsee_hardware_set_imu_smoothing_percent(static_cast<uint32_t>(requested)),
-            "IMU input smoothing"
-        );
-    }
-    if (action == "qsee.settings.storage.mirror.toggle") {
-        const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-        if (!component_ready(snapshot.storage.logger_mirror)) {
-            const esp_err_t error =
-                snapshot.storage.logger_mirror.last_error != ESP_OK
-                    ? snapshot.storage.logger_mirror.last_error
-                    : ESP_ERR_INVALID_STATE;
-            return finish_settings_command(error, "SD log mirror");
-        }
-        return finish_settings_command(
-            qsee_storage_set_logger_mirror(!snapshot.storage.logger_mirror_requested),
-            "SD log mirror"
-        );
-    }
     if (action == "qsee.settings.radios.start") {
         esp_err_t result = qsee_radios_init();
         if (result == ESP_OK && !qsee_provisioning_active()) {
             result = qsee_wifi_start_scan();
         }
         return finish_settings_command(result, "Radio startup");
-    }
-    if (action == "qsee.settings.display.rotation.toggle") {
-        const DeviceSnapshot snapshot =
-            DeviceSnapshotService::instance().snapshot();
-        if (!component_ready(snapshot.ui.orientation)) {
-            const esp_err_t error =
-                snapshot.ui.orientation.last_error != ESP_OK
-                    ? snapshot.ui.orientation.last_error
-                    : ESP_ERR_INVALID_STATE;
-            return finish_settings_command(error, "Automatic rotation");
-        }
-        return finish_settings_command(
-            qsee_display_set_auto_rotation_enabled(
-                !snapshot.ui.orientation.auto_rotation_enabled
-            ),
-            "Automatic rotation"
-        );
-    }
-    if (action == "qsee.settings.performance.toggle") {
-        const bool requested = !performance_mode_enabled_;
-        const esp_err_t result =
-            qsee_performance_mode_set_enabled(requested);
-        if (result != ESP_OK) {
-            return finish_settings_command(result, "Performance Mode");
-        }
-        performance_mode_enabled_ =
-            qsee_performance_mode_get_enabled();
-        if (auto chrome_result = configure_chrome(context);
-            !chrome_result) {
-            return chrome_result;
-        }
-        if (auto timer_result = sync_refresh_timer(
-                context,
-                adaptive_chrome_.display_idle_stage()
-            ); !timer_result) {
-            return timer_result;
-        }
-        return refresh_settings(context);
-    }
-    if (action == "qsee.settings.debug.maximum") {
-        const DeviceSnapshot snapshot =
-            DeviceSnapshotService::instance().snapshot();
-        const esp_err_t result = apply_maximum_debug_profile(
-            snapshot,
-            performance_mode_enabled_
-        );
-        performance_mode_enabled_ =
-            qsee_performance_mode_get_enabled();
-        if (result != ESP_OK) {
-            return finish_settings_command(
-                result,
-                "Maximum Debug Mode"
-            );
-        }
-        if (auto chrome_result = configure_chrome(context);
-            !chrome_result) {
-            return chrome_result;
-        }
-        if (auto timer_result = sync_refresh_timer(
-                context,
-                adaptive_chrome_.display_idle_stage()
-            ); !timer_result) {
-            return timer_result;
-        }
-        return refresh_settings(context);
-    }
-    if (action == "qsee.settings.display.brightness_down" ||
-        action == "qsee.settings.display.brightness_up") {
-        const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-        if (!component_ready(snapshot.ui.brightness) ||
-            !component_ready(snapshot.ui.display)) {
-            const ComponentSnapshot &failed_component =
-                !component_ready(snapshot.ui.brightness)
-                    ? snapshot.ui.brightness
-                    : snapshot.ui.display;
-            const esp_err_t error = failed_component.last_error != ESP_OK
-                ? failed_component.last_error
-                : ESP_ERR_INVALID_STATE;
-            return finish_settings_command(error, "AMOLED brightness");
-        }
-        if (snapshot.ui.brightness_percent < 10U ||
-            snapshot.ui.brightness_percent > 100U) {
-            ESP_LOGE(
-                kTag,
-                "AMOLED brightness adjustment rejected: current=%lu error=%s",
-                static_cast<unsigned long>(snapshot.ui.brightness_percent),
-                esp_err_to_name(ESP_ERR_INVALID_STATE)
-            );
-            return finish_settings_command(ESP_ERR_INVALID_STATE, "AMOLED brightness");
-        }
-        const int requested =
-            static_cast<int>(snapshot.ui.brightness_percent) +
-            (action == "qsee.settings.display.brightness_down" ? -10 : 10);
-        if (requested < 10 || requested > 100) {
-            ESP_LOGE(
-                kTag,
-                "AMOLED brightness request rejected: current=%lu requested=%d",
-                static_cast<unsigned long>(snapshot.ui.brightness_percent),
-                requested
-            );
-            return finish_settings_command(
-                ESP_ERR_INVALID_ARG,
-                "AMOLED brightness"
-            );
-        }
-        return finish_settings_command(
-            qsee_display_set_brightness_percent(static_cast<uint32_t>(requested)),
-            "AMOLED brightness"
-        );
     }
     return {};
 }
@@ -2119,6 +1688,274 @@ void App::handle_full_snapshot_period_event(
             ESP_LOGE(kTag, "%s", refresh_result.error().c_str());
         }
     }
+}
+
+void App::finish_settings_event(
+    esp_err_t result,
+    std::string_view operation
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(
+            kTag,
+            "%.*s event completed without app context",
+            static_cast<int>(operation.size()),
+            operation.data()
+        );
+        return;
+    }
+    if (result != ESP_OK) {
+        std::array<char, 160> details{};
+        std::snprintf(
+            details.data(),
+            details.size(),
+            "%.*s failed: %s",
+            static_cast<int>(operation.size()),
+            operation.data(),
+            esp_err_to_name(result)
+        );
+        ESP_LOGE(kTag, "%s", details.data());
+        if (auto dialog_result = show_error_dialog(
+                *context_,
+                "Setting not applied",
+                details.data()
+            ); !dialog_result) {
+            ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
+        }
+    }
+    if (screen_ == Screen::Settings) {
+        if (auto refresh_result = refresh_settings(*context_);
+            !refresh_result) {
+            ESP_LOGE(kTag, "%s", refresh_result.error().c_str());
+        }
+    }
+}
+
+void App::handle_diagnostic_period_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "Diagnostic dropdown event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto selected_index = event.get_int64("selectedIndex");
+    if (!selected_index.has_value() || *selected_index < 0 ||
+        static_cast<size_t>(*selected_index) >=
+            kDiagnosticPeriodsMs.size()) {
+        ESP_LOGE(kTag, "Diagnostic dropdown supplied an invalid selectedIndex");
+        return;
+    }
+    const size_t index = static_cast<size_t>(*selected_index);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (component_ready(snapshot.diagnostics.sample_period) &&
+        snapshot.diagnostics.sample_period_ms ==
+            kDiagnosticPeriodsMs[index]) {
+        return;
+    }
+    finish_settings_event(
+        qsee_hardware_set_diagnostic_period_ms(
+            kDiagnosticPeriodsMs[index]
+        ),
+        "Diagnostic refresh"
+    );
+}
+
+void App::handle_imu_smoothing_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "IMU smoothing event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto selected_index = event.get_int64("selectedIndex");
+    if (!selected_index.has_value() || *selected_index < 0 ||
+        static_cast<size_t>(*selected_index) >=
+            kImuSmoothingPercents.size()) {
+        ESP_LOGE(kTag, "IMU smoothing dropdown supplied an invalid selectedIndex");
+        return;
+    }
+    const size_t index = static_cast<size_t>(*selected_index);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (component_ready(snapshot.diagnostics.imu_smoothing) &&
+        snapshot.diagnostics.imu_smoothing_percent ==
+            kImuSmoothingPercents[index]) {
+        return;
+    }
+    finish_settings_event(
+        qsee_hardware_set_imu_smoothing_percent(
+            kImuSmoothingPercents[index]
+        ),
+        "Motion smoothing"
+    );
+}
+
+void App::handle_brightness_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "Brightness event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto selected_index = event.get_int64("selectedIndex");
+    if (!selected_index.has_value() || *selected_index < 0 ||
+        static_cast<size_t>(*selected_index) >=
+            kBrightnessPercents.size()) {
+        ESP_LOGE(kTag, "Brightness dropdown supplied an invalid selectedIndex");
+        return;
+    }
+    const size_t index = static_cast<size_t>(*selected_index);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (component_ready(snapshot.ui.brightness) &&
+        snapshot.ui.brightness_percent == kBrightnessPercents[index]) {
+        return;
+    }
+    finish_settings_event(
+        qsee_display_set_brightness_percent(kBrightnessPercents[index]),
+        "AMOLED brightness"
+    );
+}
+
+void App::handle_performance_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "Performance switch event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto checked = event.get_bool("checked");
+    if (!checked.has_value()) {
+        ESP_LOGE(kTag, "Performance switch event omitted checked state");
+        return;
+    }
+    if (*checked == performance_mode_enabled_) {
+        return;
+    }
+    const esp_err_t result =
+        qsee_performance_mode_set_enabled(*checked);
+    if (result != ESP_OK) {
+        finish_settings_event(result, "Performance mode");
+        return;
+    }
+    performance_mode_enabled_ = qsee_performance_mode_get_enabled();
+    if (performance_mode_enabled_ != *checked) {
+        finish_settings_event(
+            ESP_ERR_INVALID_RESPONSE,
+            "Performance mode"
+        );
+        return;
+    }
+    if (auto timer_result = sync_refresh_timer(
+            *context_,
+            adaptive_chrome_.display_idle_stage()
+        ); !timer_result) {
+        ESP_LOGE(kTag, "%s", timer_result.error().c_str());
+        finish_settings_event(ESP_FAIL, "Performance refresh timer");
+        return;
+    }
+    finish_settings_event(ESP_OK, "Performance mode");
+}
+
+void App::handle_storage_mirror_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "SD mirror switch event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto checked = event.get_bool("checked");
+    if (!checked.has_value()) {
+        ESP_LOGE(kTag, "SD mirror switch event omitted checked state");
+        return;
+    }
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (!component_ready(snapshot.storage.logger_mirror)) {
+        finish_settings_event(
+            snapshot.storage.logger_mirror.last_error != ESP_OK
+                ? snapshot.storage.logger_mirror.last_error
+                : ESP_ERR_INVALID_STATE,
+            "SD log copy"
+        );
+        return;
+    }
+    if (*checked == snapshot.storage.logger_mirror_requested) {
+        return;
+    }
+    finish_settings_event(
+        qsee_storage_set_logger_mirror(*checked),
+        "SD log copy"
+    );
+}
+
+void App::handle_auto_rotation_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "Rotation switch event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto checked = event.get_bool("checked");
+    if (!checked.has_value()) {
+        ESP_LOGE(kTag, "Rotation switch event omitted checked state");
+        return;
+    }
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (!component_ready(snapshot.ui.orientation)) {
+        finish_settings_event(
+            snapshot.ui.orientation.last_error != ESP_OK
+                ? snapshot.ui.orientation.last_error
+                : ESP_ERR_INVALID_STATE,
+            "Automatic rotation"
+        );
+        return;
+    }
+    if (*checked == snapshot.ui.orientation.auto_rotation_enabled) {
+        return;
+    }
+    finish_settings_event(
+        qsee_display_set_auto_rotation_enabled(*checked),
+        "Automatic rotation"
+    );
 }
 
 std::expected<void, std::string> App::on_timer(
@@ -2583,16 +2420,26 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         const std::string path = core == 0
             ? "/qsee_welcome/surface/core0"
             : "/qsee_welcome/surface/core1";
+        bool utilization_available = false;
+        uint8_t utilization_percent = 0;
         if (component_ready(snapshot.processor) &&
             core < snapshot.processor.core_count) {
-            std::snprintf(
-                text.data(),
-                text.size(),
-                "%s | CPU data unavailable",
-                snapshot.processor.cores[core].available
-                    ? snapshot.processor.cores[core].current_task
-                    : "core unavailable"
-            );
+            const CoreSnapshot &core_snapshot =
+                snapshot.processor.cores[core];
+            utilization_available =
+                core_snapshot.available &&
+                core_snapshot.utilization_available;
+            utilization_percent = core_snapshot.utilization_percent;
+            if (utilization_available) {
+                std::snprintf(
+                    text.data(),
+                    text.size(),
+                    "%u%%",
+                    static_cast<unsigned>(utilization_percent)
+                );
+            } else {
+                std::snprintf(text.data(), text.size(), "MEASURING...");
+            }
         } else {
             std::snprintf(
                 text.data(),
@@ -2605,8 +2452,21 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         if (auto result = set_text(context, path + "/value", text.data()); !result) {
             return result;
         }
+        if (utilization_available) {
+            if (auto result = set_binding_text(
+                    context,
+                    path + "/bar",
+                    "value",
+                    std::to_string(utilization_percent)
+                ); !result) {
+                return result;
+            }
+        }
         if (auto result = set_binding_text(
-                context, path + "/bar", "hidden", "true"
+                context,
+                path + "/bar",
+                "hidden",
+                utilization_available ? "false" : "true"
             ); !result) {
             return result;
         }
@@ -3120,22 +2980,29 @@ std::expected<void, std::string> App::show_hardware_details(
     case 11:
         append_format(
             details,
-            "CORES PRESENT: %u\nUTILIZATION: UNAVAILABLE (NOT MEASURED)",
+            "CORES PRESENT: %u",
             static_cast<unsigned>(snapshot.processor.core_count)
         );
         for (size_t core = 0;
              core < std::min<size_t>(snapshot.processor.core_count, 2);
              ++core) {
-            append_format(
-                details,
-                "\nCORE %u: %s%s%s",
-                static_cast<unsigned>(core),
-                "PRESENT",
-                snapshot.processor.cores[core].available ? " | TASK " : "",
-                snapshot.processor.cores[core].available
-                    ? snapshot.processor.cores[core].current_task
-                    : ""
-            );
+            if (snapshot.processor.cores[core].utilization_available) {
+                append_format(
+                    details,
+                    "\nCORE %u: %u%% BUSY",
+                    static_cast<unsigned>(core),
+                    static_cast<unsigned>(
+                        snapshot.processor.cores[core]
+                            .utilization_percent
+                    )
+                );
+            } else {
+                append_format(
+                    details,
+                    "\nCORE %u: MEASURING",
+                    static_cast<unsigned>(core)
+                );
+            }
         }
         break;
     default:
@@ -3144,13 +3011,13 @@ std::expected<void, std::string> App::show_hardware_details(
 
     const std::string title =
         std::string(descriptor.name) + " | " + std::string(descriptor.part);
-    // System Core has no Shell dialog provider. Keep the selected component's
-    // real detail visible in the page header until QSee's declarative modal is
-    // added, instead of pretending a Shell dialog was displayed.
-    return set_text(
+    return alert_service_.show_notice(
         context,
-        "/qsee_hardware/surface/hardware_scroller/summary",
-        title + "\n" + details.data()
+        title,
+        details.data(),
+        component_ready(component)
+            ? esp_brookesia::system::core::MessageDialogIcon::Information
+            : esp_brookesia::system::core::MessageDialogIcon::Warning
     );
 }
 
@@ -4413,26 +4280,13 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
     std::array<char, 256> text{};
-    if (debug_profile_active(snapshot, performance_mode_enabled_)) {
-        std::snprintf(
-            text.data(),
-            text.size(),
-            "DEBUG MODE | MAXIMUM\n"
-            "SNAPSHOT 300 ms + DIAGNOSTICS 100 ms\n"
-            "RAW IMU + SD LOG ACTIVE"
-        );
-    } else {
-        std::snprintf(
-            text.data(),
-            text.size(),
-            performance_mode_enabled_
-                ? "PERFORMANCE MODE | ON\n"
-                  "SD LOG + SNAPSHOT PAUSED\n"
-                  "VOICE PAUSED IF ACTIVE | RADIOS ON"
-                : "PERFORMANCE MODE | OFF\n"
-                  "STANDARD SERVICE POLICY ACTIVE"
-        );
-    }
+    std::snprintf(
+        text.data(),
+        text.size(),
+        performance_mode_enabled_
+            ? "Performance profile is active"
+            : "Standard service profile"
+    );
     if (auto result = set_text(
             context,
             "/qsee_settings/surface/settings_scroller/performance_status",
@@ -4452,8 +4306,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "FULL SNAPSHOT | %s (%s)",
-            component_state(snapshot.diagnostics.full_snapshot_period),
+            "Snapshot cadence unavailable: %s",
             component_reason(snapshot.diagnostics.full_snapshot_period)
         );
     } else if (std::find(
@@ -4464,10 +4317,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "FULL SNAPSHOT | ERROR (INVALID SAVED CADENCE: %lu ms)",
-            static_cast<unsigned long>(
-                snapshot.diagnostics.full_snapshot_period_ms
-            )
+            "Saved snapshot cadence is invalid"
         );
     } else if (!component_ready(
                    snapshot.diagnostics.full_snapshot_monitor
@@ -4475,20 +4325,18 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "FULL SNAPSHOT | %s | monitor %s (%s)",
-            full_snapshot_cadence.data(),
-            component_state(snapshot.diagnostics.full_snapshot_monitor),
+            "Snapshot monitor unavailable: %s",
             component_reason(snapshot.diagnostics.full_snapshot_monitor)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "FULL SNAPSHOT | %s | %s",
+            "%s updates are %s",
             full_snapshot_cadence.data(),
             snapshot.diagnostics.full_snapshot_monitor_active
-                ? "ACTIVE"
-                : "STANDBY"
+                ? "active"
+                : "paused"
         );
     }
     if (auto result = set_text(
@@ -4504,8 +4352,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "Diagnostic stream | %s (%s)",
-            component_state(snapshot.diagnostics.sample_period),
+            "Diagnostic refresh unavailable: %s",
             component_reason(snapshot.diagnostics.sample_period)
         );
     } else if (snapshot.diagnostics.sample_period_ms < 100U ||
@@ -4513,25 +4360,21 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "Diagnostic stream | ERROR (INVALID SAVED INTERVAL: %lu ms)",
-            static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms)
+            "Saved diagnostic refresh is invalid"
         );
     } else if (!component_ready(snapshot.diagnostics.monitor)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "Diagnostic stream | %lu ms | monitor %s (%s)",
-            static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms),
-            component_state(snapshot.diagnostics.monitor),
+            "Diagnostic monitor unavailable: %s",
             component_reason(snapshot.diagnostics.monitor)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "Diagnostic stream | %lu ms | monitor %s",
-            static_cast<unsigned long>(snapshot.diagnostics.sample_period_ms),
-            snapshot.diagnostics.monitor_active ? "ON" : "OFF"
+            "Diagnostic refresh%s",
+            snapshot.diagnostics.monitor_active ? "" : " (paused)"
         );
     }
     if (auto result = set_text(
@@ -4546,23 +4389,20 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU input smoothing | %s (%s)",
-            component_state(snapshot.diagnostics.imu_smoothing),
+            "Motion smoothing unavailable: %s",
             component_reason(snapshot.diagnostics.imu_smoothing)
         );
     } else if (snapshot.diagnostics.imu_smoothing_percent > 90U) {
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU input smoothing | ERROR (INVALID SAVED VALUE: %lu%%)",
-            static_cast<unsigned long>(snapshot.diagnostics.imu_smoothing_percent)
+            "Saved motion smoothing is invalid"
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "IMU input smoothing | %lu%%",
-            static_cast<unsigned long>(snapshot.diagnostics.imu_smoothing_percent)
+            "Motion smoothing"
         );
     }
     if (auto result = set_text(
@@ -4573,85 +4413,37 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
 
-    std::array<char, 112> storage_state{};
-    std::array<char, 112> mirror_state{};
     if (storage_cleanup_failed(snapshot.storage)) {
         std::snprintf(
-            storage_state.data(),
-            storage_state.size(),
-            "SD TERMINAL (cleanup=%s error=%s complete=%s poisoned=%s)",
-            storage_cleanup_stage_name(snapshot.storage.cleanup_stage),
-            esp_err_to_name(snapshot.storage.cleanup_error),
-            snapshot.storage.cleanup_complete ? "yes" : "no",
-            snapshot.storage.poisoned ? "yes" : "no"
+            text.data(),
+            text.size(),
+            "SD card error - open Hardware for details"
         );
     } else if (storage_format_required(snapshot.storage)) {
         std::snprintf(
-            storage_state.data(),
-            storage_state.size(),
-            "SD FORMAT REQUIRED (%s)",
-            component_reason(snapshot.storage)
+            text.data(),
+            text.size(),
+            "SD card needs formatting"
         );
     } else if (storage_mounted_ready(snapshot.storage)) {
         std::snprintf(
-            storage_state.data(),
-            storage_state.size(),
-            "SD READY"
+            text.data(),
+            text.size(),
+            "SD card ready"
         );
     } else if (!snapshot.storage.card_response_verified) {
         std::snprintf(
-            storage_state.data(),
-            storage_state.size(),
-            "SD UNAVAILABLE (CARD/TRANSPORT UNCONFIRMED; %s)",
-            component_reason(snapshot.storage)
+            text.data(),
+            text.size(),
+            "SD card not detected"
         );
     } else {
         std::snprintf(
-            storage_state.data(),
-            storage_state.size(),
-            "SD %s (%s)",
-            component_state(snapshot.storage),
-            component_reason(snapshot.storage)
+            text.data(),
+            text.size(),
+            "SD card unavailable"
         );
     }
-    if (component_ready(snapshot.storage.logger_mirror)) {
-        std::snprintf(
-            mirror_state.data(),
-            mirror_state.size(),
-            "mirror requested %s | active %s",
-            snapshot.storage.logger_mirror_requested ? "ON" : "OFF",
-            snapshot.storage.logger_mirror_enabled ? "ON" : "OFF"
-        );
-    } else {
-        if (snapshot.storage.logger_mirror_errno != 0) {
-            std::snprintf(
-                mirror_state.data(),
-                mirror_state.size(),
-                "mirror %s (%s; errno=%d; failures=%lu)",
-                component_state(snapshot.storage.logger_mirror),
-                component_reason(snapshot.storage.logger_mirror),
-                snapshot.storage.logger_mirror_errno,
-                static_cast<unsigned long>(
-                    snapshot.storage.logger_mirror_failure_count
-                )
-            );
-        } else {
-            std::snprintf(
-                mirror_state.data(),
-                mirror_state.size(),
-                "mirror %s (%s)",
-                component_state(snapshot.storage.logger_mirror),
-                component_reason(snapshot.storage.logger_mirror)
-            );
-        }
-    }
-    std::snprintf(
-        text.data(),
-        text.size(),
-        "%s | %s",
-        storage_state.data(),
-        mirror_state.data()
-    );
     if (auto result = set_text(
             context,
             "/qsee_settings/surface/settings_scroller/storage_value",
@@ -4659,54 +4451,43 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         ); !result) {
         return result;
     }
-    if (auto result = set_text(
-            context,
-            "/qsee_settings/surface/settings_scroller/mirror/label",
-            component_ready(snapshot.storage.logger_mirror)
-                ? snapshot.storage.logger_mirror_requested
-                    ? "\xef\x81\xae"
-                    : "\xef\x81\xb0"
-                : "\xef\x81\xb1"
-        ); !result) {
-        return result;
-    }
 
     std::array<char, 64> wifi_state{};
     std::array<char, 64> ble_state{};
     if (radio_deferred_by_policy(snapshot.radios.wifi)) {
-        std::snprintf(wifi_state.data(), wifi_state.size(), "OFF BY POLICY");
+        std::snprintf(wifi_state.data(), wifi_state.size(), "off");
     } else if (component_ready(snapshot.radios.wifi)) {
         std::snprintf(
             wifi_state.data(),
             wifi_state.size(),
             "%s",
             snapshot.radios.wifi.connected
-                ? "CONNECTED"
-                : snapshot.radios.wifi.started ? "STARTED" : "STOPPED"
+                ? "connected"
+                : snapshot.radios.wifi.started ? "ready" : "off"
         );
     } else {
-        format_component_status(wifi_state, snapshot.radios.wifi);
+        std::snprintf(wifi_state.data(), wifi_state.size(), "unavailable");
     }
     if (radio_deferred_by_policy(snapshot.radios.ble)) {
-        std::snprintf(ble_state.data(), ble_state.size(), "OFF BY POLICY");
+        std::snprintf(ble_state.data(), ble_state.size(), "off");
     } else if (component_ready(snapshot.radios.ble)) {
         std::snprintf(
             ble_state.data(),
             ble_state.size(),
             "%s",
             snapshot.radios.ble.connected
-                ? "CONNECTED"
+                ? "connected"
                 : snapshot.radios.ble.provisioning
-                    ? "PROVISIONING"
-                    : snapshot.radios.ble.advertising ? "ADVERTISING" : "IDLE"
+                    ? "pairing"
+                    : snapshot.radios.ble.advertising ? "discoverable" : "ready"
         );
     } else {
-        format_component_status(ble_state, snapshot.radios.ble);
+        std::snprintf(ble_state.data(), ble_state.size(), "unavailable");
     }
     std::snprintf(
         text.data(),
         text.size(),
-        "RADIOS | Wi-Fi %s | BLE %s",
+        "Wi-Fi %s  |  Bluetooth %s",
         wifi_state.data(),
         ble_state.data()
     );
@@ -4717,63 +4498,48 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         ); !result) {
         return result;
     }
-    if (auto result = set_text(
-            context,
-            "/qsee_settings/surface/settings_scroller/radio_start/label",
-            "\xef\x80\xa1"
-        ); !result) {
-        return result;
-    }
-
     if (radio_deferred_by_policy(snapshot.radios.wifi)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | OFF BY POLICY\nSTART MANUALLY FROM SETTINGS"
+            "Wi-Fi is off"
         );
     } else if (!component_ready(snapshot.radios.wifi)) {
-        std::array<char, 96> wifi_detail{};
-        format_component_status(wifi_detail, snapshot.radios.wifi);
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | %s",
-            wifi_detail.data()
+            "Wi-Fi is unavailable"
         );
     } else if (snapshot.radios.wifi.connected &&
                snapshot.radios.wifi.ssid[0] == '\0') {
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | ERROR (CONNECTED WITHOUT SSID)"
+            "Wi-Fi connection details are unavailable"
         );
     } else if (snapshot.radios.wifi.ip_acquired &&
                snapshot.radios.wifi.ip_address[0] == '\0') {
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | ERROR (IP ACQUIRED WITHOUT ADDRESS)"
+            "Wi-Fi address is still pending"
         );
     } else if (snapshot.radios.wifi.connected) {
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | CONNECTED\nSSID %s | IP %s\nCH %u | RSSI %d dBm",
+            "Connected to %s\nAddress %s",
             snapshot.radios.wifi.ssid,
             snapshot.radios.wifi.ip_acquired
                 ? snapshot.radios.wifi.ip_address
-                : "PENDING",
-            static_cast<unsigned>(snapshot.radios.wifi.channel),
-            static_cast<int>(snapshot.radios.wifi.rssi)
+                : "pending"
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "WI-FI | %s\nCREDENTIALS %s | RECONNECT %s",
-            snapshot.radios.wifi.started ? "STARTED" : "STOPPED",
-            snapshot.radios.wifi.credentials_configured ? "SET" : "NOT SET",
-            snapshot.radios.wifi.reconnect_pending ? "PENDING" : "IDLE"
+            "Wi-Fi is %s",
+            snapshot.radios.wifi.started ? "ready" : "off"
         );
     }
     if (auto result = set_text(
@@ -4788,41 +4554,35 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "BLUETOOTH | OFF BY POLICY\nSTART MANUALLY FROM SETTINGS"
+            "Bluetooth is off"
         );
     } else if (!component_ready(snapshot.radios.ble)) {
-        std::array<char, 96> ble_detail{};
-        format_component_status(ble_detail, snapshot.radios.ble);
         std::snprintf(
             text.data(),
             text.size(),
-            "BLUETOOTH | %s",
-            ble_detail.data()
+            "Bluetooth is unavailable"
         );
     } else if (snapshot.radios.ble.device_name[0] == '\0') {
         std::snprintf(
             text.data(),
             text.size(),
-            "BLUETOOTH | ERROR (EMPTY DEVICE NAME)"
+            "Bluetooth name is unavailable"
         );
     } else {
         const char *ble_mode =
             snapshot.radios.ble.connected
-                ? "CONNECTED"
+                ? "connected"
                 : snapshot.radios.ble.provisioning
-                    ? "PROVISIONING"
+                    ? "pairing"
                     : snapshot.radios.ble.advertising
-                        ? "ADVERTISING"
-                        : "IDLE";
+                        ? "discoverable"
+                        : "ready";
         std::snprintf(
             text.data(),
             text.size(),
-            "BLUETOOTH | %s\nDEVICE %s | LINKS %lu",
+            "Bluetooth %s\n%s",
             ble_mode,
-            snapshot.radios.ble.device_name,
-            static_cast<unsigned long>(
-                snapshot.radios.ble.connection_count
-            )
+            snapshot.radios.ble.device_name
         );
     }
     if (auto result = set_text(
@@ -4834,34 +4594,26 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     }
 
     if (!component_ready(snapshot.gps)) {
-        std::array<char, 96> gps_detail{};
-        format_component_status(gps_detail, snapshot.gps);
         std::snprintf(
             text.data(),
             text.size(),
-            "GPS | %s",
-            gps_detail.data()
+            "Location is unavailable"
         );
     } else if (!snapshot.gps.has_fix) {
-        std::snprintf(text.data(), text.size(), "GPS | RECEIVER READY | NO FIX");
+        std::snprintf(text.data(), text.size(), "Location has no signal yet");
     } else if (!gps_fix_valid(snapshot.gps)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "GPS | NO VALID FIX\nQUALITY %u | SATELLITES %u",
-            static_cast<unsigned>(snapshot.gps.fix_quality),
+            "Location is searching (%u satellites)",
             static_cast<unsigned>(snapshot.gps.satellites)
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "GPS | FIX %u | SAT %u | HDOP %.1f\n%.5f, %.5f",
-            static_cast<unsigned>(snapshot.gps.fix_quality),
-            static_cast<unsigned>(snapshot.gps.satellites),
-            static_cast<double>(snapshot.gps.hdop),
-            snapshot.gps.latitude_degrees,
-            snapshot.gps.longitude_degrees
+            "Location ready (%u satellites)",
+            static_cast<unsigned>(snapshot.gps.satellites)
         );
     }
     if (auto result = set_text(
@@ -4876,16 +4628,14 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED brightness | %s (%s)",
-            component_state(snapshot.ui.brightness),
+            "Brightness unavailable: %s",
             component_reason(snapshot.ui.brightness)
         );
     } else if (!component_ready(snapshot.ui.display)) {
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED BRIGHTNESS | %s (%s)",
-            component_state(snapshot.ui.display),
+            "Display unavailable: %s",
             component_reason(snapshot.ui.display)
         );
     } else if (snapshot.ui.brightness_percent < 10U ||
@@ -4893,15 +4643,13 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED brightness | ERROR (INVALID SAVED VALUE: %lu%%)",
-            static_cast<unsigned long>(snapshot.ui.brightness_percent)
+            "Saved brightness is invalid"
         );
     } else {
         std::snprintf(
             text.data(),
             text.size(),
-            "AMOLED brightness | %lu%%",
-            static_cast<unsigned long>(snapshot.ui.brightness_percent)
+            "Brightness"
         );
     }
     if (auto result = set_text(
@@ -4917,27 +4665,22 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "AUTO ROTATION | %s (%s)",
-            component_state(orientation),
+            "Screen orientation unavailable: %s",
             component_reason(orientation)
         );
-    } else {
-        const char *source =
-            !orientation.auto_rotation_enabled
-                ? "DISABLED"
-                : orientation.gravity_valid
-                    ? "GRAVITY LOCKED"
-                    : component_ready(snapshot.imu)
-                        ? "GYRO TRACKING"
-                        : "IMU WAITING";
+    } else if (orientation.auto_rotation_enabled) {
         std::snprintf(
             text.data(),
             text.size(),
-            "AUTO ROTATION | %s%s\nPHYSICAL %u° | RENDER %u°",
-            source,
-            orientation.rotation_pending ? " / PENDING" : "",
-            static_cast<unsigned>(orientation.physical_orientation_degrees),
-            static_cast<unsigned>(orientation.rendering_rotation_degrees)
+            orientation.rotation_pending
+                ? "Screen rotation is updating"
+                : "Screen follows device orientation"
+        );
+    } else {
+        std::snprintf(
+            text.data(),
+            text.size(),
+            "Screen orientation is locked"
         );
     }
     if (auto result = set_text(
@@ -4947,18 +4690,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         ); !result) {
         return result;
     }
-    if (auto result = set_text(
-        context,
-        "/qsee_settings/surface/settings_scroller/rotation_toggle/label",
-        orientation.auto_rotation_enabled
-                ? "\xef\x81\xb9"
-                : "\xef\x80\x8d"
-        ); !result) {
-        return result;
-    }
-
     std::vector<esp_brookesia::gui::BindingValueUpdate>
-        timing_updates = {
+        settings_updates = {
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
@@ -5003,7 +4736,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     );
     if (component_ready(snapshot.diagnostics.full_snapshot_period) &&
         full_snapshot_period != kFullSnapshotPeriodsMs.end()) {
-        timing_updates.push_back({
+        settings_updates.push_back({
             .absolute_path =
                 "/qsee_settings/surface/settings_scroller/"
                 "full_snapshot_period",
@@ -5014,11 +4747,113 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             )),
         });
     }
-    auto timing_result = context.gui().set_binding_values(timing_updates);
-    if (!timing_result) {
+    const auto diagnostic_period = std::find(
+        kDiagnosticPeriodsMs.begin(),
+        kDiagnosticPeriodsMs.end(),
+        snapshot.diagnostics.sample_period_ms
+    );
+    if (component_ready(snapshot.diagnostics.sample_period) &&
+        diagnostic_period != kDiagnosticPeriodsMs.end()) {
+        settings_updates.push_back({
+            .absolute_path =
+                "/qsee_settings/surface/settings_scroller/"
+                "diagnostic_period",
+            .key = "selectedIndex",
+            .value = std::to_string(std::distance(
+                kDiagnosticPeriodsMs.begin(),
+                diagnostic_period
+            )),
+        });
+    }
+    const auto smoothing = std::find(
+        kImuSmoothingPercents.begin(),
+        kImuSmoothingPercents.end(),
+        snapshot.diagnostics.imu_smoothing_percent
+    );
+    if (component_ready(snapshot.diagnostics.imu_smoothing) &&
+        smoothing != kImuSmoothingPercents.end()) {
+        settings_updates.push_back({
+            .absolute_path =
+                "/qsee_settings/surface/settings_scroller/"
+                "imu_smoothing",
+            .key = "selectedIndex",
+            .value = std::to_string(std::distance(
+                kImuSmoothingPercents.begin(),
+                smoothing
+            )),
+        });
+    }
+    const auto brightness = std::find(
+        kBrightnessPercents.begin(),
+        kBrightnessPercents.end(),
+        snapshot.ui.brightness_percent
+    );
+    if (component_ready(snapshot.ui.brightness) &&
+        component_ready(snapshot.ui.display) &&
+        brightness != kBrightnessPercents.end()) {
+        settings_updates.push_back({
+            .absolute_path =
+                "/qsee_settings/surface/settings_scroller/brightness",
+            .key = "selectedIndex",
+            .value = std::to_string(std::distance(
+                kBrightnessPercents.begin(),
+                brightness
+            )),
+        });
+    }
+    settings_updates.insert(
+        settings_updates.end(),
+        {
+            {
+                .absolute_path =
+                    "/qsee_settings/surface/settings_scroller/"
+                    "performance_mode/toggle",
+                .key = "checked",
+                .value = performance_mode_enabled_ ? "true" : "false",
+            },
+            {
+                .absolute_path =
+                    "/qsee_settings/surface/settings_scroller/"
+                    "storage_mirror/toggle",
+                .key = "checked",
+                .value =
+                    snapshot.storage.logger_mirror_requested
+                        ? "true"
+                        : "false",
+            },
+            {
+                .absolute_path =
+                    "/qsee_settings/surface/settings_scroller/"
+                    "storage_mirror/toggle",
+                .key = "disabled",
+                .value =
+                    component_ready(snapshot.storage.logger_mirror)
+                        ? "false"
+                        : "true",
+            },
+            {
+                .absolute_path =
+                    "/qsee_settings/surface/settings_scroller/"
+                    "auto_rotation/toggle",
+                .key = "checked",
+                .value =
+                    orientation.auto_rotation_enabled ? "true" : "false",
+            },
+            {
+                .absolute_path =
+                    "/qsee_settings/surface/settings_scroller/"
+                    "auto_rotation/toggle",
+                .key = "disabled",
+                .value =
+                    component_ready(orientation) ? "false" : "true",
+            },
+        }
+    );
+    auto settings_result = context.gui().set_binding_values(settings_updates);
+    if (!settings_result) {
         return std::unexpected(
-            "Failed to refresh Adaptive Chrome dropdowns: " +
-            timing_result.error()
+            "Failed to refresh Settings controls: " +
+            settings_result.error()
         );
     }
     return {};

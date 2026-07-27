@@ -70,6 +70,12 @@ CONFIG_BROOKESIA_GUI_INTERFACE_ENABLE_EXAMPLES=n
 CONFIG_BROOKESIA_GUI_LVGL_DISPLAY_SOURCE_BUFFER_HEIGHT=50
 CONFIG_BROOKESIA_GUI_LVGL_DISPLAY_SOURCE_REQUIRE_DOUBLE_BUFFER=y
 
+# Measure real per-core utilization from each FreeRTOS idle task. Keep the
+# 32-bit counter expected by Brookesia; unsigned sample deltas tolerate wrap.
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+CONFIG_FREERTOS_RUN_TIME_COUNTER_TYPE_U32=y
+CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
+
 # Keep Brookesia's three scheduler domains available: app startup synchronously
 # posts GUI work, and a single worker deadlocks waiting on itself. Their large
 # stacks stay in PSRAM. QSee settings have a fixed internal-stack executor, and

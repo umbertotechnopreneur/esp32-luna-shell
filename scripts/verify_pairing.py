@@ -21,19 +21,26 @@ EXPECTED_SCREENS = {
     "qsee_pairing",
 }
 SETTINGS_ACTIONS = {
+    "qsee.settings.diagnostic.changed",
+    "qsee.settings.imu_smoothing.changed",
+    "qsee.settings.storage.mirror.changed",
+    "qsee.settings.performance.changed",
+    "qsee.settings.radios.start",
+    "qsee.settings.display.brightness.changed",
+    "qsee.settings.display.rotation.changed",
+}
+OBSOLETE_SETTINGS_ACTIONS = {
+    "qsee.settings.back",
+    "qsee.settings.debug.maximum",
     "qsee.settings.diagnostic.faster",
     "qsee.settings.diagnostic.slower",
     "qsee.settings.diagnostic.reset",
     "qsee.settings.imu_smoothing.less",
     "qsee.settings.imu_smoothing.more",
     "qsee.settings.storage.mirror.toggle",
-    "qsee.settings.radios.start",
     "qsee.settings.display.brightness_down",
     "qsee.settings.display.brightness_up",
     "qsee.settings.display.rotation.toggle",
-}
-OBSOLETE_SETTINGS_ACTIONS = {
-    "qsee.settings.back",
 }
 
 

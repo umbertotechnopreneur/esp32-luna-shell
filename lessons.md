@@ -81,9 +81,11 @@
 
 - Performance Mode is session-scoped suppression and must not overwrite the
   user's saved service settings.
-- Maximum Debug Mode deliberately changes persistent diagnostic settings. Apply
-  its preset as one fail-fast transaction and roll back prior values if any
-  individual setting fails.
+- Do not combine high-rate snapshots, high-rate diagnostics, global verbose
+  logging, and SD mirroring behind one UI command. On this device that workload
+  can keep the firmware alive while starving the GUI enough to look crashed.
+  Expose bounded settings independently and use the serial monitor as the
+  canonical crash source when SD is unavailable.
 
 ## Snapshot-owned adaptive chrome wake
 

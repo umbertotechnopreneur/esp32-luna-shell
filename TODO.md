@@ -76,8 +76,8 @@
 
 - [x] Add real per-core CPU utilization samples to `DeviceSnapshotService` using
   ESP-IDF/FreeRTOS idle runtime deltas and explicit availability flags.
-- [x] Keep the UI on `CPU data unavailable` until the first valid previous-sample
-  delta exists or runtime statistics are unavailable.
+- [x] Keep both CPU bars in a visible `MEASURING...` state until the first valid
+  previous-sample delta exists; never invent a utilization value.
 - [x] Keep hardware refresh non-blocking and outside the UI thread.
 
 ## Snapshot integrity

@@ -355,6 +355,8 @@ struct MemorySnapshot : ComponentSnapshot {
 
 struct CoreSnapshot {
     bool available = false;
+    bool utilization_available = false;
+    uint8_t utilization_percent = 0;
     char current_task[24] = "unavailable";
     uint32_t stack_high_water_words = 0;
     uint32_t priority = 0;

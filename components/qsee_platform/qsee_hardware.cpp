@@ -34,6 +34,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
@@ -138,6 +139,15 @@ std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
 std::atomic_bool s_auto_rotation_enabled{false};
 std::mutex s_diagnostic_settings_mutex;
+std::mutex s_processor_usage_mutex;
+
+struct ProcessorUsageState {
+    bool initialized = false;
+    configRUN_TIME_COUNTER_TYPE sampled_at = 0;
+    configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
+};
+
+ProcessorUsageState s_processor_usage;
 
 // Chip-specific adapters return this normalized sample to the shared pipeline.
 struct ImuRawSample {
@@ -3852,18 +3862,16 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
             if (!snapshot.processor.cores[core].available) {
                 continue;
             }
-            ESP_LOGI(
-                TAG,
-                "Core %u: task=%s priority=%lu stack-high-water=%lu words",
-                core,
-                snapshot.processor.cores[core].current_task,
-                static_cast<unsigned long>(
-                    snapshot.processor.cores[core].priority
-                ),
-                static_cast<unsigned long>(
-                    snapshot.processor.cores[core].stack_high_water_words
-                )
-            );
+            if (snapshot.processor.cores[core].utilization_available) {
+                ESP_LOGI(
+                    TAG,
+                    "Core %u: utilization=%u%%",
+                    core,
+                    snapshot.processor.cores[core].utilization_percent
+                );
+            } else {
+                ESP_LOGI(TAG, "Core %u: utilization=measuring", core);
+            }
         }
     }
     if (component_has_current_data(snapshot.rtc)) {
@@ -4023,6 +4031,63 @@ esp_err_t sample_system_state()
     }
 
     if (processor_error == ESP_OK) {
+        std::lock_guard<std::mutex> lock(s_processor_usage_mutex);
+        const configRUN_TIME_COUNTER_TYPE sampled_at =
+            static_cast<configRUN_TIME_COUNTER_TYPE>(esp_timer_get_time());
+        configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
+        for (int core = 0; core < chip.cores; ++core) {
+            idle_runtime[core] = ulTaskGetIdleRunTimeCounterForCore(core);
+            processor.cores[core].available = true;
+        }
+        if (processor_error == ESP_OK && s_processor_usage.initialized) {
+            const configRUN_TIME_COUNTER_TYPE elapsed =
+                sampled_at - s_processor_usage.sampled_at;
+            if (elapsed == 0) {
+                record_first_error(
+                    ESP_ERR_INVALID_RESPONSE,
+                    &processor_error
+                );
+            } else {
+                for (int core = 0; core < chip.cores; ++core) {
+                    const configRUN_TIME_COUNTER_TYPE idle_elapsed =
+                        idle_runtime[core] -
+                        s_processor_usage.idle_runtime[core];
+                    if (idle_elapsed > elapsed) {
+                        ESP_LOGE(
+                            TAG,
+                            "CPU core %d sample rejected: idle=%llu elapsed=%llu",
+                            core,
+                            static_cast<unsigned long long>(idle_elapsed),
+                            static_cast<unsigned long long>(elapsed)
+                        );
+                        record_first_error(
+                            ESP_ERR_INVALID_RESPONSE,
+                            &processor_error
+                        );
+                        break;
+                    }
+                    qsee::CoreSnapshot &core_snapshot =
+                        processor.cores[core];
+                    core_snapshot.utilization_percent =
+                        static_cast<uint8_t>(
+                            ((elapsed - idle_elapsed) * 100ULL +
+                             elapsed / 2ULL) /
+                            elapsed
+                        );
+                    core_snapshot.utilization_available = true;
+                }
+            }
+        }
+        if (processor_error == ESP_OK) {
+            s_processor_usage.initialized = true;
+            s_processor_usage.sampled_at = sampled_at;
+            for (int core = 0; core < chip.cores; ++core) {
+                s_processor_usage.idle_runtime[core] = idle_runtime[core];
+            }
+        }
+    }
+
+    if (processor_error == ESP_OK) {
         TaskHandle_t task = xTaskGetCurrentTaskHandle();
         if (task == nullptr) {
             record_first_error(ESP_ERR_NOT_FOUND, &processor_error);
@@ -4036,7 +4101,6 @@ esp_err_t sample_system_state()
             } else {
                 qsee::CoreSnapshot &sampled_core =
                     processor.cores[processor.sampling_core];
-                sampled_core.available = true;
                 strlcpy(
                     sampled_core.current_task,
                     task_name,

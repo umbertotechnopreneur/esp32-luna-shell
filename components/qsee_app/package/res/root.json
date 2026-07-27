@@ -29,6 +29,7 @@
         "templates/qsee_status_indicator.json",
         "templates/qsee_status_bar.json",
         "templates/qsee_settings_dropdown.json",
+        "templates/qsee_settings_switch.json",
         "templates/qsee_metric.json",
         "templates/qsee_hardware_card.json",
         "templates/qsee_chrome.json",
@@ -2104,16 +2105,41 @@
                                     "type": "label",
                                     "id": "performance_status",
                                     "labelProps": {
-                                        "text": "PERFORMANCE MODE | OFF\nSTANDARD SERVICE POLICY ACTIVE"
+                                        "text": "Standard service profile"
                                     },
                                     "style": {
                                         "textColor": "#51c7f2",
                                         "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "48dp"
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "performance_mode",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Performance mode"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Reduces background checks"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.performance.changed"
+                                                }
+                                            ]
+                                        }
                                     }
                                 },
                                 {
@@ -2211,7 +2237,7 @@
                                     "type": "label",
                                     "id": "period_value",
                                     "labelProps": {
-                                        "text": "Diagnostic stream | unavailable"
+                                        "text": "Diagnostic refresh"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -2224,137 +2250,36 @@
                                     }
                                 },
                                 {
-                                    "type": "container",
-                                    "id": "period_actions",
-                                    "commonProps": {
-                                        "scrollable": false
-                                    },
-                                    "style": {
-                                        "padding": 0
-                                    },
-                                    "layout": {
-                                        "type": "flex",
-                                        "mainAlign": "center",
-                                        "crossAlign": "center",
-                                        "gap": "6dp"
-                                    },
-                                    "placement": {
-                                        "width": "282dp",
-                                        "height": "36dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "button",
-                                            "id": "faster",
+                                    "type": "templateRef",
+                                    "id": "diagnostic_period",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "Very fast",
+                                                    "Fast",
+                                                    "Balanced",
+                                                    "Relaxed",
+                                                    "Slow",
+                                                    "Very slow"
+                                                ],
+                                                "selectedIndex": 2
+                                            },
                                             "events": [
                                                 {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.diagnostic.faster"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#009c9d",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "56dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf068"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "button",
-                                            "id": "reset",
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.diagnostic.reset"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#0b55d9",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "56dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf021"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "button",
-                                            "id": "slower",
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.diagnostic.slower"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#0b55d9",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "56dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf067"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.diagnostic.changed"
                                                 }
                                             ]
                                         }
-                                    ]
+                                    }
                                 },
                                 {
                                     "type": "label",
                                     "id": "smoothing_value",
                                     "labelProps": {
-                                        "text": "IMU INPUT SMOOTHING | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "Motion smoothing"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -2367,96 +2292,34 @@
                                     }
                                 },
                                 {
-                                    "type": "container",
-                                    "id": "smoothing_actions",
-                                    "commonProps": {
-                                        "scrollable": false
-                                    },
-                                    "style": {
-                                        "padding": 0
-                                    },
-                                    "layout": {
-                                        "type": "flex",
-                                        "mainAlign": "center",
-                                        "crossAlign": "center",
-                                        "gap": "8dp"
-                                    },
-                                    "placement": {
-                                        "width": "282dp",
-                                        "height": "36dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "button",
-                                            "id": "less",
+                                    "type": "templateRef",
+                                    "id": "imu_smoothing",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "Off",
+                                                    "10%",
+                                                    "20%",
+                                                    "30%",
+                                                    "40%",
+                                                    "50%",
+                                                    "60%",
+                                                    "70%",
+                                                    "80%",
+                                                    "90%"
+                                                ],
+                                                "selectedIndex": 7
+                                            },
                                             "events": [
                                                 {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.imu_smoothing.less"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#0b55d9",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "64dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf068"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "button",
-                                            "id": "more",
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.imu_smoothing.more"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#0b55d9",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "64dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf067"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.imu_smoothing.changed"
                                                 }
                                             ]
                                         }
-                                    ]
+                                    }
                                 },
                                 {
                                     "type": "label",
@@ -2494,7 +2357,7 @@
                                     "type": "label",
                                     "id": "storage_value",
                                     "labelProps": {
-                                        "text": "SD UNAVAILABLE (SNAPSHOT NOT READY) | MIRROR UNAVAILABLE"
+                                        "text": "Checking SD card..."
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -2503,43 +2366,33 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "44dp"
+                                        "height": "24dp"
                                     }
                                 },
                                 {
-                                    "type": "button",
-                                    "id": "mirror",
-                                    "events": [
-                                        {
-                                            "type": "clicked",
-                                            "action": "qsee.settings.storage.mirror.toggle"
-                                        }
-                                    ],
-                                    "style": {
-                                        "bgColor": "#009c9d",
-                                        "radius": "19dp"
-                                    },
-                                    "placement": {
-                                        "width": "56dp",
-                                        "height": "38dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "label",
-                                            "id": "label",
+                                    "type": "templateRef",
+                                    "id": "storage_mirror",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
                                             "labelProps": {
-                                                "text": "\uf071"
-                                            },
-                                            "style": {
-                                                "textColor": "#ffffff",
-                                                "fontSize": "${constant.typography.heading}"
-                                            },
-                                            "placement": {
-                                                "mode": "relative",
-                                                "align": "center"
+                                                "text": "Copy logs to SD"
                                             }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Requires a ready SD card"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.storage.mirror.changed"
+                                                }
+                                            ]
                                         }
-                                    ]
+                                    }
                                 },
                                 {
                                     "type": "label",
@@ -2577,7 +2430,7 @@
                                     "type": "label",
                                     "id": "radio_value",
                                     "labelProps": {
-                                        "text": "RADIOS | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "Checking wireless services..."
                                     },
                                     "style": {
                                         "textColor": "#51c7f2",
@@ -2603,7 +2456,7 @@
                                         "radius": "19dp"
                                     },
                                     "placement": {
-                                        "width": "56dp",
+                                        "width": "176dp",
                                         "height": "38dp"
                                     },
                                     "children": [
@@ -2611,11 +2464,11 @@
                                             "type": "label",
                                             "id": "label",
                                             "labelProps": {
-                                                "text": "\uf021"
+                                                "text": "START WIRELESS"
                                             },
                                             "style": {
                                                 "textColor": "#ffffff",
-                                                "fontSize": "${constant.typography.heading}"
+                                                "fontSize": "${constant.typography.detail}"
                                             },
                                             "placement": {
                                                 "mode": "relative",
@@ -2628,16 +2481,16 @@
                                       "type": "label",
                                       "id": "radio_policy",
                                       "labelProps": {
-                                        "text": "RADIOS STAY OFF AFTER BOOT\nSTART MANUALLY FROM SETTINGS"
+                                        "text": "Wireless stays off until you start it."
                                       },
                                       "style": {
                                         "textColor": "#9fb1c1",
                                         "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "textAlign": "left"
                                       },
                                       "placement": {
                                         "width": "282dp",
-                                        "height": "30dp"
+                                        "height": "20dp"
                                       }
                                     },
                                     {
@@ -2649,7 +2502,7 @@
                                     "style": {
                                         "textColor": "#20dfc1",
                                         "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
@@ -2724,178 +2577,88 @@
                                     "type": "label",
                                     "id": "brightness_value",
                                     "labelProps": {
-                                        "text": "AMOLED BRIGHTNESS | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "Brightness"
                                     },
                                     "style": {
                                         "textColor": "#3de0b0",
-                                        "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "32dp"
+                                        "height": "22dp"
                                     }
                                 },
                                 {
-                                    "type": "container",
-                                    "id": "brightness_actions",
-                                    "commonProps": {
-                                        "scrollable": false
-                                    },
-                                    "style": {
-                                        "padding": 0
-                                    },
-                                    "layout": {
-                                        "type": "flex",
-                                        "mainAlign": "center",
-                                        "crossAlign": "center",
-                                        "gap": "8dp"
-                                    },
-                                    "placement": {
-                                        "width": "282dp",
-                                        "height": "36dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "button",
-                                            "id": "down",
+                                    "type": "templateRef",
+                                    "id": "brightness",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "10%",
+                                                    "20%",
+                                                    "30%",
+                                                    "40%",
+                                                    "50%",
+                                                    "60%",
+                                                    "70%",
+                                                    "80%",
+                                                    "90%",
+                                                    "100%"
+                                                ],
+                                                "selectedIndex": 8
+                                            },
                                             "events": [
                                                 {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.display.brightness_down"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#0b55d9",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "64dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf068"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
-                                                }
-                                            ]
-                                        },
-                                        {
-                                            "type": "button",
-                                            "id": "up",
-                                            "events": [
-                                                {
-                                                    "type": "clicked",
-                                                    "action": "qsee.settings.display.brightness_up"
-                                                }
-                                            ],
-                                            "style": {
-                                                "bgColor": "#009c9d",
-                                                "radius": "18dp"
-                                            },
-                                            "placement": {
-                                                "width": "64dp",
-                                                "height": "36dp"
-                                            },
-                                            "children": [
-                                                {
-                                                    "type": "label",
-                                                    "id": "label",
-                                                    "labelProps": {
-                                                        "text": "\uf067"
-                                                    },
-                                                    "style": {
-                                                        "textColor": "#ffffff",
-                                                        "fontSize": "${constant.typography.heading}"
-                                                    },
-                                                    "placement": {
-                                                        "mode": "relative",
-                                                        "align": "center"
-                                                    }
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display.brightness.changed"
                                                 }
                                             ]
                                         }
-                                    ]
+                                    }
                                 },
                                 {
                                     "type": "label",
                                     "id": "rotation_value",
                                     "labelProps": {
-                                        "text": "AUTO ROTATION | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                        "text": "Screen orientation"
                                     },
                                     "style": {
                                         "textColor": "#51c7f2",
-                                        "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "42dp"
+                                        "height": "22dp"
                                     }
                                 },
                                 {
-                                    "type": "button",
-                                    "id": "rotation_toggle",
-                                    "commonProps": {
-                                        "pressLock": false
-                                    },
-                                    "events": [
-                                        {
-                                            "type": "clicked",
-                                            "action": "qsee.settings.display.rotation.toggle"
-                                        }
-                                    ],
-                                    "style": {
-                                        "bgColor": "#20bf91",
-                                        "borderColor": "#63ffd0",
-                                        "borderWidth": "1dp",
-                                        "radius": "20dp",
-                                        "padding": 0
-                                    },
-                                    "stateStyles": {
-                                        "pressed": {
-                                            "bgColor": "#0d7359",
-                                            "borderColor": "#63ffd0",
-                                            "borderWidth": "1dp"
-                                        }
-                                    },
-                                    "placement": {
-                                        "width": "40dp",
-                                        "height": "40dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "label",
-                                            "id": "label",
-                                            "commonProps": {
-                                                "clickable": false,
-                                                "scrollable": false
-                                            },
+                                    "type": "templateRef",
+                                    "id": "auto_rotation",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
                                             "labelProps": {
-                                                "text": "\uf079"
-                                            },
-                                            "style": {
-                                                "textColor": "#ffffff",
-                                                "fontSize": "${constant.typography.heading}",
-                                                "textAlign": "center"
-                                            },
-                                            "placement": {
-                                                "mode": "relative",
-                                                "align": "center"
+                                                "text": "Automatic rotation"
                                             }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Follow the device orientation"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display.rotation.changed"
+                                                }
+                                            ]
                                         }
-                                    ]
+                                    }
                                 },
                                 {
                                     "type": "label",

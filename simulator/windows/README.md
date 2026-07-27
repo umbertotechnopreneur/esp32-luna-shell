@@ -63,5 +63,6 @@ is shown as unavailable rather than invented.
 
 The firmware audio snapshot now carries two interleaved ES7210 channel levels,
 while the firmware IMU page consumes calibrated QMI8658 acceleration,
-gyroscope, temperature, bias, and calibration-sample fields. The simulator
-continues to use deterministic synthetic values.
+gyroscope, temperature, bias, and calibration-sample fields. Home CPU bars use
+real idle-task runtime on hardware; simulator CPU bars remain visibly labelled,
+deterministic synthetic values.
