@@ -2,6 +2,11 @@
 
 Completed items moved out of `TODO.md` live here.
 
+## Audio scope visualization
+
+- [x] Improve FFT sensitivity by mapping the measured DFT range from -90 to
+  0 dBFS, so quiet valid ES7210 captures are visible without synthetic gain.
+
 ## UI rotation and Performance Mode
 
 - [x] Cache the last complete RGB565 frame in PSRAM and replay it after a

@@ -91,7 +91,10 @@ constexpr float kOrientationGyroSnapDegrees = 50.0F;
 constexpr float kOrientationGyroMaxStepSeconds = 0.25F;
 constexpr size_t kAudioSpectrumFrameCount = 256;
 constexpr float kAudioSpectrumFullScale = 32768.0F;
-constexpr float kAudioSpectrumFloor = 0.001F;
+// The ES7210's normal ambient signal is well below -60 dBFS; keep its measured
+// bands visible instead of quantising every quiet, valid capture to zero.
+constexpr float kAudioSpectrumFloor = 0.00001F;
+constexpr float kAudioSpectrumDisplayFloorDbfs = -90.0F;
 constexpr float kAudioSpectrumTwoPi = 6.28318530718F;
 constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
     1, 2, 3, 4, 6, 8, 11, 16,
@@ -3427,7 +3430,8 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
                 std::max(normalized, kAudioSpectrumFloor)
             );
             const float intensity = std::clamp(
-                (dbfs + 60.0F) * (100.0F / 60.0F),
+                (dbfs - kAudioSpectrumDisplayFloorDbfs) *
+                    (100.0F / -kAudioSpectrumDisplayFloorDbfs),
                 0.0F,
                 100.0F
             );

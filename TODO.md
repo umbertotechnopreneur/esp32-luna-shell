@@ -129,7 +129,6 @@
 ## Audio scope visualization
 
 - [x] Add the "FFT scope" action to the Brookesia JSON/System Core audio page.
-- [ ] Improve FFT sensitivity — currently input must be significantly amplified (e.g., physical microphone tapping) to show visible spectrum; investigate gain levels and response thresholds.
 - [ ] Redesign FFT bar layout: reduce margins, apply color gradients instead of flat colors for better visual appeal.
 - [ ] ? Investigate microphone gain/volume control: should we apply amplification via hardware (pre-processing) or in software (post-processing)?
 
