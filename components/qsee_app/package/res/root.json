@@ -101,7 +101,7 @@
                         "type": "flex",
                         "flexFlow": "column",
                         "crossAlign": "center",
-                        "gap": "4dp"
+                        "gap": "8dp"
                     },
                     "placement": {
                         "width": "320dp",
@@ -250,22 +250,6 @@
                                 "name": { "labelProps": { "text": "CORE 1" } },
                                 "value": { "labelProps": { "text": "CPU DATA UNAVAILABLE" } },
                                 "bar": { "partStyles": { "indicator": { "bgColor": "#247fd6", "radius": "4dp" } } }
-                            }
-                        },
-                        {
-                            "type": "label",
-                            "id": "radio_status",
-                            "labelProps": {
-                                "text": "HARDWARE STATUS UNAVAILABLE (SNAPSHOT NOT READY)"
-                            },
-                            "style": {
-                                "textColor": "#80dfff",
-                                "fontSize": "${constant.typography.detail}",
-                                "textAlign": "left"
-                            },
-                            "placement": {
-                                "width": "292dp",
-                                "height": "112dp"
                             }
                         }
                     ]
@@ -877,6 +861,123 @@
         },
         {
             "type": "viewScreen",
+            "id": "qsee_hardware_detail",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "12dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "8dp"
+                    },
+                    "placement": {
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "HARDWARE DETAIL"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "Swipe for details - edge swipe to return"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "detail_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.hardware_detail"
+                                }
+                            ],
+                            "style": {
+                                "borderColor": "#1164ad",
+                                "borderWidth": "1dp",
+                                "radius": "8dp",
+                                "padding": "8dp"
+                            },
+                            "placement": {
+                                "width": "292dp",
+                                "height": "192dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "body",
+                                    "labelProps": {
+                                        "text": "DETAILS UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#d6efff",
+                                        "fontSize": "${constant.typography.detail}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "0dp",
+                                        "width": "272dp",
+                                        "height": "wrap"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
             "id": "qsee_audio",
             "mountMode": "dynamic",
             "commonProps": {
@@ -1207,9 +1308,10 @@
                             },
                             "layout": {
                                 "type": "flex",
-                                "mainAlign": "center",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
                                 "crossAlign": "end",
-                                "gap": "1dp"
+                                "gap": "0dp"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1219,22 +1321,22 @@
                                 "height": "98dp"
                             },
                             "children": [
-                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_bar" },
-                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_bar" }
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
                             ]
                         },
                         {
@@ -1374,9 +1476,10 @@
                             "style": { "padding": 0 },
                             "layout": {
                                 "type": "flex",
-                                "mainAlign": "center",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
                                 "crossAlign": "end",
-                                "gap": "1dp"
+                                "gap": "0dp"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1386,22 +1489,22 @@
                                 "height": "68dp"
                             },
                             "children": [
-                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_detail_bar" }
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
                             ]
                         },
                         {
@@ -1433,9 +1536,10 @@
                             "style": { "padding": 0 },
                             "layout": {
                                 "type": "flex",
-                                "mainAlign": "center",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
                                 "crossAlign": "end",
-                                "gap": "1dp"
+                                "gap": "0dp"
                             },
                             "placement": {
                                 "mode": "absolute",
@@ -1445,22 +1549,22 @@
                                 "height": "68dp"
                             },
                             "children": [
-                                { "type": "templateRef", "id": "band00", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band01", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band02", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band03", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band04", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band05", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band06", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band07", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band08", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band09", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band10", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band11", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band12", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band13", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band14", "templateId": "qsee_spectrum_detail_bar" },
-                                { "type": "templateRef", "id": "band15", "templateId": "qsee_spectrum_detail_bar" }
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
                             ]
                         },
                         {
@@ -3075,6 +3179,7 @@
                 "qsee_welcome",
                 "qsee_logs",
                 "qsee_hardware",
+                "qsee_hardware_detail",
                 "qsee_audio",
                 "qsee_audio_fft",
                 "qsee_audio_detail",
@@ -3099,6 +3204,11 @@
                     "from": [],
                     "action": "qsee.open.hardware",
                     "to": "qsee_hardware"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.hardware_detail",
+                    "to": "qsee_hardware_detail"
                 },
                 {
                     "from": [],

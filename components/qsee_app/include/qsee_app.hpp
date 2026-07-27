@@ -117,6 +117,9 @@ private:
     std::expected<void, std::string> refresh_hardware(
         esp_brookesia::system::core::AppContext &context
     );
+    std::expected<void, std::string> refresh_hardware_detail(
+        esp_brookesia::system::core::AppContext &context
+    );
     std::expected<void, std::string> show_hardware_details(
         esp_brookesia::system::core::AppContext &context,
         size_t component_index
@@ -250,6 +253,8 @@ private:
     int64_t pairing_started_at_us_ = 0;
     std::string log_query_;
     std::string pairing_result_;
+    std::string hardware_detail_title_;
+    std::string hardware_detail_body_;
     std::unique_ptr<char[]> log_source_buffer_;
     std::unique_ptr<char[]> log_filtered_buffer_;
 };

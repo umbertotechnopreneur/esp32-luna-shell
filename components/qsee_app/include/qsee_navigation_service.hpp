@@ -9,6 +9,7 @@ enum class Route {
     Welcome,
     Logs,
     Hardware,
+    HardwareDetail,
     Audio,
     AudioFft,
     AudioDetail,

@@ -34,6 +34,13 @@
                 "borderWidth": "1dp"
             }
         },
+        "partStyles": {
+            "selected": {
+                "bgColor": "#1164ad",
+                "textColor": "#f3f7fa",
+                "radius": "6dp"
+            }
+        },
         "placement": {
             "width": "282dp",
             "height": "44dp"

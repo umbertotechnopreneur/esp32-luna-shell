@@ -481,6 +481,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         "qsee.chrome.activity.wake",
         "qsee.chrome.activity.logs",
         "qsee.chrome.activity.hardware",
+        "qsee.chrome.activity.hardware_detail",
         "qsee.chrome.activity.settings",
         "qsee.open.about",
         "qsee.command.0",
@@ -1122,6 +1123,7 @@ std::expected<void, std::string> App::configure_chrome(
                 context.gui(),
                 kHardwareCommands
             );
+        case Screen::HardwareDetail:
         case Screen::AudioDetail:
         case Screen::Imu:
         case Screen::About:
@@ -1390,6 +1392,7 @@ std::expected<void, std::string> App::on_action(
         action == "qsee.chrome.activity.wake" ||
         action == "qsee.chrome.activity.logs" ||
         action == "qsee.chrome.activity.hardware" ||
+        action == "qsee.chrome.activity.hardware_detail" ||
         action == "qsee.chrome.activity.settings") {
         return {};
     }
@@ -2084,6 +2087,15 @@ std::expected<void, std::string> App::refresh_chrome(
     const DeviceSnapshot &snapshot
 )
 {
+    if (auto result = adaptive_chrome_.update(context.gui(), snapshot); !result) {
+        return result;
+    }
+    if (auto result = sync_refresh_timer(
+            context,
+            adaptive_chrome_.display_idle_stage()
+        ); !result) {
+        return result;
+    }
     return status_bar_.update(context.gui(), snapshot);
 }
 
@@ -2099,6 +2111,8 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_logs(context);
     case Screen::Hardware:
         return refresh_hardware(context);
+    case Screen::HardwareDetail:
+        return refresh_hardware_detail(context);
     case Screen::Audio:
         return refresh_audio(context);
     case Screen::AudioFft:
@@ -2390,32 +2404,6 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
         return result;
     }
 
-    std::array<char, 96> snapshot_status{};
-    if (!snapshot_available(snapshot)) {
-        std::snprintf(
-            snapshot_status.data(),
-            snapshot_status.size(),
-            "SNAPSHOT UNAVAILABLE | %s",
-            esp_err_to_name(snapshot.last_update_error)
-        );
-    } else if (!snapshot.last_update_complete ||
-               snapshot.last_update_error != ESP_OK) {
-        std::snprintf(
-            snapshot_status.data(),
-            snapshot_status.size(),
-            "SNAPSHOT #%lu | ERROR %s",
-            static_cast<unsigned long>(snapshot.sequence),
-            esp_err_to_name(snapshot.last_update_error)
-        );
-    } else {
-        std::snprintf(
-            snapshot_status.data(),
-            snapshot_status.size(),
-            "SNAPSHOT #%lu",
-            static_cast<unsigned long>(snapshot.sequence)
-        );
-    }
-
     for (size_t core = 0; core < 2; ++core) {
         const std::string path = core == 0
             ? "/qsee_welcome/surface/core0"
@@ -2470,33 +2458,6 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
             ); !result) {
             return result;
         }
-    }
-
-    std::array<std::array<char, 64>, 11> hardware_status{};
-    for (size_t index = 0; index < hardware_status.size(); ++index) {
-        format_hardware_status(hardware_status[index], snapshot, index);
-    }
-    std::array<char, 64> fusion_status{};
-    format_component_status(fusion_status, snapshot.sensor_fusion);
-    std::snprintf(
-        text.data(),
-        text.size(),
-        "%s\n"
-        "Battery %s  •  Storage %s\n"
-        "GPS %s  •  Wi-Fi %s\n"
-        "Open Hardware for every device detail",
-        snapshot_status.data(),
-        hardware_status[0].data(),
-        hardware_status[10].data(),
-        hardware_status[4].data(),
-        hardware_status[3].data()
-    );
-    if (auto result = set_text(
-            context,
-            "/qsee_welcome/surface/radio_status",
-            text.data()
-        ); !result) {
-        return result;
     }
 
     const qsee::WifiSnapshot &wifi = snapshot.radios.wifi;
@@ -3009,15 +2970,38 @@ std::expected<void, std::string> App::show_hardware_details(
         break;
     }
 
-    const std::string title =
+    hardware_detail_title_ =
         std::string(descriptor.name) + " | " + std::string(descriptor.part);
-    return alert_service_.show_notice(
+    hardware_detail_body_ = details.data();
+    return open_screen(
         context,
-        title,
-        details.data(),
-        component_ready(component)
-            ? esp_brookesia::system::core::MessageDialogIcon::Information
-            : esp_brookesia::system::core::MessageDialogIcon::Warning
+        Screen::HardwareDetail,
+        "qsee.open.hardware_detail"
+    );
+}
+
+std::expected<void, std::string> App::refresh_hardware_detail(
+    AppContext &context
+)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+    if (hardware_detail_title_.empty() || hardware_detail_body_.empty()) {
+        return std::unexpected("Hardware detail view opened without detail data");
+    }
+    if (auto result = set_text(
+            context,
+            "/qsee_hardware_detail/surface/title",
+            hardware_detail_title_
+        ); !result) {
+        return result;
+    }
+    return set_text(
+        context,
+        "/qsee_hardware_detail/surface/detail_scroller/body",
+        hardware_detail_body_
     );
 }
 
@@ -3496,6 +3480,8 @@ std::string_view App::screen_action(Screen screen)
         return "qsee.open.logs";
     case Screen::Hardware:
         return "qsee.open.hardware";
+    case Screen::HardwareDetail:
+        return "qsee.open.hardware_detail";
     case Screen::Audio:
         return "qsee.open.audio";
     case Screen::AudioFft:
@@ -3888,12 +3874,14 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
         );
     }
 
+    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
+    spectrum_updates.reserve(kAudioSpectrumBandCount);
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         std::array<char, 80> path{};
         std::snprintf(
             path.data(),
             path.size(),
-            "/qsee_audio_fft/surface/bands/band%02u/bar",
+            "/qsee_audio_fft/surface/bands/band%02u",
             static_cast<unsigned>(band)
         );
         const int32_t average =
@@ -3901,9 +3889,19 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
              static_cast<int32_t>(snapshot.audio.channel_spectrum[1][band]) +
              1) /
             2;
-        if (auto result = set_value(context, path.data(), average); !result) {
-            return result;
-        }
+        const int32_t height =
+            std::max<int32_t>(1, (average * 94 + 99) / 100);
+        spectrum_updates.push_back({
+            .absolute_path = path.data(),
+            .key = "height",
+            .value = std::to_string(height) + "dp",
+        });
+    }
+    if (auto result = context.gui().set_binding_values(spectrum_updates);
+        !result) {
+        return std::unexpected(
+            "Failed to update QSee FFT band bindings: " + result.error()
+        );
     }
     return set_hidden(context, "/qsee_audio_fft/surface/bands", false);
 }
@@ -4005,7 +4003,7 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
                 std::snprintf(
                     path.data(),
                     path.size(),
-                    "/qsee_audio_detail/surface/%s/band%02u/bar",
+                    "/qsee_audio_detail/surface/%s/band%02u",
                     row,
                     static_cast<unsigned>(band)
                 );
@@ -4027,19 +4025,33 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         }
         audio_detail_palette_applied_ = true;
     }
+    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
+    spectrum_updates.reserve(kAudioSpectrumBandCount * 2U);
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         for (size_t channel = 0; channel < 2U; ++channel) {
             std::array<char, 96> path{};
             const char *row = channel == 0U ? "mic0_bands" : "mic1_bands";
             std::snprintf(path.data(), path.size(),
-                          "/qsee_audio_detail/surface/%s/band%02u/bar",
+                          "/qsee_audio_detail/surface/%s/band%02u",
                           row, static_cast<unsigned>(band));
-            if (auto result = set_value(context, path.data(),
-                                        snapshot.audio.channel_spectrum[channel][band]);
-                !result) {
-                return result;
-            }
+            const int32_t height = std::max<int32_t>(
+                1,
+                (static_cast<int32_t>(
+                    snapshot.audio.channel_spectrum[channel][band]
+                ) * 64 + 99) / 100
+            );
+            spectrum_updates.push_back({
+                .absolute_path = path.data(),
+                .key = "height",
+                .value = std::to_string(height) + "dp",
+            });
         }
+    }
+    if (auto result = context.gui().set_binding_values(spectrum_updates);
+        !result) {
+        return std::unexpected(
+            "Failed to update QSee detail FFT band bindings: " + result.error()
+        );
     }
     if (auto result = set_hidden(context, "/qsee_audio_detail/surface/mic0_bands", false);
         !result) {

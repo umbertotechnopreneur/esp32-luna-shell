@@ -1,4 +1,4 @@
 [submodule "esp-brookesia"]
 	path = third_party/esp-brookesia
 	url = https://github.com/umbertotechnopreneur/esp-brookesia.git
-	branch = agent/qsee-native-ui-runtime
+	branch = master
