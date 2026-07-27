@@ -7,25 +7,15 @@
         "commonProps": {
             "scrollable": false
         },
-        "bindings": {
-            "style.borderColor": "borderColor"
-        },
         "style": {
-            "bgColor": "#0d2836",
             "bgOpacity": 0,
-            "bgGradientColor": "#07131c",
-            "bgGradientDirection": "vertical",
-            "borderColor": "#2c6077",
             "borderWidth": "0dp",
             "radius": "0dp",
             "padding": "8dp"
         },
         "stateStyles": {
             "pressed": {
-                "bgColor": "#12384a",
-                "bgOpacity": 72,
-                "bgGradientColor": "#0a1c28",
-                "borderColor": "#80dfff"
+                "opacity": 176
             }
         },
         "placement": {
@@ -47,8 +37,8 @@
                 "placement": {
                     "mode": "absolute",
                     "x": "8dp",
-                    "y": "16dp",
-                    "width": "94dp",
+                    "y": "6dp",
+                    "width": "132dp",
                     "height": "22dp"
                 }
             },
@@ -65,9 +55,9 @@
                 },
                 "placement": {
                     "mode": "absolute",
-                    "x": "104dp",
-                    "y": "18dp",
-                    "width": "74dp",
+                    "x": "144dp",
+                    "y": "8dp",
+                    "width": "130dp",
                     "height": "18dp"
                 }
             },
@@ -87,9 +77,9 @@
                 },
                 "placement": {
                     "mode": "absolute",
-                    "x": "180dp",
-                    "y": "18dp",
-                    "width": "94dp",
+                    "x": "8dp",
+                    "y": "32dp",
+                    "width": "266dp",
                     "height": "18dp"
                 }
             }

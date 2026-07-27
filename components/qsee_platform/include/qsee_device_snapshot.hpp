@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "qsee_power_policy.hpp"
 
 namespace qsee {
 
@@ -322,10 +323,14 @@ struct PowerManagementSnapshot : ComponentSnapshot {
     bool status_arc_visible = true;
     UiHardwareSnapshot::DisplayPowerMode display_idle_stage =
         UiHardwareSnapshot::DisplayPowerMode::Active;
-    uint32_t command_arc_timeout_seconds = 10;
-    uint32_t status_arc_timeout_seconds = 30;
-    uint32_t display_dim_timeout_seconds = 30;
-    uint32_t display_off_delay_seconds = 60;
+    uint32_t command_arc_timeout_seconds =
+        power_policy::kDefaultCommandArcTimeoutSeconds;
+    uint32_t status_arc_timeout_seconds =
+        power_policy::kDefaultStatusArcTimeoutSeconds;
+    uint32_t display_dim_timeout_seconds =
+        power_policy::kDefaultDisplayDimTimeoutSeconds;
+    uint32_t screen_sleep_delay_seconds =
+        power_policy::kDefaultScreenSleepDelaySeconds;
     uint32_t transition_sequence = 0;
     int64_t last_activity_at_us = 0;
     int64_t changed_at_us = 0;
@@ -461,7 +466,7 @@ public:
         uint32_t command_arc_timeout_seconds,
         uint32_t status_arc_timeout_seconds,
         uint32_t display_dim_timeout_seconds,
-        uint32_t display_off_delay_seconds,
+        uint32_t screen_sleep_delay_seconds,
         uint32_t transition_sequence,
         int64_t last_activity_at_us,
         esp_err_t error

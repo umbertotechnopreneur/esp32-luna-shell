@@ -5117,7 +5117,7 @@ void DeviceSnapshotService::reportPowerManagement(
     uint32_t command_arc_timeout_seconds,
     uint32_t status_arc_timeout_seconds,
     uint32_t display_dim_timeout_seconds,
-    uint32_t display_off_delay_seconds,
+    uint32_t screen_sleep_delay_seconds,
     uint32_t transition_sequence,
     int64_t last_activity_at_us,
     esp_err_t error
@@ -5138,8 +5138,8 @@ void DeviceSnapshotService::reportPowerManagement(
                 status_arc_timeout_seconds;
             snapshot.power.display_dim_timeout_seconds =
                 display_dim_timeout_seconds;
-            snapshot.power.display_off_delay_seconds =
-                display_off_delay_seconds;
+            snapshot.power.screen_sleep_delay_seconds =
+                screen_sleep_delay_seconds;
             snapshot.power.transition_sequence = transition_sequence;
             snapshot.power.last_activity_at_us = last_activity_at_us;
             snapshot.power.changed_at_us = attempted_at_us;

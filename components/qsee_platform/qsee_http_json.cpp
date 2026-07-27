@@ -451,11 +451,11 @@ void writePowerManagement(
     (void)json.raw(",\"display_idle_stage\":");
     (void)json.quoted(displayPowerModeName(power.display_idle_stage));
     (void)json.format(
-        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"display_off_delay_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
+        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"screen_sleep_delay_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
         static_cast<unsigned long>(power.command_arc_timeout_seconds),
         static_cast<unsigned long>(power.status_arc_timeout_seconds),
         static_cast<unsigned long>(power.display_dim_timeout_seconds),
-        static_cast<unsigned long>(power.display_off_delay_seconds),
+        static_cast<unsigned long>(power.screen_sleep_delay_seconds),
         static_cast<unsigned long>(power.transition_sequence),
         static_cast<long long>(power.last_activity_at_us),
         static_cast<long long>(power.changed_at_us)

@@ -210,6 +210,7 @@ private:
     bool logs_follow_latest_ = true;
     bool performance_mode_enabled_ = false;
     bool audio_diagnostic_capture_active_ = false;
+    bool audio_detail_palette_applied_ = false;
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;

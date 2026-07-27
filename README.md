@@ -138,6 +138,7 @@ framework or call LVGL directly.
 | `Wake Surface` | The transparent full-display touch target used only while Adaptive Chrome is hidden or the display is dimmed/off |
 | `Adaptive Chrome` | The reusable Status Arc and Command Arc renderer; it animates the canonical power state but owns no inactivity policy |
 | `Power Management Service` | The single worker that owns BOOT/PWR input, inactivity timing, arc visibility, AMOLED fade/dim/off, audio standby, and IMU wake |
+| `Screen Sleep` | The inactivity stage reached after dimming; AMOLED output and periodic UI refresh stop, while touch and IMU wake remain available |
 | `Device Standby` | The explicit `PWR`-controlled state with the display off and voice capture suspended while the IMU wake monitor remains active |
 | `Full Snapshot` | One serialized complete hardware and system acquisition, scheduled at the user-selected 300 ms to 10 s cadence |
 | `Diagnostic Stream` | The separate IMU/microphone live sampler enabled only by diagnostic routes |
@@ -148,15 +149,18 @@ The standard page names are `Welcome`, `Live Logs`, `Hardware`, `Audio Scope`,
 `Pairing Flow`. Use these names in code reviews, issues, screenshots, and
 documentation.
 
-The Power Management Service owns one inactivity timeline. The independently
-configured `Command Arc` and `Status Arc` hide first. After the configured
-display timeout, a shared fade reduces brightness to 50% of the user's
-configured value; after the separate off delay, the same fade reaches
-`DisplayOff`. Touch, a command, BOOT short press, or a bias-resistant IMU
-movement restores the active policy. `PWR` short press exclusively toggles
-Device Standby; another `PWR` press or valid IMU movement wakes it. BOOT held
-for three seconds performs a soft reset. Every policy state and transition is
-published in `DeviceSnapshotService`; the UI only animates that immutable state.
+The Power Management Service owns one inactivity timeline and four independent
+Settings dropdowns. The `Command Arc` and `Status Arc` have separate hide
+timeouts. The display-dim timeout starts from the same last-activity instant
+and a shared fade reduces brightness to 50% of the user's configured value.
+The Screen Sleep delay starts when dimming begins; its fade then reaches
+`DisplayOff`. Defaults are 1 minute, 2 minutes, 5 minutes, and 5 minutes after
+dimming respectively. Every dropdown also offers `Never`. Touch, a command,
+BOOT short press, or a bias-resistant IMU movement restores the active policy.
+`PWR` short press exclusively toggles Device Standby; another `PWR` press or
+valid IMU movement wakes it. BOOT held for three seconds performs a soft reset.
+Every policy state and transition is published in `DeviceSnapshotService`; the
+UI only animates that immutable state.
 
 ### Route index
 

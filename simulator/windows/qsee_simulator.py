@@ -51,7 +51,7 @@ CONTROL_BORDER_PX = 1
 COMMAND_MAIN_DIAMETER = 58
 COMMAND_DIAMETER_STEP = 6
 COMMAND_MIN_DIAMETER = COMMAND_MAIN_DIAMETER - (2 * COMMAND_DIAMETER_STEP)
-COMMAND_BUTTON_GAP = 6
+COMMAND_BUTTON_GAP = 9
 EDGE_COMMAND_DIAMETER = 54
 COMMAND_CENTER_X = 233
 COMMAND_MAIN_CENTER_Y = 389
@@ -856,7 +856,16 @@ class QSeeSimulator:
         elif (
             10 <= event.x <= 70
             and 203 <= event.y <= 263
-            and self.screen in {"audio", "fft", "fft-detail", "imu", "settings"}
+            and self.screen in {
+                "audio",
+                "fft",
+                "fft-detail",
+                "imu",
+                "settings",
+                "chrome-settings",
+                "power-settings",
+                "hardware",
+            }
         ):
             self.back()
         elif 147 <= event.x <= 203 and 346 <= event.y <= 402 and self.screen == "home":
@@ -1251,6 +1260,64 @@ class QSeeSimulator:
         self._draw_edge_back()
         self._draw_safe_guide()
 
+    def show_hardware_demo(self) -> None:
+        self.screen = "hardware"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading("HARDWARE", "Tap a row for device details")
+        rows = (
+            ("BATTERY", "AXP2101", "READY"),
+            ("RTC", "PCF85063", "READY"),
+            ("IMU", "QMI8658", "READY"),
+            ("GPS", "LC76G", "3D FIX"),
+            ("WIFI", "ESP32-S3", "NOT CONFIGURED"),
+        )
+        for index, (name, code, state) in enumerate(rows):
+            y = 173 + index * 42
+            state_color = (
+                STATUS_WARNING if state == "NOT CONFIGURED" else STATUS_READY
+            )
+            self.canvas.create_text(
+                94,
+                y,
+                anchor="w",
+                text=name,
+                fill=TEXT,
+                font=(FONT_DISPLAY, 11),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                230,
+                y,
+                anchor="w",
+                text=code,
+                fill="#80dfff",
+                font=(FONT_TECH, 9, "bold"),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                94,
+                y + 18,
+                anchor="w",
+                text=state,
+                fill=state_color,
+                font=(FONT_TECH, 8, "bold"),
+                tags="ui",
+            )
+            if index < len(rows) - 1:
+                self.canvas.create_line(
+                    94,
+                    y + 33,
+                    372,
+                    y + 33,
+                    fill="#173545",
+                    width=1,
+                    tags="ui",
+                )
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
     def _draw_audio_bars(
         self,
         baseline: int,
@@ -1508,6 +1575,80 @@ class QSeeSimulator:
         self._draw_command_button(x, y, "▥", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
+
+    def _show_timeout_settings(
+        self,
+        screen: str,
+        section: str,
+        description: str,
+        rows: tuple[tuple[str, str], tuple[str, str]],
+    ) -> None:
+        self.screen = screen
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading("SETTINGS", "Idle policy · swipe to scroll")
+        self.canvas.create_text(
+            94,
+            174,
+            anchor="w",
+            text=section,
+            fill=STATUS_READY,
+            font=(FONT_DISPLAY, 14),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            196,
+            anchor="w",
+            text=description,
+            width=282,
+            fill=MUTED_BRIGHT,
+            font=(FONT_BODY, 10),
+            tags="ui",
+        )
+        for label_y, control_y, (label, value) in zip(
+            (216, 286),
+            (230, 300),
+            rows,
+        ):
+            self.canvas.create_text(
+                94,
+                label_y,
+                anchor="w",
+                text=label,
+                fill=TEXT,
+                font=(FONT_DISPLAY, 11),
+                tags="ui",
+            )
+            self._draw_settings_control(control_y, value)
+
+        x, y, diameter = command_geometry(1, 0)
+        self._draw_command_button(x, y, "⚙", True, diameter)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_chrome_settings_demo(self) -> None:
+        self._show_timeout_settings(
+            "chrome-settings",
+            "ADAPTIVE CHROME",
+            "Touch or motion wakes",
+            (
+                ("Hide Command Arc after", "1 minute"),
+                ("Hide Status Arc after", "2 minutes"),
+            ),
+        )
+
+    def show_power_settings_demo(self) -> None:
+        self._show_timeout_settings(
+            "power-settings",
+            "POWER",
+            "Dim, then screen sleep",
+            (
+                ("Dim display to 50% after", "5 minutes"),
+                ("Full sleep after display dim", "5 minutes"),
+            ),
+        )
 
     def show_audio_detail_demo(self) -> None:
         self.screen = "fft-detail"
@@ -1770,7 +1911,16 @@ class QSeeSimulator:
         self.show_home()
 
     def back(self) -> None:
-        if self.screen in {"audio", "fft", "fft-detail", "imu", "settings"}:
+        if self.screen in {
+            "audio",
+            "fft",
+            "fft-detail",
+            "imu",
+            "settings",
+            "chrome-settings",
+            "power-settings",
+            "hardware",
+        }:
             if self.audio_timer is not None:
                 self.root.after_cancel(self.audio_timer)
                 self.audio_timer = None
@@ -1821,6 +1971,9 @@ class QSeeSimulator:
         redraw = {
             "home": self.show_home,
             "settings": self.show_settings_demo,
+            "chrome-settings": self.show_chrome_settings_demo,
+            "power-settings": self.show_power_settings_demo,
+            "hardware": self.show_hardware_demo,
             "audio": self.show_audio_demo,
             "fft": self.show_audio_fft_demo,
             "fft-detail": self.show_audio_detail_demo,
@@ -1864,7 +2017,17 @@ def main() -> None:
     parser.add_argument("--scenario", choices=SCENARIOS, default="healthy")
     parser.add_argument(
         "--screen",
-        choices=("home", "settings", "audio", "fft", "fft-detail", "imu"),
+        choices=(
+            "home",
+            "settings",
+            "chrome-settings",
+            "power-settings",
+            "hardware",
+            "audio",
+            "fft",
+            "fft-detail",
+            "imu",
+        ),
         default="home",
     )
     parser.add_argument(
@@ -1900,6 +2063,9 @@ def main() -> None:
         {
             "home": simulator.show_home,
             "settings": simulator.show_settings_demo,
+            "chrome-settings": simulator.show_chrome_settings_demo,
+            "power-settings": simulator.show_power_settings_demo,
+            "hardware": simulator.show_hardware_demo,
             "audio": simulator.show_audio_demo,
             "fft": simulator.show_audio_fft_demo,
             "fft-detail": simulator.show_audio_detail_demo,

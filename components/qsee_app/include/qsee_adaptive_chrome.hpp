@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <expected>
@@ -31,7 +30,7 @@ enum class AdaptiveChromeTiming : uint8_t {
     CommandArc,
     StatusArc,
     DisplayDim,
-    DisplayOff,
+    ScreenSleep,
 };
 
 enum class DisplayIdleStage : uint8_t {
@@ -44,15 +43,10 @@ enum class DisplayIdleStage : uint8_t {
 class AdaptiveChromeController final {
 public:
     static constexpr uint32_t kPolicyPeriodMs = 200;
-    static constexpr std::array<uint32_t, 7> kArcTimeouts = {
-        10, 15, 30, 60, 120, 300, 600,
-    };
-    static constexpr std::array<uint32_t, 5> kDimTimeouts = {
-        15, 30, 60, 120, 0,
-    };
-    static constexpr std::array<uint32_t, 6> kOffDelays = {
-        15, 30, 60, 120, 300, 0,
-    };
+
+    [[nodiscard]] static std::span<const uint32_t> timeout_options(
+        AdaptiveChromeTiming timing
+    );
 
     // Bind to the already initialized global power-management policy.
     std::expected<void, std::string> begin();

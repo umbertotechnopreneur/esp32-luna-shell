@@ -764,10 +764,10 @@ std::expected<void, std::string> App::on_start(AppContext &context)
             },
         },
         {
-            .action = "qsee.settings.display_off.changed",
+            .action = "qsee.settings.screen_sleep.changed",
             .handler = [this](const esp_brookesia::gui::Event &event) {
                 handle_chrome_timing_event(
-                    AdaptiveChromeTiming::DisplayOff,
+                    AdaptiveChromeTiming::ScreenSleep,
                     event
                 );
             },
@@ -891,6 +891,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
+    audio_detail_palette_applied_ = false;
     std::string pause_error;
     if (auto result = adaptive_chrome_.shutdown(context.gui()); !result) {
         pause_error = result.error();
@@ -1359,21 +1360,22 @@ struct HardwareDescriptor {
     std::string_view id;
     std::string_view name;
     std::string_view part;
+    std::string_view description;
 };
 
 constexpr std::array<HardwareDescriptor, 12> kHardwareComponents = {{
-    {"battery", "BATTERY", "AXP2101"},
-    {"rtc", "RTC", "PCF85063"},
-    {"imu", "IMU", "QMI8658"},
-    {"gps", "GPS", "LC76G"},
-    {"wifi", "WIFI", "ESP32-S3"},
-    {"ble", "BLE", "ESP32-S3"},
-    {"display", "DISPLAY", "CO5300"},
-    {"touch", "TOUCH", "CST9217"},
-    {"speaker", "SPEAKER", "ES8311"},
-    {"microphone", "MICROPHONE", "ES7210"},
-    {"sd", "SD CARD", "SDMMC"},
-    {"processor", "PROCESSOR", "ESP32-S3"},
+    {"battery", "BATTERY", "AXP2101", "POWER AND CHARGE MONITOR"},
+    {"rtc", "RTC", "PCF85063", "REAL-TIME CLOCK"},
+    {"imu", "IMU", "QMI8658", "MOTION AND TEMPERATURE SENSOR"},
+    {"gps", "GPS", "LC76G", "GNSS POSITION RECEIVER"},
+    {"wifi", "WIFI", "ESP32-S3", "WIRELESS NETWORK RADIO"},
+    {"ble", "BLE", "ESP32-S3", "BLUETOOTH PROVISIONING RADIO"},
+    {"display", "DISPLAY", "CO5300", "ROUND AMOLED PANEL"},
+    {"touch", "TOUCH", "CST9217", "CAPACITIVE TOUCH CONTROLLER"},
+    {"speaker", "SPEAKER", "ES8311", "AUDIO OUTPUT CODEC"},
+    {"microphone", "MICROPHONE", "ES7210", "DUAL MICROPHONE CODEC"},
+    {"sd", "SD CARD", "SDMMC", "REMOVABLE STORAGE"},
+    {"processor", "PROCESSOR", "ESP32-S3", "DUAL-CORE SYSTEM CONTROLLER"},
 }};
 
 const qsee::ComponentSnapshot &hardware_component(
@@ -2021,19 +2023,8 @@ void App::handle_chrome_timing_event(
         return;
     }
 
-    std::span<const uint32_t> options;
-    switch (timing) {
-    case AdaptiveChromeTiming::CommandArc:
-    case AdaptiveChromeTiming::StatusArc:
-        options = AdaptiveChromeController::kArcTimeouts;
-        break;
-    case AdaptiveChromeTiming::DisplayDim:
-        options = AdaptiveChromeController::kDimTimeouts;
-        break;
-    case AdaptiveChromeTiming::DisplayOff:
-        options = AdaptiveChromeController::kOffDelays;
-        break;
-    }
+    const std::span<const uint32_t> options =
+        AdaptiveChromeController::timeout_options(timing);
     const size_t index = static_cast<size_t>(*selected_index);
     if (index >= options.size()) {
         ESP_LOGE(
@@ -2900,14 +2891,6 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
             ); !result) {
             return result;
         }
-        if (auto result = set_binding_text(
-                context,
-                base_path,
-                "borderColor",
-                color
-            ); !result) {
-            return result;
-        }
     }
 
     std::array<char, 128> summary{};
@@ -2962,10 +2945,15 @@ std::expected<void, std::string> App::show_hardware_details(
     std::array<char, 768> details{};
     append_format(
         details,
-        "PART: %.*s\nSTATE: %s\nERROR: %s\n"
+        "CODE: %.*s\nNAME: %.*s\nABOUT: %.*s\n"
+        "STATE: %s\nERROR: %s\n"
         "LAST ATTEMPT: %lld us\nLAST SUCCESS: %lld us\n",
         static_cast<int>(descriptor.part.size()),
         descriptor.part.data(),
+        static_cast<int>(descriptor.name.size()),
+        descriptor.name.data(),
+        static_cast<int>(descriptor.description.size()),
+        descriptor.description.data(),
         status.data(),
         esp_err_to_name(component.last_error),
         static_cast<long long>(component.last_attempt_at_us),
@@ -4135,37 +4123,42 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         "#078dff", "#0b9dff", "#10afff", "#12c5ff", "#16d9ff", "#28e4f2", "#45d9ee", "#5abcfb",
         "#709dff", "#8780ff", "#a466ff", "#bd51ff", "#d342ff", "#e834f8", "#f62de7", "#ff35cf",
     };
-    static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic0ColorEnds = {
-        "#66d6ff", "#69dcff", "#70e4ff", "#75eaff", "#7cefff", "#8af4f0", "#9aeff1", "#a5ddff",
-        "#b3c7ff", "#c1b5ff", "#d0a5ff", "#da94ff", "#e887ff", "#f27cf3", "#f97ade", "#ff82d9",
-    };
     static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic1Colors = {
         "#ff8700", "#ff9500", "#ffa400", "#ffb300", "#ffc000", "#ffcb19", "#ffd43b", "#f4dd4b",
         "#e6e45a", "#d4e660", "#bfe365", "#a8df6b", "#8fdb77", "#72d98b", "#4dd6a3", "#25d3bb",
     };
-    static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic1ColorEnds = {
-        "#ffc24a", "#ffca4f", "#ffd258", "#ffda61", "#ffe26b", "#ffe982", "#ffef9a", "#eaf1a0",
-        "#dcf3a2", "#c9f1a4", "#b6efa9", "#a2edb0", "#90ebbc", "#81e9c6", "#72e8d0", "#68e6d8",
-    };
-    std::vector<esp_brookesia::gui::BindingValueUpdate> palette_updates;
-    palette_updates.reserve(kAudioSpectrumBandCount * 4U);
-    for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
-        for (size_t channel = 0; channel < 2U; ++channel) {
-            std::array<char, 96> path{};
-            const char *row = channel == 0U ? "mic0_bands" : "mic1_bands";
-            std::snprintf(path.data(), path.size(),
-                          "/qsee_audio_detail/surface/%s/band%02u/bar",
-                          row, static_cast<unsigned>(band));
-            const auto &colors = channel == 0U ? kMic0Colors : kMic1Colors;
-            const auto &color_ends = channel == 0U ? kMic0ColorEnds : kMic1ColorEnds;
-            palette_updates.push_back({.absolute_path = path.data(), .key = "color",
-                                       .value = std::string(colors[band])});
-            palette_updates.push_back({.absolute_path = path.data(), .key = "colorEnd",
-                                       .value = std::string(color_ends[band])});
+    if (!audio_detail_palette_applied_) {
+        std::vector<esp_brookesia::gui::BindingValueUpdate> palette_updates;
+        palette_updates.reserve(kAudioSpectrumBandCount * 2U);
+        for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
+            for (size_t channel = 0; channel < 2U; ++channel) {
+                std::array<char, 96> path{};
+                const char *row =
+                    channel == 0U ? "mic0_bands" : "mic1_bands";
+                std::snprintf(
+                    path.data(),
+                    path.size(),
+                    "/qsee_audio_detail/surface/%s/band%02u/bar",
+                    row,
+                    static_cast<unsigned>(band)
+                );
+                const auto &colors =
+                    channel == 0U ? kMic0Colors : kMic1Colors;
+                palette_updates.push_back({
+                    .absolute_path = path.data(),
+                    .key = "color",
+                    .value = std::string(colors[band]),
+                });
+            }
         }
-    }
-    if (auto result = context.gui().set_binding_values(palette_updates); !result) {
-        return std::unexpected("Failed to update QSee detail FFT palette: " + result.error());
+        if (auto result = context.gui().set_binding_values(palette_updates);
+            !result) {
+            return std::unexpected(
+                "Failed to update QSee detail FFT palette: " +
+                result.error()
+            );
+        }
+        audio_detail_palette_applied_ = true;
     }
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         for (size_t channel = 0; channel < 2U; ++channel) {
@@ -4996,10 +4989,10 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             {
                 .absolute_path =
                     "/qsee_settings/surface/settings_scroller/"
-                    "display_off_delay",
+                    "screen_sleep_delay",
                 .key = "selectedIndex",
                 .value = std::to_string(adaptive_chrome_.selected_index(
-                    AdaptiveChromeTiming::DisplayOff
+                    AdaptiveChromeTiming::ScreenSleep
                 )),
             },
         };

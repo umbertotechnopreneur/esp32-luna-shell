@@ -56,8 +56,6 @@
                 "partStyles": {
                     "indicator": {
                         "bgColor": "#009c9d",
-                        "bgGradientColor": "#075f7d",
-                        "bgGradientDirection": "horizontal",
                         "radius": "4dp"
                     }
                 },

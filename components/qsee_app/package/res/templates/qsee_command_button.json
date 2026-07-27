@@ -34,7 +34,7 @@
             "borderWidth": "1dp",
             "radius": "27dp",
             "shadowColor": "#0b55d9",
-            "shadowWidth": "10dp",
+            "shadowWidth": "0dp",
             "shadowOffsetX": "0dp",
             "shadowOffsetY": "0dp",
             "padding": 0,

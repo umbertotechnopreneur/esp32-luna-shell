@@ -5,6 +5,7 @@
 
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_power_policy.hpp"
 #include "qsee_settings.hpp"
 
 #include <atomic>
@@ -37,11 +38,6 @@ constexpr uint32_t kDisplayFadeDurationMs = 360;
 constexpr float kMotionAccelerationDeltaMps2 = 0.80F;
 constexpr float kMotionAngularVelocityDeltaDps = 4.0F;
 
-constexpr char kCommandTimeoutKey[] = "command_arc_s";
-constexpr char kStatusTimeoutKey[] = "status_arc_s";
-constexpr char kDimTimeoutKey[] = "display_dim_s";
-constexpr char kOffDelayKey[] = "display_off_s";
-
 TaskHandle_t s_task;
 qsee::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
@@ -50,10 +46,18 @@ std::atomic<int64_t> s_activity_at_us{0};
 std::atomic<qsee::DeviceStateReason> s_activity_reason{
     qsee::DeviceStateReason::Touch
 };
-std::atomic<uint32_t> s_command_timeout_seconds{10};
-std::atomic<uint32_t> s_status_timeout_seconds{30};
-std::atomic<uint32_t> s_dim_timeout_seconds{30};
-std::atomic<uint32_t> s_off_delay_seconds{60};
+std::atomic<uint32_t> s_command_timeout_seconds{
+    qsee::power_policy::kDefaultCommandArcTimeoutSeconds
+};
+std::atomic<uint32_t> s_status_timeout_seconds{
+    qsee::power_policy::kDefaultStatusArcTimeoutSeconds
+};
+std::atomic<uint32_t> s_dim_timeout_seconds{
+    qsee::power_policy::kDefaultDisplayDimTimeoutSeconds
+};
+std::atomic<uint32_t> s_screen_sleep_delay_seconds{
+    qsee::power_policy::kDefaultScreenSleepDelaySeconds
+};
 
 qsee::DeviceOperatingState s_state =
     qsee::DeviceOperatingState::Active;
@@ -91,72 +95,6 @@ enum class ButtonEvent : uint8_t {
 ButtonState s_boot;
 ButtonState s_power;
 
-const char *timeout_key(qsee_power_timeout_t timeout)
-{
-    switch (timeout) {
-    case QSEE_POWER_TIMEOUT_COMMAND_ARC:
-        return kCommandTimeoutKey;
-    case QSEE_POWER_TIMEOUT_STATUS_ARC:
-        return kStatusTimeoutKey;
-    case QSEE_POWER_TIMEOUT_DISPLAY_DIM:
-        return kDimTimeoutKey;
-    case QSEE_POWER_TIMEOUT_DISPLAY_OFF:
-        return kOffDelayKey;
-    }
-    return "";
-}
-
-const char *timeout_name(qsee_power_timeout_t timeout)
-{
-    switch (timeout) {
-    case QSEE_POWER_TIMEOUT_COMMAND_ARC:
-        return "Command Arc";
-    case QSEE_POWER_TIMEOUT_STATUS_ARC:
-        return "Status Arc";
-    case QSEE_POWER_TIMEOUT_DISPLAY_DIM:
-        return "display dim";
-    case QSEE_POWER_TIMEOUT_DISPLAY_OFF:
-        return "display off";
-    }
-    return "unknown";
-}
-
-uint32_t default_timeout(qsee_power_timeout_t timeout)
-{
-    switch (timeout) {
-    case QSEE_POWER_TIMEOUT_COMMAND_ARC:
-        return 10;
-    case QSEE_POWER_TIMEOUT_STATUS_ARC:
-        return 30;
-    case QSEE_POWER_TIMEOUT_DISPLAY_DIM:
-        return 30;
-    case QSEE_POWER_TIMEOUT_DISPLAY_OFF:
-        return 60;
-    }
-    return 0;
-}
-
-bool timeout_supported(
-    qsee_power_timeout_t timeout,
-    uint32_t seconds
-)
-{
-    switch (timeout) {
-    case QSEE_POWER_TIMEOUT_COMMAND_ARC:
-    case QSEE_POWER_TIMEOUT_STATUS_ARC:
-        return seconds == 10 || seconds == 15 || seconds == 30 ||
-               seconds == 60 || seconds == 120 || seconds == 300 ||
-               seconds == 600;
-    case QSEE_POWER_TIMEOUT_DISPLAY_DIM:
-        return seconds == 0 || seconds == 15 || seconds == 30 ||
-               seconds == 60 || seconds == 120;
-    case QSEE_POWER_TIMEOUT_DISPLAY_OFF:
-        return seconds == 0 || seconds == 15 || seconds == 30 ||
-               seconds == 60 || seconds == 120 || seconds == 300;
-    }
-    return false;
-}
-
 std::atomic<uint32_t> *timeout_storage(qsee_power_timeout_t timeout)
 {
     switch (timeout) {
@@ -166,8 +104,8 @@ std::atomic<uint32_t> *timeout_storage(qsee_power_timeout_t timeout)
         return &s_status_timeout_seconds;
     case QSEE_POWER_TIMEOUT_DISPLAY_DIM:
         return &s_dim_timeout_seconds;
-    case QSEE_POWER_TIMEOUT_DISPLAY_OFF:
-        return &s_off_delay_seconds;
+    case QSEE_POWER_TIMEOUT_SCREEN_SLEEP:
+        return &s_screen_sleep_delay_seconds;
     }
     return nullptr;
 }
@@ -176,25 +114,31 @@ esp_err_t load_timeout(qsee_power_timeout_t timeout)
 {
     auto &settings = qsee::UserSettingsService::instance();
     uint32_t seconds = 0;
-    esp_err_t error = settings.getUInt32(timeout_key(timeout), &seconds);
+    esp_err_t error = settings.getUInt32(
+        qsee::power_policy::settings_key(timeout),
+        &seconds
+    );
     if (error == ESP_ERR_NVS_NOT_FOUND) {
-        seconds = default_timeout(timeout);
+        seconds = qsee::power_policy::default_timeout_seconds(timeout);
         ESP_LOGI(
             kTag,
             "%s timeout absent; persisting explicit default %lu s",
-            timeout_name(timeout),
+            qsee::power_policy::display_name(timeout),
             static_cast<unsigned long>(seconds)
         );
-        error = settings.setUInt32(timeout_key(timeout), seconds);
+        error = settings.setUInt32(
+            qsee::power_policy::settings_key(timeout),
+            seconds
+        );
     }
     if (error != ESP_OK) {
         return error;
     }
-    if (!timeout_supported(timeout, seconds)) {
+    if (!qsee::power_policy::timeout_supported(timeout, seconds)) {
         ESP_LOGE(
             kTag,
             "%s timeout contains unsupported value %lu s",
-            timeout_name(timeout),
+            qsee::power_policy::display_name(timeout),
             static_cast<unsigned long>(seconds)
         );
         return ESP_ERR_INVALID_ARG;
@@ -246,7 +190,7 @@ void publish_power(esp_err_t error)
         s_command_timeout_seconds.load(std::memory_order_acquire),
         s_status_timeout_seconds.load(std::memory_order_acquire),
         s_dim_timeout_seconds.load(std::memory_order_acquire),
-        s_off_delay_seconds.load(std::memory_order_acquire),
+        s_screen_sleep_delay_seconds.load(std::memory_order_acquire),
         s_transition_sequence,
         s_last_activity_at_us,
         error
@@ -520,11 +464,13 @@ esp_err_t apply_idle_policy()
     if (expired(dim_seconds)) {
         display_stage =
             qsee::UiHardwareSnapshot::DisplayPowerMode::Dimmed;
-        const uint32_t off_delay =
-            s_off_delay_seconds.load(std::memory_order_acquire);
-        if (off_delay > 0U &&
+        const uint32_t screen_sleep_delay =
+            s_screen_sleep_delay_seconds.load(std::memory_order_acquire);
+        if (screen_sleep_delay > 0U &&
             elapsed_us >=
-                static_cast<int64_t>(dim_seconds + off_delay) *
+                static_cast<int64_t>(
+                    dim_seconds + screen_sleep_delay
+                ) *
                     1000000LL) {
             display_stage =
                 qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
@@ -760,7 +706,7 @@ extern "C" esp_err_t qsee_power_manager_init(void)
         result = load_timeout(QSEE_POWER_TIMEOUT_DISPLAY_DIM);
     }
     if (result == ESP_OK) {
-        result = load_timeout(QSEE_POWER_TIMEOUT_DISPLAY_OFF);
+        result = load_timeout(QSEE_POWER_TIMEOUT_SCREEN_SLEEP);
     }
     if (result != ESP_OK) {
         s_initialized.store(false, std::memory_order_release);
@@ -870,7 +816,20 @@ extern "C" esp_err_t qsee_power_manager_init(void)
 
     ESP_LOGI(
         kTag,
-        "Power service ready: BOOT=GPIO0 PWR=GPIO41, one policy worker"
+        "Power service ready: BOOT=GPIO0 PWR=GPIO41, "
+        "timers=%lu/%lu/%lu/+%lu s",
+        static_cast<unsigned long>(
+            s_command_timeout_seconds.load(std::memory_order_acquire)
+        ),
+        static_cast<unsigned long>(
+            s_status_timeout_seconds.load(std::memory_order_acquire)
+        ),
+        static_cast<unsigned long>(
+            s_dim_timeout_seconds.load(std::memory_order_acquire)
+        ),
+        static_cast<unsigned long>(
+            s_screen_sleep_delay_seconds.load(std::memory_order_acquire)
+        )
     );
     return ESP_OK;
 }
@@ -897,18 +856,19 @@ extern "C" esp_err_t qsee_power_manager_set_timeout(
         return ESP_ERR_INVALID_STATE;
     }
     std::atomic<uint32_t> *storage = timeout_storage(timeout);
-    if (storage == nullptr || !timeout_supported(timeout, seconds)) {
+    if (storage == nullptr ||
+        !qsee::power_policy::timeout_supported(timeout, seconds)) {
         ESP_LOGE(
             kTag,
             "%s timeout rejected unsupported value %lu s",
-            timeout_name(timeout),
+            qsee::power_policy::display_name(timeout),
             static_cast<unsigned long>(seconds)
         );
         return ESP_ERR_INVALID_ARG;
     }
     const esp_err_t error =
         qsee::UserSettingsService::instance().setUInt32(
-            timeout_key(timeout),
+            qsee::power_policy::settings_key(timeout),
             seconds
         );
     if (error != ESP_OK) {
@@ -919,7 +879,7 @@ extern "C" esp_err_t qsee_power_manager_set_timeout(
     ESP_LOGI(
         kTag,
         "%s timeout updated: %lu s",
-        timeout_name(timeout),
+        qsee::power_policy::display_name(timeout),
         static_cast<unsigned long>(seconds)
     );
     return ESP_OK;

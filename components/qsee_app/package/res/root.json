@@ -194,8 +194,6 @@
                                     "partStyles": {
                                         "indicator": {
                                             "bgColor": "#009c9d",
-                                            "bgGradientColor": "#075f7d",
-                                            "bgGradientDirection": "horizontal",
                                             "radius": "4dp"
                                         }
                                     },
@@ -261,8 +259,6 @@
                                     "partStyles": {
                                         "indicator": {
                                             "bgColor": "#0b55d9",
-                                            "bgGradientColor": "#073078",
-                                            "bgGradientDirection": "horizontal",
                                             "radius": "4dp"
                                         }
                                     },
@@ -299,8 +295,6 @@
                                     "partStyles": {
                                         "indicator": {
                                             "bgColor": "#0b55d9",
-                                            "bgGradientColor": "#073078",
-                                            "bgGradientDirection": "horizontal",
                                             "radius": "4dp"
                                         }
                                     }
@@ -993,31 +987,6 @@
                     },
                     "children": [
                         {
-                            "type": "container",
-                            "id": "audio_panel",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
-                            },
-                            "style": {
-                                "bgColor": "#0d2836",
-                                "bgOpacity": 0,
-                                "bgGradientColor": "#07131c",
-                                "bgGradientDirection": "vertical",
-                                "borderColor": "#2c6077",
-                                "borderWidth": "0dp",
-                                "radius": "0dp",
-                                "padding": 0
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "14dp",
-                                "y": "86dp",
-                                "width": "292dp",
-                                "height": "198dp"
-                            }
-                        },
-                        {
                             "type": "label",
                             "id": "title",
                             "labelProps": {
@@ -1113,8 +1082,6 @@
                             "partStyles": {
                                 "indicator": {
                                     "bgColor": "#20dfc1",
-                                    "bgGradientColor": "#08745f",
-                                    "bgGradientDirection": "horizontal",
                                     "radius": "6dp"
                                 }
                             },
@@ -1165,8 +1132,6 @@
                             "partStyles": {
                                 "indicator": {
                                     "bgColor": "#3478c8",
-                                    "bgGradientColor": "#2a5e9b",
-                                    "bgGradientDirection": "horizontal",
                                     "radius": "6dp"
                                 }
                             },
@@ -1250,31 +1215,6 @@
                         "height": "320dp"
                     },
                     "children": [
-                        {
-                            "type": "container",
-                            "id": "spectrum_panel",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
-                            },
-                            "style": {
-                                "bgColor": "#0d2836",
-                                "bgOpacity": 0,
-                                "bgGradientColor": "#07131c",
-                                "bgGradientDirection": "vertical",
-                                "borderColor": "#2c6077",
-                                "borderWidth": "0dp",
-                                "radius": "0dp",
-                                "padding": 0
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "34dp",
-                                "y": "96dp",
-                                "width": "252dp",
-                                "height": "156dp"
-                            }
-                        },
                         {
                             "type": "label",
                             "id": "title",
@@ -1431,31 +1371,6 @@
                         "height": "320dp"
                     },
                     "children": [
-                        {
-                            "type": "container",
-                            "id": "spectrum_panel",
-                            "commonProps": {
-                                "clickable": false,
-                                "scrollable": false
-                            },
-                            "style": {
-                                "bgColor": "#0d2836",
-                                "bgOpacity": 0,
-                                "bgGradientColor": "#07131c",
-                                "bgGradientDirection": "vertical",
-                                "borderColor": "#2c6077",
-                                "borderWidth": "0dp",
-                                "radius": "0dp",
-                                "padding": 0
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "34dp",
-                                "y": "92dp",
-                                "width": "252dp",
-                                "height": "188dp"
-                            }
-                        },
                         {
                             "type": "label",
                             "id": "title",
@@ -3025,8 +2940,6 @@
                                     ],
                                     "style": {
                                         "bgColor": "#20bf91",
-                                        "bgGradientColor": "#0a6c53",
-                                        "bgGradientDirection": "vertical",
                                         "borderColor": "#63ffd0",
                                         "borderWidth": "1dp",
                                         "radius": "20dp",
@@ -3035,7 +2948,6 @@
                                     "stateStyles": {
                                         "pressed": {
                                             "bgColor": "#0d7359",
-                                            "bgGradientColor": "#0a6c53",
                                             "borderColor": "#63ffd0",
                                             "borderWidth": "1dp"
                                         }
@@ -3087,7 +2999,7 @@
                                     "type": "label",
                                     "id": "adaptive_chrome_description",
                                     "labelProps": {
-                                        "text": "Touch or movement restores both arcs"
+                                        "text": "Touch or motion wakes"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -3181,7 +3093,7 @@
                                     "type": "label",
                                     "id": "power_description",
                                     "labelProps": {
-                                        "text": "Two-stage AMOLED inactivity policy"
+                                        "text": "Dim, then screen sleep"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -3217,10 +3129,11 @@
                                         ".": {
                                             "dropdownProps": {
                                                 "options": [
-                                                    "15 seconds",
-                                                    "30 seconds",
                                                     "1 minute",
                                                     "2 minutes",
+                                                    "5 minutes",
+                                                    "10 minutes",
+                                                    "15 minutes",
                                                     "Never"
                                                 ]
                                             },
@@ -3235,9 +3148,9 @@
                                 },
                                 {
                                     "type": "label",
-                                    "id": "display_off_delay_label",
+                                    "id": "screen_sleep_delay_label",
                                     "labelProps": {
-                                        "text": "Turn display off after dimming"
+                                        "text": "Full sleep after display dim"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -3251,24 +3164,25 @@
                                 },
                                 {
                                     "type": "templateRef",
-                                    "id": "display_off_delay",
+                                    "id": "screen_sleep_delay",
                                     "templateId": "qsee_settings_dropdown",
                                     "overrides": {
                                         ".": {
                                             "dropdownProps": {
                                                 "options": [
-                                                    "15 seconds",
                                                     "30 seconds",
                                                     "1 minute",
                                                     "2 minutes",
                                                     "5 minutes",
+                                                    "10 minutes",
+                                                    "15 minutes",
                                                     "Never"
                                                 ]
                                             },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
-                                                    "action": "qsee.settings.display_off.changed"
+                                                    "action": "qsee.settings.screen_sleep.changed"
                                                 }
                                             ]
                                         }
@@ -3304,8 +3218,6 @@
                                     ],
                                     "style": {
                                         "bgColor": "#247fd6",
-                                        "bgGradientColor": "#0a346b",
-                                        "bgGradientDirection": "vertical",
                                         "borderColor": "#65c8ff",
                                         "borderWidth": "1dp",
                                         "radius": "10dp",
@@ -3314,7 +3226,6 @@
                                     "stateStyles": {
                                         "pressed": {
                                             "bgColor": "#1765ad",
-                                            "bgGradientColor": "#082955",
                                             "borderColor": "#9cddff",
                                             "borderWidth": "1dp"
                                         }

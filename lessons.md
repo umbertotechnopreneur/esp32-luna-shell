@@ -61,6 +61,10 @@
 - Keep the bounce buffer small, internal, and transient for both normal flushes
   and rotation replay. A persistent 10-row staging buffer fragments enough
   internal RAM to prevent Brookesia Storage from reading the app JSON.
+- A transient two-slot pipeline can overlap CPU copies and panel transfers
+  without reserving internal RAM permanently. Align every slot independently
+  and log a one-slot retry when fragmentation prevents the optional second
+  slot.
 - One LVGL flush may be split into several internal-DMA panel transfers, but it
   still has exactly one logical completion. Intermediate color-transfer ISRs
   must not release LVGL's draw buffer; signal flush-ready only after the
@@ -68,6 +72,10 @@
 - Do not leave an expensive full-screen vector gradient below an opaque
   rasterized background. LVGL can repaint both layers for every dirty scroll
   area even though the lower layer is never visible.
+- Declarative binding batches must compare values in the data store before
+  applying them to nodes. Reapplying unchanged telemetry still invalidates
+  styles and labels, making an otherwise static scroll appear to repaint in
+  narrow bands.
 
 ## Mutually exclusive runtime profiles
 

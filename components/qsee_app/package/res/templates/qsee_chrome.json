@@ -200,7 +200,7 @@
                     "borderWidth": "1dp",
                     "radius": "30dp",
                     "shadowColor": "#009c9d",
-                    "shadowWidth": "12dp",
+                    "shadowWidth": "0dp",
                     "padding": 0
                 },
                 "stateStyles": {
@@ -279,7 +279,7 @@
                     "borderWidth": "1dp",
                     "radius": "30dp",
                     "shadowColor": "#009c9d",
-                    "shadowWidth": "12dp",
+                    "shadowWidth": "0dp",
                     "padding": 0
                 },
                 "stateStyles": {

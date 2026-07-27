@@ -39,7 +39,7 @@ public:
     static constexpr size_t kSlotCount = 5;
     static constexpr int kMainDiameterDp = 58;
     static constexpr int kDiameterStepDp = 6;
-    static constexpr int kButtonGapDp = 6;
+    static constexpr int kButtonGapDp = 9;
 
     // Replace the route model while retaining the same mounted visual component.
     std::expected<void, std::string> activate(

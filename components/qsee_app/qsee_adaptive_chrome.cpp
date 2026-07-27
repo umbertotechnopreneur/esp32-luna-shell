@@ -20,6 +20,7 @@
 
 #include "esp_log.h"
 #include "qsee_platform.h"
+#include "qsee_power_policy.hpp"
 
 namespace {
 
@@ -29,22 +30,6 @@ constexpr std::string_view kStatusPath =
     "/qsee_chrome_screen/chrome/status";
 constexpr std::string_view kWakePath =
     "/qsee_chrome_screen/chrome/wake";
-
-std::span<const uint32_t> presets(qsee::AdaptiveChromeTiming timing)
-{
-    using qsee::AdaptiveChromeController;
-    using qsee::AdaptiveChromeTiming;
-    switch (timing) {
-    case AdaptiveChromeTiming::CommandArc:
-    case AdaptiveChromeTiming::StatusArc:
-        return AdaptiveChromeController::kArcTimeouts;
-    case AdaptiveChromeTiming::DisplayDim:
-        return AdaptiveChromeController::kDimTimeouts;
-    case AdaptiveChromeTiming::DisplayOff:
-        return AdaptiveChromeController::kOffDelays;
-    }
-    return {};
-}
 
 const char *setting_name(qsee::AdaptiveChromeTiming timing)
 {
@@ -56,8 +41,8 @@ const char *setting_name(qsee::AdaptiveChromeTiming timing)
         return "Status Arc timeout";
     case AdaptiveChromeTiming::DisplayDim:
         return "display dim timeout";
-    case AdaptiveChromeTiming::DisplayOff:
-        return "display-off delay";
+    case AdaptiveChromeTiming::ScreenSleep:
+        return "screen-sleep delay";
     }
     return "adaptive chrome timeout";
 }
@@ -74,8 +59,8 @@ qsee_power_timeout_t platform_timeout(
         return QSEE_POWER_TIMEOUT_STATUS_ARC;
     case AdaptiveChromeTiming::DisplayDim:
         return QSEE_POWER_TIMEOUT_DISPLAY_DIM;
-    case AdaptiveChromeTiming::DisplayOff:
-        return QSEE_POWER_TIMEOUT_DISPLAY_OFF;
+    case AdaptiveChromeTiming::ScreenSleep:
+        return QSEE_POWER_TIMEOUT_SCREEN_SLEEP;
     }
     return QSEE_POWER_TIMEOUT_COMMAND_ARC;
 }
@@ -113,6 +98,13 @@ void add_binding(
 }  // namespace
 
 namespace qsee {
+
+std::span<const uint32_t> AdaptiveChromeController::timeout_options(
+    AdaptiveChromeTiming timing
+)
+{
+    return power_policy::timeout_options(platform_timeout(timing));
+}
 
 std::expected<void, std::string> AdaptiveChromeController::begin()
 {
@@ -298,7 +290,7 @@ size_t AdaptiveChromeController::selected_index(
     AdaptiveChromeTiming timing
 ) const
 {
-    const auto values = presets(timing);
+    const auto values = timeout_options(timing);
     const uint32_t selected = timeout_seconds(timing);
     const auto match = std::find(values.begin(), values.end(), selected);
     return match == values.end()

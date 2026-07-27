@@ -60,13 +60,20 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
 #define BSP_SDCARD_FORMAT_WORK_BUFFER_SIZE 4096U
 #define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
 #define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
+#define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
 #define BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT BSP_DISPLAY_DMA_TRANSFER_HEIGHT
 #define BSP_DISPLAY_CIRCLE_EDGE_PADDING    2
 #define BSP_DISPLAY_FRAME_BYTES            \
     ((size_t)BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8U)
-#define BSP_DISPLAY_DMA_BUFFER_BYTES        \
+#define BSP_DISPLAY_DMA_SLOT_BYTES          \
     ((size_t)BSP_LCD_H_RES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT * \
      BSP_LCD_BITS_PER_PIXEL / 8U)
+#define BSP_DISPLAY_DMA_PIPELINE_BYTES       \
+    (BSP_DISPLAY_DMA_SLOT_BYTES * BSP_DISPLAY_DMA_PIPELINE_DEPTH)
+
+#if CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH < BSP_DISPLAY_DMA_PIPELINE_DEPTH
+#error "LCD transaction queue must hold the display DMA pipeline"
+#endif
 
 typedef struct {
     bool host_initialized;
@@ -1551,9 +1558,10 @@ static void rounder_event_cb(lv_event_t *e)
     area->y2 = ((y2 >> 1) << 1) + 1;
 }
 
-// Keep LVGL's larger render tiles in PSRAM, but copy them into one short-lived
-// internal DMA buffer before QSPI. The panel underflows when it reads PSRAM
-// directly, while 64-row render tiles avoid exposing short LVGL raster bands.
+// Keep LVGL's larger render tiles in PSRAM, but copy them into a short-lived
+// internal DMA pipeline before QSPI. Two buffers let the CPU prepare the next
+// strip while the panel consumes the previous one without retaining scarce
+// internal RAM after the logical flush completes.
 static esp_err_t bsp_display_draw_bitmap_bounced(
     esp_lcd_panel_handle_t panel,
     int x_start,
@@ -1562,10 +1570,15 @@ static esp_err_t bsp_display_draw_bitmap_bounced(
     int y_end,
     const void *color_map,
     size_t source_stride_bytes,
-    uint8_t *bounce_buffer
+    uint8_t *bounce_buffer,
+    size_t bounce_slot_stride_bytes,
+    size_t bounce_buffer_count
 )
 {
     if (panel == NULL || color_map == NULL || bounce_buffer == NULL ||
+        bounce_slot_stride_bytes == 0U ||
+        bounce_buffer_count == 0U ||
+        bounce_buffer_count > CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH ||
         x_start < 0 || y_start < 0 ||
         x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
         x_start >= x_end || y_start >= y_end ||
@@ -1590,7 +1603,23 @@ static esp_err_t bsp_display_draw_bitmap_bounced(
     const size_t bytes_per_pixel = BSP_LCD_BITS_PER_PIXEL / 8U;
     const size_t source_row_bytes =
         (size_t)(x_end - x_start) * bytes_per_pixel;
+    const size_t maximum_chunk_rows =
+        (size_t)(y_end - y_start) < BSP_DISPLAY_DMA_TRANSFER_HEIGHT
+            ? (size_t)(y_end - y_start)
+            : BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
+    const size_t bounce_slot_bytes =
+        source_row_bytes * maximum_chunk_rows;
+    if (bounce_slot_stride_bytes < bounce_slot_bytes) {
+        ESP_LOGE(
+            TAG,
+            "Bounced draw rejected: slot=%lu required=%lu",
+            (unsigned long)bounce_slot_stride_bytes,
+            (unsigned long)bounce_slot_bytes
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
     const uint8_t *source = (const uint8_t *)color_map;
+    size_t queued_transfers = 0;
     for (int chunk_y = y_start; chunk_y < y_end;
          chunk_y += (int)BSP_DISPLAY_DMA_TRANSFER_HEIGHT) {
         const int chunk_end =
@@ -1598,9 +1627,11 @@ static esp_err_t bsp_display_draw_bitmap_bounced(
                 ? chunk_y + (int)BSP_DISPLAY_DMA_TRANSFER_HEIGHT
                 : y_end;
         const size_t chunk_rows = (size_t)(chunk_end - chunk_y);
+        uint8_t *chunk_buffer =
+            bounce_buffer + queued_transfers * bounce_slot_stride_bytes;
         for (size_t row = 0; row < chunk_rows; ++row) {
             memcpy(
-                bounce_buffer + row * source_row_bytes,
+                chunk_buffer + row * source_row_bytes,
                 source +
                     ((size_t)(chunk_y - y_start) + row) *
                         source_stride_bytes,
@@ -1613,7 +1644,7 @@ static esp_err_t bsp_display_draw_bitmap_bounced(
             chunk_y,
             x_end,
             chunk_end,
-            bounce_buffer
+            chunk_buffer
         );
         if (draw_result != ESP_OK) {
             ESP_LOGE(
@@ -1625,19 +1656,35 @@ static esp_err_t bsp_display_draw_bitmap_bounced(
                 chunk_end,
                 esp_err_to_name(draw_result)
             );
+            if (queued_transfers > 0U) {
+                const esp_err_t drain_result =
+                    esp_lcd_panel_io_tx_param(io_handle, -1, NULL, 0);
+                if (drain_result != ESP_OK) {
+                    ESP_LOGE(
+                        TAG,
+                        "Bounced draw error cleanup failed (%s)",
+                        esp_err_to_name(drain_result)
+                    );
+                }
+            }
             return draw_result;
         }
-        const esp_err_t drain_result =
-            esp_lcd_panel_io_tx_param(io_handle, -1, NULL, 0);
-        if (drain_result != ESP_OK) {
-            ESP_LOGE(
-                TAG,
-                "Bounced draw queue drain failed at rows %d-%d (%s)",
-                chunk_y,
-                chunk_end - 1,
-                esp_err_to_name(drain_result)
-            );
-            return drain_result;
+        ++queued_transfers;
+        if (queued_transfers == bounce_buffer_count ||
+            chunk_end == y_end) {
+            const esp_err_t drain_result =
+                esp_lcd_panel_io_tx_param(io_handle, -1, NULL, 0);
+            if (drain_result != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "Bounced draw queue drain failed at rows %d-%d (%s)",
+                    chunk_y,
+                    chunk_end - 1,
+                    esp_err_to_name(drain_result)
+                );
+                return drain_result;
+            }
+            queued_transfers = 0;
         }
     }
     return ESP_OK;
@@ -1683,7 +1730,19 @@ static esp_err_t bsp_display_draw_bitmap_cached(
         (size_t)(y_end - y_start) < BSP_DISPLAY_DMA_TRANSFER_HEIGHT
             ? (size_t)(y_end - y_start)
             : BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
-    const size_t bounce_buffer_bytes = source_row_bytes * bounce_rows;
+    const size_t bounce_slot_bytes = source_row_bytes * bounce_rows;
+    const size_t bounce_slot_stride_bytes =
+        (bounce_slot_bytes + 63U) & ~(size_t)63U;
+    const size_t chunk_count =
+        ((size_t)(y_end - y_start) +
+         BSP_DISPLAY_DMA_TRANSFER_HEIGHT - 1U) /
+        BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
+    size_t bounce_buffer_count =
+        chunk_count < BSP_DISPLAY_DMA_PIPELINE_DEPTH
+            ? chunk_count
+            : BSP_DISPLAY_DMA_PIPELINE_DEPTH;
+    size_t bounce_buffer_bytes =
+        bounce_slot_stride_bytes * bounce_buffer_count;
     const uint8_t *source = (const uint8_t *)color_map;
 
     uint8_t *bounce_buffer = heap_caps_aligned_alloc(
@@ -1691,6 +1750,22 @@ static esp_err_t bsp_display_draw_bitmap_cached(
         bounce_buffer_bytes,
         MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
     );
+    if (bounce_buffer == NULL && bounce_buffer_count > 1U) {
+        ESP_LOGW(
+            TAG,
+            "Allocating the %lu-byte two-slot DMA pipeline failed; "
+            "retrying one %lu-byte slot",
+            (unsigned long)bounce_buffer_bytes,
+            (unsigned long)bounce_slot_stride_bytes
+        );
+        bounce_buffer_count = 1U;
+        bounce_buffer_bytes = bounce_slot_stride_bytes;
+        bounce_buffer = heap_caps_aligned_alloc(
+            64,
+            bounce_buffer_bytes,
+            MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+        );
+    }
     if (bounce_buffer == NULL) {
         ESP_LOGE(
             TAG,
@@ -1707,7 +1782,9 @@ static esp_err_t bsp_display_draw_bitmap_cached(
         y_end,
         color_map,
         source_row_bytes,
-        bounce_buffer
+        bounce_buffer,
+        bounce_slot_stride_bytes,
+        bounce_buffer_count
     );
     heap_caps_free(bounce_buffer);
     if (result != ESP_OK) {
@@ -1745,14 +1822,14 @@ static esp_err_t bsp_display_replay_cached_frame(void)
 
     uint8_t *bounce_buffer = heap_caps_aligned_alloc(
         64,
-        BSP_DISPLAY_DMA_BUFFER_BYTES,
+        BSP_DISPLAY_DMA_SLOT_BYTES,
         MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
     );
     if (bounce_buffer == NULL) {
         ESP_LOGE(
             TAG,
             "Allocating the %lu-byte rotation DMA buffer failed",
-            (unsigned long)BSP_DISPLAY_DMA_BUFFER_BYTES
+            (unsigned long)BSP_DISPLAY_DMA_SLOT_BYTES
         );
         return ESP_ERR_NO_MEM;
     }
@@ -1814,7 +1891,9 @@ static esp_err_t bsp_display_replay_cached_frame(void)
                 (size_t)y * row_bytes +
                 (size_t)x_start * bytes_per_pixel,
             row_bytes,
-            bounce_buffer
+            bounce_buffer,
+            BSP_DISPLAY_DMA_SLOT_BYTES,
+            1U
         );
         if (result != ESP_OK) {
             ESP_LOGE(
@@ -2176,7 +2255,7 @@ static esp_err_t bsp_display_lcd_init(
         "transient_DMA=%lu bytes",
         (unsigned int)BSP_DISPLAY_DRAW_BUFFER_HEIGHT,
         (unsigned long)BSP_DISPLAY_FRAME_BYTES,
-        (unsigned long)BSP_DISPLAY_DMA_BUFFER_BYTES
+        (unsigned long)BSP_DISPLAY_DMA_PIPELINE_BYTES
     );
 
     lv_display_add_event_cb(

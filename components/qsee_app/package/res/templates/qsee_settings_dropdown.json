@@ -9,20 +9,17 @@
         },
         "dropdownProps": {
             "options": [
-                "10 seconds",
-                "15 seconds",
                 "30 seconds",
                 "1 minute",
                 "2 minutes",
                 "5 minutes",
-                "10 minutes"
+                "10 minutes",
+                "Never"
             ],
             "selectedIndex": 0
         },
         "style": {
             "bgColor": "#0d2836",
-            "bgGradientColor": "#07131c",
-            "bgGradientDirection": "vertical",
             "borderColor": "#2c6077",
             "borderWidth": "1dp",
             "radius": "10dp",

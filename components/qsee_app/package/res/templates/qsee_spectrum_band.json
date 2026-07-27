@@ -26,8 +26,7 @@
                 "id": "mic0",
                 "bindings": {
                     "rangeProps.value": "value",
-                    "partStyles.indicator.style.bgColor": "color",
-                    "partStyles.indicator.style.bgGradientColor": "colorEnd"
+                    "partStyles.indicator.style.bgColor": "color"
                 },
                 "rangeProps": {
                     "value": 0,
@@ -41,8 +40,6 @@
                 "partStyles": {
                     "indicator": {
                         "bgColor": "#3478c8",
-                        "bgGradientColor": "#69b9ff",
-                        "bgGradientDirection": "vertical",
                         "radius": "2dp"
                     }
                 },
@@ -56,8 +53,7 @@
                 "id": "mic1",
                 "bindings": {
                     "rangeProps.value": "value",
-                    "partStyles.indicator.style.bgColor": "color",
-                    "partStyles.indicator.style.bgGradientColor": "colorEnd"
+                    "partStyles.indicator.style.bgColor": "color"
                 },
                 "rangeProps": {
                     "value": 0,
@@ -71,8 +67,6 @@
                 "partStyles": {
                     "indicator": {
                         "bgColor": "#20bf91",
-                        "bgGradientColor": "#63ffd0",
-                        "bgGradientDirection": "vertical",
                         "radius": "2dp"
                     }
                 },

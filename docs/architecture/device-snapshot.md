@@ -47,7 +47,7 @@ and stops while the display is off; it never initiates hardware sampling.
 | GPS | pending NMEA byte count, parsed GGA/RMC fix data, and first bounded sentence |
 | Audio | speaker health, microphone health, mean and peak input level |
 | Diagnostics | Full Snapshot cadence/worker state, Diagnostic Stream cadence/state, and IMU smoothing |
-| Power management | active/standby transition, PWR/BOOT/IMU/touch reason, audio suspension, Status Arc and Command Arc visibility, display idle stage, and all inactivity timeouts |
+| Power management | active/standby transition, PWR/BOOT/IMU/touch reason, audio suspension, Status Arc and Command Arc visibility, display idle stage, and the four independent inactivity settings |
 | UI/storage/radios | display, touch health, monotonic touch-activity sequence/timestamp, display power mode, applied/configured brightness, SD/logger mirror and card/transport state, Wi-Fi, BLE |
 | Memory | free/minimum heap, free/largest internal block, pressure flag, free/largest PSRAM block |
 | Processor | native core count plus sampled task name, priority, and stack watermark |

@@ -101,7 +101,7 @@ typedef enum {
     QSEE_POWER_TIMEOUT_COMMAND_ARC = 0,
     QSEE_POWER_TIMEOUT_STATUS_ARC = 1,
     QSEE_POWER_TIMEOUT_DISPLAY_DIM = 2,
-    QSEE_POWER_TIMEOUT_DISPLAY_OFF = 3,
+    QSEE_POWER_TIMEOUT_SCREEN_SLEEP = 3,
 } qsee_power_timeout_t;
 
 /** Start the single BOOT/PWR, inactivity, display, audio, and IMU service. */
