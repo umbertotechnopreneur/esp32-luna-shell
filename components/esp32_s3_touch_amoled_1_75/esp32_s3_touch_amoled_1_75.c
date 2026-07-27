@@ -155,11 +155,11 @@ static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x29, NULL, 0, 0},
 };
 
-#define BSP_I2S_DUPLEX_MONO_CFG(_sample_rate)                                                         \
-    {                                                                                                 \
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(_sample_rate),                                          \
-        .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_MONO), \
-        .gpio_cfg = BSP_I2S_GPIO_CFG,                                                                 \
+#define BSP_I2S_DUPLEX_STEREO_CFG(_sample_rate)                                                         \
+    {                                                                                                   \
+        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(_sample_rate),                                            \
+        .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO), \
+        .gpio_cfg = BSP_I2S_GPIO_CFG,                                                                   \
     }
 
 /**************************************************************************************************
@@ -1230,7 +1230,9 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
         return primary_error;
     }
 
-    const i2s_std_config_t std_cfg_default = BSP_I2S_DUPLEX_MONO_CFG(22050);
+    // ES7210 provides two PCM channels; mono slots alias adjacent time samples
+    // as channels and create a false Nyquist peak in the spectrum.
+    const i2s_std_config_t std_cfg_default = BSP_I2S_DUPLEX_STEREO_CFG(22050);
     const i2s_std_config_t *p_i2s_cfg = &std_cfg_default;
     if (i2s_config != NULL) {
         p_i2s_cfg = i2s_config;
