@@ -11,7 +11,9 @@
 #include <cstdio>
 #include <cstring>
 
+#include "esp_attr.h"
 #include "esp_event.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
@@ -44,9 +46,39 @@ esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_connect_requested;
 uint8_t s_consecutive_disconnects;
 qsee_wifi_status_t s_status;
-qsee_wifi_network_t s_networks[QSEE_WIFI_MAX_NETWORKS];
-wifi_ap_record_t s_scan_records[QSEE_WIFI_MAX_NETWORKS];
+// Scan results are CPU-copied and never used by the Wi-Fi DMA/ISR path.
+EXT_RAM_BSS_ATTR qsee_wifi_network_t s_networks[QSEE_WIFI_MAX_NETWORKS];
+EXT_RAM_BSS_ATTR wifi_ap_record_t s_scan_records[QSEE_WIFI_MAX_NETWORKS];
 size_t s_network_count;
+
+void log_scan_heap_checkpoint(const char *stage)
+{
+    constexpr uint32_t internal_caps =
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    constexpr uint32_t dma_caps =
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+    multi_heap_info_t internal = {};
+    multi_heap_info_t dma = {};
+    multi_heap_info_t psram = {};
+    heap_caps_get_info(&internal, internal_caps);
+    heap_caps_get_info(&dma, dma_caps);
+    heap_caps_get_info(&psram, MALLOC_CAP_SPIRAM);
+    ESP_LOGI(
+        TAG,
+        "Wi-Fi heap %s: internal free=%lu min=%lu largest=%lu; "
+        "DMA free=%lu min=%lu largest=%lu; PSRAM free=%lu min=%lu largest=%lu",
+        stage,
+        static_cast<unsigned long>(internal.total_free_bytes),
+        static_cast<unsigned long>(internal.minimum_free_bytes),
+        static_cast<unsigned long>(internal.largest_free_block),
+        static_cast<unsigned long>(dma.total_free_bytes),
+        static_cast<unsigned long>(dma.minimum_free_bytes),
+        static_cast<unsigned long>(dma.largest_free_block),
+        static_cast<unsigned long>(psram.total_free_bytes),
+        static_cast<unsigned long>(psram.minimum_free_bytes),
+        static_cast<unsigned long>(psram.largest_free_block)
+    );
+}
 
 void wifi_lock()
 {
@@ -257,6 +289,7 @@ void handle_scan_done()
     } else {
         ESP_LOGW(TAG, "Scan result failed: %s", esp_err_to_name(error));
     }
+    log_scan_heap_checkpoint("after-scan");
 }
 
 void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
@@ -843,6 +876,7 @@ extern "C" esp_err_t qsee_wifi_start_scan(void)
 
     wifi_scan_config_t config = {};
     config.show_hidden = true;
+    log_scan_heap_checkpoint("before-scan");
     const esp_err_t error = esp_wifi_scan_start(&config, false);
     if (error != ESP_OK) {
         wifi_lock();
@@ -852,6 +886,9 @@ extern "C" esp_err_t qsee_wifi_start_scan(void)
     } else {
         ESP_LOGI(TAG, "Asynchronous scan started");
     }
+    log_scan_heap_checkpoint(
+        error == ESP_OK ? "scan-started" : "scan-start-failed"
+    );
     return error;
 }
 

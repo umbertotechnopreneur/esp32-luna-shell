@@ -55,6 +55,10 @@ constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
 constexpr uint32_t kDimmedRefreshPeriodMs = 5000;
 constexpr uint32_t kPerformanceRefreshPeriodMs = 5000;
 constexpr int64_t kTouchRefreshQuietPeriodUs = 750000;
+constexpr int32_t kDisplaySizeDp = 466;
+constexpr int32_t kChromeInsetDp = 73;
+constexpr int32_t kContentSafeSizeDp = 320;
+constexpr int32_t kCircularWideContentInsetDp = 55;
 constexpr std::array<uint32_t, 6> kDiagnosticPeriodsMs = {
     100, 200, 300, 500, 1000, 2000,
 };
@@ -461,6 +465,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     pairing_visual_state_.reset();
     settings_text_cache_valid_ = false;
     settings_controls_state_.reset();
+    content_viewport_state_.reset();
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
@@ -2027,6 +2032,9 @@ std::expected<void, std::string> App::on_timer(
             !result) {
             return result;
         }
+        if (auto result = sync_content_viewport(context); !result) {
+            return result;
+        }
         const DisplayIdleStage current_stage =
             adaptive_chrome_.display_idle_stage();
         if (auto result =
@@ -2139,6 +2147,9 @@ std::expected<void, std::string> App::refresh_chrome(
     if (auto result = adaptive_chrome_.update(context.gui(), snapshot); !result) {
         return result;
     }
+    if (auto result = sync_content_viewport(context); !result) {
+        return result;
+    }
     if (auto result = sync_refresh_timer(
             context,
             adaptive_chrome_.display_idle_stage()
@@ -2146,6 +2157,195 @@ std::expected<void, std::string> App::refresh_chrome(
         return result;
     }
     return status_bar_.update(context.gui(), snapshot);
+}
+
+std::expected<void, std::string> App::sync_content_viewport(
+    AppContext &context
+)
+{
+    enum class ViewportLayout : uint8_t {
+        Flexible,
+        CircularScroll,
+        FixedCanvas,
+        Pairing,
+    };
+
+    struct ViewportSpec {
+        std::string_view surface_path;
+        ViewportLayout layout;
+        int32_t top_padding;
+        int32_t bottom_padding;
+    };
+
+    const ViewportSpec spec = [this]() -> ViewportSpec {
+        switch (screen_) {
+        case Screen::Welcome:
+            return {
+                "/qsee_welcome/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                70,
+            };
+        case Screen::Logs:
+            return {
+                "/qsee_logs/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
+        case Screen::Hardware:
+            return {
+                "/qsee_hardware/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
+        case Screen::HardwareDetail:
+            return {
+                "/qsee_hardware_detail/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                12,
+            };
+        case Screen::Audio:
+            return {
+                "/qsee_audio/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
+        case Screen::AudioFft:
+            return {
+                "/qsee_audio_fft/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
+        case Screen::AudioDetail:
+            return {
+                "/qsee_audio_detail/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
+        case Screen::Imu:
+            return {
+                "/qsee_imu/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
+        case Screen::Settings:
+            return {
+                "/qsee_settings/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
+        case Screen::About:
+            return {
+                "/qsee_about/surface",
+                ViewportLayout::Flexible,
+                0,
+                0,
+            };
+        case Screen::PairIntro:
+        case Screen::PairBluetooth:
+        case Screen::PairApp:
+        case Screen::AppStoreQr:
+        case Screen::PairQr:
+        case Screen::PairResult:
+            return {
+                "/qsee_pairing/surface",
+                ViewportLayout::Pairing,
+                50,
+                6,
+            };
+        }
+        return {};
+    }();
+    if (spec.surface_path.empty()) {
+        return std::unexpected(
+            "Unknown QSee route for adaptive content viewport"
+        );
+    }
+
+    const ContentViewportState desired{
+        .screen = screen_,
+        .command_arc_visible =
+            adaptive_chrome_.command_arc_visible(),
+        .status_arc_visible =
+            adaptive_chrome_.status_arc_visible(),
+    };
+    if (content_viewport_state_ == desired) {
+        return {};
+    }
+
+    const int32_t surface_y =
+        desired.status_arc_visible ? kChromeInsetDp : 0;
+    const int32_t surface_height =
+        kDisplaySizeDp -
+        surface_y -
+        (desired.command_arc_visible ? kChromeInsetDp : 0);
+    const int32_t released_height =
+        surface_height - kContentSafeSizeDp;
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> updates = {
+        {
+            .absolute_path = std::string(spec.surface_path),
+            .key = "viewport_y",
+            .value = std::to_string(surface_y),
+        },
+        {
+            .absolute_path = std::string(spec.surface_path),
+            .key = "viewport_height",
+            .value = std::to_string(surface_height),
+        },
+    };
+    if (spec.layout != ViewportLayout::Flexible) {
+        int32_t top_padding = spec.top_padding;
+        int32_t bottom_padding = spec.bottom_padding;
+        if (spec.layout == ViewportLayout::CircularScroll) {
+            if (!desired.status_arc_visible) {
+                top_padding = kCircularWideContentInsetDp;
+            }
+            if (!desired.command_arc_visible) {
+                bottom_padding = kCircularWideContentInsetDp;
+            }
+        } else {
+            const int32_t released_above = released_height / 2;
+            top_padding += released_above;
+            bottom_padding += released_height - released_above;
+        }
+        updates.push_back({
+            .absolute_path = std::string(spec.surface_path),
+            .key = "viewport_padding_top",
+            .value = std::to_string(top_padding),
+        });
+        updates.push_back({
+            .absolute_path = std::string(spec.surface_path),
+            .key = "viewport_padding_bottom",
+            .value = std::to_string(bottom_padding),
+        });
+    }
+
+    auto result = context.gui().set_binding_values(updates);
+    if (!result) {
+        return std::unexpected(
+            "Failed to resize QSee content viewport: " +
+            result.error()
+        );
+    }
+    content_viewport_state_ = desired;
+    ESP_LOGI(
+        kTag,
+        "Content viewport: y=%ld height=%ld command=%s status=%s",
+        static_cast<long>(surface_y),
+        static_cast<long>(surface_height),
+        desired.command_arc_visible ? "visible" : "hidden",
+        desired.status_arc_visible ? "visible" : "hidden"
+    );
+    return {};
 }
 
 std::expected<void, std::string> App::refresh(AppContext &context)

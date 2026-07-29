@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <mutex>
 
-#include "bsp/display.h"
+#include "bsp/esp32_s3_touch_amoled_1_75.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,7 +26,34 @@ constexpr uint32_t kBrightnessMaxPercent = 100;
 constexpr uint32_t kDimmedBrightnessNumerator = 50;
 constexpr uint32_t kDimmedBrightnessDenominator = 100;
 constexpr uint32_t kFadeStepPeriodMs = 20;
+constexpr uint32_t kDisplayOperationLockTimeoutMs = 1500;
 std::mutex s_brightness_mutex;
+
+class DisplayOperationLock {
+public:
+    DisplayOperationLock()
+        : error_(bsp_display_lock(kDisplayOperationLockTimeoutMs))
+    {
+    }
+
+    ~DisplayOperationLock()
+    {
+        if (error_ == ESP_OK) {
+            bsp_display_unlock();
+        }
+    }
+
+    DisplayOperationLock(const DisplayOperationLock &) = delete;
+    DisplayOperationLock &operator=(const DisplayOperationLock &) = delete;
+
+    esp_err_t error() const
+    {
+        return error_;
+    }
+
+private:
+    esp_err_t error_;
+};
 
 esp_err_t read_applied_brightness(uint32_t *percent)
 {
@@ -178,6 +205,15 @@ esp_err_t transition_power_mode_locked(
         return report_failure(read_error);
     }
 
+    if (mode != QSEE_DISPLAY_POWER_OFF) {
+        const esp_err_t panel_error =
+            bsp_display_panel_set_enabled(true);
+        if (panel_error != ESP_OK) {
+            publish_brightness(current_brightness, ESP_OK);
+            return report_failure(panel_error);
+        }
+    }
+
     const uint32_t step_count = duration_ms == 0U
         ? 1U
         : std::max<uint32_t>(
@@ -237,6 +273,13 @@ esp_err_t transition_power_mode_locked(
     }
 
     publish_brightness(applied_brightness, ESP_OK);
+    if (mode == QSEE_DISPLAY_POWER_OFF) {
+        const esp_err_t panel_error =
+            bsp_display_panel_set_enabled(false);
+        if (panel_error != ESP_OK) {
+            return report_failure(panel_error);
+        }
+    }
     qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
         snapshot_power_mode(mode),
         ESP_OK
@@ -269,6 +312,16 @@ extern "C" esp_err_t qsee_display_set_brightness_percent(uint32_t percent)
         return ESP_ERR_INVALID_ARG;
     }
 
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        publish_brightness(0, display_lock.error());
+        ESP_LOGE(
+            kTag,
+            "Brightness update display lock failed (%s)",
+            esp_err_to_name(display_lock.error())
+        );
+        return display_lock.error();
+    }
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
     const esp_err_t init_error = ensure_user_settings();
     if (init_error != ESP_OK) {
@@ -346,6 +399,16 @@ extern "C" esp_err_t qsee_display_get_brightness_percent(uint32_t *percent)
         ESP_LOGE(kTag, "Brightness read rejected: output is null");
         return ESP_ERR_INVALID_ARG;
     }
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        publish_brightness(0, display_lock.error());
+        ESP_LOGE(
+            kTag,
+            "Brightness read display lock failed (%s)",
+            esp_err_to_name(display_lock.error())
+        );
+        return display_lock.error();
+    }
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
     const esp_err_t error = read_applied_brightness(percent);
     if (error != ESP_OK) {
@@ -360,6 +423,16 @@ extern "C" esp_err_t qsee_display_get_brightness_percent(uint32_t *percent)
 
 extern "C" esp_err_t qsee_display_apply_saved_brightness(void)
 {
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        publish_brightness(0, display_lock.error());
+        ESP_LOGE(
+            kTag,
+            "Saved brightness display lock failed (%s)",
+            esp_err_to_name(display_lock.error())
+        );
+        return display_lock.error();
+    }
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
     const esp_err_t init_error = ensure_user_settings();
     if (init_error != ESP_OK) {
@@ -444,6 +517,19 @@ extern "C" esp_err_t qsee_display_set_power_mode(
     qsee_display_power_mode_t mode
 )
 {
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+            display_lock.error()
+        );
+        ESP_LOGE(
+            kTag,
+            "Display power-mode lock failed (%s)",
+            esp_err_to_name(display_lock.error())
+        );
+        return display_lock.error();
+    }
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
     return transition_power_mode_locked(mode, 0);
 }
@@ -453,6 +539,19 @@ extern "C" esp_err_t qsee_display_fade_to_power_mode(
     uint32_t duration_ms
 )
 {
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+            display_lock.error()
+        );
+        ESP_LOGE(
+            kTag,
+            "Display fade lock failed (%s)",
+            esp_err_to_name(display_lock.error())
+        );
+        return display_lock.error();
+    }
     std::lock_guard<std::mutex> lock(s_brightness_mutex);
     return transition_power_mode_locked(mode, duration_ms);
 }

@@ -83,6 +83,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": true
                     },
@@ -104,6 +110,10 @@
                         "gap": "8dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -278,6 +288,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -294,6 +310,10 @@
                         "gap": "5dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -351,7 +371,7 @@
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "160dp"
+                                "flexGrow": 1
                             },
                             "children": [
                                 {
@@ -397,6 +417,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -413,6 +439,10 @@
                         "gap": "6dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -489,7 +519,7 @@
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "216dp"
+                                "flexGrow": 1
                             },
                             "children": [
                                 {
@@ -881,6 +911,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -896,6 +932,10 @@
                         "gap": "8dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -952,7 +992,7 @@
                             },
                             "placement": {
                                 "width": "292dp",
-                                "height": "192dp"
+                                "flexGrow": 1
                             },
                             "children": [
                                 {
@@ -998,6 +1038,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -1005,6 +1051,10 @@
                         "padding": 0
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -1227,6 +1277,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -1234,6 +1290,10 @@
                         "padding": 0
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -1384,6 +1444,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -1391,6 +1457,10 @@
                         "padding": 0
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -1612,6 +1682,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -1619,6 +1695,10 @@
                         "padding": 0
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -2130,6 +2210,12 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -2146,6 +2232,10 @@
                         "gap": "6dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },
@@ -2173,7 +2263,7 @@
                             },
                             "placement": {
                                 "width": "300dp",
-                                "height": "196dp"
+                                "flexGrow": 1
                             },
                             "children": [
                                 {
@@ -3070,6 +3160,10 @@
                 {
                     "type": "container",
                     "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height"
+                    },
                     "commonProps": {
                         "scrollable": false
                     },
@@ -3087,6 +3181,10 @@
                         "gap": "12dp"
                     },
                     "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
                         "width": "320dp",
                         "height": "320dp"
                     },

@@ -3,6 +3,12 @@
     "id": "qsee_pairing_stage",
     "node": {
         "type": "container",
+        "bindings": {
+            "placement.y": "viewport_y",
+            "placement.height": "viewport_height",
+            "style.paddingTop": "viewport_padding_top",
+            "style.paddingBottom": "viewport_padding_bottom"
+        },
         "commonProps": {
             "clickable": false,
             "scrollable": false
@@ -20,6 +26,10 @@
             "gap": "3dp"
         },
         "placement": {
+            "mode": "absolute",
+            "align": "topMid",
+            "x": "73dp",
+            "y": "73dp",
             "width": "320dp",
             "height": "320dp"
         },

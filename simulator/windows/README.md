@@ -18,6 +18,7 @@ Capture the current synthetic home screen without touching a device:
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
 .\simulator\windows\run-simulator.ps1 -IdleState command-hidden -Capture .\simulator\windows\command-hidden.png
+.\simulator\windows\run-simulator.ps1 -Screen settings -IdleState fullscreen -SafeGuide -Capture .\simulator\windows\settings-fullscreen.png
 .\simulator\windows\run-simulator.ps1 -IdleState dimmed -Capture .\simulator\windows\dimmed.png
 .\simulator\windows\run-simulator.ps1 -Screen chrome-settings -Capture .\simulator\windows\chrome-settings.png
 .\simulator\windows\run-simulator.ps1 -Screen power-settings -Capture .\simulator\windows\power-settings.png
@@ -27,17 +28,29 @@ Capture the current synthetic home screen without touching a device:
 Controls:
 
 - mouse click: synthetic touch
-- `P`: toggle the synthetic `PWR` standby/awake state
+- `B`: simulate a short `BOOT` press. From `active` it toggles Fullscreen;
+  from an automatic hidden/dim/off state it wakes to `active` first, and
+  `standby` ignores it.
+- `P`: toggle the synthetic `PWR` standby/awake state and cancel Fullscreen
 - `Enter`: confirm
 - `Esc`: back/cancel
 - `C`: open confirmation
-- `R`: simulate the three-second `BOOT` soft reset
-- `F2`: show or hide the 320 x 320 safe-area guide
+- `R`: simulate the three-second `BOOT` soft reset and cancel Fullscreen
+- `F2`: show or hide the dynamic content-viewport guide without changing page
 
 The capture-only `-IdleState` option accepts `active`, `command-hidden`,
-`chrome-hidden`, `dimmed`, `off`, and `standby`. It provides deterministic
-visual checks for the power-management stages. A synthetic touch restores the
-active stage except in `standby`, which wakes only through synthetic `PWR`.
+`chrome-hidden`, `fullscreen`, `dimmed`, `off`, and `standby`. It provides
+deterministic visual checks for the power-management stages. A synthetic touch
+restores an automatically hidden stage, but Fullscreen remains locked while
+page hit targets stay active. Standby ignores touch and short `BOOT`; it wakes
+only through synthetic `PWR`.
+
+The viewport follows the firmware insets. With both arcs visible it is
+320 x 320 at `y=73`; releasing only the lower Command Arc grows it to
+320 x 393; hiding both arcs or entering Fullscreen grows it to 320 x 466 at
+`y=0`. The `F2` guide shows the current bounds and the original safe square.
+The Settings demo also shifts upward and reveals additional Display & Motion
+controls as that viewport grows.
 
 The persistent upper status ribbon and lower adaptive command arc reproduce the
 firmware geometry, visual hierarchy, and semantic color roles. The Windows

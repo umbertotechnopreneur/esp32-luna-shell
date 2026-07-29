@@ -47,6 +47,17 @@ esp_err_t qsee_hardware_init(void);
 esp_err_t qsee_hardware_refresh(const char *reason);
 
 /**
+ * Atomically consume AXP2101 PKEY events captured from the PMIC IRQ status.
+ *
+ * The hardware service owns the IRQ registers and clears them only after the
+ * decoded button events have been queued for the power manager.
+ */
+esp_err_t qsee_hardware_take_power_key_events(
+    uint32_t *short_presses,
+    uint32_t *long_presses
+);
+
+/**
  * Start or stop the periodic Full Snapshot worker.
  *
  * The worker serializes complete hardware refreshes and publishes every result

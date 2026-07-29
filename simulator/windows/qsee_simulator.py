@@ -25,6 +25,7 @@ from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageTk
 DISPLAY_SIZE = 466
 SAFE_ORIGIN = 73
 SAFE_SIZE = 320
+CIRCULAR_CONTENT_INSET = 55
 BLUE = "#247fd6"
 NAVY = "#071a2c"
 MUTED = "#8aa7b6"
@@ -57,9 +58,26 @@ COMMAND_CENTER_X = 233
 COMMAND_MAIN_CENTER_Y = 389
 COMMAND_ARC_RISE_LINEAR = 10
 COMMAND_ARC_RISE_QUADRATIC = 5
+COMMAND_SCREENS = frozenset(
+    {
+        "home",
+        "settings",
+        "chrome-settings",
+        "power-settings",
+        "audio",
+        "fft",
+        "result",
+    }
+)
+WIDE_PAGE_SCREENS = frozenset(
+    {"settings", "hardware", "chrome-settings", "power-settings"}
+)
+FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu"})
 FONT_DISPLAY = "Montserrat SemiBold"
 FONT_BODY = "Montserrat"
 FONT_TECH = "Consolas"
+
+
 def command_diameter(count: int, index: int) -> int:
     right_center = count // 2
     if count % 2:
@@ -274,25 +292,190 @@ class QSeeSimulator:
         self.root.bind("<Return>", lambda _event: self.confirm())
         self.root.bind("c", lambda _event: self.show_confirmation())
         self.root.bind("r", lambda _event: self.reboot())
+        self.root.bind("b", lambda _event: self.toggle_fullscreen())
         self.root.bind("p", lambda _event: self.toggle_standby())
         self.root.bind("<F2>", lambda _event: self.toggle_safe_guide())
 
     def _clear(self) -> None:
-        self.canvas.delete("ui", "audio")
+        self.canvas.delete("ui", "audio", "idle_overlay")
         self.effect_images.clear()
+
+    def _status_arc_visible(self) -> bool:
+        return self.idle_state in {"active", "command-hidden"}
+
+    def _command_arc_visible(self) -> bool:
+        return self.idle_state == "active" and self.screen in COMMAND_SCREENS
+
+    def _content_viewport(self) -> tuple[int, int, int, int]:
+        top = SAFE_ORIGIN if self._status_arc_visible() else 0
+        bottom_inset = SAFE_ORIGIN if self._command_arc_visible() else 0
+        return (
+            SAFE_ORIGIN,
+            top,
+            SAFE_SIZE,
+            DISPLAY_SIZE - top - bottom_inset,
+        )
+
+    def _content_offset_y(self) -> int:
+        _, top, _, _ = self._content_viewport()
+        return top - SAFE_ORIGIN
+
+    def _wide_page_offset_y(self) -> int:
+        _, top, _, _ = self._content_viewport()
+        return -35 if top == 0 else 0
+
+    def _fixed_canvas_offset_y(self) -> int:
+        _, top, _, height = self._content_viewport()
+        centered_top = top + ((height - SAFE_SIZE) // 2)
+        return centered_top - SAFE_ORIGIN
+
+    def _next_canvas_item_id(self) -> int:
+        items = self.canvas.find_all()
+        return items[-1] + 1 if items else 1
+
+    def _move_canvas_items_from(self, first_item_id: int, y_offset: int) -> None:
+        if y_offset == 0:
+            return
+        for item_id in self.canvas.find_all():
+            if item_id >= first_item_id:
+                self.canvas.move(item_id, 0, y_offset)
+
+    def _scrollable_content_bounds(self) -> tuple[int, int]:
+        _, top, _, height = self._content_viewport()
+        bottom = top + height
+        return (
+            max(top, CIRCULAR_CONTENT_INSET),
+            min(bottom, DISPLAY_SIZE - CIRCULAR_CONTENT_INSET),
+        )
+
+    def _settings_layout(self) -> dict[str, int | None]:
+        _, viewport_top, _, viewport_height = self._content_viewport()
+        if viewport_height == SAFE_SIZE:
+            return {
+                "heading_offset": 0,
+                "profile": 174,
+                "performance": 198,
+                "diagnostics": 246,
+                "diagnostics_subtitle": 266,
+                "cadence": 290,
+                "cadence_control": 304,
+                "cadence_state": 357,
+                "display": None,
+                "brightness": None,
+                "brightness_control": None,
+                "rotation": None,
+            }
+        if viewport_top == SAFE_ORIGIN:
+            return {
+                "heading_offset": 0,
+                "profile": None,
+                "performance": 174,
+                "diagnostics": 214,
+                "diagnostics_subtitle": None,
+                "cadence": 236,
+                "cadence_control": 249,
+                "cadence_state": 302,
+                "display": 324,
+                "brightness": 345,
+                "brightness_control": 357,
+                "rotation": None,
+            }
+        return {
+            "heading_offset": -35,
+            "profile": None,
+            "performance": 133,
+            "diagnostics": 174,
+            "diagnostics_subtitle": None,
+            "cadence": 196,
+            "cadence_control": 209,
+            "cadence_state": 263,
+            "display": 285,
+            "brightness": 306,
+            "brightness_control": 318,
+            "rotation": 384,
+        }
 
     def _draw_safe_guide(self) -> None:
         if self.safe_guide:
+            x, y, width, height = self._content_viewport()
+            if (
+                self.screen not in WIDE_PAGE_SCREENS
+                and self.screen not in FIXED_CANVAS_SCREENS
+                and (y != SAFE_ORIGIN or height != SAFE_SIZE)
+            ):
+                self.canvas.create_rectangle(
+                    SAFE_ORIGIN,
+                    SAFE_ORIGIN,
+                    SAFE_ORIGIN + SAFE_SIZE - 1,
+                    SAFE_ORIGIN + SAFE_SIZE - 1,
+                    outline="#755c3b",
+                    width=1,
+                    dash=(2, 5),
+                    tags="ui",
+                )
             self.canvas.create_rectangle(
-                SAFE_ORIGIN,
-                SAFE_ORIGIN,
-                SAFE_ORIGIN + SAFE_SIZE,
-                SAFE_ORIGIN + SAFE_SIZE,
+                x,
+                y,
+                x + width - 1,
+                y + height - 1,
                 outline="#f2994a",
                 width=2,
                 dash=(6, 4),
                 tags="ui",
             )
+            self.canvas.create_text(
+                DISPLAY_SIZE - 14,
+                y + (height // 2),
+                text=f"VIEWPORT  {width} × {height}  ·  Y {y}",
+                fill="#ffc879",
+                font=(FONT_TECH, 8, "bold"),
+                angle=90,
+                tags="ui",
+            )
+            if self.screen in WIDE_PAGE_SCREENS:
+                content_top, content_bottom = self._scrollable_content_bounds()
+                if content_top != y or content_bottom != y + height:
+                    self.canvas.create_rectangle(
+                        x + 4,
+                        content_top,
+                        x + width - 5,
+                        content_bottom,
+                        outline="#63ffd0",
+                        width=1,
+                        dash=(3, 3),
+                        tags="ui",
+                    )
+                    self.canvas.create_text(
+                        x + 13,
+                        content_top + ((content_bottom - content_top) // 2),
+                        text=f"WIDE CONTENT  ·  Y {content_top}..{content_bottom}",
+                        fill="#8fffe3",
+                        font=(FONT_TECH, 7, "bold"),
+                        angle=90,
+                        tags="ui",
+                    )
+            elif self.screen in FIXED_CANVAS_SCREENS:
+                fixed_top = SAFE_ORIGIN + self._fixed_canvas_offset_y()
+                if fixed_top != y or height != SAFE_SIZE:
+                    self.canvas.create_rectangle(
+                        x + 4,
+                        fixed_top,
+                        x + width - 5,
+                        fixed_top + SAFE_SIZE - 1,
+                        outline="#8f7dff",
+                        width=1,
+                        dash=(3, 3),
+                        tags="ui",
+                    )
+                    self.canvas.create_text(
+                        x + 13,
+                        fixed_top + (SAFE_SIZE // 2),
+                        text=f"FIXED CANVAS  ·  Y {fixed_top}..{fixed_top + SAFE_SIZE}",
+                        fill="#b8adff",
+                        font=(FONT_TECH, 7, "bold"),
+                        angle=90,
+                        tags="ui",
+                    )
 
     def _draw_atmosphere(self) -> None:
         self.canvas.create_image(
@@ -646,7 +829,7 @@ class QSeeSimulator:
                 )
 
     def _draw_status_bar(self) -> None:
-        if self.idle_state in {"chrome-hidden", "dimmed", "off", "standby"}:
+        if not self._status_arc_visible():
             return
         positions = (
             ("usb", 106, 53, 78),
@@ -699,13 +882,7 @@ class QSeeSimulator:
         )
 
     def _draw_command_arc(self) -> None:
-        if self.idle_state == "standby":
-            self.logger.info(
-                "qsee_power_manager",
-                "Synthetic touch ignored in standby; use PWR or IMU wake",
-            )
-            return
-        if self.idle_state != "active":
+        if not self._command_arc_visible():
             return
         commands = (
             ("≡", False),
@@ -799,13 +976,20 @@ class QSeeSimulator:
                 self.logger.info("qsee_boot", "Synthetic touch received; startup still in progress")
             return
 
-        if self.idle_state != "active":
+        if self.idle_state == "standby":
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic touch ignored in standby; use PWR or IMU wake",
+            )
+            return
+        if self.idle_state not in {"active", "fullscreen"}:
             self.idle_state = "active"
             self.logger.info("qsee_ui", "Synthetic touch restored Adaptive Chrome")
             self._redraw_current_screen()
             return
 
         # Hit boxes mirror the drawn controls on the fixed 466 px canvas.
+        command_arc_visible = self._command_arc_visible()
         if 6 <= event.x <= 68 and 190 <= event.y <= 276 and self.screen == "confirmation":
             self.cancel()
         elif 398 <= event.x <= 460 and 190 <= event.y <= 276 and self.screen == "confirmation":
@@ -825,18 +1009,47 @@ class QSeeSimulator:
             }
         ):
             self.back()
-        elif 147 <= event.x <= 203 and 346 <= event.y <= 402 and self.screen == "home":
+        elif (
+            command_arc_visible
+            and 147 <= event.x <= 203
+            and 346 <= event.y <= 402
+            and self.screen == "home"
+        ):
             self.show_audio_demo()
-        elif 263 <= event.x <= 319 and 346 <= event.y <= 402 and self.screen == "home":
+        elif (
+            command_arc_visible
+            and 263 <= event.x <= 319
+            and 346 <= event.y <= 402
+            and self.screen == "home"
+        ):
             self.show_imu_demo()
-        elif 316 <= event.x <= 370 and 322 <= event.y <= 376 and self.screen == "home":
+        elif (
+            command_arc_visible
+            and 316 <= event.x <= 370
+            and 322 <= event.y <= 376
+            and self.screen == "home"
+        ):
             self.show_settings_demo()
-        elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "audio":
+        elif (
+            command_arc_visible
+            and 204 <= event.x <= 262
+            and 360 <= event.y <= 418
+            and self.screen == "audio"
+        ):
             self.show_audio_fft_demo()
-        elif 204 <= event.x <= 262 and 360 <= event.y <= 418 and self.screen == "fft":
+        elif (
+            command_arc_visible
+            and 204 <= event.x <= 262
+            and 360 <= event.y <= 418
+            and self.screen == "fft"
+        ):
             self.show_audio_detail_demo()
         elif self.screen == "settings":
-            if 314 <= event.x <= 374 and 176 <= event.y <= 218:
+            performance_y = int(self._settings_layout()["performance"])
+            if (
+                300 <= event.x <= 380
+                and performance_y - 14 <= event.y <= performance_y + 32
+            ):
                 self.performance_mode = not self.performance_mode
                 self.logger.info(
                     "qsee_performance",
@@ -845,16 +1058,27 @@ class QSeeSimulator:
                 )
                 self.show_settings_demo()
                 return
-            for index in range(2):
-                x, y, diameter = command_geometry(2, index)
-                if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
-                    self.show_settings_demo()
-                    break
+            if command_arc_visible:
+                for index in range(2):
+                    x, y, diameter = command_geometry(2, index)
+                    if (
+                        x <= event.x <= x + diameter
+                        and y <= event.y <= y + diameter
+                    ):
+                        self.show_settings_demo()
+                        break
 
-    def _draw_page_heading(self, title: str, subtitle: str) -> None:
+    def _draw_page_heading(
+        self,
+        title: str,
+        subtitle: str,
+        y_offset: int | None = None,
+    ) -> None:
+        if y_offset is None:
+            y_offset = self._content_offset_y()
         self.canvas.create_text(
             94,
-            110,
+            110 + y_offset,
             anchor="w",
             text=title,
             fill=TEXT,
@@ -863,7 +1087,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             94,
-            136,
+            136 + y_offset,
             anchor="w",
             text=subtitle,
             fill=MUTED_BRIGHT,
@@ -872,9 +1096,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             94,
-            154,
+            154 + y_offset,
             126,
-            154,
+            154 + y_offset,
             fill=STATUS_READY,
             width=2,
             capstyle=tk.ROUND,
@@ -882,9 +1106,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             134,
-            154,
+            154 + y_offset,
             372,
-            154,
+            154 + y_offset,
             fill="#163545",
             width=1,
             tags="ui",
@@ -894,10 +1118,11 @@ class QSeeSimulator:
         self,
         service: str,
         show_next_command: bool = False,
+        y_offset: int = 0,
     ) -> None:
         self.canvas.create_text(
             233,
-            190,
+            190 + y_offset,
             text="PERFORMANCE MODE",
             fill=STATUS_WARNING,
             font=(FONT_DISPLAY, 14),
@@ -905,7 +1130,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             233,
-            226,
+            226 + y_offset,
             text=f"{service} DISABLED",
             fill=TEXT,
             font=(FONT_TECH, 11, "bold"),
@@ -913,13 +1138,13 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             233,
-            254,
+            254 + y_offset,
             text="CONNECTIVITY REMAINS AVAILABLE",
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 8),
             tags="ui",
         )
-        if show_next_command:
+        if show_next_command and self._command_arc_visible():
             x, y, diameter = command_geometry(1, 0)
             self._draw_command_button(x, y, "▥", True, diameter)
         self._draw_edge_back()
@@ -960,7 +1185,7 @@ class QSeeSimulator:
         self,
         y: int,
         title: str,
-        subtitle: str,
+        subtitle: str | None,
         checked: bool,
     ) -> None:
         self.canvas.create_text(
@@ -972,15 +1197,16 @@ class QSeeSimulator:
             font=(FONT_DISPLAY, 11),
             tags="ui",
         )
-        self.canvas.create_text(
-            94,
-            y + 20,
-            anchor="w",
-            text=subtitle,
-            fill=MUTED_BRIGHT,
-            font=(FONT_BODY, 8),
-            tags="ui",
-        )
+        if subtitle is not None:
+            self.canvas.create_text(
+                94,
+                y + 20,
+                anchor="w",
+                text=subtitle,
+                fill=MUTED_BRIGHT,
+                font=(FONT_BODY, 8),
+                tags="ui",
+            )
         self.canvas.create_oval(
             318,
             y - 4,
@@ -1155,67 +1381,109 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
-        self._draw_page_heading("SETTINGS", "All controls · swipe to scroll")
-        self.canvas.create_text(
-            94,
-            174,
-            anchor="w",
-            text=(
-                "Performance profile is active"
-                if self.performance_mode
-                else "Standard service profile"
-            ),
-            fill="#51c7f2",
-            font=(FONT_BODY, 10),
-            tags="ui",
+        layout = self._settings_layout()
+        self._draw_page_heading(
+            "SETTINGS",
+            "All controls · swipe to scroll",
+            int(layout["heading_offset"]),
         )
+        profile_y = layout["profile"]
+        if profile_y is not None:
+            self.canvas.create_text(
+                94,
+                profile_y,
+                anchor="w",
+                text=(
+                    "Performance profile is active"
+                    if self.performance_mode
+                    else "Standard service profile"
+                ),
+                fill="#51c7f2",
+                font=(FONT_BODY, 10),
+                tags="ui",
+            )
         self._draw_settings_switch(
-            198,
+            int(layout["performance"]),
             "Performance mode",
             "Reduces background checks",
             self.performance_mode,
         )
         self.canvas.create_text(
             94,
-            246,
+            int(layout["diagnostics"]),
             anchor="w",
             text="DIAGNOSTICS",
             fill=STATUS_READY,
             font=(FONT_DISPLAY, 14),
             tags="ui",
         )
+        diagnostics_subtitle_y = layout["diagnostics_subtitle"]
+        if diagnostics_subtitle_y is not None:
+            self.canvas.create_text(
+                94,
+                diagnostics_subtitle_y,
+                anchor="w",
+                text="Live snapshots and diagnostics",
+                fill=MUTED_BRIGHT,
+                font=(FONT_BODY, 11),
+                tags="ui",
+            )
         self.canvas.create_text(
             94,
-            266,
-            anchor="w",
-            text="Live snapshots and diagnostics",
-            fill=MUTED_BRIGHT,
-            font=(FONT_BODY, 11),
-            tags="ui",
-        )
-        self.canvas.create_text(
-            94,
-            290,
+            int(layout["cadence"]),
             anchor="w",
             text="Full Snapshot cadence",
             fill=TEXT,
             font=(FONT_DISPLAY, 12),
             tags="ui",
         )
-        self._draw_settings_control(304, "1 Hz")
+        self._draw_settings_control(int(layout["cadence_control"]), "1 Hz")
         self.canvas.create_text(
             94,
-            357,
+            int(layout["cadence_state"]),
             anchor="w",
             text="1 Hz updates are active",
             fill="#51c7f2",
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
-        commands = (("➤", True), ("i", False))
-        for index, (icon, success) in enumerate(commands):
-            x, y, diameter = command_geometry(len(commands), index)
-            self._draw_command_button(x, y, icon, success, diameter)
+        display_y = layout["display"]
+        if display_y is not None:
+            self.canvas.create_text(
+                94,
+                display_y,
+                anchor="w",
+                text="DISPLAY & MOTION",
+                fill=STATUS_READY,
+                font=(FONT_DISPLAY, 14),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                94,
+                int(layout["brightness"]),
+                anchor="w",
+                text="AMOLED brightness",
+                fill=TEXT,
+                font=(FONT_DISPLAY, 11),
+                tags="ui",
+            )
+            self._draw_settings_control(
+                int(layout["brightness_control"]),
+                "Balanced · 70%",
+            )
+        rotation_y = layout["rotation"]
+        if rotation_y is not None:
+            self._draw_settings_switch(
+                rotation_y,
+                "Auto rotation",
+                None,
+                True,
+            )
+        if self._command_arc_visible():
+            commands = (("➤", True), ("i", False))
+            for index, (icon, success) in enumerate(commands):
+                x, y, diameter = command_geometry(len(commands), index)
+                self._draw_command_button(x, y, icon, success, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -1224,7 +1492,12 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
-        self._draw_page_heading("HARDWARE", "Tap a row for device details")
+        y_offset = self._wide_page_offset_y()
+        self._draw_page_heading(
+            "HARDWARE",
+            "Tap a row for device details",
+            y_offset,
+        )
         rows = (
             ("BATTERY", "AXP2101", "READY"),
             ("RTC", "PCF85063", "READY"),
@@ -1233,7 +1506,7 @@ class QSeeSimulator:
             ("WIFI", "ESP32-S3", "NOT CONFIGURED"),
         )
         for index, (name, code, state) in enumerate(rows):
-            y = 173 + index * 42
+            y = 173 + y_offset + index * 42
             state_color = (
                 STATUS_WARNING if state == "NOT CONFIGURED" else STATUS_READY
             )
@@ -1328,14 +1601,22 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO SCOPE",
             "Microphones · diagnostics"
             if self.performance_mode
             else "Synthetic PCM16 · 22.05 kHz",
+            0,
         )
         if self.performance_mode:
-            self._draw_performance_disabled("AUDIO CAPTURE", True)
+            y_offset = self._fixed_canvas_offset_y()
+            self._move_canvas_items_from(content_start, y_offset)
+            self._draw_performance_disabled(
+                "AUDIO CAPTURE",
+                True,
+                y_offset,
+            )
             return
         self.canvas.create_text(
             102,
@@ -1393,8 +1674,13 @@ class QSeeSimulator:
             font=(FONT_TECH, 9, "bold"),
             tags="ui",
         )
-        x, y, diameter = command_geometry(1, 0)
-        self._draw_command_button(x, y, "▥", True, diameter)
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "▥", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
         self._animate_audio()
@@ -1407,14 +1693,22 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO FFT",
             "Spectrum diagnostics"
             if self.performance_mode
             else "Mean of Mic 1 + Mic 2 · 16 bands",
+            0,
         )
         if self.performance_mode:
-            self._draw_performance_disabled("FFT SAMPLING", True)
+            y_offset = self._fixed_canvas_offset_y()
+            self._move_canvas_items_from(content_start, y_offset)
+            self._draw_performance_disabled(
+                "FFT SAMPLING",
+                True,
+                y_offset,
+            )
             return
         self.canvas.create_text(
             104,
@@ -1530,8 +1824,13 @@ class QSeeSimulator:
             font=(FONT_TECH, 8),
             tags="ui",
         )
-        x, y, diameter = command_geometry(1, 0)
-        self._draw_command_button(x, y, "▥", True, diameter)
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "▥", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -1546,10 +1845,15 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
-        self._draw_page_heading("SETTINGS", "Idle policy · swipe to scroll")
+        y_offset = self._wide_page_offset_y()
+        self._draw_page_heading(
+            "SETTINGS",
+            "Idle policy · swipe to scroll",
+            y_offset,
+        )
         self.canvas.create_text(
             94,
-            174,
+            174 + y_offset,
             anchor="w",
             text=section,
             fill=STATUS_READY,
@@ -1558,7 +1862,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             94,
-            196,
+            196 + y_offset,
             anchor="w",
             text=description,
             width=282,
@@ -1567,8 +1871,8 @@ class QSeeSimulator:
             tags="ui",
         )
         for label_y, control_y, (label, value) in zip(
-            (216, 286),
-            (230, 300),
+            (216 + y_offset, 286 + y_offset),
+            (230 + y_offset, 300 + y_offset),
             rows,
         ):
             self.canvas.create_text(
@@ -1582,8 +1886,9 @@ class QSeeSimulator:
             )
             self._draw_settings_control(control_y, value)
 
-        x, y, diameter = command_geometry(1, 0)
-        self._draw_command_button(x, y, "⚙", True, diameter)
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "⚙", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -1614,14 +1919,21 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO DETAIL",
             "Two-channel spectrum"
             if self.performance_mode
             else "Mic 1 + Mic 2 · 16 DFT bands",
+            0,
         )
         if self.performance_mode:
-            self._draw_performance_disabled("AUDIO DETAIL")
+            y_offset = self._fixed_canvas_offset_y()
+            self._move_canvas_items_from(content_start, y_offset)
+            self._draw_performance_disabled(
+                "AUDIO DETAIL",
+                y_offset=y_offset,
+            )
             return
         self.canvas.create_text(
             104,
@@ -1687,6 +1999,10 @@ class QSeeSimulator:
             font=(FONT_TECH, 9),
             tags="ui",
         )
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -1695,14 +2011,21 @@ class QSeeSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "IMU LEVEL",
             "QMI8658 diagnostics"
             if self.performance_mode
             else "QMI8658 · synthetic attitude",
+            0,
         )
         if self.performance_mode:
-            self._draw_performance_disabled("IMU SAMPLING")
+            y_offset = self._fixed_canvas_offset_y()
+            self._move_canvas_items_from(content_start, y_offset)
+            self._draw_performance_disabled(
+                "IMU SAMPLING",
+                y_offset=y_offset,
+            )
             return
         self.canvas.create_text(
             126,
@@ -1832,16 +2155,33 @@ class QSeeSimulator:
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
         self._draw_edge_back()
         self._draw_safe_guide()
 
     def _animate_audio(self) -> None:
-        if self.screen != "audio":
+        if self.screen != "audio" or self.idle_state in {"off", "standby"}:
             return
         self.audio_phase += 1
         self.canvas.delete("audio")
-        self._draw_audio_bars(239, 43, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(313, 43, "#ffad3d", "#77e37c", 9)
+        y_offset = self._fixed_canvas_offset_y()
+        self._draw_audio_bars(
+            239 + y_offset,
+            43,
+            "#27bdf2",
+            "#c168ff",
+            0,
+        )
+        self._draw_audio_bars(
+            313 + y_offset,
+            43,
+            "#ffad3d",
+            "#77e37c",
+            9,
+        )
         self.audio_timer = self.root.after(70, self._animate_audio)
 
     def show_confirmation(self) -> None:
@@ -1890,11 +2230,42 @@ class QSeeSimulator:
             self.show_home()
 
     def reboot(self) -> None:
+        self.idle_state = "active"
         self.ready = False
         self.timeline_index = 0
         self.logger = CanonicalLogger()
         self.show_boot()
         self.root.after(150, self._advance_timeline)
+
+    def toggle_fullscreen(self) -> None:
+        if self.screen == "boot":
+            return
+        if self.idle_state == "standby":
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic BOOT ignored in standby; use PWR or IMU wake",
+            )
+            return
+        if self.idle_state == "fullscreen":
+            self.idle_state = "active"
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic BOOT exited Fullscreen; Adaptive Chrome visible",
+            )
+        elif self.idle_state == "active":
+            self.idle_state = "fullscreen"
+            self.logger.info(
+                "qsee_power_manager",
+                "Synthetic BOOT entered Fullscreen; Adaptive Chrome locked hidden",
+            )
+        else:
+            previous_state = self.idle_state
+            self.idle_state = "active"
+            self.logger.info(
+                "qsee_power_manager",
+                f"Synthetic BOOT woke {previous_state}; press again for Fullscreen",
+            )
+        self._redraw_current_screen()
 
     def toggle_standby(self) -> None:
         if self.screen == "boot":
@@ -1906,10 +2277,12 @@ class QSeeSimulator:
                 "Synthetic PWR wake completed",
             )
         else:
+            fullscreen_cancelled = self.idle_state == "fullscreen"
             self.idle_state = "standby"
             self.logger.info(
                 "qsee_power_manager",
-                "Synthetic PWR standby entered; audio suspended, IMU active",
+                "Synthetic PWR standby entered; audio suspended, IMU active"
+                + ("; Fullscreen cancelled" if fullscreen_cancelled else ""),
             )
         self._redraw_current_screen()
 
@@ -1917,10 +2290,8 @@ class QSeeSimulator:
         self.safe_guide = not self.safe_guide
         if self.screen == "boot":
             self.show_boot()
-        elif self.screen == "confirmation":
-            self.show_confirmation()
         else:
-            self.show_home()
+            self._redraw_current_screen()
 
     def _redraw_current_screen(self) -> None:
         current_screen = self.screen
@@ -1946,6 +2317,7 @@ class QSeeSimulator:
             self.screen = "result"
         else:
             self.show_home()
+        self.apply_idle_overlay()
 
     def apply_idle_overlay(self) -> None:
         if self.idle_state == "dimmed":
@@ -1991,10 +2363,19 @@ def main() -> None:
     )
     parser.add_argument(
         "--idle-state",
-        choices=("active", "command-hidden", "chrome-hidden", "dimmed", "off", "standby"),
+        choices=(
+            "active",
+            "command-hidden",
+            "chrome-hidden",
+            "fullscreen",
+            "dimmed",
+            "off",
+            "standby",
+        ),
         default="active",
     )
     parser.add_argument("--capture", type=Path)
+    parser.add_argument("--safe-guide", action="store_true")
     parser.add_argument("--no-sound", action="store_true")
     parser.add_argument("--performance-mode", action="store_true")
     args = parser.parse_args()
@@ -2013,6 +2394,7 @@ def main() -> None:
         idle_state=args.idle_state,
     )
     simulator.performance_mode = args.performance_mode
+    simulator.safe_guide = args.safe_guide
     if args.capture is not None:
         from PIL import ImageGrab
 

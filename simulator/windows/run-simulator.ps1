@@ -6,10 +6,12 @@ param(
     [ValidateSet("home", "settings", "chrome-settings", "power-settings", "hardware", "audio", "fft", "fft-detail", "imu")]
     [string]$Screen = "home",
 
-    [ValidateSet("active", "command-hidden", "chrome-hidden", "dimmed", "off", "standby")]
+    [ValidateSet("active", "command-hidden", "chrome-hidden", "fullscreen", "dimmed", "off", "standby")]
     [string]$IdleState = "active",
 
     [string]$Capture,
+
+    [switch]$SafeGuide,
 
     [switch]$NoSound,
 
@@ -34,13 +36,16 @@ try {
     if ($Capture) {
         $Arguments += @("--capture", $Capture)
     }
+    if ($SafeGuide) {
+        $Arguments += "--safe-guide"
+    }
     if ($NoSound) {
         $Arguments += "--no-sound"
     }
     if ($PerformanceMode) {
         $Arguments += "--performance-mode"
     }
-    python @Arguments
+    python -B @Arguments
 }
 finally {
     Pop-Location

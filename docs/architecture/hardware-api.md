@@ -53,6 +53,7 @@ Service value.
 | --- | --- |
 | `qsee_hardware_init` | Initialize PMU, RTC, QMI8658, LC76G, and the shared audio path; take the bounded initial microphone sample |
 | `qsee_hardware_refresh` | Stage and atomically publish one explicit full-device generation |
+| `qsee_hardware_take_power_key_events` | Under the dedicated PMU mutex, use bounded IDF I2C transactions to read and decode AXP2101 IRQ status, queue PKEY events before a verified clear, then atomically deliver the queued short/long counts without depending on a Full Snapshot or display operation |
 | `qsee_hardware_set_diagnostic_streams` | Independently enable measured IMU and microphone streams for the active live page; disabling one stream cannot leave it implicitly sampled by the other |
 | `qsee_imu_calibrate` | Schedule a stationary 96-sample calibration on the platform worker; keep the previous calibration on rejection or while one is already pending |
 | `qsee_rtc_read` / `qsee_rtc_write` | Read or write UTC calendar time |
@@ -60,7 +61,7 @@ Service value.
 | `qsee_storage_*` | Mount asynchronously; retry only explicit transient failures; format only after an explicit API call |
 | `qsee_wifi_*` | Event-driven ESP-IDF station lifecycle and asynchronous scans |
 | `qsee_provisioning_*` | Security 1 BLE provisioning with explicit lifecycle state |
-| `qsee_power_*` / `qsee_display_set_power_mode` | Native PM policy, input inventory, transient Active/Dimmed/DisplayOff transitions, and explicit sleep entry |
+| `qsee_power_*` / `qsee_display_set_power_mode` | Native inactivity policy, guarded BOOT Fullscreen/reset input, PKEY input inventory, transient Active/Dimmed/DisplayOff transitions, software Device Standby, and separately callable explicit SoC sleep entry |
 
 ## Bounded behavior
 

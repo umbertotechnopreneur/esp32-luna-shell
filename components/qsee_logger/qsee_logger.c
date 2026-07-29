@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -44,7 +45,10 @@ static const char *TAG = "qsee_logger";
 static qsee_ram_log_line_t s_ring[QSEE_LOG_RING_LINES];
 static qsee_log_line_t s_format_slots[QSEE_LOG_FORMAT_SLOTS];
 static bool s_format_slot_used[QSEE_LOG_FORMAT_SLOTS];
-static qsee_ram_log_line_t s_snapshot_copy[QSEE_LOGGER_SNAPSHOT_MAX_LINES];
+// Snapshot export runs outside the immediate vprintf path, so its bulk copy
+// does not need the cache-off-safe internal memory used by the live log ring.
+static EXT_RAM_BSS_ATTR
+qsee_ram_log_line_t s_snapshot_copy[QSEE_LOGGER_SNAPSHOT_MAX_LINES];
 static size_t s_ring_head;
 static size_t s_ring_count;
 static portMUX_TYPE s_ring_lock = portMUX_INITIALIZER_UNLOCKED;

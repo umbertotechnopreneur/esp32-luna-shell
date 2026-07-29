@@ -12,6 +12,9 @@
 - [ ] Validate the BLE credential flow with the physical radio and the
   Espressif mobile app.
 - [ ] Verify reboot persistence, repeated pairing, timeout and BLE shutdown on hardware.
+- [ ] Re-run Settings -> Start Wireless under serial capture and confirm that
+  the adaptive DMA path keeps the UI responsive while Wi-Fi and BLE remain
+  ready.
 
 ## Hardware status: immediate UI improvements
 
@@ -103,6 +106,10 @@
 
 ## Power and performance profiles
 
+- [x] Validate the AXP2101 PKEY standby/wake cycle, independent arc timeouts,
+  exact 50% dim stage, and real AMOLED panel-off transition on the physical
+  device.
+- [ ] Validate qualified IMU wake from full standby on the physical device.
 - [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
   `DisplayOff` transitions, preserving the user's configured brightness and
   publishing both configured and applied values in `DeviceSnapshotService`.

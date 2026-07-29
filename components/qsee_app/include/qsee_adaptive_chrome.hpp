@@ -94,6 +94,8 @@ public:
         AdaptiveChromeTiming timing
     ) const;
     [[nodiscard]] DisplayIdleStage display_idle_stage() const;
+    [[nodiscard]] bool command_arc_visible() const;
+    [[nodiscard]] bool status_arc_visible() const;
 
 private:
     std::expected<void, std::string> set_status_visible(
@@ -117,6 +119,7 @@ private:
     uint32_t status_animation_generation_ = 0;
     DisplayIdleStage display_idle_stage_ = DisplayIdleStage::Active;
     bool active_ = false;
+    bool fullscreen_active_ = false;
     bool command_target_visible_ = true;
     bool status_visible_ = true;
     bool status_target_visible_ = true;

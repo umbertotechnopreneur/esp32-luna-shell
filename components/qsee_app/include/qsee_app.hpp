@@ -128,6 +128,14 @@ private:
         bool operator==(const SettingsControlsState &) const = default;
     };
 
+    struct ContentViewportState {
+        Screen screen;
+        bool command_arc_visible;
+        bool status_arc_visible;
+
+        bool operator==(const ContentViewportState &) const = default;
+    };
+
     std::expected<void, std::string> open_screen(
         esp_brookesia::system::core::AppContext &context,
         Screen screen,
@@ -147,6 +155,9 @@ private:
     std::expected<void, std::string> refresh_chrome(
         esp_brookesia::system::core::AppContext &context,
         const DeviceSnapshot &snapshot
+    );
+    std::expected<void, std::string> sync_content_viewport(
+        esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_welcome(
         esp_brookesia::system::core::AppContext &context
@@ -332,6 +343,7 @@ private:
     > settings_text_cache_;
     bool settings_text_cache_valid_ = false;
     std::optional<SettingsControlsState> settings_controls_state_;
+    std::optional<ContentViewportState> content_viewport_state_;
     std::unique_ptr<char[]> log_source_buffer_;
     std::unique_ptr<char[]> log_filtered_buffer_;
 };

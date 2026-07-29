@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "esp_app_desc.h"
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "freertos/FreeRTOS.h"
@@ -33,6 +34,35 @@
 
 static const char *TAG = "qsee_radios";
 static std::recursive_mutex s_radios_init_mutex;
+
+static void log_radio_heap_checkpoint(const char *stage)
+{
+    constexpr uint32_t internal_caps =
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
+    constexpr uint32_t dma_caps =
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT;
+    multi_heap_info_t internal = {};
+    multi_heap_info_t dma = {};
+    multi_heap_info_t psram = {};
+    heap_caps_get_info(&internal, internal_caps);
+    heap_caps_get_info(&dma, dma_caps);
+    heap_caps_get_info(&psram, MALLOC_CAP_SPIRAM);
+    ESP_LOGI(
+        TAG,
+        "Radio heap %s: internal free=%lu min=%lu largest=%lu; "
+        "DMA free=%lu min=%lu largest=%lu; PSRAM free=%lu min=%lu largest=%lu",
+        stage,
+        static_cast<unsigned long>(internal.total_free_bytes),
+        static_cast<unsigned long>(internal.minimum_free_bytes),
+        static_cast<unsigned long>(internal.largest_free_block),
+        static_cast<unsigned long>(dma.total_free_bytes),
+        static_cast<unsigned long>(dma.minimum_free_bytes),
+        static_cast<unsigned long>(dma.largest_free_block),
+        static_cast<unsigned long>(psram.total_free_bytes),
+        static_cast<unsigned long>(psram.minimum_free_bytes),
+        static_cast<unsigned long>(psram.largest_free_block)
+    );
+}
 
 #if CONFIG_BT_NIMBLE_ENABLED
 static std::mutex s_ble_lifecycle_mutex;
@@ -967,7 +997,11 @@ esp_err_t qsee_radios_init(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
 
+    log_radio_heap_checkpoint("before-Wi-Fi");
     const esp_err_t wifi = qsee_wifi_init();
+    log_radio_heap_checkpoint(
+        wifi == ESP_OK ? "after-Wi-Fi" : "after-Wi-Fi-failure"
+    );
     qsee_wifi_status_t wifi_status = {};
     qsee_wifi_get_status(&wifi_status);
 
@@ -1038,6 +1072,9 @@ esp_err_t qsee_radios_init(void)
             true
         );
     }
+    log_radio_heap_checkpoint(
+        ble == ESP_OK ? "after-BLE" : "after-BLE-failure"
+    );
 
     if (ble != ESP_OK) {
         if (wifi_status.credentials_configured) {

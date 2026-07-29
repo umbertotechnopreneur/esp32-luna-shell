@@ -105,8 +105,21 @@ constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
 constexpr int64_t kMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
 constexpr uint32_t kPeriodicSummaryIntervalMs = 30000U;
 constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
+constexpr uint64_t kPmuIrqMask = 0xFFFFFFULL;
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
+constexpr uint64_t kPmuRuntimeIrqMask =
+    XPOWERS_AXP2101_BAT_INSERT_IRQ |
+    XPOWERS_AXP2101_BAT_REMOVE_IRQ |
+    XPOWERS_AXP2101_VBUS_INSERT_IRQ |
+    XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
+    XPOWERS_AXP2101_PKEY_SHORT_IRQ |
+    XPOWERS_AXP2101_PKEY_LONG_IRQ |
+    XPOWERS_AXP2101_BAT_CHG_DONE_IRQ |
+    XPOWERS_AXP2101_BAT_CHG_START_IRQ;
+#endif
 
 i2c_master_bus_handle_t s_i2c_bus;
+i2c_master_dev_handle_t s_pmu_device;
 i2c_master_dev_handle_t s_rtc;
 i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
@@ -121,6 +134,9 @@ bool s_initialized;
 bool s_initialization_attempted;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_pmu_ready;
+std::atomic<uint32_t> s_pkey_short_press_pending{0};
+std::atomic<uint32_t> s_pkey_long_press_pending{0};
+uint64_t s_pmu_queued_pkey_status;
 bool s_rtc_ready;
 bool s_imu_ready;
 bool s_imu_calibrated;
@@ -271,6 +287,8 @@ std::atomic<qsee::DeviceSnapshot *> s_snapshot_stage{nullptr};
 bool s_snapshot_stage_dirty;
 StaticSemaphore_t s_refresh_mutex_control;
 SemaphoreHandle_t s_refresh_mutex;
+StaticSemaphore_t s_pmu_mutex_control;
+SemaphoreHandle_t s_pmu_mutex;
 
 qsee::DeviceSnapshot *s_diagnostic_stage_snapshot;
 std::atomic<TaskHandle_t> s_imu_calibration_task{nullptr};
@@ -278,7 +296,9 @@ std::atomic_bool s_imu_calibration_request_pending{false};
 std::mutex s_imu_calibration_mutex;
 StaticTask_t s_imu_calibration_task_control;
 StackType_t s_imu_calibration_task_stack[3072];
-char s_gps_payload[GPS_MAX_PAYLOAD + 1];
+// The synchronous I2C read copies GNSS bytes into this parser buffer, so the
+// application payload can live in PSRAM.
+EXT_RAM_BSS_ATTR char s_gps_payload[GPS_MAX_PAYLOAD + 1];
 int16_t s_microphone_samples[1024];
 
 struct AudioSpectrumBands {
@@ -324,6 +344,14 @@ SemaphoreHandle_t ensure_refresh_mutex()
         s_refresh_mutex = xSemaphoreCreateMutexStatic(&s_refresh_mutex_control);
     }
     return s_refresh_mutex;
+}
+
+SemaphoreHandle_t ensure_pmu_mutex()
+{
+    if (s_pmu_mutex == nullptr) {
+        s_pmu_mutex = xSemaphoreCreateMutexStatic(&s_pmu_mutex_control);
+    }
+    return s_pmu_mutex;
 }
 
 esp_err_t give_refresh_mutex(
@@ -1465,6 +1493,72 @@ esp_err_t write_registers(
 }
 
 #if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
+int xpowers_read_register(
+    uint8_t device_address,
+    uint8_t reg,
+    uint8_t *data,
+    uint8_t length
+)
+{
+    if (device_address != AXP2101_ADDRESS ||
+        s_pmu_device == nullptr || data == nullptr || length == 0U) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101 callback read rejected: address=0x%02x register=0x%02x length=%u",
+            device_address,
+            reg,
+            static_cast<unsigned>(length)
+        );
+        return -1;
+    }
+    const esp_err_t error =
+        read_register(s_pmu_device, reg, data, length);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101 callback read failed: register=0x%02x length=%u (%s)",
+            reg,
+            static_cast<unsigned>(length),
+            esp_err_to_name(error)
+        );
+        return -1;
+    }
+    return 0;
+}
+
+int xpowers_write_register(
+    uint8_t device_address,
+    uint8_t reg,
+    uint8_t *data,
+    uint8_t length
+)
+{
+    if (device_address != AXP2101_ADDRESS ||
+        s_pmu_device == nullptr || data == nullptr || length == 0U) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101 callback write rejected: address=0x%02x register=0x%02x length=%u",
+            device_address,
+            reg,
+            static_cast<unsigned>(length)
+        );
+        return -1;
+    }
+    const esp_err_t error =
+        write_registers(s_pmu_device, reg, data, length);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101 callback write failed: register=0x%02x length=%u (%s)",
+            reg,
+            static_cast<unsigned>(length),
+            esp_err_to_name(error)
+        );
+        return -1;
+    }
+    return 0;
+}
+
 esp_err_t read_pmu_registers(
     uint8_t reg,
     uint8_t *data,
@@ -1474,13 +1568,10 @@ esp_err_t read_pmu_registers(
     if (data == nullptr || length == 0 || length > UINT8_MAX) {
         return ESP_ERR_INVALID_ARG;
     }
-    return s_power.readRegister(
-               reg,
-               data,
-               static_cast<uint8_t>(length)
-           ) == 0
-               ? ESP_OK
-               : ESP_FAIL;
+    if (s_pmu_device == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    return read_register(s_pmu_device, reg, data, length);
 }
 
 esp_err_t read_pmu_irq_status(const char *operation, uint64_t *status)
@@ -1489,22 +1580,23 @@ esp_err_t read_pmu_irq_status(const char *operation, uint64_t *status)
         return ESP_ERR_INVALID_ARG;
     }
     uint8_t status_bytes[3] = {};
-    for (size_t index = 0; index < sizeof(status_bytes); ++index) {
-        const uint8_t reg = static_cast<uint8_t>(
-            XPOWERS_AXP2101_INTSTS1 + index
+    // INTSTS1..3 are contiguous; one burst keeps the status coherent and avoids
+    // three polling transactions on the shared bus every 100 ms.
+    const esp_err_t error = read_pmu_registers(
+        XPOWERS_AXP2101_INTSTS1,
+        status_bytes,
+        sizeof(status_bytes)
+    );
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: %s failed at registers=0x%02x..0x%02x (%s)",
+            operation,
+            XPOWERS_AXP2101_INTSTS1,
+            XPOWERS_AXP2101_INTSTS3,
+            esp_err_to_name(error)
         );
-        const esp_err_t error =
-            read_pmu_registers(reg, &status_bytes[index], 1);
-        if (error != ESP_OK) {
-            ESP_LOGE(
-                TAG,
-                "PMU AXP2101: %s failed at register=0x%02x (%s)",
-                operation,
-                reg,
-                esp_err_to_name(error)
-            );
-            return error;
-        }
+        return error;
     }
     const uint64_t readback =
         static_cast<uint64_t>(status_bytes[0]) |
@@ -1523,23 +1615,162 @@ esp_err_t read_pmu_irq_status(const char *operation, uint64_t *status)
     return ESP_OK;
 }
 
-esp_err_t clear_and_verify_pmu_irq_status(const char *operation)
+esp_err_t verify_pmu_irq_enable_mask(uint64_t expected)
 {
-    s_power.clearIrqStatus();
+    uint8_t enabled_bytes[3] = {};
+    const esp_err_t error = read_pmu_registers(
+        XPOWERS_AXP2101_INTEN1,
+        enabled_bytes,
+        sizeof(enabled_bytes)
+    );
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: runtime IRQ enable readback failed (%s)",
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    const uint64_t observed =
+        static_cast<uint64_t>(enabled_bytes[0]) |
+        (static_cast<uint64_t>(enabled_bytes[1]) << 8U) |
+        (static_cast<uint64_t>(enabled_bytes[2]) << 16U);
+    if (observed != expected) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: runtime IRQ mask mismatch expected=0x%06llx observed=0x%06llx",
+            static_cast<unsigned long long>(expected),
+            static_cast<unsigned long long>(observed)
+        );
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
+esp_err_t give_pmu_mutex(
+    SemaphoreHandle_t mutex,
+    const char *operation
+)
+{
+    if (mutex == nullptr || xSemaphoreGive(mutex) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "%s failed: PMU mutex release rejected",
+            operation
+        );
+        std::abort();
+    }
+    return ESP_OK;
+}
+
+esp_err_t clear_and_verify_pmu_irq_status(
+    const char *operation,
+    uint64_t clear_mask = kPmuIrqMask,
+    uint64_t *remaining_status = nullptr
+)
+{
+    for (size_t index = 0; index < 3U; ++index) {
+        const uint8_t value = static_cast<uint8_t>(
+            (clear_mask >> (index * 8U)) & 0xFFU
+        );
+        if (value == 0U) {
+            continue;
+        }
+        const uint8_t reg = static_cast<uint8_t>(
+            XPOWERS_AXP2101_INTSTS1 + index
+        );
+        const esp_err_t write_error =
+            write_register(s_pmu_device, reg, value);
+        if (write_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "PMU AXP2101: %s write failed at register=0x%02x mask=0x%02x (%s)",
+                operation,
+                reg,
+                value,
+                esp_err_to_name(write_error)
+            );
+            return write_error;
+        }
+    }
+
     uint64_t readback = 0;
     const esp_err_t read_error = read_pmu_irq_status(operation, &readback);
     if (read_error != ESP_OK) {
         return read_error;
     }
-    if (readback != 0) {
+    if (remaining_status != nullptr) {
+        *remaining_status = readback;
+    }
+    if ((readback & clear_mask) != 0U) {
         ESP_LOGE(
             TAG,
-            "PMU AXP2101: %s verification failed: expected=0x000000 observed=0x%06llx",
+            "PMU AXP2101: %s verification failed: clear=0x%06llx observed=0x%06llx",
             operation,
+            static_cast<unsigned long long>(clear_mask),
             static_cast<unsigned long long>(readback)
         );
         return ESP_ERR_INVALID_RESPONSE;
     }
+    return ESP_OK;
+}
+
+esp_err_t collect_pmu_irq_events()
+{
+    uint64_t irq_status = 0;
+    esp_err_t error =
+        read_pmu_irq_status("read runtime IRQ status", &irq_status);
+    if (error != ESP_OK) {
+        return error;
+    }
+
+    if (irq_status == 0U) {
+        // A previous clear may have succeeded even if its verification read did
+        // not; retain queued button counts but release their de-duplication mask.
+        s_pmu_queued_pkey_status = 0;
+        return ESP_OK;
+    }
+
+    const uint64_t pkey_status =
+        irq_status &
+        (XPOWERS_AXP2101_PKEY_SHORT_IRQ |
+         XPOWERS_AXP2101_PKEY_LONG_IRQ);
+    const uint64_t new_pkey_status =
+        pkey_status & ~s_pmu_queued_pkey_status;
+    if ((new_pkey_status & XPOWERS_AXP2101_PKEY_SHORT_IRQ) != 0U) {
+        s_pkey_short_press_pending.fetch_add(1, std::memory_order_release);
+    }
+    if ((new_pkey_status & XPOWERS_AXP2101_PKEY_LONG_IRQ) != 0U) {
+        s_pkey_long_press_pending.fetch_add(1, std::memory_order_release);
+    }
+    // Mark decoded PKEY bits before clearing so a failed clear can be retried
+    // without duplicating the already queued physical event.
+    s_pmu_queued_pkey_status |= pkey_status;
+
+    ESP_LOGI(
+        TAG,
+        "PMU AXP2101 events: raw=0x%llx bat+%d bat-%d usb+%d usb-%d key-short=%d key-long=%d charge-start=%d charge-done=%d",
+        static_cast<unsigned long long>(irq_status),
+        (irq_status & XPOWERS_AXP2101_BAT_INSERT_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_BAT_REMOVE_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_VBUS_INSERT_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_VBUS_REMOVE_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_PKEY_SHORT_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_PKEY_LONG_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_BAT_CHG_START_IRQ) != 0,
+        (irq_status & XPOWERS_AXP2101_BAT_CHG_DONE_IRQ) != 0
+    );
+
+    uint64_t remaining_status = 0;
+    error = clear_and_verify_pmu_irq_status(
+        "clear runtime IRQ status",
+        irq_status,
+        &remaining_status
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_pmu_queued_pkey_status &= remaining_status;
     return ESP_OK;
 }
 
@@ -1635,7 +1866,7 @@ bool finite_imu_sample(const ImuRawSample &data)
            std::isfinite(data.temperature);
 }
 
-esp_err_t sample_pmu(const char *phase)
+esp_err_t sample_pmu_locked(const char *phase)
 {
 #if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
     qsee::BatterySnapshot sample;
@@ -1783,60 +2014,6 @@ esp_err_t sample_pmu(const char *phase)
             : (charge_state == 2U ? "discharging" : "standby");
     strlcpy(sample.power_state, power_state, sizeof(sample.power_state));
 
-    uint64_t irq_status = 0;
-    error = read_pmu_irq_status("read runtime IRQ status", &irq_status);
-    if (error != ESP_OK) {
-        const esp_err_t publication_error = update_snapshot(
-            [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
-                mark_sample_failure(
-                    snapshot.battery,
-                    error,
-                    attempted_at_us
-                );
-            }
-        );
-        return sample_publication_result(
-            "PMU AXP2101",
-            phase,
-            error,
-            publication_error
-        );
-    }
-    if (irq_status != 0) {
-        ESP_LOGI(
-            TAG,
-            "PMU AXP2101 events: raw=0x%llx bat+%d bat-%d usb+%d usb-%d key-short=%d key-long=%d charge-start=%d charge-done=%d",
-            static_cast<unsigned long long>(irq_status),
-            (irq_status & XPOWERS_AXP2101_BAT_INSERT_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_BAT_REMOVE_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_VBUS_INSERT_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_VBUS_REMOVE_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_PKEY_SHORT_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_PKEY_LONG_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_BAT_CHG_START_IRQ) != 0,
-            (irq_status & XPOWERS_AXP2101_BAT_CHG_DONE_IRQ) != 0
-        );
-        error = clear_and_verify_pmu_irq_status(
-            "clear runtime IRQ status"
-        );
-        if (error != ESP_OK) {
-            const esp_err_t publication_error = update_snapshot(
-                [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
-                    mark_sample_failure(
-                        snapshot.battery,
-                        error,
-                        attempted_at_us
-                    );
-                }
-            );
-            return sample_publication_result(
-                "PMU AXP2101",
-                phase,
-                error,
-                publication_error
-            );
-        }
-    }
     mark_sample_success(sample, attempted_at_us);
     const esp_err_t publication_error = update_snapshot(
         [&sample](qsee::DeviceSnapshot &snapshot) {
@@ -1879,14 +2056,99 @@ esp_err_t sample_pmu(const char *phase)
 #endif
 }
 
+esp_err_t publish_pmu_lock_failure(
+    const char *phase,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+            mark_sample_failure(
+                snapshot.battery,
+                error,
+                attempted_at_us
+            );
+        }
+    );
+    ESP_LOGW(
+        TAG,
+        "PMU AXP2101: %s sample lock failed (%s)",
+        phase,
+        esp_err_to_name(error)
+    );
+    return sample_publication_result(
+        "PMU AXP2101",
+        phase,
+        error,
+        publication_error
+    );
+}
+
+esp_err_t sample_pmu(const char *phase)
+{
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
+    SemaphoreHandle_t pmu_mutex = ensure_pmu_mutex();
+    if (pmu_mutex == nullptr) {
+        return publish_pmu_lock_failure(phase, ESP_ERR_NO_MEM);
+    }
+    if (xSemaphoreTake(pmu_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        return publish_pmu_lock_failure(phase, ESP_ERR_TIMEOUT);
+    }
+
+    esp_err_t result = sample_pmu_locked(phase);
+    const esp_err_t release_error =
+        give_pmu_mutex(pmu_mutex, "PMU telemetry sample");
+    record_first_error(release_error, &result);
+    return result;
+#else
+    return sample_pmu_locked(phase);
+#endif
+}
+
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
+esp_err_t remove_pmu_device()
+{
+    if (s_pmu_device == nullptr) {
+        return ESP_OK;
+    }
+    const esp_err_t error =
+        i2c_master_bus_rm_device(s_pmu_device);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101 device cleanup failed (%s)",
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    s_pmu_device = nullptr;
+    return ESP_OK;
+}
+#endif
+
 esp_err_t init_pmu(i2c_master_bus_handle_t bus)
 {
 #if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
     esp_err_t error = i2c_master_probe(bus, AXP2101_ADDRESS, I2C_TIMEOUT_MS);
-    if (error == ESP_OK && !s_power.begin(bus, AXP2101_ADDRESS)) {
+    if (error == ESP_OK) {
+        error = add_i2c_device(
+            bus,
+            AXP2101_ADDRESS,
+            XPOWERSLIB_I2C_MASTER_SPEED,
+            &s_pmu_device
+        );
+    }
+    if (error == ESP_OK &&
+        !s_power.begin(
+            AXP2101_ADDRESS,
+            xpowers_read_register,
+            xpowers_write_register
+        )) {
         error = ESP_FAIL;
     }
     if (error != ESP_OK) {
+        record_first_error(remove_pmu_device(), &error);
         update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
             set_component(snapshot.battery, false, error);
         });
@@ -1938,22 +2200,21 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         error = clear_and_verify_pmu_irq_status(
             "clear initialization IRQ status"
         );
+        if (error == ESP_OK) {
+            s_pkey_short_press_pending.store(0, std::memory_order_relaxed);
+            s_pkey_long_press_pending.store(0, std::memory_order_relaxed);
+            s_pmu_queued_pkey_status = 0;
+        }
     }
     if (error == ESP_OK &&
         !require_pmu_write(
-                s_power.enableIRQ(
-                    XPOWERS_AXP2101_BAT_INSERT_IRQ |
-                    XPOWERS_AXP2101_BAT_REMOVE_IRQ |
-                    XPOWERS_AXP2101_VBUS_INSERT_IRQ |
-                    XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
-                    XPOWERS_AXP2101_PKEY_SHORT_IRQ |
-                    XPOWERS_AXP2101_PKEY_LONG_IRQ |
-                    XPOWERS_AXP2101_BAT_CHG_DONE_IRQ |
-                    XPOWERS_AXP2101_BAT_CHG_START_IRQ
-                ),
+                s_power.enableIRQ(kPmuRuntimeIrqMask),
                 "enable runtime IRQ mask"
             )) {
         error = ESP_FAIL;
+    }
+    if (error == ESP_OK) {
+        error = verify_pmu_irq_enable_mask(kPmuRuntimeIrqMask);
     }
     if (error == ESP_OK) {
         s_power.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
@@ -1988,6 +2249,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         error = ESP_FAIL;
     }
     if (error != ESP_OK) {
+        record_first_error(remove_pmu_device(), &error);
         update_snapshot([error](qsee::DeviceSnapshot &snapshot) {
             set_component(snapshot.battery, false, error);
         });
@@ -4561,6 +4823,9 @@ esp_err_t DeviceSnapshotService::initialize()
     if (ensure_refresh_mutex() == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    if (ensure_pmu_mutex() == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
     auto &settings = UserSettingsService::instance();
     const esp_err_t settings_error = settings.initialize();
     if (settings_error != ESP_OK) {
@@ -5607,6 +5872,7 @@ void DeviceSnapshotService::reportPowerManagement(
     DeviceOperatingState state,
     DeviceStateReason reason,
     bool audio_suspended,
+    bool fullscreen_active,
     bool command_arc_visible,
     bool status_arc_visible,
     UiHardwareSnapshot::DisplayPowerMode display_idle_stage,
@@ -5625,6 +5891,7 @@ void DeviceSnapshotService::reportPowerManagement(
             snapshot.power.state = state;
             snapshot.power.reason = reason;
             snapshot.power.audio_suspended = audio_suspended;
+            snapshot.power.fullscreen_active = fullscreen_active;
             snapshot.power.command_arc_visible = command_arc_visible;
             snapshot.power.status_arc_visible = status_arc_visible;
             snapshot.power.display_idle_stage = display_idle_stage;
@@ -5720,6 +5987,61 @@ extern "C" esp_err_t qsee_hardware_init(void)
 extern "C" esp_err_t qsee_hardware_refresh(const char *reason)
 {
     return qsee::DeviceSnapshotService::instance().refresh(reason);
+}
+
+extern "C" esp_err_t qsee_hardware_take_power_key_events(
+    uint32_t *short_presses,
+    uint32_t *long_presses
+)
+{
+    if (short_presses == nullptr || long_presses == nullptr) {
+        ESP_LOGE(TAG, "PKEY event take rejected: output pointer is null");
+        return ESP_ERR_INVALID_ARG;
+    }
+    *short_presses = 0;
+    *long_presses = 0;
+
+#if CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS && CONFIG_QSEE_BUILD_PMU_DRIVER_AXP2101
+    if (!s_initialized || !s_pmu_ready) {
+        ESP_LOGE(
+            TAG,
+            "PKEY event take rejected: AXP2101 is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    SemaphoreHandle_t pmu_mutex = ensure_pmu_mutex();
+    if (pmu_mutex == nullptr) {
+        ESP_LOGE(TAG, "PKEY event take failed: PMU mutex unavailable");
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(pmu_mutex, pdMS_TO_TICKS(250)) != pdTRUE) {
+        ESP_LOGW(
+            TAG,
+            "PKEY event take timed out waiting for PMU access"
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const esp_err_t collect_error = collect_pmu_irq_events();
+    if (collect_error == ESP_OK) {
+        *short_presses =
+            s_pkey_short_press_pending.exchange(0, std::memory_order_acq_rel);
+        *long_presses =
+            s_pkey_long_press_pending.exchange(0, std::memory_order_acq_rel);
+    }
+    const esp_err_t release_error = give_pmu_mutex(
+        pmu_mutex,
+        "PKEY event take"
+    );
+    if (collect_error != ESP_OK) {
+        return collect_error;
+    }
+    return release_error;
+#else
+    ESP_LOGE(TAG, "PKEY event take rejected: AXP2101 support is disabled");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }
 
 extern "C" esp_err_t qsee_hardware_set_diagnostic_streams(

@@ -137,9 +137,10 @@ framework or call LVGL directly.
 | `Command Arc` | The lower curved row of up to five route actions |
 | `Main Command` | The single Command Arc action centered on the horizontal axis; it is largest and defines the route's primary intent |
 | `Edge Navigation` | Contextual Back, Next, Confirm, or Cancel control placed on the circular edge |
-| `Wake Surface` | The transparent full-display touch target used only while Adaptive Chrome is hidden or the display is dimmed/off |
+| `Wake Surface` | The transparent full-display touch target used while automatic Adaptive Chrome is hidden or the display is dimmed/off; manual Fullscreen leaves page controls interactive |
 | `Adaptive Chrome` | The reusable Status Arc and Command Arc renderer; it animates the canonical power state but owns no inactivity policy |
-| `Power Management Service` | The single worker that owns BOOT/PWR input, inactivity timing, arc visibility, AMOLED fade/dim/off, audio standby, and IMU wake |
+| `Content Viewport` | The route surface between the currently visible arcs; it expands from the 320 x 320 safe square to 393 or 466 pixels as either or both arcs disappear |
+| `Power Management Service` | The single worker that owns BOOT input, AXP2101 PKEY events, inactivity timing, arc visibility, AMOLED fade/dim/off, audio standby, and IMU wake |
 | `Screen Sleep` | The inactivity stage reached after dimming; AMOLED output and periodic UI refresh stop, while touch and IMU wake remain available |
 | `Device Standby` | The explicit `PWR`-controlled state with the display off and voice capture suspended while the IMU wake monitor remains active |
 | `Full Snapshot` | One serialized complete hardware and system acquisition, scheduled at the user-selected 300 ms to 10 s cadence |
@@ -156,13 +157,37 @@ Settings dropdowns. The `Command Arc` and `Status Arc` have separate hide
 timeouts. The display-dim timeout starts from the same last-activity instant
 and a shared fade reduces brightness to 50% of the user's configured value.
 The Screen Sleep delay starts when dimming begins; its fade then reaches
-`DisplayOff`. Defaults are 1 minute, 2 minutes, 5 minutes, and 5 minutes after
-dimming respectively. Every dropdown also offers `Never`. Touch, a command,
-BOOT short press, or a bias-resistant IMU movement restores the active policy.
-`PWR` short press exclusively toggles Device Standby; another `PWR` press or
-valid IMU movement wakes it. BOOT held for three seconds performs a soft reset.
-Every policy state and transition is published in `DeviceSnapshotService`; the
-UI only animates that immutable state.
+`DisplayOff`. Defaults are 10 seconds, 2 minutes, 5 minutes, and 5 minutes
+after dimming respectively. Every dropdown also offers `Never`. Touch, a
+command, or a qualified IMU movement restores automatically hidden chrome and
+the active display policy. Manual Fullscreen is different: one short BOOT press
+hides both arcs, a second restores them, and normal page touches remain
+interactive without leaving Fullscreen. If the display is already dimmed or
+off, BOOT wakes it first and restores both arcs. BOOT input is enabled only
+after a stable 500 ms release, including after light sleep, so a held or noisy
+startup level cannot become a false command. IMU wake requires a quiet dwell
+followed by three consecutive movement samples and uses a two-second
+grace/cooldown. `PWR` is the AXP2101 PKEY, not a GPIO: a short event toggles
+Device Standby and another short event or qualified IMU movement wakes it. A
+long event is recorded and requests standby without toggling an already
+sleeping device. BOOT held for three seconds performs a soft reset.
+
+Every route consumes the same canonical arc visibility when calculating its
+viewport. With both arcs visible the content surface is `y=73`, `height=320`;
+hiding only one arc yields 393 pixels, and hiding both yields the full 466
+pixels. Scrollable pages grow inside circular-safe 55-pixel edge insets, while
+fixed diagnostic canvases remain centered instead of being stretched or
+clipped.
+
+Device Standby is deliberately a software-managed state: the AMOLED controller
+output is disabled, the voice path is suspended, and both arcs and periodic UI
+work stop while the CPU keeps the PMU-isolated PKEY poll and IMU wake monitor
+alive. Panel power commands and rotation replay share the display lock, so
+rotation is deferred while output is disabled. The
+board does not provide a verified ESP32 wake GPIO for the AXP2101 IRQ, so this
+flow does not claim that PWR can wake the SoC from ESP light sleep. Every policy
+state and transition is published in `DeviceSnapshotService`; the UI only
+animates that immutable state.
 
 ### Route index
 

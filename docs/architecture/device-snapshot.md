@@ -21,9 +21,9 @@ fusion.
   `snapshot()` folds that latch into each returned immutable copy, so the LVGL
   input callback never waits for a hardware refresh or reads the touch driver.
 - `PowerManagementSnapshot` is the canonical active/standby and inactivity
-  state. It includes the transition reason, audio suspension, both arc
-  visibility flags, display idle stage, persisted timeouts, last activity, and
-  a monotonic transition sequence.
+  state. It includes the transition reason, audio suspension, session-scoped
+  Fullscreen state, both arc visibility flags, display idle stage, persisted
+  timeouts, last activity, and a monotonic transition sequence.
 
 The full-device refresh has one explicit serialized entry point. A dedicated
 platform worker invokes that entry point at the persisted user cadence: 300 ms,
@@ -127,11 +127,26 @@ per committed full refresh, diagnostic transaction, or asynchronous subsystem
 report, so a runtime trace can identify the published generation that changed.
 
 The Power Management Service is the only inactivity decision maker. Its one
-worker debounces BOOT and PWR, consumes lock-free touch activity, evaluates IMU
-sample deltas, controls the shared display fade, and pauses or resumes the
-voice AFE. PWR short press toggles standby; BOOT held for three seconds requests
-`esp_restart()`. The Brookesia timer only synchronizes the published power
-snapshot into GUI animations and never owns power-policy timing.
+worker debounces BOOT, consumes lock-free touch activity, polls the AXP2101
+PKEY status every 100 ms, evaluates qualified IMU motion, controls the shared
+display fade/panel output, and pauses or resumes the voice AFE. The hardware
+service queues decoded PKEY events under a PMU-only mutex before it clears and
+verifies the PMIC IRQ registers; Full Snapshot, rotation, and panel I/O cannot
+block that wake channel. PWR short press toggles software standby. After a
+stable 500 ms release guard, BOOT short press toggles manual Fullscreen while
+the display is active: both arcs are hidden on the first press and restored on
+the second. A dimmed/off display is restored first instead of immediately
+entering Fullscreen, and software standby ignores BOOT. BOOT held for three
+seconds requests `esp_restart()`. The Brookesia timer only synchronizes the
+published power snapshot into GUI animations and the route viewport; it never
+owns power-policy timing.
+
+Route content derives its bounds from the same immutable snapshot. The 466
+pixel display reserves 73 pixels for each visible arc, producing these canonical
+`(y, height)` pairs: `(73, 320)` with both arcs, `(73, 393)` with only Status,
+`(0, 393)` with only Command, and `(0, 466)` with neither. The transparent wake
+surface is disabled during active manual Fullscreen so normal page hit targets
+remain usable.
 
 ## Verification
 
@@ -139,3 +154,13 @@ snapshot into GUI animations and never owns power-policy timing.
 for transaction visibility, TTL expiry, recovery after a later successful
 sample, one-shot Diagnostic-to-Full reuse, unchanged acquisition timestamps,
 failed-commit behavior, and the restricted failed-allocation callback.
+
+`scripts/verify_power_policy.py` verifies the inactivity boundaries, exact
+50-percent dim readback, qualified-motion hysteresis/dwell/cooldown, PKEY
+queue-before-clear ordering, dedicated IRQ ownership, and real panel off/on
+transitions without requiring hardware.
+
+`scripts/verify_fullscreen_layout.py` checks the Fullscreen snapshot contract,
+BOOT release guard, canonical viewport matrix, centered route surfaces,
+circular-safe padding bindings, and expanding scroll containers without
+requiring hardware.

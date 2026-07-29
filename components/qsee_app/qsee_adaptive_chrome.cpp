@@ -121,6 +121,7 @@ std::expected<void, std::string> AdaptiveChromeController::begin()
         );
     }
     display_idle_stage_ = DisplayIdleStage::Active;
+    fullscreen_active_ = false;
     command_target_visible_ = true;
     status_visible_ = true;
     status_target_visible_ = true;
@@ -175,6 +176,7 @@ std::expected<void, std::string> AdaptiveChromeController::update(
     if (!active_) {
         return {};
     }
+    fullscreen_active_ = snapshot.power.fullscreen_active;
     command_target_visible_ = snapshot.power.command_arc_visible;
     if (auto result = command_bar_.set_visible(
             gui,
@@ -230,6 +232,7 @@ std::expected<void, std::string> AdaptiveChromeController::shutdown(
 
     status_visible_ = true;
     status_target_visible_ = true;
+    fullscreen_active_ = false;
     command_target_visible_ = true;
     display_idle_stage_ = DisplayIdleStage::Active;
     if (!first_error.empty()) {
@@ -302,6 +305,17 @@ size_t AdaptiveChromeController::selected_index(
 DisplayIdleStage AdaptiveChromeController::display_idle_stage() const
 {
     return display_idle_stage_;
+}
+
+bool AdaptiveChromeController::command_arc_visible() const
+{
+    return command_bar_.has_commands() &&
+           command_bar_.target_visible();
+}
+
+bool AdaptiveChromeController::status_arc_visible() const
+{
+    return status_target_visible_;
 }
 
 std::expected<void, std::string>
@@ -392,8 +406,9 @@ AdaptiveChromeController::update_wake_surface(
     const bool should_capture =
         active_ &&
         (display_idle_stage_ != DisplayIdleStage::Active ||
-         !status_target_visible_ ||
-         !command_bar_.target_visible());
+         (!fullscreen_active_ &&
+          (!status_target_visible_ ||
+           !command_bar_.target_visible())));
     return set_wake_surface(gui, should_capture);
 }
 

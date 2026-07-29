@@ -16,8 +16,10 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
@@ -25,8 +27,6 @@ extern const uint8_t qsee_boot_wav_start[] asm("_binary_qsee_boot_wav_start");
 extern const uint8_t qsee_boot_wav_end[] asm("_binary_qsee_boot_wav_end");
 
 static const char *TAG = "qsee_audio";
-static StaticTask_t s_audio_task_control;
-static StackType_t s_audio_task_stack[3072];
 static StaticSemaphore_t s_audio_done_control;
 static SemaphoreHandle_t s_audio_done;
 static volatile esp_err_t s_audio_result;
@@ -49,7 +49,9 @@ static void audio_task(void *arg)
         ESP_LOGW(TAG, "Boot SFX asset is invalid");
         s_audio_result = ESP_ERR_INVALID_SIZE;
         signal_audio_complete();
-        vTaskDelete(NULL);
+        vTaskSuspend(NULL);
+        ESP_LOGE(TAG, "Boot SFX worker resumed after completion");
+        abort();
         return;
     }
 
@@ -69,7 +71,9 @@ static void audio_task(void *arg)
     }
     s_audio_result = result;
     signal_audio_complete();
-    vTaskDelete(NULL);
+    vTaskSuspend(NULL);
+    ESP_LOGE(TAG, "Boot SFX worker resumed after completion");
+    abort();
 }
 
 esp_err_t qsee_boot_audio_play(void)
@@ -87,16 +91,16 @@ esp_err_t qsee_boot_audio_play(void)
         return ESP_ERR_NO_MEM;
     }
 
-    TaskHandle_t task = xTaskCreateStatic(
+    TaskHandle_t task = NULL;
+    if (xTaskCreateWithCaps(
         audio_task,
         "qsee_boot_sfx",
-        sizeof(s_audio_task_stack) / sizeof(s_audio_task_stack[0]),
+        3072,
         NULL,
         3,
-        s_audio_task_stack,
-        &s_audio_task_control
-    );
-    if (task == NULL) {
+        &task,
+        MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+    ) != pdPASS) {
         atomic_store(&s_audio_started, false);
         ESP_LOGE(TAG, "Creating boot SFX task failed");
         return ESP_ERR_NO_MEM;
@@ -104,7 +108,12 @@ esp_err_t qsee_boot_audio_play(void)
 
     if (xSemaphoreTake(s_audio_done, portMAX_DELAY) != pdTRUE) {
         ESP_LOGE(TAG, "Waiting for boot SFX completion failed");
+        vTaskDeleteWithCaps(task);
         return ESP_FAIL;
     }
-    return s_audio_result;
+    const esp_err_t result = s_audio_result;
+    // Delete from the waiting task so the temporary internal stack and TCB are
+    // reclaimed before the remaining boot stages can start allocating.
+    vTaskDeleteWithCaps(task);
+    return result;
 }

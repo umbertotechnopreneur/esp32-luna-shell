@@ -92,6 +92,11 @@ runtime behavior still requires authorized hardware validation.
   without reserving internal RAM permanently. Align every slot independently
   and log a one-slot retry when fragmentation prevents the optional second
   slot.
+- Wi-Fi plus BLE provisioning can leave less contiguous internal DMA memory
+  than one normal display slot even while PSRAM remains available. Size a
+  transient low-memory slot from the largest current DMA-capable block, keep
+  explicit allocator headroom, and split the same logical flush into shorter
+  strips instead of letting the renderer enter an allocation-failure loop.
 - One LVGL flush may be split into several internal-DMA panel transfers, but it
   still has exactly one logical completion. Intermediate color-transfer ISRs
   must not release LVGL's draw buffer; signal flush-ready only after the
@@ -126,3 +131,47 @@ runtime behavior still requires authorized hardware validation.
 - An active power policy must agree with the display mode and applied brightness
   published by the display owner. Treat a mismatch as an incomplete wake and
   restore the configured brightness before publishing the active state.
+
+## AXP2101 PKEY and software standby
+
+- The physical PWR control is the AXP2101 PKEY. GPIO41 is SDMMC chip select and
+  must never be configured or polled as the power button.
+- Keep PMIC IRQ registers owned by `qsee_hardware`: queue decoded PKEY events
+  before a verified clear, and let the power worker consume them independently
+  of the periodic Full Snapshot.
+- PKEY polling must use a PMU-only mutex. A display replay or another long
+  sampler operation must never hold the lock required to read the wake button.
+  The transaction owned by that mutex must also have a real I2C timeout; a
+  bounded mutex wait cannot rescue an unbounded XPowers transfer.
+- Serialize brightness commands, panel on/off, and cardinal replay through the
+  same display lock. If the panel is off, leave a requested rotation pending
+  until wake instead of sending pixel transfers into a disabled controller.
+- Always acquire the display lock before the brightness/settings mutex. If a
+  standby or wake display transition fails after changing hardware state,
+  attempt the inverse display transition before restoring the software state.
+- This board has no verified ESP32 wake GPIO for the AXP2101 IRQ. PWR therefore
+  toggles software Device Standby while its polling task remains alive; do not
+  claim PWR wake from ESP light sleep without schematic and device evidence.
+- A single noisy IMU sample must never reset the shared inactivity timeline.
+  Require quiet re-arm, consecutive movement samples, hysteresis, and an
+  explicit grace/cooldown around standby transitions.
+
+## Snapshot-owned Fullscreen and adaptive content
+
+- Manual Fullscreen is power-policy state, not a local opacity shortcut. Publish
+  it with both arc targets in `DeviceSnapshotService`, and let every page derive
+  its viewport from that one immutable state.
+- A transparent wake surface may cover the screen for automatically hidden
+  chrome or a dimmed/off display. It must not capture page touches while the
+  display is active in manual Fullscreen.
+- Disable Command Arc hit testing before its hide fade starts, and restore it
+  only after the show fade completes. The viewport follows the canonical target
+  immediately, so transition-time ghost buttons would otherwise overlap page
+  controls.
+- On the 466-pixel round display, reserve 73 pixels for each visible arc. Keep
+  fixed diagnostic geometry centered inside the released space, and let
+  scrollable content grow only inside the wide circular band instead of
+  extending 300-pixel rows to the top or bottom edge.
+- Arm BOOT actions only after a stable released interval at startup and after
+  light sleep. A sampled-low boot strap or held wake press must not become a
+  Fullscreen toggle or soft reset.

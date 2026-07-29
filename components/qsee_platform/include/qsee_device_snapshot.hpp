@@ -321,6 +321,7 @@ struct PowerManagementSnapshot : ComponentSnapshot {
     DeviceOperatingState state = DeviceOperatingState::Active;
     DeviceStateReason reason = DeviceStateReason::Startup;
     bool audio_suspended = false;
+    bool fullscreen_active = false;
     bool command_arc_visible = true;
     bool status_arc_visible = true;
     UiHardwareSnapshot::DisplayPowerMode display_idle_stage =
@@ -492,6 +493,7 @@ public:
         DeviceOperatingState state,
         DeviceStateReason reason,
         bool audio_suspended,
+        bool fullscreen_active,
         bool command_arc_visible,
         bool status_arc_visible,
         UiHardwareSnapshot::DisplayPowerMode display_idle_stage,

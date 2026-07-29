@@ -332,8 +332,11 @@ std::expected<void, std::string> AdaptiveCommandBar::set_visible(
     if (!active_) {
         return {};
     }
-    if (visible) {
-        if (auto result = set_hit_testing(gui, true); !result) {
+    if (!visible) {
+        // The content viewport can expand as soon as the canonical target
+        // changes, so retiring Command Arc actions must stop receiving input
+        // before their fade begins.
+        if (auto result = set_hit_testing(gui, false); !result) {
             return result;
         }
     }
@@ -475,10 +478,8 @@ void AdaptiveCommandBar::animation_completed(
     }
     animation_id_ = 0;
     visible_ = animation_target_visible_;
-    if (!visible_) {
-        if (auto result = set_hit_testing(gui, false); !result) {
-            ESP_LOGE(kTag, "%s", result.error().c_str());
-        }
+    if (auto result = set_hit_testing(gui, visible_); !result) {
+        ESP_LOGE(kTag, "%s", result.error().c_str());
     }
 }
 

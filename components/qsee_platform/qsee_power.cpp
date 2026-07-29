@@ -27,16 +27,22 @@ namespace {
 
 constexpr char kTag[] = "qsee_power_manager";
 constexpr gpio_num_t kBootButton = GPIO_NUM_0;
-constexpr gpio_num_t kPowerButton = GPIO_NUM_41;
 constexpr TickType_t kPollTicks = pdMS_TO_TICKS(20);
 constexpr TickType_t kPolicyTicks = pdMS_TO_TICKS(100);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
+constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
-constexpr TickType_t kPowerLongPressTicks = pdMS_TO_TICKS(1200);
 constexpr uint32_t kTaskStackBytes = 8192;
 constexpr uint32_t kDisplayFadeDurationMs = 360;
-constexpr float kMotionAccelerationDeltaMps2 = 0.80F;
-constexpr float kMotionAngularVelocityDeltaDps = 4.0F;
+constexpr float kMotionAccelerationEnterMps2 = 0.80F;
+constexpr float kMotionAccelerationQuietMps2 = 0.40F;
+constexpr float kMotionAngularVelocityEnterDps = 4.0F;
+constexpr float kMotionAngularVelocityQuietDps = 2.0F;
+constexpr uint32_t kMotionEnterSampleCount = 3;
+constexpr uint32_t kMotionQuietSampleCount = 3;
+constexpr int64_t kMotionCooldownUs = 2LL * 1000LL * 1000LL;
+constexpr int64_t kMotionGraceUs = 2LL * 1000LL * 1000LL;
+constexpr int64_t kPkeyErrorReportIntervalUs = 5LL * 1000LL * 1000LL;
 
 TaskHandle_t s_task;
 qsee::InputSnapshot s_inputs;
@@ -66,15 +72,31 @@ qsee::DeviceStateReason s_reason =
 qsee::UiHardwareSnapshot::DisplayPowerMode s_display_stage =
     qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
 bool s_audio_suspended;
+bool s_fullscreen_active;
 bool s_command_arc_visible = true;
 bool s_status_arc_visible = true;
 uint32_t s_transition_sequence;
 uint32_t s_consumed_activity_sequence;
 int64_t s_last_activity_at_us;
 int64_t s_last_imu_sample_us;
-float s_last_acceleration_mps2[3] = {};
-float s_last_angular_velocity_dps[3] = {};
+float s_motion_baseline_acceleration_mps2[3] = {};
+float s_motion_previous_acceleration_mps2[3] = {};
 bool s_motion_baseline_ready;
+bool s_motion_armed;
+uint32_t s_motion_enter_sample_count;
+uint32_t s_motion_quiet_sample_count;
+int64_t s_motion_cooldown_until_us;
+int64_t s_motion_grace_until_us;
+int64_t s_last_pkey_error_report_at_us;
+esp_err_t s_last_pkey_error = ESP_OK;
+uint32_t s_initial_pkey_short_presses;
+uint32_t s_initial_pkey_long_presses;
+bool s_motion_monitor_started;
+bool s_boot_armed;
+bool s_boot_release_tracking;
+TickType_t s_boot_release_stable_at;
+std::atomic_bool s_boot_rearm_requested{false};
+std::atomic<uint32_t> s_pending_wakeup_cause{0};
 
 struct ButtonState {
     bool raw_pressed = false;
@@ -93,7 +115,6 @@ enum class ButtonEvent : uint8_t {
 };
 
 ButtonState s_boot;
-ButtonState s_power;
 
 std::atomic<uint32_t> *timeout_storage(qsee_power_timeout_t timeout)
 {
@@ -174,7 +195,8 @@ void set_input_component(
 void publish_inputs()
 {
     s_inputs.boot_pressed = s_boot.stable_pressed;
-    s_inputs.power_pressed = s_power.stable_pressed;
+    // AXP2101 exposes discrete PKEY IRQs, not a stable pressed level.
+    s_inputs.power_pressed = false;
     qsee::DeviceSnapshotService::instance().reportInputs(s_inputs);
 }
 
@@ -184,6 +206,7 @@ void publish_power(esp_err_t error)
         s_state,
         s_reason,
         s_audio_suspended,
+        s_fullscreen_active,
         s_command_arc_visible,
         s_status_arc_visible,
         s_display_stage,
@@ -202,6 +225,7 @@ ButtonEvent poll_button(
     bool pressed,
     TickType_t now,
     const char *name,
+    bool events_armed,
     uint32_t &short_count,
     uint32_t *long_count,
     TickType_t long_press_ticks
@@ -213,6 +237,7 @@ ButtonEvent poll_button(
     }
     if (state.raw_pressed == state.stable_pressed) {
         if (state.stable_pressed &&
+            events_armed &&
             long_count != nullptr &&
             !state.long_press_fired &&
             now - state.pressed_at >= long_press_ticks) {
@@ -243,6 +268,10 @@ ButtonEvent poll_button(
     }
 
     const TickType_t duration = now - state.pressed_at;
+    if (!events_armed) {
+        state.long_press_fired = false;
+        return ButtonEvent::Released;
+    }
     if (state.long_press_fired) {
         return ButtonEvent::Released;
     }
@@ -254,6 +283,49 @@ ButtonEvent poll_button(
         static_cast<unsigned long>(duration * portTICK_PERIOD_MS)
     );
     return ButtonEvent::ShortPress;
+}
+
+void reset_boot_arm_state(TickType_t now)
+{
+    const bool pressed = gpio_get_level(kBootButton) == 0;
+    s_boot.raw_pressed = pressed;
+    s_boot.stable_pressed = pressed;
+    s_boot.long_press_fired = false;
+    s_boot.raw_changed_at = now;
+    s_boot.pressed_at = now;
+    s_boot_armed = false;
+    s_boot_release_tracking = !pressed;
+    s_boot_release_stable_at = now;
+}
+
+void update_boot_arming(TickType_t now)
+{
+    if (s_boot_armed) {
+        return;
+    }
+    if (s_boot.raw_pressed || s_boot.stable_pressed) {
+        s_boot_release_tracking = false;
+        return;
+    }
+    if (!s_boot_release_tracking) {
+        s_boot_release_tracking = true;
+        s_boot_release_stable_at = now;
+        return;
+    }
+    if (now - s_boot_release_stable_at < kBootArmReleaseTicks) {
+        return;
+    }
+
+    s_boot_armed = true;
+    s_boot.long_press_fired = false;
+    s_boot.pressed_at = now;
+    ESP_LOGI(
+        kTag,
+        "BOOT armed after %lu ms stable release",
+        static_cast<unsigned long>(
+            kBootArmReleaseTicks * portTICK_PERIOD_MS
+        )
+    );
 }
 
 bool optional_audio_success(esp_err_t error)
@@ -305,9 +377,60 @@ bool active_display_snapshot_diverged()
     return brightness_differs;
 }
 
+void begin_motion_grace(int64_t now_us)
+{
+    s_motion_baseline_ready = false;
+    s_motion_armed = false;
+    s_motion_enter_sample_count = 0;
+    s_motion_quiet_sample_count = 0;
+    s_motion_grace_until_us = now_us + kMotionGraceUs;
+    if (s_motion_cooldown_until_us < s_motion_grace_until_us) {
+        s_motion_cooldown_until_us = s_motion_grace_until_us;
+    }
+}
+
+bool update_power_key_component(esp_err_t error)
+{
+    const int64_t now_us = esp_timer_get_time();
+    const bool was_ready =
+        s_inputs.power_button.health == qsee::DeviceHealth::Ready &&
+        s_inputs.power_button.last_error == ESP_OK;
+    const bool error_changed = error != s_last_pkey_error;
+    set_input_component(
+        s_inputs.power_button,
+        error == ESP_OK,
+        error
+    );
+    s_last_pkey_error = error;
+
+    if (error == ESP_OK) {
+        if (!was_ready) {
+            ESP_LOGI(kTag, "AXP2101 PKEY event channel recovered");
+            return true;
+        }
+        return false;
+    }
+
+    const bool report_due =
+        error_changed ||
+        s_last_pkey_error_report_at_us == 0 ||
+        now_us - s_last_pkey_error_report_at_us >=
+            kPkeyErrorReportIntervalUs;
+    if (report_due) {
+        s_last_pkey_error_report_at_us = now_us;
+        ESP_LOGE(
+            kTag,
+            "AXP2101 PKEY event poll failed (%s)",
+            esp_err_to_name(error)
+        );
+    }
+    return report_due;
+}
+
 esp_err_t restore_active_policy(
     qsee::DeviceStateReason reason,
-    bool display_snapshot_diverged
+    bool display_snapshot_diverged,
+    bool exit_fullscreen = false
 )
 {
     esp_err_t error = ESP_OK;
@@ -323,14 +446,68 @@ esp_err_t restore_active_policy(
             return error;
         }
     }
+    if (exit_fullscreen) {
+        s_fullscreen_active = false;
+    }
     s_display_stage =
         qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
-    s_command_arc_visible = true;
-    s_status_arc_visible = true;
+    s_command_arc_visible = !s_fullscreen_active;
+    s_status_arc_visible = !s_fullscreen_active;
     s_reason = reason;
     s_last_activity_at_us = esp_timer_get_time();
     ++s_transition_sequence;
     publish_power(ESP_OK);
+    return ESP_OK;
+}
+
+esp_err_t handle_boot_short_press()
+{
+    if (s_state != qsee::DeviceOperatingState::Active) {
+        ESP_LOGI(
+            kTag,
+            "BOOT short press ignored while device state is not active"
+        );
+        return ESP_OK;
+    }
+
+    const bool display_snapshot_diverged =
+        active_display_snapshot_diverged();
+    if (s_display_stage !=
+            qsee::UiHardwareSnapshot::DisplayPowerMode::Active ||
+        display_snapshot_diverged) {
+        ESP_LOGI(
+            kTag,
+            "BOOT short press waking display before fullscreen toggle"
+        );
+        return restore_active_policy(
+            qsee::DeviceStateReason::BootButton,
+            display_snapshot_diverged,
+            true
+        );
+    }
+
+    if (s_fullscreen_active ||
+        (!s_command_arc_visible && !s_status_arc_visible)) {
+        ESP_LOGI(kTag, "BOOT fullscreen disabled; restoring both arcs");
+        return restore_active_policy(
+            qsee::DeviceStateReason::BootButton,
+            false,
+            true
+        );
+    }
+
+    s_fullscreen_active = true;
+    s_command_arc_visible = false;
+    s_status_arc_visible = false;
+    s_reason = qsee::DeviceStateReason::BootButton;
+    s_last_activity_at_us = esp_timer_get_time();
+    ++s_transition_sequence;
+    publish_power(ESP_OK);
+    ESP_LOGI(
+        kTag,
+        "BOOT fullscreen enabled: both arcs hidden, sequence=%lu",
+        static_cast<unsigned long>(s_transition_sequence)
+    );
     return ESP_OK;
 }
 
@@ -364,7 +541,28 @@ esp_err_t set_standby(
             );
         if (display_error != ESP_OK &&
             display_error != ESP_ERR_NOT_SUPPORTED) {
-            (void)qsee_voice_afe_set_standby(false);
+            const esp_err_t display_rollback_error =
+                qsee_display_fade_to_power_mode(
+                    QSEE_DISPLAY_POWER_ACTIVE,
+                    kDisplayFadeDurationMs
+                );
+            if (display_rollback_error != ESP_OK &&
+                display_rollback_error != ESP_ERR_NOT_SUPPORTED) {
+                ESP_LOGE(
+                    kTag,
+                    "Display rollback after standby failure failed (%s)",
+                    esp_err_to_name(display_rollback_error)
+                );
+            }
+            const esp_err_t rollback_error =
+                qsee_voice_afe_set_standby(false);
+            if (!optional_audio_success(rollback_error)) {
+                ESP_LOGE(
+                    kTag,
+                    "Audio rollback after display-off failure failed (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
             s_state = qsee::DeviceOperatingState::Active;
             publish_power(display_error);
             return display_error;
@@ -374,6 +572,7 @@ esp_err_t set_standby(
         s_audio_suspended = audio_error == ESP_OK;
         s_display_stage =
             qsee::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
+        s_fullscreen_active = false;
         s_command_arc_visible = false;
         s_status_arc_visible = false;
         ++s_transition_sequence;
@@ -396,6 +595,19 @@ esp_err_t set_standby(
         );
     if (display_error != ESP_OK &&
         display_error != ESP_ERR_NOT_SUPPORTED) {
+        const esp_err_t display_rollback_error =
+            qsee_display_fade_to_power_mode(
+                QSEE_DISPLAY_POWER_OFF,
+                kDisplayFadeDurationMs
+            );
+        if (display_rollback_error != ESP_OK &&
+            display_rollback_error != ESP_ERR_NOT_SUPPORTED) {
+            ESP_LOGE(
+                kTag,
+                "Display rollback after wake failure failed (%s)",
+                esp_err_to_name(display_rollback_error)
+            );
+        }
         s_state = qsee::DeviceOperatingState::Standby;
         publish_power(display_error);
         return display_error;
@@ -408,6 +620,7 @@ esp_err_t set_standby(
     s_audio_suspended = !audio_ready;
     s_display_stage =
         qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
+    s_fullscreen_active = false;
     s_command_arc_visible = true;
     s_status_arc_visible = true;
     s_last_activity_at_us = esp_timer_get_time();
@@ -424,7 +637,7 @@ esp_err_t set_standby(
     return audio_ready ? ESP_OK : audio_error;
 }
 
-bool strong_motion_detected(const qsee::ImuSnapshot &imu)
+bool qualified_motion_detected(const qsee::ImuSnapshot &imu)
 {
     const bool valid =
         imu.health == qsee::DeviceHealth::Ready &&
@@ -440,44 +653,175 @@ bool strong_motion_detected(const qsee::ImuSnapshot &imu)
         if (!std::isfinite(imu.acceleration_mps2[axis]) ||
             !std::isfinite(imu.angular_velocity_dps[axis])) {
             s_motion_baseline_ready = false;
+            s_motion_armed = false;
+            s_motion_enter_sample_count = 0;
+            s_motion_quiet_sample_count = 0;
+            ESP_LOGW(
+                kTag,
+                "Motion sample rejected: non-finite IMU value at %lld us",
+                static_cast<long long>(imu.last_success_at_us)
+            );
             return false;
         }
     }
-    if (!s_motion_baseline_ready) {
+
+    const auto update_baseline = [&imu]() {
         for (size_t axis = 0; axis < 3U; ++axis) {
-            s_last_acceleration_mps2[axis] =
+            s_motion_baseline_acceleration_mps2[axis] =
                 imu.acceleration_mps2[axis];
-            s_last_angular_velocity_dps[axis] =
-                imu.angular_velocity_dps[axis];
         }
+    };
+    const auto update_previous = [&imu]() {
+        for (size_t axis = 0; axis < 3U; ++axis) {
+            s_motion_previous_acceleration_mps2[axis] =
+                imu.acceleration_mps2[axis];
+        }
+    };
+    if (!s_motion_baseline_ready) {
+        update_baseline();
+        update_previous();
         s_motion_baseline_ready = true;
         return false;
     }
 
     float acceleration_delta_squared = 0.0F;
-    float angular_velocity_delta_squared = 0.0F;
+    float acceleration_step_squared = 0.0F;
+    float angular_velocity_squared = 0.0F;
     for (size_t axis = 0; axis < 3U; ++axis) {
         const float acceleration_delta =
             imu.acceleration_mps2[axis] -
-            s_last_acceleration_mps2[axis];
+            s_motion_baseline_acceleration_mps2[axis];
         acceleration_delta_squared +=
             acceleration_delta * acceleration_delta;
-        const float angular_velocity_delta =
-            imu.angular_velocity_dps[axis] -
-            s_last_angular_velocity_dps[axis];
-        angular_velocity_delta_squared +=
-            angular_velocity_delta * angular_velocity_delta;
-        s_last_acceleration_mps2[axis] =
-            imu.acceleration_mps2[axis];
-        s_last_angular_velocity_dps[axis] =
+        const float acceleration_step =
+            imu.acceleration_mps2[axis] -
+            s_motion_previous_acceleration_mps2[axis];
+        acceleration_step_squared += acceleration_step * acceleration_step;
+        angular_velocity_squared +=
+            imu.angular_velocity_dps[axis] *
             imu.angular_velocity_dps[axis];
     }
-    return acceleration_delta_squared >=
-               kMotionAccelerationDeltaMps2 *
-                   kMotionAccelerationDeltaMps2 ||
-           angular_velocity_delta_squared >=
-               kMotionAngularVelocityDeltaDps *
-                   kMotionAngularVelocityDeltaDps;
+    update_previous();
+
+    const int64_t now_us = esp_timer_get_time();
+    if (now_us < s_motion_grace_until_us) {
+        update_baseline();
+        s_motion_armed = false;
+        s_motion_enter_sample_count = 0;
+        s_motion_quiet_sample_count = 0;
+        return false;
+    }
+
+    const bool below_quiet =
+        acceleration_step_squared <=
+            kMotionAccelerationQuietMps2 *
+                kMotionAccelerationQuietMps2 &&
+        angular_velocity_squared <=
+            kMotionAngularVelocityQuietDps *
+                kMotionAngularVelocityQuietDps;
+    const bool above_enter =
+        acceleration_delta_squared >=
+            kMotionAccelerationEnterMps2 *
+                kMotionAccelerationEnterMps2 ||
+        angular_velocity_squared >=
+            kMotionAngularVelocityEnterDps *
+                kMotionAngularVelocityEnterDps;
+
+    if (!s_motion_armed) {
+        s_motion_enter_sample_count = 0;
+        if (below_quiet) {
+            ++s_motion_quiet_sample_count;
+            update_baseline();
+        } else {
+            s_motion_quiet_sample_count = 0;
+        }
+        if (s_motion_quiet_sample_count >= kMotionQuietSampleCount) {
+            s_motion_armed = true;
+            s_motion_quiet_sample_count = 0;
+            ESP_LOGD(kTag, "Motion wake armed after quiet dwell");
+        }
+        return false;
+    }
+
+    if (now_us < s_motion_cooldown_until_us) {
+        s_motion_enter_sample_count = 0;
+        if (below_quiet) {
+            update_baseline();
+        }
+        return false;
+    }
+
+    s_motion_enter_sample_count =
+        above_enter ? s_motion_enter_sample_count + 1U : 0U;
+    if (below_quiet) {
+        update_baseline();
+    }
+    if (s_motion_enter_sample_count < kMotionEnterSampleCount) {
+        return false;
+    }
+
+    const float acceleration_delta = std::sqrt(acceleration_delta_squared);
+    const float angular_velocity = std::sqrt(angular_velocity_squared);
+    s_motion_armed = false;
+    s_motion_enter_sample_count = 0;
+    s_motion_quiet_sample_count = 0;
+    s_motion_cooldown_until_us = now_us + kMotionCooldownUs;
+    ESP_LOGI(
+        kTag,
+        "Qualified motion: acceleration-delta=%.2f m/s2 gyro=%.2f dps",
+        static_cast<double>(acceleration_delta),
+        static_cast<double>(angular_velocity)
+    );
+    return true;
+}
+
+esp_err_t handle_power_key_events(
+    uint32_t short_presses,
+    uint32_t long_presses
+)
+{
+    if (short_presses == 0U && long_presses == 0U) {
+        return ESP_OK;
+    }
+    if (UINT32_MAX - s_inputs.power_short_press_count < short_presses ||
+        UINT32_MAX - s_inputs.power_long_press_count < long_presses) {
+        ESP_LOGE(
+            kTag,
+            "PKEY counter overflow rejected: short=%lu long=%lu",
+            static_cast<unsigned long>(short_presses),
+            static_cast<unsigned long>(long_presses)
+        );
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    s_inputs.power_short_press_count += short_presses;
+    s_inputs.power_long_press_count += long_presses;
+    begin_motion_grace(esp_timer_get_time());
+
+    if (long_presses > 0U) {
+        ESP_LOGI(
+            kTag,
+            "PWR long press: requesting standby (count=%lu)",
+            static_cast<unsigned long>(long_presses)
+        );
+        if (s_state == qsee::DeviceOperatingState::Standby) {
+            return ESP_OK;
+        }
+        return set_standby(true, qsee::DeviceStateReason::PowerButton);
+    }
+
+    ESP_LOGI(
+        kTag,
+        "PWR short press: toggling standby (count=%lu)",
+        static_cast<unsigned long>(short_presses)
+    );
+    if ((short_presses & 1U) == 0U) {
+        return ESP_OK;
+    }
+    return set_standby(
+        s_state != qsee::DeviceOperatingState::Standby,
+        qsee::DeviceStateReason::PowerButton
+    );
 }
 
 esp_err_t apply_idle_policy()
@@ -492,12 +836,16 @@ esp_err_t apply_idle_policy()
                elapsed_us >= static_cast<int64_t>(seconds) * 1000000LL;
     };
 
-    const bool command_visible = !expired(
-        s_command_timeout_seconds.load(std::memory_order_acquire)
-    );
-    const bool status_visible = !expired(
-        s_status_timeout_seconds.load(std::memory_order_acquire)
-    );
+    const bool command_visible =
+        !s_fullscreen_active &&
+        !expired(
+            s_command_timeout_seconds.load(std::memory_order_acquire)
+        );
+    const bool status_visible =
+        !s_fullscreen_active &&
+        !expired(
+            s_status_timeout_seconds.load(std::memory_order_acquire)
+        );
     qsee::UiHardwareSnapshot::DisplayPowerMode display_stage =
         qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
     const uint32_t dim_seconds =
@@ -576,41 +924,42 @@ void power_task(void *argument)
     publish_power(ESP_OK);
     while (true) {
         const TickType_t now = xTaskGetTickCount();
+        if (s_boot_rearm_requested.exchange(
+                false,
+                std::memory_order_acq_rel
+            )) {
+            reset_boot_arm_state(now);
+            s_inputs.wakeup_cause =
+                s_pending_wakeup_cause.exchange(
+                    0,
+                    std::memory_order_acq_rel
+                );
+            publish_inputs();
+        }
         const ButtonEvent boot_event = poll_button(
             s_boot,
             gpio_get_level(kBootButton) == 0,
             now,
             "BOOT",
+            s_boot_armed,
             s_inputs.boot_press_count,
             &s_inputs.boot_long_press_count,
             kBootResetPressTicks
         );
-        const ButtonEvent power_event = poll_button(
-            s_power,
-            gpio_get_level(kPowerButton) == 0,
-            now,
-            "PWR",
-            s_inputs.power_short_press_count,
-            &s_inputs.power_long_press_count,
-            kPowerLongPressTicks
-        );
-        if (boot_event != ButtonEvent::None ||
-            power_event != ButtonEvent::None) {
+        update_boot_arming(now);
+        if (boot_event != ButtonEvent::None) {
             publish_inputs();
         }
         if (boot_event == ButtonEvent::ShortPress) {
-            s_activity_at_us.store(
-                esp_timer_get_time(),
-                std::memory_order_relaxed
-            );
-            s_activity_reason.store(
-                qsee::DeviceStateReason::BootButton,
-                std::memory_order_relaxed
-            );
-            s_activity_sequence.fetch_add(
-                1,
-                std::memory_order_release
-            );
+            const esp_err_t fullscreen_error =
+                handle_boot_short_press();
+            if (fullscreen_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "BOOT fullscreen transition failed (%s)",
+                    esp_err_to_name(fullscreen_error)
+                );
+            }
         }
         if (boot_event == ButtonEvent::LongPress) {
             ESP_LOGW(
@@ -619,28 +968,48 @@ void power_task(void *argument)
             );
             esp_restart();
         }
-        if (power_event == ButtonEvent::ShortPress) {
-            const esp_err_t transition_error = set_standby(
-                s_state != qsee::DeviceOperatingState::Standby,
-                qsee::DeviceStateReason::PowerButton
-            );
-            if (transition_error != ESP_OK) {
-                ESP_LOGE(
-                    kTag,
-                    "PWR state transition failed (%s)",
-                    esp_err_to_name(transition_error)
-                );
-            }
-        }
-
         if (now - last_policy_tick < kPolicyTicks) {
             vTaskDelay(kPollTicks);
             continue;
         }
         last_policy_tick = now;
+
+        uint32_t short_presses = s_initial_pkey_short_presses;
+        uint32_t long_presses = s_initial_pkey_long_presses;
+        s_initial_pkey_short_presses = 0;
+        s_initial_pkey_long_presses = 0;
+        uint32_t sampled_short_presses = 0;
+        uint32_t sampled_long_presses = 0;
+        const esp_err_t pkey_error =
+            qsee_hardware_take_power_key_events(
+                &sampled_short_presses,
+                &sampled_long_presses
+            );
+        const bool publish_pkey_health =
+            update_power_key_component(pkey_error);
+        if (pkey_error == ESP_OK) {
+            short_presses += sampled_short_presses;
+            long_presses += sampled_long_presses;
+        }
+        const esp_err_t pkey_transition_error =
+            handle_power_key_events(short_presses, long_presses);
+        if (short_presses > 0U ||
+            long_presses > 0U ||
+            publish_pkey_health) {
+            publish_inputs();
+        }
+        if (pkey_transition_error != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "PWR event handling failed (%s)",
+                esp_err_to_name(pkey_transition_error)
+            );
+        }
+
         const qsee::DeviceSnapshot snapshot =
             qsee::DeviceSnapshotService::instance().snapshot();
-        if (strong_motion_detected(snapshot.imu)) {
+        if (s_motion_monitor_started &&
+            qualified_motion_detected(snapshot.imu)) {
             if (s_state == qsee::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -658,15 +1027,23 @@ void power_task(void *argument)
                 s_last_activity_at_us = esp_timer_get_time();
                 const bool display_snapshot_diverged =
                     active_display_snapshot_diverged();
-                if (!s_command_arc_visible ||
-                    !s_status_arc_visible ||
+                if ((!s_fullscreen_active &&
+                     (!s_command_arc_visible ||
+                      !s_status_arc_visible)) ||
                     s_display_stage !=
                         qsee::UiHardwareSnapshot::DisplayPowerMode::Active ||
                     display_snapshot_diverged) {
-                    (void)restore_active_policy(
+                    const esp_err_t restore_error = restore_active_policy(
                         qsee::DeviceStateReason::ImuMotion,
                         display_snapshot_diverged
                     );
+                    if (restore_error != ESP_OK) {
+                        ESP_LOGE(
+                            kTag,
+                            "IMU activity restore failed (%s)",
+                            esp_err_to_name(restore_error)
+                        );
+                    }
                 } else {
                     s_reason = qsee::DeviceStateReason::ImuMotion;
                     publish_power(ESP_OK);
@@ -685,22 +1062,37 @@ void power_task(void *argument)
                     s_activity_reason.load(std::memory_order_relaxed);
                 const bool display_snapshot_diverged =
                     active_display_snapshot_diverged();
-                if (!s_command_arc_visible ||
-                    !s_status_arc_visible ||
+                if ((!s_fullscreen_active &&
+                     (!s_command_arc_visible ||
+                      !s_status_arc_visible)) ||
                     s_display_stage !=
                         qsee::UiHardwareSnapshot::DisplayPowerMode::Active ||
                     display_snapshot_diverged) {
-                    (void)restore_active_policy(
+                    const esp_err_t restore_error = restore_active_policy(
                         activity_reason,
                         display_snapshot_diverged
                     );
+                    if (restore_error != ESP_OK) {
+                        ESP_LOGE(
+                            kTag,
+                            "Input activity restore failed (%s)",
+                            esp_err_to_name(restore_error)
+                        );
+                    }
                 } else {
                     s_reason = activity_reason;
                     publish_power(ESP_OK);
                 }
             }
         }
-        (void)apply_idle_policy();
+        const esp_err_t idle_error = apply_idle_policy();
+        if (idle_error != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Idle policy application failed (%s)",
+                esp_err_to_name(idle_error)
+            );
+        }
         vTaskDelay(kPollTicks);
     }
 }
@@ -735,6 +1127,24 @@ esp_err_t allow_disabled_display(const char *operation, esp_err_t result)
     return result;
 }
 
+void stop_motion_monitor_after_init_failure(const char *stage)
+{
+    if (!s_motion_monitor_started) {
+        return;
+    }
+    const esp_err_t error = qsee_hardware_set_ui_motion_monitor(false);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "%s cleanup failed to stop the IMU monitor (%s)",
+            stage,
+            esp_err_to_name(error)
+        );
+        return;
+    }
+    s_motion_monitor_started = false;
+}
+
 }  // namespace
 
 extern "C" esp_err_t qsee_power_manager_init(void)
@@ -767,20 +1177,20 @@ extern "C" esp_err_t qsee_power_manager_init(void)
         return result;
     }
 
-    result = qsee_hardware_set_ui_motion_monitor(true);
-    if (result != ESP_OK) {
-        s_initialized.store(false, std::memory_order_release);
-        ESP_LOGE(
+    const esp_err_t motion_monitor_error =
+        qsee_hardware_set_ui_motion_monitor(true);
+    s_motion_monitor_started = motion_monitor_error == ESP_OK;
+    if (!s_motion_monitor_started) {
+        ESP_LOGW(
             kTag,
-            "Power-owned IMU monitor failed (%s)",
-            esp_err_to_name(result)
+            "IMU wake is unavailable; continuing with PKEY and inactivity "
+            "policy (%s)",
+            esp_err_to_name(motion_monitor_error)
         );
-        return result;
     }
 
     const gpio_config_t config = {
-        .pin_bit_mask =
-            (1ULL << kBootButton) | (1ULL << kPowerButton),
+        .pin_bit_mask = 1ULL << kBootButton,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -789,8 +1199,13 @@ extern "C" esp_err_t qsee_power_manager_init(void)
     result = gpio_config(&config);
     if (result != ESP_OK) {
         set_input_component(s_inputs.boot_button, false, result);
-        set_input_component(s_inputs.power_button, false, result);
+        set_input_component(
+            s_inputs.power_button,
+            false,
+            ESP_ERR_INVALID_STATE
+        );
         publish_inputs();
+        stop_motion_monitor_after_init_failure("BOOT GPIO initialization");
         s_initialized.store(false, std::memory_order_release);
         return result;
     }
@@ -803,21 +1218,37 @@ extern "C" esp_err_t qsee_power_manager_init(void)
     };
     result = esp_pm_configure(&power_policy);
     if (result != ESP_OK) {
+        stop_motion_monitor_after_init_failure("ESP power policy");
         s_initialized.store(false, std::memory_order_release);
         return result;
     }
 #endif
 
     s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
-    s_boot.raw_pressed = gpio_get_level(kBootButton) == 0;
-    s_boot.stable_pressed = s_boot.raw_pressed;
-    s_power.raw_pressed = gpio_get_level(kPowerButton) == 0;
-    s_power.stable_pressed = s_power.raw_pressed;
     const TickType_t now = xTaskGetTickCount();
-    s_boot.pressed_at = now;
-    s_power.pressed_at = now;
+    reset_boot_arm_state(now);
     set_input_component(s_inputs.boot_button, true, ESP_OK);
-    set_input_component(s_inputs.power_button, true, ESP_OK);
+    result = qsee_hardware_take_power_key_events(
+        &s_initial_pkey_short_presses,
+        &s_initial_pkey_long_presses
+    );
+    set_input_component(
+        s_inputs.power_button,
+        result == ESP_OK,
+        result
+    );
+    if (result != ESP_OK) {
+        publish_inputs();
+        stop_motion_monitor_after_init_failure("AXP2101 PKEY initialization");
+        s_initialized.store(false, std::memory_order_release);
+        ESP_LOGE(
+            kTag,
+            "AXP2101 PKEY initialization failed (%s)",
+            esp_err_to_name(result)
+        );
+        return result;
+    }
+    s_last_pkey_error = ESP_OK;
 
     esp_io_expander_handle_t expander = nullptr;
     const esp_err_t expander_error =
@@ -830,22 +1261,29 @@ extern "C" esp_err_t qsee_power_manager_init(void)
             : expander_error
     );
     if (expander_error != ESP_OK || expander == nullptr) {
-        publish_inputs();
-        s_initialized.store(false, std::memory_order_release);
-        return expander_error != ESP_OK
-            ? expander_error
-            : ESP_ERR_INVALID_STATE;
+        const esp_err_t effective_expander_error =
+            expander_error != ESP_OK
+                ? expander_error
+                : ESP_ERR_INVALID_STATE;
+        ESP_LOGW(
+            kTag,
+            "I/O expander unavailable; continuing with direct BOOT and "
+            "AXP2101 PKEY inputs (%s)",
+            esp_err_to_name(effective_expander_error)
+        );
     }
 
     s_state = qsee::DeviceOperatingState::Active;
     s_reason = qsee::DeviceStateReason::Startup;
     s_audio_suspended = false;
+    s_fullscreen_active = false;
     s_command_arc_visible = true;
     s_status_arc_visible = true;
     s_display_stage =
         qsee::UiHardwareSnapshot::DisplayPowerMode::Active;
     s_transition_sequence = 0;
     s_last_activity_at_us = esp_timer_get_time();
+    begin_motion_grace(s_last_activity_at_us);
     s_consumed_activity_sequence =
         s_activity_sequence.load(std::memory_order_acquire);
     if (xTaskCreatePinnedToCoreWithCaps(
@@ -859,14 +1297,16 @@ extern "C" esp_err_t qsee_power_manager_init(void)
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
         publish_power(ESP_ERR_NO_MEM);
+        stop_motion_monitor_after_init_failure("Power task creation");
         s_initialized.store(false, std::memory_order_release);
         return ESP_ERR_NO_MEM;
     }
 
     ESP_LOGI(
         kTag,
-        "Power service ready: BOOT=GPIO0 PWR=GPIO41, "
+        "Power service ready: BOOT=GPIO0 PWR=AXP2101-PKEY motion-wake=%s, "
         "timers=%lu/%lu/%lu/+%lu s",
+        s_motion_monitor_started ? "ready" : "unavailable",
         static_cast<unsigned long>(
             s_command_timeout_seconds.load(std::memory_order_acquire)
         ),
@@ -970,8 +1410,11 @@ extern "C" esp_err_t qsee_power_enter_light_sleep(uint64_t wake_after_us)
         return result;
     }
     const esp_err_t sleep_result = esp_light_sleep_start();
-    s_inputs.wakeup_cause = esp_sleep_get_wakeup_causes();
-    publish_inputs();
+    s_pending_wakeup_cause.store(
+        esp_sleep_get_wakeup_causes(),
+        std::memory_order_relaxed
+    );
+    s_boot_rearm_requested.store(true, std::memory_order_release);
     const esp_err_t resume_error = allow_disabled_display(
         "light-sleep-resume",
         qsee_display_fade_to_power_mode(

@@ -444,6 +444,8 @@ void writePowerManagement(
     (void)json.quoted(deviceStateReasonName(power.reason));
     (void)json.raw(",\"audio_suspended\":");
     (void)json.boolean(power.audio_suspended);
+    (void)json.raw(",\"fullscreen_active\":");
+    (void)json.boolean(power.fullscreen_active);
     (void)json.raw(",\"command_arc_visible\":");
     (void)json.boolean(power.command_arc_visible);
     (void)json.raw(",\"status_arc_visible\":");
