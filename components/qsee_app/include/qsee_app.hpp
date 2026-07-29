@@ -130,6 +130,23 @@ private:
         FixedTextCache<32> temperature;
     };
 
+    struct StorageUiCache {
+        FixedTextCache<32> status;
+        FixedTextCache<8> status_color;
+        FixedTextCache<192> detail;
+        FixedTextCache<64> mount;
+        FixedTextCache<32> total;
+        FixedTextCache<32> free;
+        FixedTextCache<64> usage;
+        FixedTextCache<32> format_label;
+        int32_t usage_percent = 0;
+        bool usage_percent_known = false;
+        bool usage_hidden = true;
+        bool usage_hidden_known = false;
+        bool format_disabled = true;
+        bool format_disabled_known = false;
+    };
+
     enum class SettingsTextSlot : std::size_t {
         Performance,
         FullSnapshot,
@@ -301,10 +318,14 @@ private:
     void invalidate_audio_screen_cache(Screen screen);
     void invalidate_hardware_screen_cache();
     void invalidate_imu_screen_cache();
+    void invalidate_storage_screen_cache();
     std::expected<void, std::string> refresh_imu(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_settings(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_storage(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> set_settings_text(
@@ -428,6 +449,9 @@ private:
     bool audio_detail_hidden_known_ = false;
     HardwareUiCache hardware_ui_cache_;
     ImuUiCache imu_ui_cache_;
+    StorageUiCache storage_ui_cache_;
+    bool storage_format_request_pending_ = false;
+    uint32_t storage_format_request_attempt_ = 0;
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;

@@ -22,6 +22,7 @@ EXPECTED_LAZY_SCREEN_DOCUMENTS = {
     "screen_audio_detail.json": "qsee_audio_detail",
     "screen_imu.json": "qsee_imu",
     "screen_settings.json": "qsee_settings",
+    "screen_storage.json": "qsee_storage",
     "screen_about.json": "qsee_about",
     "screen_pairing.json": "qsee_pairing",
 }
@@ -36,6 +37,7 @@ EXPECTED_ROUTE_SCREENS = {
     "qsee_audio_fft",
     "qsee_imu",
     "qsee_settings",
+    "qsee_storage",
     "qsee_about",
     "qsee_pairing",
 }
@@ -60,6 +62,8 @@ SETTINGS_ACTIONS = {
     "qsee.settings.radios.start",
     "qsee.settings.display.brightness.changed",
     "qsee.settings.display.rotation.changed",
+    "qsee.open.storage",
+    "qsee.storage.format",
 }
 OBSOLETE_SETTINGS_ACTIONS = {
     "qsee.settings.back",
@@ -517,6 +521,27 @@ def main() -> None:
         raise AssertionError(
             f"System Core UI actions not subscribed by the native app: "
             f"{sorted(unhandled_actions)}"
+        )
+
+    storage_nodes = runtime_nodes["screen_storage.json"]
+    format_buttons = [
+        node
+        for node in storage_nodes
+        if isinstance(node, dict)
+        and node.get("type") == "button"
+        and node.get("id") == "format_action"
+    ]
+    if len(format_buttons) != 1:
+        raise AssertionError("Storage must expose exactly one inline format button")
+    format_button = format_buttons[0]
+    if format_button.get("commonProps", {}).get("disabled") is not True:
+        raise AssertionError("Storage format button must default to disabled")
+    if (
+        format_button.get("bindings", {}).get("commonProps.disabled")
+        != "format_disabled"
+    ):
+        raise AssertionError(
+            "Storage format button disabled state must be runtime-bound"
         )
 
     require(app_header, "struct LazyScreenDescriptor", "lazy GUI descriptor")

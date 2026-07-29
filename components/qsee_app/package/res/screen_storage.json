@@ -1,0 +1,416 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_storage",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "6dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "container",
+                            "id": "storage_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.storage"
+                                }
+                            ],
+                            "style": {
+                                "padding": "7dp"
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "column",
+                                "crossAlign": "center",
+                                "gap": "8dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "title",
+                                    "labelProps": {
+                                        "text": "SD CARD"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "subtitle",
+                                    "labelProps": {
+                                        "text": "Status and maintenance"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "status_title",
+                                    "labelProps": {
+                                        "text": "CURRENT STATUS"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "status_value",
+                                    "bindings": {
+                                        "style.textColor": "status_color"
+                                    },
+                                    "labelProps": {
+                                        "text": "CHECKING..."
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "status_detail",
+                                    "labelProps": {
+                                        "text": "Waiting for the storage snapshot."
+                                    },
+                                    "style": {
+                                        "textColor": "#d6efff",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "wrap"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "mount_value",
+                                    "labelProps": {
+                                        "text": "NOT MOUNTED"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "total_row",
+                                    "commonProps": {
+                                        "scrollable": false
+                                    },
+                                    "layout": {
+                                        "type": "flex",
+                                        "flexFlow": "row",
+                                        "mainAlign": "spaceBetween",
+                                        "crossAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "24dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "labelProps": {
+                                                "text": "TOTAL SPACE"
+                                            },
+                                            "style": {
+                                                "textColor": "#9fb1c1",
+                                                "fontSize": "${constant.typography.detail}"
+                                            }
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "value",
+                                            "labelProps": {
+                                                "text": "UNAVAILABLE"
+                                            },
+                                            "style": {
+                                                "textColor": "#f3f7fa",
+                                                "fontSize": "${constant.typography.detail}",
+                                                "textAlign": "right"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "free_row",
+                                    "commonProps": {
+                                        "scrollable": false
+                                    },
+                                    "layout": {
+                                        "type": "flex",
+                                        "flexFlow": "row",
+                                        "mainAlign": "spaceBetween",
+                                        "crossAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "24dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "labelProps": {
+                                                "text": "FREE SPACE"
+                                            },
+                                            "style": {
+                                                "textColor": "#9fb1c1",
+                                                "fontSize": "${constant.typography.detail}"
+                                            }
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "value",
+                                            "labelProps": {
+                                                "text": "UNAVAILABLE"
+                                            },
+                                            "style": {
+                                                "textColor": "#f3f7fa",
+                                                "fontSize": "${constant.typography.detail}",
+                                                "textAlign": "right"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "progressBar",
+                                    "id": "usage_bar",
+                                    "commonProps": {
+                                        "hidden": true
+                                    },
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden",
+                                        "rangeProps.value": "value"
+                                    },
+                                    "rangeProps": {
+                                        "value": 0,
+                                        "min": 0,
+                                        "max": 100
+                                    },
+                                    "style": {
+                                        "bgColor": "#0b1e2c",
+                                        "radius": "6dp"
+                                    },
+                                    "partStyles": {
+                                        "indicator": {
+                                            "bgColor": "#20dfc1",
+                                            "radius": "6dp"
+                                        }
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "12dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "usage_value",
+                                    "labelProps": {
+                                        "text": "Space is unavailable until the card is mounted."
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "wrap"
+                                    }
+                                },
+                                {
+                                    "type": "button",
+                                    "id": "format_action",
+                                    "commonProps": {
+                                        "pressLock": false,
+                                        "disabled": true
+                                    },
+                                    "bindings": {
+                                        "commonProps.disabled": "format_disabled"
+                                    },
+                                    "events": [
+                                        {
+                                            "type": "clicked",
+                                            "action": "qsee.storage.format"
+                                        }
+                                    ],
+                                    "style": {
+                                        "bgColor": "#b52b3a",
+                                        "borderColor": "#ff8a96",
+                                        "borderWidth": "1dp",
+                                        "radius": "10dp",
+                                        "padding": 0
+                                    },
+                                    "stateStyles": {
+                                        "pressed": {
+                                            "bgColor": "#8f1f2c",
+                                            "borderColor": "#ffc1c7",
+                                            "borderWidth": "1dp"
+                                        },
+                                        "disabled": {
+                                            "bgColor": "#263744",
+                                            "borderColor": "#546874",
+                                            "opacity": 140
+                                        }
+                                    },
+                                    "placement": {
+                                        "width": "210dp",
+                                        "height": "44dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "commonProps": {
+                                                "clickable": false,
+                                                "scrollable": false
+                                            },
+                                            "labelProps": {
+                                                "text": "FORMAT UNAVAILABLE"
+                                            },
+                                            "style": {
+                                                "textColor": "#ffffff",
+                                                "fontSize": "${constant.typography.detail}",
+                                                "textAlign": "center"
+                                            },
+                                            "placement": {
+                                                "mode": "relative",
+                                                "align": "center"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "format_note",
+                                    "labelProps": {
+                                        "text": "Formatting is enabled only for a verified card that explicitly requires it."
+                                    },
+                                    "style": {
+                                        "textColor": "#f0b44d",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "wrap"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

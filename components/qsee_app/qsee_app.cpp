@@ -126,6 +126,52 @@ const char *storage_cleanup_stage_name(
     std::abort();
 }
 
+const char *storage_mount_stage_name(qsee::StorageMountStage stage)
+{
+    switch (stage) {
+    case qsee::StorageMountStage::None:
+        return "NONE";
+    case qsee::StorageMountStage::Request:
+        return "REQUEST";
+    case qsee::StorageMountStage::HostInit:
+        return "HOST INIT";
+    case qsee::StorageMountStage::SlotInit:
+        return "SLOT INIT";
+    case qsee::StorageMountStage::CardInit:
+        return "CARD INIT";
+    case qsee::StorageMountStage::CardIdentity:
+        return "CARD IDENTITY";
+    case qsee::StorageMountStage::DriveAlloc:
+        return "DRIVE ALLOC";
+    case qsee::StorageMountStage::DiskIoRegister:
+        return "DISKIO REGISTER";
+    case qsee::StorageMountStage::VfsRegister:
+        return "VFS REGISTER";
+    case qsee::StorageMountStage::FatMount:
+        return "FAT MOUNT";
+    case qsee::StorageMountStage::PreFormatUnmount:
+        return "PRE-FORMAT UNMOUNT";
+    case qsee::StorageMountStage::Partition:
+        return "PARTITION";
+    case qsee::StorageMountStage::Format:
+        return "FORMAT";
+    case qsee::StorageMountStage::PostFormatMount:
+        return "POST-FORMAT MOUNT";
+    case qsee::StorageMountStage::RuntimeStatus:
+        return "RUNTIME STATUS";
+    case qsee::StorageMountStage::RuntimeFilesystem:
+        return "RUNTIME FILESYSTEM";
+    case qsee::StorageMountStage::RuntimeUnmount:
+        return "RUNTIME UNMOUNT";
+    }
+    ESP_LOGE(
+        kTag,
+        "Unknown storage mount stage %u",
+        static_cast<unsigned>(stage)
+    );
+    std::abort();
+}
+
 bool snapshot_available(const qsee::DeviceSnapshot &snapshot)
 {
     return snapshot.sequence > 0 && snapshot.last_update_attempt_at_us > 0;
@@ -415,6 +461,11 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
             .document_path = "res/screen_settings.json",
             .screen_path = "/qsee_settings",
         };
+    case Screen::Storage:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_storage.json",
+            .screen_path = "/qsee_storage",
+        };
     case Screen::About:
         return LazyScreenDescriptor{
             .document_path = "res/screen_about.json",
@@ -522,10 +573,15 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     static constexpr std::array<std::string_view, 1> kHardwareDetailActions = {
         "qsee.chrome.activity.hardware_detail",
     };
-    static constexpr std::array<std::string_view, 3> kSettingsActions = {
+    static constexpr std::array<std::string_view, 4> kSettingsActions = {
         "qsee.chrome.activity.settings",
+        "qsee.open.storage",
         "qsee.open.about",
         "qsee.settings.radios.start",
+    };
+    static constexpr std::array<std::string_view, 2> kStorageActions = {
+        "qsee.chrome.activity.storage",
+        "qsee.storage.format",
     };
 
     std::span<const std::string_view> forwarded_actions;
@@ -541,6 +597,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
         break;
     case Screen::Settings:
         forwarded_actions = kSettingsActions;
+        break;
+    case Screen::Storage:
+        forwarded_actions = kStorageActions;
         break;
     default:
         break;
@@ -719,6 +778,9 @@ void App::invalidate_screen_document_state(Screen screen)
     if (screen == Screen::Settings) {
         settings_text_cache_valid_ = false;
         settings_controls_state_.reset();
+    }
+    if (screen == Screen::Storage) {
+        invalidate_storage_screen_cache();
     }
     if (is_pairing_screen(screen)) {
         pairing_visual_state_.reset();
@@ -959,6 +1021,7 @@ std::expected<void, std::string> App::restore_welcome_document(
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
 
     if (auto result = apply_diagnostic_monitor(context, Screen::Welcome);
         !result) {
@@ -1209,6 +1272,9 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
+    storage_format_request_pending_ = false;
+    storage_format_request_attempt_ = 0;
     pairing_started_at_us_ = 0;
     pairing_result_.clear();
     log_filter_mode_ = 0;
@@ -1408,6 +1474,7 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
     const auto rollback_diagnostics = [this]() {
         const esp_err_t monitor_result =
             qsee_hardware_set_diagnostic_streams(false, false);
@@ -1775,9 +1842,8 @@ std::expected<void, std::string> App::configure_chrome(
     static constexpr std::array<CommandSpec, 1> kAudioCommands = {{
         {"\xef\x83\x89", "qsee.open.audio_fft", ActionRole::Success, true},
     }};
-    static constexpr std::array<CommandSpec, 2> kHardwareCommands = {{
+    static constexpr std::array<CommandSpec, 1> kHardwareCommands = {{
         {"\xef\x80\xa1", "qsee.hardware.refresh", ActionRole::Success, true},
-        {"\xef\x8b\xad", "qsee.storage.format", ActionRole::Danger, true},
     }};
     static constexpr std::array<CommandSpec, 1> kAudioFftCommands = {{
         {"\xef\x81\xae", "qsee.open.audio_detail", ActionRole::Success, true},
@@ -1828,6 +1894,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::HardwareDetail:
         case Screen::AudioDetail:
         case Screen::Imu:
+        case Screen::Storage:
         case Screen::About:
         case Screen::PairIntro:
         case Screen::PairBluetooth:
@@ -2143,7 +2210,8 @@ std::expected<void, std::string> App::on_action(
         action == "qsee.chrome.activity.logs" ||
         action == "qsee.chrome.activity.hardware" ||
         action == "qsee.chrome.activity.hardware_detail" ||
-        action == "qsee.chrome.activity.settings") {
+        action == "qsee.chrome.activity.settings" ||
+        action == "qsee.chrome.activity.storage") {
         return {};
     }
     if (action == "qsee.open.welcome") {
@@ -2204,6 +2272,9 @@ std::expected<void, std::string> App::on_action(
     }
     if (action == "qsee.open.settings") {
         return open_screen(context, Screen::Settings, action);
+    }
+    if (action == "qsee.open.storage") {
+        return open_screen(context, Screen::Storage, action);
     }
     if (action == "qsee.open.about") {
         return open_screen(context, Screen::About, action);
@@ -2938,6 +3009,13 @@ std::expected<void, std::string> App::sync_content_viewport(
                 48,
                 8,
             };
+        case Screen::Storage:
+            return {
+                "/qsee_storage/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
         case Screen::About:
             return {
                 "/qsee_about/surface",
@@ -3068,6 +3146,8 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_imu(context);
     case Screen::Settings:
         return refresh_settings(context);
+    case Screen::Storage:
+        return refresh_storage(context);
     case Screen::PairIntro:
     case Screen::PairBluetooth:
     case Screen::PairApp:
@@ -4122,6 +4202,21 @@ void App::invalidate_imu_screen_cache()
     imu_ui_cache_.temperature.valid = false;
 }
 
+void App::invalidate_storage_screen_cache()
+{
+    storage_ui_cache_.status.valid = false;
+    storage_ui_cache_.status_color.valid = false;
+    storage_ui_cache_.detail.valid = false;
+    storage_ui_cache_.mount.valid = false;
+    storage_ui_cache_.total.valid = false;
+    storage_ui_cache_.free.valid = false;
+    storage_ui_cache_.usage.valid = false;
+    storage_ui_cache_.format_label.valid = false;
+    storage_ui_cache_.usage_percent_known = false;
+    storage_ui_cache_.usage_hidden_known = false;
+    storage_ui_cache_.format_disabled_known = false;
+}
+
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -4660,6 +4755,8 @@ std::string_view App::screen_action(Screen screen)
         return "qsee.open.imu";
     case Screen::Settings:
         return "qsee.open.settings";
+    case Screen::Storage:
+        return "qsee.open.storage";
     case Screen::About:
         return "qsee.open.about";
     case Screen::PairIntro:
@@ -5781,7 +5878,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "SD card error - open Hardware for details"
+            "SD card error - open SD Card for details"
         );
     } else if (storage_format_required(snapshot.storage)) {
         std::snprintf(
@@ -6242,6 +6339,277 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     return {};
 }
 
+std::expected<void, std::string> App::refresh_storage(AppContext &context)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    if (storage_format_request_pending_ &&
+        snapshot.storage.mount_attempt_count >
+            storage_format_request_attempt_) {
+        storage_format_request_pending_ = false;
+    }
+
+    const StorageSnapshot &storage = snapshot.storage;
+    const bool mounted_ready = storage_mounted_ready(storage);
+    const bool space_valid =
+        mounted_ready &&
+        storage.filesystem_total_bytes > 0 &&
+        storage.filesystem_total_bytes <= storage.capacity_bytes &&
+        storage.free_bytes <= storage.filesystem_total_bytes;
+    const bool format_available =
+        !storage_format_request_pending_ &&
+        storage_format_required(storage);
+
+    const char *status = "UNAVAILABLE";
+    const char *status_color = "#9fb1c1";
+    const char *format_label = "FORMAT UNAVAILABLE";
+    std::array<char, 192> detail{};
+
+    if (storage_format_request_pending_) {
+        status = "FORMATTING...";
+        status_color = "#f0b44d";
+        format_label = "FORMATTING...";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Format request accepted. Keep the verified card inserted while "
+            "the storage service completes the immediate attempt."
+        );
+    } else if (storage_cleanup_failed(storage)) {
+        status = "CLEANUP ERROR";
+        status_color = "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s failed: %s. Formatting is blocked.",
+            storage_cleanup_stage_name(storage.cleanup_stage),
+            esp_err_to_name(storage.cleanup_error)
+        );
+    } else if (storage.mount_outcome == StorageMountOutcome::FormatFailed) {
+        status = "FORMAT FAILED";
+        status_color = "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s failed: %s. No automatic retry will overwrite the card.",
+            storage_mount_stage_name(storage.mount_stage),
+            component_reason(storage)
+        );
+    } else if (storage_format_required(storage)) {
+        status = "FORMAT REQUIRED";
+        status_color = "#f0b44d";
+        format_label = "FORMAT SD CARD";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "A verified card is present but no supported FAT filesystem was "
+            "found. Formatting requires one explicit confirmation."
+        );
+    } else if (mounted_ready) {
+        status = "READY";
+        status_color = "#20dfc1";
+        format_label = "FORMAT NOT REQUIRED";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            storage.formatted
+                ? "The card was formatted, mounted and measured successfully."
+                : "The FAT filesystem is mounted and measured successfully."
+        );
+    } else if (!storage.card_response_verified) {
+        status = "UNCONFIRMED";
+        status_color = "#f0b44d";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Card presence or transport response was not verified: %s.",
+            component_reason(storage)
+        );
+    } else {
+        status =
+            storage.last_error == ESP_OK ? "UNAVAILABLE" : "ERROR";
+        status_color =
+            storage.last_error == ESP_OK ? "#9fb1c1" : "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s: %s.",
+            storage_mount_stage_name(storage.mount_stage),
+            component_reason(storage)
+        );
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.status,
+            "/qsee_storage/surface/storage_scroller/status_value",
+            status
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_binding_text(
+            context,
+            storage_ui_cache_.status_color,
+            "/qsee_storage/surface/storage_scroller/status_value",
+            "status_color",
+            status_color
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.detail,
+            "/qsee_storage/surface/storage_scroller/status_detail",
+            detail.data()
+        ); !result) {
+        return result;
+    }
+
+    std::array<char, 64> mount{};
+    std::snprintf(
+        mount.data(),
+        mount.size(),
+        mounted_ready
+            ? storage.logger_mirror_enabled
+                ? "MOUNTED | LOG MIRROR ON"
+                : "MOUNTED | LOG MIRROR OFF"
+            : "NOT MOUNTED"
+    );
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.mount,
+            "/qsee_storage/surface/storage_scroller/mount_value",
+            mount.data()
+        ); !result) {
+        return result;
+    }
+
+    std::array<char, 32> total{};
+    std::array<char, 32> free{};
+    std::array<char, 64> usage{};
+    int32_t usage_percent = 0;
+    if (space_valid) {
+        const uint64_t used_bytes =
+            storage.filesystem_total_bytes - storage.free_bytes;
+        usage_percent = static_cast<int32_t>(
+            (used_bytes * 100ULL) / storage.filesystem_total_bytes
+        );
+        std::snprintf(
+            total.data(),
+            total.size(),
+            "%llu MB",
+            static_cast<unsigned long long>(
+                storage.filesystem_total_bytes / (1024ULL * 1024ULL)
+            )
+        );
+        std::snprintf(
+            free.data(),
+            free.size(),
+            "%llu MB",
+            static_cast<unsigned long long>(
+                storage.free_bytes / (1024ULL * 1024ULL)
+            )
+        );
+        std::snprintf(
+            usage.data(),
+            usage.size(),
+            "USED %llu MB | %ld%%",
+            static_cast<unsigned long long>(
+                used_bytes / (1024ULL * 1024ULL)
+            ),
+            static_cast<long>(usage_percent)
+        );
+    } else {
+        std::snprintf(total.data(), total.size(), "UNAVAILABLE");
+        std::snprintf(free.data(), free.size(), "UNAVAILABLE");
+        std::snprintf(
+            usage.data(),
+            usage.size(),
+            "Space is unavailable until the card is mounted."
+        );
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.total,
+            "/qsee_storage/surface/storage_scroller/total_row/value",
+            total.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.free,
+            "/qsee_storage/surface/storage_scroller/free_row/value",
+            free.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.usage,
+            "/qsee_storage/surface/storage_scroller/usage_value",
+            usage.data()
+        ); !result) {
+        return result;
+    }
+
+    if (!storage_ui_cache_.usage_percent_known ||
+        storage_ui_cache_.usage_percent != usage_percent) {
+        if (space_valid) {
+            if (auto result = set_value(
+                    context,
+                    "/qsee_storage/surface/storage_scroller/usage_bar",
+                    usage_percent
+                ); !result) {
+                return result;
+            }
+        }
+        storage_ui_cache_.usage_percent = usage_percent;
+        storage_ui_cache_.usage_percent_known = true;
+    }
+    const bool usage_hidden = !space_valid;
+    if (!storage_ui_cache_.usage_hidden_known ||
+        storage_ui_cache_.usage_hidden != usage_hidden) {
+        if (auto result = set_hidden(
+                context,
+                "/qsee_storage/surface/storage_scroller/usage_bar",
+                usage_hidden
+            ); !result) {
+            return result;
+        }
+        storage_ui_cache_.usage_hidden = usage_hidden;
+        storage_ui_cache_.usage_hidden_known = true;
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.format_label,
+            "/qsee_storage/surface/storage_scroller/format_action/label",
+            format_label
+        ); !result) {
+        return result;
+    }
+    const bool format_disabled = !format_available;
+    if (!storage_ui_cache_.format_disabled_known ||
+        storage_ui_cache_.format_disabled != format_disabled) {
+        if (auto result = set_binding_text(
+                context,
+                "/qsee_storage/surface/storage_scroller/format_action",
+                "format_disabled",
+                format_disabled ? "true" : "false"
+            ); !result) {
+            return result;
+        }
+        storage_ui_cache_.format_disabled = format_disabled;
+        storage_ui_cache_.format_disabled_known = true;
+    }
+    return {};
+}
+
 std::expected<void, std::string> App::show_error_dialog(
     AppContext &context,
     std::string_view title,
@@ -6317,10 +6685,10 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
     if (alert_service_.dialog_visible()) {
         return {};
     }
-    if (screen_ != Screen::Hardware ||
+    if (screen_ != Screen::Storage ||
         !active_screen_document_id_.has_value()) {
         return std::unexpected(
-            "SD format dialog requested without an active Hardware document"
+            "SD format dialog requested without an active Storage document"
         );
     }
     const auto document_id = *active_screen_document_id_;
@@ -6389,7 +6757,10 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
         "CANCEL",
         "FORMAT",
         esp_brookesia::system::core::MessageDialogButtonRole::Destructive,
-        [this, document_id, generation]() {
+        [this,
+         document_id,
+         generation,
+         mount_attempt_count = storage.mount_attempt_count]() {
             const esp_err_t format_result = qsee_storage_request_format();
             if (format_result != ESP_OK) {
                 ESP_LOGE(
@@ -6414,22 +6785,28 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
                     }
                 }
             } else {
+                // This is request progress only; completion still comes from
+                // the next authoritative storage snapshot.
+                storage_format_request_pending_ = true;
+                storage_format_request_attempt_ = mount_attempt_count;
                 ESP_LOGW(kTag, "Explicit user-authorized SD format requested");
             }
             if (context_ != nullptr &&
-                screen_ == Screen::Hardware &&
+                screen_ == Screen::Storage &&
                 is_current_screen_document(document_id, generation)) {
-                if (auto refresh_result = refresh_hardware(*context_); !refresh_result) {
+                auto refresh_result = refresh_storage(*context_);
+                if (!refresh_result) {
                     ESP_LOGE(
                         kTag,
-                        "Hardware view refresh failed: %s",
+                        "Storage view refresh after format request failed: %s",
                         refresh_result.error().c_str()
                     );
                 }
             } else {
                 ESP_LOGI(
                     kTag,
-                    "Skipped Hardware refresh because its lazy document changed"
+                    "Skipped Storage refresh because its lazy "
+                    "document changed"
                 );
             }
         }

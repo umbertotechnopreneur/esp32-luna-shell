@@ -37,7 +37,7 @@ struct CommandSpec {
 class AdaptiveCommandBar final {
 public:
     static constexpr size_t kSlotCount = 5;
-    static constexpr int kMainDiameterDp = 58;
+    static constexpr int kMainDiameterDp = 61;
     static constexpr int kDiameterStepDp = 6;
     static constexpr int kButtonGapDp = 9;
 

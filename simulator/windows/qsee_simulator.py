@@ -49,13 +49,13 @@ SUCCESS_BOTTOM = "#045a51"
 SUCCESS_BORDER = "#38f1d7"
 SUCCESS_GLOW = "#009c9d"
 CONTROL_BORDER_PX = 1
-COMMAND_MAIN_DIAMETER = 58
+COMMAND_MAIN_DIAMETER = 61
 COMMAND_DIAMETER_STEP = 6
 COMMAND_MIN_DIAMETER = COMMAND_MAIN_DIAMETER - (2 * COMMAND_DIAMETER_STEP)
 COMMAND_BUTTON_GAP = 9
 EDGE_COMMAND_DIAMETER = 54
 COMMAND_CENTER_X = 233
-COMMAND_MAIN_CENTER_Y = 389
+COMMAND_MAIN_CENTER_Y = 410
 COMMAND_ARC_RISE_LINEAR = 10
 COMMAND_ARC_RISE_QUADRATIC = 5
 COMMAND_SCREENS = frozenset(
@@ -70,7 +70,7 @@ COMMAND_SCREENS = frozenset(
     }
 )
 WIDE_PAGE_SCREENS = frozenset(
-    {"settings", "hardware", "chrome-settings", "power-settings"}
+    {"settings", "storage", "hardware", "chrome-settings", "power-settings"}
 )
 FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu"})
 FONT_DISPLAY = "Montserrat SemiBold"
@@ -123,19 +123,15 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
         centers_x[left_center] = COMMAND_CENTER_X
     else:
         center_distance = (
-            (diameters[left_center] // 2)
-            + (diameters[right_center] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[left_center] + diameters[right_center]) // 2
+        ) + COMMAND_BUTTON_GAP
         centers_x[left_center] = COMMAND_CENTER_X - (center_distance // 2)
         centers_x[right_center] = centers_x[left_center] + center_distance
     for slot in range(left_center, 0, -1):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
-            (diameters[slot] // 2)
-            + (diameters[slot - 1] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[slot] + diameters[slot - 1]) // 2
+        ) + COMMAND_BUTTON_GAP
         horizontal_delta = int(
             math.sqrt(
                 (target_distance * target_distance)
@@ -147,10 +143,8 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
     for slot in range(right_center + 1, count):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
-            (diameters[slot - 1] // 2)
-            + (diameters[slot] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[slot - 1] + diameters[slot]) // 2
+        ) + COMMAND_BUTTON_GAP
         horizontal_delta = int(
             math.sqrt(
                 (target_distance * target_distance)
@@ -1003,6 +997,7 @@ class QSeeSimulator:
                 "fft-detail",
                 "imu",
                 "settings",
+                "storage",
                 "chrome-settings",
                 "power-settings",
                 "hardware",
@@ -1067,6 +1062,22 @@ class QSeeSimulator:
                     ):
                         self.show_settings_demo()
                         break
+        elif (
+            self.screen == "storage"
+            and 128 <= event.x <= 338
+            and 358 <= event.y <= 402
+        ):
+            if self.scenario.name == "SD UNFORMATTED":
+                self.logger.info(
+                    "qsee_storage",
+                    "Synthetic explicit format confirmation requested",
+                )
+                self.show_confirmation()
+            else:
+                self.logger.info(
+                    "qsee_storage",
+                    "Synthetic format rejected: no verified format-required state",
+                )
 
     def _draw_page_heading(
         self,
@@ -1547,6 +1558,142 @@ class QSeeSimulator:
                     width=1,
                     tags="ui",
                 )
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_storage_demo(self) -> None:
+        self.screen = "storage"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        y_offset = self._wide_page_offset_y()
+        self._draw_page_heading(
+            "SD CARD",
+            "Status and maintenance",
+            y_offset,
+        )
+
+        format_required = self.scenario.name == "SD UNFORMATTED"
+        status = "FORMAT REQUIRED" if format_required else "READY"
+        status_color = STATUS_WARNING if format_required else STATUS_READY
+        detail = (
+            "Verified card needs FAT formatting."
+            if format_required
+            else "FAT filesystem mounted."
+        )
+        self.canvas.create_text(
+            94,
+            174 + y_offset,
+            anchor="w",
+            text="CURRENT STATUS",
+            fill=STATUS_READY,
+            font=(FONT_DISPLAY, 12),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            198 + y_offset,
+            anchor="w",
+            text=status,
+            fill=status_color,
+            font=(FONT_DISPLAY, 17),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            224 + y_offset,
+            anchor="w",
+            text=detail,
+            fill="#d6efff",
+            font=(FONT_BODY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            250 + y_offset,
+            anchor="w",
+            text="NOT MOUNTED" if format_required else "MOUNTED | LOG MIRROR ON",
+            fill="#51c7f2",
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+
+        total = "UNAVAILABLE" if format_required else "7812 MB"
+        free = "UNAVAILABLE" if format_required else "6420 MB"
+        for row_y, label, value in (
+            (278, "TOTAL SPACE", total),
+            (302, "FREE SPACE", free),
+        ):
+            self.canvas.create_text(
+                94,
+                row_y + y_offset,
+                anchor="w",
+                text=label,
+                fill=MUTED_BRIGHT,
+                font=(FONT_DISPLAY, 10),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                372,
+                row_y + y_offset,
+                anchor="e",
+                text=value,
+                fill=TEXT,
+                font=(FONT_TECH, 10, "bold"),
+                tags="ui",
+            )
+
+        if not format_required:
+            self.canvas.create_rectangle(
+                94,
+                320 + y_offset,
+                372,
+                330 + y_offset,
+                fill="#0b1e2c",
+                outline="",
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                94,
+                320 + y_offset,
+                144,
+                330 + y_offset,
+                fill=STATUS_READY,
+                outline="",
+                tags="ui",
+            )
+        self.canvas.create_text(
+            233,
+            344 + y_offset,
+            text=(
+                "Space unavailable until mounted"
+                if format_required
+                else "USED 1392 MB | 17%"
+            ),
+            fill=MUTED,
+            font=(FONT_TECH, 9),
+            tags="ui",
+        )
+
+        button_enabled = format_required
+        self.canvas.create_rectangle(
+            128,
+            358 + y_offset,
+            338,
+            402 + y_offset,
+            fill="#b52b3a" if button_enabled else TRACK,
+            outline="#ff8a96" if button_enabled else "#546874",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            380 + y_offset,
+            text="FORMAT SD CARD" if button_enabled else "FORMAT NOT REQUIRED",
+            fill="#ffffff" if button_enabled else MUTED_BRIGHT,
+            font=(FONT_DISPLAY, 10),
+            tags="ui",
+        )
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -2216,6 +2363,7 @@ class QSeeSimulator:
             "fft-detail",
             "imu",
             "settings",
+            "storage",
             "chrome-settings",
             "power-settings",
             "hardware",
@@ -2224,7 +2372,10 @@ class QSeeSimulator:
                 self.root.after_cancel(self.audio_timer)
                 self.audio_timer = None
             self.logger.info("qsee_ui", "Diagnostic page closed")
-            self.show_home()
+            if self.screen == "storage":
+                self.show_settings_demo()
+            else:
+                self.show_home()
         elif self.screen in {"confirmation", "result"}:
             self.logger.info("qsee_nav", "Synthetic back navigation")
             self.show_home()
@@ -2301,6 +2452,7 @@ class QSeeSimulator:
         redraw = {
             "home": self.show_home,
             "settings": self.show_settings_demo,
+            "storage": self.show_storage_demo,
             "chrome-settings": self.show_chrome_settings_demo,
             "power-settings": self.show_power_settings_demo,
             "hardware": self.show_hardware_demo,
@@ -2351,6 +2503,7 @@ def main() -> None:
         choices=(
             "home",
             "settings",
+            "storage",
             "chrome-settings",
             "power-settings",
             "hardware",
@@ -2402,6 +2555,7 @@ def main() -> None:
         {
             "home": simulator.show_home,
             "settings": simulator.show_settings_demo,
+            "storage": simulator.show_storage_demo,
             "chrome-settings": simulator.show_chrome_settings_demo,
             "power-settings": simulator.show_power_settings_demo,
             "hardware": simulator.show_hardware_demo,

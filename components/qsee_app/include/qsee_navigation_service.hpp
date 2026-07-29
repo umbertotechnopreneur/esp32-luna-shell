@@ -15,6 +15,7 @@ enum class Route {
     AudioDetail,
     Imu,
     Settings,
+    Storage,
     About,
     PairIntro,
     PairBluetooth,
