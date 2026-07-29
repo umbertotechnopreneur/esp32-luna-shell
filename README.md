@@ -116,16 +116,25 @@ and processor readings use native ESP-IDF and FreeRTOS APIs. See
 
 ## Navigation
 
-The native app implements the System Core `IApp` lifecycle. GUI LVGL
-loads `components/qsee_app/package/res/root.json`, while its `qsee_content`
-`screenFlow` maps named actions to screens. `qsee_app.cpp` subscribes to those
-actions, refreshes the active screen from `DeviceSnapshotService`, and uses
-System Super services for the log-search keyboard and the destructive SD
-confirmation dialog.
+The native app implements the System Core `IApp` lifecycle. At boot GUI LVGL
+loads only `components/qsee_app/package/res/root.json`, which keeps the
+background, shared chrome, resident Welcome screen, and an empty content target.
+Every other route is emitted as an independent `res/screen_*.json` document.
+`qsee_app.cpp` releases the current content, unloads the previous route
+document, loads and mounts the requested one, and keeps at most one lazy route
+document active. It subscribes to that document's actions, refreshes the active
+screen from `DeviceSnapshotService`, and uses System Super services for the
+log-search keyboard and the destructive SD confirmation dialog.
+The five Bluetooth/Wi-Fi provisioning stages plus the result state share one
+small Pairing document, so advancing through the wizard does not repeatedly
+parse or allocate new GUI trees; the document is unloaded when the wizard ends.
 
-The JSON document owns view structure, layout, styles, and action names. C++
-owns lifecycle and data binding. App code does not construct a second widget
-framework or call LVGL directly.
+The editable declarative source remains
+`components/qsee_app/gui/root.json`; `scripts/generate_qsee_gui_documents.py`
+produces the bootstrap and lazy runtime documents staged in LittleFS. Those JSON
+documents own view structure, layout, styles, and action names. C++ owns
+lifecycle, route-document selection, and data binding. App code does not
+construct a second widget framework or call LVGL directly.
 
 ### UI glossary
 
@@ -191,9 +200,11 @@ animates that immutable state.
 
 ### Route index
 
-The route registry lives in
-[`components/qsee_app/package/res/root.json`](components/qsee_app/package/res/root.json);
-action handling lives in
+The editable route definitions live in
+[`components/qsee_app/gui/root.json`](components/qsee_app/gui/root.json).
+The generated screen documents live under
+[`components/qsee_app/package/res`](components/qsee_app/package/res), while
+document selection and action handling live in
 [`components/qsee_app/qsee_app.cpp`](components/qsee_app/qsee_app.cpp). This is
 the current code-grounded inventory:
 
@@ -210,10 +221,10 @@ the current code-grounded inventory:
 | `About` | Implemented | `ABOUT` | Device identity and support information |
 | `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
-The index is part of the screen-flow contract. Whenever a route is created,
+The index is part of the navigation contract. Whenever a route is created,
 renamed, removed, or its entry point changes, update this table in the same
-change as the JSON screen, flow transition, C++ action subscription, refresh
-logic, and entry button.
+change as the editable JSON screen, generated lazy document, C++ document
+descriptor and action subscription, refresh logic, and entry button.
 
 ## Hardware
 
@@ -585,9 +596,10 @@ values.
 ## Hardware validation status
 
 This migration does not claim physical-device validation. A later hardware
-session must verify display and touch startup, System Super resource loading,
-all seven JSON screens, keyboard and dialog services, Wi-Fi/BLE provisioning,
-audio, IMU, GPS, sleep/wake behavior, and the removable-SD states.
+session must verify display and touch startup, bootstrap resource loading,
+every lazy route's load/mount/unload cycle and return to Welcome, keyboard and
+dialog services, Wi-Fi/BLE provisioning, audio, IMU, GPS, sleep/wake behavior,
+and the removable-SD states.
 The earlier `COM12` observations recorded in the hardware inventory are
 historical context only; they do not validate this commit.
 

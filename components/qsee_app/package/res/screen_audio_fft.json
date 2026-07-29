@@ -1,0 +1,419 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_audio_fft",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "AUDIO FFT"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "48dp",
+                                "width": "292dp",
+                                "height": "28dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_status",
+                            "labelProps": {
+                                "text": "SPECTRUM UNAVAILABLE (WAITING FOR SAMPLE)"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "76dp",
+                                "width": "292dp",
+                                "height": "22dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "legend",
+                            "labelProps": {
+                                "text": "MEAN MIC 1 + MIC 2     16 DFT BINS     0 - 11 kHz"
+                            },
+                            "style": {
+                                "textColor": "#51c7f2",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "99dp",
+                                "width": "292dp",
+                                "height": "18dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "style": {
+                                "padding": 0
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
+                                "crossAlign": "end",
+                                "gap": "0dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "122dp",
+                                "width": "236dp",
+                                "height": "98dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "container",
+                                    "id": "band00",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band01",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band02",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band03",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band04",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band05",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band06",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band07",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band08",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band09",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band10",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band11",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band12",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band13",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band14",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "band15",
+                                    "bindings": {
+                                        "placement.height": "height"
+                                    },
+                                    "style": {
+                                        "bgColor": "#27bdf2",
+                                        "radius": "0dp"
+                                    },
+                                    "placement": {
+                                        "width": "7dp",
+                                        "height": "1dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_footer",
+                            "labelProps": {
+                                "text": "MEAN SPECTRUM | MIC 1 + MIC 2"
+                            },
+                            "style": {
+                                "textColor": "#607889",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "228dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

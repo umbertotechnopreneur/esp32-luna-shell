@@ -40,8 +40,12 @@
 
 - [x] Run the application as the only native `IApp` on System Core, without
   installing or starting the optional System Super shell.
-- [x] Express the seven current screens and `qsee_content` flow in the GUI LVGL
-  JSON package.
+- [x] Keep one editable GUI source and generate a resident
+  background/chrome/Welcome bootstrap plus one independently loadable JSON
+  document for every other content screen.
+- [ ] Measure bootstrap and repeated cross-route navigation on hardware; confirm
+  that no more than one lazy route document is active and that unloading
+  returns its document memory without fragmentation growth.
 - [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
   mirroring, deferred radio startup, and persisted brightness.
 - [x] Stage only the QSee application resources in the internal LittleFS

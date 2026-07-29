@@ -121,14 +121,17 @@ strip survives around the application surface.
 
 System Super is the device shell and service layer. System Core owns the
 QSee.ai native application lifecycle, while GUI LVGL loads and renders
-`components/qsee_app/package/res/root.json`. LVGL remains an implementation
-detail beneath that JSON interface.
+`components/qsee_app/package/res/root.json` as the resident background, chrome,
+Welcome, and empty content target. Non-Welcome content is loaded from one
+generated `res/screen_*.json` document at a time and unloaded when navigation
+leaves it. LVGL remains an implementation detail beneath that JSON interface.
 
-The seven current JSON screens—Welcome, Logs, Hardware, Audio, IMU, Settings,
-and About—center a 320 x 320 root surface on the 466 x 466 display. Screen
-structure, layout, styles, actions, and the `qsee_content` flow belong in the
-JSON package. C++ lifecycle code may bind text and progress values through the
-GUI interface, but it must not construct parallel screen-specific widgets.
+All current content screens center a 320 x 320 root surface on the 466 x 466
+display. Screen structure, layout, styles, and actions belong in the editable
+`components/qsee_app/gui/root.json`; the build generator splits that source
+into the bootstrap and lazy runtime documents. C++ lifecycle code selects and
+mounts those documents and may bind text and progress values through the GUI
+interface, but it must not construct parallel screen-specific widgets.
 
 These coordinates and cardinal roles remain shared design tokens. Any future
 cardinal controls or system chrome must be provided through System Super or a

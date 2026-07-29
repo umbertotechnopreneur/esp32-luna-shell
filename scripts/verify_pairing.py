@@ -6,8 +6,26 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GUI_RES = ROOT / "components/qsee_app/package/res"
 
-EXPECTED_SCREENS = {
+EXPECTED_RESIDENT_SCREENS = {
+    "qsee_background_screen",
+    "qsee_welcome",
+    "qsee_content_idle",
+}
+EXPECTED_LAZY_SCREEN_DOCUMENTS = {
+    "screen_logs.json": "qsee_logs",
+    "screen_hardware.json": "qsee_hardware",
+    "screen_hardware_detail.json": "qsee_hardware_detail",
+    "screen_audio.json": "qsee_audio",
+    "screen_audio_fft.json": "qsee_audio_fft",
+    "screen_audio_detail.json": "qsee_audio_detail",
+    "screen_imu.json": "qsee_imu",
+    "screen_settings.json": "qsee_settings",
+    "screen_about.json": "qsee_about",
+    "screen_pairing.json": "qsee_pairing",
+}
+EXPECTED_ROUTE_SCREENS = {
     "qsee_background_screen",
     "qsee_welcome",
     "qsee_logs",
@@ -21,6 +39,19 @@ EXPECTED_SCREENS = {
     "qsee_about",
     "qsee_pairing",
 }
+EXPECTED_BOOTSTRAP_FLOWS = {
+    "qsee_background_flow",
+    "qsee_chrome_flow",
+    "qsee_content",
+}
+PAIRING_WIZARD_ROUTES = (
+    "PairIntro",
+    "PairBluetooth",
+    "PairApp",
+    "AppStoreQr",
+    "PairQr",
+    "PairResult",
+)
 SETTINGS_ACTIONS = {
     "qsee.settings.diagnostic.changed",
     "qsee.settings.imu_smoothing.changed",
@@ -69,6 +100,44 @@ def walk_json(value: Any):
             yield from walk_json(child)
 
 
+def load_package_json() -> dict[str, Any]:
+    documents: dict[str, Any] = {}
+    for path in sorted(GUI_RES.rglob("*.json")):
+        relative = path.relative_to(GUI_RES).as_posix()
+        try:
+            documents[relative] = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise AssertionError(
+                f"invalid GUI JSON {relative}:{error.lineno}:{error.colno}: "
+                f"{error.msg}"
+            ) from error
+    if not documents:
+        raise AssertionError("QSee GUI package contains no JSON documents")
+    return documents
+
+
+def document_nodes(document: Any, source: str) -> list[Any]:
+    if not isinstance(document, dict) or not isinstance(
+        document.get("assets"), list
+    ):
+        raise AssertionError(f"{source} is not a GUI runtime document")
+    return list(walk_json(document))
+
+
+def verify_asset_references(
+    runtime_documents: dict[str, Any],
+    package_documents: dict[str, Any],
+) -> None:
+    for source, document in runtime_documents.items():
+        for asset in document["assets"]:
+            if not isinstance(asset, str):
+                continue
+            if asset not in package_documents:
+                raise AssertionError(
+                    f"{source} references missing GUI asset {asset}"
+                )
+
+
 def main() -> None:
     provisioning = read("components/qsee_platform/qsee_provisioning.cpp")
     provisioning_header = read("components/qsee_platform/include/qsee_provisioning.hpp")
@@ -81,10 +150,38 @@ def main() -> None:
     navigation_service = read(
         "components/qsee_app/qsee_navigation_service.cpp"
     )
-    app_root = json.loads(read("components/qsee_app/package/res/root.json"))
-    chrome = json.loads(
-        read("components/qsee_app/package/res/templates/qsee_chrome.json")
+    navigation_header = read(
+        "components/qsee_app/include/qsee_navigation_service.hpp"
     )
+    package_documents = load_package_json()
+    app_root = package_documents.get("root.json")
+    if app_root is None:
+        raise AssertionError("resident GUI bootstrap root.json is missing")
+    lazy_document_names = {
+        path
+        for path in package_documents
+        if path.startswith("screen_") and "/" not in path
+    }
+    expected_lazy_document_names = set(EXPECTED_LAZY_SCREEN_DOCUMENTS)
+    if lazy_document_names != expected_lazy_document_names:
+        raise AssertionError(
+            "unexpected lazy GUI document inventory: "
+            f"expected {sorted(expected_lazy_document_names)}, "
+            f"got {sorted(lazy_document_names)}"
+        )
+    runtime_documents = {
+        "root.json": app_root,
+        **{
+            path: package_documents[path]
+            for path in sorted(expected_lazy_document_names)
+        },
+    }
+    runtime_nodes = {
+        path: document_nodes(document, path)
+        for path, document in runtime_documents.items()
+    }
+    verify_asset_references(runtime_documents, package_documents)
+    chrome = package_documents["templates/qsee_chrome.json"]
     status_bar_source = read("components/qsee_app/qsee_status_bar.cpp")
     main_source = read("main/main.cpp")
     sdkconfig = read("sdkconfig.defaults")
@@ -123,6 +220,32 @@ def main() -> None:
     require(app, "qsee.open.pairing", "pairing wizard entry")
     require(app, "qsee.next", "pairing wizard forward action")
     require(app, "qsee_provisioning_start()", "pairing wizard provisioning start")
+    descriptor_start = app.index("App::lazy_screen_descriptor")
+    descriptor_end = app.index("bool App::shares_lazy_document", descriptor_start)
+    descriptor_source = app[descriptor_start:descriptor_end]
+    for route in PAIRING_WIZARD_ROUTES:
+        require(
+            navigation_header,
+            f"    {route},",
+            "pairing wizard route inventory",
+        )
+        require(
+            descriptor_source,
+            f"case Screen::{route}:",
+            "pairing lazy-document route grouping",
+        )
+    if descriptor_source.count('"res/screen_pairing.json"') != 1:
+        raise AssertionError(
+            "all pairing wizard routes must share one screen_pairing.json descriptor"
+        )
+    require(
+        app,
+        "shares_lazy_document(screen_, screen)",
+        "pairing in-document navigation",
+    )
+    for step in range(1, 6):
+        require(app, f'step = "{step} OF 5";', "pairing wizard stage labels")
+    require(app, "case Screen::PairResult:", "pairing result state")
     require(
         edge_navigation,
         '"/qsee_chrome_screen/chrome/back"',
@@ -159,25 +282,101 @@ def main() -> None:
         "System Core provider",
     )
 
-    nodes = list(walk_json(app_root))
-    screen_ids = {
+    root_nodes = runtime_nodes["root.json"]
+    resident_screen_ids = {
         node.get("id")
-        for node in nodes
+        for node in root_nodes
         if isinstance(node, dict) and node.get("type") == "viewScreen"
     }
-    if screen_ids != EXPECTED_SCREENS:
+    if resident_screen_ids != EXPECTED_RESIDENT_SCREENS:
         raise AssertionError(
-            "unexpected System Core screen inventory: "
-            f"expected {sorted(EXPECTED_SCREENS)}, got {sorted(screen_ids)}"
+            "unexpected resident GUI screen inventory: "
+            f"expected {sorted(EXPECTED_RESIDENT_SCREENS)}, "
+            f"got {sorted(resident_screen_ids)}"
+        )
+
+    screen_owners: dict[str, str] = {}
+    for source, nodes in runtime_nodes.items():
+        for node in nodes:
+            if not isinstance(node, dict) or node.get("type") != "viewScreen":
+                continue
+            screen_id = node.get("id")
+            if not isinstance(screen_id, str):
+                raise AssertionError(f"{source} contains a viewScreen without an id")
+            previous_owner = screen_owners.get(screen_id)
+            if previous_owner is not None:
+                raise AssertionError(
+                    f"duplicate GUI screen {screen_id}: "
+                    f"{previous_owner} and {source}"
+                )
+            screen_owners[screen_id] = source
+
+    for document_name, screen_id in EXPECTED_LAZY_SCREEN_DOCUMENTS.items():
+        document_screen_ids = {
+            node.get("id")
+            for node in runtime_nodes[document_name]
+            if isinstance(node, dict) and node.get("type") == "viewScreen"
+        }
+        if document_screen_ids != {screen_id}:
+            raise AssertionError(
+                f"{document_name} must own only {screen_id}: "
+                f"{sorted(document_screen_ids)}"
+            )
+        require(
+            app,
+            f'"res/{document_name}"',
+            f"lazy route registration for {screen_id}",
+        )
+        require(
+            app,
+            f'"/{screen_id}"',
+            f"lazy route screen path for {screen_id}",
+        )
+
+    route_screen_ids = set(screen_owners) - {"qsee_content_idle"}
+    if route_screen_ids != EXPECTED_ROUTE_SCREENS:
+        raise AssertionError(
+            "unexpected System Core route inventory: "
+            f"expected {sorted(EXPECTED_ROUTE_SCREENS)}, "
+            f"got {sorted(route_screen_ids)}"
         )
 
     flow_ids = {
         node.get("id")
-        for node in nodes
+        for node in root_nodes
         if isinstance(node, dict) and node.get("type") == "screenFlow"
     }
-    if "qsee_content" not in flow_ids:
-        raise AssertionError("qsee_content screenFlow missing from System Core UI")
+    if flow_ids != EXPECTED_BOOTSTRAP_FLOWS:
+        raise AssertionError(
+            "unexpected resident GUI flow inventory: "
+            f"expected {sorted(EXPECTED_BOOTSTRAP_FLOWS)}, "
+            f"got {sorted(flow_ids)}"
+        )
+    content_flow = next(
+        node
+        for node in root_nodes
+        if isinstance(node, dict)
+        and node.get("type") == "screenFlow"
+        and node.get("id") == "qsee_content"
+    )
+    if content_flow.get("screens") != ["qsee_welcome", "qsee_content_idle"]:
+        raise AssertionError(
+            "qsee_content must retain only resident Welcome and idle screens"
+        )
+    transition_targets = {
+        transition.get("action"): transition.get("to")
+        for transition in content_flow.get("transitions", [])
+        if isinstance(transition, dict)
+    }
+    expected_transition_targets = {
+        "qsee.open.welcome": "qsee_welcome",
+        "qsee.content.release": "qsee_content_idle",
+    }
+    if transition_targets != expected_transition_targets:
+        raise AssertionError(
+            "unexpected resident content transitions: "
+            f"{transition_targets}"
+        )
 
     chrome_nodes = list(walk_json(chrome))
     chrome_template_ids = [
@@ -189,16 +388,18 @@ def main() -> None:
         raise AssertionError(
             "shared chrome must own exactly one qsee_status_bar"
         )
-    if "templates/qsee_adaptive_command_bar.json" in app_root.get(
-        "assets", []
-    ):
-        raise AssertionError(
-            "action-bearing command bar must be instantiated directly in "
-            "shared chrome, not registered as a top-level template"
-        )
+    for source, document in runtime_documents.items():
+        if "templates/qsee_adaptive_command_bar.json" in document.get(
+            "assets", []
+        ):
+            raise AssertionError(
+                "action-bearing command bar must be instantiated directly in "
+                f"shared chrome, not registered by {source}"
+            )
 
     root_command_refs = [
         node
+        for nodes in runtime_nodes.values()
         for node in nodes
         if isinstance(node, dict)
         and node.get("templateId") == "qsee_command_button"
@@ -240,7 +441,8 @@ def main() -> None:
 
     actions = {
         node["action"]
-        for node in nodes + chrome_nodes
+        for nodes in [*runtime_nodes.values(), chrome_nodes]
+        for node in nodes
         if isinstance(node, dict) and isinstance(node.get("action"), str)
     }
     missing_actions = SETTINGS_ACTIONS - actions
@@ -261,6 +463,21 @@ def main() -> None:
             f"{sorted(unhandled_actions)}"
         )
 
+    require(app_header, "struct LazyScreenDescriptor", "lazy GUI descriptor")
+    require(
+        app_header,
+        "active_screen_document_id_",
+        "single active lazy-document cache",
+    )
+    require(app, "context.gui().load_file(", "lazy GUI document load")
+    require(app, "context.gui().mount_screen(", "lazy GUI screen mount")
+    require(app, "unload_active_screen_document(", "lazy GUI document release")
+    require(
+        app,
+        "loaded_page_documents(%u)",
+        "lazy GUI measured cache telemetry",
+    )
+
     for legacy_path in (
         "components/qsee_app/qsee_navigation.cpp",
         "components/qsee_app/include/qsee_navigation.hpp",
@@ -270,7 +487,9 @@ def main() -> None:
 
     print(
         "pairing static verification: PASS "
-        f"(BLE Security 1 backend, {len(screen_ids)} System Core screens)"
+        f"(BLE Security 1 backend, {len(route_screen_ids)} routes, "
+        f"{len(EXPECTED_LAZY_SCREEN_DOCUMENTS)} lazy documents, "
+        "5 provisioning stages + result in one shared document)"
     )
 
 

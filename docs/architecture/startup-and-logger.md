@@ -68,17 +68,21 @@ and ambiguous recovery stops the failing stage.
 
 System Super owns the system lifecycle and services. System Core discovers the
 registered provider, creates its native `IApp`, and drives its
-start/stop/action/timer callbacks. GUI LVGL loads the app document from
-`/littlefs/<app-package>/res/root.json` and renders its
-`qsee_content` screen flow.
+start/stop/action/timer callbacks. GUI LVGL loads only the resident bootstrap
+from `/littlefs/<app-package>/res/root.json` during app startup. That document
+owns the background, shared chrome, Welcome screen, and an empty content target.
+Every other route is stored in an independent `res/screen_*.json` document.
+System Core loads and mounts the requested route document, then unloads it
+before mounting another; at most one lazy route document is active.
 
-The JSON package contains view structure, layout, styles, and action names.
-The native app binds values through the GUI interface. It reads hardware
-telemetry only from `DeviceSnapshotService`; the Logs screen reads only the
-canonical logger ring. Search uses the System Super keyboard service, and SD
-formatting uses the System Super message-dialog service. The seventh screen,
-Settings, owns the explicit radio-start action and persisted display/device
-preferences.
+The editable declarative source is `components/qsee_app/gui/root.json`.
+`scripts/generate_qsee_gui_documents.py` emits the bootstrap and independently
+loadable route documents staged in LittleFS. The native app selects documents
+and binds values through the GUI interface. It reads hardware telemetry only
+from `DeviceSnapshotService`; the Logs screen reads only the canonical logger
+ring. Search uses the System Super keyboard service, and SD formatting uses the
+System Super message-dialog service. Settings owns the explicit radio-start
+action and persisted display/device preferences.
 
 ## Storage separation
 

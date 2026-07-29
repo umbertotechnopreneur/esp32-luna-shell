@@ -8,6 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+GUI_RES = ROOT / "components/qsee_app/package/res"
 DISPLAY_SIZE = 466
 CHROME_INSET = 73
 SAFE_CONTENT_SIZE = 320
@@ -22,11 +23,38 @@ def require(source: str, token: str, context: str) -> None:
         raise AssertionError(f"{context}: missing {token!r}")
 
 
-def find_asset(document: dict, asset_id: str) -> dict:
-    for asset in document["assets"]:
-        if isinstance(asset, dict) and asset.get("id") == asset_id:
-            return asset
-    raise AssertionError(f"missing asset {asset_id}")
+def load_runtime_documents() -> dict[str, dict]:
+    paths = [GUI_RES / "root.json", *sorted(GUI_RES.glob("screen_*.json"))]
+    documents: dict[str, dict] = {}
+    for path in paths:
+        relative = path.relative_to(GUI_RES).as_posix()
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as error:
+            raise AssertionError(
+                f"invalid GUI JSON {relative}:{error.lineno}:{error.colno}: "
+                f"{error.msg}"
+            ) from error
+        if not isinstance(document, dict) or not isinstance(
+            document.get("assets"), list
+        ):
+            raise AssertionError(f"{relative} is not a GUI runtime document")
+        documents[relative] = document
+    return documents
+
+
+def find_asset(documents: dict[str, dict], asset_id: str) -> dict:
+    matches: list[tuple[str, dict]] = []
+    for source, document in documents.items():
+        for asset in document["assets"]:
+            if isinstance(asset, dict) and asset.get("id") == asset_id:
+                matches.append((source, asset))
+    if not matches:
+        raise AssertionError(f"missing asset {asset_id}")
+    if len(matches) != 1:
+        owners = ", ".join(source for source, _ in matches)
+        raise AssertionError(f"duplicate asset {asset_id}: {owners}")
+    return matches[0][1]
 
 
 def find_child(node: dict, child_id: str) -> dict:
@@ -133,7 +161,7 @@ def verify_boot_fullscreen_model() -> None:
 
 
 def verify_package() -> None:
-    document = json.loads(read("components/qsee_app/package/res/root.json"))
+    documents = load_runtime_documents()
     screens = (
         "qsee_welcome",
         "qsee_logs",
@@ -149,7 +177,7 @@ def verify_package() -> None:
     padded_screens = set(screens) - {"qsee_about"}
 
     for screen_id in screens:
-        surface = find_child(find_asset(document, screen_id), "surface")
+        surface = find_child(find_asset(documents, screen_id), "surface")
         placement = surface["placement"]
         bindings = surface["bindings"]
         expected_placement = {
@@ -185,7 +213,7 @@ def verify_package() -> None:
         "qsee_settings": "settings_scroller",
     }
     for screen_id, scroller_id in expanding_scrollers.items():
-        surface = find_child(find_asset(document, screen_id), "surface")
+        surface = find_child(find_asset(documents, screen_id), "surface")
         scroller = find_child(surface, scroller_id)
         if scroller["placement"].get("flexGrow") != 1:
             raise AssertionError(f"{screen_id}/{scroller_id}: flexGrow must be 1")

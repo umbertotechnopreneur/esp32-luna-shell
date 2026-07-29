@@ -69,8 +69,11 @@ The selected architecture is:
 - LVGL 9 only as the GUI backend below the Brookesia interfaces.
 
 The provider is registered as the application provider. Its UI package is
-staged into the internal LittleFS image and loads `res/root.json` with the
-`qsee_content` screen flow.
+staged into the internal LittleFS image. App startup parses only
+`res/root.json`, which contains the persistent background, chrome, Welcome
+screen, and empty content target. Other routes are independent
+`res/screen_*.json` documents loaded and mounted on demand, with the previous
+route document unloaded before the next one is activated.
 
 ## Principal resolved dependencies
 
@@ -97,14 +100,17 @@ graph.
 
 - The native UI is a native System Core `IApp` installed by a registered app
   provider and started by System Super.
-- Screen structure, layout, styling, action names, and transitions live in
-  `components/qsee_app/package/res/root.json`.
-- The current package contains seven screens: Welcome, Logs, Hardware, Audio,
-  IMU, Settings, and About. Settings exposes diagnostic cadence, IMU
-  smoothing, SD-log mirroring, persisted brightness, and the explicit
-  Wi-Fi/BLE start action.
-- C++ handles lifecycle and data binding through the System Core and GUI
-  interfaces. It does not build application screens with direct LVGL calls.
+- Screen structure, layout, styling, action names, and transitions are edited
+  in `components/qsee_app/gui/root.json`.
+  `scripts/generate_qsee_gui_documents.py` produces the staged bootstrap and
+  one lazy runtime document for each non-Welcome content screen.
+- The current package contains Welcome, Logs, Hardware and Hardware Detail,
+  Audio Scope, Audio FFT and Audio Detail, IMU, Settings, About, and Pairing.
+  Settings exposes diagnostic cadence, IMU smoothing, SD-log mirroring,
+  persisted brightness, and the explicit Wi-Fi/BLE start action.
+- C++ handles lifecycle, single-active-document routing, and data binding
+  through the System Core and GUI interfaces. It does not build application
+  screens with direct LVGL calls.
 - UI hardware telemetry comes only from `DeviceSnapshotService`. The Logs
   screen reads the canonical logger ring. Numeric sensor fields are rendered
   only when their component sample is valid and within its freshness TTL;
@@ -182,8 +188,10 @@ The host-side acceptance sequence is:
 2. one complete firmware build;
 3. a second incremental build;
 4. the project size report;
-5. JSON syntax validation for the staged application package;
-6. the BLE provisioning/System Core static verifier;
+5. JSON syntax, bootstrap inventory, lazy-document ownership, and asset
+   reference validation for the staged application package;
+6. the BLE provisioning/System Core verifier, including the one-active-route
+   load/mount/unload contract;
 7. syntax and hidden-window smoke checks for the Windows simulator;
 8. its existing executable packaging flow;
 9. `git diff --check` and a scan for stale framework references.

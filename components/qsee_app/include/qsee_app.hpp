@@ -136,6 +136,75 @@ private:
         bool operator==(const ContentViewportState &) const = default;
     };
 
+    struct LazyScreenDescriptor {
+        std::string_view document_path;
+        std::string_view screen_path;
+    };
+
+    static std::optional<LazyScreenDescriptor> lazy_screen_descriptor(
+        Screen screen
+    );
+    static bool shares_lazy_document(Screen left, Screen right);
+    std::expected<void, std::string> activate_screen_document(
+        esp_brookesia::system::core::AppContext &context,
+        Screen screen
+    );
+    std::expected<void, std::string> restore_welcome_document(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> unload_active_screen_document(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> subscribe_screen_document_actions(
+        esp_brookesia::system::core::AppContext &context,
+        esp_brookesia::gui::DocumentId document_id,
+        Screen screen,
+        uint32_t generation,
+        std::vector<esp_brookesia::gui::ScopedConnection> &connections
+    );
+    bool is_current_screen_document(
+        esp_brookesia::gui::DocumentId document_id,
+        uint32_t generation
+    ) const;
+    void dispatch_screen_document_action(std::string action);
+    void invalidate_screen_document_state(Screen screen);
+    void log_screen_document_heap(
+        std::string_view operation,
+        Screen screen,
+        uint32_t loaded_document_count
+    ) const;
+    std::expected<void, std::string> set_text(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view path,
+        std::string_view text
+    );
+    std::expected<void, std::string> set_value(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view path,
+        int32_t value
+    );
+    std::expected<void, std::string> set_hidden(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view path,
+        bool hidden
+    );
+    std::expected<void, std::string> set_binding_text(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view path,
+        std::string_view binding,
+        std::string_view value
+    );
+    std::expected<void, std::string> set_binding_values(
+        esp_brookesia::system::core::AppContext &context,
+        const std::vector<esp_brookesia::gui::BindingValueUpdate> &updates
+    );
+    std::expected<void, std::string> scroll_to(
+        esp_brookesia::system::core::AppContext &context,
+        std::string_view path,
+        int32_t x,
+        int32_t y,
+        bool animated
+    );
     std::expected<void, std::string> open_screen(
         esp_brookesia::system::core::AppContext &context,
         Screen screen,
@@ -321,8 +390,11 @@ private:
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;
+    std::optional<esp_brookesia::gui::DocumentId>
+        active_screen_document_id_;
     std::vector<esp_brookesia::gui::ScopedConnection>
-        chrome_timing_connections_;
+        screen_document_connections_;
+    uint32_t screen_document_generation_ = 0;
     AlertService alert_service_;
     AdaptiveChromeController adaptive_chrome_;
     bool background_asset_registered_ = false;

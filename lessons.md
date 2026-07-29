@@ -24,6 +24,30 @@
   declarative components; do not silently ignore those requests or reintroduce
   the Shell as a fallback.
 
+## Declarative GUI document lifetime
+
+- Keep `components/qsee_app/gui/root.json` as the single editable declarative
+  source, but never ship it as one parsed runtime document. Generate a small
+  resident bootstrap containing only the background, shared chrome, Welcome,
+  and empty content target, plus one independent document per non-Welcome
+  content screen.
+- Release resident content before changing routes, clear the outgoing
+  document's action subscriptions, unload it, and only then load and mount the
+  requested document. Keep exactly one optional active route `DocumentId`;
+  additional preloading or caching requires measured device evidence and an
+  explicit bound.
+- A load, subscription, mount, or unload failure keeps its real error. Clean up
+  any partially loaded document and restore resident Welcome explicitly; never
+  report the requested route as active after partial success.
+- Log internal and PSRAM free/largest-block values around release, load, mount,
+  and unload. Static checks can prove document ownership and the one-active
+  policy, but only repeated physical navigation can establish fragmentation
+  behavior.
+- Treat `package/res/root.json` and `package/res/screen_*.json` as generated
+  artifacts. Regenerate and verify the complete package whenever the canonical
+  source changes so actions, templates, route descriptors, and staged files
+  cannot drift independently.
+
 ## ESP-IDF 6 flash operations and PSRAM task stacks
 
 - ESP-IDF 6 asserts if a task whose stack is in PSRAM performs an operation

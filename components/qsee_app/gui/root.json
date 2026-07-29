@@ -1,0 +1,3379 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        "templates/qsee_background.json",
+        "templates/qsee_command_button.json",
+        "templates/qsee_status_indicator.json",
+        "templates/qsee_status_bar.json",
+        "templates/qsee_settings_dropdown.json",
+        "templates/qsee_settings_switch.json",
+        "templates/qsee_metric.json",
+        "templates/qsee_hardware_card.json",
+        "templates/qsee_chrome.json",
+        "templates/qsee_pairing_stage.json",
+        "templates/qsee_spectrum_band.json",
+        "templates/qsee_spectrum_bar.json",
+        "templates/qsee_spectrum_detail_bar.json",
+        {
+            "type": "viewScreen",
+            "id": "qsee_background_screen",
+            "commonProps": {
+                "clickable": false,
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "children": [
+                {
+                    "type": "templateRef",
+                    "id": "background",
+                    "templateId": "qsee_background"
+                }
+            ]
+        },
+        {
+            "type": "screenFlow",
+            "id": "qsee_background_flow",
+            "screens": [
+                "qsee_background_screen"
+            ],
+            "initial": "qsee_background_screen",
+            "transitions": []
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_welcome",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": true
+                    },
+                    "events": [
+                        {
+                            "type": "scroll",
+                            "action": "qsee.chrome.activity"
+                        }
+                    ],
+                    "style": {
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "70dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "8dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "WELCOME"
+                            },
+                            "style": {
+                                "textColor": "#ffffff",
+                                "fontSize": "${constant.typography.title}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "292dp",
+                                "height": "32dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "device_status",
+                            "labelProps": {
+                                "text": "QSee device console\nSNAPSHOT UNAVAILABLE (STARTING)"
+                            },
+                            "style": {
+                                "textColor": "#c9edff",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "292dp",
+                                "height": "42dp"
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "ram",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "INTERNAL RAM"
+                                    },
+                                    "style": {
+                                        "fontSize": "13sp"
+                                    }
+                                },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                },
+                                "bar": {
+                                    "partStyles": {
+                                        "indicator": {
+                                            "bgColor": "#20dfc1",
+                                            "radius": "4dp"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "sd",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "SD"
+                                    }
+                                },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                },
+                                "bar": {
+                                    "partStyles": {
+                                        "indicator": {
+                                            "bgColor": "#0b55d9",
+                                            "radius": "4dp"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "psram",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "PSRAM"
+                                    }
+                                },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "flash",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": {
+                                    "labelProps": {
+                                        "text": "FLASH APP"
+                                    }
+                                },
+                                "value": {
+                                    "labelProps": {
+                                        "text": "SNAPSHOT NOT READY"
+                                    }
+                                },
+                                "bar": {
+                                    "partStyles": {
+                                        "indicator": {
+                                            "bgColor": "#0b55d9",
+                                            "radius": "4dp"
+                                        }
+                                    }
+                                }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "core0",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": { "labelProps": { "text": "CORE 0" } },
+                                "value": { "labelProps": { "text": "CPU DATA UNAVAILABLE" } },
+                                "bar": { "partStyles": { "indicator": { "bgColor": "#20dfc1", "radius": "4dp" } } }
+                            }
+                        },
+                        {
+                            "type": "templateRef",
+                            "id": "core1",
+                            "templateId": "qsee_metric",
+                            "overrides": {
+                                "name": { "labelProps": { "text": "CORE 1" } },
+                                "value": { "labelProps": { "text": "CPU DATA UNAVAILABLE" } },
+                                "bar": { "partStyles": { "indicator": { "bgColor": "#247fd6", "radius": "4dp" } } }
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_logs",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "5dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "LIVE LOGS"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "Tap a component for details - swipe to scroll"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "log_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.logs"
+                                }
+                            ],
+                            "style": {
+                                "bgColor": "#031933",
+                                "borderColor": "#1164ad",
+                                "borderWidth": "1dp",
+                                "radius": "8dp",
+                                "padding": "5dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "log_text",
+                                    "labelProps": {
+                                        "text": "LOGGER UNAVAILABLE\nWAITING FOR CANONICAL SNAPSHOT"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.micro}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "0dp",
+                                        "width": "286dp",
+                                        "height": "wrap"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_hardware",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "6dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "HARDWARE"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "All controls - swipe to scroll"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "hardware_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.hardware"
+                                }
+                            ],
+                            "style": {
+                                "borderWidth": "0dp",
+                                "padding": "2dp"
+                            },
+                            "layout": {
+                                "type": "grid",
+                                "gridTemplateColumns": [
+                                    "282dp"
+                                ],
+                                "gridTemplateRows": [
+                                    "24dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp"
+                                ],
+                                "gap": "2dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "summary",
+                                    "labelProps": {
+                                        "text": "SNAPSHOT UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}"
+                                    },
+                                    "placement": {
+                                        "gridColumn": 0,
+                                        "gridRow": 0,
+                                        "gridColumnSpan": 1
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "battery",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.0"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 1
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BATTERY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "AXP2101"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "rtc",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.1"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 2
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "RTC"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "PCF85063"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "imu",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.2"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 3
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "IMU"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "QMI8658"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "gps",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.3"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 4
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "GPS"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "LC76G"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "wifi",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.4"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 5
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "WIFI"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "ble",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.5"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 6
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BLE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.6"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 7
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "DISPLAY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CO5300"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "touch",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.7"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 8
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "TOUCH"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CST9217"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "speaker",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.8"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 9
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SPEAKER"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES8311"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "microphone",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.9"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 10
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "MICROPHONE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES7210"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sd",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.10"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 11
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SD CARD"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "SDMMC"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "processor",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.11"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 12
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "PROCESSOR"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_hardware_detail",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "12dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "8dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "HARDWARE DETAIL"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "Swipe for details - edge swipe to return"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "detail_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.hardware_detail"
+                                }
+                            ],
+                            "style": {
+                                "borderColor": "#1164ad",
+                                "borderWidth": "1dp",
+                                "radius": "8dp",
+                                "padding": "8dp"
+                            },
+                            "placement": {
+                                "width": "292dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "body",
+                                    "labelProps": {
+                                        "text": "DETAILS UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#d6efff",
+                                        "fontSize": "${constant.typography.detail}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "0dp",
+                                        "width": "272dp",
+                                        "height": "wrap"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_audio",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "AUDIO SCOPE"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "42dp",
+                                "width": "292dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "ES7210 dual microphone diagnostics"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "68dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "audio_status",
+                            "labelProps": {
+                                "text": "MICROPHONES UNAVAILABLE (WAITING FOR SAMPLE)"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "92dp",
+                                "width": "292dp",
+                                "height": "22dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic0_label",
+                            "labelProps": {
+                                "text": "CHANNEL 0 PEAK  |  -60..0 dBFS"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "118dp",
+                                "width": "280dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "progressBar",
+                            "id": "mic0_bar",
+                            "commonProps": {
+                                "hidden": true
+                            },
+                            "bindings": {
+                                "commonProps.hidden": "hidden",
+                                "rangeProps.value": "value"
+                            },
+                            "rangeProps": {
+                                "value": 0,
+                                "min": 0,
+                                "max": 100
+                            },
+                            "style": {
+                                "bgColor": "#0b1e2c",
+                                "radius": "6dp"
+                            },
+                            "partStyles": {
+                                "indicator": {
+                                    "bgColor": "#20dfc1",
+                                    "radius": "6dp"
+                                }
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "138dp",
+                                "width": "280dp",
+                                "height": "14dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic1_label",
+                            "labelProps": {
+                                "text": "CHANNEL 1 PEAK  |  -60..0 dBFS"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "166dp",
+                                "width": "280dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "progressBar",
+                            "id": "mic1_bar",
+                            "commonProps": {
+                                "hidden": true
+                            },
+                            "bindings": {
+                                "commonProps.hidden": "hidden",
+                                "rangeProps.value": "value"
+                            },
+                            "rangeProps": {
+                                "value": 0,
+                                "min": 0,
+                                "max": 100
+                            },
+                            "style": {
+                                "bgColor": "#0b1e2c",
+                                "radius": "6dp"
+                            },
+                            "partStyles": {
+                                "indicator": {
+                                    "bgColor": "#3478c8",
+                                    "radius": "6dp"
+                                }
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "186dp",
+                                "width": "280dp",
+                                "height": "14dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "audio_values",
+                            "labelProps": {
+                                "text": "PCM16 | -- kHz | -- CHANNELS\nCH0 -- %FS | -- dBFS\nCH1 -- %FS | -- dBFS"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "212dp",
+                                "width": "280dp",
+                                "height": "54dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "footer",
+                            "labelProps": {
+                                "text": "dBFS peak  |  canonical snapshot"
+                            },
+                            "style": {
+                                "textColor": "#607889",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "22dp",
+                                "y": "266dp",
+                                "width": "280dp",
+                                "height": "16dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_audio_fft",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "AUDIO FFT"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "48dp",
+                                "width": "292dp",
+                                "height": "28dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_status",
+                            "labelProps": {
+                                "text": "SPECTRUM UNAVAILABLE (WAITING FOR SAMPLE)"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "76dp",
+                                "width": "292dp",
+                                "height": "22dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "legend",
+                            "labelProps": {
+                                "text": "MEAN MIC 1 + MIC 2     16 DFT BINS     0 - 11 kHz"
+                            },
+                            "style": {
+                                "textColor": "#51c7f2",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "99dp",
+                                "width": "292dp",
+                                "height": "18dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "style": {
+                                "padding": 0
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
+                                "crossAlign": "end",
+                                "gap": "0dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "122dp",
+                                "width": "236dp",
+                                "height": "98dp"
+                            },
+                            "children": [
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_footer",
+                            "labelProps": {
+                                "text": "MEAN SPECTRUM | MIC 1 + MIC 2"
+                            },
+                            "style": {
+                                "textColor": "#607889",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "228dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_audio_detail",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": { "text": "AUDIO DETAIL" },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "44dp",
+                                "width": "292dp",
+                                "height": "28dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_status",
+                            "labelProps": {
+                                "text": "SPECTRUM UNAVAILABLE (WAITING FOR SAMPLE)"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "72dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "legend",
+                            "labelProps": {
+                                "text": "MIC 1 + MIC 2     16 DFT BINS     0 - 11 kHz"
+                            },
+                            "style": {
+                                "textColor": "#51c7f2",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "94dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic0_label",
+                            "labelProps": { "text": "MIC 1 | BLUE -> MAGENTA" },
+                            "style": {
+                                "textColor": "#78cfff",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "44dp",
+                                "y": "112dp",
+                                "width": "232dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "mic0_bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": { "commonProps.hidden": "hidden" },
+                            "style": { "padding": 0 },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
+                                "crossAlign": "end",
+                                "gap": "0dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "128dp",
+                                "width": "236dp",
+                                "height": "68dp"
+                            },
+                            "children": [
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "mic1_label",
+                            "labelProps": { "text": "MIC 2 | ORANGE -> GREEN" },
+                            "style": {
+                                "textColor": "#ffca70",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "44dp",
+                                "y": "198dp",
+                                "width": "232dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "mic1_bands",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false,
+                                "hidden": true
+                            },
+                            "bindings": { "commonProps.hidden": "hidden" },
+                            "style": { "padding": 0 },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "row",
+                                "mainAlign": "spaceBetween",
+                                "crossAlign": "end",
+                                "gap": "0dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "42dp",
+                                "y": "214dp",
+                                "width": "236dp",
+                                "height": "68dp"
+                            },
+                            "children": [
+                                { "type": "container", "id": "band00", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band01", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band02", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band03", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band04", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band05", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band06", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band07", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band08", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band09", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band10", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band11", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band12", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band13", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band14", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } },
+                                { "type": "container", "id": "band15", "bindings": { "placement.height": "height", "style.bgColor": "color" }, "style": { "bgColor": "#27bdf2", "radius": "0dp" }, "placement": { "width": "7dp", "height": "1dp" } }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "spectrum_footer",
+                            "labelProps": {
+                                "text": "LIVE DETAIL | TWO INDEPENDENT MICROPHONES"
+                            },
+                            "style": {
+                                "textColor": "#607889",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "288dp",
+                                "width": "292dp",
+                                "height": "20dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_imu",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "IMU LEVEL"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "42dp",
+                                "width": "292dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "QMI8658 motion and thermal telemetry"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "68dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "imu_status",
+                            "labelProps": {
+                                "text": "QMI8658 UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "88dp",
+                                "width": "122dp",
+                                "height": "18dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "calibration",
+                            "labelProps": {
+                                "text": "CALIB UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "right"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "180dp",
+                                "y": "89dp",
+                                "width": "132dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "accel_heading",
+                            "labelProps": {
+                                "text": "ACCEL  m/s2"
+                            },
+                            "style": {
+                                "textColor": "#20dfc1",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "113dp",
+                                "width": "126dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "gyro_heading",
+                            "labelProps": {
+                                "text": "GYRO  dps"
+                            },
+                            "style": {
+                                "textColor": "#3478c8",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "148dp",
+                                "y": "113dp",
+                                "width": "116dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "accel_x_axis",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 0, "y": 4 },
+                                    { "x": 54, "y": 4 },
+                                    { "x": 47, "y": 0 },
+                                    { "x": 54, "y": 4 },
+                                    { "x": 47, "y": 8 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#20dfc1",
+                                "lineWidth": "3dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "66dp",
+                                "y": "189dp",
+                                "width": "55dp",
+                                "height": "9dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "accel_y_axis",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 4, "y": 56 },
+                                    { "x": 4, "y": 2 },
+                                    { "x": 0, "y": 9 },
+                                    { "x": 4, "y": 2 },
+                                    { "x": 8, "y": 9 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#3478c8",
+                                "lineWidth": "3dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "62dp",
+                                "y": "137dp",
+                                "width": "9dp",
+                                "height": "57dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "accel_z_axis",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 39, "y": 0 },
+                                    { "x": 2, "y": 37 },
+                                    { "x": 3, "y": 27 },
+                                    { "x": 2, "y": 37 },
+                                    { "x": 12, "y": 36 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#f0b44d",
+                                "lineWidth": "3dp"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "27dp",
+                                "y": "193dp",
+                                "width": "40dp",
+                                "height": "40dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "accel_x",
+                            "labelProps": {
+                                "text": "X --"
+                            },
+                            "style": {
+                                "textColor": "#20dfc1",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "76dp",
+                                "y": "173dp",
+                                "width": "58dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "accel_y",
+                            "labelProps": {
+                                "text": "Y --"
+                            },
+                            "style": {
+                                "textColor": "#3478c8",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "73dp",
+                                "y": "137dp",
+                                "width": "58dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "accel_z",
+                            "labelProps": {
+                                "text": "Z --"
+                            },
+                            "style": {
+                                "textColor": "#f0b44d",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "237dp",
+                                "width": "76dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "divider",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#173c55",
+                                "bgOpacity": 204,
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "136dp",
+                                "y": "117dp",
+                                "width": "1dp",
+                                "height": "151dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "gyro_x_arc",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "bindings": {
+                                "style.opacity": "opacity"
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 6, "y": 23 },
+                                    { "x": 13, "y": 13 },
+                                    { "x": 23, "y": 6 },
+                                    { "x": 34, "y": 3 },
+                                    { "x": 46, "y": 4 },
+                                    { "x": 57, "y": 9 },
+                                    { "x": 61, "y": 13 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#20dfc1",
+                                "lineWidth": "5dp",
+                                "opacity": 77
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "169dp",
+                                "y": "134dp",
+                                "width": "74dp",
+                                "height": "74dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "gyro_y_arc",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "bindings": {
+                                "style.opacity": "opacity"
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 65, "y": 18 },
+                                    { "x": 70, "y": 28 },
+                                    { "x": 71, "y": 37 },
+                                    { "x": 70, "y": 46 },
+                                    { "x": 65, "y": 57 },
+                                    { "x": 57, "y": 65 },
+                                    { "x": 46, "y": 70 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#3478c8",
+                                "lineWidth": "5dp",
+                                "opacity": 77
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "169dp",
+                                "y": "134dp",
+                                "width": "74dp",
+                                "height": "74dp"
+                            }
+                        },
+                        {
+                            "type": "line",
+                            "id": "gyro_z_arc",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "bindings": {
+                                "style.opacity": "opacity"
+                            },
+                            "lineProps": {
+                                "points": [
+                                    { "x": 40, "y": 71 },
+                                    { "x": 28, "y": 70 },
+                                    { "x": 18, "y": 65 },
+                                    { "x": 9, "y": 57 },
+                                    { "x": 4, "y": 46 },
+                                    { "x": 3, "y": 37 },
+                                    { "x": 4, "y": 28 }
+                                ]
+                            },
+                            "style": {
+                                "lineColor": "#f0b44d",
+                                "lineWidth": "5dp",
+                                "opacity": 77
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "169dp",
+                                "y": "134dp",
+                                "width": "74dp",
+                                "height": "74dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "gyro_icon",
+                            "labelProps": {
+                                "text": "\uf021"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "192dp",
+                                "y": "158dp",
+                                "width": "28dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "gyro_x",
+                            "labelProps": {
+                                "text": "X --"
+                            },
+                            "style": {
+                                "textColor": "#20dfc1",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "150dp",
+                                "y": "216dp",
+                                "width": "112dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "gyro_y",
+                            "labelProps": {
+                                "text": "Y --"
+                            },
+                            "style": {
+                                "textColor": "#3478c8",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "150dp",
+                                "y": "234dp",
+                                "width": "112dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "gyro_z",
+                            "labelProps": {
+                                "text": "Z --"
+                            },
+                            "style": {
+                                "textColor": "#f0b44d",
+                                "fontSize": "${constant.typography.detail}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "150dp",
+                                "y": "252dp",
+                                "width": "112dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "temperature_icon",
+                            "labelProps": {
+                                "text": "\uf043"
+                            },
+                            "style": {
+                                "textColor": "#3478c8",
+                                "fontSize": "${constant.typography.control}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "10dp",
+                                "y": "280dp",
+                                "width": "22dp",
+                                "height": "30dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "temperature",
+                            "labelProps": {
+                                "text": "-- C"
+                            },
+                            "style": {
+                                "textColor": "#3478c8",
+                                "fontSize": "${constant.typography.body}"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "36dp",
+                                "y": "287dp",
+                                "width": "92dp",
+                                "height": "22dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_settings",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "6dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "container",
+                            "id": "settings_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.settings"
+                                }
+                            ],
+                            "style": {
+                                "padding": "7dp"
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "column",
+                                "crossAlign": "center",
+                                "gap": "8dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "title",
+                                    "labelProps": {
+                                        "text": "SETTINGS"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "subtitle",
+                                    "labelProps": {
+                                        "text": "All controls - swipe to scroll"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "performance_status",
+                                    "labelProps": {
+                                        "text": "Standard service profile"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "performance_mode",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Performance mode"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Reduces background checks"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.performance.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "diagnostics_title",
+                                    "labelProps": {
+                                        "text": "DIAGNOSTICS"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "diagnostics_description",
+                                    "labelProps": {
+                                        "text": "Live snapshots and diagnostics"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "full_snapshot_period_label",
+                                    "labelProps": {
+                                        "text": "Full Snapshot cadence"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "full_snapshot_period",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "300 ms",
+                                                    "500 ms",
+                                                    "1 Hz",
+                                                    "2 seconds",
+                                                    "3 seconds",
+                                                    "5 seconds",
+                                                    "10 seconds"
+                                                ],
+                                                "selectedIndex": 2
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.full_snapshot.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "full_snapshot_status",
+                                    "labelProps": {
+                                        "text": "FULL SNAPSHOT | UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "period_value",
+                                    "labelProps": {
+                                        "text": "Diagnostic refresh"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "diagnostic_period",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "Very fast",
+                                                    "Fast",
+                                                    "Balanced",
+                                                    "Relaxed",
+                                                    "Slow",
+                                                    "Very slow"
+                                                ],
+                                                "selectedIndex": 2
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.diagnostic.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "smoothing_value",
+                                    "labelProps": {
+                                        "text": "Motion smoothing"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "imu_smoothing",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "Off",
+                                                    "10%",
+                                                    "20%",
+                                                    "30%",
+                                                    "40%",
+                                                    "50%",
+                                                    "60%",
+                                                    "70%",
+                                                    "80%",
+                                                    "90%"
+                                                ],
+                                                "selectedIndex": 7
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.imu_smoothing.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "storage_title",
+                                    "labelProps": {
+                                        "text": "STORAGE"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "storage_description",
+                                    "labelProps": {
+                                        "text": "Card state and persistent log mirroring"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "storage_value",
+                                    "labelProps": {
+                                        "text": "Checking SD card..."
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "24dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "storage_mirror",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Copy logs to SD"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Requires a ready SD card"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.storage.mirror.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "connectivity_title",
+                                    "labelProps": {
+                                        "text": "CONNECTIVITY"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "connectivity_description",
+                                    "labelProps": {
+                                        "text": "Wi-Fi, Bluetooth and GPS state"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "radio_value",
+                                    "labelProps": {
+                                        "text": "Checking wireless services..."
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "36dp"
+                                    }
+                                },
+                                    {
+                                      "type": "button",
+                                      "id": "radio_start",
+                                    "events": [
+                                        {
+                                            "type": "clicked",
+                                            "action": "qsee.settings.radios.start"
+                                        }
+                                    ],
+                                    "style": {
+                                        "bgColor": "#0b55d9",
+                                        "radius": "19dp"
+                                    },
+                                    "placement": {
+                                        "width": "176dp",
+                                        "height": "38dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "labelProps": {
+                                                "text": "START WIRELESS"
+                                            },
+                                            "style": {
+                                                "textColor": "#ffffff",
+                                                "fontSize": "${constant.typography.detail}"
+                                            },
+                                            "placement": {
+                                                "mode": "relative",
+                                                "align": "center"
+                                            }
+                                        }
+                                      ]
+                                    },
+                                    {
+                                      "type": "label",
+                                      "id": "radio_policy",
+                                      "labelProps": {
+                                        "text": "Wireless stays off until you start it."
+                                      },
+                                      "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                      },
+                                      "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                      }
+                                    },
+                                    {
+                                      "type": "label",
+                                      "id": "wifi_detail",
+                                    "labelProps": {
+                                        "text": "WI-FI | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "52dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "ble_detail",
+                                    "labelProps": {
+                                        "text": "BLUETOOTH | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "46dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "gps_detail",
+                                    "labelProps": {
+                                        "text": "GPS | UNAVAILABLE (SNAPSHOT NOT READY)"
+                                    },
+                                    "style": {
+                                        "textColor": "#f0b44d",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "52dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_title",
+                                    "labelProps": {
+                                        "text": "DISPLAY"
+                                    },
+                                    "style": {
+                                        "textColor": "#00e7c5",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_description",
+                                    "labelProps": {
+                                        "text": "AMOLED brightness and screen behavior"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "brightness_value",
+                                    "labelProps": {
+                                        "text": "Brightness"
+                                    },
+                                    "style": {
+                                        "textColor": "#3de0b0",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "brightness",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "10%",
+                                                    "20%",
+                                                    "30%",
+                                                    "40%",
+                                                    "50%",
+                                                    "60%",
+                                                    "70%",
+                                                    "80%",
+                                                    "90%",
+                                                    "100%"
+                                                ],
+                                                "selectedIndex": 8
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display.brightness.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "rotation_value",
+                                    "labelProps": {
+                                        "text": "Screen orientation"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "auto_rotation",
+                                    "templateId": "qsee_settings_switch",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Automatic rotation"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Follow the device orientation"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display.rotation.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "adaptive_chrome_title",
+                                    "labelProps": {
+                                        "text": "ADAPTIVE CHROME"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "adaptive_chrome_description",
+                                    "labelProps": {
+                                        "text": "Touch or motion wakes"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "command_arc_timeout_label",
+                                    "labelProps": {
+                                        "text": "Hide Command Arc after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "command_arc_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.command_arc.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "status_arc_timeout_label",
+                                    "labelProps": {
+                                        "text": "Hide Status Arc after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "status_arc_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.status_arc.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "power_title",
+                                    "labelProps": {
+                                        "text": "POWER"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "power_description",
+                                    "labelProps": {
+                                        "text": "Dim, then screen sleep"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "display_dim_timeout_label",
+                                    "labelProps": {
+                                        "text": "Dim display to 50% after"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display_dim_timeout",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "1 minute",
+                                                    "2 minutes",
+                                                    "5 minutes",
+                                                    "10 minutes",
+                                                    "15 minutes",
+                                                    "Never"
+                                                ]
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.display_dim.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "screen_sleep_delay_label",
+                                    "labelProps": {
+                                        "text": "Full sleep after display dim"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "screen_sleep_delay",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "30 seconds",
+                                                    "1 minute",
+                                                    "2 minutes",
+                                                    "5 minutes",
+                                                    "10 minutes",
+                                                    "15 minutes",
+                                                    "Never"
+                                                ]
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.settings.screen_sleep.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "adaptive_saved_note",
+                                    "labelProps": {
+                                        "text": "Changes are saved automatically."
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "button",
+                                    "id": "about_action",
+                                    "commonProps": {
+                                        "pressLock": false
+                                    },
+                                    "events": [
+                                        {
+                                            "type": "clicked",
+                                            "action": "qsee.open.about"
+                                        }
+                                    ],
+                                    "style": {
+                                        "bgColor": "#247fd6",
+                                        "borderColor": "#65c8ff",
+                                        "borderWidth": "1dp",
+                                        "radius": "10dp",
+                                        "padding": 0
+                                    },
+                                    "stateStyles": {
+                                        "pressed": {
+                                            "bgColor": "#1765ad",
+                                            "borderColor": "#9cddff",
+                                            "borderWidth": "1dp"
+                                        }
+                                    },
+                                    "placement": {
+                                        "width": "180dp",
+                                        "height": "42dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "commonProps": {
+                                                "clickable": false,
+                                                "scrollable": false
+                                            },
+                                            "labelProps": {
+                                                "text": "ABOUT QSEE.AI"
+                                            },
+                                            "style": {
+                                                "textColor": "#ffffff",
+                                                "fontSize": "${constant.typography.detail}",
+                                                "textAlign": "center"
+                                            },
+                                            "placement": {
+                                                "mode": "relative",
+                                                "align": "center"
+                                            }
+                                        }
+                                    ]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_about",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "16dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "mainAlign": "center",
+                        "crossAlign": "center",
+                        "gap": "12dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "brand",
+                            "labelProps": {
+                                "text": "QSEE.AI"
+                            },
+                            "style": {
+                                "textColor": "#009c9d",
+                                "fontSize": "${constant.typography.title}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "46dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "tagline",
+                            "labelProps": {
+                                "text": "Clear signals. Confident decisions."
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.body}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "details",
+                            "labelProps": {
+                                "text": "Device console on ESP-Brookesia 0.8\nqsee.ai\nhello@qsee.ai\n\nCopyright (c) 2026 QSee.ai"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "128dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_pairing",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "templateRef",
+                    "id": "surface",
+                    "templateId": "qsee_pairing_stage"
+                }
+            ]
+        },
+        {
+            "type": "screenFlow",
+            "id": "qsee_chrome_flow",
+            "screens": [
+                "qsee_chrome_screen"
+            ],
+            "initial": "qsee_chrome_screen",
+            "transitions": []
+        },
+        {
+            "type": "screenFlow",
+            "id": "qsee_content",
+            "screens": [
+                "qsee_welcome",
+                "qsee_logs",
+                "qsee_hardware",
+                "qsee_hardware_detail",
+                "qsee_audio",
+                "qsee_audio_fft",
+                "qsee_audio_detail",
+                "qsee_imu",
+                "qsee_settings",
+                "qsee_about",
+                "qsee_pairing"
+            ],
+            "initial": "qsee_welcome",
+            "transitions": [
+                {
+                    "from": [],
+                    "action": "qsee.open.welcome",
+                    "to": "qsee_welcome"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.logs",
+                    "to": "qsee_logs"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.hardware",
+                    "to": "qsee_hardware"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.hardware_detail",
+                    "to": "qsee_hardware_detail"
+                },
+                {
+                    "from": [],
+                "action": "qsee.open.audio",
+                "to": "qsee_audio"
+            },
+            {
+                "from": [],
+                "action": "qsee.open.audio_fft",
+                "to": "qsee_audio_fft"
+            },
+            {
+                "from": [],
+                "action": "qsee.open.audio_detail",
+                "to": "qsee_audio_detail"
+            },
+                {
+                    "from": [],
+                    "action": "qsee.open.imu",
+                    "to": "qsee_imu"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.settings",
+                    "to": "qsee_settings"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.about",
+                    "to": "qsee_about"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_intro",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_bluetooth",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_app",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.app_store_qr",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_qr",
+                    "to": "qsee_pairing"
+                },
+                {
+                    "from": [],
+                    "action": "qsee.open.pair_result",
+                    "to": "qsee_pairing"
+                }
+            ]
+        }
+    ]
+}

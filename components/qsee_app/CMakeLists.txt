@@ -25,6 +25,18 @@ target_link_libraries(
     PUBLIC "-u qsee_app_provider_symbol"
 )
 
+add_custom_target(
+    qsee_verify_lazy_gui_documents ALL
+    COMMAND
+        "${PYTHON}"
+        "${PROJECT_DIR}/scripts/generate_qsee_gui_documents.py"
+        --check
+    WORKING_DIRECTORY "${PROJECT_DIR}"
+    COMMENT "Verifying generated QSee lazy GUI documents"
+    VERBATIM
+)
+add_dependencies(${COMPONENT_LIB} qsee_verify_lazy_gui_documents)
+
 if(DEFINED BROOKESIA_SYSTEM_CORE_COMPONENT_DIR AND
    NOT "${BROOKESIA_SYSTEM_CORE_COMPONENT_DIR}" STREQUAL "")
     set(brookesia_system_core_dir "${BROOKESIA_SYSTEM_CORE_COMPONENT_DIR}")

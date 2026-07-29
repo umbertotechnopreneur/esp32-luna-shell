@@ -1,0 +1,128 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_about",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "16dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "mainAlign": "center",
+                        "crossAlign": "center",
+                        "gap": "12dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "brand",
+                            "labelProps": {
+                                "text": "QSEE.AI"
+                            },
+                            "style": {
+                                "textColor": "#009c9d",
+                                "fontSize": "${constant.typography.title}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "46dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "tagline",
+                            "labelProps": {
+                                "text": "Clear signals. Confident decisions."
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.body}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "details",
+                            "labelProps": {
+                                "text": "Device console on ESP-Brookesia 0.8\nqsee.ai\nhello@qsee.ai\n\nCopyright (c) 2026 QSee.ai"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "width": "288dp",
+                                "height": "128dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
