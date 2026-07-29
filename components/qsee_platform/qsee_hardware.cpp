@@ -102,7 +102,9 @@ constexpr uint16_t kAudioSpectrumBins[qsee::kAudioSpectrumBandCount] = {
     1, 2, 3, 4, 6, 8, 11, 16,
     23, 32, 45, 64, 90, 110, 120, 127,
 };
-constexpr int64_t kMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
+constexpr int64_t kMinimumMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
+constexpr int64_t kFullSnapshotTtlNumerator = 6;
+constexpr int64_t kFullSnapshotTtlDenominator = 5;
 constexpr uint32_t kPeriodicSummaryIntervalMs = 30000U;
 constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
 constexpr uint64_t kPmuIrqMask = 0xFFFFFFULL;
@@ -454,14 +456,23 @@ esp_err_t update_snapshot(Update update)
 
 void mark_sample_success(
     qsee::ComponentSnapshot &component,
-    int64_t sampled_at_us
+    int64_t attempted_at_us,
+    int64_t completed_at_us
 )
 {
     set_component(component, true, ESP_OK);
     component.data_valid = true;
     component.data_stale = false;
-    component.last_attempt_at_us = sampled_at_us;
-    component.last_success_at_us = sampled_at_us;
+    component.last_attempt_at_us = attempted_at_us;
+    component.last_success_at_us = completed_at_us;
+}
+
+void mark_sample_success(
+    qsee::ComponentSnapshot &component,
+    int64_t sampled_at_us
+)
+{
+    mark_sample_success(component, sampled_at_us, sampled_at_us);
 }
 
 void mark_sample_failure(
@@ -855,7 +866,8 @@ const char *radio_summary_state(const qsee::ComponentSnapshot &radio)
 
 void age_measured_sample(
     qsee::ComponentSnapshot &component,
-    int64_t now_us
+    int64_t now_us,
+    int64_t ttl_us
 )
 {
     if (!component.data_valid || component.data_stale ||
@@ -863,10 +875,25 @@ void age_measured_sample(
         return;
     }
     if (now_us < component.last_success_at_us ||
-        now_us - component.last_success_at_us >= kMeasuredSampleTtlUs) {
+        now_us - component.last_success_at_us >= ttl_us) {
         component.data_valid = false;
         component.data_stale = true;
     }
+}
+
+int64_t measured_sample_ttl_us(const qsee::DeviceSnapshot &snapshot)
+{
+    if (!snapshot.diagnostics.full_snapshot_monitor_active ||
+        snapshot.diagnostics.full_snapshot_period.last_error != ESP_OK ||
+        !snapshot.diagnostics.full_snapshot_period.data_valid) {
+        return kMinimumMeasuredSampleTtlUs;
+    }
+
+    const int64_t cadence_ttl_us =
+        static_cast<int64_t>(snapshot.diagnostics.full_snapshot_period_ms) *
+        1000LL * kFullSnapshotTtlNumerator /
+        kFullSnapshotTtlDenominator;
+    return std::max(kMinimumMeasuredSampleTtlUs, cadence_ttl_us);
 }
 
 void apply_measured_sample_aging(
@@ -874,17 +901,18 @@ void apply_measured_sample_aging(
     int64_t now_us
 )
 {
-    age_measured_sample(snapshot.battery, now_us);
-    age_measured_sample(snapshot.rtc, now_us);
-    age_measured_sample(snapshot.imu, now_us);
-    age_measured_sample(snapshot.sensor_fusion, now_us);
-    age_measured_sample(snapshot.gps, now_us);
-    age_measured_sample(snapshot.audio.microphone, now_us);
+    const int64_t ttl_us = measured_sample_ttl_us(snapshot);
+    age_measured_sample(snapshot.battery, now_us, ttl_us);
+    age_measured_sample(snapshot.rtc, now_us, ttl_us);
+    age_measured_sample(snapshot.imu, now_us, ttl_us);
+    age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us);
+    age_measured_sample(snapshot.gps, now_us, ttl_us);
+    age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
     if (snapshot.ui.orientation.auto_rotation_enabled) {
-        age_measured_sample(snapshot.ui.orientation, now_us);
+        age_measured_sample(snapshot.ui.orientation, now_us, ttl_us);
     }
-    age_measured_sample(snapshot.memory, now_us);
-    age_measured_sample(snapshot.processor, now_us);
+    age_measured_sample(snapshot.memory, now_us, ttl_us);
+    age_measured_sample(snapshot.processor, now_us, ttl_us);
 }
 
 esp_err_t publish_update_result(const char *reason, esp_err_t error)
@@ -1850,6 +1878,26 @@ bool valid_calendar_time(const qsee_calendar_time_t &time)
     return time.day >= 1U && time.day <= maximum_day;
 }
 
+bool valid_rtc_register_calendar(const qsee_calendar_time_t &time)
+{
+    if (time.year < 2000 || time.year > 2099 ||
+        time.month < 1 || time.month > 12 ||
+        time.hour > 23 || time.minute > 59 || time.second > 59) {
+        return false;
+    }
+    static constexpr uint8_t days_per_month[] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    };
+    uint8_t maximum_day = days_per_month[time.month - 1U];
+    const bool leap =
+        (time.year % 4U == 0U && time.year % 100U != 0U) ||
+        time.year % 400U == 0U;
+    if (time.month == 2U && leap) {
+        maximum_day = 29;
+    }
+    return time.day >= 1U && time.day <= maximum_day;
+}
+
 bool valid_bcd(uint8_t value)
 {
     return (value & 0x0FU) <= 9U && ((value >> 4U) & 0x0FU) <= 9U;
@@ -2325,7 +2373,7 @@ esp_err_t init_rtc(i2c_master_bus_handle_t bus)
         ESP_LOGW(TAG, "RTC PCF85063: initialization failed (%s)", esp_err_to_name(error));
         return error;
     }
-    ESP_LOGI(TAG, "RTC PCF85063: detected, oscillator running in 24-hour mode");
+    ESP_LOGI(TAG, "RTC PCF85063: detected, 24-hour mode configured");
     return ESP_OK;
 }
 
@@ -2376,7 +2424,7 @@ esp_err_t read_rtc_calendar(qsee_calendar_time_t *time)
         .minute = bcd_to_decimal(minutes),
         .second = bcd_to_decimal(seconds),
     };
-    if (!valid_calendar_time(decoded)) {
+    if (!valid_rtc_register_calendar(decoded)) {
         ESP_LOGE(
             TAG,
             "RTC PCF85063 rejected calendar range: decoded=%04u-%02u-%02u %02u:%02u:%02u raw=[%02x %02x %02x %02x %02x %02x %02x]",
@@ -2400,7 +2448,15 @@ esp_err_t read_rtc_calendar(qsee_calendar_time_t *time)
     if (!decoded.clock_integrity) {
         ESP_LOGW(
             TAG,
-            "RTC PCF85063 calendar integrity unavailable: raw=[%02x %02x %02x %02x %02x %02x %02x]",
+            "RTC PCF85063 calendar integrity unavailable (oscillator-stop flag set): "
+            "decoded=%04u-%02u-%02u %02u:%02u:%02u "
+            "raw=[%02x %02x %02x %02x %02x %02x %02x]",
+            decoded.year,
+            decoded.month,
+            decoded.day,
+            decoded.hour,
+            decoded.minute,
+            decoded.second,
             raw[0],
             raw[1],
             raw[2],
@@ -2408,6 +2464,20 @@ esp_err_t read_rtc_calendar(qsee_calendar_time_t *time)
             raw[4],
             raw[5],
             raw[6]
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!valid_calendar_time(decoded)) {
+        ESP_LOGW(
+            TAG,
+            "RTC PCF85063 calendar is structurally valid but not initialized "
+            "to a trusted epoch: decoded=%04u-%02u-%02u %02u:%02u:%02u",
+            decoded.year,
+            decoded.month,
+            decoded.day,
+            decoded.hour,
+            decoded.minute,
+            decoded.second
         );
         return ESP_ERR_INVALID_STATE;
     }
@@ -2422,7 +2492,17 @@ esp_err_t publish_rtc_read(
 {
     if (error != ESP_OK) {
         return update_snapshot(
-            [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+            [time, error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+                if (error == ESP_ERR_INVALID_STATE &&
+                    valid_rtc_register_calendar(time)) {
+                    snapshot.rtc.clock_integrity = time.clock_integrity;
+                    snapshot.rtc.second = time.second;
+                    snapshot.rtc.minute = time.minute;
+                    snapshot.rtc.hour = time.hour;
+                    snapshot.rtc.day = time.day;
+                    snapshot.rtc.month = time.month;
+                    snapshot.rtc.year = time.year;
+                }
                 mark_sample_failure(
                     snapshot.rtc,
                     error,
@@ -4614,6 +4694,7 @@ esp_err_t sample_system_state()
     if (!memory.allocation_failure_monitor_active) {
         record_first_error(ESP_ERR_INVALID_STATE, &memory_error);
     }
+    const int64_t memory_completed_at_us = esp_timer_get_time();
 
     esp_chip_info_t chip = {};
     esp_chip_info(&chip);
@@ -4717,12 +4798,21 @@ esp_err_t sample_system_state()
             }
         }
     }
+    const int64_t processor_completed_at_us = esp_timer_get_time();
 
     if (memory_error == ESP_OK) {
-        mark_sample_success(memory, attempted_at_us);
+        mark_sample_success(
+            memory,
+            attempted_at_us,
+            memory_completed_at_us
+        );
     }
     if (processor_error == ESP_OK) {
-        mark_sample_success(processor, attempted_at_us);
+        mark_sample_success(
+            processor,
+            attempted_at_us,
+            processor_completed_at_us
+        );
     }
     const esp_err_t publish_error = update_snapshot(
         [&memory, &processor, memory_error, processor_error, attempted_at_us](

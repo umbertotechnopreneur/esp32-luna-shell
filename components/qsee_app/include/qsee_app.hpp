@@ -89,17 +89,45 @@ private:
 
     static constexpr std::size_t kAudioUiSpectrumBandCount = 16;
 
-    struct CachedText {
-        std::array<char, 256> value{};
+    template <std::size_t Capacity>
+    struct FixedTextCache {
+        std::array<char, Capacity> value{};
         std::size_t length = 0;
         bool valid = false;
     };
+
+    using CachedText = FixedTextCache<256>;
 
     struct AudioMeterCache {
         std::array<int32_t, 2> levels{};
         std::array<bool, 2> level_known{};
         std::array<bool, 2> hidden{};
         std::array<bool, 2> hidden_known{};
+    };
+
+    static constexpr std::size_t kHardwareUiComponentCount = 12;
+
+    struct HardwareUiCache {
+        std::array<
+            FixedTextCache<48>,
+            kHardwareUiComponentCount
+        > statuses{};
+        std::array<
+            FixedTextCache<8>,
+            kHardwareUiComponentCount
+        > colors{};
+        FixedTextCache<64> summary;
+    };
+
+    struct ImuUiCache {
+        FixedTextCache<160> status;
+        FixedTextCache<96> calibration;
+        std::array<FixedTextCache<32>, 3> acceleration{};
+        std::array<FixedTextCache<32>, 3> angular_velocity{};
+        std::array<FixedTextCache<4>, 3> arc_opacity{};
+        std::array<bool, 3> arc_hidden{};
+        std::array<bool, 3> arc_hidden_known{};
+        FixedTextCache<32> temperature;
     };
 
     enum class SettingsTextSlot : std::size_t {
@@ -255,13 +283,24 @@ private:
     std::expected<void, std::string> refresh_audio_detail(
         esp_brookesia::system::core::AppContext &context
     );
+    template <std::size_t Capacity>
     std::expected<void, std::string> set_cached_text(
         esp_brookesia::system::core::AppContext &context,
-        CachedText &cache,
+        FixedTextCache<Capacity> &cache,
         std::string_view path,
         std::string_view text
     );
+    template <std::size_t Capacity>
+    std::expected<void, std::string> set_cached_binding_text(
+        esp_brookesia::system::core::AppContext &context,
+        FixedTextCache<Capacity> &cache,
+        std::string_view path,
+        std::string_view binding,
+        std::string_view value
+    );
     void invalidate_audio_screen_cache(Screen screen);
+    void invalidate_hardware_screen_cache();
+    void invalidate_imu_screen_cache();
     std::expected<void, std::string> refresh_imu(
         esp_brookesia::system::core::AppContext &context
     );
@@ -387,6 +426,8 @@ private:
     bool audio_detail_heights_valid_ = false;
     bool audio_detail_hidden_ = true;
     bool audio_detail_hidden_known_ = false;
+    HardwareUiCache hardware_ui_cache_;
+    ImuUiCache imu_ui_cache_;
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;

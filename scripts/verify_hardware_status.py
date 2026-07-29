@@ -81,8 +81,32 @@ def main() -> None:
     )
     require(
         hardware,
-        "RTC PCF85063 calendar integrity unavailable: raw=[",
+        "RTC PCF85063 calendar integrity unavailable (oscillator-stop flag set):",
         "RTC validation",
+    )
+    require(
+        hardware,
+        "RTC PCF85063 calendar is structurally valid but not initialized",
+        "RTC reset-state classification",
+    )
+
+    app = read("components/qsee_app/qsee_app.cpp")
+    require(
+        app,
+        "bool rtc_calendar_structurally_valid(",
+        "RTC structural waiting guard",
+    )
+    require(app, "bool rtc_waiting_for_time_source(", "RTC waiting state")
+    require(
+        app,
+        "rtc_calendar_structurally_valid(rtc)",
+        "RTC structural waiting guard",
+    )
+    require(app, "WAITING FOR SNTP/GPS", "RTC waiting state")
+    require(
+        app,
+        "RECOVERY: WAITING FOR A VALID SNTP OR GPS UTC FIX",
+        "RTC detail recovery guidance",
     )
 
     # The status ribbon uses separate visual classes, not one red catch-all.

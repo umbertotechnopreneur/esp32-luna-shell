@@ -46,6 +46,9 @@ try {
         $Arguments += "--performance-mode"
     }
     python -B @Arguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "QSee Windows simulator failed with exit code $LASTEXITCODE"
+    }
 }
 finally {
     Pop-Location

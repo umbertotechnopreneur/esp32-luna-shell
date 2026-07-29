@@ -265,6 +265,22 @@ bool rtc_reading_valid(const qsee::RtcSnapshot &rtc)
            rtc.hour <= 23 && rtc.minute <= 59 && rtc.second <= 59;
 }
 
+bool rtc_calendar_structurally_valid(const qsee::RtcSnapshot &rtc)
+{
+    return rtc.year >= 2000 && rtc.year <= 2099 &&
+           rtc.month >= 1 && rtc.month <= 12 &&
+           rtc.day >= 1 && rtc.day <= 31 &&
+           rtc.hour <= 23 && rtc.minute <= 59 && rtc.second <= 59;
+}
+
+bool rtc_waiting_for_time_source(const qsee::RtcSnapshot &rtc)
+{
+    return rtc.last_error == ESP_ERR_INVALID_STATE &&
+           rtc.last_attempt_at_us > 0 &&
+           rtc_calendar_structurally_valid(rtc) &&
+           !rtc.data_valid;
+}
+
 template <size_t Size, typename... Args>
 void append_format(std::array<char, Size> &output, const char *format, Args... args)
 {
@@ -691,6 +707,12 @@ void App::invalidate_screen_document_state(Screen screen)
 {
     content_viewport_state_.reset();
     invalidate_audio_screen_cache(screen);
+    if (screen == Screen::Hardware) {
+        invalidate_hardware_screen_cache();
+    }
+    if (screen == Screen::Imu) {
+        invalidate_imu_screen_cache();
+    }
     if (screen == Screen::AudioDetail) {
         audio_detail_palette_applied_ = false;
     }
@@ -890,16 +912,6 @@ std::expected<void, std::string> App::restore_welcome_document(
     AppContext &context
 )
 {
-    auto welcome_result = context.gui().trigger_screen_flow(
-        kScreenFlow,
-        "qsee.open.welcome"
-    );
-    if (!welcome_result) {
-        return std::unexpected(
-            "Failed to restore Welcome after lazy GUI failure: " +
-            welcome_result.error()
-        );
-    }
     std::string rollback_error;
     const auto remember_failure = [&](std::string_view operation,
                                       std::string_view error) {
@@ -917,9 +929,23 @@ std::expected<void, std::string> App::restore_welcome_document(
         rollback_error += std::string(operation) + " failed: " +
                           std::string(error);
     };
+
+    auto welcome_result = context.gui().trigger_screen_flow(
+        kScreenFlow,
+        "qsee.open.welcome"
+    );
+    if (!welcome_result) {
+        remember_failure(
+            "resident Welcome restore",
+            welcome_result.error()
+        );
+    }
     if (auto unload_result = unload_active_screen_document(context);
         !unload_result) {
         remember_failure("lazy document unload", unload_result.error());
+    }
+    if (!welcome_result) {
+        return std::unexpected(std::move(rollback_error));
     }
 
     screen_ = Screen::Welcome;
@@ -931,6 +957,8 @@ std::expected<void, std::string> App::restore_welcome_document(
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
+    invalidate_hardware_screen_cache();
+    invalidate_imu_screen_cache();
 
     if (auto result = apply_diagnostic_monitor(context, Screen::Welcome);
         !result) {
@@ -1179,6 +1207,8 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
+    invalidate_hardware_screen_cache();
+    invalidate_imu_screen_cache();
     pairing_started_at_us_ = 0;
     pairing_result_.clear();
     log_filter_mode_ = 0;
@@ -1376,6 +1406,8 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
+    invalidate_hardware_screen_cache();
+    invalidate_imu_screen_cache();
     const auto rollback_diagnostics = [this]() {
         const esp_err_t monitor_result =
             qsee_hardware_set_diagnostic_streams(false, false);
@@ -1893,6 +1925,10 @@ void format_hardware_status(
         std::snprintf(output.data(), output.size(), "OFF BY POLICY");
         return;
     }
+    if (index == 1 && rtc_waiting_for_time_source(snapshot.rtc)) {
+        std::snprintf(output.data(), output.size(), "WAITING FOR SNTP/GPS");
+        return;
+    }
     if (index == 3 && component_ready(snapshot.gps)) {
         std::snprintf(
             output.data(),
@@ -1955,6 +1991,7 @@ const char *hardware_status_color(
     }
     if ((index == 3 && component_ready(snapshot.gps) &&
          !snapshot.gps.has_fix) ||
+        (index == 1 && rtc_waiting_for_time_source(snapshot.rtc)) ||
         (index == 10 &&
          (storage_format_required(snapshot.storage) ||
           !snapshot.storage.card_response_verified))) {
@@ -3634,6 +3671,10 @@ std::expected<void, std::string> App::refresh_logs(AppContext &context)
 
 std::expected<void, std::string> App::refresh_hardware(AppContext &context)
 {
+    static_assert(
+        kHardwareComponents.size() == kHardwareUiComponentCount,
+        "Hardware UI cache must match the descriptor table"
+    );
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
@@ -3642,20 +3683,27 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
     for (size_t index = 0; index < kHardwareComponents.size(); ++index) {
         std::array<char, 64> status{};
         format_hardware_status(status, snapshot, index);
-        const std::string base_path =
-            "/qsee_hardware/surface/hardware_scroller/" +
-            std::string(kHardwareComponents[index].id);
-        if (auto result = set_text(
+        std::array<char, 128> status_path{};
+        std::snprintf(
+            status_path.data(),
+            status_path.size(),
+            "/qsee_hardware/surface/hardware_scroller/%.*s/status",
+            static_cast<int>(kHardwareComponents[index].id.size()),
+            kHardwareComponents[index].id.data()
+        );
+        if (auto result = set_cached_text(
                 context,
-                base_path + "/status",
+                hardware_ui_cache_.statuses[index],
+                status_path.data(),
                 status.data()
             ); !result) {
             return result;
         }
         const char *color = hardware_status_color(snapshot, index);
-        if (auto result = set_binding_text(
+        if (auto result = set_cached_binding_text(
                 context,
-                base_path + "/status",
+                hardware_ui_cache_.colors[index],
+                status_path.data(),
                 "statusColor",
                 color
             ); !result) {
@@ -3682,8 +3730,9 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
                 : "PARTIAL"
         );
     }
-    return set_text(
+    return set_cached_text(
         context,
+        hardware_ui_cache_.summary,
         "/qsee_hardware/surface/hardware_scroller/summary",
         summary.data()
     );
@@ -3766,6 +3815,12 @@ std::expected<void, std::string> App::show_hardware_details(
                 static_cast<unsigned>(snapshot.rtc.minute),
                 static_cast<unsigned>(snapshot.rtc.second),
                 snapshot.rtc.source
+            );
+        } else if (rtc_waiting_for_time_source(snapshot.rtc)) {
+            append_format(
+                details,
+                "CLOCK: NOT INITIALIZED\n"
+                "RECOVERY: WAITING FOR A VALID SNTP OR GPS UTC FIX"
             );
         }
         break;
@@ -3955,9 +4010,10 @@ std::expected<void, std::string> App::refresh_hardware_detail(
     );
 }
 
+template <std::size_t Capacity>
 std::expected<void, std::string> App::set_cached_text(
     AppContext &context,
-    CachedText &cache,
+    FixedTextCache<Capacity> &cache,
     std::string_view path,
     std::string_view text
 )
@@ -3979,6 +4035,37 @@ std::expected<void, std::string> App::set_cached_text(
     std::memcpy(cache.value.data(), text.data(), text.size());
     cache.value[text.size()] = '\0';
     cache.length = text.size();
+    cache.valid = true;
+    return {};
+}
+
+template <std::size_t Capacity>
+std::expected<void, std::string> App::set_cached_binding_text(
+    AppContext &context,
+    FixedTextCache<Capacity> &cache,
+    std::string_view path,
+    std::string_view binding,
+    std::string_view value
+)
+{
+    if (value.size() >= cache.value.size()) {
+        return std::unexpected(
+            "Rejected oversized cached QSee binding for '" +
+            std::string(path) + "'"
+        );
+    }
+    if (cache.valid &&
+        cache.length == value.size() &&
+        std::memcmp(cache.value.data(), value.data(), value.size()) == 0) {
+        return {};
+    }
+    if (auto result = set_binding_text(context, path, binding, value);
+        !result) {
+        return result;
+    }
+    std::memcpy(cache.value.data(), value.data(), value.size());
+    cache.value[value.size()] = '\0';
+    cache.length = value.size();
     cache.valid = true;
     return {};
 }
@@ -4005,6 +4092,34 @@ void App::invalidate_audio_screen_cache(Screen screen)
     default:
         break;
     }
+}
+
+void App::invalidate_hardware_screen_cache()
+{
+    for (auto &cache : hardware_ui_cache_.statuses) {
+        cache.valid = false;
+    }
+    for (auto &cache : hardware_ui_cache_.colors) {
+        cache.valid = false;
+    }
+    hardware_ui_cache_.summary.valid = false;
+}
+
+void App::invalidate_imu_screen_cache()
+{
+    imu_ui_cache_.status.valid = false;
+    imu_ui_cache_.calibration.valid = false;
+    for (auto &cache : imu_ui_cache_.acceleration) {
+        cache.valid = false;
+    }
+    for (auto &cache : imu_ui_cache_.angular_velocity) {
+        cache.valid = false;
+    }
+    for (auto &cache : imu_ui_cache_.arc_opacity) {
+        cache.valid = false;
+    }
+    imu_ui_cache_.arc_hidden_known.fill(false);
+    imu_ui_cache_.temperature.valid = false;
 }
 
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
@@ -4431,6 +4546,16 @@ std::expected<void, std::string> App::show_pairing_result(
     bool success
 )
 {
+    // The result page no longer owns an active BLE provisioning session.
+    if (qsee_provisioning_active()) {
+        const esp_err_t stop_result = qsee_provisioning_stop();
+        if (stop_result != ESP_OK) {
+            return std::unexpected(
+                "Failed to stop BLE provisioning before showing its result: " +
+                std::string(esp_err_to_name(stop_result))
+            );
+        }
+    }
     pairing_result_ = std::move(message);
     pairing_result_success_ = success;
     pairing_started_at_us_ = 0;
@@ -5327,15 +5452,17 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
         );
     }
 
-    if (auto result = set_text(
+    if (auto result = set_cached_text(
             context,
+            imu_ui_cache_.status,
             "/qsee_imu/surface/imu_status",
             status.data()
         ); !result) {
         return result;
     }
-    if (auto result = set_text(
+    if (auto result = set_cached_text(
             context,
+            imu_ui_cache_.calibration,
             "/qsee_imu/surface/calibration",
             calibration.data()
         ); !result) {
@@ -5360,20 +5487,43 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
 
     if (!sample_valid) {
         for (size_t axis = 0; axis < kAccelPaths.size(); ++axis) {
-            if (auto result = set_text(context, kAccelPaths[axis], "--");
+            if (auto result = set_cached_text(
+                    context,
+                    imu_ui_cache_.acceleration[axis],
+                    kAccelPaths[axis],
+                    "--"
+                );
                 !result) {
                 return result;
             }
-            if (auto result = set_text(context, kGyroPaths[axis], "--");
+            if (auto result = set_cached_text(
+                    context,
+                    imu_ui_cache_.angular_velocity[axis],
+                    kGyroPaths[axis],
+                    "--"
+                );
                 !result) {
                 return result;
             }
-            if (auto result = set_hidden(context, kGyroArcPaths[axis], true);
-                !result) {
-                return result;
+            if (!imu_ui_cache_.arc_hidden_known[axis] ||
+                !imu_ui_cache_.arc_hidden[axis]) {
+                if (auto result = set_hidden(
+                        context,
+                        kGyroArcPaths[axis],
+                        true
+                    ); !result) {
+                    return result;
+                }
+                imu_ui_cache_.arc_hidden[axis] = true;
+                imu_ui_cache_.arc_hidden_known[axis] = true;
             }
         }
-        return set_text(context, "/qsee_imu/surface/temperature", "-- C");
+        return set_cached_text(
+            context,
+            imu_ui_cache_.temperature,
+            "/qsee_imu/surface/temperature",
+            "-- C"
+        );
     }
 
     std::array<char, 32> value{};
@@ -5385,8 +5535,9 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
             static_cast<int>('X' + axis),
             snapshot.imu.acceleration_mps2[axis]
         );
-        if (auto result = set_text(
+        if (auto result = set_cached_text(
                 context,
+                imu_ui_cache_.acceleration[axis],
                 kAccelPaths[axis],
                 value.data()
             ); !result) {
@@ -5400,8 +5551,9 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
             static_cast<int>('X' + axis),
             snapshot.imu.angular_velocity_dps[axis]
         );
-        if (auto result = set_text(
+        if (auto result = set_cached_text(
                 context,
+                imu_ui_cache_.angular_velocity[axis],
                 kGyroPaths[axis],
                 value.data()
             ); !result) {
@@ -5422,20 +5574,26 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
                 std::lround(normalized_activity * 178.0F)
             )
         );
-        if (auto result = set_binding_text(
+        if (auto result = set_cached_binding_text(
                 context,
+                imu_ui_cache_.arc_opacity[axis],
                 kGyroArcPaths[axis],
                 "opacity",
                 opacity.data()
             ); !result) {
             return result;
         }
-        if (auto result = set_hidden(
-                context,
-                kGyroArcPaths[axis],
-                false
-            ); !result) {
-            return result;
+        if (!imu_ui_cache_.arc_hidden_known[axis] ||
+            imu_ui_cache_.arc_hidden[axis]) {
+            if (auto result = set_hidden(
+                    context,
+                    kGyroArcPaths[axis],
+                    false
+                ); !result) {
+                return result;
+            }
+            imu_ui_cache_.arc_hidden[axis] = false;
+            imu_ui_cache_.arc_hidden_known[axis] = true;
         }
     }
 
@@ -5445,7 +5603,12 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
         "%.1f C",
         snapshot.imu.temperature_c
     );
-    return set_text(context, "/qsee_imu/surface/temperature", value.data());
+    return set_cached_text(
+        context,
+        imu_ui_cache_.temperature,
+        "/qsee_imu/surface/temperature",
+        value.data()
+    );
 }
 
 std::expected<void, std::string> App::set_settings_text(

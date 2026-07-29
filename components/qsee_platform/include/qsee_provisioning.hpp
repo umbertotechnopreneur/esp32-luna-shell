@@ -35,6 +35,7 @@ public:
     esp_err_t connectionSummary(char *buffer, size_t buffer_size) const;
 
     bool isInitialized() const;
+    bool isRunning() const;
     ProvisioningState state() const;
     const char *serviceName() const;
     const char *qrPayload() const;

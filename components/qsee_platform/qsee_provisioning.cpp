@@ -390,6 +390,12 @@ bool ProvisioningService::isInitialized() const
     return _initialized || _operation != Operation::None;
 }
 
+bool ProvisioningService::isRunning() const
+{
+    std::lock_guard<std::mutex> guard(_mutex);
+    return _running;
+}
+
 const char *ProvisioningService::serviceName() const
 {
     return _service_name;
@@ -553,11 +559,7 @@ extern "C" bool qsee_provisioning_initialized(void)
 
 extern "C" bool qsee_provisioning_active(void)
 {
-    const qsee::ProvisioningState state = qsee::ProvisioningService::instance().state();
-    return state == qsee::ProvisioningState::Starting ||
-           state == qsee::ProvisioningState::WaitingForApp ||
-           state == qsee::ProvisioningState::CredentialsReceived ||
-           state == qsee::ProvisioningState::Connecting;
+    return qsee::ProvisioningService::instance().isRunning();
 }
 
 extern "C" qsee_provisioning_state_t qsee_provisioning_state(void)

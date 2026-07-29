@@ -12,7 +12,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "components" / "qsee_platform" / "qsee_hardware.cpp"
 MAIN_SOURCE = ROOT / "main" / "main.cpp"
 HEADLESS_SOURCE = ROOT / "main" / "main_headless.cpp"
-MEASURED_SAMPLE_TTL_US = 5_000_000
+MINIMUM_MEASURED_SAMPLE_TTL_US = 5_000_000
+FULL_SNAPSHOT_TTL_NUMERATOR = 6
+FULL_SNAPSHOT_TTL_DENOMINATOR = 5
 
 ERR_OK = 0
 ERR_GENERIC = 1
@@ -72,6 +74,9 @@ class DeviceSnapshotModel:
     audio: AudioSnapshotModel = field(default_factory=AudioSnapshotModel)
     memory: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     processor: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
+    full_snapshot_period_valid: bool = False
+    full_snapshot_monitor_active: bool = False
+    full_snapshot_period_ms: int = 1_000
 
 
 @dataclass
@@ -93,13 +98,19 @@ def health_for(ready: bool, error: int) -> str:
     return DEVICE_HEALTH_MISSING if error == ERR_NOT_FOUND else DEVICE_HEALTH_DEGRADED
 
 
-def mark_sample_success(component: ComponentSnapshotModel, sampled_at_us: int) -> None:
+def mark_sample_success(
+    component: ComponentSnapshotModel,
+    attempted_at_us: int,
+    completed_at_us: int | None = None,
+) -> None:
+    if completed_at_us is None:
+        completed_at_us = attempted_at_us
     component.health = DEVICE_HEALTH_READY
     component.last_error = ERR_OK
     component.data_valid = True
     component.data_stale = False
-    component.last_attempt_at_us = sampled_at_us
-    component.last_success_at_us = sampled_at_us
+    component.last_attempt_at_us = attempted_at_us
+    component.last_success_at_us = completed_at_us
 
 
 def mark_sample_failure(component: ComponentSnapshotModel, error: int, attempted_at_us: int) -> None:
@@ -131,7 +142,11 @@ def component_summary_state(component: ComponentSnapshotModel) -> str:
     return "unavailable"
 
 
-def age_measured_sample(component: ComponentSnapshotModel, now_us: int, ttl_us: int = MEASURED_SAMPLE_TTL_US) -> None:
+def age_measured_sample(
+    component: ComponentSnapshotModel,
+    now_us: int,
+    ttl_us: int = MINIMUM_MEASURED_SAMPLE_TTL_US,
+) -> None:
     if not component.data_valid or component.data_stale or component.last_success_at_us <= 0:
         return
     if now_us < component.last_success_at_us or now_us - component.last_success_at_us >= ttl_us:
@@ -139,15 +154,31 @@ def age_measured_sample(component: ComponentSnapshotModel, now_us: int, ttl_us: 
         component.data_stale = True
 
 
+def measured_sample_ttl_us(snapshot: DeviceSnapshotModel) -> int:
+    if (
+        not snapshot.full_snapshot_monitor_active
+        or not snapshot.full_snapshot_period_valid
+    ):
+        return MINIMUM_MEASURED_SAMPLE_TTL_US
+    cadence_ttl_us = (
+        snapshot.full_snapshot_period_ms
+        * 1_000
+        * FULL_SNAPSHOT_TTL_NUMERATOR
+        // FULL_SNAPSHOT_TTL_DENOMINATOR
+    )
+    return max(MINIMUM_MEASURED_SAMPLE_TTL_US, cadence_ttl_us)
+
+
 def apply_measured_sample_aging(snapshot: DeviceSnapshotModel, now_us: int) -> None:
-    age_measured_sample(snapshot.battery, now_us)
-    age_measured_sample(snapshot.rtc, now_us)
-    age_measured_sample(snapshot.imu, now_us)
-    age_measured_sample(snapshot.sensor_fusion, now_us)
-    age_measured_sample(snapshot.gps, now_us)
-    age_measured_sample(snapshot.audio.microphone, now_us)
-    age_measured_sample(snapshot.memory, now_us)
-    age_measured_sample(snapshot.processor, now_us)
+    ttl_us = measured_sample_ttl_us(snapshot)
+    age_measured_sample(snapshot.battery, now_us, ttl_us)
+    age_measured_sample(snapshot.rtc, now_us, ttl_us)
+    age_measured_sample(snapshot.imu, now_us, ttl_us)
+    age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us)
+    age_measured_sample(snapshot.gps, now_us, ttl_us)
+    age_measured_sample(snapshot.audio.microphone, now_us, ttl_us)
+    age_measured_sample(snapshot.memory, now_us, ttl_us)
+    age_measured_sample(snapshot.processor, now_us, ttl_us)
 
 
 def record_diagnostic_commit(
@@ -245,7 +276,36 @@ def verify_source_contract() -> None:
     require_contains(source, "void mark_sample_failure(", "qsee_hardware.cpp")
     require_contains(source, "void age_measured_sample(", "qsee_hardware.cpp")
     require_contains(source, "void apply_measured_sample_aging(", "qsee_hardware.cpp")
-    require_contains(source, "constexpr int64_t kMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;", "qsee_hardware.cpp")
+    require_contains(
+        source,
+        "constexpr int64_t kMinimumMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;",
+        "qsee_hardware.cpp",
+    )
+    require_contains(
+        source,
+        "int64_t measured_sample_ttl_us(const qsee::DeviceSnapshot &snapshot)",
+        "qsee_hardware.cpp",
+    )
+    require_contains(
+        source,
+        "snapshot.diagnostics.full_snapshot_monitor_active",
+        "cadence-aware sample TTL",
+    )
+    require_contains(
+        source,
+        "snapshot.diagnostics.full_snapshot_period_ms",
+        "cadence-aware sample TTL",
+    )
+    require_contains(
+        source,
+        "memory_completed_at_us",
+        "memory completion timestamp",
+    )
+    require_contains(
+        source,
+        "processor_completed_at_us",
+        "processor completion timestamp",
+    )
 
     require_contains(source, "apply_measured_sample_aging(copy, esp_timer_get_time());", "snapshot()")
     require_contains(source, "apply_measured_sample_aging(summary, esp_timer_get_time());", "refresh()")
@@ -271,14 +331,14 @@ def verify_source_contract() -> None:
     )
 
     for fragment in (
-        "age_measured_sample(snapshot.battery, now_us);",
-        "age_measured_sample(snapshot.rtc, now_us);",
-        "age_measured_sample(snapshot.imu, now_us);",
-        "age_measured_sample(snapshot.sensor_fusion, now_us);",
-        "age_measured_sample(snapshot.gps, now_us);",
-        "age_measured_sample(snapshot.audio.microphone, now_us);",
-        "age_measured_sample(snapshot.memory, now_us);",
-        "age_measured_sample(snapshot.processor, now_us);",
+        "age_measured_sample(snapshot.battery, now_us, ttl_us);",
+        "age_measured_sample(snapshot.rtc, now_us, ttl_us);",
+        "age_measured_sample(snapshot.imu, now_us, ttl_us);",
+        "age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us);",
+        "age_measured_sample(snapshot.gps, now_us, ttl_us);",
+        "age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);",
+        "age_measured_sample(snapshot.memory, now_us, ttl_us);",
+        "age_measured_sample(snapshot.processor, now_us, ttl_us);",
     ):
         require_contains(source, fragment, "apply_measured_sample_aging()")
 
@@ -533,13 +593,19 @@ def test_transaction_visibility() -> None:
 def test_ttl_expiry() -> None:
     fresh = ComponentSnapshotModel()
     mark_sample_success(fresh, 1_000_000)
-    age_measured_sample(fresh, 1_000_000 + MEASURED_SAMPLE_TTL_US - 1)
+    age_measured_sample(
+        fresh,
+        1_000_000 + MINIMUM_MEASURED_SAMPLE_TTL_US - 1,
+    )
     require(component_has_current_data(fresh), "sample expired too early")
     require(component_summary_state(fresh) == "ready", "fresh sample summary should stay ready")
 
     expired = ComponentSnapshotModel()
     mark_sample_success(expired, 1_000_000)
-    age_measured_sample(expired, 1_000_000 + MEASURED_SAMPLE_TTL_US)
+    age_measured_sample(
+        expired,
+        1_000_000 + MINIMUM_MEASURED_SAMPLE_TTL_US,
+    )
     require(not expired.data_valid, "expired sample remained valid")
     require(expired.data_stale, "expired sample was not marked stale")
     require(component_summary_state(expired) == "stale", "expired sample summary should be stale")
@@ -549,6 +615,68 @@ def test_ttl_expiry() -> None:
     age_measured_sample(rewound, 999_999)
     require(not rewound.data_valid, "time regression should invalidate the sample")
     require(rewound.data_stale, "time regression should mark the sample stale")
+
+
+def test_ttl_tracks_full_snapshot_cadence() -> None:
+    snapshot = DeviceSnapshotModel(
+        full_snapshot_period_valid=True,
+        full_snapshot_monitor_active=True,
+        full_snapshot_period_ms=10_000,
+    )
+    mark_sample_success(snapshot.memory, 1_000_000)
+    cadence_ttl_us = 12_000_000
+    apply_measured_sample_aging(snapshot, 1_000_000 + cadence_ttl_us - 1)
+    require(
+        component_has_current_data(snapshot.memory),
+        "10-second Full Snapshot sample expired before its next refresh window",
+    )
+    apply_measured_sample_aging(snapshot, 1_000_000 + cadence_ttl_us)
+    require(
+        snapshot.memory.data_stale,
+        "cadence-aware sample did not expire after its bounded grace window",
+    )
+
+    paused = DeviceSnapshotModel(
+        full_snapshot_period_valid=True,
+        full_snapshot_monitor_active=False,
+        full_snapshot_period_ms=10_000,
+    )
+    mark_sample_success(paused.processor, 1_000_000)
+    apply_measured_sample_aging(
+        paused,
+        1_000_000 + MINIMUM_MEASURED_SAMPLE_TTL_US,
+    )
+    require(
+        paused.processor.data_stale,
+        "paused Full Snapshot monitor kept old data alive at its configured cadence",
+    )
+
+
+def test_ttl_starts_at_measurement_completion() -> None:
+    component = ComponentSnapshotModel()
+    attempted_at_us = 1_000_000
+    completed_at_us = 1_250_000
+    mark_sample_success(component, attempted_at_us, completed_at_us)
+    require(
+        component.last_attempt_at_us == attempted_at_us,
+        "measurement attempt timestamp was not preserved",
+    )
+    age_measured_sample(
+        component,
+        completed_at_us + MINIMUM_MEASURED_SAMPLE_TTL_US - 1,
+    )
+    require(
+        component_has_current_data(component),
+        "sample expired relative to attempt instead of completion",
+    )
+    age_measured_sample(
+        component,
+        completed_at_us + MINIMUM_MEASURED_SAMPLE_TTL_US,
+    )
+    require(
+        component.data_stale,
+        "sample remained fresh beyond completion-based TTL",
+    )
 
 
 def test_recovery_after_later_success() -> None:
@@ -729,13 +857,15 @@ def main() -> int:
     verify_source_contract()
     test_transaction_visibility()
     test_ttl_expiry()
+    test_ttl_tracks_full_snapshot_cadence()
+    test_ttl_starts_at_measurement_completion()
     test_recovery_after_later_success()
     test_diagnostic_reuse_is_fresh_and_one_shot()
     test_diagnostic_reuse_rejects_invalid_or_old_samples()
     test_diagnostic_reuse_requires_successful_commits()
     print(
         "snapshot integrity verification: PASS "
-        "(transaction visibility, TTL, recovery, one-shot Diagnostic reuse, "
+        "(transaction visibility, cadence-aware completion TTL, recovery, one-shot Diagnostic reuse, "
         "stream quiescence, heap-hook safety)"
     )
     return 0

@@ -194,6 +194,49 @@ def main() -> None:
     require(provisioning, '\\"security\\":1', "provisioning QR payload")
     forbid(provisioning, "network_prov_scheme_softap", "provisioning implementation")
     forbid(provisioning, "NETWORK_PROV_SECURITY_0", "provisioning implementation")
+    require(
+        provisioning_header,
+        "bool isRunning() const;",
+        "provisioning running-state contract",
+    )
+    active_start = provisioning.index(
+        'extern "C" bool qsee_provisioning_active(void)'
+    )
+    active_end = provisioning.index(
+        'extern "C" qsee_provisioning_state_t qsee_provisioning_state(void)',
+        active_start,
+    )
+    active_source = provisioning[active_start:active_end]
+    require(
+        active_source,
+        "ProvisioningService::instance().isRunning()",
+        "provisioning active-session contract",
+    )
+    forbid(
+        active_source,
+        "ProvisioningState::",
+        "provisioning active-session contract",
+    )
+    credential_failure_start = provisioning.index(
+        "case NETWORK_PROV_WIFI_CRED_FAIL:"
+    )
+    credential_failure_end = provisioning.index(
+        "case NETWORK_PROV_END:",
+        credential_failure_start,
+    )
+    credential_failure_source = provisioning[
+        credential_failure_start:credential_failure_end
+    ]
+    require(
+        credential_failure_source,
+        "_state = ProvisioningState::Failed;",
+        "credential-failure lifecycle",
+    )
+    forbid(
+        credential_failure_source,
+        "_running = false;",
+        "credential-failure lifecycle",
+    )
 
     init_position = radios.find("qsee_provisioning_init()")
     start_position = radios.find("qsee_provisioning_start()")
@@ -246,6 +289,19 @@ def main() -> None:
     for step in range(1, 6):
         require(app, f'step = "{step} OF 5";', "pairing wizard stage labels")
     require(app, "case Screen::PairResult:", "pairing result state")
+    result_start = app.index("App::show_pairing_result")
+    result_end = app.index("App::pairing_next", result_start)
+    result_source = app[result_start:result_end]
+    active_check = result_source.find("qsee_provisioning_active()")
+    stop_call = result_source.find("qsee_provisioning_stop()")
+    result_transition = result_source.find("Screen::PairResult")
+    if not (
+        0 <= active_check < stop_call < result_transition
+    ):
+        raise AssertionError(
+            "pairing result must stop an active provisioning session before "
+            "entering PairResult"
+        )
     require(
         edge_navigation,
         '"/qsee_chrome_screen/chrome/back"',

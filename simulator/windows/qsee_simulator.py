@@ -2425,10 +2425,19 @@ def main() -> None:
         y = simulator.canvas.winfo_rooty()
         width = simulator.canvas.winfo_width()
         height = simulator.canvas.winfo_height()
-        ImageGrab.grab(
-            bbox=(x, y, x + width, y + height),
-            include_layered_windows=True,
-        ).save(args.capture)
+        if sys.platform == "win32":
+            # Capture the simulator window directly so validation also works
+            # when the desktop session is occluded or not foreground-visible.
+            captured = ImageGrab.grab(
+                window=simulator.canvas.winfo_id(),
+                include_layered_windows=True,
+            )
+        else:
+            captured = ImageGrab.grab(
+                bbox=(x, y, x + width, y + height),
+                include_layered_windows=True,
+            )
+        captured.save(args.capture)
         root.destroy()
         return
     root.mainloop()

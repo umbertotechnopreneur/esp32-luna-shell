@@ -84,6 +84,28 @@
   polls or claims an unrelated sensor stream. Before returning microphone
   ownership to the AFE, disable diagnostics under the shared refresh mutex and
   have the monitor recheck the flag after acquiring that same mutex.
+- Derive measured-sample freshness from the active Full Snapshot cadence with
+  bounded scheduling grace. A fixed TTL shorter than a supported cadence makes
+  valid telemetry alternate between ready and stale. Preserve the attempt time,
+  start freshness at successful completion, and when the monitor is paused,
+  fall back to the short fixed TTL so old data still expires.
+- Treat the PCF85063 OS bit as an integrity state, not malformed I2C data. A
+  structurally valid reset calendar remains unavailable until SNTP or a valid
+  GPS UTC fix writes a trusted epoch and clears OS.
+- Keep timer cleanup ordered: `AppState::Stopping` blocks dispatch, the app
+  releases its own IDs in `on_stop`, and System Core then cancels leftovers
+  even after a failed stop. Backend-owned keyboard layout buffers must belong
+  to their node record, never a process-lifetime accumulator.
+- Release per-document maps in place during lazy unload. Copying long style and
+  route keys into temporary vectors raises the allocation peak at the exact
+  point where the runtime is trying to recover a large contiguous block.
+- A signal disconnect must release its slot even if that signal never emits
+  again. Counting only connected slots hides retained callbacks; remove the
+  slot through weak shared state, but destroy its captures after releasing the
+  registry lock so reentrant scoped-connection cleanup cannot deadlock.
+- Provisioning activity is a lifecycle fact, not a display-state whitelist. A
+  failed credential attempt can still own the BLE session; expose the running
+  flag and stop that session before leaving the wizard or showing its result.
 
 These are implementation invariants, not verified device-performance results;
 runtime behavior still requires authorized hardware validation.
