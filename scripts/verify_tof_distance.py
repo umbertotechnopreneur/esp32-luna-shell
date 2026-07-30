@@ -293,6 +293,8 @@ def main() -> int:
         "CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND",
         "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
         'SRCS\n            "qsee_tof400f.c"',
+        "idf_component_optional_requires(PUBLIC esp_common)",
+        "esp_driver_uart\n        esp_timer\n        freertos\n        log",
         "else()\n    idf_component_register()\nendif()",
     ):
         require_contains(driver_cmake, fragment)

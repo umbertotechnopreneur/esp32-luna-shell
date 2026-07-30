@@ -155,6 +155,21 @@ def main() -> int:
         "raw and prepared package targets must not remain unordered peers",
     )
 
+    project_cmake = read("CMakeLists.txt")
+    require(
+        "add_dependencies(\n"
+        "    littlefs_littlefs_data_bin\n"
+        "    qsee_prepare_runtime_app_package\n"
+        ")" in project_cmake,
+        "LittleFS must wait for filtered QSee package preparation",
+    )
+    require(
+        "if(NOT TARGET littlefs_littlefs_data_bin)" in project_cmake
+        and "if(NOT TARGET qsee_prepare_runtime_app_package)"
+        in project_cmake,
+        "cross-component package ordering must fail during configuration",
+    )
+
     generator = read("scripts/generate_qsee_gui_documents.py")
     require(
         "distance_disabled_hardware_document" in generator

@@ -5,8 +5,16 @@ if(CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND
             "qsee_tof400f.c"
             "qsee_tof400f_protocol.c"
         INCLUDE_DIRS "include"
-        REQUIRES esp_common
-        PRIV_REQUIRES esp_driver_uart esp_timer freertos log
+    )
+    # These components are already discovered by the full project. Link them
+    # only for the enabled driver so the default-OFF component stays empty.
+    idf_component_optional_requires(PUBLIC esp_common)
+    idf_component_optional_requires(
+        PRIVATE
+        esp_driver_uart
+        esp_timer
+        freertos
+        log
     )
 else()
     idf_component_register()

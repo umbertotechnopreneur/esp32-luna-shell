@@ -140,8 +140,8 @@ else()
     )
 endif()
 
-# The LittleFS image target reads this global property in main/CMakeLists.txt.
-# Replace this package's raw copy target with the ordered preparation target:
+# Keep later consumers on the filtered package target. The root CMakeLists also
+# links the already-created LittleFS target here after all components exist:
 # LittleFS -> prepare -> stage + verify.
 set(qsee_runtime_stage_targets ${qsee_previous_runtime_stage_targets})
 list(APPEND qsee_runtime_stage_targets qsee_prepare_runtime_app_package)
