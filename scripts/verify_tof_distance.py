@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from math import cos, radians
 from statistics import median
+from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +22,142 @@ def require(condition: bool, message: str) -> None:
 def require_contains(path: Path, fragment: str) -> None:
     text = path.read_text(encoding="utf-8")
     require(fragment in text, f"{fragment!r} missing from {path}")
+
+
+def child_with_id(parent: dict[str, Any], child_id: str, path: str) -> dict[str, Any]:
+    matches = [
+        child
+        for child in parent.get("children", [])
+        if isinstance(child, dict) and child.get("id") == child_id
+    ]
+    require(
+        len(matches) == 1,
+        f"{path} must contain exactly one child with id {child_id!r}",
+    )
+    return matches[0]
+
+
+def screen_with_id(document: dict[str, Any], screen_id: str) -> dict[str, Any]:
+    matches = [
+        asset
+        for asset in document.get("assets", [])
+        if isinstance(asset, dict)
+        and asset.get("type") == "viewScreen"
+        and asset.get("id") == screen_id
+    ]
+    require(
+        len(matches) == 1,
+        f"gui/root.json must contain exactly one viewScreen {screen_id!r}",
+    )
+    return matches[0]
+
+
+def dp_value(value: Any, path: str) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    require(
+        isinstance(value, str) and value.endswith("dp"),
+        f"{path} must be a numeric dp value, got {value!r}",
+    )
+    try:
+        return float(value[:-2])
+    except ValueError as error:
+        raise AssertionError(
+            f"{path} must be a numeric dp value, got {value!r}"
+        ) from error
+
+
+def require_minimum_height(
+    node: dict[str, Any],
+    minimum_dp: float,
+    path: str,
+) -> None:
+    height = dp_value(node.get("placement", {}).get("height"), f"{path}.height")
+    require(
+        height >= minimum_dp,
+        f"{path}.height must be at least {minimum_dp:g}dp, got {height:g}dp",
+    )
+
+
+def require_wrap_height(node: dict[str, Any], path: str) -> None:
+    height = node.get("placement", {}).get("height")
+    require(
+        height == "wrap",
+        f"{path}.height must be 'wrap', got {height!r}",
+    )
+
+
+def verify_tof_layout(gui_root: Path) -> None:
+    document = json.loads(gui_root.read_text(encoding="utf-8"))
+
+    tof = screen_with_id(document, "qsee_tof")
+    tof_surface = child_with_id(tof, "surface", "qsee_tof")
+    require_minimum_height(
+        child_with_id(tof_surface, "title", "qsee_tof/surface"),
+        28,
+        "qsee_tof/surface/title",
+    )
+    require_minimum_height(
+        child_with_id(tof_surface, "status", "qsee_tof/surface"),
+        32,
+        "qsee_tof/surface/status",
+    )
+    require_minimum_height(
+        child_with_id(tof_surface, "calibration", "qsee_tof/surface"),
+        32,
+        "qsee_tof/surface/calibration",
+    )
+
+    layout_budget_dp = 320.0
+    for child in tof_surface.get("children", []):
+        if not isinstance(child, dict):
+            continue
+        placement = child.get("placement", {})
+        if placement.get("mode") != "absolute":
+            continue
+        child_path = f"qsee_tof/surface/{child.get('id', '<unnamed>')}"
+        top = dp_value(placement.get("y", 0), f"{child_path}.y")
+        height = dp_value(placement.get("height"), f"{child_path}.height")
+        require(top >= 0, f"{child_path}.y must not be negative")
+        require(
+            top + height <= layout_budget_dp,
+            f"{child_path} ends at {top + height:g}dp, beyond the "
+            f"{layout_budget_dp:g}dp screen budget",
+        )
+
+    tof_settings = screen_with_id(document, "qsee_tof_settings")
+    settings_surface = child_with_id(
+        tof_settings,
+        "surface",
+        "qsee_tof_settings",
+    )
+    scroller = child_with_id(
+        settings_surface,
+        "tof_settings_scroller",
+        "qsee_tof_settings/surface",
+    )
+    require_minimum_height(
+        child_with_id(
+            scroller,
+            "title",
+            "qsee_tof_settings/surface/tof_settings_scroller",
+        ),
+        28,
+        "qsee_tof_settings/surface/tof_settings_scroller/title",
+    )
+    for child_id in (
+        "settings_status",
+        "calibration_status",
+        "calibration_hint",
+    ):
+        require_wrap_height(
+            child_with_id(
+                scroller,
+                child_id,
+                "qsee_tof_settings/surface/tof_settings_scroller",
+            ),
+            f"qsee_tof_settings/surface/tof_settings_scroller/{child_id}",
+        )
 
 
 def robust_mean(values: list[int]) -> tuple[int, int, int]:
@@ -140,6 +278,7 @@ def main() -> int:
     hardware = ROOT / "components/qsee_platform/qsee_hardware.cpp"
     wiring = ROOT / "docs/hardware/tof400f-dual-uart.md"
     sdkconfig_defaults = ROOT / "sdkconfig.defaults"
+    gui_root = ROOT / "components/qsee_app/gui/root.json"
 
     for fragment in (
         "#define QSEE_TOF400F_SHARED_TX_GPIO 16",
@@ -341,6 +480,7 @@ def main() -> int:
         sdkconfig_defaults,
         "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y",
     )
+    verify_tof_layout(gui_root)
 
     require(
         synchronized_acquisition(
@@ -519,6 +659,7 @@ def main() -> int:
         "bounded 10 s warning rate limiting, "
         "bounded calibration transport/deadline termination, "
         "per-sample tilt-normalized runtime windows, "
+        "320dp clipping-safe TOF layouts, "
         "default-off build-time gated driver)"
     )
     return 0

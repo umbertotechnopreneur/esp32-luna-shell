@@ -380,6 +380,13 @@ typedef enum {
     QSEE_PROVISIONING_STATE_UNAVAILABLE,
 } qsee_provisioning_state_t;
 
+typedef enum {
+    QSEE_PROVISIONING_FAILURE_NONE = 0,
+    QSEE_PROVISIONING_FAILURE_AUTHENTICATION,
+    QSEE_PROVISIONING_FAILURE_ACCESS_POINT_NOT_FOUND,
+    QSEE_PROVISIONING_FAILURE_UNKNOWN,
+} qsee_provisioning_failure_reason_t;
+
 esp_err_t qsee_provisioning_init(void);
 esp_err_t qsee_provisioning_start(void);
 esp_err_t qsee_provisioning_stop(void);
@@ -389,6 +396,7 @@ esp_err_t qsee_provisioning_deinit_for_ble(void);
 bool qsee_provisioning_initialized(void);
 bool qsee_provisioning_active(void);
 qsee_provisioning_state_t qsee_provisioning_state(void);
+qsee_provisioning_failure_reason_t qsee_provisioning_failure_reason(void);
 esp_err_t qsee_provisioning_connection_summary(char *buffer, size_t buffer_size);
 const char *qsee_provisioning_service_name(void);
 const char *qsee_provisioning_qr_payload(void);

@@ -110,6 +110,15 @@
 - [ ] Wire a Settings calibration action on top of the worker when the UI work
   lands.
 
+## Dual ToF distance
+
+- [ ] Verify R15/R16 isolation, shared-TX/dual-RX wiring, both TOF400F modules,
+  and the documented UART pins on the physical device before enabling the
+  feature in a release image.
+- [ ] Validate physical calibration, NVS persistence, timeout/recovery paths,
+  stack watermarks, PSRAM windows, tilt correction, and every TOF/Settings
+  touch action with two real sensors.
+
 ## Power and performance profiles
 
 - [x] Validate the AXP2101 PKEY standby/wake cycle, independent arc timeouts,

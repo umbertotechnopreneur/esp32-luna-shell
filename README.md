@@ -157,9 +157,9 @@ construct a second widget framework or call LVGL directly.
 | `UI Refresh` | The snapshot-to-view binding pass: 1 Hz while active, 0.2 Hz while dimmed, and stopped while the display is off; it never samples hardware |
 
 The standard page names are `Welcome`, `Live Logs`, `Hardware`, `Audio Scope`,
-`Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `About`, and
-`Pairing Flow`. Use these names in code reviews, issues, screenshots, and
-documentation.
+`Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `Storage`, `About`,
+`Pairing Flow`, `TOF Distance`, and `TOF Settings`. Use these names in code
+reviews, issues, screenshots, and documentation.
 
 The Power Management Service owns one inactivity timeline and four independent
 Settings dropdowns. The `Command Arc` and `Status Arc` have separate hide
@@ -218,7 +218,11 @@ the current code-grounded inventory:
 | `AudioDetail` | Implemented, diagnostic | `AUDIO DETAIL` | Expanded live spectrum detail |
 | `Imu` | Implemented, diagnostic | `IMU LEVEL` | Accelerometer, gyroscope, temperature, and calibration status |
 | `Settings` | Implemented | `SETTINGS` | Full Snapshot cadence, Diagnostic Stream, Adaptive Chrome, display power, IMU smoothing, storage, radios, and brightness |
+| `Storage` | Implemented | Settings -> Storage | Removable-card health, capacity, logger mirroring, and explicitly authorized formatting |
 | `About` | Implemented | `ABOUT` | Device identity and support information |
+| `Pairing` | Implemented | Settings -> Start Wireless | Five-stage BLE Wi-Fi provisioning flow plus explicit success and failure states |
+| `Tof` | Feature-gated | Hardware -> TOF | Dual-sensor distance, geometry, calibration, and per-sensor health from the canonical snapshot |
+| `TofSettings` | Feature-gated | TOF -> Settings | Persisted sample count, interval, reference distance, and explicit calibration action |
 | `ImuCalibration` | Planned | Not currently exposed | Dedicated calibration workflow and live IMU state page; the current `Imu` route only displays status |
 
 The index is part of the navigation contract. Whenever a route is created,

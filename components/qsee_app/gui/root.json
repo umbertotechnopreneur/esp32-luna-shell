@@ -2278,9 +2278,9 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": "42dp",
+                                "y": "40dp",
                                 "width": "292dp",
-                                "height": "26dp"
+                                "height": "28dp"
                             }
                         },
                         {
@@ -2305,6 +2305,9 @@
                         {
                             "type": "label",
                             "id": "status",
+                            "bindings": {
+                                "style.textColor": "color"
+                            },
                             "labelProps": {
                                 "text": "DUAL TOF UNAVAILABLE"
                             },
@@ -2316,9 +2319,9 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "14dp",
-                                "y": "90dp",
+                                "y": "86dp",
                                 "width": "292dp",
-                                "height": "16dp"
+                                "height": "32dp"
                             }
                         },
                         {
@@ -2335,7 +2338,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "18dp",
-                                "y": "111dp",
+                                "y": "120dp",
                                 "width": "284dp",
                                 "height": "38dp"
                             }
@@ -2354,7 +2357,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "18dp",
-                                "y": "149dp",
+                                "y": "158dp",
                                 "width": "284dp",
                                 "height": "14dp"
                             }
@@ -2376,7 +2379,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "8dp",
-                                "y": "172dp",
+                                "y": "174dp",
                                 "width": "148dp",
                                 "height": "52dp"
                             },
@@ -2438,7 +2441,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "164dp",
-                                "y": "172dp",
+                                "y": "174dp",
                                 "width": "148dp",
                                 "height": "52dp"
                             },
@@ -2497,7 +2500,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "12dp",
-                                "y": "232dp",
+                                "y": "230dp",
                                 "width": "296dp",
                                 "height": "16dp"
                             }
@@ -2516,7 +2519,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "12dp",
-                                "y": "250dp",
+                                "y": "247dp",
                                 "width": "296dp",
                                 "height": "16dp"
                             }
@@ -2535,7 +2538,7 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "12dp",
-                                "y": "268dp",
+                                "y": "264dp",
                                 "width": "296dp",
                                 "height": "16dp"
                             }
@@ -2543,6 +2546,9 @@
                         {
                             "type": "label",
                             "id": "calibration",
+                            "bindings": {
+                                "style.textColor": "color"
+                            },
                             "labelProps": {
                                 "text": "CALIBRATION UNAVAILABLE"
                             },
@@ -2554,9 +2560,9 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "12dp",
-                                "y": "288dp",
+                                "y": "282dp",
                                 "width": "296dp",
-                                "height": "16dp"
+                                "height": "32dp"
                             }
                         }
                     ]
@@ -2651,7 +2657,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "26dp"
+                                        "height": "28dp"
                                     }
                                 },
                                 {
@@ -2673,6 +2679,9 @@
                                 {
                                     "type": "label",
                                     "id": "settings_status",
+                                    "bindings": {
+                                        "style.textColor": "color"
+                                    },
                                     "labelProps": {
                                         "text": "SETTINGS UNAVAILABLE"
                                     },
@@ -2683,7 +2692,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -2786,7 +2795,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -2903,6 +2912,9 @@
                                 {
                                     "type": "label",
                                     "id": "calibration_status",
+                                    "bindings": {
+                                        "style.textColor": "color"
+                                    },
                                     "labelProps": {
                                         "text": "CALIBRATION UNAVAILABLE"
                                     },
@@ -2913,7 +2925,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -2929,7 +2941,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "44dp"
+                                        "height": "wrap"
                                     }
                                 }
                             ]

@@ -53,7 +53,7 @@ COMMAND_MAIN_DIAMETER = 61
 COMMAND_DIAMETER_STEP = 6
 COMMAND_MIN_DIAMETER = COMMAND_MAIN_DIAMETER - (2 * COMMAND_DIAMETER_STEP)
 COMMAND_BUTTON_GAP = 9
-EDGE_COMMAND_DIAMETER = 54
+EDGE_COMMAND_DIAMETER = 60
 COMMAND_CENTER_X = 233
 COMMAND_MAIN_CENTER_Y = 410
 COMMAND_ARC_RISE_LINEAR = 10
@@ -82,6 +82,19 @@ WIDE_PAGE_SCREENS = frozenset(
     }
 )
 FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu", "tof"})
+PAIRING_SCREENS = frozenset(
+    {
+        "pairing-intro",
+        "pairing-bluetooth",
+        "pairing-app",
+        "pairing-app-qr",
+        "pairing-device-qr",
+        "pairing-credentials",
+        "pairing-connecting",
+        "pairing-success",
+        "pairing-failed",
+    }
+)
 FONT_DISPLAY = "Montserrat SemiBold"
 FONT_BODY = "Montserrat"
 FONT_TECH = "Consolas"
@@ -221,6 +234,90 @@ SCENARIOS = {
         "SD: synthetic FAT32 card mounted, capacity=8192 MB",
         "GPS LC76G: transport ready, waiting for synthetic fix",
         "Ready; GPS still searching",
+    ),
+}
+
+
+@dataclass(frozen=True)
+class PairingPreview:
+    title: str
+    step: str
+    message: str
+    detail: str
+    progress: int
+    show_qr: bool = False
+    result: str = "normal"
+
+
+PAIRING_PREVIEWS = {
+    "pairing-intro": PairingPreview(
+        "PAIR DEVICE",
+        "STEP 1 OF 5",
+        "Connect QSee to your Wi-Fi network.",
+        "Bluetooth carries the Wi-Fi setup details.",
+        1,
+    ),
+    "pairing-bluetooth": PairingPreview(
+        "BLUETOOTH",
+        "STEP 2 OF 5",
+        "Turn on Bluetooth on your phone.",
+        "Allow Nearby devices when prompted.",
+        2,
+    ),
+    "pairing-app": PairingPreview(
+        "GET THE APP",
+        "STEP 3 OF 5",
+        "Install ESP BLE Provisioning on your phone.",
+        "Next shows the official Google Play download.",
+        3,
+    ),
+    "pairing-app-qr": PairingPreview(
+        "INSTALL APP",
+        "STEP 4 OF 5",
+        "Scan to install ESP BLE Provisioning.",
+        "Then return here and press Next.",
+        4,
+        show_qr=True,
+    ),
+    "pairing-device-qr": PairingPreview(
+        "SCAN DEVICE",
+        "STEP 5 OF 5",
+        "In the app, scan this device QR.",
+        "PROV_DEVICE-SIM1",
+        5,
+        show_qr=True,
+    ),
+    "pairing-credentials": PairingPreview(
+        "SCAN DEVICE",
+        "STEP 5 OF 5",
+        "Wi-Fi details received. Preparing the connection...",
+        "PROV_DEVICE-SIM1",
+        5,
+        show_qr=True,
+    ),
+    "pairing-connecting": PairingPreview(
+        "SCAN DEVICE",
+        "STEP 5 OF 5",
+        "Wi-Fi details received. Connecting...",
+        "PROV_DEVICE-SIM1",
+        5,
+        show_qr=True,
+    ),
+    "pairing-success": PairingPreview(
+        "WI-FI READY",
+        "CONNECTED",
+        "Network: QSEE-SYNTHETIC\nIP: 192.0.2.24",
+        "Setup complete. Next returns to Settings.",
+        5,
+        result="success",
+    ),
+    "pairing-failed": PairingPreview(
+        "SETUP FAILED",
+        "ACTION REQUIRED",
+        "Wi-Fi password was rejected. Check it and try again.",
+        "Press Next to try again.",
+        0,
+        result="failed",
     ),
 }
 
@@ -720,6 +817,8 @@ class QSeeSimulator:
         self.canvas.create_image(x, y, image=photo, tags="ui")
 
     def _status_colors(self) -> list[str]:
+        if self.screen == "pairing-success":
+            return [STATUS_READY] * 6
         if self.scenario.name == "SD UNFORMATTED":
             return [
                 STATUS_READY,
@@ -903,6 +1002,9 @@ class QSeeSimulator:
     def _draw_edge_back(self) -> None:
         self._draw_command_button(10, 203, "‹", True)
 
+    def _draw_edge_next(self) -> None:
+        self._draw_command_button(396, 203, "›", True)
+
     def _draw_scenario_label(self) -> None:
         self.canvas.create_text(
             DISPLAY_SIZE // 2,
@@ -999,6 +1101,23 @@ class QSeeSimulator:
             self.cancel()
         elif 398 <= event.x <= 460 and 190 <= event.y <= 276 and self.screen == "confirmation":
             self.confirm()
+        elif (
+            10 <= event.x <= 70
+            and 203 <= event.y <= 263
+            and self.screen in PAIRING_SCREENS
+        ):
+            self.back()
+        elif (
+            396 <= event.x <= 456
+            and 203 <= event.y <= 263
+            and self.screen in PAIRING_SCREENS
+            and self.screen not in {
+                "pairing-device-qr",
+                "pairing-credentials",
+                "pairing-connecting",
+            }
+        ):
+            self.pairing_next()
         elif (
             10 <= event.x <= 70
             and 203 <= event.y <= 263
@@ -1132,6 +1251,10 @@ class QSeeSimulator:
         title: str,
         subtitle: str,
         y_offset: int | None = None,
+        *,
+        title_size: int = 21,
+        subtitle_baseline: int = 136,
+        divider_y: int = 154,
     ) -> None:
         if y_offset is None:
             y_offset = self._content_offset_y()
@@ -1141,12 +1264,12 @@ class QSeeSimulator:
             anchor="w",
             text=title,
             fill=TEXT,
-            font=(FONT_DISPLAY, 21),
+            font=(FONT_DISPLAY, title_size),
             tags="ui",
         )
         self.canvas.create_text(
             94,
-            136 + y_offset,
+            subtitle_baseline + y_offset,
             anchor="w",
             text=subtitle,
             fill=MUTED_BRIGHT,
@@ -1155,9 +1278,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             94,
-            154 + y_offset,
+            divider_y + y_offset,
             126,
-            154 + y_offset,
+            divider_y + y_offset,
             fill=STATUS_READY,
             width=2,
             capstyle=tk.ROUND,
@@ -1165,9 +1288,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             134,
-            154 + y_offset,
+            divider_y + y_offset,
             372,
-            154 + y_offset,
+            divider_y + y_offset,
             fill="#163545",
             width=1,
             tags="ui",
@@ -1476,6 +1599,7 @@ class QSeeSimulator:
             font=(FONT_DISPLAY, 14),
             tags="ui",
         )
+
         diagnostics_subtitle_y = layout["diagnostics_subtitle"]
         if diagnostics_subtitle_y is not None:
             self.canvas.create_text(
@@ -1544,6 +1668,192 @@ class QSeeSimulator:
                 x, y, diameter = command_geometry(len(commands), index)
                 self._draw_command_button(x, y, icon, success, diameter)
         self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def _draw_synthetic_qr(self, x: int, y: int, size: int = 140) -> None:
+        self.canvas.create_rectangle(
+            x,
+            y,
+            x + size,
+            y + size,
+            fill="#ffffff",
+            outline="#d8ecff",
+            width=2,
+            tags="ui",
+        )
+        module = 5
+        origin_x = x + 17
+        origin_y = y + 17
+        for row in range(21):
+            for column in range(21):
+                in_finder = (
+                    (row < 7 and column < 7)
+                    or (row < 7 and column >= 14)
+                    or (row >= 14 and column < 7)
+                )
+                if in_finder:
+                    local_row = row if row < 7 else row - 14
+                    local_column = column if column < 7 else column - 14
+                    filled = (
+                        local_row in {0, 6}
+                        or local_column in {0, 6}
+                        or (
+                            2 <= local_row <= 4
+                            and 2 <= local_column <= 4
+                        )
+                    )
+                else:
+                    filled = ((row * 11) + (column * 7) + (row * column)) % 5 < 2
+                if filled:
+                    left = origin_x + (column * module)
+                    top = origin_y + (row * module)
+                    self.canvas.create_rectangle(
+                        left,
+                        top,
+                        left + module,
+                        top + module,
+                        fill="#061017",
+                        outline="",
+                        tags="ui",
+                    )
+
+    def show_pairing_demo(self, screen: str) -> None:
+        preview = PAIRING_PREVIEWS[screen]
+        self.screen = screen
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self.canvas.create_text(
+            DISPLAY_SIZE // 2,
+            77,
+            text="SYNTHETIC PREVIEW",
+            fill=MUTED,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+
+        accent = (
+            STATUS_FAULT
+            if preview.result == "failed"
+            else STATUS_READY
+        )
+        def create_label(
+            text: str,
+            width: int,
+            font: tuple[str, int],
+            color: str,
+        ) -> tuple[int, int]:
+            item = self.canvas.create_text(
+                DISPLAY_SIZE // 2,
+                0,
+                anchor="n",
+                width=width,
+                text=text,
+                justify="center",
+                fill=color,
+                font=font,
+                tags="ui",
+            )
+            bounds = self.canvas.bbox(item)
+            if bounds is None:
+                raise RuntimeError(f"Unable to measure pairing label {text!r}")
+            return item, bounds[3] - bounds[1]
+
+        step_item, step_height = create_label(
+            preview.step,
+            272,
+            (FONT_DISPLAY, 5),
+            accent,
+        )
+        title_item, title_height = create_label(
+            preview.title,
+            292,
+            (FONT_DISPLAY, 11),
+            TEXT,
+        )
+        message_item, message_height = create_label(
+            preview.message,
+            286,
+            (FONT_BODY, 7),
+            TEXT,
+        )
+        detail_item, detail_height = create_label(
+            preview.detail,
+            272,
+            (FONT_BODY, 6),
+            MUTED_BRIGHT,
+        )
+
+        elements: list[tuple[str, int | None, int]] = [
+            ("label", step_item, step_height),
+        ]
+        if preview.result == "normal":
+            elements.append(("progress", None, 4))
+        elements.extend(
+            [
+                ("label", title_item, title_height),
+                ("label", message_item, message_height),
+            ]
+        )
+        if preview.show_qr:
+            elements.append(("qr", None, 140))
+        elements.append(("label", detail_item, detail_height))
+
+        gap = 4
+        viewport_top = 84
+        viewport_height = 264
+        content_height = (
+            sum(height for _, _, height in elements)
+            + gap * (len(elements) - 1)
+        )
+        if content_height > viewport_height:
+            raise RuntimeError(
+                f"Pairing preview {screen!r} exceeds its viewport: "
+                f"{content_height}px > {viewport_height}px"
+            )
+
+        cursor = viewport_top + ((viewport_height - content_height) / 2)
+        for kind, item, height in elements:
+            top = round(cursor)
+            if kind == "label":
+                if item is None:
+                    raise RuntimeError("Pairing label is missing its canvas item")
+                bounds = self.canvas.bbox(item)
+                if bounds is None:
+                    raise RuntimeError("Pairing label lost its measured bounds")
+                self.canvas.move(item, 0, top - bounds[1])
+            elif kind == "progress":
+                left = 171
+                right = left + 124
+                self.canvas.create_rectangle(
+                    left,
+                    top,
+                    right,
+                    top + height,
+                    fill="#173545",
+                    outline="",
+                    tags="ui",
+                )
+                self.canvas.create_rectangle(
+                    left,
+                    top,
+                    left + int(124 * preview.progress / 5),
+                    top + height,
+                    fill=STATUS_READY,
+                    outline="",
+                    tags="ui",
+                )
+            elif kind == "qr":
+                self._draw_synthetic_qr(163, top)
+            cursor += height + gap
+
+        self._draw_edge_back()
+        if screen not in {
+            "pairing-device-qr",
+            "pairing-credentials",
+            "pairing-connecting",
+        }:
+            self._draw_edge_next()
         self._draw_safe_guide()
 
     def show_hardware_demo(self) -> None:
@@ -2380,9 +2690,9 @@ class QSeeSimulator:
     ) -> None:
         self._draw_panel(
             x,
-            238,
-            136,
-            58,
+            239,
+            132,
+            54,
             top="#103346",
             bottom="#081721",
             border="#2c6077",
@@ -2391,7 +2701,7 @@ class QSeeSimulator:
             radius=12,
         )
         self.canvas.create_text(
-            x + 68,
+            x + 66,
             252,
             text=f"{label} · SYNTHETIC",
             fill=MUTED_BRIGHT,
@@ -2399,8 +2709,8 @@ class QSeeSimulator:
             tags="ui",
         )
         self.canvas.create_text(
-            x + 68,
-            276,
+            x + 66,
+            274,
             text=distance,
             fill=color,
             font=(FONT_TECH, 14, "bold"),
@@ -2415,65 +2725,57 @@ class QSeeSimulator:
         content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "DISTANCE",
-            "Dual TOF400F · SYNTHETIC telemetry",
+            "SYNTHETIC DUAL TOF",
             0,
+            subtitle_baseline=142,
+            divider_y=160,
         )
         self.canvas.create_text(
             233,
             172,
-            text="SYNTHETIC · DUAL TOF READY",
+            text="LIVE SYNTHETIC SAMPLE",
             fill=STATUS_READY,
-            font=(FONT_TECH, 9, "bold"),
+            font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
             233,
-            202,
+            201,
             text="1 024 mm",
             fill=STATUS_READY,
-            font=(FONT_TECH, 24, "bold"),
+            font=(FONT_TECH, 23, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
             233,
-            222,
+            227,
             text="SYNTHETIC VERTICAL DISTANCE",
             fill=MUTED_BRIGHT,
             font=(FONT_DISPLAY, 7),
             tags="ui",
         )
-        self._draw_tof_sensor_panel(92, "TOF 1", "1 018 mm", "#51c7f2")
-        self._draw_tof_sensor_panel(238, "TOF 2", "1 030 mm", "#7d9cff")
+        self._draw_tof_sensor_panel(94, "TOF 1", "1 018 mm", "#51c7f2")
+        self._draw_tof_sensor_panel(240, "TOF 2", "1 030 mm", "#7d9cff")
         self.canvas.create_text(
             233,
             310,
-            text="SYNTHETIC SPREAD 12 mm  ·  SLANT 1 024 mm",
-            fill=MUTED_BRIGHT,
-            font=(FONT_TECH, 8, "bold"),
-            tags="ui",
-        )
-        self.canvas.create_text(
-            233,
-            329,
-            text="SYNTHETIC TILT +0.5°  ·  COMPENSATED",
-            fill=STATUS_WARNING,
-            font=(FONT_TECH, 8, "bold"),
-            tags="ui",
-        )
-        self.canvas.create_text(
-            92,
-            349,
-            anchor="w",
-            text="SYNTHETIC CONF 98%",
+            text="SYNTHETIC · Δ 12 mm · SLANT 1024 mm",
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
-            374,
+            233,
+            330,
+            text="TILT +0.5° · COMPENSATED",
+            fill=STATUS_WARNING,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
             349,
-            anchor="e",
-            text="SYNTHETIC CAL READY",
+            text="CONF 98% · CAL READY",
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -2500,14 +2802,17 @@ class QSeeSimulator:
         self._draw_status_bar()
         y_offset = self._wide_page_offset_y()
         self._draw_page_heading(
-            "DISTANCE SETTINGS",
-            "TOF400F · SYNTHETIC configuration",
+            "TOF SETTINGS",
+            "SYNTHETIC DUAL TOF",
             y_offset,
+            title_size=18,
+            subtitle_baseline=142,
+            divider_y=160,
         )
         calibration_state = (
-            "SYNTHETIC CALIBRATION COMPLETE"
+            "SYNTHETIC CAL COMPLETE"
             if self.tof_calibration_complete
-            else "SYNTHETIC CONFIGURATION READY"
+            else "SYNTHETIC CONFIG READY"
         )
         self.canvas.create_text(
             233,
@@ -2518,14 +2823,14 @@ class QSeeSimulator:
             tags="ui",
         )
         controls = (
-            (92, "ACCEPTED SAMPLES", "500 · SYNTHETIC"),
-            (238, "READ INTERVAL", "250 ms · SYNTHETIC"),
+            (94, "SAMPLES", "500"),
+            (240, "INTERVAL", "250 ms"),
         )
         for x, title, value in controls:
             self._draw_panel(
                 x,
                 190 + y_offset,
-                136,
+                132,
                 58,
                 top="#173145",
                 bottom="#0d1a24",
@@ -2535,33 +2840,41 @@ class QSeeSimulator:
                 radius=10,
             )
             self.canvas.create_text(
-                x + 68,
-                205 + y_offset,
+                x + 66,
+                203 + y_offset,
                 text=title,
                 fill=MUTED_BRIGHT,
                 font=(FONT_DISPLAY, 7),
                 tags="ui",
             )
             self.canvas.create_text(
-                x + 68,
-                229 + y_offset,
+                x + 66,
+                223 + y_offset,
                 text=value,
                 fill=TEXT,
-                font=(FONT_TECH, 9, "bold"),
+                font=(FONT_TECH, 11, "bold"),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                x + 66,
+                239 + y_offset,
+                text="SYNTHETIC",
+                fill=MUTED_BRIGHT,
+                font=(FONT_TECH, 6, "bold"),
                 tags="ui",
             )
         self.canvas.create_text(
             94,
-            270 + y_offset,
+            268 + y_offset,
             anchor="w",
-            text="SYNTHETIC PHYSICAL REFERENCE",
+            text="REFERENCE",
             fill=TEXT,
             font=(FONT_DISPLAY, 9),
             tags="ui",
         )
         self.canvas.create_text(
             372,
-            270 + y_offset,
+            268 + y_offset,
             anchor="e",
             text="1 000 mm",
             fill=STATUS_READY,
@@ -2570,9 +2883,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             104,
-            303 + y_offset,
+            296 + y_offset,
             362,
-            303 + y_offset,
+            296 + y_offset,
             fill=TRACK,
             width=7,
             capstyle=tk.ROUND,
@@ -2580,9 +2893,9 @@ class QSeeSimulator:
         )
         self.canvas.create_line(
             104,
-            303 + y_offset,
+            296 + y_offset,
             233,
-            303 + y_offset,
+            296 + y_offset,
             fill=STATUS_READY,
             width=7,
             capstyle=tk.ROUND,
@@ -2590,16 +2903,16 @@ class QSeeSimulator:
         )
         self._draw_glow_disc(
             233,
-            303 + y_offset,
+            296 + y_offset,
             12,
             STATUS_READY,
             80,
         )
         self.canvas.create_oval(
             224,
-            294 + y_offset,
+            287 + y_offset,
             242,
-            312 + y_offset,
+            305 + y_offset,
             fill="#eafffb",
             outline=STATUS_READY,
             width=2,
@@ -2607,7 +2920,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             104,
-            326 + y_offset,
+            317 + y_offset,
             anchor="w",
             text="500 mm",
             fill=MUTED_BRIGHT,
@@ -2616,7 +2929,7 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             362,
-            326 + y_offset,
+            317 + y_offset,
             anchor="e",
             text="1 500 mm",
             fill=MUTED_BRIGHT,
@@ -2624,19 +2937,17 @@ class QSeeSimulator:
             tags="ui",
         )
         self.canvas.create_text(
-            92,
-            347 + y_offset,
-            anchor="w",
-            text="SYNTHETIC",
+            233,
+            339 + y_offset,
+            text="SYNTHETIC REFERENCE",
             fill=STATUS_WARNING,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
-            374,
-            347 + y_offset,
-            anchor="e",
-            text="PRESS ▶ TO CALIBRATE",
+            233,
+            357 + y_offset,
+            text="PRESS PLAY TO CALIBRATE",
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -2694,6 +3005,26 @@ class QSeeSimulator:
         self.logger.info("qsee_nav", "Synthetic confirmation cancelled")
         self.show_home()
 
+    def pairing_next(self) -> None:
+        target = {
+            "pairing-intro": "pairing-bluetooth",
+            "pairing-bluetooth": "pairing-app",
+            "pairing-app": "pairing-app-qr",
+            "pairing-app-qr": "pairing-device-qr",
+            "pairing-success": "settings",
+            "pairing-failed": "pairing-device-qr",
+        }.get(self.screen)
+        if target is None:
+            return
+        self.logger.info(
+            "qsee_pairing",
+            f"Synthetic pairing navigation: {self.screen} -> {target}",
+        )
+        if target == "settings":
+            self.show_settings_demo()
+        else:
+            self.show_pairing_demo(target)
+
     def back(self) -> None:
         if self.screen == "tof-settings":
             self.logger.info(
@@ -2701,6 +3032,23 @@ class QSeeSimulator:
                 "Synthetic TOF settings closed; returning to TOF",
             )
             self.show_tof_demo()
+            return
+        if self.screen in PAIRING_SCREENS:
+            target = {
+                "pairing-bluetooth": "pairing-intro",
+                "pairing-app": "pairing-bluetooth",
+                "pairing-app-qr": "pairing-app",
+                "pairing-device-qr": "pairing-app-qr",
+                "pairing-credentials": "pairing-app-qr",
+                "pairing-connecting": "pairing-app-qr",
+                "pairing-success": "pairing-app-qr",
+                "pairing-failed": "pairing-app-qr",
+            }.get(self.screen)
+            self.logger.info("qsee_pairing", "Synthetic pairing Back")
+            if target is None:
+                self.show_settings_demo()
+            else:
+                self.show_pairing_demo(target)
             return
         if self.screen in {
             "audio",
@@ -2797,6 +3145,10 @@ class QSeeSimulator:
         if self.audio_timer is not None:
             self.root.after_cancel(self.audio_timer)
             self.audio_timer = None
+        if current_screen in PAIRING_SCREENS:
+            self.show_pairing_demo(current_screen)
+            self.apply_idle_overlay()
+            return
         redraw = {
             "home": self.show_home,
             "settings": self.show_settings_demo,
@@ -2863,6 +3215,7 @@ def main() -> None:
             "imu",
             "tof",
             "tof-settings",
+            *sorted(PAIRING_SCREENS),
         ),
         default="home",
     )
@@ -2904,7 +3257,7 @@ def main() -> None:
         from PIL import ImageGrab
 
         simulator.ready = True
-        {
+        screen_drawers = {
             "home": simulator.show_home,
             "settings": simulator.show_settings_demo,
             "storage": simulator.show_storage_demo,
@@ -2917,7 +3270,11 @@ def main() -> None:
             "imu": simulator.show_imu_demo,
             "tof": simulator.show_tof_demo,
             "tof-settings": simulator.show_tof_settings_demo,
-        }[args.screen]()
+        }
+        if args.screen in PAIRING_SCREENS:
+            simulator.show_pairing_demo(args.screen)
+        else:
+            screen_drawers[args.screen]()
         simulator.apply_idle_overlay()
         root.geometry("+100+100")
         root.deiconify()

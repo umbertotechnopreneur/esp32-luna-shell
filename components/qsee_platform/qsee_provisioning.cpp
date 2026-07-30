@@ -46,6 +46,29 @@ qsee_provisioning_state_t to_c_state(qsee::ProvisioningState state)
     ESP_LOGE(kTag, "unknown provisioning state %d", static_cast<int>(state));
     return QSEE_PROVISIONING_STATE_FAILED;
 }
+
+qsee_provisioning_failure_reason_t to_c_failure_reason(
+    qsee::ProvisioningFailureReason reason
+)
+{
+    switch (reason) {
+    case qsee::ProvisioningFailureReason::None:
+        return QSEE_PROVISIONING_FAILURE_NONE;
+    case qsee::ProvisioningFailureReason::Authentication:
+        return QSEE_PROVISIONING_FAILURE_AUTHENTICATION;
+    case qsee::ProvisioningFailureReason::AccessPointNotFound:
+        return QSEE_PROVISIONING_FAILURE_ACCESS_POINT_NOT_FOUND;
+    case qsee::ProvisioningFailureReason::Unknown:
+        return QSEE_PROVISIONING_FAILURE_UNKNOWN;
+    }
+
+    ESP_LOGE(
+        kTag,
+        "unknown provisioning failure reason %d",
+        static_cast<int>(reason)
+    );
+    return QSEE_PROVISIONING_FAILURE_UNKNOWN;
+}
 }
 
 namespace qsee {
@@ -151,6 +174,7 @@ esp_err_t ProvisioningService::start()
 
         restart_failed_session = _running;
         _operation = Operation::Start;
+        _failure_reason = ProvisioningFailureReason::None;
         _state = restart_failed_session
                      ? ProvisioningState::Stopping
                      : ProvisioningState::Starting;
@@ -328,9 +352,10 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
     wifi_config_t config{};
     const esp_err_t wifi_err = esp_wifi_get_config(WIFI_IF_STA, &config);
     if (wifi_err != ESP_OK || config.sta.ssid[0] == '\0') {
-        std::snprintf(buffer, buffer_size, "Wi-Fi non configurato");
+        std::snprintf(buffer, buffer_size, "Wi-Fi is not configured");
         return wifi_err == ESP_OK ? ESP_ERR_NOT_FOUND : wifi_err;
     }
+    const int ssid_length = static_cast<int>(sizeof(config.sta.ssid));
 
     esp_netif_ip_info_t ip_info{};
     esp_netif_t *netif = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -338,7 +363,8 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
         std::snprintf(
             buffer,
             buffer_size,
-            "Rete: %s\\nInterfaccia non disponibile",
+            "Network: %.*s\nInterface unavailable",
+            ssid_length,
             reinterpret_cast<const char *>(config.sta.ssid)
         );
         ESP_LOGE(kTag, "connection summary: station netif not found");
@@ -349,7 +375,8 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
         std::snprintf(
             buffer,
             buffer_size,
-            "Rete: %s\\nLettura IP fallita",
+            "Network: %.*s\nIP address unavailable",
+            ssid_length,
             reinterpret_cast<const char *>(config.sta.ssid)
         );
         ESP_LOGE(
@@ -363,7 +390,8 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
         std::snprintf(
             buffer,
             buffer_size,
-            "Rete: %s\\nIP in assegnazione",
+            "Network: %.*s\nIP address pending",
+            ssid_length,
             reinterpret_cast<const char *>(config.sta.ssid)
         );
         return ESP_ERR_NOT_FOUND;
@@ -371,7 +399,8 @@ esp_err_t ProvisioningService::connectionSummary(char *buffer, size_t buffer_siz
     std::snprintf(
         buffer,
         buffer_size,
-        "Rete: %s\\nIP: " IPSTR,
+        "Network: %.*s\nIP: " IPSTR,
+        ssid_length,
         reinterpret_cast<const char *>(config.sta.ssid),
         IP2STR(&ip_info.ip)
     );
@@ -382,6 +411,12 @@ ProvisioningState ProvisioningService::state() const
 {
     std::lock_guard<std::mutex> guard(_mutex);
     return _state;
+}
+
+ProvisioningFailureReason ProvisioningService::failureReason() const
+{
+    std::lock_guard<std::mutex> guard(_mutex);
+    return _failure_reason;
 }
 
 bool ProvisioningService::isInitialized() const
@@ -416,7 +451,6 @@ void ProvisioningService::onEvent(void *user_data, network_prov_cb_event_t event
 
 void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event_data)
 {
-    (void)event_data;
     bool publish_active = false;
     bool publish_stopped = false;
     bool ended_after_success = false;
@@ -435,20 +469,53 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
         case NETWORK_PROV_START:
             _running = true;
             _state = ProvisioningState::WaitingForApp;
+            _failure_reason = ProvisioningFailureReason::None;
             publish_active = true;
             break;
         case NETWORK_PROV_WIFI_CRED_RECV:
             _state = ProvisioningState::CredentialsReceived;
+            _failure_reason = ProvisioningFailureReason::None;
             break;
         case NETWORK_PROV_SET_WIFI_STA_CONFIG:
             _state = ProvisioningState::Connecting;
             break;
         case NETWORK_PROV_WIFI_CRED_SUCCESS:
             _state = ProvisioningState::Success;
+            _failure_reason = ProvisioningFailureReason::None;
             break;
-        case NETWORK_PROV_WIFI_CRED_FAIL:
+        case NETWORK_PROV_WIFI_CRED_FAIL: {
             _state = ProvisioningState::Failed;
+            if (event_data == nullptr) {
+                _failure_reason = ProvisioningFailureReason::Unknown;
+                ESP_LOGE(
+                    kTag,
+                    "Wi-Fi credential failure omitted its reason"
+                );
+                break;
+            }
+            const auto reason =
+                *static_cast<network_prov_wifi_sta_fail_reason_t *>(event_data);
+            switch (reason) {
+            case NETWORK_PROV_WIFI_STA_AUTH_ERROR:
+                _failure_reason = ProvisioningFailureReason::Authentication;
+                ESP_LOGE(kTag, "Wi-Fi authentication failed");
+                break;
+            case NETWORK_PROV_WIFI_STA_AP_NOT_FOUND:
+                _failure_reason =
+                    ProvisioningFailureReason::AccessPointNotFound;
+                ESP_LOGE(kTag, "Wi-Fi access point was not found");
+                break;
+            default:
+                _failure_reason = ProvisioningFailureReason::Unknown;
+                ESP_LOGE(
+                    kTag,
+                    "Wi-Fi provisioning failed with unknown reason %d",
+                    static_cast<int>(reason)
+                );
+                break;
+            }
             break;
+        }
         case NETWORK_PROV_END:
             ended_after_success = _state == ProvisioningState::Success;
             _running = false;
@@ -565,6 +632,14 @@ extern "C" bool qsee_provisioning_active(void)
 extern "C" qsee_provisioning_state_t qsee_provisioning_state(void)
 {
     return to_c_state(qsee::ProvisioningService::instance().state());
+}
+
+extern "C" qsee_provisioning_failure_reason_t
+qsee_provisioning_failure_reason(void)
+{
+    return to_c_failure_reason(
+        qsee::ProvisioningService::instance().failureReason()
+    );
 }
 
 extern "C" esp_err_t qsee_provisioning_connection_summary(

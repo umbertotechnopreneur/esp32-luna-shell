@@ -22,6 +22,13 @@ enum class ProvisioningState {
     Poisoned,
 };
 
+enum class ProvisioningFailureReason {
+    None,
+    Authentication,
+    AccessPointNotFound,
+    Unknown,
+};
+
 /** BLE-only Espressif network provisioning facade for Wi-Fi credentials. */
 class ProvisioningService final {
 public:
@@ -37,6 +44,7 @@ public:
     bool isInitialized() const;
     bool isRunning() const;
     ProvisioningState state() const;
+    ProvisioningFailureReason failureReason() const;
     const char *serviceName() const;
     const char *qrPayload() const;
 
@@ -64,6 +72,7 @@ private:
     Operation _operation = Operation::None;
     esp_err_t _last_error = ESP_OK;
     ProvisioningState _state = ProvisioningState::Idle;
+    ProvisioningFailureReason _failure_reason = ProvisioningFailureReason::None;
     char _service_name[24]{};
     char _qr_payload[192]{};
 };

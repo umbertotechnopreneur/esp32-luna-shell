@@ -114,7 +114,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "26dp"
+                                        "height": "28dp"
                                     }
                                 },
                                 {
@@ -136,6 +136,9 @@
                                 {
                                     "type": "label",
                                     "id": "settings_status",
+                                    "bindings": {
+                                        "style.textColor": "color"
+                                    },
                                     "labelProps": {
                                         "text": "SETTINGS UNAVAILABLE"
                                     },
@@ -146,7 +149,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -249,7 +252,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -366,6 +369,9 @@
                                 {
                                     "type": "label",
                                     "id": "calibration_status",
+                                    "bindings": {
+                                        "style.textColor": "color"
+                                    },
                                     "labelProps": {
                                         "text": "CALIBRATION UNAVAILABLE"
                                     },
@@ -376,7 +382,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "18dp"
+                                        "height": "wrap"
                                     }
                                 },
                                 {
@@ -392,7 +398,7 @@
                                     },
                                     "placement": {
                                         "width": "282dp",
-                                        "height": "44dp"
+                                        "height": "wrap"
                                     }
                                 }
                             ]
