@@ -112,7 +112,27 @@ CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
-CONFIG_BT_CTRL_BLE_MAX_ACT=2
+# Provisioning and telemetry each use one peripheral connection; no scan or
+# concurrent advertising activity is used. ESP-IDF allocates about 828 B of
+# internal DRAM per controller activity, so keep one slot instead of two.
+CONFIG_BT_CTRL_BLE_MAX_ACT=1
+
+# The firmware exposes only GAP, GATT, and Device Information. Keep the
+# optional NimBLE profile services out of the image and their static tables.
+# CONFIG_BT_NIMBLE_PROX_SERVICE is not set
+# CONFIG_BT_NIMBLE_ANS_SERVICE is not set
+# CONFIG_BT_NIMBLE_CTS_SERVICE is not set
+# CONFIG_BT_NIMBLE_HTP_SERVICE is not set
+# CONFIG_BT_NIMBLE_IPSS_SERVICE is not set
+# CONFIG_BT_NIMBLE_TPS_SERVICE is not set
+# CONFIG_BT_NIMBLE_IAS_SERVICE is not set
+# CONFIG_BT_NIMBLE_LLS_SERVICE is not set
+# CONFIG_BT_NIMBLE_SPS_SERVICE is not set
+# CONFIG_BT_NIMBLE_HR_SERVICE is not set
+# CONFIG_BT_NIMBLE_BAS_SERVICE is not set
+CONFIG_BT_NIMBLE_DIS_SERVICE=y
+CONFIG_BT_NIMBLE_GAP_SERVICE=y
+CONFIG_BT_NIMBLE_GATT_SERVER=y
 
 # IDF 6 moves provisioning to the external network_provisioning component and
 # disables protocomm Security 1 by default. Keep the existing BLE protocol.
