@@ -47,6 +47,10 @@
   artifacts. Regenerate and verify the complete package whenever the canonical
   source changes so actions, templates, route descriptors, and staged files
   cannot drift independently.
+- Keep high-cardinality binding-driven style variants local to their node.
+  Persistent style deduplication is for mount-time and globally revised static
+  styles; caching every runtime opacity or transform value retains transient
+  variants until the document unloads.
 
 ## ESP-IDF 6 flash operations and PSRAM task stacks
 

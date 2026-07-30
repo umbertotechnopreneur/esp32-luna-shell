@@ -164,6 +164,25 @@ def main() -> int:
         "GLOBAL APPEND PROPERTY" not in app_cmake,
         "raw and prepared package targets must not remain unordered peers",
     )
+    minify_command_pattern = (
+        r'COMMAND\s+"\$\{PYTHON\}"\s+'
+        r'"\$\{PROJECT_DIR\}/scripts/minify_json_tree\.py"'
+    )
+    minify_positions = [
+        match.start() for match in re.finditer(minify_command_pattern, app_cmake)
+    ]
+    require(
+        len(minify_positions) == 2,
+        "both runtime package profiles must minify their staged JSON",
+    )
+    variant_marker = '"${qsee_app_staged_package_dir}/res/.variants"'
+    for position in minify_positions:
+        target_start = app_cmake.rfind("add_custom_target(", 0, position)
+        variant_removal = app_cmake.rfind(variant_marker, target_start, position)
+        require(
+            variant_removal >= 0,
+            "staged JSON must be minified only after profile variants are filtered",
+        )
 
     project_cmake = read("CMakeLists.txt")
     require(

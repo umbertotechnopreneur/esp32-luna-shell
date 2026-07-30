@@ -91,6 +91,7 @@ private:
     size_t command_count_ = 0;
     esp_brookesia::gui::SubscriptionId animation_id_ = 0;
     uint32_t animation_generation_ = 0;
+    std::optional<bool> hit_testing_enabled_;
     bool active_ = false;
     bool visible_ = true;
     bool animation_target_visible_ = true;

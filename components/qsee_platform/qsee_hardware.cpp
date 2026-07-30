@@ -5324,7 +5324,6 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
         std::abort();
     }
     copy = s_snapshot;
-    apply_measured_sample_aging(copy, esp_timer_get_time());
     const esp_err_t release_error = give_snapshot_mutex("read");
     if (release_error != ESP_OK) {
         ESP_LOGE(
@@ -5334,6 +5333,7 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
         );
         std::abort();
     }
+    apply_measured_sample_aging(copy, esp_timer_get_time());
     copy.ui.touch_activity_sequence =
         s_touch_activity_sequence.load(std::memory_order_acquire);
     copy.ui.touch_last_activity_at_us =

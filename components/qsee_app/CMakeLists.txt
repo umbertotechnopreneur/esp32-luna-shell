@@ -111,9 +111,14 @@ if(CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND
         COMMAND
             ${CMAKE_COMMAND} -E remove_directory
             "${qsee_app_staged_package_dir}/res/.variants"
+        COMMAND
+            "${PYTHON}"
+            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${qsee_app_staged_package_dir}/res"
         DEPENDS
             ${qsee_app_package_stage_targets}
             qsee_verify_lazy_gui_documents
+            "${PROJECT_DIR}/scripts/minify_json_tree.py"
         COMMENT "Preparing QSee runtime package with distance UI"
         VERBATIM
     )
@@ -132,9 +137,14 @@ else()
         COMMAND
             ${CMAKE_COMMAND} -E remove_directory
             "${qsee_app_staged_package_dir}/res/.variants"
+        COMMAND
+            "${PYTHON}"
+            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${qsee_app_staged_package_dir}/res"
         DEPENDS
             ${qsee_app_package_stage_targets}
             qsee_verify_lazy_gui_documents
+            "${PROJECT_DIR}/scripts/minify_json_tree.py"
         COMMENT "Preparing QSee runtime package without distance UI"
         VERBATIM
     )

@@ -118,6 +118,7 @@ private:
     esp_brookesia::gui::SubscriptionId status_animation_id_ = 0;
     uint32_t status_animation_generation_ = 0;
     DisplayIdleStage display_idle_stage_ = DisplayIdleStage::Active;
+    std::optional<bool> wake_surface_enabled_;
     bool active_ = false;
     bool fullscreen_active_ = false;
     bool command_target_visible_ = true;

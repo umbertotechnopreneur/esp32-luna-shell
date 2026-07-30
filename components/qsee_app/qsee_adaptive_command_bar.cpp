@@ -294,6 +294,7 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
 
     auto result = gui.set_binding_values(updates);
     if (!result) {
+        hit_testing_enabled_.reset();
         command_count_ = 0;
         for (std::string &action : actions_) {
             action.clear();
@@ -308,6 +309,7 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
     active_ = !commands.empty();
     visible_ = visible;
     animation_target_visible_ = visible;
+    hit_testing_enabled_ = active_ && visible;
     return {};
 }
 
@@ -360,11 +362,14 @@ void AdaptiveCommandBar::shutdown(
     }
     auto result = gui.set_binding_values(updates);
     if (!result) {
+        hit_testing_enabled_.reset();
         ESP_LOGE(
             kTag,
             "Failed to hide Command Arc during shutdown: %s",
             result.error().c_str()
         );
+    } else {
+        hit_testing_enabled_ = false;
     }
     command_count_ = 0;
     active_ = false;
@@ -438,6 +443,9 @@ std::expected<void, std::string> AdaptiveCommandBar::set_hit_testing(
     bool chrome_visible
 )
 {
+    if (hit_testing_enabled_ == chrome_visible) {
+        return {};
+    }
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
     updates.reserve(command_count_);
     for (size_t index = 0; index < command_count_; ++index) {
@@ -450,11 +458,13 @@ std::expected<void, std::string> AdaptiveCommandBar::set_hit_testing(
     }
     auto result = gui.set_binding_values(updates);
     if (!result) {
+        hit_testing_enabled_.reset();
         return std::unexpected(
             "Failed to update Command Arc hit testing: " +
             result.error()
         );
     }
+    hit_testing_enabled_ = chrome_visible;
     return {};
 }
 

@@ -125,6 +125,7 @@ std::expected<void, std::string> AdaptiveChromeController::begin()
     command_target_visible_ = true;
     status_visible_ = true;
     status_target_visible_ = true;
+    wake_surface_enabled_.reset();
     return {};
 }
 
@@ -224,10 +225,15 @@ std::expected<void, std::string> AdaptiveChromeController::shutdown(
     add_binding(updates, kWakePath, "hidden", "true");
     add_binding(updates, kWakePath, "clickable", "false");
     auto binding_result = gui.set_binding_values(updates);
-    if (!binding_result && first_error.empty()) {
-        first_error =
-            "Failed to reset Adaptive Chrome during shutdown: " +
-            binding_result.error();
+    if (!binding_result) {
+        wake_surface_enabled_.reset();
+        if (first_error.empty()) {
+            first_error =
+                "Failed to reset Adaptive Chrome during shutdown: " +
+                binding_result.error();
+        }
+    } else {
+        wake_surface_enabled_ = false;
     }
 
     status_visible_ = true;
@@ -376,6 +382,9 @@ AdaptiveChromeController::set_wake_surface(
     bool enabled
 )
 {
+    if (wake_surface_enabled_ == enabled) {
+        return {};
+    }
     const std::vector<esp_brookesia::gui::BindingValueUpdate> updates = {
         {
             .absolute_path = std::string(kWakePath),
@@ -390,11 +399,13 @@ AdaptiveChromeController::set_wake_surface(
     };
     auto result = gui.set_binding_values(updates);
     if (!result) {
+        wake_surface_enabled_.reset();
         return std::unexpected(
             "Failed to update the Adaptive Chrome Wake Surface: " +
             result.error()
         );
     }
+    wake_surface_enabled_ = enabled;
     return {};
 }
 
