@@ -157,17 +157,21 @@ def main() -> int:
 
     project_cmake = read("CMakeLists.txt")
     require(
-        "add_dependencies(\n"
-        "    littlefs_littlefs_data_bin\n"
-        "    qsee_prepare_runtime_app_package\n"
-        ")" in project_cmake,
+        re.search(
+            r"add_dependencies\(\s*"
+            r"littlefs_littlefs_data_bin\s+"
+            r"qsee_prepare_runtime_app_package\s*\)",
+            project_cmake,
+        )
+        is not None,
         "LittleFS must wait for filtered QSee package preparation",
     )
     require(
-        "if(NOT TARGET littlefs_littlefs_data_bin)" in project_cmake
+        "if(CONFIG_QSEE_BUILD_ENABLE_UI)" in project_cmake
+        and "if(NOT TARGET littlefs_littlefs_data_bin)" in project_cmake
         and "if(NOT TARGET qsee_prepare_runtime_app_package)"
         in project_cmake,
-        "cross-component package ordering must fail during configuration",
+        "UI package ordering must be guarded and fail during configuration",
     )
 
     generator = read("scripts/generate_qsee_gui_documents.py")

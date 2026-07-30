@@ -5,17 +5,19 @@ project(distanziamoci)
 
 # `main` creates the LittleFS target before qsee_app can replace the raw
 # Brookesia staging target. Add the final cross-component dependency here,
-# after ESP-IDF has configured every component.
-if(NOT TARGET littlefs_littlefs_data_bin)
-    message(FATAL_ERROR "LittleFS image target was not created")
+# after ESP-IDF has configured every UI component.
+if(CONFIG_QSEE_BUILD_ENABLE_UI)
+    if(NOT TARGET littlefs_littlefs_data_bin)
+        message(FATAL_ERROR "LittleFS image target was not created")
+    endif()
+    if(NOT TARGET qsee_prepare_runtime_app_package)
+        message(FATAL_ERROR "QSee runtime package preparation target was not created")
+    endif()
+    add_dependencies(
+        littlefs_littlefs_data_bin
+        qsee_prepare_runtime_app_package
+    )
 endif()
-if(NOT TARGET qsee_prepare_runtime_app_package)
-    message(FATAL_ERROR "QSee runtime package preparation target was not created")
-endif()
-add_dependencies(
-    littlefs_littlefs_data_bin
-    qsee_prepare_runtime_app_package
-)
 
 # Keep the Brookesia C++ runtime compact under the firmware's -O2 build,
 # matching the upstream System Super example integration.
