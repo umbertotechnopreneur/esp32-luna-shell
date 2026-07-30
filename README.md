@@ -300,6 +300,14 @@ Build:
 pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6
 ```
 
+Add `-LogPath` to append the complete child-process output to a file while it
+remains visible in the console. The file is updated as CMake and Ninja emit
+each line:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6 -LogPath .\runtime-logs\build.log
+```
+
 Show the application and static memory size report:
 
 ```powershell

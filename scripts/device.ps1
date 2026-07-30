@@ -18,6 +18,10 @@ param(
 
     [string]$OutputPath,
 
+    # Optional live tee for callers that cannot surface native process output
+    # incrementally. Console output remains visible.
+    [string]$LogPath,
+
     [switch]$ResetBeforeCapture,
 
     # Explicit parameters take precedence over the dedicated QSEE_IDF_*
@@ -39,6 +43,56 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
+
+# PowerShell transcripts do not reliably include native CMake/Ninja output.
+# Re-run the action once as a child process and tee its complete output stream
+# so the console and log file are both updated as each line arrives.
+if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
+    $LogPath = [System.IO.Path]::GetFullPath($LogPath)
+    $logDirectory = [System.IO.Path]::GetDirectoryName($LogPath)
+    if (-not (Test-Path -LiteralPath $logDirectory -PathType Container)) {
+        throw "Live log directory not found: $logDirectory"
+    }
+
+    $childArguments = @("-NoProfile", "-File", $PSCommandPath, $Action)
+    foreach ($parameterName in @(
+        "Port",
+        "Baud",
+        "BuildDir",
+        "WaitSeconds",
+        "DurationSeconds",
+        "OutputPath",
+        "ResetBeforeCapture",
+        "IdfPath",
+        "ToolsPath",
+        "PythonExe",
+        "Jobs"
+    )) {
+        if (-not $PSBoundParameters.ContainsKey($parameterName)) {
+            continue
+        }
+
+        $parameterValue = $PSBoundParameters[$parameterName]
+        if ($parameterValue -is [System.Management.Automation.SwitchParameter]) {
+            if ($parameterValue.IsPresent) {
+                $childArguments += "-$parameterName"
+            }
+            continue
+        }
+
+        $childArguments += "-$parameterName"
+        $childArguments += "$parameterValue"
+    }
+
+    $pwshExecutable = Join-Path $PSHOME "pwsh.exe"
+    & $pwshExecutable @childArguments 2>&1 |
+        Tee-Object -FilePath $LogPath -Append
+    $childExitCode = $LASTEXITCODE
+    if ($childExitCode -ne 0) {
+        throw "Device action '$Action' failed with exit code $childExitCode. Live log: $LogPath"
+    }
+    return
+}
 
 # Serial discovery does not need ESP-IDF. Run it before initializing the
 # toolchain so a missing device is not obscured by unrelated environment output.
