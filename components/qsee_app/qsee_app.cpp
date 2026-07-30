@@ -4821,60 +4821,62 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
     const char *step = nullptr;
     const char *message = nullptr;
     const char *detail = "";
+    const char *accent_color = "#20dfc1";
     bool show_qr = false;
+    int32_t progress_value = 0;
+    bool progress_hidden = false;
     std::array<char, 192> dynamic_message{};
 
     switch (screen_) {
     case Screen::PairIntro:
         title = "PAIR DEVICE";
-        step = "1 OF 5";
-        message =
-            "Connect QSee to Wi-Fi with Bluetooth provisioning.";
-        detail =
-            "Keep the device near your phone. No PIN or proof-of-possession is required.";
+        step = "STEP 1 OF 5";
+        message = "Connect QSee to your Wi-Fi network.";
+        detail = "Bluetooth carries the Wi-Fi setup details.";
+        progress_value = 1;
         break;
     case Screen::PairBluetooth:
         title = "BLUETOOTH";
-        step = "2 OF 5";
-        message =
-            "Enable Bluetooth on your phone and allow nearby-device access.";
-        detail =
-            "The QSee radio starts only when you reach the device QR step.";
+        step = "STEP 2 OF 5";
+        message = "Turn on Bluetooth on your phone.";
+        detail = "Allow Nearby devices when prompted.";
+        progress_value = 2;
         break;
     case Screen::PairApp:
-        title = "ESPRESSIF APP";
-        step = "3 OF 5";
-        message =
-            "Install and open ESP BLE Provisioning, the official Espressif app.";
-        detail =
-            "Next shows the Google Play QR, then the QR for this QSee device.";
+        title = "GET THE APP";
+        step = "STEP 3 OF 5";
+        message = "Install ESP BLE Provisioning on your phone.";
+        detail = "Next shows the official Google Play download.";
+        progress_value = 3;
         break;
     case Screen::AppStoreQr:
         title = "INSTALL APP";
-        step = "4 OF 5";
-        message =
-            "Scan this code to open ESP BLE Provisioning on Google Play.";
-        detail = "Press Next when the app is ready.";
+        step = "STEP 4 OF 5";
+        message = "Scan to install ESP BLE Provisioning.";
+        detail = "Then return here and press Next.";
         show_qr = true;
+        progress_value = 4;
         break;
     case Screen::PairQr: {
         title = "SCAN DEVICE";
-        step = "5 OF 5";
+        step = "STEP 5 OF 5";
         show_qr = true;
         detail = qsee_provisioning_service_name();
+        progress_value = 5;
         const qsee_provisioning_state_t state = qsee_provisioning_state();
         switch (state) {
+        case QSEE_PROVISIONING_STATE_IDLE:
+        case QSEE_PROVISIONING_STATE_STARTING:
+            message = "Starting Bluetooth setup...";
+            break;
         case QSEE_PROVISIONING_STATE_WAITING_FOR_APP:
-            message =
-                "Bluetooth ready. Scan this QR in the Espressif app.";
+            message = "In the app, scan this device QR.";
             break;
         case QSEE_PROVISIONING_STATE_CREDENTIALS_RECEIVED:
-            message =
-                "Credentials received. Preparing the Wi-Fi profile...";
+            message = "Wi-Fi details received. Preparing the connection...";
             break;
         case QSEE_PROVISIONING_STATE_CONNECTING:
-            message =
-                "Credentials received. Connecting to Wi-Fi...";
+            message = "Wi-Fi details received. Connecting...";
             break;
         case QSEE_PROVISIONING_STATE_SUCCESS: {
             std::array<char, 128> summary{};
@@ -4903,26 +4905,54 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
             );
         }
         case QSEE_PROVISIONING_STATE_FAILED:
+            switch (qsee_provisioning_failure_reason()) {
+            case QSEE_PROVISIONING_FAILURE_AUTHENTICATION:
+                return show_pairing_result(
+                    context,
+                    "Wi-Fi password was rejected. Check it and try again.",
+                    false
+                );
+            case QSEE_PROVISIONING_FAILURE_ACCESS_POINT_NOT_FOUND:
+                return show_pairing_result(
+                    context,
+                    "Wi-Fi network not found. Check its name or move closer.",
+                    false
+                );
+            case QSEE_PROVISIONING_FAILURE_NONE:
+            case QSEE_PROVISIONING_FAILURE_UNKNOWN:
+                return show_pairing_result(
+                    context,
+                    "Wi-Fi connection failed without a reported reason.",
+                    false
+                );
+            }
             return show_pairing_result(
                 context,
-                "The network rejected the credentials. Check the password and retry.",
+                "Wi-Fi connection failed with an invalid reason.",
                 false
             );
         case QSEE_PROVISIONING_STATE_POISONED:
             return show_pairing_result(
                 context,
-                "The provisioning manager entered a terminal error state.",
+                "Bluetooth setup stopped after an unrecoverable error.",
                 false
             );
         case QSEE_PROVISIONING_STATE_UNAVAILABLE:
             return show_pairing_result(
                 context,
-                "Provisioning is disabled in this build profile.",
+                "Wi-Fi setup is unavailable in this firmware build.",
                 false
             );
-        default:
-            message = "Starting Bluetooth provisioning...";
+        case QSEE_PROVISIONING_STATE_STOPPING:
+        case QSEE_PROVISIONING_STATE_DEINITIALIZING:
+            message = "Closing Bluetooth setup...";
             break;
+        case QSEE_PROVISIONING_STATE_STOPPED:
+            return show_pairing_result(
+                context,
+                "Bluetooth setup ended before Wi-Fi connected.",
+                false
+            );
         }
 
         if (pairing_started_at_us_ > 0 &&
@@ -4940,7 +4970,7 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
                 std::snprintf(
                     dynamic_message.data(),
                     dynamic_message.size(),
-                    "Pairing timed out after 5 minutes. Retry to start a new session."
+                    "Setup timed out after 5 minutes. Try again."
                 );
             }
             return show_pairing_result(
@@ -4954,12 +4984,14 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
     case Screen::PairResult:
         title = pairing_result_success_
             ? "WI-FI READY"
-            : "PAIRING FAILED";
+            : "SETUP FAILED";
         step = pairing_result_success_ ? "CONNECTED" : "ACTION REQUIRED";
         message = pairing_result_.c_str();
         detail = pairing_result_success_
-            ? "Next returns to Settings."
-            : "Next starts a new pairing session.";
+            ? "Setup complete. Next returns to Settings."
+            : "Press Next to try again.";
+        accent_color = pairing_result_success_ ? "#20dfc1" : "#ff3859";
+        progress_hidden = true;
         break;
     default:
         return std::unexpected(
@@ -4973,7 +5005,10 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
         .step = step,
         .message = message,
         .detail = detail,
+        .accent_color = accent_color,
         .show_qr = show_qr,
+        .progress_value = progress_value,
+        .progress_hidden = progress_hidden,
     };
     if (pairing_visual_state_.has_value() &&
         *pairing_visual_state_ == next_state) {
@@ -5005,6 +5040,28 @@ std::expected<void, std::string> App::refresh_pairing(AppContext &context)
             context,
             std::string(root) + "/detail",
             detail
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_binding_values(
+            context,
+            {
+                {
+                    .absolute_path = std::string(root) + "/step",
+                    .key = "color",
+                    .value = accent_color,
+                },
+                {
+                    .absolute_path = std::string(root) + "/progress",
+                    .key = "value",
+                    .value = std::to_string(progress_value),
+                },
+                {
+                    .absolute_path = std::string(root) + "/progress",
+                    .key = "hidden",
+                    .value = progress_hidden ? "true" : "false",
+                },
+            }
         ); !result) {
         return result;
     }

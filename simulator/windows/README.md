@@ -11,6 +11,7 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1 -Scenario gps-searching
 .\simulator\windows\run-simulator.ps1 -Screen settings
 .\simulator\windows\run-simulator.ps1 -Screen storage
+.\simulator\windows\run-simulator.ps1 -Screen pairing-intro
 ```
 
 Capture the current synthetic home screen without touching a device:
@@ -20,6 +21,10 @@ Capture the current synthetic home screen without touching a device:
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen storage -Capture .\simulator\windows\storage.png
 .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted -Screen storage -Capture .\simulator\windows\storage-format-required.png
+.\simulator\windows\run-simulator.ps1 -Screen pairing-app-qr -Capture .\simulator\windows\pairing-app-qr.png
+.\simulator\windows\run-simulator.ps1 -Screen pairing-device-qr -Capture .\simulator\windows\pairing-device-qr.png
+.\simulator\windows\run-simulator.ps1 -Screen pairing-success -Capture .\simulator\windows\pairing-success.png
+.\simulator\windows\run-simulator.ps1 -Screen pairing-failed -Capture .\simulator\windows\pairing-failed.png
 .\simulator\windows\run-simulator.ps1 -IdleState command-hidden -Capture .\simulator\windows\command-hidden.png
 .\simulator\windows\run-simulator.ps1 -Screen settings -IdleState fullscreen -SafeGuide -Capture .\simulator\windows\settings-fullscreen.png
 .\simulator\windows\run-simulator.ps1 -IdleState dimmed -Capture .\simulator\windows\dimmed.png

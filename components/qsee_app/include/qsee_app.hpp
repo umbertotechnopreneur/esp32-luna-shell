@@ -82,7 +82,10 @@ private:
         std::string_view step;
         std::string_view message;
         std::string_view detail;
+        std::string_view accent_color;
         bool show_qr;
+        int32_t progress_value;
+        bool progress_hidden;
 
         bool operator==(const PairingVisualState &) const = default;
     };

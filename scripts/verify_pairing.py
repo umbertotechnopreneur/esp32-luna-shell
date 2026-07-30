@@ -151,6 +151,8 @@ def main() -> None:
     app_header = read("components/qsee_app/include/qsee_app.hpp")
     app = read("components/qsee_app/qsee_app.cpp")
     edge_navigation = read("components/qsee_app/qsee_edge_navigation.cpp")
+    simulator = read("simulator/windows/qsee_simulator.py")
+    simulator_runner = read("simulator/windows/run-simulator.ps1")
     navigation_service = read(
         "components/qsee_app/qsee_navigation_service.cpp"
     )
@@ -196,6 +198,22 @@ def main() -> None:
     require(provisioning, '\\"pop\\":\\"\\"', "provisioning QR payload")
     require(provisioning, '\\"transport\\":\\"ble\\"', "provisioning QR payload")
     require(provisioning, '\\"security\\":1', "provisioning QR payload")
+    require(
+        provisioning,
+        '"Network: %.*s\\nIP: "',
+        "English provisioning connection summary",
+    )
+    forbid(
+        provisioning,
+        '"Network: %.*s\\\\nIP: "',
+        "provisioning connection summary",
+    )
+    require(
+        provisioning,
+        "static_cast<int>(sizeof(config.sta.ssid))",
+        "bounded provisioning SSID rendering",
+    )
+    forbid(provisioning, '"Rete:', "provisioning connection summary")
     forbid(provisioning, "network_prov_scheme_softap", "provisioning implementation")
     forbid(provisioning, "NETWORK_PROV_SECURITY_0", "provisioning implementation")
     require(
@@ -240,6 +258,36 @@ def main() -> None:
         credential_failure_source,
         "_running = false;",
         "credential-failure lifecycle",
+    )
+    require(
+        provisioning_header,
+        "enum class ProvisioningFailureReason",
+        "typed provisioning failure reason",
+    )
+    require(
+        platform_header,
+        "qsee_provisioning_failure_reason_t qsee_provisioning_failure_reason(void);",
+        "public provisioning failure reason",
+    )
+    require(
+        credential_failure_source,
+        "if (event_data == nullptr)",
+        "credential-failure reason validation",
+    )
+    require(
+        credential_failure_source,
+        "NETWORK_PROV_WIFI_STA_AUTH_ERROR",
+        "credential authentication failure",
+    )
+    require(
+        credential_failure_source,
+        "NETWORK_PROV_WIFI_STA_AP_NOT_FOUND",
+        "credential access-point failure",
+    )
+    forbid(
+        provisioning,
+        "(void)event_data;",
+        "provisioning event failure details",
     )
 
     init_position = radios.find("qsee_provisioning_init()")
@@ -291,8 +339,42 @@ def main() -> None:
         "pairing in-document navigation",
     )
     for step in range(1, 6):
-        require(app, f'step = "{step} OF 5";', "pairing wizard stage labels")
+        require(app, f'step = "STEP {step} OF 5";', "pairing wizard stage labels")
+        require(
+            app,
+            f"progress_value = {step};",
+            "pairing wizard progress values",
+        )
+    for state in (
+        "IDLE",
+        "STARTING",
+        "WAITING_FOR_APP",
+        "CREDENTIALS_RECEIVED",
+        "CONNECTING",
+        "SUCCESS",
+        "FAILED",
+        "STOPPING",
+        "DEINITIALIZING",
+        "STOPPED",
+        "POISONED",
+        "UNAVAILABLE",
+    ):
+        require(
+            app,
+            f"case QSEE_PROVISIONING_STATE_{state}:",
+            "pairing provisioning state coverage",
+        )
     require(app, "case Screen::PairResult:", "pairing result state")
+    require(
+        app,
+        'message = "Closing Bluetooth setup...";',
+        "pairing closing state",
+    )
+    require(
+        app,
+        '"Bluetooth setup ended before Wi-Fi connected."',
+        "pairing stopped state",
+    )
     result_start = app.index("App::show_pairing_result")
     result_end = app.index("App::pairing_next", result_start)
     result_source = app[result_start:result_end]
@@ -542,6 +624,129 @@ def main() -> None:
     ):
         raise AssertionError(
             "Storage format button disabled state must be runtime-bound"
+        )
+
+    pairing_template = package_documents["templates/qsee_pairing_stage.json"]
+    pairing_template_nodes = list(walk_json(pairing_template))
+    pairing_by_id = {
+        node["id"]: node
+        for node in pairing_template_nodes
+        if isinstance(node, dict) and isinstance(node.get("id"), str)
+    }
+    pairing_layout = pairing_template.get("node", {}).get("layout", {})
+    if pairing_layout.get("mainAlign") != "center":
+        raise AssertionError("Pairing content must be centered in its viewport")
+    if pairing_layout.get("gap") != "4dp":
+        raise AssertionError("Pairing content must retain its bounded 4dp rhythm")
+    for label_id in ("step", "title", "message", "detail"):
+        label = pairing_by_id.get(label_id)
+        if label is None or label.get("type") != "label":
+            raise AssertionError(f"Pairing label {label_id!r} is missing")
+        if label.get("placement", {}).get("height") != "wrap":
+            raise AssertionError(
+                f"Pairing label {label_id!r} must wrap to its measured text height"
+            )
+    if (
+        pairing_by_id["message"].get("style", {}).get("fontSize")
+        != "${constant.typography.detail}"
+    ):
+        raise AssertionError("Pairing primary message must use detail typography")
+    if pairing_by_id["step"].get("bindings", {}).get("style.textColor") != "color":
+        raise AssertionError("Pairing status accent must be runtime-bound")
+    progress = pairing_by_id.get("progress")
+    if progress is None or progress.get("type") != "progressBar":
+        raise AssertionError("Pairing must expose one bounded progress bar")
+    if progress.get("bindings", {}).get("rangeProps.value") != "value":
+        raise AssertionError("Pairing progress value must be runtime-bound")
+    if progress.get("bindings", {}).get("commonProps.hidden") != "hidden":
+        raise AssertionError("Pairing progress visibility must be runtime-bound")
+    qr = pairing_by_id.get("qr")
+    if qr is None or qr.get("type") != "image":
+        raise AssertionError("Pairing must expose one QR code")
+
+    def dp(value: Any) -> int:
+        if not isinstance(value, str) or not value.endswith("dp"):
+            raise AssertionError(f"Expected a dp value, got {value!r}")
+        return int(value.removesuffix("dp"))
+
+    pairing_root = pairing_template["node"]
+    pairing_viewport_height = (
+        dp(pairing_root["placement"]["height"])
+        - dp(pairing_root["style"]["paddingTop"])
+        - dp(pairing_root["style"]["paddingBottom"])
+    )
+    conservative_qr_stack_height = (
+        12  # 10sp micro line
+        + dp(progress["placement"]["height"])
+        + 29  # 24sp heading line
+        + (2 * 19)  # two wrapped 16sp detail lines
+        + dp(qr["placement"]["height"])
+        + 14  # one 12sp caption line
+        + (5 * dp(pairing_layout["gap"]))
+    )
+    if conservative_qr_stack_height > pairing_viewport_height:
+        raise AssertionError(
+            "Pairing QR layout exceeds its usable viewport: "
+            f"{conservative_qr_stack_height}dp > {pairing_viewport_height}dp"
+        )
+    require(app, '.key = "color"', "pairing status accent update")
+    require(app, ".value = accent_color", "pairing status accent update")
+    require(app, '.key = "value"', "pairing progress update")
+    require(app, ".value = std::to_string(progress_value)", "pairing progress update")
+    require(app, '.key = "hidden"', "pairing progress visibility update")
+    require(
+        app,
+        '.value = progress_hidden ? "true" : "false"',
+        "pairing progress visibility update",
+    )
+
+    simulator_pairing_screens = (
+        "pairing-intro",
+        "pairing-bluetooth",
+        "pairing-app",
+        "pairing-app-qr",
+        "pairing-device-qr",
+        "pairing-credentials",
+        "pairing-connecting",
+        "pairing-success",
+        "pairing-failed",
+    )
+    require(
+        simulator,
+        "*sorted(PAIRING_SCREENS),",
+        "pairing simulator command-line choices",
+    )
+    require(
+        simulator,
+        "if content_height > viewport_height:",
+        "pairing simulator viewport guard",
+    )
+    require(
+        simulator,
+        '"pairing-failed": "pairing-device-qr",',
+        "pairing simulator failed retry",
+    )
+    require(
+        simulator,
+        '"pairing-failed": "pairing-app-qr",',
+        "pairing simulator result Back target",
+    )
+    require(
+        simulator,
+        'if self.screen == "pairing-success":',
+        "pairing simulator connected status",
+    )
+    require(
+        simulator,
+        "EDGE_COMMAND_DIAMETER = 60",
+        "pairing simulator shared chrome geometry",
+    )
+    for screen in simulator_pairing_screens:
+        require(simulator, f'"{screen}"', "pairing simulator screen inventory")
+        require(
+            simulator_runner,
+            f'"{screen}"',
+            "pairing simulator runner inventory",
         )
 
     require(app_header, "struct LazyScreenDescriptor", "lazy GUI descriptor")

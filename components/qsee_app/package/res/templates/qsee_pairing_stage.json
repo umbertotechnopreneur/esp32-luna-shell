@@ -22,8 +22,9 @@
         "layout": {
             "type": "flex",
             "flexFlow": "column",
+            "mainAlign": "center",
             "crossAlign": "center",
-            "gap": "3dp"
+            "gap": "4dp"
         },
         "placement": {
             "mode": "absolute",
@@ -34,6 +35,56 @@
             "height": "320dp"
         },
         "children": [
+            {
+                "type": "label",
+                "id": "step",
+                "bindings": {
+                    "labelProps.text": "text",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "STEP 1 OF 5"
+                },
+                "style": {
+                    "textColor": "#20dfc1",
+                    "fontSize": "${constant.typography.micro}",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "width": "272dp",
+                    "height": "wrap"
+                }
+            },
+            {
+                "type": "progressBar",
+                "id": "progress",
+                "commonProps": {
+                    "hidden": false
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden",
+                    "rangeProps.value": "value"
+                },
+                "rangeProps": {
+                    "value": 1,
+                    "min": 0,
+                    "max": 5
+                },
+                "style": {
+                    "bgColor": "#173545",
+                    "radius": "2dp"
+                },
+                "partStyles": {
+                    "indicator": {
+                        "bgColor": "#20dfc1",
+                        "radius": "2dp"
+                    }
+                },
+                "placement": {
+                    "width": "124dp",
+                    "height": "4dp"
+                }
+            },
             {
                 "type": "label",
                 "id": "title",
@@ -50,26 +101,7 @@
                 },
                 "placement": {
                     "width": "292dp",
-                    "height": "24dp"
-                }
-            },
-            {
-                "type": "label",
-                "id": "step",
-                "bindings": {
-                    "labelProps.text": "text"
-                },
-                "labelProps": {
-                    "text": "1 OF 5"
-                },
-                "style": {
-                    "textColor": "#20dfc1",
-                    "fontSize": "${constant.typography.caption}",
-                    "textAlign": "center"
-                },
-                "placement": {
-                    "width": "292dp",
-                    "height": "12dp"
+                    "height": "wrap"
                 }
             },
             {
@@ -88,7 +120,7 @@
                 },
                 "placement": {
                     "width": "286dp",
-                    "height": "30dp"
+                    "height": "wrap"
                 }
             },
             {
@@ -124,13 +156,13 @@
                     "text": ""
                 },
                 "style": {
-                    "textColor": "#9fb1c1",
+                    "textColor": "#b8cbd8",
                     "fontSize": "${constant.typography.caption}",
                     "textAlign": "center"
                 },
                 "placement": {
-                    "width": "286dp",
-                    "height": "24dp"
+                    "width": "272dp",
+                    "height": "wrap"
                 }
             }
         ]

@@ -3,7 +3,27 @@ param(
     [ValidateSet("healthy", "sd-unformatted", "gps-searching")]
     [string]$Scenario = "healthy",
 
-    [ValidateSet("home", "settings", "storage", "chrome-settings", "power-settings", "hardware", "audio", "fft", "fft-detail", "imu")]
+    [ValidateSet(
+        "home",
+        "settings",
+        "storage",
+        "chrome-settings",
+        "power-settings",
+        "hardware",
+        "audio",
+        "fft",
+        "fft-detail",
+        "imu",
+        "pairing-intro",
+        "pairing-bluetooth",
+        "pairing-app",
+        "pairing-app-qr",
+        "pairing-device-qr",
+        "pairing-credentials",
+        "pairing-connecting",
+        "pairing-success",
+        "pairing-failed"
+    )]
     [string]$Screen = "home",
 
     [ValidateSet("active", "command-hidden", "chrome-hidden", "fullscreen", "dimmed", "off", "standby")]
