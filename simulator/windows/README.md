@@ -10,6 +10,7 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
 .\simulator\windows\run-simulator.ps1 -Scenario gps-searching
 .\simulator\windows\run-simulator.ps1 -Screen settings
+.\simulator\windows\run-simulator.ps1 -Screen storage
 ```
 
 Capture the current synthetic home screen without touching a device:
@@ -17,12 +18,16 @@ Capture the current synthetic home screen without touching a device:
 ```powershell
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
+.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen storage -Capture .\simulator\windows\storage.png
+.\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted -Screen storage -Capture .\simulator\windows\storage-format-required.png
 .\simulator\windows\run-simulator.ps1 -IdleState command-hidden -Capture .\simulator\windows\command-hidden.png
 .\simulator\windows\run-simulator.ps1 -Screen settings -IdleState fullscreen -SafeGuide -Capture .\simulator\windows\settings-fullscreen.png
 .\simulator\windows\run-simulator.ps1 -IdleState dimmed -Capture .\simulator\windows\dimmed.png
 .\simulator\windows\run-simulator.ps1 -Screen chrome-settings -Capture .\simulator\windows\chrome-settings.png
 .\simulator\windows\run-simulator.ps1 -Screen power-settings -Capture .\simulator\windows\power-settings.png
 .\simulator\windows\run-simulator.ps1 -Screen hardware -Capture .\simulator\windows\hardware.png
+.\simulator\windows\run-simulator.ps1 -Screen tof -Capture .\simulator\windows\tof.png
+.\simulator\windows\run-simulator.ps1 -Screen tof-settings -Capture .\simulator\windows\tof-settings.png
 ```
 
 Controls:
@@ -79,3 +84,8 @@ while the firmware IMU page consumes calibrated QMI8658 acceleration,
 gyroscope, temperature, bias, and calibration-sample fields. Home CPU bars use
 real idle-task runtime on hardware; simulator CPU bars remain visibly labelled,
 deterministic synthetic values.
+
+The Distance and Distance Settings demos mirror the dual-TOF page, IMU gear
+navigation, robust-window controls, 500–1500 mm reference slider, and
+calibration action. Every simulated distance and configuration value is
+explicitly labelled `SYNTHETIC`; the simulator never opens a serial port.

@@ -1,0 +1,53 @@
+{
+    "type": "viewTemplate",
+    "id": "qsee_settings_slider",
+    "node": {
+        "type": "slider",
+        "bindings": {
+            "rangeProps.value": "value",
+            "commonProps.disabled": "disabled"
+        },
+        "rangeProps": {
+            "min": 500,
+            "max": 1500,
+            "step": 10,
+            "value": 1000
+        },
+        "styleRefs": [
+            "app.slider"
+        ],
+        "style": {
+            "bgColor": "#0d2836",
+            "borderColor": "#2c6077",
+            "borderWidth": "1dp",
+            "radius": "12dp"
+        },
+        "partStyles": {
+            "indicator": {
+                "style": {
+                    "bgColor": "#20dfc1",
+                    "bgGradientColor": "#247fd6",
+                    "bgGradientDirection": "horizontal",
+                    "radius": "12dp"
+                }
+            },
+            "knob": {
+                "style": {
+                    "bgColor": "#f3f7fa",
+                    "borderColor": "#20dfc1",
+                    "borderWidth": "2dp",
+                    "radius": "14dp"
+                },
+                "stateStyles": {
+                    "pressed": {
+                        "bgColor": "#c7fff6"
+                    }
+                }
+            }
+        },
+        "placement": {
+            "width": "282dp",
+            "height": "30dp"
+        }
+    }
+}

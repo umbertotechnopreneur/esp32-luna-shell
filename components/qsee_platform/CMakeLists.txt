@@ -81,6 +81,13 @@ else()
     list(APPEND qsee_platform_srcs "qsee_radios_stub.cpp")
 endif()
 
+if(CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND
+   CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART)
+    list(APPEND qsee_platform_srcs "qsee_distance_service.cpp")
+else()
+    list(APPEND qsee_platform_srcs "qsee_distance_service_stub.cpp")
+endif()
+
 idf_component_register(
     SRCS ${qsee_platform_srcs}
     INCLUDE_DIRS "include"
@@ -113,4 +120,8 @@ if(CONFIG_QSEE_BUILD_ENABLE_PROVISIONING)
 endif()
 if(CONFIG_QSEE_BUILD_ENABLE_BLUETOOTH)
     idf_component_optional_requires(PUBLIC bt)
+endif()
+if(CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND
+   CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART)
+    idf_component_optional_requires(PRIVATE qsee_tof400f)
 endif()

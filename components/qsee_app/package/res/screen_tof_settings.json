@@ -1,0 +1,405 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        "templates/qsee_settings_dropdown.json",
+        "templates/qsee_settings_slider.json",
+        {
+            "type": "viewScreen",
+            "id": "qsee_tof_settings",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "6dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "container",
+                            "id": "tof_settings_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.tof_settings"
+                                }
+                            ],
+                            "style": {
+                                "padding": "7dp"
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "column",
+                                "crossAlign": "center",
+                                "gap": "8dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "title",
+                                    "labelProps": {
+                                        "text": "DISTANCE SETTINGS"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "subtitle",
+                                    "labelProps": {
+                                        "text": "Precision acquisition and calibration"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "settings_status",
+                                    "labelProps": {
+                                        "text": "SETTINGS UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#ff8a66",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "sample_count_label",
+                                    "labelProps": {
+                                        "text": "Accepted samples"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sample_count",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "commonProps": {
+                                                "disabled": true
+                                            },
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "20 samples",
+                                                    "50 samples",
+                                                    "100 samples",
+                                                    "200 samples",
+                                                    "300 samples",
+                                                    "500 samples"
+                                                ],
+                                                "selectedIndex": 5
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.tof.settings.samples.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "sample_interval_label",
+                                    "labelProps": {
+                                        "text": "Time between readings"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sample_interval",
+                                    "templateId": "qsee_settings_dropdown",
+                                    "overrides": {
+                                        ".": {
+                                            "commonProps": {
+                                                "disabled": true
+                                            },
+                                            "dropdownProps": {
+                                                "options": [
+                                                    "250 ms",
+                                                    "500 ms",
+                                                    "1 second"
+                                                ],
+                                                "selectedIndex": 0
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.tof.settings.interval.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "duration_hint",
+                                    "labelProps": {
+                                        "text": "ACQUISITION DURATION UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "reference_label",
+                                    "labelProps": {
+                                        "text": "Physical reference distance"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "20dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "reference_value",
+                                    "labelProps": {
+                                        "text": "UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "24dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "reference_distance",
+                                    "templateId": "qsee_settings_slider",
+                                    "overrides": {
+                                        ".": {
+                                            "commonProps": {
+                                                "disabled": true
+                                            },
+                                            "rangeProps": {
+                                                "min": 500,
+                                                "max": 1500,
+                                                "step": 10,
+                                                "value": 1000
+                                            },
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "qsee.tof.settings.reference.preview"
+                                                },
+                                                {
+                                                    "type": "released",
+                                                    "action": "qsee.tof.settings.reference.commit"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "reference_ticks",
+                                    "commonProps": {
+                                        "scrollable": false
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "minimum",
+                                            "labelProps": {
+                                                "text": "500 mm"
+                                            },
+                                            "style": {
+                                                "textColor": "#8aa7b6",
+                                                "fontSize": "${constant.typography.micro}",
+                                                "textAlign": "left"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": 0,
+                                                "y": 0,
+                                                "width": "100dp",
+                                                "height": "14dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "maximum",
+                                            "labelProps": {
+                                                "text": "1500 mm"
+                                            },
+                                            "style": {
+                                                "textColor": "#8aa7b6",
+                                                "fontSize": "${constant.typography.micro}",
+                                                "textAlign": "right"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "182dp",
+                                                "y": 0,
+                                                "width": "100dp",
+                                                "height": "14dp"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "calibration_status",
+                                    "labelProps": {
+                                        "text": "CALIBRATION UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#f0b44d",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "calibration_hint",
+                                    "labelProps": {
+                                        "text": "Place the device at the reference distance, keep it still, then use the bottom action."
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "44dp"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

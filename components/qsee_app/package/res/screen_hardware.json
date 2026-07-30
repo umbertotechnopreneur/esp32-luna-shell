@@ -140,6 +140,7 @@
                                     "56dp",
                                     "56dp",
                                     "56dp",
+                                    "56dp",
                                     "56dp"
                                 ],
                                 "gap": "2dp"
@@ -509,6 +510,35 @@
                                         "part": {
                                             "labelProps": {
                                                 "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "tof",
+                                    "templateId": "qsee_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "qsee.hardware.detail.12"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 13
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "DISTANCE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "2 x TOF400F"
                                             }
                                         }
                                     }

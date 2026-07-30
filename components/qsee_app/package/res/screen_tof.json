@@ -1,0 +1,367 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        {
+            "type": "viewScreen",
+            "id": "qsee_tof",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "DISTANCE"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "42dp",
+                                "width": "292dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "Dual TOF400F calibrated telemetry"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "68dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "status",
+                            "labelProps": {
+                                "text": "DUAL TOF UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#ff8a66",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "14dp",
+                                "y": "90dp",
+                                "width": "292dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "distance",
+                            "labelProps": {
+                                "text": "-- mm"
+                            },
+                            "style": {
+                                "textColor": "#20dfc1",
+                                "fontSize": "${constant.typography.title}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "18dp",
+                                "y": "111dp",
+                                "width": "284dp",
+                                "height": "38dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "distance_caption",
+                            "labelProps": {
+                                "text": "VERTICAL DISTANCE"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.micro}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "18dp",
+                                "y": "149dp",
+                                "width": "284dp",
+                                "height": "14dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "sensor_1_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "12dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "172dp",
+                                "width": "148dp",
+                                "height": "52dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "heading",
+                                    "labelProps": {
+                                        "text": "TOF 1"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.micro}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": 0,
+                                        "y": "5dp",
+                                        "width": "148dp",
+                                        "height": "14dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "sensor_1",
+                                    "labelProps": {
+                                        "text": "-- mm"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": 0,
+                                        "y": "23dp",
+                                        "width": "148dp",
+                                        "height": "24dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "container",
+                            "id": "sensor_2_panel",
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#0d2836",
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "12dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "164dp",
+                                "y": "172dp",
+                                "width": "148dp",
+                                "height": "52dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "heading",
+                                    "labelProps": {
+                                        "text": "TOF 2"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.micro}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": 0,
+                                        "y": "5dp",
+                                        "width": "148dp",
+                                        "height": "14dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "sensor_2",
+                                    "labelProps": {
+                                        "text": "-- mm"
+                                    },
+                                    "style": {
+                                        "textColor": "#3478c8",
+                                        "fontSize": "${constant.typography.body}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": 0,
+                                        "y": "23dp",
+                                        "width": "148dp",
+                                        "height": "24dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "spread",
+                            "labelProps": {
+                                "text": "SPREAD -- | SLANT --"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "12dp",
+                                "y": "232dp",
+                                "width": "296dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "tilt",
+                            "labelProps": {
+                                "text": "TILT UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#f0b44d",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "12dp",
+                                "y": "250dp",
+                                "width": "296dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "confidence",
+                            "labelProps": {
+                                "text": "CONFIDENCE -- | SAMPLES --"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "12dp",
+                                "y": "268dp",
+                                "width": "296dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "calibration",
+                            "labelProps": {
+                                "text": "CALIBRATION UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#ff8a66",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "12dp",
+                                "y": "288dp",
+                                "width": "296dp",
+                                "height": "16dp"
+                            }
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

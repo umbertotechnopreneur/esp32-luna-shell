@@ -134,6 +134,33 @@ config QSEE_BUILD_GNSS_DRIVER_NONE
 
 endchoice
 
+config QSEE_BUILD_ENABLE_DISTANCE
+    bool "Include external precision distance support"
+    default n
+    help
+        Builds the calibrated distance service, its selected physical driver,
+        and the matching device UI. Leave this disabled for the standard
+        firmware image.
+
+choice QSEE_BUILD_DISTANCE_DRIVER
+    prompt "External precision distance driver"
+    depends on QSEE_BUILD_ENABLE_DISTANCE
+    default QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    help
+        Select the distance hardware attached to the external GPIO16/17/18
+        header. UART0 remains reserved for console diagnostics.
+
+config QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    bool "Two TOF400F modules on shared TX and independent RX lines"
+
+config QSEE_BUILD_DISTANCE_DRIVER_NONE
+    bool "No external distance driver"
+    help
+        Keeps the distance service stub and omits the distance UI even though
+        the enclosing feature switch is enabled.
+
+endchoice
+
 endmenu
 
 config QSEE_BUILD_ENABLE_UI

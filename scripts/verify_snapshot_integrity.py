@@ -72,6 +72,13 @@ class DeviceSnapshotModel:
     rtc: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     gps: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     audio: AudioSnapshotModel = field(default_factory=AudioSnapshotModel)
+    distance: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
+    distance_sensors: list[ComponentSnapshotModel] = field(
+        default_factory=lambda: [
+            ComponentSnapshotModel(),
+            ComponentSnapshotModel(),
+        ]
+    )
     memory: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     processor: ComponentSnapshotModel = field(default_factory=ComponentSnapshotModel)
     full_snapshot_period_valid: bool = False
@@ -175,6 +182,9 @@ def apply_measured_sample_aging(snapshot: DeviceSnapshotModel, now_us: int) -> N
     age_measured_sample(snapshot.rtc, now_us, ttl_us)
     age_measured_sample(snapshot.imu, now_us, ttl_us)
     age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us)
+    age_measured_sample(snapshot.distance, now_us, ttl_us)
+    for sensor in snapshot.distance_sensors:
+        age_measured_sample(sensor, now_us, ttl_us)
     age_measured_sample(snapshot.gps, now_us, ttl_us)
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us)
     age_measured_sample(snapshot.memory, now_us, ttl_us)
@@ -335,6 +345,8 @@ def verify_source_contract() -> None:
         "age_measured_sample(snapshot.rtc, now_us, ttl_us);",
         "age_measured_sample(snapshot.imu, now_us, ttl_us);",
         "age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us);",
+        "age_measured_sample(snapshot.distance, now_us, ttl_us);",
+        "age_measured_sample(sensor, now_us, ttl_us);",
         "age_measured_sample(snapshot.gps, now_us, ttl_us);",
         "age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);",
         "age_measured_sample(snapshot.memory, now_us, ttl_us);",
@@ -624,16 +636,29 @@ def test_ttl_tracks_full_snapshot_cadence() -> None:
         full_snapshot_period_ms=10_000,
     )
     mark_sample_success(snapshot.memory, 1_000_000)
+    mark_sample_success(snapshot.distance, 1_000_000)
+    for sensor in snapshot.distance_sensors:
+        mark_sample_success(sensor, 1_000_000)
     cadence_ttl_us = 12_000_000
     apply_measured_sample_aging(snapshot, 1_000_000 + cadence_ttl_us - 1)
     require(
         component_has_current_data(snapshot.memory),
         "10-second Full Snapshot sample expired before its next refresh window",
     )
+    require(
+        component_has_current_data(snapshot.distance) and
+        all(component_has_current_data(sensor) for sensor in snapshot.distance_sensors),
+        "TOF pair expired before the cadence-aware refresh window",
+    )
     apply_measured_sample_aging(snapshot, 1_000_000 + cadence_ttl_us)
     require(
         snapshot.memory.data_stale,
         "cadence-aware sample did not expire after its bounded grace window",
+    )
+    require(
+        snapshot.distance.data_stale and
+        all(sensor.data_stale for sensor in snapshot.distance_sensors),
+        "TOF pair did not expire after the cadence-aware grace window",
     )
 
     paused = DeviceSnapshotModel(

@@ -21,7 +21,10 @@ EXPECTED_LAZY_SCREEN_DOCUMENTS = {
     "screen_audio_fft.json": "qsee_audio_fft",
     "screen_audio_detail.json": "qsee_audio_detail",
     "screen_imu.json": "qsee_imu",
+    "screen_tof.json": "qsee_tof",
+    "screen_tof_settings.json": "qsee_tof_settings",
     "screen_settings.json": "qsee_settings",
+    "screen_storage.json": "qsee_storage",
     "screen_about.json": "qsee_about",
     "screen_pairing.json": "qsee_pairing",
 }
@@ -35,7 +38,10 @@ EXPECTED_ROUTE_SCREENS = {
     "qsee_audio_detail",
     "qsee_audio_fft",
     "qsee_imu",
+    "qsee_tof",
+    "qsee_tof_settings",
     "qsee_settings",
+    "qsee_storage",
     "qsee_about",
     "qsee_pairing",
 }
@@ -60,6 +66,16 @@ SETTINGS_ACTIONS = {
     "qsee.settings.radios.start",
     "qsee.settings.display.brightness.changed",
     "qsee.settings.display.rotation.changed",
+    "qsee.open.storage",
+    "qsee.storage.format",
+}
+TOF_ACTIONS = {
+    "qsee.hardware.detail.12",
+    "qsee.chrome.activity.tof_settings",
+    "qsee.tof.settings.samples.changed",
+    "qsee.tof.settings.interval.changed",
+    "qsee.tof.settings.reference.preview",
+    "qsee.tof.settings.reference.commit",
 }
 OBSOLETE_SETTINGS_ACTIONS = {
     "qsee.settings.back",
@@ -73,6 +89,7 @@ OBSOLETE_SETTINGS_ACTIONS = {
     "qsee.settings.display.brightness_down",
     "qsee.settings.display.brightness_up",
     "qsee.settings.display.rotation.toggle",
+    "qsee.settings.chrome.timeout.next",
 }
 
 
@@ -146,6 +163,8 @@ def main() -> None:
     platform_cmake = read("components/qsee_platform/CMakeLists.txt")
     app_header = read("components/qsee_app/include/qsee_app.hpp")
     app = read("components/qsee_app/qsee_app.cpp")
+    simulator = read("simulator/windows/qsee_simulator.py")
+    simulator_runner = read("simulator/windows/run-simulator.ps1")
     edge_navigation = read("components/qsee_app/qsee_edge_navigation.cpp")
     navigation_service = read(
         "components/qsee_app/qsee_navigation_service.cpp"
@@ -506,6 +525,11 @@ def main() -> None:
         raise AssertionError(
             f"System Core Settings actions missing: {sorted(missing_actions)}"
         )
+    missing_tof_actions = TOF_ACTIONS - actions
+    if missing_tof_actions:
+        raise AssertionError(
+            f"System Core TOF actions missing: {sorted(missing_tof_actions)}"
+        )
     obsolete_actions = OBSOLETE_SETTINGS_ACTIONS & actions
     if obsolete_actions:
         raise AssertionError(
@@ -518,6 +542,76 @@ def main() -> None:
             f"System Core UI actions not subscribed by the native app: "
             f"{sorted(unhandled_actions)}"
         )
+
+    storage_nodes = runtime_nodes["screen_storage.json"]
+    format_buttons = [
+        node
+        for node in storage_nodes
+        if isinstance(node, dict)
+        and node.get("type") == "button"
+        and node.get("id") == "format_action"
+    ]
+    if len(format_buttons) != 1:
+        raise AssertionError("Storage must expose exactly one inline format button")
+    format_button = format_buttons[0]
+    if format_button.get("commonProps", {}).get("disabled") is not True:
+        raise AssertionError("Storage format button must default to disabled")
+    if (
+        format_button.get("bindings", {}).get("commonProps.disabled")
+        != "format_disabled"
+    ):
+        raise AssertionError(
+            "Storage format button disabled state must be runtime-bound"
+        )
+
+    require(app, "qsee.tof.calibration.start", "TOF calibration command")
+    require(app, '"res/screen_tof.json"', "lazy TOF screen descriptor")
+    require(
+        app,
+        '"res/screen_tof_settings.json"',
+        "lazy TOF settings screen descriptor",
+    )
+    require(app, '"qsee.open.tof"', "TOF navigation action")
+    require(app, '"qsee.open.tof_settings"', "TOF settings navigation action")
+    require(app, "kTofCommands", "TOF settings gear")
+    require(app, "kTofSettingsCommands", "TOF calibration command")
+    forbid(app, "kImuCommands", "IMU command behavior")
+    require(
+        app_header,
+        "#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
+        "TOF app declarations combined build guard",
+    )
+    require(simulator, "def show_tof_demo", "Windows TOF simulator")
+    require(
+        simulator,
+        "def show_tof_settings_demo",
+        "Windows TOF settings simulator",
+    )
+    require(
+        simulator,
+        '"tof": simulator.show_tof_demo',
+        "Windows TOF capture route",
+    )
+    require(
+        simulator,
+        '"tof-settings": simulator.show_tof_settings_demo',
+        "Windows TOF settings capture route",
+    )
+    require(
+        simulator_runner,
+        '"tof", "tof-settings"',
+        "Windows simulator wrapper TOF routes",
+    )
+    require(
+        simulator,
+        "SYNTHETIC VERTICAL DISTANCE",
+        "Windows TOF synthetic-data label",
+    )
+    require(
+        simulator,
+        '"500 · SYNTHETIC"',
+        "Windows TOF default precision sample count",
+    )
 
     require(app_header, "struct LazyScreenDescriptor", "lazy GUI descriptor")
     require(

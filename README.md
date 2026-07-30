@@ -336,6 +336,7 @@ The available subsystem flags are:
 | `CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS` | `y` | Includes the button and power-management pipeline |
 | `CONFIG_QSEE_BUILD_ENABLE_RTC` | `y` | Includes the RTC time pipeline |
 | `CONFIG_QSEE_BUILD_ENABLE_GNSS` | `y` | Includes the GNSS position pipeline |
+| `CONFIG_QSEE_BUILD_ENABLE_DISTANCE` | `n` | Includes the dual-TOF precision-distance driver, acquisition/calibration service, and TOF device/settings screens |
 
 When a subsystem is disabled, the firmware now compiles the corresponding stub
 entry points so higher layers receive explicit `ESP_ERR_NOT_SUPPORTED` results
@@ -358,6 +359,22 @@ showing synthetic data.
 | `QSEE_BUILD_RTC_DRIVER` | PCF85063 | `QSEE_BUILD_RTC_DRIVER_NONE` |
 | `QSEE_BUILD_IMU_DRIVER` | QMI8658 | `QSEE_BUILD_IMU_DRIVER_NONE` |
 | `QSEE_BUILD_GNSS_DRIVER` | LC76G | `QSEE_BUILD_GNSS_DRIVER_NONE` |
+| `QSEE_BUILD_DISTANCE_DRIVER` | Two TOF400F modules on shared TX with independent RX lines | `QSEE_BUILD_DISTANCE_DRIVER_NONE` |
+
+The distance feature is deliberately excluded from the default image. To build
+the driver, worker, calibration flow, Hardware card, and both TOF screens, add
+the following selections to `sdkconfig.defaults` and reconfigure through
+`scripts/device.ps1`:
+
+```text
+CONFIG_QSEE_BUILD_ENABLE_DISTANCE=y
+CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y
+```
+
+With `CONFIG_QSEE_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition
+worker are not compiled, the public entry points return
+`ESP_ERR_NOT_SUPPORTED`, and the staged Brookesia package omits every TOF
+screen and control.
 
 Audio has an additional directional selection so one board definition can
 describe speaker-only, microphone-only, mono-microphone, and dual-microphone

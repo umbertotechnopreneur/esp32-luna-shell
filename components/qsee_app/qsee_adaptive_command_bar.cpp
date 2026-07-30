@@ -25,7 +25,7 @@ namespace {
 constexpr char kTag[] = "qsee_command_arc";
 constexpr uint32_t kFadeDurationMs = 280;
 constexpr int kDisplayCenterXDp = 233;
-constexpr int kMainCenterYDp = 389;
+constexpr int kMainCenterYDp = 410;
 constexpr int kArcRiseLinearDp = 10;
 constexpr int kArcRiseQuadraticDp = 5;
 constexpr std::string_view kCommandRoot =
@@ -84,9 +84,10 @@ int horizontal_center_delta(
     int vertical_delta
 )
 {
+    // Use the combined diameter so odd-sized buttons retain the same
+    // edge-to-edge gap as the previous even-sized geometry.
     const int target_distance =
-        (first_diameter / 2) +
-        (second_diameter / 2) +
+        ((first_diameter + second_diameter) / 2) +
         qsee::AdaptiveCommandBar::kButtonGapDp;
     const int horizontal_squared =
         (target_distance * target_distance) -

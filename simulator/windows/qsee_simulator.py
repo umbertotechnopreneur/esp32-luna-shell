@@ -2,7 +2,7 @@
 
 The simulator mirrors the firmware flow without pretending to emulate physical
 drivers. Mouse clicks stand in for touch and deterministic scenarios provide
-synthetic PMU, IMU, GPS, Wi-Fi, BLE, SD, and logger data.
+synthetic PMU, IMU, TOF, GPS, Wi-Fi, BLE, SD, and logger data.
 """
 
 from __future__ import annotations
@@ -49,13 +49,13 @@ SUCCESS_BOTTOM = "#045a51"
 SUCCESS_BORDER = "#38f1d7"
 SUCCESS_GLOW = "#009c9d"
 CONTROL_BORDER_PX = 1
-COMMAND_MAIN_DIAMETER = 58
+COMMAND_MAIN_DIAMETER = 61
 COMMAND_DIAMETER_STEP = 6
 COMMAND_MIN_DIAMETER = COMMAND_MAIN_DIAMETER - (2 * COMMAND_DIAMETER_STEP)
 COMMAND_BUTTON_GAP = 9
 EDGE_COMMAND_DIAMETER = 54
 COMMAND_CENTER_X = 233
-COMMAND_MAIN_CENTER_Y = 389
+COMMAND_MAIN_CENTER_Y = 410
 COMMAND_ARC_RISE_LINEAR = 10
 COMMAND_ARC_RISE_QUADRATIC = 5
 COMMAND_SCREENS = frozenset(
@@ -66,13 +66,22 @@ COMMAND_SCREENS = frozenset(
         "power-settings",
         "audio",
         "fft",
+        "tof",
+        "tof-settings",
         "result",
     }
 )
 WIDE_PAGE_SCREENS = frozenset(
-    {"settings", "hardware", "chrome-settings", "power-settings"}
+    {
+        "settings",
+        "storage",
+        "hardware",
+        "chrome-settings",
+        "power-settings",
+        "tof-settings",
+    }
 )
-FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu"})
+FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu", "tof"})
 FONT_DISPLAY = "Montserrat SemiBold"
 FONT_BODY = "Montserrat"
 FONT_TECH = "Consolas"
@@ -123,19 +132,15 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
         centers_x[left_center] = COMMAND_CENTER_X
     else:
         center_distance = (
-            (diameters[left_center] // 2)
-            + (diameters[right_center] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[left_center] + diameters[right_center]) // 2
+        ) + COMMAND_BUTTON_GAP
         centers_x[left_center] = COMMAND_CENTER_X - (center_distance // 2)
         centers_x[right_center] = centers_x[left_center] + center_distance
     for slot in range(left_center, 0, -1):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
-            (diameters[slot] // 2)
-            + (diameters[slot - 1] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[slot] + diameters[slot - 1]) // 2
+        ) + COMMAND_BUTTON_GAP
         horizontal_delta = int(
             math.sqrt(
                 (target_distance * target_distance)
@@ -147,10 +152,8 @@ def command_geometry(count: int, index: int) -> tuple[int, int, int]:
     for slot in range(right_center + 1, count):
         vertical_delta = abs(centers_y[slot] - centers_y[slot - 1])
         target_distance = (
-            (diameters[slot - 1] // 2)
-            + (diameters[slot] // 2)
-            + COMMAND_BUTTON_GAP
-        )
+            (diameters[slot - 1] + diameters[slot]) // 2
+        ) + COMMAND_BUTTON_GAP
         horizontal_delta = int(
             math.sqrt(
                 (target_distance * target_distance)
@@ -256,6 +259,8 @@ class QSeeSimulator:
         self.audio_phase = 0
         self.audio_timer: str | None = None
         self.performance_mode = False
+        self.tof_settings_return_screen = "tof"
+        self.tof_calibration_complete = False
         self.ready = False
         self.safe_guide = False
         self.timeline_index = 0
@@ -1002,7 +1007,10 @@ class QSeeSimulator:
                 "fft",
                 "fft-detail",
                 "imu",
+                "tof",
+                "tof-settings",
                 "settings",
+                "storage",
                 "chrome-settings",
                 "power-settings",
                 "hardware",
@@ -1016,6 +1024,13 @@ class QSeeSimulator:
             and self.screen == "home"
         ):
             self.show_audio_demo()
+        elif (
+            command_arc_visible
+            and 204 <= event.x <= 262
+            and 360 <= event.y <= 418
+            and self.screen == "home"
+        ):
+            self.show_hardware_demo()
         elif (
             command_arc_visible
             and 263 <= event.x <= 319
@@ -1044,6 +1059,34 @@ class QSeeSimulator:
             and self.screen == "fft"
         ):
             self.show_audio_detail_demo()
+        elif self.screen == "hardware":
+            tof_row_y = 173 + self._wide_page_offset_y() + (5 * 42)
+            if (
+                88 <= event.x <= 378
+                and tof_row_y - 12 <= event.y <= tof_row_y + 30
+            ):
+                self.logger.info(
+                    "qsee_nav",
+                    "Synthetic TOF hardware row selected",
+                )
+                self.show_tof_demo()
+        elif self.screen == "tof" and command_arc_visible:
+            x, y, diameter = command_geometry(1, 0)
+            if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
+                self.logger.info(
+                    "qsee_nav",
+                    f"Synthetic {self.screen.upper()} settings gear selected",
+                )
+                self.show_tof_settings_demo(return_screen=self.screen)
+        elif self.screen == "tof-settings" and command_arc_visible:
+            x, y, diameter = command_geometry(1, 0)
+            if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
+                self.tof_calibration_complete = True
+                self.logger.info(
+                    "qsee_tof",
+                    "Synthetic calibration completed; no hardware accessed",
+                )
+                self.show_tof_settings_demo()
         elif self.screen == "settings":
             performance_y = int(self._settings_layout()["performance"])
             if (
@@ -1067,6 +1110,22 @@ class QSeeSimulator:
                     ):
                         self.show_settings_demo()
                         break
+        elif (
+            self.screen == "storage"
+            and 128 <= event.x <= 338
+            and 358 <= event.y <= 402
+        ):
+            if self.scenario.name == "SD UNFORMATTED":
+                self.logger.info(
+                    "qsee_storage",
+                    "Synthetic explicit format confirmation requested",
+                )
+                self.show_confirmation()
+            else:
+                self.logger.info(
+                    "qsee_storage",
+                    "Synthetic format rejected: no verified format-required state",
+                )
 
     def _draw_page_heading(
         self,
@@ -1504,6 +1563,7 @@ class QSeeSimulator:
             ("IMU", "QMI8658", "READY"),
             ("GPS", "LC76G", "3D FIX"),
             ("WIFI", "ESP32-S3", "NOT CONFIGURED"),
+            ("DISTANCE", "2 × TOF400F", "SYNTHETIC READY"),
         )
         for index, (name, code, state) in enumerate(rows):
             y = 173 + y_offset + index * 42
@@ -1547,6 +1607,142 @@ class QSeeSimulator:
                     width=1,
                     tags="ui",
                 )
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_storage_demo(self) -> None:
+        self.screen = "storage"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        y_offset = self._wide_page_offset_y()
+        self._draw_page_heading(
+            "SD CARD",
+            "Status and maintenance",
+            y_offset,
+        )
+
+        format_required = self.scenario.name == "SD UNFORMATTED"
+        status = "FORMAT REQUIRED" if format_required else "READY"
+        status_color = STATUS_WARNING if format_required else STATUS_READY
+        detail = (
+            "Verified card needs FAT formatting."
+            if format_required
+            else "FAT filesystem mounted."
+        )
+        self.canvas.create_text(
+            94,
+            174 + y_offset,
+            anchor="w",
+            text="CURRENT STATUS",
+            fill=STATUS_READY,
+            font=(FONT_DISPLAY, 12),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            198 + y_offset,
+            anchor="w",
+            text=status,
+            fill=status_color,
+            font=(FONT_DISPLAY, 17),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            224 + y_offset,
+            anchor="w",
+            text=detail,
+            fill="#d6efff",
+            font=(FONT_BODY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            94,
+            250 + y_offset,
+            anchor="w",
+            text="NOT MOUNTED" if format_required else "MOUNTED | LOG MIRROR ON",
+            fill="#51c7f2",
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+
+        total = "UNAVAILABLE" if format_required else "7812 MB"
+        free = "UNAVAILABLE" if format_required else "6420 MB"
+        for row_y, label, value in (
+            (278, "TOTAL SPACE", total),
+            (302, "FREE SPACE", free),
+        ):
+            self.canvas.create_text(
+                94,
+                row_y + y_offset,
+                anchor="w",
+                text=label,
+                fill=MUTED_BRIGHT,
+                font=(FONT_DISPLAY, 10),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                372,
+                row_y + y_offset,
+                anchor="e",
+                text=value,
+                fill=TEXT,
+                font=(FONT_TECH, 10, "bold"),
+                tags="ui",
+            )
+
+        if not format_required:
+            self.canvas.create_rectangle(
+                94,
+                320 + y_offset,
+                372,
+                330 + y_offset,
+                fill="#0b1e2c",
+                outline="",
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                94,
+                320 + y_offset,
+                144,
+                330 + y_offset,
+                fill=STATUS_READY,
+                outline="",
+                tags="ui",
+            )
+        self.canvas.create_text(
+            233,
+            344 + y_offset,
+            text=(
+                "Space unavailable until mounted"
+                if format_required
+                else "USED 1392 MB | 17%"
+            ),
+            fill=MUTED,
+            font=(FONT_TECH, 9),
+            tags="ui",
+        )
+
+        button_enabled = format_required
+        self.canvas.create_rectangle(
+            128,
+            358 + y_offset,
+            338,
+            402 + y_offset,
+            fill="#b52b3a" if button_enabled else TRACK,
+            outline="#ff8a96" if button_enabled else "#546874",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            380 + y_offset,
+            text="FORMAT SD CARD" if button_enabled else "FORMAT NOT REQUIRED",
+            fill="#ffffff" if button_enabled else MUTED_BRIGHT,
+            font=(FONT_DISPLAY, 10),
+            tags="ui",
+        )
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -2131,34 +2327,323 @@ class QSeeSimulator:
         )
         self.canvas.create_text(
             72,
-            356,
-            text="ACC   X +0.02   Y -0.04   Z +9.79 m/s²",
+            319,
+            text="SYNTHETIC ACC   X +0.02   Y -0.04   Z +9.79 m/s²",
             anchor="w",
             fill="#61d8ff",
-            font=(FONT_TECH, 9),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
             72,
-            374,
-            text="GYRO  X +0.10   Y -0.03   Z +0.02 dps",
+            337,
+            text="SYNTHETIC GYRO  X +0.10   Y -0.03   Z +0.02 dps",
             anchor="w",
             fill="#ff9d5c",
-            font=(FONT_TECH, 9),
+            font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
-            233,
-            394,
-            text="CALIBRATED  |  COMPASS UNAVAILABLE",
+            92,
+            355,
+            anchor="w",
+            text="SYNTHETIC CAL READY",
             fill=MUTED_BRIGHT,
-            font=(FONT_TECH, 8, "bold"),
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            374,
+            355,
+            anchor="e",
+            text="COMPASS N/A",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
         self._move_canvas_items_from(
             content_start,
             self._fixed_canvas_offset_y(),
         )
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "⚙", False, diameter)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def _draw_tof_sensor_panel(
+        self,
+        x: int,
+        label: str,
+        distance: str,
+        color: str,
+    ) -> None:
+        self._draw_panel(
+            x,
+            238,
+            136,
+            58,
+            top="#103346",
+            bottom="#081721",
+            border="#2c6077",
+            glow=color,
+            glow_alpha=28,
+            radius=12,
+        )
+        self.canvas.create_text(
+            x + 68,
+            252,
+            text=f"{label} · SYNTHETIC",
+            fill=MUTED_BRIGHT,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            x + 68,
+            276,
+            text=distance,
+            fill=color,
+            font=(FONT_TECH, 14, "bold"),
+            tags="ui",
+        )
+
+    def show_tof_demo(self) -> None:
+        self.screen = "tof"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
+        self._draw_page_heading(
+            "DISTANCE",
+            "Dual TOF400F · SYNTHETIC telemetry",
+            0,
+        )
+        self.canvas.create_text(
+            233,
+            172,
+            text="SYNTHETIC · DUAL TOF READY",
+            fill=STATUS_READY,
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            202,
+            text="1 024 mm",
+            fill=STATUS_READY,
+            font=(FONT_TECH, 24, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            222,
+            text="SYNTHETIC VERTICAL DISTANCE",
+            fill=MUTED_BRIGHT,
+            font=(FONT_DISPLAY, 7),
+            tags="ui",
+        )
+        self._draw_tof_sensor_panel(92, "TOF 1", "1 018 mm", "#51c7f2")
+        self._draw_tof_sensor_panel(238, "TOF 2", "1 030 mm", "#7d9cff")
+        self.canvas.create_text(
+            233,
+            310,
+            text="SYNTHETIC SPREAD 12 mm  ·  SLANT 1 024 mm",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            233,
+            329,
+            text="SYNTHETIC TILT +0.5°  ·  COMPENSATED",
+            fill=STATUS_WARNING,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            92,
+            349,
+            anchor="w",
+            text="SYNTHETIC CONF 98%",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            374,
+            349,
+            anchor="e",
+            text="SYNTHETIC CAL READY",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "⚙", False, diameter)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_tof_settings_demo(
+        self,
+        return_screen: str | None = None,
+    ) -> None:
+        if return_screen == "tof":
+            self.tof_settings_return_screen = return_screen
+        self.screen = "tof-settings"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        y_offset = self._wide_page_offset_y()
+        self._draw_page_heading(
+            "DISTANCE SETTINGS",
+            "TOF400F · SYNTHETIC configuration",
+            y_offset,
+        )
+        calibration_state = (
+            "SYNTHETIC CALIBRATION COMPLETE"
+            if self.tof_calibration_complete
+            else "SYNTHETIC CONFIGURATION READY"
+        )
+        self.canvas.create_text(
+            233,
+            172 + y_offset,
+            text=calibration_state,
+            fill=STATUS_READY,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        controls = (
+            (92, "ACCEPTED SAMPLES", "500 · SYNTHETIC"),
+            (238, "READ INTERVAL", "250 ms · SYNTHETIC"),
+        )
+        for x, title, value in controls:
+            self._draw_panel(
+                x,
+                190 + y_offset,
+                136,
+                58,
+                top="#173145",
+                bottom="#0d1a24",
+                border="#3a6c83",
+                glow="#0b55d9",
+                glow_alpha=25,
+                radius=10,
+            )
+            self.canvas.create_text(
+                x + 68,
+                205 + y_offset,
+                text=title,
+                fill=MUTED_BRIGHT,
+                font=(FONT_DISPLAY, 7),
+                tags="ui",
+            )
+            self.canvas.create_text(
+                x + 68,
+                229 + y_offset,
+                text=value,
+                fill=TEXT,
+                font=(FONT_TECH, 9, "bold"),
+                tags="ui",
+            )
+        self.canvas.create_text(
+            94,
+            270 + y_offset,
+            anchor="w",
+            text="SYNTHETIC PHYSICAL REFERENCE",
+            fill=TEXT,
+            font=(FONT_DISPLAY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            372,
+            270 + y_offset,
+            anchor="e",
+            text="1 000 mm",
+            fill=STATUS_READY,
+            font=(FONT_TECH, 10, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_line(
+            104,
+            303 + y_offset,
+            362,
+            303 + y_offset,
+            fill=TRACK,
+            width=7,
+            capstyle=tk.ROUND,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            104,
+            303 + y_offset,
+            233,
+            303 + y_offset,
+            fill=STATUS_READY,
+            width=7,
+            capstyle=tk.ROUND,
+            tags="ui",
+        )
+        self._draw_glow_disc(
+            233,
+            303 + y_offset,
+            12,
+            STATUS_READY,
+            80,
+        )
+        self.canvas.create_oval(
+            224,
+            294 + y_offset,
+            242,
+            312 + y_offset,
+            fill="#eafffb",
+            outline=STATUS_READY,
+            width=2,
+            tags="ui",
+        )
+        self.canvas.create_text(
+            104,
+            326 + y_offset,
+            anchor="w",
+            text="500 mm",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            362,
+            326 + y_offset,
+            anchor="e",
+            text="1 500 mm",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            92,
+            347 + y_offset,
+            anchor="w",
+            text="SYNTHETIC",
+            fill=STATUS_WARNING,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            374,
+            347 + y_offset,
+            anchor="e",
+            text="PRESS ▶ TO CALIBRATE",
+            fill=MUTED_BRIGHT,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        if self._command_arc_visible():
+            x, y, diameter = command_geometry(1, 0)
+            self._draw_command_button(x, y, "▶", True, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -2210,12 +2695,21 @@ class QSeeSimulator:
         self.show_home()
 
     def back(self) -> None:
+        if self.screen == "tof-settings":
+            self.logger.info(
+                "qsee_nav",
+                "Synthetic TOF settings closed; returning to TOF",
+            )
+            self.show_tof_demo()
+            return
         if self.screen in {
             "audio",
             "fft",
             "fft-detail",
             "imu",
+            "tof",
             "settings",
+            "storage",
             "chrome-settings",
             "power-settings",
             "hardware",
@@ -2224,7 +2718,10 @@ class QSeeSimulator:
                 self.root.after_cancel(self.audio_timer)
                 self.audio_timer = None
             self.logger.info("qsee_ui", "Diagnostic page closed")
-            self.show_home()
+            if self.screen == "storage":
+                self.show_settings_demo()
+            else:
+                self.show_home()
         elif self.screen in {"confirmation", "result"}:
             self.logger.info("qsee_nav", "Synthetic back navigation")
             self.show_home()
@@ -2233,6 +2730,8 @@ class QSeeSimulator:
         self.idle_state = "active"
         self.ready = False
         self.timeline_index = 0
+        self.tof_settings_return_screen = "tof"
+        self.tof_calibration_complete = False
         self.logger = CanonicalLogger()
         self.show_boot()
         self.root.after(150, self._advance_timeline)
@@ -2301,6 +2800,7 @@ class QSeeSimulator:
         redraw = {
             "home": self.show_home,
             "settings": self.show_settings_demo,
+            "storage": self.show_storage_demo,
             "chrome-settings": self.show_chrome_settings_demo,
             "power-settings": self.show_power_settings_demo,
             "hardware": self.show_hardware_demo,
@@ -2308,6 +2808,8 @@ class QSeeSimulator:
             "fft": self.show_audio_fft_demo,
             "fft-detail": self.show_audio_detail_demo,
             "imu": self.show_imu_demo,
+            "tof": self.show_tof_demo,
+            "tof-settings": self.show_tof_settings_demo,
             "confirmation": self.show_confirmation,
         }.get(current_screen)
         if redraw is not None:
@@ -2351,6 +2853,7 @@ def main() -> None:
         choices=(
             "home",
             "settings",
+            "storage",
             "chrome-settings",
             "power-settings",
             "hardware",
@@ -2358,6 +2861,8 @@ def main() -> None:
             "fft",
             "fft-detail",
             "imu",
+            "tof",
+            "tof-settings",
         ),
         default="home",
     )
@@ -2402,6 +2907,7 @@ def main() -> None:
         {
             "home": simulator.show_home,
             "settings": simulator.show_settings_demo,
+            "storage": simulator.show_storage_demo,
             "chrome-settings": simulator.show_chrome_settings_demo,
             "power-settings": simulator.show_power_settings_demo,
             "hardware": simulator.show_hardware_demo,
@@ -2409,6 +2915,8 @@ def main() -> None:
             "fft": simulator.show_audio_fft_demo,
             "fft-detail": simulator.show_audio_detail_demo,
             "imu": simulator.show_imu_demo,
+            "tof": simulator.show_tof_demo,
+            "tof-settings": simulator.show_tof_settings_demo,
         }[args.screen]()
         simulator.apply_idle_overlay()
         root.geometry("+100+100")

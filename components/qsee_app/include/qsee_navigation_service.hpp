@@ -14,7 +14,12 @@ enum class Route {
     AudioFft,
     AudioDetail,
     Imu,
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    Tof,
+    TofSettings,
+#endif
     Settings,
+    Storage,
     About,
     PairIntro,
     PairBluetooth,

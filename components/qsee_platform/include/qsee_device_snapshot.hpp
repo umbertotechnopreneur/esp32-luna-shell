@@ -274,6 +274,86 @@ struct SensorFusionSnapshot : ComponentSnapshot {
     float angular_speed_dps = 0.0F;
 };
 
+struct DistanceGeometrySnapshot {
+    ComponentSnapshot imu;
+    ComponentSnapshot sensor_fusion;
+    float acceleration_mps2[3] = {};
+    bool imu_calibrated = false;
+    bool gravity_dominant = false;
+    bool stationary = false;
+};
+
+constexpr std::size_t kTofSensorCount = 2;
+constexpr uint16_t kDistanceMinimumSampleCount = 20;
+constexpr uint16_t kDistanceMaximumSampleCount = 500;
+constexpr uint16_t kDistanceMinimumReferenceMm = 500;
+constexpr uint16_t kDistanceMaximumReferenceMm = 1500;
+
+enum class DistanceCalibrationState : uint8_t {
+    Required,
+    Ready,
+    Running,
+    Succeeded,
+    Failed,
+};
+
+struct TofSensorSnapshot : ComponentSnapshot {
+    uint16_t raw_distance_mm = 0;
+    uint16_t filtered_distance_mm = 0;
+    uint16_t window_sample_count = 0;
+    uint16_t inlier_count = 0;
+    uint16_t median_absolute_deviation_mm = 0;
+    int32_t calibration_offset_mm = 0;
+    uint32_t frame_sequence = 0;
+    uint32_t crc_error_count = 0;
+    uint32_t protocol_error_count = 0;
+    uint32_t timeout_count = 0;
+    uint32_t uart_error_count = 0;
+};
+
+struct DistanceSettingsSnapshot : ComponentSnapshot {
+    uint16_t sample_count = kDistanceMaximumSampleCount;
+    uint16_t reference_distance_mm = 1000;
+    uint32_t sample_interval_ms = 250;
+};
+
+struct DistanceCalibrationSnapshot : ComponentSnapshot {
+    DistanceCalibrationState state = DistanceCalibrationState::Required;
+    bool record_valid = false;
+    uint16_t requested_samples = 0;
+    uint16_t accepted_samples[kTofSensorCount] = {};
+    uint16_t rejected_samples[kTofSensorCount] = {};
+    uint16_t reference_distance_mm = 0;
+    uint8_t progress_percent = 0;
+    int32_t offsets_mm[kTofSensorCount] = {};
+    int8_t z_axis_sign = 0;
+    int64_t started_at_us = 0;
+    int64_t completed_at_us = 0;
+};
+
+struct DistanceSnapshot : ComponentSnapshot {
+    TofSensorSnapshot sensors[kTofSensorCount];
+    DistanceSettingsSnapshot settings;
+    DistanceCalibrationSnapshot calibration;
+    uint16_t slant_distance_mm = 0;
+    uint16_t vertical_distance_mm = 0;
+    uint16_t sensor_spread_mm = 0;
+    uint16_t samples_used = 0;
+    float tilt_degrees = 0.0F;
+    uint8_t confidence_percent = 0;
+    bool tilt_compensated = false;
+    bool acquisition_timing_valid = false;
+    uint32_t tof_pair_skew_us = 0;
+    uint32_t geometry_skew_us = 0;
+    uint32_t rejected_pair_count = 0;
+    uint32_t timing_rejection_count = 0;
+    uint32_t consecutive_transport_failure_count = 0;
+    uint32_t recovery_attempt_count = 0;
+    uint32_t current_backoff_ms = 0;
+    bool worker_stack_high_water_valid = false;
+    uint32_t worker_stack_min_free_bytes = 0;
+};
+
 struct DiagnosticsSettingsSnapshot {
     ComponentSnapshot sample_period;
     ComponentSnapshot imu_smoothing;
@@ -393,6 +473,7 @@ struct DeviceSnapshot {
     BatterySnapshot battery;
     ImuSnapshot imu;
     SensorFusionSnapshot sensor_fusion;
+    DistanceSnapshot distance;
     RtcSnapshot rtc;
     GpsSnapshot gps;
     AudioSnapshot audio;
@@ -430,6 +511,8 @@ public:
         uint32_t diagnostic_reuse_limit_ms = 0
     );
     DeviceSnapshot snapshot() const;
+    /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
+    esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 
     void reportStorage(const StorageMountReport &report);
     void reportStorageMirror(
@@ -449,8 +532,10 @@ public:
     void reportFullSnapshotMonitor(bool monitor_active, esp_err_t error);
     void reportSensorFusion(
         const SensorFusionResult &result,
-        esp_err_t error
+        esp_err_t error,
+        int64_t sampled_at_us = 0
     );
+    void reportDistance(const DistanceSnapshot &distance);
     void reportDiagnosticMonitor(
         bool imu_monitor_active,
         bool microphone_monitor_active,

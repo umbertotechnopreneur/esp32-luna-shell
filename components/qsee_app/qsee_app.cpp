@@ -70,6 +70,17 @@ constexpr std::array<uint32_t, 10> kImuSmoothingPercents = {
 constexpr std::array<uint32_t, 10> kBrightnessPercents = {
     10, 20, 30, 40, 50, 60, 70, 80, 90, 100,
 };
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+constexpr std::array<uint16_t, 6> kTofSampleCounts = {
+    20, 50, 100, 200, 300, 500,
+};
+constexpr std::array<uint32_t, 3> kTofSampleIntervalsMs = {
+    250, 500, 1000,
+};
+constexpr int32_t kTofReferenceMinimumMm = 500;
+constexpr int32_t kTofReferenceMaximumMm = 1500;
+constexpr int32_t kTofReferenceStepMm = 10;
+#endif
 constexpr char kPairingQrImageId[] = "qsee.pairing.qr";
 constexpr char kBackgroundImageId[] = "qsee.background.asset";
 constexpr char kBackgroundImagePath[] =
@@ -123,6 +134,52 @@ const char *storage_cleanup_stage_name(
     }
     ESP_LOGE(kTag, "Unknown storage cleanup stage %u",
              static_cast<unsigned>(stage));
+    std::abort();
+}
+
+const char *storage_mount_stage_name(qsee::StorageMountStage stage)
+{
+    switch (stage) {
+    case qsee::StorageMountStage::None:
+        return "NONE";
+    case qsee::StorageMountStage::Request:
+        return "REQUEST";
+    case qsee::StorageMountStage::HostInit:
+        return "HOST INIT";
+    case qsee::StorageMountStage::SlotInit:
+        return "SLOT INIT";
+    case qsee::StorageMountStage::CardInit:
+        return "CARD INIT";
+    case qsee::StorageMountStage::CardIdentity:
+        return "CARD IDENTITY";
+    case qsee::StorageMountStage::DriveAlloc:
+        return "DRIVE ALLOC";
+    case qsee::StorageMountStage::DiskIoRegister:
+        return "DISKIO REGISTER";
+    case qsee::StorageMountStage::VfsRegister:
+        return "VFS REGISTER";
+    case qsee::StorageMountStage::FatMount:
+        return "FAT MOUNT";
+    case qsee::StorageMountStage::PreFormatUnmount:
+        return "PRE-FORMAT UNMOUNT";
+    case qsee::StorageMountStage::Partition:
+        return "PARTITION";
+    case qsee::StorageMountStage::Format:
+        return "FORMAT";
+    case qsee::StorageMountStage::PostFormatMount:
+        return "POST-FORMAT MOUNT";
+    case qsee::StorageMountStage::RuntimeStatus:
+        return "RUNTIME STATUS";
+    case qsee::StorageMountStage::RuntimeFilesystem:
+        return "RUNTIME FILESYSTEM";
+    case qsee::StorageMountStage::RuntimeUnmount:
+        return "RUNTIME UNMOUNT";
+    }
+    ESP_LOGE(
+        kTag,
+        "Unknown storage mount stage %u",
+        static_cast<unsigned>(stage)
+    );
     std::abort();
 }
 
@@ -245,6 +302,32 @@ const char *component_reason(const qsee::ComponentSnapshot &component)
                ? qsee::deviceHealthName(component.health)
                : "NO VALID DATA";
 }
+
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+const char *distance_calibration_state_name(
+    qsee::DistanceCalibrationState state
+)
+{
+    switch (state) {
+    case qsee::DistanceCalibrationState::Required:
+        return "REQUIRED";
+    case qsee::DistanceCalibrationState::Ready:
+        return "READY";
+    case qsee::DistanceCalibrationState::Running:
+        return "RUNNING";
+    case qsee::DistanceCalibrationState::Succeeded:
+        return "SUCCEEDED";
+    case qsee::DistanceCalibrationState::Failed:
+        return "FAILED";
+    }
+    ESP_LOGE(
+        kTag,
+        "Unknown distance calibration state %u",
+        static_cast<unsigned>(state)
+    );
+    return "UNKNOWN";
+}
+#endif
 
 bool radio_deferred_by_policy(const qsee::ComponentSnapshot &radio)
 {
@@ -410,10 +493,27 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
             .document_path = "res/screen_imu.json",
             .screen_path = "/qsee_imu",
         };
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    case Screen::Tof:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_tof.json",
+            .screen_path = "/qsee_tof",
+        };
+    case Screen::TofSettings:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_tof_settings.json",
+            .screen_path = "/qsee_tof_settings",
+        };
+#endif
     case Screen::Settings:
         return LazyScreenDescriptor{
             .document_path = "res/screen_settings.json",
             .screen_path = "/qsee_settings",
+        };
+    case Screen::Storage:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_storage.json",
+            .screen_path = "/qsee_storage",
         };
     case Screen::About:
         return LazyScreenDescriptor{
@@ -504,7 +604,15 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     static constexpr std::array<std::string_view, 1> kLogActions = {
         "qsee.chrome.activity.logs",
     };
-    static constexpr std::array<std::string_view, 13> kHardwareActions = {
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    static constexpr std::size_t kHardwareActionCount = 14;
+#else
+    static constexpr std::size_t kHardwareActionCount = 13;
+#endif
+    static constexpr std::array<
+        std::string_view,
+        kHardwareActionCount
+    > kHardwareActions = {
         "qsee.chrome.activity.hardware",
         "qsee.hardware.detail.0",
         "qsee.hardware.detail.1",
@@ -518,15 +626,28 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
         "qsee.hardware.detail.9",
         "qsee.hardware.detail.10",
         "qsee.hardware.detail.11",
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        "qsee.hardware.detail.12",
+#endif
     };
     static constexpr std::array<std::string_view, 1> kHardwareDetailActions = {
         "qsee.chrome.activity.hardware_detail",
     };
-    static constexpr std::array<std::string_view, 3> kSettingsActions = {
+    static constexpr std::array<std::string_view, 4> kSettingsActions = {
         "qsee.chrome.activity.settings",
+        "qsee.open.storage",
         "qsee.open.about",
         "qsee.settings.radios.start",
     };
+    static constexpr std::array<std::string_view, 2> kStorageActions = {
+        "qsee.chrome.activity.storage",
+        "qsee.storage.format",
+    };
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    static constexpr std::array<std::string_view, 1> kTofSettingsActions = {
+        "qsee.chrome.activity.tof_settings",
+    };
+#endif
 
     std::span<const std::string_view> forwarded_actions;
     switch (screen) {
@@ -542,6 +663,14 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     case Screen::Settings:
         forwarded_actions = kSettingsActions;
         break;
+    case Screen::Storage:
+        forwarded_actions = kStorageActions;
+        break;
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    case Screen::TofSettings:
+        forwarded_actions = kTofSettingsActions;
+        break;
+#endif
     default:
         break;
     }
@@ -564,6 +693,68 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
             return result;
         }
     }
+
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (screen == Screen::TofSettings) {
+        const auto add_tof_settings_connection = [&](
+            std::string_view action,
+            auto handler
+        ) -> std::expected<void, std::string> {
+            return add_connection(
+                action,
+                [this,
+                 document_id,
+                 generation,
+                 handler = std::move(handler)](
+                    const esp_brookesia::gui::Event &event
+                ) mutable {
+                    if (!is_current_screen_document(document_id, generation)) {
+                        return;
+                    }
+                    handler(event);
+                }
+            );
+        };
+
+        if (auto result = add_tof_settings_connection(
+                "qsee.tof.settings.samples.changed",
+                [this](const esp_brookesia::gui::Event &event) {
+                    handle_tof_sample_count_event(event);
+                }
+            ); !result) {
+            connections.clear();
+            return result;
+        }
+        if (auto result = add_tof_settings_connection(
+                "qsee.tof.settings.interval.changed",
+                [this](const esp_brookesia::gui::Event &event) {
+                    handle_tof_sample_interval_event(event);
+                }
+            ); !result) {
+            connections.clear();
+            return result;
+        }
+        if (auto result = add_tof_settings_connection(
+                "qsee.tof.settings.reference.preview",
+                [this](const esp_brookesia::gui::Event &event) {
+                    handle_tof_reference_preview_event(event);
+                }
+            ); !result) {
+            connections.clear();
+            return result;
+        }
+        if (auto result = add_tof_settings_connection(
+                "qsee.tof.settings.reference.commit",
+                [this](const esp_brookesia::gui::Event &event) {
+                    handle_tof_reference_commit_event(event);
+                }
+            ); !result) {
+            connections.clear();
+            return result;
+        }
+        return {};
+    }
+#endif
 
     if (screen != Screen::Settings) {
         return {};
@@ -720,6 +911,16 @@ void App::invalidate_screen_document_state(Screen screen)
         settings_text_cache_valid_ = false;
         settings_controls_state_.reset();
     }
+    if (screen == Screen::Storage) {
+        invalidate_storage_screen_cache();
+    }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (screen == Screen::TofSettings) {
+        tof_settings_controls_state_.reset();
+        tof_reference_pending_mm_.reset();
+        tof_reference_editing_ = false;
+    }
+#endif
     if (is_pairing_screen(screen)) {
         pairing_visual_state_.reset();
     }
@@ -959,6 +1160,7 @@ std::expected<void, std::string> App::restore_welcome_document(
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
 
     if (auto result = apply_diagnostic_monitor(context, Screen::Welcome);
         !result) {
@@ -1203,12 +1405,20 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     pairing_visual_state_.reset();
     settings_text_cache_valid_ = false;
     settings_controls_state_.reset();
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    tof_settings_controls_state_.reset();
+    tof_reference_pending_mm_.reset();
+    tof_reference_editing_ = false;
+#endif
     content_viewport_state_.reset();
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
+    storage_format_request_pending_ = false;
+    storage_format_request_attempt_ = 0;
     pairing_started_at_us_ = 0;
     pairing_result_.clear();
     log_filter_mode_ = 0;
@@ -1403,11 +1613,17 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
 {
     settings_text_cache_valid_ = false;
     settings_controls_state_.reset();
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    tof_settings_controls_state_.reset();
+    tof_reference_pending_mm_.reset();
+    tof_reference_editing_ = false;
+#endif
     invalidate_audio_screen_cache(Screen::Audio);
     invalidate_audio_screen_cache(Screen::AudioFft);
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_storage_screen_cache();
     const auto rollback_diagnostics = [this]() {
         const esp_err_t monitor_result =
             qsee_hardware_set_diagnostic_streams(false, false);
@@ -1775,13 +1991,20 @@ std::expected<void, std::string> App::configure_chrome(
     static constexpr std::array<CommandSpec, 1> kAudioCommands = {{
         {"\xef\x83\x89", "qsee.open.audio_fft", ActionRole::Success, true},
     }};
-    static constexpr std::array<CommandSpec, 2> kHardwareCommands = {{
+    static constexpr std::array<CommandSpec, 1> kHardwareCommands = {{
         {"\xef\x80\xa1", "qsee.hardware.refresh", ActionRole::Success, true},
-        {"\xef\x8b\xad", "qsee.storage.format", ActionRole::Danger, true},
     }};
     static constexpr std::array<CommandSpec, 1> kAudioFftCommands = {{
         {"\xef\x81\xae", "qsee.open.audio_detail", ActionRole::Success, true},
     }};
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    static constexpr std::array<CommandSpec, 1> kTofCommands = {{
+        {"\xef\x80\x93", "qsee.open.tof_settings", ActionRole::Primary, true},
+    }};
+    static constexpr std::array<CommandSpec, 1> kTofSettingsCommands = {{
+        {"\xef\x81\x8b", "qsee.tof.calibration.start", ActionRole::Success, true},
+    }};
+#endif
     static constexpr std::array<CommandSpec, 2> kSettingsCommands = {{
         {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success, true},
         {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, true},
@@ -1791,6 +2014,10 @@ std::expected<void, std::string> App::configure_chrome(
     static_assert(valid_command_main_layout(kAudioCommands));
     static_assert(valid_command_main_layout(kHardwareCommands));
     static_assert(valid_command_main_layout(kAudioFftCommands));
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    static_assert(valid_command_main_layout(kTofCommands));
+    static_assert(valid_command_main_layout(kTofSettingsCommands));
+#endif
     static_assert(valid_command_main_layout(kSettingsCommands));
 
     auto activate_result = [&]() -> std::expected<void, std::string> {
@@ -1815,6 +2042,18 @@ std::expected<void, std::string> App::configure_chrome(
                 context.gui(),
                 kAudioFftCommands
             );
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        case Screen::Tof:
+            return adaptive_chrome_.configure_commands(
+                context.gui(),
+                kTofCommands
+            );
+        case Screen::TofSettings:
+            return adaptive_chrome_.configure_commands(
+                context.gui(),
+                kTofSettingsCommands
+            );
+#endif
         case Screen::Settings:
             return adaptive_chrome_.configure_commands(
                 context.gui(),
@@ -1828,6 +2067,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::HardwareDetail:
         case Screen::AudioDetail:
         case Screen::Imu:
+        case Screen::Storage:
         case Screen::About:
         case Screen::PairIntro:
         case Screen::PairBluetooth:
@@ -1860,7 +2100,15 @@ struct HardwareDescriptor {
     std::string_view description;
 };
 
-constexpr std::array<HardwareDescriptor, 12> kHardwareComponents = {{
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+constexpr std::size_t kHardwareComponentCount = 13;
+#else
+constexpr std::size_t kHardwareComponentCount = 12;
+#endif
+constexpr std::array<
+    HardwareDescriptor,
+    kHardwareComponentCount
+> kHardwareComponents = {{
     {"battery", "BATTERY", "AXP2101", "POWER AND CHARGE MONITOR"},
     {"rtc", "RTC", "PCF85063", "REAL-TIME CLOCK"},
     {"imu", "IMU", "QMI8658", "MOTION AND TEMPERATURE SENSOR"},
@@ -1873,6 +2121,9 @@ constexpr std::array<HardwareDescriptor, 12> kHardwareComponents = {{
     {"microphone", "MICROPHONE", "ES7210", "DUAL MICROPHONE CODEC"},
     {"sd", "SD CARD", "SDMMC", "REMOVABLE STORAGE"},
     {"processor", "PROCESSOR", "ESP32-S3", "DUAL-CORE SYSTEM CONTROLLER"},
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    {"tof", "DISTANCE", "2 x TOF400F", "DUAL CALIBRATED TIME-OF-FLIGHT SENSOR"},
+#endif
 }};
 
 const qsee::ComponentSnapshot &hardware_component(
@@ -1905,6 +2156,10 @@ const qsee::ComponentSnapshot &hardware_component(
         return snapshot.storage;
     case 11:
         return snapshot.processor;
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    case 12:
+        return snapshot.distance;
+#endif
     default:
         ESP_LOGE(kTag, "Rejected hardware component index %u",
                  static_cast<unsigned>(index));
@@ -1970,6 +2225,43 @@ void format_hardware_status(
         );
         return;
     }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (index == 12) {
+        if (snapshot.distance.calibration.state ==
+            qsee::DistanceCalibrationState::Running) {
+            if (component_ready(snapshot.distance.calibration) &&
+                snapshot.distance.calibration.progress_percent <= 100U) {
+                std::snprintf(output.data(), output.size(), "CALIBRATING");
+            } else {
+                std::snprintf(
+                    output.data(),
+                    output.size(),
+                    "CALIBRATION %s",
+                    component_state(snapshot.distance.calibration)
+                );
+            }
+            return;
+        }
+        if (component_ready(snapshot.distance)) {
+            std::snprintf(output.data(), output.size(), "READY");
+            return;
+        }
+        if (snapshot.distance.calibration.state ==
+                qsee::DistanceCalibrationState::Required ||
+            snapshot.distance.calibration.state ==
+                qsee::DistanceCalibrationState::Failed) {
+            std::snprintf(
+                output.data(),
+                output.size(),
+                "CALIBRATION %s",
+                distance_calibration_state_name(
+                    snapshot.distance.calibration.state
+                )
+            );
+            return;
+        }
+    }
+#endif
     std::snprintf(
         output.data(),
         output.size(),
@@ -1994,7 +2286,18 @@ const char *hardware_status_color(
         (index == 1 && rtc_waiting_for_time_source(snapshot.rtc)) ||
         (index == 10 &&
          (storage_format_required(snapshot.storage) ||
-          !snapshot.storage.card_response_verified))) {
+          !snapshot.storage.card_response_verified))
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        ||
+        (index == 12 &&
+         (snapshot.distance.calibration.state ==
+              qsee::DistanceCalibrationState::Required ||
+          (snapshot.distance.calibration.state ==
+               qsee::DistanceCalibrationState::Running &&
+           component_ready(snapshot.distance.calibration) &&
+           snapshot.distance.calibration.progress_percent <= 100U)))
+#endif
+    ) {
         return "#f0b44d";
     }
     if (component_ready(component)) {
@@ -2053,6 +2356,14 @@ std::expected<void, std::string> App::open_screen(
         settings_text_cache_valid_ = false;
         settings_controls_state_.reset();
     }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (screen == Screen::TofSettings &&
+        screen_ != Screen::TofSettings) {
+        tof_settings_controls_state_.reset();
+        tof_reference_pending_mm_.reset();
+        tof_reference_editing_ = false;
+    }
+#endif
     if (leaving_pairing &&
         qsee_provisioning_active()) {
         const esp_err_t stop_result = qsee_provisioning_stop();
@@ -2138,12 +2449,18 @@ std::expected<void, std::string> App::on_action(
         resolved.has_value()) {
         action = *resolved;
     }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (action == "qsee.chrome.activity.tof_settings") {
+        return {};
+    }
+#endif
     if (action == "qsee.chrome.activity" ||
         action == "qsee.chrome.activity.wake" ||
         action == "qsee.chrome.activity.logs" ||
         action == "qsee.chrome.activity.hardware" ||
         action == "qsee.chrome.activity.hardware_detail" ||
-        action == "qsee.chrome.activity.settings") {
+        action == "qsee.chrome.activity.settings" ||
+        action == "qsee.chrome.activity.storage") {
         return {};
     }
     if (action == "qsee.open.welcome") {
@@ -2202,8 +2519,19 @@ std::expected<void, std::string> App::on_action(
     if (action == "qsee.open.imu") {
         return open_screen(context, Screen::Imu, action);
     }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (action == "qsee.open.tof") {
+        return open_screen(context, Screen::Tof, action);
+    }
+    if (action == "qsee.open.tof_settings") {
+        return open_screen(context, Screen::TofSettings, action);
+    }
+#endif
     if (action == "qsee.open.settings") {
         return open_screen(context, Screen::Settings, action);
+    }
+    if (action == "qsee.open.storage") {
+        return open_screen(context, Screen::Storage, action);
     }
     if (action == "qsee.open.about") {
         return open_screen(context, Screen::About, action);
@@ -2311,6 +2639,41 @@ std::expected<void, std::string> App::on_action(
         return refresh_settings(context);
     };
 
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (action == "qsee.tof.calibration.start") {
+        const esp_err_t result = qsee_distance_start_calibration();
+        if (result != ESP_OK) {
+            std::array<char, 160> details{};
+            std::snprintf(
+                details.data(),
+                details.size(),
+                "Distance calibration could not start: %s",
+                esp_err_to_name(result)
+            );
+            ESP_LOGE(kTag, "%s", details.data());
+            if (auto dialog_result = show_error_dialog(
+                    context,
+                    "Calibration not started",
+                    details.data()
+                ); !dialog_result) {
+                return std::unexpected(
+                    std::string(details.data()) +
+                    "; error dialog failed: " + dialog_result.error()
+                );
+            }
+            if (auto refresh_result = refresh_tof_settings(context);
+                !refresh_result) {
+                return std::unexpected(
+                    std::string(details.data()) +
+                    "; TOF settings refresh failed: " +
+                    refresh_result.error()
+                );
+            }
+            return std::unexpected(details.data());
+        }
+        return refresh_tof_settings(context);
+    }
+#endif
     if (action == "qsee.settings.radios.start") {
         esp_err_t result = qsee_radios_init();
         if (result == ESP_OK && !qsee_provisioning_active()) {
@@ -2484,6 +2847,49 @@ void App::finish_settings_event(
     }
 }
 
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+void App::finish_tof_settings_event(
+    esp_err_t result,
+    std::string_view operation
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(
+            kTag,
+            "%.*s event completed without app context",
+            static_cast<int>(operation.size()),
+            operation.data()
+        );
+        return;
+    }
+    if (result != ESP_OK) {
+        std::array<char, 160> details{};
+        std::snprintf(
+            details.data(),
+            details.size(),
+            "%.*s failed: %s",
+            static_cast<int>(operation.size()),
+            operation.data(),
+            esp_err_to_name(result)
+        );
+        ESP_LOGE(kTag, "%s", details.data());
+        if (auto dialog_result = show_error_dialog(
+                *context_,
+                "Distance setting not applied",
+                details.data()
+            ); !dialog_result) {
+            ESP_LOGE(kTag, "%s", dialog_result.error().c_str());
+        }
+    }
+    if (screen_ == Screen::TofSettings) {
+        if (auto refresh_result = refresh_tof_settings(*context_);
+            !refresh_result) {
+            ESP_LOGE(kTag, "%s", refresh_result.error().c_str());
+        }
+    }
+}
+#endif
+
 void App::handle_diagnostic_period_event(
     const esp_brookesia::gui::Event &event
 )
@@ -2555,6 +2961,196 @@ void App::handle_imu_smoothing_event(
         "Motion smoothing"
     );
 }
+
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+void App::handle_tof_sample_count_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "TOF sample-count event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto selected_index = event.get_int64("selectedIndex");
+    if (!selected_index.has_value() || *selected_index < 0 ||
+        static_cast<size_t>(*selected_index) >=
+            kTofSampleCounts.size()) {
+        ESP_LOGE(
+            kTag,
+            "TOF sample-count dropdown supplied an invalid selectedIndex"
+        );
+        return;
+    }
+    const size_t index = static_cast<size_t>(*selected_index);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (component_ready(snapshot.distance.settings) &&
+        snapshot.distance.settings.sample_count ==
+            kTofSampleCounts[index]) {
+        return;
+    }
+    tof_settings_controls_state_.reset();
+    finish_tof_settings_event(
+        qsee_distance_set_sample_count(kTofSampleCounts[index]),
+        "TOF sample count"
+    );
+}
+
+void App::handle_tof_sample_interval_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "TOF interval event arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto selected_index = event.get_int64("selectedIndex");
+    if (!selected_index.has_value() || *selected_index < 0 ||
+        static_cast<size_t>(*selected_index) >=
+            kTofSampleIntervalsMs.size()) {
+        ESP_LOGE(
+            kTag,
+            "TOF interval dropdown supplied an invalid selectedIndex"
+        );
+        return;
+    }
+    const size_t index = static_cast<size_t>(*selected_index);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    if (component_ready(snapshot.distance.settings) &&
+        snapshot.distance.settings.sample_interval_ms ==
+            kTofSampleIntervalsMs[index]) {
+        return;
+    }
+    tof_settings_controls_state_.reset();
+    finish_tof_settings_event(
+        qsee_distance_set_sample_interval_ms(
+            kTofSampleIntervalsMs[index]
+        ),
+        "TOF sample interval"
+    );
+}
+
+void App::handle_tof_reference_preview_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "TOF reference preview arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    const auto value = event.get_int64("value");
+    if (!value.has_value() ||
+        *value < kTofReferenceMinimumMm ||
+        *value > kTofReferenceMaximumMm) {
+        ESP_LOGE(kTag, "TOF reference slider supplied an invalid value");
+        return;
+    }
+    const int32_t quantized =
+        kTofReferenceMinimumMm +
+        static_cast<int32_t>(
+            ((*value - kTofReferenceMinimumMm) +
+             (kTofReferenceStepMm / 2)) /
+            kTofReferenceStepMm
+        ) *
+        kTofReferenceStepMm;
+    if (quantized < kTofReferenceMinimumMm ||
+        quantized > kTofReferenceMaximumMm) {
+        ESP_LOGE(
+            kTag,
+            "TOF reference slider quantized outside the supported range"
+        );
+        return;
+    }
+
+    tof_reference_pending_mm_ = quantized;
+    tof_reference_editing_ = true;
+    std::array<char, 32> text{};
+    std::snprintf(
+        text.data(),
+        text.size(),
+        "%ld mm",
+        static_cast<long>(quantized)
+    );
+    if (auto result = set_text(
+            *context_,
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "reference_value",
+            text.data()
+        ); !result) {
+        ESP_LOGE(kTag, "%s", result.error().c_str());
+    }
+}
+
+void App::handle_tof_reference_commit_event(
+    const esp_brookesia::gui::Event &event
+)
+{
+    (void)event;
+    if (context_ == nullptr) {
+        ESP_LOGE(kTag, "TOF reference commit arrived without app context");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_);
+        !activity_result) {
+        ESP_LOGE(kTag, "%s", activity_result.error().c_str());
+        return;
+    }
+    if (!tof_reference_pending_mm_.has_value() ||
+        *tof_reference_pending_mm_ < kTofReferenceMinimumMm ||
+        *tof_reference_pending_mm_ > kTofReferenceMaximumMm ||
+        ((*tof_reference_pending_mm_ - kTofReferenceMinimumMm) %
+         kTofReferenceStepMm) != 0) {
+        ESP_LOGE(
+            kTag,
+            "TOF reference commit rejected without a valid pending value"
+        );
+        tof_reference_editing_ = false;
+        tof_reference_pending_mm_.reset();
+        tof_settings_controls_state_.reset();
+        finish_tof_settings_event(
+            ESP_ERR_INVALID_ARG,
+            "TOF physical reference"
+        );
+        return;
+    }
+
+    const uint16_t reference_mm =
+        static_cast<uint16_t>(*tof_reference_pending_mm_);
+    const DeviceSnapshot snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    tof_reference_editing_ = false;
+    tof_settings_controls_state_.reset();
+    if (component_ready(snapshot.distance.settings) &&
+        snapshot.distance.settings.reference_distance_mm ==
+            reference_mm) {
+        if (auto refresh_result = refresh_tof_settings(*context_);
+            !refresh_result) {
+            ESP_LOGE(kTag, "%s", refresh_result.error().c_str());
+        }
+        return;
+    }
+    finish_tof_settings_event(
+        qsee_distance_set_reference_mm(reference_mm),
+        "TOF physical reference"
+    );
+}
+#endif
 
 void App::handle_brightness_event(
     const esp_brookesia::gui::Event &event
@@ -2772,7 +3368,13 @@ std::expected<void, std::string> App::sync_refresh_timer(
         screen_ == Screen::Audio ||
         screen_ == Screen::AudioFft ||
         screen_ == Screen::AudioDetail ||
-        screen_ == Screen::Imu;
+        screen_ == Screen::Imu
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        ||
+        screen_ == Screen::Tof ||
+        screen_ == Screen::TofSettings
+#endif
+        ;
     const uint32_t desired_period_ms =
         stage == DisplayIdleStage::Active
             ? performance_mode_enabled_
@@ -2931,9 +3533,32 @@ std::expected<void, std::string> App::sync_content_viewport(
                 0,
                 0,
             };
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        case Screen::Tof:
+            return {
+                "/qsee_tof/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
+        case Screen::TofSettings:
+            return {
+                "/qsee_tof_settings/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
+#endif
         case Screen::Settings:
             return {
                 "/qsee_settings/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
+        case Screen::Storage:
+            return {
+                "/qsee_storage/surface",
                 ViewportLayout::CircularScroll,
                 48,
                 8,
@@ -3066,8 +3691,16 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_audio_detail(context);
     case Screen::Imu:
         return refresh_imu(context);
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    case Screen::Tof:
+        return refresh_tof(context);
+    case Screen::TofSettings:
+        return refresh_tof_settings(context);
+#endif
     case Screen::Settings:
         return refresh_settings(context);
+    case Screen::Storage:
+        return refresh_storage(context);
     case Screen::PairIntro:
     case Screen::PairBluetooth:
     case Screen::PairApp:
@@ -3752,6 +4385,15 @@ std::expected<void, std::string> App::show_hardware_details(
         );
         return std::unexpected("Hardware detail index is out of range");
     }
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    if (component_index == 12U) {
+        return open_screen(
+            context,
+            Screen::Tof,
+            "qsee.open.tof"
+        );
+    }
+#endif
 
     const DeviceSnapshot snapshot =
         DeviceSnapshotService::instance().snapshot();
@@ -4120,6 +4762,21 @@ void App::invalidate_imu_screen_cache()
     }
     imu_ui_cache_.arc_hidden_known.fill(false);
     imu_ui_cache_.temperature.valid = false;
+}
+
+void App::invalidate_storage_screen_cache()
+{
+    storage_ui_cache_.status.valid = false;
+    storage_ui_cache_.status_color.valid = false;
+    storage_ui_cache_.detail.valid = false;
+    storage_ui_cache_.mount.valid = false;
+    storage_ui_cache_.total.valid = false;
+    storage_ui_cache_.free.valid = false;
+    storage_ui_cache_.usage.valid = false;
+    storage_ui_cache_.format_label.valid = false;
+    storage_ui_cache_.usage_percent_known = false;
+    storage_ui_cache_.usage_hidden_known = false;
+    storage_ui_cache_.format_disabled_known = false;
 }
 
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
@@ -4658,8 +5315,16 @@ std::string_view App::screen_action(Screen screen)
         return "qsee.open.audio_detail";
     case Screen::Imu:
         return "qsee.open.imu";
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    case Screen::Tof:
+        return "qsee.open.tof";
+    case Screen::TofSettings:
+        return "qsee.open.tof_settings";
+#endif
     case Screen::Settings:
         return "qsee.open.settings";
+    case Screen::Storage:
+        return "qsee.open.storage";
     case Screen::About:
         return "qsee.open.about";
     case Screen::PairIntro:
@@ -5611,6 +6276,736 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
     );
 }
 
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+std::expected<void, std::string> App::refresh_tof(AppContext &context)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    const bool sensor_1_ready =
+        component_ready(snapshot.distance.sensors[0]);
+    const bool sensor_2_ready =
+        component_ready(snapshot.distance.sensors[1]);
+    const bool sensor_1_value_valid =
+        sensor_1_ready &&
+        snapshot.distance.sensors[0].filtered_distance_mm > 0U &&
+        snapshot.distance.sensors[0].window_sample_count > 0U &&
+        snapshot.distance.sensors[0].inlier_count > 0U &&
+        snapshot.distance.sensors[0].inlier_count <=
+            snapshot.distance.sensors[0].window_sample_count;
+    const bool sensor_2_value_valid =
+        sensor_2_ready &&
+        snapshot.distance.sensors[1].filtered_distance_mm > 0U &&
+        snapshot.distance.sensors[1].window_sample_count > 0U &&
+        snapshot.distance.sensors[1].inlier_count > 0U &&
+        snapshot.distance.sensors[1].inlier_count <=
+            snapshot.distance.sensors[1].window_sample_count;
+    const bool distance_valid =
+        snapshot_available(snapshot) &&
+        component_ready(snapshot.distance) &&
+        snapshot.distance.vertical_distance_mm > 0U &&
+        snapshot.distance.slant_distance_mm > 0U &&
+        snapshot.distance.samples_used > 0U &&
+        snapshot.distance.confidence_percent <= 100U &&
+        snapshot.distance.tilt_compensated &&
+        std::isfinite(snapshot.distance.tilt_degrees);
+    const bool calibration_running =
+        snapshot.distance.calibration.state ==
+        qsee::DistanceCalibrationState::Running;
+    const bool calibration_running_valid =
+        calibration_running &&
+        component_ready(snapshot.distance.calibration) &&
+        snapshot.distance.calibration.progress_percent <= 100U;
+
+    std::array<char, 176> status{};
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "DUAL TOF UNAVAILABLE (SNAPSHOT NOT READY)"
+        );
+    } else if (calibration_running_valid) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "DUAL TOF CALIBRATING | %u%%",
+            static_cast<unsigned>(
+                snapshot.distance.calibration.progress_percent
+            )
+        );
+    } else if (calibration_running) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "CALIBRATION %s (%s)",
+            component_state(snapshot.distance.calibration),
+            component_reason(snapshot.distance.calibration)
+        );
+    } else if (distance_valid) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "DUAL TOF READY | t=%lld us",
+            static_cast<long long>(snapshot.distance.last_success_at_us)
+        );
+    } else if (!sensor_1_ready) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "TOF 1 %s (%s)",
+            component_state(snapshot.distance.sensors[0]),
+            component_reason(snapshot.distance.sensors[0])
+        );
+    } else if (!sensor_2_ready) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "TOF 2 %s (%s)",
+            component_state(snapshot.distance.sensors[1]),
+            component_reason(snapshot.distance.sensors[1])
+        );
+    } else {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "DISTANCE %s (%s)",
+            component_state(snapshot.distance),
+            component_reason(snapshot.distance)
+        );
+    }
+
+    std::array<char, 40> distance{};
+    std::array<char, 40> sensor_1{};
+    std::array<char, 40> sensor_2{};
+    std::array<char, 96> spread{};
+    std::array<char, 96> tilt{};
+    std::array<char, 96> confidence{};
+    if (distance_valid) {
+        std::snprintf(
+            distance.data(),
+            distance.size(),
+            "%u mm",
+            static_cast<unsigned>(snapshot.distance.vertical_distance_mm)
+        );
+        std::snprintf(
+            spread.data(),
+            spread.size(),
+            "SPREAD %u mm | SLANT %u mm",
+            static_cast<unsigned>(snapshot.distance.sensor_spread_mm),
+            static_cast<unsigned>(snapshot.distance.slant_distance_mm)
+        );
+        std::snprintf(
+            tilt.data(),
+            tilt.size(),
+            "TILT %.1f deg | COMPENSATED",
+            static_cast<double>(snapshot.distance.tilt_degrees)
+        );
+        std::snprintf(
+            confidence.data(),
+            confidence.size(),
+            "CONFIDENCE %u%% | SAMPLES %u",
+            static_cast<unsigned>(snapshot.distance.confidence_percent),
+            static_cast<unsigned>(snapshot.distance.samples_used)
+        );
+    } else {
+        std::snprintf(distance.data(), distance.size(), "-- mm");
+        std::snprintf(spread.data(), spread.size(), "SPREAD -- | SLANT --");
+        std::snprintf(tilt.data(), tilt.size(), "TILT UNAVAILABLE");
+        std::snprintf(
+            confidence.data(),
+            confidence.size(),
+            "CONFIDENCE -- | SAMPLES --"
+        );
+    }
+    if (sensor_1_value_valid) {
+        std::snprintf(
+            sensor_1.data(),
+            sensor_1.size(),
+            "%u mm",
+            static_cast<unsigned>(
+                snapshot.distance.sensors[0].filtered_distance_mm
+            )
+        );
+    } else {
+        std::snprintf(sensor_1.data(), sensor_1.size(), "-- mm");
+    }
+    if (sensor_2_value_valid) {
+        std::snprintf(
+            sensor_2.data(),
+            sensor_2.size(),
+            "%u mm",
+            static_cast<unsigned>(
+                snapshot.distance.sensors[1].filtered_distance_mm
+            )
+        );
+    } else {
+        std::snprintf(sensor_2.data(), sensor_2.size(), "-- mm");
+    }
+
+    std::array<char, 176> calibration{};
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            calibration.data(),
+            calibration.size(),
+            "CALIBRATION UNAVAILABLE"
+        );
+    } else {
+        const auto &state = snapshot.distance.calibration;
+        switch (state.state) {
+        case qsee::DistanceCalibrationState::Required:
+            std::snprintf(
+                calibration.data(),
+                calibration.size(),
+                "CALIBRATION REQUIRED (%s)",
+                component_reason(state)
+            );
+            break;
+        case qsee::DistanceCalibrationState::Ready:
+            if (component_ready(state)) {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATION READY | OFFSETS %ld / %ld mm",
+                    static_cast<long>(state.offsets_mm[0]),
+                    static_cast<long>(state.offsets_mm[1])
+                );
+            } else {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATION READY | LAST ERROR %s",
+                    component_reason(state)
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Running:
+            if (component_ready(state) &&
+                state.progress_percent <= 100U) {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATING %u%% | S1 %u S2 %u",
+                    static_cast<unsigned>(state.progress_percent),
+                    static_cast<unsigned>(state.accepted_samples[0]),
+                    static_cast<unsigned>(state.accepted_samples[1])
+                );
+            } else {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATION ERROR (%s)",
+                    component_reason(state)
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Succeeded:
+            if (component_ready(state)) {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATION SUCCEEDED | OFFSETS %ld / %ld mm",
+                    static_cast<long>(state.offsets_mm[0]),
+                    static_cast<long>(state.offsets_mm[1])
+                );
+            } else {
+                std::snprintf(
+                    calibration.data(),
+                    calibration.size(),
+                    "CALIBRATION SUCCEEDED (%s)",
+                    component_reason(state)
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Failed:
+            std::snprintf(
+                calibration.data(),
+                calibration.size(),
+                "CALIBRATION FAILED (%s)",
+                component_reason(state)
+            );
+            break;
+        }
+    }
+
+    const std::array<std::pair<const char *, const char *>, 8> updates = {{
+        {"/qsee_tof/surface/status", status.data()},
+        {"/qsee_tof/surface/distance", distance.data()},
+        {
+            "/qsee_tof/surface/sensor_1_panel/sensor_1",
+            sensor_1.data(),
+        },
+        {
+            "/qsee_tof/surface/sensor_2_panel/sensor_2",
+            sensor_2.data(),
+        },
+        {"/qsee_tof/surface/spread", spread.data()},
+        {"/qsee_tof/surface/tilt", tilt.data()},
+        {"/qsee_tof/surface/confidence", confidence.data()},
+        {"/qsee_tof/surface/calibration", calibration.data()},
+    }};
+    for (const auto &[path, text] : updates) {
+        if (auto result = set_text(context, path, text); !result) {
+            return result;
+        }
+    }
+    return {};
+}
+
+std::expected<void, std::string> App::refresh_tof_settings(
+    AppContext &context
+)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    const auto sample_count = std::find(
+        kTofSampleCounts.begin(),
+        kTofSampleCounts.end(),
+        snapshot.distance.settings.sample_count
+    );
+    const auto sample_interval = std::find(
+        kTofSampleIntervalsMs.begin(),
+        kTofSampleIntervalsMs.end(),
+        snapshot.distance.settings.sample_interval_ms
+    );
+    const bool reference_valid =
+        snapshot.distance.settings.reference_distance_mm >=
+            kTofReferenceMinimumMm &&
+        snapshot.distance.settings.reference_distance_mm <=
+            kTofReferenceMaximumMm &&
+        ((snapshot.distance.settings.reference_distance_mm -
+          kTofReferenceMinimumMm) %
+         kTofReferenceStepMm) == 0;
+    const bool settings_ready =
+        snapshot_available(snapshot) &&
+        component_ready(snapshot.distance.settings);
+    const bool settings_valid =
+        settings_ready &&
+        sample_count != kTofSampleCounts.end() &&
+        sample_interval != kTofSampleIntervalsMs.end() &&
+        reference_valid;
+    const bool calibration_running =
+        snapshot.distance.calibration.state ==
+        qsee::DistanceCalibrationState::Running;
+    const bool calibration_running_valid =
+        calibration_running &&
+        component_ready(snapshot.distance.calibration) &&
+        snapshot.distance.calibration.progress_percent <= 100U;
+
+    if (!settings_valid) {
+        tof_reference_editing_ = false;
+        tof_reference_pending_mm_.reset();
+    } else if (calibration_running && tof_reference_editing_) {
+        tof_reference_editing_ = false;
+        tof_reference_pending_mm_ =
+            snapshot.distance.settings.reference_distance_mm;
+    } else if (!tof_reference_editing_) {
+        tof_reference_pending_mm_ =
+            snapshot.distance.settings.reference_distance_mm;
+    }
+
+    std::array<char, 176> settings_status{};
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SETTINGS UNAVAILABLE (SNAPSHOT NOT READY)"
+        );
+    } else if (!component_ready(snapshot.distance.settings)) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SETTINGS %s (%s)",
+            component_state(snapshot.distance.settings),
+            component_reason(snapshot.distance.settings)
+        );
+    } else if (sample_count == kTofSampleCounts.end()) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SAVED SAMPLE COUNT %u IS INVALID",
+            static_cast<unsigned>(snapshot.distance.settings.sample_count)
+        );
+    } else if (sample_interval == kTofSampleIntervalsMs.end()) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SAVED INTERVAL %lu ms IS INVALID",
+            static_cast<unsigned long>(
+                snapshot.distance.settings.sample_interval_ms
+            )
+        );
+    } else if (!reference_valid) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SAVED REFERENCE %u mm IS INVALID",
+            static_cast<unsigned>(
+                snapshot.distance.settings.reference_distance_mm
+            )
+        );
+    } else if (calibration_running_valid) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SETTINGS LOCKED | CALIBRATION RUNNING"
+        );
+    } else if (calibration_running) {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SETTINGS LOCKED | CALIBRATION %s (%s)",
+            component_state(snapshot.distance.calibration),
+            component_reason(snapshot.distance.calibration)
+        );
+    } else {
+        std::snprintf(
+            settings_status.data(),
+            settings_status.size(),
+            "SETTINGS READY | %u SAMPLES @ %lu ms",
+            static_cast<unsigned>(snapshot.distance.settings.sample_count),
+            static_cast<unsigned long>(
+                snapshot.distance.settings.sample_interval_ms
+            )
+        );
+    }
+
+    std::array<char, 96> duration_hint{};
+    if (!settings_valid) {
+        std::snprintf(
+            duration_hint.data(),
+            duration_hint.size(),
+            "ACQUISITION DURATION UNAVAILABLE"
+        );
+    } else {
+        const uint64_t duration_ms =
+            static_cast<uint64_t>(
+                snapshot.distance.settings.sample_count
+            ) *
+            snapshot.distance.settings.sample_interval_ms;
+        if (duration_ms < 60000ULL) {
+            if ((duration_ms % 1000ULL) == 0ULL) {
+                std::snprintf(
+                    duration_hint.data(),
+                    duration_hint.size(),
+                    "ESTIMATED WINDOW %llu s",
+                    static_cast<unsigned long long>(duration_ms / 1000ULL)
+                );
+            } else {
+                std::snprintf(
+                    duration_hint.data(),
+                    duration_hint.size(),
+                    "ESTIMATED WINDOW %.1f s",
+                    static_cast<double>(duration_ms) / 1000.0
+                );
+            }
+        } else {
+            const uint64_t minutes = duration_ms / 60000ULL;
+            const uint64_t seconds =
+                (duration_ms % 60000ULL) / 1000ULL;
+            std::snprintf(
+                duration_hint.data(),
+                duration_hint.size(),
+                "ESTIMATED WINDOW %llu min %llu s",
+                static_cast<unsigned long long>(minutes),
+                static_cast<unsigned long long>(seconds)
+            );
+        }
+    }
+
+    std::array<char, 48> reference_value{};
+    if (settings_valid && tof_reference_pending_mm_.has_value()) {
+        std::snprintf(
+            reference_value.data(),
+            reference_value.size(),
+            "%ld mm",
+            static_cast<long>(*tof_reference_pending_mm_)
+        );
+    } else {
+        std::snprintf(
+            reference_value.data(),
+            reference_value.size(),
+            "UNAVAILABLE"
+        );
+    }
+
+    std::array<char, 176> calibration_status{};
+    std::array<char, 224> calibration_hint{};
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            calibration_status.data(),
+            calibration_status.size(),
+            "CALIBRATION UNAVAILABLE"
+        );
+        std::snprintf(
+            calibration_hint.data(),
+            calibration_hint.size(),
+            "Wait for a valid device snapshot before calibrating."
+        );
+    } else {
+        const auto &calibration = snapshot.distance.calibration;
+        switch (calibration.state) {
+        case qsee::DistanceCalibrationState::Required:
+            std::snprintf(
+                calibration_status.data(),
+                calibration_status.size(),
+                "CALIBRATION REQUIRED (%s)",
+                component_reason(calibration)
+            );
+            std::snprintf(
+                calibration_hint.data(),
+                calibration_hint.size(),
+                "Set the measured reference, hold the device still, then "
+                "use the bottom action."
+            );
+            break;
+        case qsee::DistanceCalibrationState::Ready:
+            if (component_ready(calibration)) {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATION READY | REFERENCE %u mm",
+                    static_cast<unsigned>(
+                        calibration.reference_distance_mm
+                    )
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "Use the bottom action to recalibrate against the "
+                    "selected physical reference."
+                );
+            } else {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATION READY | LAST ERROR %s",
+                    component_reason(calibration)
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "The previous calibration remains stored. Correct "
+                    "alignment before retrying."
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Running:
+            if (component_ready(calibration) &&
+                calibration.progress_percent <= 100U) {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATING %u%% | S1 %u S2 %u",
+                    static_cast<unsigned>(calibration.progress_percent),
+                    static_cast<unsigned>(
+                        calibration.accepted_samples[0]
+                    ),
+                    static_cast<unsigned>(
+                        calibration.accepted_samples[1]
+                    )
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "Keep the device still at %u mm until both sensors "
+                    "complete the acquisition.",
+                    static_cast<unsigned>(
+                        calibration.reference_distance_mm
+                    )
+                );
+            } else {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATION ERROR (%s)",
+                    component_reason(calibration)
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "Calibration state is invalid; do not use the current "
+                    "distance."
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Succeeded:
+            if (component_ready(calibration)) {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATION SUCCEEDED | S1 %+ld S2 %+ld mm",
+                    static_cast<long>(calibration.offsets_mm[0]),
+                    static_cast<long>(calibration.offsets_mm[1])
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "Calibration is stored. Live distance becomes "
+                    "available after the next valid sample window."
+                );
+            } else {
+                std::snprintf(
+                    calibration_status.data(),
+                    calibration_status.size(),
+                    "CALIBRATION SUCCEEDED (%s)",
+                    component_reason(calibration)
+                );
+                std::snprintf(
+                    calibration_hint.data(),
+                    calibration_hint.size(),
+                    "Calibration status is not currently valid."
+                );
+            }
+            break;
+        case qsee::DistanceCalibrationState::Failed:
+            std::snprintf(
+                calibration_status.data(),
+                calibration_status.size(),
+                "CALIBRATION FAILED (%s)",
+                component_reason(calibration)
+            );
+            std::snprintf(
+                calibration_hint.data(),
+                calibration_hint.size(),
+                "Verify the physical distance, alignment, and stability "
+                "before retrying."
+            );
+            break;
+        }
+    }
+
+    const std::array<std::pair<const char *, const char *>, 5> text_updates = {{
+        {
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "settings_status",
+            settings_status.data(),
+        },
+        {
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "duration_hint",
+            duration_hint.data(),
+        },
+        {
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "reference_value",
+            reference_value.data(),
+        },
+        {
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "calibration_status",
+            calibration_status.data(),
+        },
+        {
+            "/qsee_tof_settings/surface/tof_settings_scroller/"
+            "calibration_hint",
+            calibration_hint.data(),
+        },
+    }};
+    for (const auto &[path, text] : text_updates) {
+        if (auto result = set_text(context, path, text); !result) {
+            return result;
+        }
+    }
+
+    TofSettingsControlsState next_controls{};
+    if (settings_valid) {
+        next_controls.sample_count_index = static_cast<int32_t>(
+            std::distance(kTofSampleCounts.begin(), sample_count)
+        );
+        next_controls.sample_interval_index = static_cast<int32_t>(
+            std::distance(kTofSampleIntervalsMs.begin(), sample_interval)
+        );
+        next_controls.reference_distance_mm =
+            snapshot.distance.settings.reference_distance_mm;
+    }
+    next_controls.controls_disabled =
+        !settings_valid || calibration_running;
+    if (tof_settings_controls_state_ &&
+        *tof_settings_controls_state_ == next_controls) {
+        return {};
+    }
+
+    std::vector<esp_brookesia::gui::BindingValueUpdate> control_updates;
+    control_updates.reserve(6);
+    if (next_controls.sample_count_index >= 0) {
+        control_updates.push_back({
+            .absolute_path =
+                "/qsee_tof_settings/surface/tof_settings_scroller/"
+                "sample_count",
+            .key = "selectedIndex",
+            .value = std::to_string(
+                next_controls.sample_count_index
+            ),
+        });
+    }
+    if (next_controls.sample_interval_index >= 0) {
+        control_updates.push_back({
+            .absolute_path =
+                "/qsee_tof_settings/surface/tof_settings_scroller/"
+                "sample_interval",
+            .key = "selectedIndex",
+            .value = std::to_string(
+                next_controls.sample_interval_index
+            ),
+        });
+    }
+    if (next_controls.reference_distance_mm >= 0 &&
+        !tof_reference_editing_) {
+        control_updates.push_back({
+            .absolute_path =
+                "/qsee_tof_settings/surface/tof_settings_scroller/"
+                "reference_distance",
+            .key = "value",
+            .value = std::to_string(
+                next_controls.reference_distance_mm
+            ),
+        });
+    }
+    const char *disabled =
+        next_controls.controls_disabled ? "true" : "false";
+    control_updates.insert(
+        control_updates.end(),
+        {
+            {
+                .absolute_path =
+                    "/qsee_tof_settings/surface/tof_settings_scroller/"
+                    "sample_count",
+                .key = "disabled",
+                .value = disabled,
+            },
+            {
+                .absolute_path =
+                    "/qsee_tof_settings/surface/tof_settings_scroller/"
+                    "sample_interval",
+                .key = "disabled",
+                .value = disabled,
+            },
+            {
+                .absolute_path =
+                    "/qsee_tof_settings/surface/tof_settings_scroller/"
+                    "reference_distance",
+                .key = "disabled",
+                .value = disabled,
+            },
+        }
+    );
+    if (auto result = set_binding_values(context, control_updates);
+        !result) {
+        return std::unexpected(
+            "Failed to refresh distance settings controls: " +
+            result.error()
+        );
+    }
+    tof_settings_controls_state_ = next_controls;
+    return {};
+}
+#endif
+
 std::expected<void, std::string> App::set_settings_text(
     AppContext &context,
     SettingsTextSlot slot,
@@ -5781,7 +7176,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         std::snprintf(
             text.data(),
             text.size(),
-            "SD card error - open Hardware for details"
+            "SD card error - open SD Card for details"
         );
     } else if (storage_format_required(snapshot.storage)) {
         std::snprintf(
@@ -6242,6 +7637,277 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     return {};
 }
 
+std::expected<void, std::string> App::refresh_storage(AppContext &context)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    if (storage_format_request_pending_ &&
+        snapshot.storage.mount_attempt_count >
+            storage_format_request_attempt_) {
+        storage_format_request_pending_ = false;
+    }
+
+    const StorageSnapshot &storage = snapshot.storage;
+    const bool mounted_ready = storage_mounted_ready(storage);
+    const bool space_valid =
+        mounted_ready &&
+        storage.filesystem_total_bytes > 0 &&
+        storage.filesystem_total_bytes <= storage.capacity_bytes &&
+        storage.free_bytes <= storage.filesystem_total_bytes;
+    const bool format_available =
+        !storage_format_request_pending_ &&
+        storage_format_required(storage);
+
+    const char *status = "UNAVAILABLE";
+    const char *status_color = "#9fb1c1";
+    const char *format_label = "FORMAT UNAVAILABLE";
+    std::array<char, 192> detail{};
+
+    if (storage_format_request_pending_) {
+        status = "FORMATTING...";
+        status_color = "#f0b44d";
+        format_label = "FORMATTING...";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Format request accepted. Keep the verified card inserted while "
+            "the storage service completes the immediate attempt."
+        );
+    } else if (storage_cleanup_failed(storage)) {
+        status = "CLEANUP ERROR";
+        status_color = "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s failed: %s. Formatting is blocked.",
+            storage_cleanup_stage_name(storage.cleanup_stage),
+            esp_err_to_name(storage.cleanup_error)
+        );
+    } else if (storage.mount_outcome == StorageMountOutcome::FormatFailed) {
+        status = "FORMAT FAILED";
+        status_color = "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s failed: %s. No automatic retry will overwrite the card.",
+            storage_mount_stage_name(storage.mount_stage),
+            component_reason(storage)
+        );
+    } else if (storage_format_required(storage)) {
+        status = "FORMAT REQUIRED";
+        status_color = "#f0b44d";
+        format_label = "FORMAT SD CARD";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "A verified card is present but no supported FAT filesystem was "
+            "found. Formatting requires one explicit confirmation."
+        );
+    } else if (mounted_ready) {
+        status = "READY";
+        status_color = "#20dfc1";
+        format_label = "FORMAT NOT REQUIRED";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            storage.formatted
+                ? "The card was formatted, mounted and measured successfully."
+                : "The FAT filesystem is mounted and measured successfully."
+        );
+    } else if (!storage.card_response_verified) {
+        status = "UNCONFIRMED";
+        status_color = "#f0b44d";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Card presence or transport response was not verified: %s.",
+            component_reason(storage)
+        );
+    } else {
+        status =
+            storage.last_error == ESP_OK ? "UNAVAILABLE" : "ERROR";
+        status_color =
+            storage.last_error == ESP_OK ? "#9fb1c1" : "#ff3859";
+        std::snprintf(
+            detail.data(),
+            detail.size(),
+            "Stage %s: %s.",
+            storage_mount_stage_name(storage.mount_stage),
+            component_reason(storage)
+        );
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.status,
+            "/qsee_storage/surface/storage_scroller/status_value",
+            status
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_binding_text(
+            context,
+            storage_ui_cache_.status_color,
+            "/qsee_storage/surface/storage_scroller/status_value",
+            "status_color",
+            status_color
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.detail,
+            "/qsee_storage/surface/storage_scroller/status_detail",
+            detail.data()
+        ); !result) {
+        return result;
+    }
+
+    std::array<char, 64> mount{};
+    std::snprintf(
+        mount.data(),
+        mount.size(),
+        mounted_ready
+            ? storage.logger_mirror_enabled
+                ? "MOUNTED | LOG MIRROR ON"
+                : "MOUNTED | LOG MIRROR OFF"
+            : "NOT MOUNTED"
+    );
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.mount,
+            "/qsee_storage/surface/storage_scroller/mount_value",
+            mount.data()
+        ); !result) {
+        return result;
+    }
+
+    std::array<char, 32> total{};
+    std::array<char, 32> free{};
+    std::array<char, 64> usage{};
+    int32_t usage_percent = 0;
+    if (space_valid) {
+        const uint64_t used_bytes =
+            storage.filesystem_total_bytes - storage.free_bytes;
+        usage_percent = static_cast<int32_t>(
+            (used_bytes * 100ULL) / storage.filesystem_total_bytes
+        );
+        std::snprintf(
+            total.data(),
+            total.size(),
+            "%llu MB",
+            static_cast<unsigned long long>(
+                storage.filesystem_total_bytes / (1024ULL * 1024ULL)
+            )
+        );
+        std::snprintf(
+            free.data(),
+            free.size(),
+            "%llu MB",
+            static_cast<unsigned long long>(
+                storage.free_bytes / (1024ULL * 1024ULL)
+            )
+        );
+        std::snprintf(
+            usage.data(),
+            usage.size(),
+            "USED %llu MB | %ld%%",
+            static_cast<unsigned long long>(
+                used_bytes / (1024ULL * 1024ULL)
+            ),
+            static_cast<long>(usage_percent)
+        );
+    } else {
+        std::snprintf(total.data(), total.size(), "UNAVAILABLE");
+        std::snprintf(free.data(), free.size(), "UNAVAILABLE");
+        std::snprintf(
+            usage.data(),
+            usage.size(),
+            "Space is unavailable until the card is mounted."
+        );
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.total,
+            "/qsee_storage/surface/storage_scroller/total_row/value",
+            total.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.free,
+            "/qsee_storage/surface/storage_scroller/free_row/value",
+            free.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.usage,
+            "/qsee_storage/surface/storage_scroller/usage_value",
+            usage.data()
+        ); !result) {
+        return result;
+    }
+
+    if (!storage_ui_cache_.usage_percent_known ||
+        storage_ui_cache_.usage_percent != usage_percent) {
+        if (space_valid) {
+            if (auto result = set_value(
+                    context,
+                    "/qsee_storage/surface/storage_scroller/usage_bar",
+                    usage_percent
+                ); !result) {
+                return result;
+            }
+        }
+        storage_ui_cache_.usage_percent = usage_percent;
+        storage_ui_cache_.usage_percent_known = true;
+    }
+    const bool usage_hidden = !space_valid;
+    if (!storage_ui_cache_.usage_hidden_known ||
+        storage_ui_cache_.usage_hidden != usage_hidden) {
+        if (auto result = set_hidden(
+                context,
+                "/qsee_storage/surface/storage_scroller/usage_bar",
+                usage_hidden
+            ); !result) {
+            return result;
+        }
+        storage_ui_cache_.usage_hidden = usage_hidden;
+        storage_ui_cache_.usage_hidden_known = true;
+    }
+
+    if (auto result = set_cached_text(
+            context,
+            storage_ui_cache_.format_label,
+            "/qsee_storage/surface/storage_scroller/format_action/label",
+            format_label
+        ); !result) {
+        return result;
+    }
+    const bool format_disabled = !format_available;
+    if (!storage_ui_cache_.format_disabled_known ||
+        storage_ui_cache_.format_disabled != format_disabled) {
+        if (auto result = set_binding_text(
+                context,
+                "/qsee_storage/surface/storage_scroller/format_action",
+                "format_disabled",
+                format_disabled ? "true" : "false"
+            ); !result) {
+            return result;
+        }
+        storage_ui_cache_.format_disabled = format_disabled;
+        storage_ui_cache_.format_disabled_known = true;
+    }
+    return {};
+}
+
 std::expected<void, std::string> App::show_error_dialog(
     AppContext &context,
     std::string_view title,
@@ -6317,10 +7983,10 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
     if (alert_service_.dialog_visible()) {
         return {};
     }
-    if (screen_ != Screen::Hardware ||
+    if (screen_ != Screen::Storage ||
         !active_screen_document_id_.has_value()) {
         return std::unexpected(
-            "SD format dialog requested without an active Hardware document"
+            "SD format dialog requested without an active Storage document"
         );
     }
     const auto document_id = *active_screen_document_id_;
@@ -6389,7 +8055,10 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
         "CANCEL",
         "FORMAT",
         esp_brookesia::system::core::MessageDialogButtonRole::Destructive,
-        [this, document_id, generation]() {
+        [this,
+         document_id,
+         generation,
+         mount_attempt_count = storage.mount_attempt_count]() {
             const esp_err_t format_result = qsee_storage_request_format();
             if (format_result != ESP_OK) {
                 ESP_LOGE(
@@ -6414,22 +8083,28 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
                     }
                 }
             } else {
+                // This is request progress only; completion still comes from
+                // the next authoritative storage snapshot.
+                storage_format_request_pending_ = true;
+                storage_format_request_attempt_ = mount_attempt_count;
                 ESP_LOGW(kTag, "Explicit user-authorized SD format requested");
             }
             if (context_ != nullptr &&
-                screen_ == Screen::Hardware &&
+                screen_ == Screen::Storage &&
                 is_current_screen_document(document_id, generation)) {
-                if (auto refresh_result = refresh_hardware(*context_); !refresh_result) {
+                auto refresh_result = refresh_storage(*context_);
+                if (!refresh_result) {
                     ESP_LOGE(
                         kTag,
-                        "Hardware view refresh failed: %s",
+                        "Storage view refresh after format request failed: %s",
                         refresh_result.error().c_str()
                     );
                 }
             } else {
                 ESP_LOGI(
                     kTag,
-                    "Skipped Hardware refresh because its lazy document changed"
+                    "Skipped Storage refresh because its lazy "
+                    "document changed"
                 );
             }
         }

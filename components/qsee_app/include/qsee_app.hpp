@@ -105,7 +105,11 @@ private:
         std::array<bool, 2> hidden_known{};
     };
 
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    static constexpr std::size_t kHardwareUiComponentCount = 13;
+#else
     static constexpr std::size_t kHardwareUiComponentCount = 12;
+#endif
 
     struct HardwareUiCache {
         std::array<
@@ -128,6 +132,23 @@ private:
         std::array<bool, 3> arc_hidden{};
         std::array<bool, 3> arc_hidden_known{};
         FixedTextCache<32> temperature;
+    };
+
+    struct StorageUiCache {
+        FixedTextCache<32> status;
+        FixedTextCache<8> status_color;
+        FixedTextCache<192> detail;
+        FixedTextCache<64> mount;
+        FixedTextCache<32> total;
+        FixedTextCache<32> free;
+        FixedTextCache<64> usage;
+        FixedTextCache<32> format_label;
+        int32_t usage_percent = 0;
+        bool usage_percent_known = false;
+        bool usage_hidden = true;
+        bool usage_hidden_known = false;
+        bool format_disabled = true;
+        bool format_disabled_known = false;
     };
 
     enum class SettingsTextSlot : std::size_t {
@@ -155,6 +176,17 @@ private:
 
         bool operator==(const SettingsControlsState &) const = default;
     };
+
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    struct TofSettingsControlsState {
+        int32_t sample_count_index = -1;
+        int32_t sample_interval_index = -1;
+        int32_t reference_distance_mm = -1;
+        bool controls_disabled = true;
+
+        bool operator==(const TofSettingsControlsState &) const = default;
+    };
+#endif
 
     struct ContentViewportState {
         Screen screen;
@@ -301,10 +333,22 @@ private:
     void invalidate_audio_screen_cache(Screen screen);
     void invalidate_hardware_screen_cache();
     void invalidate_imu_screen_cache();
+    void invalidate_storage_screen_cache();
     std::expected<void, std::string> refresh_imu(
         esp_brookesia::system::core::AppContext &context
     );
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    std::expected<void, std::string> refresh_tof(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_tof_settings(
+        esp_brookesia::system::core::AppContext &context
+    );
+#endif
     std::expected<void, std::string> refresh_settings(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_storage(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> set_settings_text(
@@ -379,6 +423,20 @@ private:
     void handle_imu_smoothing_event(
         const esp_brookesia::gui::Event &event
     );
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    void handle_tof_sample_count_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_tof_sample_interval_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_tof_reference_preview_event(
+        const esp_brookesia::gui::Event &event
+    );
+    void handle_tof_reference_commit_event(
+        const esp_brookesia::gui::Event &event
+    );
+#endif
     void handle_brightness_event(
         const esp_brookesia::gui::Event &event
     );
@@ -395,6 +453,12 @@ private:
         esp_err_t result,
         std::string_view operation
     );
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    void finish_tof_settings_event(
+        esp_err_t result,
+        std::string_view operation
+    );
+#endif
 
     esp_brookesia::system::core::AppContext *context_ = nullptr;
     esp_brookesia::system::core::TimerId refresh_timer_ =
@@ -428,6 +492,9 @@ private:
     bool audio_detail_hidden_known_ = false;
     HardwareUiCache hardware_ui_cache_;
     ImuUiCache imu_ui_cache_;
+    StorageUiCache storage_ui_cache_;
+    bool storage_format_request_pending_ = false;
+    uint32_t storage_format_request_attempt_ = 0;
     bool pairing_qr_registered_ = false;
     bool pairing_result_success_ = false;
     std::optional<PairingVisualState> pairing_visual_state_;
@@ -456,6 +523,11 @@ private:
     > settings_text_cache_;
     bool settings_text_cache_valid_ = false;
     std::optional<SettingsControlsState> settings_controls_state_;
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    std::optional<TofSettingsControlsState> tof_settings_controls_state_;
+    std::optional<int32_t> tof_reference_pending_mm_;
+    bool tof_reference_editing_ = false;
+#endif
     std::optional<ContentViewportState> content_viewport_state_;
     std::unique_ptr<char[]> log_source_buffer_;
     std::unique_ptr<char[]> log_filtered_buffer_;

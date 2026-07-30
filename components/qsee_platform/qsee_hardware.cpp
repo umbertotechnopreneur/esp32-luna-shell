@@ -6,6 +6,7 @@
 
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_distance_service.hpp"
 #include "qsee_sensor_fusion.hpp"
 #include "qsee_settings.hpp"
 #include "qsee_snapshot_cadence.hpp"
@@ -906,6 +907,10 @@ void apply_measured_sample_aging(
     age_measured_sample(snapshot.rtc, now_us, ttl_us);
     age_measured_sample(snapshot.imu, now_us, ttl_us);
     age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us);
+    age_measured_sample(snapshot.distance, now_us, ttl_us);
+    for (qsee::TofSensorSnapshot &sensor : snapshot.distance.sensors) {
+        age_measured_sample(sensor, now_us, ttl_us);
+    }
     age_measured_sample(snapshot.gps, now_us, ttl_us);
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
     if (snapshot.ui.orientation.auto_rotation_enabled) {
@@ -2896,7 +2901,8 @@ esp_err_t sample_imu(
 #if !CONFIG_QSEE_BUILD_ENABLE_IMU
     qsee::DeviceSnapshotService::instance().reportSensorFusion(
         {},
-        ESP_ERR_NOT_SUPPORTED
+        ESP_ERR_NOT_SUPPORTED,
+        attempted_at_us
     );
     const esp_err_t publication_error = update_snapshot(
         [attempted_at_us, track_orientation](qsee::DeviceSnapshot &snapshot) {
@@ -2928,7 +2934,8 @@ esp_err_t sample_imu(
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
         qsee::DeviceSnapshotService::instance().reportSensorFusion(
             {},
-            ESP_ERR_INVALID_STATE
+            ESP_ERR_INVALID_STATE,
+            attempted_at_us
         );
         const esp_err_t publication_error = update_snapshot(
             [attempted_at_us, track_orientation](
@@ -3009,7 +3016,8 @@ esp_err_t sample_imu(
     if (error != ESP_OK) {
         qsee::DeviceSnapshotService::instance().reportSensorFusion(
             {},
-            error
+            error,
+            attempted_at_us
         );
         const esp_err_t publication_error = update_snapshot(
             [error, attempted_at_us, track_orientation](
@@ -3092,7 +3100,8 @@ esp_err_t sample_imu(
         qsee::SensorFusionService::instance().process(sample, &fusion_result);
     qsee::DeviceSnapshotService::instance().reportSensorFusion(
         fusion_result,
-        fusion_error
+        fusion_error,
+        attempted_at_us
     );
     const esp_err_t sample_result = sample_publication_result(
         "IMU QMI8658",
@@ -4376,12 +4385,15 @@ void log_summary(const qsee::DeviceSnapshot &snapshot)
 {
     ESP_LOGI(
         TAG,
-        "Snapshot #%lu (%s): PMU=%s RTC=%s IMU=%s GPS=%s MIC=%s SPK=%s SD=%s DISPLAY=%s TOUCH=%s WIFI=%s BLE=%s MEM=%s CPU=%s",
+        "Snapshot #%lu (%s): PMU=%s RTC=%s IMU=%s TOF1=%s TOF2=%s DIST=%s GPS=%s MIC=%s SPK=%s SD=%s DISPLAY=%s TOUCH=%s WIFI=%s BLE=%s MEM=%s CPU=%s",
         static_cast<unsigned long>(snapshot.sequence),
         snapshot.reason,
         component_summary_state(snapshot.battery),
         component_summary_state(snapshot.rtc),
         component_summary_state(snapshot.imu),
+        component_summary_state(snapshot.distance.sensors[0]),
+        component_summary_state(snapshot.distance.sensors[1]),
+        component_summary_state(snapshot.distance),
         gps_summary_state(snapshot.gps),
         component_summary_state(snapshot.audio.microphone),
         component_summary_state(snapshot.audio.speaker),
@@ -5028,6 +5040,29 @@ esp_err_t DeviceSnapshotService::initialize()
     ESP_LOGI(TAG, "GNSS: disabled by build profile");
 #endif
 
+#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+    error = qsee::distanceServiceInit();
+    record_optional_chip("dual TOF400F distance", error);
+#else
+    update_snapshot([](DeviceSnapshot &snapshot) {
+        set_component(snapshot.distance, false, ESP_ERR_NOT_SUPPORTED);
+        set_component(
+            snapshot.distance.settings,
+            false,
+            ESP_ERR_NOT_SUPPORTED
+        );
+        set_component(
+            snapshot.distance.calibration,
+            false,
+            ESP_ERR_NOT_SUPPORTED
+        );
+        for (TofSensorSnapshot &sensor : snapshot.distance.sensors) {
+            set_component(sensor, false, ESP_ERR_NOT_SUPPORTED);
+        }
+    });
+    ESP_LOGI(TAG, "Dual TOF400F distance: disabled by build profile");
+#endif
+
     error = qsee_audio_init();
     if (error == ESP_ERR_NOT_SUPPORTED) {
         update_snapshot([error](DeviceSnapshot &snapshot) {
@@ -5269,6 +5304,66 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     copy.ui.touch_last_activity_at_us =
         s_touch_last_activity_at_us.load(std::memory_order_relaxed);
     return copy;
+}
+
+esp_err_t DeviceSnapshotService::sampleDistanceGeometry(
+    DistanceGeometrySnapshot *geometry
+)
+{
+    if (geometry == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *geometry = {};
+    if (!s_initialized) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_imu_ready) {
+        return ESP_ERR_NOT_FOUND;
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(500)) != pdTRUE) {
+        return ESP_ERR_TIMEOUT;
+    }
+
+    esp_err_t error = sample_imu("distance-geometry", false);
+    if (error == ESP_OK) {
+        error = take_snapshot_mutex(
+            pdMS_TO_TICKS(250),
+            "distance geometry"
+        );
+        if (error == ESP_OK) {
+            geometry->imu = s_snapshot.imu;
+            geometry->sensor_fusion = s_snapshot.sensor_fusion;
+            for (std::size_t axis = 0; axis < 3; ++axis) {
+                geometry->acceleration_mps2[axis] =
+                    s_snapshot.imu.acceleration_mps2[axis];
+            }
+            geometry->imu_calibrated = s_snapshot.imu.calibrated;
+            geometry->gravity_dominant =
+                s_snapshot.sensor_fusion.gravity_dominant;
+            geometry->stationary =
+                s_snapshot.sensor_fusion.stationary;
+            const int64_t now_us = esp_timer_get_time();
+            const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+            age_measured_sample(geometry->imu, now_us, ttl_us);
+            age_measured_sample(geometry->sensor_fusion, now_us, ttl_us);
+            const esp_err_t release_error =
+                give_snapshot_mutex("distance geometry");
+            if (release_error != ESP_OK) {
+                std::abort();
+            }
+        }
+    }
+
+    give_refresh_mutex(refresh_mutex, "Distance geometry sample");
+    if (error != ESP_OK) {
+        *geometry = {};
+    }
+    return error;
 }
 
 void DeviceSnapshotService::reportStorage(
@@ -5555,10 +5650,12 @@ void DeviceSnapshotService::reportFullSnapshotMonitor(
 
 void DeviceSnapshotService::reportSensorFusion(
     const SensorFusionResult &result,
-    esp_err_t error
+    esp_err_t error,
+    int64_t sampled_at_us
 )
 {
-    const int64_t attempted_at_us = esp_timer_get_time();
+    const int64_t attempted_at_us =
+        sampled_at_us > 0 ? sampled_at_us : esp_timer_get_time();
     const bool result_is_finite =
         std::isfinite(result.acceleration_magnitude_mps2) &&
         std::isfinite(result.angular_speed_dps);
@@ -5591,6 +5688,19 @@ void DeviceSnapshotService::reportSensorFusion(
     );
     log_snapshot_publication_failure(
         "Sensor-fusion report",
+        publication_error
+    );
+}
+
+void DeviceSnapshotService::reportDistance(const DistanceSnapshot &distance)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [&distance](DeviceSnapshot &snapshot) {
+            snapshot.distance = distance;
+        }
+    );
+    log_snapshot_publication_failure(
+        "Distance report",
         publication_error
     );
 }

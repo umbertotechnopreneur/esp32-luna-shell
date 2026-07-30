@@ -10,6 +10,7 @@ other than Welcome.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import re
 import sys
@@ -22,11 +23,21 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_PATH = REPO_ROOT / "components" / "qsee_app" / "gui" / "root.json"
 OUTPUT_DIR = REPO_ROOT / "components" / "qsee_app" / "package" / "res"
 BOOTSTRAP_PATH = OUTPUT_DIR / "root.json"
+VARIANT_ROOT = OUTPUT_DIR / ".variants"
+DISTANCE_DISABLED_VARIANT_DIR = VARIANT_ROOT / "distance_disabled"
+DISTANCE_DISABLED_HARDWARE_PATH = (
+    DISTANCE_DISABLED_VARIANT_DIR / "screen_hardware.json"
+)
 CONTENT_FLOW_ID = "qsee_content"
 WELCOME_SCREEN_ID = "qsee_welcome"
 IDLE_SCREEN_ID = "qsee_content_idle"
 RELEASE_CONTENT_ACTION = "qsee.content.release"
 BACKGROUND_SCREEN_ID = "qsee_background_screen"
+HARDWARE_SCREEN_ID = "qsee_hardware"
+TOF_SCREEN_ID = "qsee_tof"
+TOF_SETTINGS_SCREEN_ID = "qsee_tof_settings"
+TOF_HARDWARE_CARD_ID = "tof"
+TOF_SETTINGS_SLIDER_PATH = "templates/qsee_settings_slider.json"
 BOOTSTRAP_FLOW_IDS = {
     "qsee_background_flow",
     "qsee_chrome_flow",
@@ -171,6 +182,37 @@ def idle_content_screen() -> dict[str, Any]:
 
 def render(document: dict[str, Any]) -> str:
     return json.dumps(document, indent=4, ensure_ascii=False) + "\n"
+
+
+def remove_nodes_by_id(value: Any, target_id: str) -> int:
+    """Remove matching descendant nodes in place and return the match count."""
+    removed = 0
+    if isinstance(value, list):
+        retained: list[Any] = []
+        for child in value:
+            if isinstance(child, dict) and child.get("id") == target_id:
+                removed += 1
+                continue
+            removed += remove_nodes_by_id(child, target_id)
+            retained.append(child)
+        value[:] = retained
+    elif isinstance(value, dict):
+        for child in value.values():
+            removed += remove_nodes_by_id(child, target_id)
+    return removed
+
+
+def distance_disabled_hardware_document(
+    document: dict[str, Any],
+) -> dict[str, Any]:
+    variant = copy.deepcopy(document)
+    removed = remove_nodes_by_id(variant, TOF_HARDWARE_CARD_ID)
+    if removed != 1:
+        raise GenerationError(
+            "distance-disabled hardware variant must remove exactly one "
+            f"{TOF_HARDWARE_CARD_ID!r} card, removed {removed}"
+        )
+    return variant
 
 
 def build_documents() -> dict[Path, str]:
@@ -339,8 +381,44 @@ def build_documents() -> dict[Path, str]:
         screen_assets.extend(external_dependencies([screen]))
         screen_assets.append(screen)
         filename = lazy_screen_filename(screen_id)
-        documents[OUTPUT_DIR / filename] = render(
-            {"version": version, "assets": screen_assets}
+        screen_document = {"version": version, "assets": screen_assets}
+        documents[OUTPUT_DIR / filename] = render(screen_document)
+        if screen_id == HARDWARE_SCREEN_ID:
+            documents[DISTANCE_DISABLED_HARDWARE_PATH] = render(
+                distance_disabled_hardware_document(screen_document)
+            )
+
+    required_distance_paths = {
+        OUTPUT_DIR / lazy_screen_filename(TOF_SCREEN_ID),
+        OUTPUT_DIR / lazy_screen_filename(TOF_SETTINGS_SCREEN_ID),
+        DISTANCE_DISABLED_HARDWARE_PATH,
+    }
+    missing_distance_paths = required_distance_paths - documents.keys()
+    if missing_distance_paths:
+        raise GenerationError(
+            "canonical GUI is missing distance feature documents: "
+            + ", ".join(
+                str(path.relative_to(REPO_ROOT))
+                for path in sorted(missing_distance_paths)
+            )
+        )
+
+    slider_consumers = {
+        path
+        for path, contents in documents.items()
+        if f'"{TOF_SETTINGS_SLIDER_PATH}"' in contents
+    }
+    expected_slider_consumers = {
+        OUTPUT_DIR / lazy_screen_filename(TOF_SETTINGS_SCREEN_ID)
+    }
+    if slider_consumers != expected_slider_consumers:
+        raise GenerationError(
+            f"{TOF_SETTINGS_SLIDER_PATH} must be exclusive to "
+            f"{TOF_SETTINGS_SCREEN_ID}, found "
+            + ", ".join(
+                str(path.relative_to(REPO_ROOT))
+                for path in sorted(slider_consumers)
+            )
         )
 
     return documents
@@ -350,9 +428,18 @@ def check_documents(documents: dict[Path, str]) -> bool:
     ok = True
     expected_paths = set(documents)
     actual_screen_paths = set(OUTPUT_DIR.glob(GENERATED_SCREEN_GLOB))
+    expected_variant_paths = {
+        path for path in expected_paths if VARIANT_ROOT in path.parents
+    }
+    actual_variant_paths = (
+        set(VARIANT_ROOT.rglob("*.json")) if VARIANT_ROOT.exists() else set()
+    )
 
     for stale_path in sorted(actual_screen_paths - expected_paths):
         print(f"stale lazy GUI document: {stale_path.relative_to(REPO_ROOT)}")
+        ok = False
+    for stale_path in sorted(actual_variant_paths - expected_variant_paths):
+        print(f"stale GUI variant document: {stale_path.relative_to(REPO_ROOT)}")
         ok = False
     for path, expected in sorted(documents.items()):
         try:
@@ -376,10 +463,18 @@ def write_documents(documents: dict[Path, str]) -> None:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     expected_paths = set(documents)
+    expected_variant_paths = {
+        path for path in expected_paths if VARIANT_ROOT in path.parents
+    }
     for stale_path in OUTPUT_DIR.glob(GENERATED_SCREEN_GLOB):
         if stale_path not in expected_paths:
             stale_path.unlink()
+    if VARIANT_ROOT.exists():
+        for stale_path in VARIANT_ROOT.rglob("*.json"):
+            if stale_path not in expected_variant_paths:
+                stale_path.unlink()
     for path, contents in documents.items():
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(contents, encoding="utf-8", newline="\n")
 
 

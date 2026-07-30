@@ -1,0 +1,226 @@
+#include "qsee_tof400f_protocol.h"
+
+#define MODBUS_READ_HOLDING_REGISTERS 0x03U
+#define MODBUS_WRITE_SINGLE_REGISTER 0x06U
+#define TOF400F_DISTANCE_REGISTER 0x0010U
+
+static int address_is_valid(uint8_t address)
+{
+    return address >= 1U && address <= 247U;
+}
+
+static void append_crc(
+    uint8_t frame[QSEE_TOF400F_MODBUS_REQUEST_SIZE]
+)
+{
+    const uint16_t crc = qsee_tof400f_crc16_modbus(
+        frame,
+        QSEE_TOF400F_MODBUS_REQUEST_SIZE - 2U
+    );
+    frame[QSEE_TOF400F_MODBUS_REQUEST_SIZE - 2U] =
+        (uint8_t)(crc & 0xFFU);
+    frame[QSEE_TOF400F_MODBUS_REQUEST_SIZE - 1U] =
+        (uint8_t)(crc >> 8U);
+}
+
+static qsee_tof400f_protocol_result_t validate_crc(
+    const uint8_t *frame,
+    size_t frame_size
+)
+{
+    const uint16_t expected_crc = qsee_tof400f_crc16_modbus(
+        frame,
+        frame_size - 2U
+    );
+    const uint16_t received_crc =
+        (uint16_t)frame[frame_size - 2U] |
+        ((uint16_t)frame[frame_size - 1U] << 8U);
+    return expected_crc == received_crc
+               ? QSEE_TOF400F_PROTOCOL_OK
+               : QSEE_TOF400F_PROTOCOL_INVALID_CRC;
+}
+
+uint16_t qsee_tof400f_crc16_modbus(
+    const uint8_t *data,
+    size_t data_size
+)
+{
+    uint16_t crc = 0xFFFFU;
+    if (data == NULL) {
+        return crc;
+    }
+
+    for (size_t byte_index = 0; byte_index < data_size; ++byte_index) {
+        crc ^= data[byte_index];
+        for (uint8_t bit_index = 0; bit_index < 8U; ++bit_index) {
+            if ((crc & 1U) != 0U) {
+                crc = (uint16_t)((crc >> 1U) ^ 0xA001U);
+            } else {
+                crc >>= 1U;
+            }
+        }
+    }
+    return crc;
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_build_read_holding_register_request(
+    uint8_t address,
+    uint16_t register_address,
+    uint8_t request[QSEE_TOF400F_MODBUS_REQUEST_SIZE]
+)
+{
+    if (!address_is_valid(address) || request == NULL) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ARGUMENT;
+    }
+
+    request[0] = address;
+    request[1] = MODBUS_READ_HOLDING_REGISTERS;
+    request[2] = (uint8_t)(register_address >> 8U);
+    request[3] = (uint8_t)(register_address & 0xFFU);
+    request[4] = 0U;
+    request[5] = 1U;
+    append_crc(request);
+    return QSEE_TOF400F_PROTOCOL_OK;
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_build_read_distance_request(
+    uint8_t address,
+    uint8_t request[QSEE_TOF400F_MODBUS_REQUEST_SIZE]
+)
+{
+    return qsee_tof400f_build_read_holding_register_request(
+        address,
+        TOF400F_DISTANCE_REGISTER,
+        request
+    );
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_build_write_register_request(
+    uint8_t address,
+    uint16_t register_address,
+    uint16_t value,
+    uint8_t request[QSEE_TOF400F_MODBUS_REQUEST_SIZE]
+)
+{
+    if (!address_is_valid(address) || request == NULL) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ARGUMENT;
+    }
+
+    request[0] = address;
+    request[1] = MODBUS_WRITE_SINGLE_REGISTER;
+    request[2] = (uint8_t)(register_address >> 8U);
+    request[3] = (uint8_t)(register_address & 0xFFU);
+    request[4] = (uint8_t)(value >> 8U);
+    request[5] = (uint8_t)(value & 0xFFU);
+    append_crc(request);
+    return QSEE_TOF400F_PROTOCOL_OK;
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_parse_holding_register_response(
+    const uint8_t *frame,
+    size_t frame_size,
+    uint8_t expected_address,
+    uint16_t *value
+)
+{
+    if (frame == NULL || value == NULL ||
+        !address_is_valid(expected_address)) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (frame_size !=
+        QSEE_TOF400F_HOLDING_REGISTER_RESPONSE_SIZE) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_LENGTH;
+    }
+
+    qsee_tof400f_protocol_result_t result =
+        validate_crc(frame, frame_size);
+    if (result != QSEE_TOF400F_PROTOCOL_OK) {
+        return result;
+    }
+    if (frame[0] != expected_address) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ADDRESS;
+    }
+    if (frame[1] != MODBUS_READ_HOLDING_REGISTERS) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_FUNCTION;
+    }
+    if (frame[2] != 2U) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_PAYLOAD;
+    }
+
+    *value = ((uint16_t)frame[3] << 8U) | frame[4];
+    return QSEE_TOF400F_PROTOCOL_OK;
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_parse_distance_response(
+    const uint8_t *frame,
+    size_t frame_size,
+    uint8_t expected_address,
+    uint16_t *distance_mm
+)
+{
+    if (distance_mm == NULL) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ARGUMENT;
+    }
+
+    uint16_t parsed_distance = 0U;
+    const qsee_tof400f_protocol_result_t result =
+        qsee_tof400f_parse_holding_register_response(
+            frame,
+            frame_size,
+            expected_address,
+            &parsed_distance
+        );
+    if (result != QSEE_TOF400F_PROTOCOL_OK) {
+        return result;
+    }
+    if (parsed_distance < QSEE_TOF400F_MIN_DISTANCE_MM ||
+        parsed_distance > QSEE_TOF400F_MAX_DISTANCE_MM) {
+        return QSEE_TOF400F_PROTOCOL_DISTANCE_OUT_OF_RANGE;
+    }
+
+    *distance_mm = parsed_distance;
+    return QSEE_TOF400F_PROTOCOL_OK;
+}
+
+qsee_tof400f_protocol_result_t
+qsee_tof400f_validate_write_register_response(
+    const uint8_t *frame,
+    size_t frame_size,
+    uint8_t expected_address,
+    uint16_t expected_register_address,
+    uint16_t expected_value
+)
+{
+    if (frame == NULL || !address_is_valid(expected_address)) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ARGUMENT;
+    }
+    if (frame_size != QSEE_TOF400F_WRITE_RESPONSE_SIZE) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_LENGTH;
+    }
+
+    qsee_tof400f_protocol_result_t result =
+        validate_crc(frame, frame_size);
+    if (result != QSEE_TOF400F_PROTOCOL_OK) {
+        return result;
+    }
+    if (frame[0] != expected_address) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_ADDRESS;
+    }
+    if (frame[1] != MODBUS_WRITE_SINGLE_REGISTER) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_FUNCTION;
+    }
+
+    const uint16_t register_address =
+        ((uint16_t)frame[2] << 8U) | frame[3];
+    const uint16_t value = ((uint16_t)frame[4] << 8U) | frame[5];
+    if (register_address != expected_register_address ||
+        value != expected_value) {
+        return QSEE_TOF400F_PROTOCOL_INVALID_PAYLOAD;
+    }
+    return QSEE_TOF400F_PROTOCOL_OK;
+}

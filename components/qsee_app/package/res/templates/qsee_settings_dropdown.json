@@ -5,7 +5,11 @@
         "type": "dropdown",
         "events": [],
         "bindings": {
+            "commonProps.disabled": "disabled",
             "dropdownProps.selectedIndex": "selectedIndex"
+        },
+        "commonProps": {
+            "disabled": false
         },
         "dropdownProps": {
             "options": [

@@ -77,7 +77,9 @@
 - [ ] Validate cancel, confirmed format, progress, failure, and recovery with a
   disposable card on hardware.
 - [ ] Address SD-card detection regressions (card not detected in some boots) so detection and diagnostics are surfaced clearly in UI.
-- [ ] Add a dedicated Storage section in Settings to surface card presence/state, free space, mount status, and safe format/reset options (with explicit confirmation and progress).
+- [x] Add a dedicated Storage section in Settings to surface card presence/state,
+  total/free space, mount status, and a guarded format action with explicit
+  confirmation and request progress.
 
 ## Device metrics
 

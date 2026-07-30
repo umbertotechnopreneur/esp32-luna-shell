@@ -171,7 +171,10 @@ def verify_package() -> None:
         "qsee_audio_fft",
         "qsee_audio_detail",
         "qsee_imu",
+        "qsee_tof",
+        "qsee_tof_settings",
         "qsee_settings",
+        "qsee_storage",
         "qsee_about",
     )
     padded_screens = set(screens) - {"qsee_about"}
@@ -210,7 +213,9 @@ def verify_package() -> None:
         "qsee_logs": "log_scroller",
         "qsee_hardware": "hardware_scroller",
         "qsee_hardware_detail": "detail_scroller",
+        "qsee_tof_settings": "tof_settings_scroller",
         "qsee_settings": "settings_scroller",
+        "qsee_storage": "storage_scroller",
     }
     for screen_id, scroller_id in expanding_scrollers.items():
         surface = find_child(find_asset(documents, screen_id), "surface")
@@ -249,6 +254,10 @@ def verify_firmware_contract() -> None:
     command_bar = read(
         "components/qsee_app/qsee_adaptive_command_bar.cpp"
     )
+    command_bar_header = read(
+        "components/qsee_app/include/qsee_adaptive_command_bar.hpp"
+    )
+    simulator = read("simulator/windows/qsee_simulator.py")
     app = read("components/qsee_app/qsee_app.cpp")
     http = read("components/qsee_platform/qsee_http_json.cpp")
 
@@ -261,12 +270,43 @@ def verify_firmware_contract() -> None:
     require(chrome, "!fullscreen_active_ &&", "wake surface")
     require(command_bar, "if (!visible)", "Command Arc hide boundary")
     require(
+        command_bar_header,
+        "kMainDiameterDp = 61",
+        "Command Arc enlarged diameter",
+    )
+    require(
+        command_bar,
+        "kMainCenterYDp = 410",
+        "Command Arc lowered center",
+    )
+    require(
+        command_bar,
+        "((first_diameter + second_diameter) / 2)",
+        "Command Arc constant edge gap",
+    )
+    require(
+        simulator,
+        "COMMAND_MAIN_DIAMETER = 61",
+        "simulator Command Arc diameter",
+    )
+    require(
+        simulator,
+        "COMMAND_MAIN_CENTER_Y = 410",
+        "simulator Command Arc lowered center",
+    )
+    require(
         command_bar,
         "set_hit_testing(gui, false)",
         "Command Arc hide boundary",
     )
     require(app, "sync_content_viewport(context)", "viewport synchronization")
     require(app, "kCircularWideContentInsetDp", "round-display padding")
+    require(app, '"/qsee_tof/surface"', "TOF fixed canvas")
+    require(
+        app,
+        '"/qsee_tof_settings/surface"',
+        "TOF settings circular scroller",
+    )
     require(http, '\\"fullscreen_active\\"', "HTTP snapshot")
 
 

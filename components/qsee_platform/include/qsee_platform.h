@@ -104,6 +104,20 @@ uint32_t qsee_hardware_get_imu_smoothing_percent(void);
  */
 esp_err_t qsee_imu_calibrate(void);
 
+/**
+ * Start one asynchronous robust calibration of the two TOF400F modules.
+ *
+ * The current persisted sample count, interval, and physical reference are
+ * captured when the worker accepts the request.
+ */
+esp_err_t qsee_distance_start_calibration(void);
+/** Persist 20..500 accepted samples per robust distance window. */
+esp_err_t qsee_distance_set_sample_count(uint16_t sample_count);
+/** Persist one supported TOF interval: 250, 500, or 1000 milliseconds. */
+esp_err_t qsee_distance_set_sample_interval_ms(uint32_t interval_ms);
+/** Persist the 500..1500 mm physical calibration reference, in 10 mm steps. */
+esp_err_t qsee_distance_set_reference_mm(uint16_t reference_mm);
+
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
 esp_err_t qsee_rtc_read(qsee_calendar_time_t *time);
 esp_err_t qsee_rtc_write(const qsee_calendar_time_t *time);
