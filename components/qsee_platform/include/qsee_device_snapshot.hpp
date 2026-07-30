@@ -35,12 +35,18 @@ struct ComponentSnapshot {
 struct BatterySnapshot : ComponentSnapshot {
     bool battery_present = false;
     bool usb_present = false;
+    bool vbus_good = false;
+    bool batfet_enabled = false;
+    bool battery_active_mode = false;
+    bool thermal_regulation_active = false;
+    bool input_current_limit_active = false;
     int level_percent = -1;
     int battery_mv = 0;
     int usb_mv = 0;
     int system_mv = 0;
     float die_temperature_c = 0.0F;
     char power_state[16] = "unknown";
+    char charger_phase[20] = "unknown";
 };
 
 struct ImuSnapshot : ComponentSnapshot {

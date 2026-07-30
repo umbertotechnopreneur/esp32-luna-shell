@@ -73,6 +73,8 @@ COMMAND_SCREENS = frozenset(
 )
 WIDE_PAGE_SCREENS = frozenset(
     {
+        "battery",
+        "logs",
         "settings",
         "storage",
         "hardware",
@@ -214,6 +216,22 @@ class Scenario:
     sd_message: str
     gps_message: str
     final_message: str
+    battery_percent: int | None = 83
+    battery_mv: int | None = 4021
+    usb_present: bool | None = False
+    usb_mv: int | None = 0
+    system_mv: int | None = 3708
+    die_temperature_c: float | None = 31.6
+    battery_present: bool | None = True
+    battery_state: str = "DISCHARGING"
+    battery_health: str = "READY"
+    battery_error: str = "ESP_OK"
+    battery_sample_age_s: float | None = 0.4
+    charger_phase: str | None = "STOPPED"
+    batfet_enabled: bool | None = True
+    battery_active_mode: bool | None = False
+    thermal_regulation_active: bool | None = False
+    input_current_limit_active: bool | None = False
 
 
 SCENARIOS = {
@@ -234,6 +252,52 @@ SCENARIOS = {
         "SD: synthetic FAT32 card mounted, capacity=8192 MB",
         "GPS LC76G: transport ready, waiting for synthetic fix",
         "Ready; GPS still searching",
+    ),
+    "battery-low": Scenario(
+        "BATTERY LOW",
+        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
+        "GPS LC76G: synthetic fix 10.7769, 106.7009",
+        "Ready with synthetic low-battery warning",
+        battery_percent=8,
+        battery_mv=3475,
+        system_mv=3628,
+        die_temperature_c=32.4,
+    ),
+    "battery-charging": Scenario(
+        "BATTERY CHARGING",
+        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
+        "GPS LC76G: synthetic fix 10.7769, 106.7009",
+        "Synthetic hardware ready; USB charging",
+        battery_percent=54,
+        battery_mv=3860,
+        usb_present=True,
+        usb_mv=5052,
+        system_mv=4215,
+        die_temperature_c=33.1,
+        battery_state="CHARGING",
+        charger_phase="CC CHARGE",
+    ),
+    "battery-unavailable": Scenario(
+        "BATTERY UNAVAILABLE",
+        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
+        "GPS LC76G: synthetic fix 10.7769, 106.7009",
+        "Ready with synthetic PMIC telemetry unavailable",
+        battery_percent=None,
+        battery_mv=None,
+        usb_present=None,
+        usb_mv=None,
+        system_mv=None,
+        die_temperature_c=None,
+        battery_present=None,
+        battery_state="UNAVAILABLE",
+        battery_health="ERROR",
+        battery_error="ESP_ERR_TIMEOUT",
+        battery_sample_age_s=None,
+        charger_phase=None,
+        batfet_enabled=None,
+        battery_active_mode=None,
+        thermal_regulation_active=None,
+        input_current_limit_active=None,
     ),
 }
 
@@ -331,6 +395,9 @@ class QSeeSimulator:
         idle_state: str = "active",
     ) -> None:
         self.root = root
+        # The simulator uses pixel-based firmware geometry, so keep Tk font
+        # sizing deterministic instead of inheriting Windows display scaling.
+        self.root.tk.call("tk", "scaling", 1.0)
         self.scenario = scenario
         self.idle_state = idle_state
         self.logger = CanonicalLogger()
@@ -356,6 +423,7 @@ class QSeeSimulator:
         self.audio_phase = 0
         self.audio_timer: str | None = None
         self.performance_mode = False
+        self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
         self.tof_calibration_complete = False
         self.ready = False
@@ -837,7 +905,7 @@ class QSeeSimulator:
                 STATUS_WARNING,
                 STATUS_READY,
             ]
-        return [
+        colors = [
             STATUS_READY,
             STATUS_READY,
             STATUS_READY,
@@ -845,6 +913,13 @@ class QSeeSimulator:
             STATUS_READY,
             STATUS_READY,
         ]
+        if self.scenario.battery_percent is None:
+            colors[1] = STATUS_FAULT
+        elif self.scenario.battery_percent <= 12:
+            colors[1] = STATUS_FAULT
+        elif self.scenario.battery_percent <= 30:
+            colors[1] = STATUS_WARNING
+        return colors
 
     def _draw_status_icon(self, kind: str, x: int, y: int, color: str) -> None:
         if kind == "usb":
@@ -872,15 +947,18 @@ class QSeeSimulator:
                 outline=color,
                 tags="ui",
             )
-            self.canvas.create_rectangle(
-                x - 8,
-                y - 5,
-                x + 5,
-                y + 5,
-                fill=color,
-                outline="",
-                tags="ui",
-            )
+            if self.scenario.battery_percent is not None:
+                fill_width = round(13 * self.scenario.battery_percent / 100)
+                if fill_width > 0:
+                    self.canvas.create_rectangle(
+                        x - 8,
+                        y - 5,
+                        x - 8 + fill_width,
+                        y + 5,
+                        fill=color,
+                        outline="",
+                        tags="ui",
+                    )
         elif kind == "ble":
             points = (x, y - 13, x + 8, y - 6, x, y, x + 8, y + 7, x, y + 13, x, y - 13)
             self.canvas.create_line(*points, fill=color, width=2, tags="ui")
@@ -976,6 +1054,57 @@ class QSeeSimulator:
             image=self.button_images[(success, diameter)],
             tags="ui",
         )
+        if icon == "battery":
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            self.canvas.create_rectangle(
+                center_x - 12,
+                center_y - 8,
+                center_x + 9,
+                center_y + 8,
+                outline="#ffffff",
+                width=2,
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                center_x + 10,
+                center_y - 4,
+                center_x + 13,
+                center_y + 4,
+                fill="#ffffff",
+                outline="#ffffff",
+                tags="ui",
+            )
+            self.canvas.create_rectangle(
+                center_x - 9,
+                center_y - 5,
+                center_x + 3,
+                center_y + 5,
+                fill="#ffffff",
+                outline="",
+                tags="ui",
+            )
+            return
+        if icon in {"‹", "›"}:
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            direction = -1 if icon == "‹" else 1
+            tip_x = center_x + (direction * 6)
+            tail_x = center_x - (direction * 5)
+            self.canvas.create_line(
+                tail_x,
+                center_y - 10,
+                tip_x,
+                center_y,
+                tail_x,
+                center_y + 10,
+                fill="#ffffff",
+                width=3,
+                capstyle=tk.ROUND,
+                joinstyle=tk.ROUND,
+                tags="ui",
+            )
+            return
         self.canvas.create_text(
             x + (diameter / 2) + icon_x,
             y + (diameter / 2) + icon_y,
@@ -989,7 +1118,7 @@ class QSeeSimulator:
         if not self._command_arc_visible():
             return
         commands = (
-            ("≡", False),
+            ("battery", False),
             ("♫", False),
             ("▰", True),
             ("➤", True),
@@ -1049,6 +1178,24 @@ class QSeeSimulator:
             self.canvas.itemconfigure("boot_log", text=self.logger.snapshot(count=5, max_chars=58))
         self.root.after(120, self._refresh_log)
 
+    def _battery_timeline_message(self) -> str:
+        if self.scenario.battery_percent is None:
+            return (
+                "PMU AXP2101: synthetic telemetry unavailable, "
+                f"{self.scenario.battery_error}"
+            )
+        source = (
+            f"USB {self.scenario.usb_mv}mV"
+            if self.scenario.usb_present
+            else "USB disconnected"
+        )
+        return (
+            "PMU AXP2101: synthetic battery "
+            f"{self.scenario.battery_percent}%, "
+            f"{self.scenario.battery_state.lower()}, "
+            f"{self.scenario.battery_mv}mV, {source}"
+        )
+
     # Replay deterministic hardware events without emulating device drivers.
     def _advance_timeline(self) -> None:
         events = [
@@ -1056,7 +1203,7 @@ class QSeeSimulator:
             ("qsee_main", self.scenario.sd_message),
             ("qsee_boot", "Boot screen online: QSee.ai + canonical live log"),
             ("qsee_main", "Touch CST9217: synthetic input ready"),
-            ("qsee_hw", "PMU AXP2101: synthetic battery 83%, discharging, 4021mV"),
+            ("qsee_hw", self._battery_timeline_message()),
             ("qsee_hw", "IMU QMI8658: synthetic orientation x=12 y=-18 z=998mg"),
             ("qsee_hw", self.scenario.gps_message),
             ("qsee_radios", "Wi-Fi: synthetic STA ready, credentials not configured"),
@@ -1128,6 +1275,8 @@ class QSeeSimulator:
                 "imu",
                 "tof",
                 "tof-settings",
+                "battery",
+                "logs",
                 "settings",
                 "storage",
                 "chrome-settings",
@@ -1136,34 +1285,25 @@ class QSeeSimulator:
             }
         ):
             self.back()
-        elif (
-            command_arc_visible
-            and 147 <= event.x <= 203
-            and 346 <= event.y <= 402
-            and self.screen == "home"
-        ):
-            self.show_audio_demo()
-        elif (
-            command_arc_visible
-            and 204 <= event.x <= 262
-            and 360 <= event.y <= 418
-            and self.screen == "home"
-        ):
-            self.show_hardware_demo()
-        elif (
-            command_arc_visible
-            and 263 <= event.x <= 319
-            and 346 <= event.y <= 402
-            and self.screen == "home"
-        ):
-            self.show_imu_demo()
-        elif (
-            command_arc_visible
-            and 316 <= event.x <= 370
-            and 322 <= event.y <= 376
-            and self.screen == "home"
-        ):
-            self.show_settings_demo()
+        elif command_arc_visible and self.screen == "home":
+            for index in range(5):
+                x, y, diameter = command_geometry(5, index)
+                if not (
+                    x <= event.x <= x + diameter
+                    and y <= event.y <= y + diameter
+                ):
+                    continue
+                if index == 0:
+                    self.show_battery_demo(return_screen="home")
+                elif index == 1:
+                    self.show_audio_demo()
+                elif index == 2:
+                    self.show_hardware_demo()
+                elif index == 3:
+                    self.show_imu_demo()
+                else:
+                    self.show_settings_demo()
+                return
         elif (
             command_arc_visible
             and 204 <= event.x <= 262
@@ -1179,8 +1319,18 @@ class QSeeSimulator:
         ):
             self.show_audio_detail_demo()
         elif self.screen == "hardware":
+            battery_row_y = 173 + self._wide_page_offset_y()
             tof_row_y = 173 + self._wide_page_offset_y() + (5 * 42)
             if (
+                88 <= event.x <= 378
+                and battery_row_y - 12 <= event.y <= battery_row_y + 30
+            ):
+                self.logger.info(
+                    "qsee_nav",
+                    "Synthetic AXP2101 hardware row selected",
+                )
+                self.show_battery_demo(return_screen="hardware")
+            elif (
                 88 <= event.x <= 378
                 and tof_row_y - 12 <= event.y <= tof_row_y + 30
             ):
@@ -1221,14 +1371,23 @@ class QSeeSimulator:
                 self.show_settings_demo()
                 return
             if command_arc_visible:
-                for index in range(2):
-                    x, y, diameter = command_geometry(2, index)
+                for index in range(3):
+                    x, y, diameter = command_geometry(3, index)
                     if (
                         x <= event.x <= x + diameter
                         and y <= event.y <= y + diameter
                     ):
-                        self.show_settings_demo()
-                        break
+                        if index == 0:
+                            self.show_logs_demo()
+                        elif index == 1:
+                            self.show_pairing_demo("pairing-intro")
+                        else:
+                            self.logger.info(
+                                "qsee_nav",
+                                "Synthetic About command selected",
+                            )
+                            self.show_settings_demo()
+                        return
         elif (
             self.screen == "storage"
             and 128 <= event.x <= 338
@@ -1558,6 +1717,359 @@ class QSeeSimulator:
             actions=False,
         )
 
+    def _battery_level_color(self) -> str:
+        level = self.scenario.battery_percent
+        if level is None or self.scenario.battery_health != "READY":
+            return STATUS_FAULT
+        if level <= 12:
+            return STATUS_FAULT
+        if level <= 30:
+            return STATUS_WARNING
+        return STATUS_READY
+
+    def _draw_battery_metric(
+        self,
+        y: int,
+        label: str,
+        value: str,
+        color: str,
+    ) -> None:
+        self.canvas.create_text(
+            94,
+            y,
+            anchor="w",
+            text=f"SYN · {label}",
+            fill=MUTED_BRIGHT,
+            font=(FONT_DISPLAY, 8),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            372,
+            y,
+            anchor="e",
+            text=value,
+            fill=color,
+            font=(FONT_TECH, 9, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_line(
+            94,
+            y + 9,
+            372,
+            y + 9,
+            fill="#173545",
+            width=1,
+            tags="ui",
+        )
+
+    def show_battery_demo(self, return_screen: str | None = None) -> None:
+        if return_screen is not None:
+            self.battery_return_screen = return_screen
+        self.screen = "battery"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "BATTERY",
+            "AXP2101 · SYNTHETIC",
+            self._wide_page_offset_y(),
+        )
+
+        level = self.scenario.battery_percent
+        level_color = self._battery_level_color()
+        telemetry_valid = (
+            level is not None
+            and self.scenario.battery_mv is not None
+            and self.scenario.battery_present is True
+            and self.scenario.battery_health == "READY"
+        )
+        charging = telemetry_valid and self.scenario.battery_state == "CHARGING"
+
+        body_x = 112
+        body_y = 164
+        body_width = 230
+        body_height = 126
+        self._draw_panel(
+            body_x,
+            body_y,
+            body_width,
+            body_height,
+            top="#0d2735",
+            bottom="#071018",
+            border=level_color,
+            glow=level_color,
+            glow_alpha=52,
+            radius=18,
+        )
+        self.canvas.create_rectangle(
+            body_x + body_width,
+            body_y + 37,
+            body_x + body_width + 18,
+            body_y + 91,
+            fill=level_color,
+            outline=level_color,
+            width=1,
+            tags="ui",
+        )
+
+        if not telemetry_valid:
+            state_text = "TELEMETRY UNAVAILABLE"
+            health_text = (
+                f"SYNTHETIC · {self.scenario.battery_health} · "
+                f"{self.scenario.battery_error}"
+            )
+        elif charging:
+            state_text = "CHARGING · USB CONNECTED"
+            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+        elif self.scenario.battery_state == "DISCHARGING":
+            state_text = "DISCHARGING · ON BATTERY"
+            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+        else:
+            state_text = f"{self.scenario.battery_state} · POWER IDLE"
+            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+
+        self.canvas.create_text(
+            227,
+            body_y + 19,
+            text=state_text,
+            fill=level_color,
+            font=(FONT_DISPLAY, 9),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            227,
+            body_y + 47,
+            text=f"{level}%" if telemetry_valid else "--",
+            fill=TEXT if telemetry_valid else MUTED,
+            font=(FONT_DISPLAY, 38),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            227,
+            body_y + 78,
+            text="SYNTHETIC PMIC LEVEL",
+            fill="#80dfff" if telemetry_valid else MUTED,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        if charging:
+            self.canvas.create_text(
+                310,
+                body_y + 54,
+                text="⚡",
+                fill="#f4ffff",
+                font=("Segoe UI Symbol", 19, "bold"),
+                tags="ui",
+            )
+
+        progress_x = body_x + 18
+        progress_y = body_y + 88
+        progress_width = 194
+        self.canvas.create_rectangle(
+            progress_x,
+            progress_y,
+            progress_x + progress_width,
+            progress_y + 18,
+            fill=TRACK,
+            outline="#3f5869",
+            width=1,
+            tags="ui",
+        )
+        if telemetry_valid:
+            fill_width = round(progress_width * level / 100)
+            if fill_width > 0:
+                self.canvas.create_rectangle(
+                    progress_x + 2,
+                    progress_y + 2,
+                    progress_x + max(2, fill_width - 1),
+                    progress_y + 16,
+                    fill=level_color,
+                    outline="",
+                    tags="ui",
+                )
+
+        band_y = body_y + 114
+        critical_width = round(progress_width * 0.12)
+        warning_width = round(progress_width * 0.18)
+        self.canvas.create_rectangle(
+            progress_x,
+            band_y,
+            progress_x + critical_width,
+            band_y + 5,
+            fill=STATUS_FAULT,
+            outline="",
+            tags="ui",
+        )
+        self.canvas.create_rectangle(
+            progress_x + critical_width + 1,
+            band_y,
+            progress_x + critical_width + warning_width,
+            band_y + 5,
+            fill=STATUS_WARNING,
+            outline="",
+            tags="ui",
+        )
+        self.canvas.create_rectangle(
+            progress_x + critical_width + warning_width + 1,
+            band_y,
+            progress_x + progress_width,
+            band_y + 5,
+            fill=STATUS_READY,
+            outline="",
+            tags="ui",
+        )
+
+        self.canvas.create_text(
+            233,
+            301,
+            text=health_text,
+            fill=level_color,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+
+        unavailable = "UNAVAILABLE"
+        cell_value = (
+            f"{self.scenario.battery_mv} mV"
+            if telemetry_valid
+            else unavailable
+        )
+        if self.scenario.usb_present is True and self.scenario.usb_mv is not None:
+            usb_value = f"ON · {self.scenario.usb_mv} mV"
+            usb_color = STATUS_READY
+        elif self.scenario.usb_present is False:
+            usb_value = "DISCONNECTED"
+            usb_color = MUTED_BRIGHT
+        else:
+            usb_value = unavailable
+            usb_color = STATUS_FAULT
+        system_value = (
+            f"{self.scenario.system_mv} mV"
+            if self.scenario.system_mv is not None
+            else unavailable
+        )
+        temperature_value = (
+            f"{self.scenario.die_temperature_c:.1f} C"
+            if self.scenario.die_temperature_c is not None
+            else unavailable
+        )
+        policy_value = (
+            f"4.20 V · 400 mA · {self.scenario.charger_phase}"
+            if self.scenario.battery_health == "READY"
+            else "UNCONFIRMED"
+        )
+        flags_ok = (
+            self.scenario.batfet_enabled is True
+            and self.scenario.battery_active_mode is False
+            and self.scenario.thermal_regulation_active is False
+            and self.scenario.input_current_limit_active is False
+        )
+        sample_value = (
+            f"FRESH {self.scenario.battery_sample_age_s:.1f}s · "
+            f"BATFET {'ON' if self.scenario.batfet_enabled else 'OFF'} · "
+            f"{'FLAGS OK' if flags_ok else 'FLAGS ACTIVE'}"
+            if self.scenario.battery_sample_age_s is not None
+            else "NO SAMPLE"
+        )
+        metrics = (
+            (318, "CELL", cell_value, level_color),
+            (334, "USB", usb_value, usb_color),
+            (
+                350,
+                "SYSTEM",
+                system_value,
+                STATUS_READY if self.scenario.system_mv is not None else STATUS_FAULT,
+            ),
+            (
+                366,
+                "PMIC TEMP",
+                temperature_value,
+                STATUS_READY
+                if self.scenario.die_temperature_c is not None
+                else STATUS_FAULT,
+            ),
+            (
+                382,
+                "POLICY",
+                policy_value,
+                STATUS_READY
+                if self.scenario.battery_health == "READY"
+                else STATUS_FAULT,
+            ),
+            (
+                398,
+                "SAMPLE",
+                sample_value,
+                STATUS_READY
+                if self.scenario.battery_sample_age_s is not None
+                else STATUS_FAULT,
+            ),
+        )
+        for y, label, value, color in metrics:
+            self._draw_battery_metric(y, label, value, color)
+
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
+    def show_logs_demo(self) -> None:
+        self.screen = "logs"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        self._draw_page_heading(
+            "LOGS",
+            "SYNTHETIC · RAM RING",
+            self._wide_page_offset_y(),
+        )
+        self._draw_panel(
+            92,
+            166,
+            282,
+            226,
+            top="#0b2230",
+            bottom="#061018",
+            border="#24536a",
+            glow=STATUS_GLOW,
+            glow_alpha=28,
+            radius=12,
+        )
+        battery_log = (
+            f"SYN PMIC {self.scenario.battery_percent}% "
+            f"{self.scenario.battery_state}"
+            if self.scenario.battery_percent is not None
+            else f"SYN PMIC {self.scenario.battery_error}"
+        )
+        lines = (
+            "001245 LOGGER SYN RING ONLINE",
+            f"001676 POWER  {battery_log}",
+            "001921 TOUCH  SYN CST9217 READY",
+            "002118 IMU    SYN QMI8658 READY",
+            "002406 GPS    SYN LC76G 3D FIX",
+            "002734 RADIO  SYN BLE ADVERTISING",
+            "003012 APP    SYN SNAPSHOT PUBLISHED",
+        )
+        for index, line in enumerate(lines):
+            y = 181 + (index * 28)
+            self.canvas.create_text(
+                104,
+                y,
+                anchor="nw",
+                text=line,
+                fill="#d8ecff",
+                font=(FONT_TECH, 7),
+                tags="ui",
+            )
+        self.canvas.create_text(
+            233,
+            404,
+            text="SYNTHETIC ONLY · NO DEVICE / SERIAL",
+            fill=MUTED,
+            font=(FONT_TECH, 6, "bold"),
+            tags="ui",
+        )
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
     def show_settings_demo(self) -> None:
         self.screen = "settings"
         self._clear()
@@ -1663,7 +2175,7 @@ class QSeeSimulator:
                 True,
             )
         if self._command_arc_visible():
-            commands = (("➤", True), ("i", False))
+            commands = (("≡", False), ("➤", True), ("i", False))
             for index, (icon, success) in enumerate(commands):
                 x, y, diameter = command_geometry(len(commands), index)
                 self._draw_command_button(x, y, icon, success, diameter)
@@ -3026,6 +3538,23 @@ class QSeeSimulator:
             self.show_pairing_demo(target)
 
     def back(self) -> None:
+        if self.screen == "battery":
+            self.logger.info(
+                "qsee_nav",
+                f"Synthetic Battery closed; returning to {self.battery_return_screen}",
+            )
+            if self.battery_return_screen == "hardware":
+                self.show_hardware_demo()
+            else:
+                self.show_home()
+            return
+        if self.screen == "logs":
+            self.logger.info(
+                "qsee_nav",
+                "Synthetic Logs closed; returning to Settings",
+            )
+            self.show_settings_demo()
+            return
         if self.screen == "tof-settings":
             self.logger.info(
                 "qsee_nav",
@@ -3078,6 +3607,7 @@ class QSeeSimulator:
         self.idle_state = "active"
         self.ready = False
         self.timeline_index = 0
+        self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
         self.tof_calibration_complete = False
         self.logger = CanonicalLogger()
@@ -3151,6 +3681,8 @@ class QSeeSimulator:
             return
         redraw = {
             "home": self.show_home,
+            "battery": self.show_battery_demo,
+            "logs": self.show_logs_demo,
             "settings": self.show_settings_demo,
             "storage": self.show_storage_demo,
             "chrome-settings": self.show_chrome_settings_demo,
@@ -3204,6 +3736,8 @@ def main() -> None:
         "--screen",
         choices=(
             "home",
+            "battery",
+            "logs",
             "settings",
             "storage",
             "chrome-settings",
@@ -3259,6 +3793,8 @@ def main() -> None:
         simulator.ready = True
         screen_drawers = {
             "home": simulator.show_home,
+            "battery": simulator.show_battery_demo,
+            "logs": simulator.show_logs_demo,
             "settings": simulator.show_settings_demo,
             "storage": simulator.show_storage_demo,
             "chrome-settings": simulator.show_chrome_settings_demo,

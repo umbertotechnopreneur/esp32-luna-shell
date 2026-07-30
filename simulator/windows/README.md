@@ -9,6 +9,11 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1
 .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
 .\simulator\windows\run-simulator.ps1 -Scenario gps-searching
+.\simulator\windows\run-simulator.ps1 -Scenario battery-low -Screen battery
+.\simulator\windows\run-simulator.ps1 -Scenario battery-charging -Screen battery
+.\simulator\windows\run-simulator.ps1 -Scenario battery-unavailable -Screen battery
+.\simulator\windows\run-simulator.ps1 -Screen battery
+.\simulator\windows\run-simulator.ps1 -Screen logs
 .\simulator\windows\run-simulator.ps1 -Screen settings
 .\simulator\windows\run-simulator.ps1 -Screen storage
 .\simulator\windows\run-simulator.ps1 -Screen pairing-intro
@@ -18,6 +23,11 @@ Capture the current synthetic home screen without touching a device:
 
 ```powershell
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
+.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen battery -Capture .\simulator\windows\battery-healthy.png
+.\simulator\windows\run-simulator.ps1 -Scenario battery-low -Screen battery -Capture .\simulator\windows\battery-low.png
+.\simulator\windows\run-simulator.ps1 -Scenario battery-charging -Screen battery -Capture .\simulator\windows\battery-charging.png
+.\simulator\windows\run-simulator.ps1 -Scenario battery-unavailable -Screen battery -Capture .\simulator\windows\battery-unavailable.png
+.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen logs -Capture .\simulator\windows\logs.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
 .\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen storage -Capture .\simulator\windows\storage.png
 .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted -Screen storage -Capture .\simulator\windows\storage-format-required.png
@@ -67,6 +77,20 @@ firmware geometry, visual hierarchy, and semantic color roles. The Windows
 renderer uses antialiased radial atmosphere, gradients, and restrained bloom so
 captures remain representative of the AMOLED design rather than raw Tk canvas
 primitives. The displayed values remain deterministic simulator-only data.
+
+The first Welcome command opens the Battery detail page. Its large AXP2101
+battery graphic, percentage, threshold bands, voltages, USB state, system rail,
+PMIC temperature, charger phase/status flags, configured charge policy, and
+sample health are all deterministic and visibly marked `SYNTHETIC`; no value
+comes from a device or serial port. The `healthy`, `battery-low`,
+`battery-charging`, and
+`battery-unavailable` scenarios exercise the normal, critical, charging, and
+error presentations.
+
+Logs now lives in the Settings command arc. Open Settings and choose the left
+Logs command to inspect the synthetic RAM-ring preview; `Esc` returns to
+Settings. Battery returns to Welcome, or to Hardware when it was opened from
+the AXP2101 component row.
 
 Build the standalone Windows executable:
 

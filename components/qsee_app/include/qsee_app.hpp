@@ -294,6 +294,9 @@ private:
     std::expected<void, std::string> refresh_welcome(
         esp_brookesia::system::core::AppContext &context
     );
+    std::expected<void, std::string> refresh_battery(
+        esp_brookesia::system::core::AppContext &context
+    );
     std::expected<void, std::string> refresh_logs(
         esp_brookesia::system::core::AppContext &context
     );

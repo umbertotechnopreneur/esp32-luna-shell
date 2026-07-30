@@ -7,6 +7,7 @@ namespace qsee {
 
 enum class Route {
     Welcome,
+    Battery,
     Logs,
     Hardware,
     HardwareDetail,

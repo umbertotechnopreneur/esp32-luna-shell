@@ -156,10 +156,10 @@ construct a second widget framework or call LVGL directly.
 | `Diagnostic Stream` | The separate IMU/microphone live sampler enabled only by diagnostic routes |
 | `UI Refresh` | The snapshot-to-view binding pass: 1 Hz while active, 0.2 Hz while dimmed, and stopped while the display is off; it never samples hardware |
 
-The standard page names are `Welcome`, `Live Logs`, `Hardware`, `Audio Scope`,
-`Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `Storage`, `About`,
-`Pairing Flow`, `TOF Distance`, and `TOF Settings`. Use these names in code
-reviews, issues, screenshots, and documentation.
+The standard page names are `Welcome`, `Battery`, `Live Logs`, `Hardware`,
+`Audio Scope`, `Audio FFT`, `Audio Detail`, `IMU Level`, `Settings`, `Storage`,
+`About`, `Pairing Flow`, `TOF Distance`, and `TOF Settings`. Use these names in
+code reviews, issues, screenshots, and documentation.
 
 The Power Management Service owns one inactivity timeline and four independent
 Settings dropdowns. The `Command Arc` and `Status Arc` have separate hide
@@ -210,9 +210,10 @@ the current code-grounded inventory:
 
 | Route | Status | Entry point | Purpose |
 | --- | --- | --- | --- |
-| `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to diagnostics |
-| `Logs` | Implemented | `LIVE LOGS` | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
-| `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, per-component details, and SD action dialog |
+| `Welcome` | Implemented | Initial app screen | Device console home with memory, storage, CPU, radio status, and links to Battery and diagnostics |
+| `Battery` | Implemented | Welcome battery command or Hardware -> Battery | Dedicated AXP2101 view with PMIC-reported percentage, raw cell/VBUS/system voltages, die temperature, charger phase/status flags, verified charge policy, PWR-key events, device power state, and explicit sample health |
+| `Logs` | Implemented | Settings -> Logs | Searchable, filterable bounded RAM log with pause, clear, and follow controls |
+| `Hardware` | Implemented | `HARDWARE` or storage card | Component health inventory, dedicated Battery entry, per-component details, and SD action dialog |
 | `Audio` | Implemented, diagnostic | `AUDIO SCOPE` | Microphone channel levels and PCM capture status |
 | `AudioFft` | Implemented, diagnostic | `AUDIO FFT` | Frequency-domain microphone spectrum |
 | `AudioDetail` | Implemented, diagnostic | `AUDIO DETAIL` | Expanded live spectrum detail |
@@ -374,13 +375,14 @@ showing synthetic data.
 | `QSEE_BUILD_DISTANCE_DRIVER` | Two TOF400F modules on shared TX with independent RX lines | `QSEE_BUILD_DISTANCE_DRIVER_NONE` |
 
 The distance feature is deliberately excluded from the default image. To build
-the driver, worker, calibration flow, Hardware card, and both TOF screens, add
-the following selections to `sdkconfig.defaults` and reconfigure through
-`scripts/device.ps1`:
+the driver, worker, calibration flow, Hardware card, and both TOF screens, use
+the checked-in `sdkconfig.distance.defaults` overlay together with the standard
+defaults, then configure and build through `scripts/device.ps1`:
 
-```text
-CONFIG_QSEE_BUILD_ENABLE_DISTANCE=y
-CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y
+```powershell
+$env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.distance.defaults"
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-distance
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-distance
 ```
 
 With `CONFIG_QSEE_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition

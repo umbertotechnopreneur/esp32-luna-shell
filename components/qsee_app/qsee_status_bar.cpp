@@ -89,9 +89,9 @@ std::string_view battery_icon(const qsee::BatterySnapshot &battery)
 bool battery_charging(const qsee::BatterySnapshot &battery)
 {
     return component_ready(battery) &&
+           battery.battery_present &&
            battery.usb_present &&
-           std::string_view(battery.power_state).find("charg") !=
-               std::string_view::npos;
+           std::string_view(battery.power_state) == "charging";
 }
 
 void add_binding(

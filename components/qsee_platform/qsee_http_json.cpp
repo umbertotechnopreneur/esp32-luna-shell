@@ -85,6 +85,16 @@ void writeBattery(qsee::HttpJsonWriter &json, const qsee::BatterySnapshot &batte
     (void)json.boolean(battery.battery_present);
     (void)json.raw(",\"usb_present\":");
     (void)json.boolean(battery.usb_present);
+    (void)json.raw(",\"vbus_good\":");
+    (void)json.boolean(battery.vbus_good);
+    (void)json.raw(",\"batfet_enabled\":");
+    (void)json.boolean(battery.batfet_enabled);
+    (void)json.raw(",\"battery_active_mode\":");
+    (void)json.boolean(battery.battery_active_mode);
+    (void)json.raw(",\"thermal_regulation_active\":");
+    (void)json.boolean(battery.thermal_regulation_active);
+    (void)json.raw(",\"input_current_limit_active\":");
+    (void)json.boolean(battery.input_current_limit_active);
     (void)json.format(
         ",\"level_percent\":%d,\"battery_mv\":%d,\"usb_mv\":%d,\"system_mv\":%d,\"die_temperature_c\":%.2f,\"power_state\":",
         battery.level_percent,
@@ -94,6 +104,8 @@ void writeBattery(qsee::HttpJsonWriter &json, const qsee::BatterySnapshot &batte
         static_cast<double>(battery.die_temperature_c)
     );
     (void)json.quoted(battery.power_state);
+    (void)json.raw(",\"charger_phase\":");
+    (void)json.quoted(battery.charger_phase);
     (void)json.raw("}");
 }
 

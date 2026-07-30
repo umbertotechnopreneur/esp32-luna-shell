@@ -1,0 +1,561 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        "templates/qsee_power_metric.json",
+        {
+            "type": "viewScreen",
+            "id": "qsee_battery",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "container",
+                            "id": "battery_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "qsee.chrome.activity.battery"
+                                }
+                            ],
+                            "style": {
+                                "padding": "7dp"
+                            },
+                            "layout": {
+                                "type": "flex",
+                                "flexFlow": "column",
+                                "crossAlign": "center",
+                                "gap": "8dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "title",
+                                    "labelProps": {
+                                        "text": "BATTERY"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "26dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "subtitle",
+                                    "labelProps": {
+                                        "text": "AXP2101 power telemetry"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "left"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "hero",
+                                    "commonProps": {
+                                        "clickable": false,
+                                        "scrollable": false
+                                    },
+                                    "style": {
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "186dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "container",
+                                            "id": "terminal",
+                                            "bindings": {
+                                                "style.bgColor": "health_color",
+                                                "style.borderColor": "health_color"
+                                            },
+                                            "commonProps": {
+                                                "clickable": false,
+                                                "scrollable": false
+                                            },
+                                            "style": {
+                                                "bgColor": "#617f91",
+                                                "borderColor": "#617f91",
+                                                "borderWidth": "1dp",
+                                                "radius": "5dp",
+                                                "padding": 0
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "248dp",
+                                                "y": "51dp",
+                                                "width": "18dp",
+                                                "height": "58dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "container",
+                                            "id": "body",
+                                            "bindings": {
+                                                "style.borderColor": "health_color",
+                                                "style.shadowColor": "health_color"
+                                            },
+                                            "commonProps": {
+                                                "clickable": false,
+                                                "scrollable": false
+                                            },
+                                            "style": {
+                                                "bgColor": "#0d1d29",
+                                                "bgGradientColor": "#071018",
+                                                "bgGradientDirection": "vertical",
+                                                "borderColor": "#617f91",
+                                                "borderWidth": "3dp",
+                                                "radius": "18dp",
+                                                "shadowColor": "#35596d",
+                                                "shadowWidth": "8dp",
+                                                "shadowOffsetX": "0dp",
+                                                "shadowOffsetY": "0dp",
+                                                "padding": 0
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "22dp",
+                                                "y": "10dp",
+                                                "width": "230dp",
+                                                "height": "145dp"
+                                            },
+                                            "children": [
+                                                {
+                                                    "type": "label",
+                                                    "id": "state",
+                                                    "bindings": {
+                                                        "labelProps.text": "text",
+                                                        "style.textColor": "color"
+                                                    },
+                                                    "labelProps": {
+                                                        "text": "TELEMETRY UNAVAILABLE"
+                                                    },
+                                                    "style": {
+                                                        "textColor": "#8aa7b6",
+                                                        "fontSize": "${constant.typography.caption}",
+                                                        "textAlign": "center"
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "12dp",
+                                                        "y": "10dp",
+                                                        "width": "206dp",
+                                                        "height": "18dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "label",
+                                                    "id": "percent",
+                                                    "bindings": {
+                                                        "labelProps.text": "text",
+                                                        "style.textColor": "color"
+                                                    },
+                                                    "labelProps": {
+                                                        "text": "--"
+                                                    },
+                                                    "style": {
+                                                        "textColor": "#8aa7b6",
+                                                        "fontSize": "40sp",
+                                                        "textAlign": "center"
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "20dp",
+                                                        "y": "30dp",
+                                                        "width": "190dp",
+                                                        "height": "52dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "label",
+                                                    "id": "charge",
+                                                    "bindings": {
+                                                        "commonProps.hidden": "hidden",
+                                                        "style.textColor": "color"
+                                                    },
+                                                    "commonProps": {
+                                                        "hidden": true
+                                                    },
+                                                    "labelProps": {
+                                                        "text": ""
+                                                    },
+                                                    "style": {
+                                                        "textColor": "#f4ffff",
+                                                        "fontSize": "${constant.typography.control}",
+                                                        "textAlign": "center"
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "174dp",
+                                                        "y": "38dp",
+                                                        "width": "32dp",
+                                                        "height": "34dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "progressBar",
+                                                    "id": "level",
+                                                    "bindings": {
+                                                        "commonProps.hidden": "hidden",
+                                                        "rangeProps.value": "value",
+                                                        "partStyles.indicator.style.bgColor": "color"
+                                                    },
+                                                    "commonProps": {
+                                                        "hidden": true
+                                                    },
+                                                    "rangeProps": {
+                                                        "value": 0,
+                                                        "min": 0,
+                                                        "max": 100
+                                                    },
+                                                    "style": {
+                                                        "bgColor": "#243645",
+                                                        "borderColor": "#3f5869",
+                                                        "borderWidth": "1dp",
+                                                        "radius": "7dp"
+                                                    },
+                                                    "partStyles": {
+                                                        "indicator": {
+                                                            "bgColor": "#20dfc1",
+                                                            "radius": "7dp"
+                                                        }
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "18dp",
+                                                        "y": "92dp",
+                                                        "width": "194dp",
+                                                        "height": "18dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "container",
+                                                    "id": "critical_band",
+                                                    "commonProps": {
+                                                        "clickable": false,
+                                                        "scrollable": false
+                                                    },
+                                                    "style": {
+                                                        "bgColor": "#ff3859",
+                                                        "radius": "2dp",
+                                                        "padding": 0
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "18dp",
+                                                        "y": "119dp",
+                                                        "width": "23dp",
+                                                        "height": "5dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "container",
+                                                    "id": "warning_band",
+                                                    "commonProps": {
+                                                        "clickable": false,
+                                                        "scrollable": false
+                                                    },
+                                                    "style": {
+                                                        "bgColor": "#f0b44d",
+                                                        "radius": "2dp",
+                                                        "padding": 0
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "42dp",
+                                                        "y": "119dp",
+                                                        "width": "35dp",
+                                                        "height": "5dp"
+                                                    }
+                                                },
+                                                {
+                                                    "type": "container",
+                                                    "id": "normal_band",
+                                                    "commonProps": {
+                                                        "clickable": false,
+                                                        "scrollable": false
+                                                    },
+                                                    "style": {
+                                                        "bgColor": "#20dfc1",
+                                                        "radius": "2dp",
+                                                        "padding": 0
+                                                    },
+                                                    "placement": {
+                                                        "mode": "absolute",
+                                                        "x": "78dp",
+                                                        "y": "119dp",
+                                                        "width": "134dp",
+                                                        "height": "5dp"
+                                                    }
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "health",
+                                            "bindings": {
+                                                "labelProps.text": "text",
+                                                "style.textColor": "color"
+                                            },
+                                            "labelProps": {
+                                                "text": "PMIC STATUS UNAVAILABLE"
+                                            },
+                                            "style": {
+                                                "textColor": "#8aa7b6",
+                                                "fontSize": "${constant.typography.caption}",
+                                                "textAlign": "center"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "22dp",
+                                                "y": "164dp",
+                                                "width": "244dp",
+                                                "height": "18dp"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "thresholds",
+                                    "labelProps": {
+                                        "text": "CRITICAL 12%  ·  LOW 30%  ·  NORMAL"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "cell_voltage",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "CELL VOLTAGE"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "usb_input",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "USB INPUT"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "system_rail",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "SYSTEM RAIL"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "pmic_die",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "PMIC DIE"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "charge_policy",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "CHARGE POLICY"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "charger_phase",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "CHARGER PHASE"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "pmic_flags",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "PMIC FLAGS"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "device_power",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "DEVICE POWER"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "pwr_key",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "PWR KEY EVENTS"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sample",
+                                    "templateId": "qsee_power_metric",
+                                    "overrides": {
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "SAMPLE HEALTH"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "truth_note",
+                                    "labelProps": {
+                                        "text": "Canonical snapshots · configured policy · no estimates"
+                                    },
+                                    "style": {
+                                        "textColor": "#617f91",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "width": "282dp",
+                                        "height": "22dp"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

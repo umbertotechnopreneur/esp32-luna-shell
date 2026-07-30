@@ -164,6 +164,7 @@ def verify_package() -> None:
     documents = load_runtime_documents()
     screens = (
         "qsee_welcome",
+        "qsee_battery",
         "qsee_logs",
         "qsee_hardware",
         "qsee_hardware_detail",
@@ -210,6 +211,7 @@ def verify_package() -> None:
                 raise AssertionError(f"{screen_id}: bottom padding is not bound")
 
     expanding_scrollers = {
+        "qsee_battery": "battery_scroller",
         "qsee_logs": "log_scroller",
         "qsee_hardware": "hardware_scroller",
         "qsee_hardware_detail": "detail_scroller",

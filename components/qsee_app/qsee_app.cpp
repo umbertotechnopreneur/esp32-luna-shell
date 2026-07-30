@@ -458,6 +458,11 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
     switch (screen) {
     case Screen::Welcome:
         return std::nullopt;
+    case Screen::Battery:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_battery.json",
+            .screen_path = "/qsee_battery",
+        };
     case Screen::Logs:
         return LazyScreenDescriptor{
             .document_path = "res/screen_logs.json",
@@ -601,6 +606,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
         return {};
     };
 
+    static constexpr std::array<std::string_view, 1> kBatteryActions = {
+        "qsee.chrome.activity.battery",
+    };
     static constexpr std::array<std::string_view, 1> kLogActions = {
         "qsee.chrome.activity.logs",
     };
@@ -651,6 +659,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
 
     std::span<const std::string_view> forwarded_actions;
     switch (screen) {
+    case Screen::Battery:
+        forwarded_actions = kBatteryActions;
+        break;
     case Screen::Logs:
         forwarded_actions = kLogActions;
         break;
@@ -1956,7 +1967,7 @@ std::expected<void, std::string> App::configure_chrome(
     using palette::ActionRole;
     static constexpr std::array<CommandSpec, 0> kNoCommands{};
     static constexpr std::array<CommandSpec, 5> kWelcomeCommands = {{
-        {"\xef\x80\x8b", "qsee.open.logs", ActionRole::Primary, false},
+        {"\xef\x89\x82", "qsee.open.battery", ActionRole::Success, false},
         {"\xef\x80\x81", "qsee.open.audio", ActionRole::Primary, false},
         {"\xef\x80\x9c", "qsee.open.hardware", ActionRole::Success, true},
         {"\xef\x80\xa1", "qsee.open.imu", ActionRole::Success, false},
@@ -2005,9 +2016,10 @@ std::expected<void, std::string> App::configure_chrome(
         {"\xef\x81\x8b", "qsee.tof.calibration.start", ActionRole::Success, true},
     }};
 #endif
-    static constexpr std::array<CommandSpec, 2> kSettingsCommands = {{
+    static constexpr std::array<CommandSpec, 3> kSettingsCommands = {{
+        {"\xef\x80\x8b", "qsee.open.logs", ActionRole::Primary, false},
         {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success, true},
-        {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, true},
+        {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, false},
     }};
     static_assert(valid_command_main_layout(kNoCommands));
     static_assert(valid_command_main_layout(kWelcomeCommands));
@@ -2026,6 +2038,11 @@ std::expected<void, std::string> App::configure_chrome(
             return adaptive_chrome_.configure_commands(
                 context.gui(),
                 kWelcomeCommands
+            );
+        case Screen::Battery:
+            return adaptive_chrome_.configure_commands(
+                context.gui(),
+                kNoCommands
             );
         case Screen::Logs:
             return adaptive_chrome_.configure_commands(
@@ -2456,6 +2473,7 @@ std::expected<void, std::string> App::on_action(
 #endif
     if (action == "qsee.chrome.activity" ||
         action == "qsee.chrome.activity.wake" ||
+        action == "qsee.chrome.activity.battery" ||
         action == "qsee.chrome.activity.logs" ||
         action == "qsee.chrome.activity.hardware" ||
         action == "qsee.chrome.activity.hardware_detail" ||
@@ -2470,6 +2488,9 @@ std::expected<void, std::string> App::on_action(
             action,
             NavigationMode::Clear
         );
+    }
+    if (action == "qsee.open.battery") {
+        return open_screen(context, Screen::Battery, action);
     }
     if (action == "qsee.open.logs") {
         return open_screen(context, Screen::Logs, action);
@@ -3484,6 +3505,13 @@ std::expected<void, std::string> App::sync_content_viewport(
                 48,
                 70,
             };
+        case Screen::Battery:
+            return {
+                "/qsee_battery/surface",
+                ViewportLayout::CircularScroll,
+                48,
+                8,
+            };
         case Screen::Logs:
             return {
                 "/qsee_logs/surface",
@@ -3677,6 +3705,8 @@ std::expected<void, std::string> App::refresh(AppContext &context)
     switch (screen_) {
     case Screen::Welcome:
         return refresh_welcome(context);
+    case Screen::Battery:
+        return refresh_battery(context);
     case Screen::Logs:
         return refresh_logs(context);
     case Screen::Hardware:
@@ -4097,6 +4127,638 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     );
 }
 
+std::expected<void, std::string> App::refresh_battery(AppContext &context)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    const BatterySnapshot &battery = snapshot.battery;
+    const bool pmic_ready = component_ready(battery);
+    const bool level_valid =
+        pmic_ready &&
+        battery.battery_present &&
+        battery.level_percent >= 0 &&
+        battery.level_percent <= 100 &&
+        battery.battery_mv > 0;
+    const bool charging =
+        pmic_ready &&
+        battery.battery_present &&
+        battery.usb_present &&
+        std::string_view(battery.power_state) == "charging";
+
+    std::string_view level_color = palette::kStatusMuted;
+    if (level_valid) {
+        if (battery.level_percent <= 12) {
+            level_color = palette::kStatusFault;
+        } else if (battery.level_percent <= 30) {
+            level_color = palette::kStatusWarning;
+        } else {
+            level_color = palette::kStatusReady;
+        }
+    } else if (battery.last_error != ESP_OK ||
+               battery.health == DeviceHealth::Degraded ||
+               battery.health == DeviceHealth::Missing) {
+        level_color = palette::kStatusFault;
+    } else if (battery.data_stale) {
+        level_color = palette::kStatusWarning;
+    }
+
+    std::array<char, 32> percent_text{};
+    std::array<char, 96> state_text{};
+    std::array<char, 96> health_text{};
+    if (level_valid) {
+        std::snprintf(
+            percent_text.data(),
+            percent_text.size(),
+            "%d%%",
+            battery.level_percent
+        );
+    } else {
+        std::snprintf(percent_text.data(), percent_text.size(), "--");
+    }
+
+    if (!pmic_ready) {
+        std::snprintf(
+            state_text.data(),
+            state_text.size(),
+            "%s | %s",
+            component_state(battery),
+            component_reason(battery)
+        );
+        std::snprintf(
+            health_text.data(),
+            health_text.size(),
+            "AXP2101 %s",
+            component_state(battery)
+        );
+    } else if (!battery.battery_present) {
+        std::snprintf(
+            state_text.data(),
+            state_text.size(),
+            "NO BATTERY DETECTED"
+        );
+        std::snprintf(
+            health_text.data(),
+            health_text.size(),
+            "PMIC READY | CELL ABSENT"
+        );
+    } else if (charging) {
+        std::snprintf(
+            state_text.data(),
+            state_text.size(),
+            "CHARGING | USB CONNECTED"
+        );
+        std::snprintf(
+            health_text.data(),
+            health_text.size(),
+            "PMIC READY | CELL PRESENT"
+        );
+    } else if (std::string_view(battery.power_state) == "discharging") {
+        std::snprintf(
+            state_text.data(),
+            state_text.size(),
+            "DISCHARGING | ON BATTERY"
+        );
+        std::snprintf(
+            health_text.data(),
+            health_text.size(),
+            "PMIC READY | CELL PRESENT"
+        );
+    } else {
+        std::snprintf(
+            state_text.data(),
+            state_text.size(),
+            "STANDBY | %s",
+            battery.usb_present ? "USB CONNECTED" : "POWER IDLE"
+        );
+        std::snprintf(
+            health_text.data(),
+            health_text.size(),
+            "PMIC READY | CELL PRESENT"
+        );
+    }
+
+    std::array<char, 48> cell_value{};
+    std::array<char, 112> cell_detail{};
+    if (level_valid) {
+        std::snprintf(
+            cell_value.data(),
+            cell_value.size(),
+            "%d mV",
+            battery.battery_mv
+        );
+        std::snprintf(
+            cell_detail.data(),
+            cell_detail.size(),
+            "PMIC LEVEL %d%% | CHARGE TARGET 4200 mV",
+            battery.level_percent
+        );
+    } else if (pmic_ready && !battery.battery_present) {
+        std::snprintf(cell_value.data(), cell_value.size(), "NOT PRESENT");
+        std::snprintf(
+            cell_detail.data(),
+            cell_detail.size(),
+            "CELL TELEMETRY UNAVAILABLE"
+        );
+    } else {
+        std::snprintf(cell_value.data(), cell_value.size(), "UNAVAILABLE");
+        std::snprintf(
+            cell_detail.data(),
+            cell_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+    }
+
+    std::array<char, 48> usb_value{};
+    std::array<char, 112> usb_detail{};
+    std::string_view usb_color = palette::kStatusMuted;
+    if (!pmic_ready) {
+        std::snprintf(usb_value.data(), usb_value.size(), "UNAVAILABLE");
+        std::snprintf(
+            usb_detail.data(),
+            usb_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+        usb_color = level_color;
+    } else if (!battery.usb_present) {
+        std::snprintf(usb_value.data(), usb_value.size(), "NOT ACTIVE");
+        std::snprintf(
+            usb_detail.data(),
+            usb_detail.size(),
+            "VBUS NOT GOOD OR NOT PRESENT"
+        );
+    } else {
+        std::snprintf(usb_value.data(), usb_value.size(), "CONNECTED");
+        std::snprintf(
+            usb_detail.data(),
+            usb_detail.size(),
+            "VBUS %d mV | INPUT PRESENT",
+            battery.usb_mv
+        );
+        usb_color = palette::kStatusReady;
+    }
+
+    std::array<char, 48> system_value{};
+    std::array<char, 112> system_detail{};
+    const bool system_valid = pmic_ready && battery.system_mv > 0;
+    if (system_valid) {
+        std::snprintf(
+            system_value.data(),
+            system_value.size(),
+            "%d mV",
+            battery.system_mv
+        );
+        std::snprintf(
+            system_detail.data(),
+            system_detail.size(),
+            "AXP2101 SYSTEM OUTPUT"
+        );
+    } else {
+        std::snprintf(system_value.data(), system_value.size(), "UNAVAILABLE");
+        std::snprintf(
+            system_detail.data(),
+            system_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+    }
+
+    std::array<char, 48> temperature_value{};
+    std::array<char, 112> temperature_detail{};
+    const bool temperature_valid =
+        pmic_ready && std::isfinite(battery.die_temperature_c);
+    if (temperature_valid) {
+        std::snprintf(
+            temperature_value.data(),
+            temperature_value.size(),
+            "%.1f C",
+            static_cast<double>(battery.die_temperature_c)
+        );
+        std::snprintf(
+            temperature_detail.data(),
+            temperature_detail.size(),
+            "AXP2101 INTERNAL SENSOR"
+        );
+    } else {
+        std::snprintf(
+            temperature_value.data(),
+            temperature_value.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            temperature_detail.data(),
+            temperature_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+    }
+
+    std::array<char, 48> policy_value{};
+    std::array<char, 112> policy_detail{};
+    if (pmic_ready) {
+        std::snprintf(
+            policy_value.data(),
+            policy_value.size(),
+            "4.20 V / 400 mA"
+        );
+        std::snprintf(
+            policy_detail.data(),
+            policy_detail.size(),
+            "PRECHARGE 50 mA | TERMINATION 25 mA\n"
+            "VERIFIED AT PMIC INITIALIZATION"
+        );
+    } else {
+        std::snprintf(policy_value.data(), policy_value.size(), "UNCONFIRMED");
+        std::snprintf(
+            policy_detail.data(),
+            policy_detail.size(),
+            "PMIC INITIALIZATION DID NOT CONFIRM THE PROFILE"
+        );
+    }
+
+    std::array<char, 48> phase_value{};
+    std::array<char, 112> phase_detail{};
+    std::string_view phase_color = palette::kStatusMuted;
+    if (pmic_ready) {
+        const std::string_view phase = battery.charger_phase;
+        const char *display_phase = "UNKNOWN";
+        if (phase == "trickle") {
+            display_phase = "TRICKLE";
+        } else if (phase == "precharge") {
+            display_phase = "PRECHARGE";
+        } else if (phase == "constant-current") {
+            display_phase = "CC CHARGE";
+        } else if (phase == "constant-voltage") {
+            display_phase = "CV CHARGE";
+        } else if (phase == "done") {
+            display_phase = "DONE";
+        } else if (phase == "stopped") {
+            display_phase = "STOPPED";
+        }
+        std::snprintf(
+            phase_value.data(),
+            phase_value.size(),
+            "%s",
+            display_phase
+        );
+        std::snprintf(
+            phase_detail.data(),
+            phase_detail.size(),
+            "LIVE AXP2101 STATUS2 CHARGER PHASE"
+        );
+        phase_color =
+            phase == "stopped"
+                ? palette::kStatusMuted
+                : palette::kStatusReady;
+    } else {
+        std::snprintf(
+            phase_value.data(),
+            phase_value.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            phase_detail.data(),
+            phase_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+        phase_color = level_color;
+    }
+
+    std::array<char, 48> flags_value{};
+    std::array<char, 128> flags_detail{};
+    std::string_view flags_color = palette::kStatusMuted;
+    if (pmic_ready) {
+        std::snprintf(
+            flags_value.data(),
+            flags_value.size(),
+            "BATFET %s",
+            battery.batfet_enabled ? "ON" : "OFF"
+        );
+        std::snprintf(
+            flags_detail.data(),
+            flags_detail.size(),
+            "VBUS %s | BAT ACTIVE %s\nTHERMAL %s | INPUT LIMIT %s",
+            battery.vbus_good ? "GOOD" : "NOT GOOD",
+            battery.battery_active_mode ? "YES" : "NO",
+            battery.thermal_regulation_active ? "ACTIVE" : "NO",
+            battery.input_current_limit_active ? "ACTIVE" : "NO"
+        );
+        flags_color =
+            battery.thermal_regulation_active ||
+                    battery.input_current_limit_active ||
+                    battery.battery_active_mode
+                ? palette::kStatusWarning
+                : (battery.batfet_enabled
+                       ? palette::kStatusReady
+                       : palette::kStatusMuted);
+    } else {
+        std::snprintf(
+            flags_value.data(),
+            flags_value.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            flags_detail.data(),
+            flags_detail.size(),
+            "%s",
+            component_reason(battery)
+        );
+        flags_color = level_color;
+    }
+
+    std::array<char, 48> sample_value{};
+    std::array<char, 128> sample_detail{};
+    std::string_view sample_color = level_color;
+    const int64_t now_us = esp_timer_get_time();
+    const bool has_success = battery.last_success_at_us > 0;
+    const double age_seconds =
+        has_success
+            ? static_cast<double>(
+                  std::max<int64_t>(0, now_us - battery.last_success_at_us)
+              ) /
+                  1000000.0
+            : 0.0;
+    if (pmic_ready) {
+        std::snprintf(sample_value.data(), sample_value.size(), "FRESH");
+        std::snprintf(
+            sample_detail.data(),
+            sample_detail.size(),
+            "LAST VALID %.1f s AGO | ESP_OK",
+            age_seconds
+        );
+        sample_color = palette::kStatusReady;
+    } else if (has_success) {
+        std::snprintf(
+            sample_value.data(),
+            sample_value.size(),
+            "%s",
+            battery.data_stale ? "STALE" : "ERROR"
+        );
+        std::snprintf(
+            sample_detail.data(),
+            sample_detail.size(),
+            "LAST VALID %.1f s AGO | %s",
+            age_seconds,
+            esp_err_to_name(battery.last_error)
+        );
+        sample_color = battery.data_stale
+            ? palette::kStatusWarning
+            : palette::kStatusFault;
+    } else {
+        std::snprintf(sample_value.data(), sample_value.size(), "UNAVAILABLE");
+        std::snprintf(
+            sample_detail.data(),
+            sample_detail.size(),
+            "NO VALID SAMPLE | %s",
+            component_reason(battery)
+        );
+    }
+
+    std::array<char, 48> device_power_value{};
+    std::array<char, 112> device_power_detail{};
+    std::string_view device_power_color = palette::kStatusMuted;
+    if (component_ready(snapshot.power)) {
+        const char *state = "UNKNOWN";
+        switch (snapshot.power.state) {
+        case DeviceOperatingState::Active:
+            state = "ACTIVE";
+            break;
+        case DeviceOperatingState::EnteringStandby:
+            state = "ENTERING";
+            break;
+        case DeviceOperatingState::Standby:
+            state = "STANDBY";
+            break;
+        case DeviceOperatingState::Waking:
+            state = "WAKING";
+            break;
+        }
+        const char *reason = "UNKNOWN";
+        switch (snapshot.power.reason) {
+        case DeviceStateReason::Startup:
+            reason = "STARTUP";
+            break;
+        case DeviceStateReason::BootButton:
+            reason = "BOOT BUTTON";
+            break;
+        case DeviceStateReason::PowerButton:
+            reason = "PWR KEY";
+            break;
+        case DeviceStateReason::Touch:
+            reason = "TOUCH";
+            break;
+        case DeviceStateReason::ImuMotion:
+            reason = "IMU MOTION";
+            break;
+        }
+        std::snprintf(
+            device_power_value.data(),
+            device_power_value.size(),
+            "%s",
+            state
+        );
+        std::snprintf(
+            device_power_detail.data(),
+            device_power_detail.size(),
+            "%sREASON %s | AUDIO %s\nTRANSITION %lu",
+            snapshot.power.state == DeviceOperatingState::EnteringStandby
+                ? "STANDBY | "
+                : "",
+            reason,
+            snapshot.power.audio_suspended ? "SUSPENDED" : "ACTIVE",
+            static_cast<unsigned long>(snapshot.power.transition_sequence)
+        );
+        device_power_color =
+            snapshot.power.state == DeviceOperatingState::Active
+                ? palette::kStatusReady
+                : palette::kStatusWarning;
+    } else {
+        std::snprintf(
+            device_power_value.data(),
+            device_power_value.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            device_power_detail.data(),
+            device_power_detail.size(),
+            "%s",
+            component_reason(snapshot.power)
+        );
+        device_power_color = palette::kStatusFault;
+    }
+
+    std::array<char, 48> pwr_key_value{};
+    std::array<char, 112> pwr_key_detail{};
+    std::string_view pwr_key_color = palette::kStatusMuted;
+    if (component_ready(snapshot.input.power_button)) {
+        std::snprintf(
+            pwr_key_value.data(),
+            pwr_key_value.size(),
+            "SHORT %lu",
+            static_cast<unsigned long>(
+                snapshot.input.power_short_press_count
+            )
+        );
+        std::snprintf(
+            pwr_key_detail.data(),
+            pwr_key_detail.size(),
+            "LONG %lu\nAXP2101 PKEY IRQ EVENT COUNTERS",
+            static_cast<unsigned long>(
+                snapshot.input.power_long_press_count
+            )
+        );
+        pwr_key_color = palette::kStatusReady;
+    } else {
+        std::snprintf(
+            pwr_key_value.data(),
+            pwr_key_value.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            pwr_key_detail.data(),
+            pwr_key_detail.size(),
+            "%s",
+            component_reason(snapshot.input.power_button)
+        );
+        pwr_key_color = palette::kStatusFault;
+    }
+
+    constexpr std::string_view kRoot =
+        "/qsee_battery/surface/battery_scroller";
+    std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+    updates.reserve(54);
+    const auto add_binding = [&updates](
+        std::string path,
+        std::string key,
+        std::string_view value
+    ) {
+        updates.push_back({
+            .absolute_path = std::move(path),
+            .key = std::move(key),
+            .value = std::string(value),
+        });
+    };
+    const auto path = [&](std::string_view suffix) {
+        return std::string(kRoot) + std::string(suffix);
+    };
+    const auto add_metric = [&](
+        std::string_view id,
+        std::string_view value,
+        std::string_view detail,
+        std::string_view color
+    ) {
+        const std::string base = path("/" + std::string(id));
+        add_binding(base + "/accent", "color", color);
+        add_binding(base + "/value", "text", value);
+        add_binding(base + "/value", "color", color);
+        add_binding(base + "/detail", "text", detail);
+    };
+
+    add_binding(path("/hero/terminal"), "health_color", level_color);
+    add_binding(path("/hero/body"), "health_color", level_color);
+    add_binding(path("/hero/body/state"), "text", state_text.data());
+    add_binding(path("/hero/body/state"), "color", level_color);
+    add_binding(path("/hero/body/percent"), "text", percent_text.data());
+    add_binding(path("/hero/body/percent"), "color", level_color);
+    add_binding(
+        path("/hero/body/charge"),
+        "hidden",
+        charging ? "false" : "true"
+    );
+    add_binding(
+        path("/hero/body/charge"),
+        "color",
+        palette::kStatusCharge
+    );
+    add_binding(
+        path("/hero/body/level"),
+        "hidden",
+        level_valid ? "false" : "true"
+    );
+    add_binding(
+        path("/hero/body/level"),
+        "value",
+        level_valid ? std::to_string(battery.level_percent) : "0"
+    );
+    add_binding(path("/hero/body/level"), "color", level_color);
+    add_binding(path("/hero/health"), "text", health_text.data());
+    add_binding(path("/hero/health"), "color", level_color);
+
+    add_metric(
+        "cell_voltage",
+        cell_value.data(),
+        cell_detail.data(),
+        level_valid ? level_color : palette::kStatusMuted
+    );
+    add_metric(
+        "usb_input",
+        usb_value.data(),
+        usb_detail.data(),
+        usb_color
+    );
+    add_metric(
+        "system_rail",
+        system_value.data(),
+        system_detail.data(),
+        system_valid ? palette::kStatusReady : level_color
+    );
+    add_metric(
+        "pmic_die",
+        temperature_value.data(),
+        temperature_detail.data(),
+        temperature_valid ? palette::kStatusReady : level_color
+    );
+    add_metric(
+        "charge_policy",
+        policy_value.data(),
+        policy_detail.data(),
+        pmic_ready ? palette::kStatusReady : level_color
+    );
+    add_metric(
+        "charger_phase",
+        phase_value.data(),
+        phase_detail.data(),
+        phase_color
+    );
+    add_metric(
+        "pmic_flags",
+        flags_value.data(),
+        flags_detail.data(),
+        flags_color
+    );
+    add_metric(
+        "device_power",
+        device_power_value.data(),
+        device_power_detail.data(),
+        device_power_color
+    );
+    add_metric(
+        "pwr_key",
+        pwr_key_value.data(),
+        pwr_key_detail.data(),
+        pwr_key_color
+    );
+    add_metric(
+        "sample",
+        sample_value.data(),
+        sample_detail.data(),
+        sample_color
+    );
+
+    auto result = set_binding_values(context, updates);
+    if (!result) {
+        return std::unexpected(
+            "Failed to refresh Battery telemetry: " + result.error()
+        );
+    }
+    return {};
+}
+
 std::expected<void, std::string> App::ensure_log_buffers()
 {
     if (log_source_buffer_ != nullptr && log_filtered_buffer_ != nullptr) {
@@ -4384,6 +5046,13 @@ std::expected<void, std::string> App::show_hardware_details(
             static_cast<unsigned>(kHardwareComponents.size())
         );
         return std::unexpected("Hardware detail index is out of range");
+    }
+    if (component_index == 0U) {
+        return open_screen(
+            context,
+            Screen::Battery,
+            "qsee.open.battery"
+        );
     }
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     if (component_index == 12U) {
@@ -5301,6 +5970,8 @@ std::string_view App::screen_action(Screen screen)
     switch (screen) {
     case Screen::Welcome:
         return "qsee.open.welcome";
+    case Screen::Battery:
+        return "qsee.open.battery";
     case Screen::Logs:
         return "qsee.open.logs";
     case Screen::Hardware:

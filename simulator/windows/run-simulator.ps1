@@ -1,10 +1,19 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("healthy", "sd-unformatted", "gps-searching")]
+    [ValidateSet(
+        "healthy",
+        "sd-unformatted",
+        "gps-searching",
+        "battery-low",
+        "battery-charging",
+        "battery-unavailable"
+    )]
     [string]$Scenario = "healthy",
 
     [ValidateSet(
         "home",
+        "battery",
+        "logs",
         "settings",
         "storage",
         "chrome-settings",

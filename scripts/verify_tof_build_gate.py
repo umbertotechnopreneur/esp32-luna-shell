@@ -87,6 +87,16 @@ def main() -> int:
         "# CONFIG_QSEE_BUILD_ENABLE_DISTANCE is not set" in defaults,
         "sdkconfig.defaults must record the default-off distance profile",
     )
+    distance_defaults = read("sdkconfig.distance.defaults")
+    require(
+        "CONFIG_QSEE_BUILD_ENABLE_DISTANCE=y" in distance_defaults,
+        "distance overlay must enable distance support",
+    )
+    require(
+        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y"
+        in distance_defaults,
+        "distance overlay must select the dual-UART TOF400F driver",
+    )
 
     platform_cmake = read("components/qsee_platform/CMakeLists.txt")
     require(

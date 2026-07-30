@@ -14,6 +14,7 @@ EXPECTED_RESIDENT_SCREENS = {
     "qsee_content_idle",
 }
 EXPECTED_LAZY_SCREEN_DOCUMENTS = {
+    "screen_battery.json": "qsee_battery",
     "screen_logs.json": "qsee_logs",
     "screen_hardware.json": "qsee_hardware",
     "screen_hardware_detail.json": "qsee_hardware_detail",
@@ -31,6 +32,7 @@ EXPECTED_LAZY_SCREEN_DOCUMENTS = {
 EXPECTED_ROUTE_SCREENS = {
     "qsee_background_screen",
     "qsee_welcome",
+    "qsee_battery",
     "qsee_logs",
     "qsee_hardware",
     "qsee_hardware_detail",

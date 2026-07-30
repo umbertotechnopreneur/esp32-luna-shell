@@ -12,6 +12,7 @@
 #include "qsee_snapshot_cadence.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
@@ -1986,9 +1987,14 @@ esp_err_t sample_pmu_locked(const char *phase)
         );
     }
 
+    sample.vbus_good = (status1 & BIT(5)) != 0;
+    sample.batfet_enabled = (status1 & BIT(4)) != 0;
     sample.battery_present = (status1 & BIT(3)) != 0;
+    sample.battery_active_mode = (status1 & BIT(2)) != 0;
+    sample.thermal_regulation_active = (status1 & BIT(1)) != 0;
+    sample.input_current_limit_active = (status1 & BIT(0)) != 0;
     sample.usb_present =
-        (status1 & BIT(5)) != 0 && (status2 & BIT(3)) == 0;
+        sample.vbus_good && (status2 & BIT(3)) == 0;
     if (error == ESP_OK && sample.battery_present) {
         error = read_pmu_registers(
             XPOWERS_AXP2101_BAT_PERCENT_DATA,
@@ -2010,11 +2016,21 @@ esp_err_t sample_pmu_locked(const char *phase)
         ((temperature_adc[0] & 0x3FU) << 8U) | temperature_adc[1]
     );
     const uint8_t charge_state = status2 >> 5U;
+    const uint8_t charger_phase = status2 & 0x07U;
     if (error == ESP_OK && charge_state > 2U) {
         ESP_LOGE(
             TAG,
             "PMU AXP2101: reserved charge state %u in STATUS2=0x%02x",
             static_cast<unsigned>(charge_state),
+            status2
+        );
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error == ESP_OK && charger_phase > 5U) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: reserved charger phase %u in STATUS2=0x%02x",
+            static_cast<unsigned>(charger_phase),
             status2
         );
         error = ESP_ERR_INVALID_RESPONSE;
@@ -2065,7 +2081,20 @@ esp_err_t sample_pmu_locked(const char *phase)
         charge_state == 1U
             ? "charging"
             : (charge_state == 2U ? "discharging" : "standby");
+    static constexpr std::array<const char *, 6> kChargerPhases = {
+        "trickle",
+        "precharge",
+        "constant-current",
+        "constant-voltage",
+        "done",
+        "stopped",
+    };
     strlcpy(sample.power_state, power_state, sizeof(sample.power_state));
+    strlcpy(
+        sample.charger_phase,
+        kChargerPhases[charger_phase],
+        sizeof(sample.charger_phase)
+    );
 
     mark_sample_success(sample, attempted_at_us);
     const esp_err_t publication_error = update_snapshot(
@@ -2076,16 +2105,22 @@ esp_err_t sample_pmu_locked(const char *phase)
 
     ESP_LOGI(
         TAG,
-        "PMU AXP2101 %s: battery=%s %d%% %dmV, state=%s, USB=%s %dmV, system=%dmV, die=%.1fC",
+        "PMU AXP2101 %s: battery=%s %d%% %dmV, state=%s phase=%s, USB=%s good=%d %dmV, system=%dmV, die=%.1fC, BATFET=%d active=%d thermal=%d input-limit=%d",
         phase,
         sample.battery_present ? "present" : "absent",
         sample.level_percent,
         sample.battery_mv,
         sample.power_state,
+        sample.charger_phase,
         sample.usb_present ? "present" : "absent",
+        sample.vbus_good,
         sample.usb_mv,
         sample.system_mv,
-        sample.die_temperature_c
+        sample.die_temperature_c,
+        sample.batfet_enabled,
+        sample.battery_active_mode,
+        sample.thermal_regulation_active,
+        sample.input_current_limit_active
     );
     return sample_publication_result(
         "PMU AXP2101",
