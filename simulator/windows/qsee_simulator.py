@@ -48,6 +48,18 @@ SUCCESS_TOP = "#0ab49d"
 SUCCESS_BOTTOM = "#045a51"
 SUCCESS_BORDER = "#38f1d7"
 SUCCESS_GLOW = "#009c9d"
+WARNING_TOP = "#e58b11"
+WARNING_BOTTOM = "#754008"
+WARNING_BORDER = "#ffc45c"
+WARNING_GLOW = "#d97706"
+DANGER_TOP = "#e54b59"
+DANGER_BOTTOM = "#741827"
+DANGER_BORDER = "#ff7185"
+DANGER_GLOW = "#d92d50"
+NEUTRAL_TOP = "#58778d"
+NEUTRAL_BOTTOM = "#203443"
+NEUTRAL_BORDER = "#86aabd"
+NEUTRAL_GLOW = "#35596d"
 CONTROL_BORDER_PX = 1
 COMMAND_MAIN_DIAMETER = 61
 COMMAND_DIAMETER_STEP = 6
@@ -83,7 +95,9 @@ WIDE_PAGE_SCREENS = frozenset(
         "tof-settings",
     }
 )
-FIXED_CANVAS_SCREENS = frozenset({"audio", "fft", "fft-detail", "imu", "tof"})
+FIXED_CANVAS_SCREENS = frozenset(
+    {"audio", "fft", "fft-detail", "imu", "gps", "tof"}
+)
 PAIRING_SCREENS = frozenset(
     {
         "pairing-intro",
@@ -423,6 +437,7 @@ class QSeeSimulator:
         self.audio_phase = 0
         self.audio_timer: str | None = None
         self.performance_mode = False
+        self.wireless_running = False
         self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
         self.tof_calibration_complete = False
@@ -432,8 +447,8 @@ class QSeeSimulator:
         self.boot_image: tk.PhotoImage | None = None
         self.atmosphere_image = self._build_atmosphere()
         self.button_images = {
-            (success, diameter): self._build_command_button(success, diameter)
-            for success in (False, True)
+            (role, diameter): self._build_command_button(role, diameter)
+            for role in ("primary", "success", "warning", "danger", "neutral")
             for diameter in (
                 COMMAND_MIN_DIAMETER,
                 COMMAND_MAIN_DIAMETER - COMMAND_DIAMETER_STEP,
@@ -523,13 +538,14 @@ class QSeeSimulator:
         if viewport_height == SAFE_SIZE:
             return {
                 "heading_offset": 0,
-                "profile": 174,
-                "performance": 198,
-                "diagnostics": 246,
-                "diagnostics_subtitle": 266,
-                "cadence": 290,
-                "cadence_control": 304,
-                "cadence_state": 357,
+                "profile": 170,
+                "performance": 194,
+                "diagnostics": 236,
+                "diagnostics_subtitle": None,
+                "cadence": 258,
+                "cadence_control": 272,
+                "cadence_state": 324,
+                "gps": 356,
                 "display": None,
                 "brightness": None,
                 "brightness_control": None,
@@ -545,6 +561,7 @@ class QSeeSimulator:
                 "cadence": 236,
                 "cadence_control": 249,
                 "cadence_state": 302,
+                "gps": 423,
                 "display": 324,
                 "brightness": 345,
                 "brightness_control": 357,
@@ -559,6 +576,7 @@ class QSeeSimulator:
             "cadence": 196,
             "cadence_control": 209,
             "cadence_state": 263,
+            "gps": 430,
             "display": 285,
             "brightness": 306,
             "brightness_control": 318,
@@ -789,16 +807,44 @@ class QSeeSimulator:
 
     def _build_command_button(
         self,
-        success: bool,
+        role: str,
         circle_size: int,
     ) -> ImageTk.PhotoImage:
         scale = 4
         sprite_size = circle_size + 24
         pad = (sprite_size - circle_size) // 2
-        top = SUCCESS_TOP if success else PRIMARY_TOP
-        bottom = SUCCESS_BOTTOM if success else PRIMARY_BOTTOM
-        border = SUCCESS_BORDER if success else PRIMARY_BORDER
-        glow = SUCCESS_GLOW if success else PRIMARY_GLOW
+        top, bottom, border, glow = {
+            "primary": (
+                PRIMARY_TOP,
+                PRIMARY_BOTTOM,
+                PRIMARY_BORDER,
+                PRIMARY_GLOW,
+            ),
+            "success": (
+                SUCCESS_TOP,
+                SUCCESS_BOTTOM,
+                SUCCESS_BORDER,
+                SUCCESS_GLOW,
+            ),
+            "warning": (
+                WARNING_TOP,
+                WARNING_BOTTOM,
+                WARNING_BORDER,
+                WARNING_GLOW,
+            ),
+            "danger": (
+                DANGER_TOP,
+                DANGER_BOTTOM,
+                DANGER_BORDER,
+                DANGER_GLOW,
+            ),
+            "neutral": (
+                NEUTRAL_TOP,
+                NEUTRAL_BOTTOM,
+                NEUTRAL_BORDER,
+                NEUTRAL_GLOW,
+            ),
+        }[role]
 
         canvas = Image.new(
             "RGBA",
@@ -1040,9 +1086,11 @@ class QSeeSimulator:
         x: int,
         y: int,
         icon: str,
-        success: bool,
+        role: str | bool,
         diameter: int = EDGE_COMMAND_DIAMETER,
     ) -> None:
+        if isinstance(role, bool):
+            role = "success" if role else "primary"
         icon_x, icon_y = {
             "➤": (1, 0),
             "i": (0, -1),
@@ -1051,7 +1099,7 @@ class QSeeSimulator:
         self.canvas.create_image(
             x + (diameter / 2),
             y + (diameter / 2),
-            image=self.button_images[(success, diameter)],
+            image=self.button_images[(role, diameter)],
             tags="ui",
         )
         if icon == "battery":
@@ -1085,6 +1133,128 @@ class QSeeSimulator:
                 tags="ui",
             )
             return
+        if icon == "wifi":
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2) + 4
+            for radius in (5, 10, 15):
+                self.canvas.create_arc(
+                    center_x - radius,
+                    center_y - radius,
+                    center_x + radius,
+                    center_y + radius,
+                    start=35,
+                    extent=110,
+                    style=tk.ARC,
+                    outline="#ffffff",
+                    width=2,
+                    tags="ui",
+                )
+            self.canvas.create_oval(
+                center_x - 2,
+                center_y - 2,
+                center_x + 2,
+                center_y + 2,
+                fill="#ffffff",
+                outline="",
+                tags="ui",
+            )
+            return
+        if icon == "power":
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            self.canvas.create_arc(
+                center_x - 12,
+                center_y - 12,
+                center_x + 12,
+                center_y + 12,
+                start=40,
+                extent=280,
+                style=tk.ARC,
+                outline="#ffffff",
+                width=3,
+                tags="ui",
+            )
+            self.canvas.create_line(
+                center_x,
+                center_y - 14,
+                center_x,
+                center_y,
+                fill="#ffffff",
+                width=3,
+                capstyle=tk.ROUND,
+                tags="ui",
+            )
+            return
+        if icon == "gps":
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            self.canvas.create_oval(
+                center_x - 10,
+                center_y - 10,
+                center_x + 10,
+                center_y + 10,
+                outline="#ffffff",
+                width=2,
+                tags="ui",
+            )
+            self.canvas.create_oval(
+                center_x - 3,
+                center_y - 3,
+                center_x + 3,
+                center_y + 3,
+                fill="#ffffff",
+                outline="",
+                tags="ui",
+            )
+            self.canvas.create_line(
+                center_x,
+                center_y - 15,
+                center_x,
+                center_y - 8,
+                fill="#ffffff",
+                width=2,
+                tags="ui",
+            )
+            self.canvas.create_line(
+                center_x,
+                center_y + 8,
+                center_x,
+                center_y + 15,
+                fill="#ffffff",
+                width=2,
+                tags="ui",
+            )
+            return
+        if icon == "sd":
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            self.canvas.create_polygon(
+                center_x - 10,
+                center_y - 14,
+                center_x + 5,
+                center_y - 14,
+                center_x + 11,
+                center_y - 8,
+                center_x + 11,
+                center_y + 14,
+                center_x - 10,
+                center_y + 14,
+                fill="",
+                outline="#ffffff",
+                width=2,
+                tags="ui",
+            )
+            for offset in (-5, 0, 5):
+                self.canvas.create_line(
+                    center_x + offset,
+                    center_y - 11,
+                    center_x + offset,
+                    center_y - 6,
+                    fill="#ffffff",
+                    width=2,
+                    tags="ui",
+                )
+            return
         if icon in {"‹", "›"}:
             center_x = x + (diameter / 2)
             center_y = y + (diameter / 2)
@@ -1104,6 +1274,24 @@ class QSeeSimulator:
                 joinstyle=tk.ROUND,
                 tags="ui",
             )
+            return
+        if icon in {"fft", "dual"}:
+            center_x = x + (diameter / 2)
+            center_y = y + (diameter / 2)
+            channel_offsets = (-5, 5) if icon == "dual" else (0,)
+            for channel_offset in channel_offsets:
+                for index, height in enumerate((7, 14, 10)):
+                    bar_x = center_x + channel_offset + ((index - 1) * 4)
+                    self.canvas.create_line(
+                        bar_x,
+                        center_y + (height / 2),
+                        bar_x,
+                        center_y - (height / 2),
+                        fill="#ffffff",
+                        width=2,
+                        capstyle=tk.ROUND,
+                        tags="ui",
+                    )
             return
         self.canvas.create_text(
             x + (diameter / 2) + icon_x,
@@ -1273,6 +1461,7 @@ class QSeeSimulator:
                 "fft",
                 "fft-detail",
                 "imu",
+                "gps",
                 "tof",
                 "tof-settings",
                 "battery",
@@ -1304,13 +1493,15 @@ class QSeeSimulator:
                 else:
                     self.show_settings_demo()
                 return
-        elif (
-            command_arc_visible
-            and 204 <= event.x <= 262
-            and 360 <= event.y <= 418
-            and self.screen == "audio"
-        ):
-            self.show_audio_fft_demo()
+        elif command_arc_visible and self.screen == "audio":
+            for index in range(2):
+                x, y, diameter = command_geometry(2, index)
+                if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
+                    if index == 0:
+                        self.show_audio_fft_demo()
+                    else:
+                        self.show_audio_detail_demo()
+                    return
         elif (
             command_arc_visible
             and 204 <= event.x <= 262
@@ -1357,7 +1548,8 @@ class QSeeSimulator:
                 )
                 self.show_tof_settings_demo()
         elif self.screen == "settings":
-            performance_y = int(self._settings_layout()["performance"])
+            settings_layout = self._settings_layout()
+            performance_y = int(settings_layout["performance"])
             if (
                 300 <= event.x <= 380
                 and performance_y - 14 <= event.y <= performance_y + 32
@@ -1371,8 +1563,8 @@ class QSeeSimulator:
                 self.show_settings_demo()
                 return
             if command_arc_visible:
-                for index in range(3):
-                    x, y, diameter = command_geometry(3, index)
+                for index in range(5):
+                    x, y, diameter = command_geometry(5, index)
                     if (
                         x <= event.x <= x + diameter
                         and y <= event.y <= y + diameter
@@ -1381,12 +1573,31 @@ class QSeeSimulator:
                             self.show_logs_demo()
                         elif index == 1:
                             self.show_pairing_demo("pairing-intro")
+                        elif index == 2:
+                            self.wireless_running = not self.wireless_running
+                            self.logger.info(
+                                "qsee_radios",
+                                "Synthetic wireless services "
+                                + (
+                                    "started"
+                                    if self.wireless_running
+                                    else "stopped"
+                                )
+                                + "; no hardware accessed",
+                            )
+                            self.show_settings_demo()
+                        elif index == 3:
+                            self.logger.info(
+                                "qsee_nav",
+                                "Synthetic Settings GPS command selected",
+                            )
+                            self.show_gps_demo()
                         else:
                             self.logger.info(
                                 "qsee_nav",
-                                "Synthetic About command selected",
+                                "Synthetic Settings SD command selected",
                             )
-                            self.show_settings_demo()
+                            self.show_storage_demo()
                         return
         elif (
             self.screen == "storage"
@@ -1738,7 +1949,7 @@ class QSeeSimulator:
             94,
             y,
             anchor="w",
-            text=f"SYN · {label}",
+            text=f"SYN | {label}",
             fill=MUTED_BRIGHT,
             font=(FONT_DISPLAY, 8),
             tags="ui",
@@ -1771,7 +1982,7 @@ class QSeeSimulator:
         self._draw_status_bar()
         self._draw_page_heading(
             "BATTERY",
-            "AXP2101 · SYNTHETIC",
+            "AXP2101 | SYNTHETIC",
             self._wide_page_offset_y(),
         )
 
@@ -1815,18 +2026,18 @@ class QSeeSimulator:
         if not telemetry_valid:
             state_text = "TELEMETRY UNAVAILABLE"
             health_text = (
-                f"SYNTHETIC · {self.scenario.battery_health} · "
+                f"SYNTHETIC | {self.scenario.battery_health} | "
                 f"{self.scenario.battery_error}"
             )
         elif charging:
-            state_text = "CHARGING · USB CONNECTED"
-            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+            state_text = "CHARGING | USB CONNECTED"
+            health_text = "SYNTHETIC | PMIC READY | CELL PRESENT"
         elif self.scenario.battery_state == "DISCHARGING":
-            state_text = "DISCHARGING · ON BATTERY"
-            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+            state_text = "DISCHARGING | ON BATTERY"
+            health_text = "SYNTHETIC | PMIC READY | CELL PRESENT"
         else:
-            state_text = f"{self.scenario.battery_state} · POWER IDLE"
-            health_text = "SYNTHETIC · PMIC READY · CELL PRESENT"
+            state_text = f"{self.scenario.battery_state} | POWER IDLE"
+            health_text = "SYNTHETIC | PMIC READY | CELL PRESENT"
 
         self.canvas.create_text(
             227,
@@ -1935,7 +2146,7 @@ class QSeeSimulator:
             else unavailable
         )
         if self.scenario.usb_present is True and self.scenario.usb_mv is not None:
-            usb_value = f"ON · {self.scenario.usb_mv} mV"
+            usb_value = f"ON | {self.scenario.usb_mv} mV"
             usb_color = STATUS_READY
         elif self.scenario.usb_present is False:
             usb_value = "DISCONNECTED"
@@ -1954,7 +2165,7 @@ class QSeeSimulator:
             else unavailable
         )
         policy_value = (
-            f"4.20 V · 400 mA · {self.scenario.charger_phase}"
+            f"4.20 V | 400 mA | {self.scenario.charger_phase}"
             if self.scenario.battery_health == "READY"
             else "UNCONFIRMED"
         )
@@ -1965,8 +2176,8 @@ class QSeeSimulator:
             and self.scenario.input_current_limit_active is False
         )
         sample_value = (
-            f"FRESH {self.scenario.battery_sample_age_s:.1f}s · "
-            f"BATFET {'ON' if self.scenario.batfet_enabled else 'OFF'} · "
+            f"FRESH {self.scenario.battery_sample_age_s:.1f}s | "
+            f"BATFET {'ON' if self.scenario.batfet_enabled else 'OFF'} | "
             f"{'FLAGS OK' if flags_ok else 'FLAGS ACTIVE'}"
             if self.scenario.battery_sample_age_s is not None
             else "NO SAMPLE"
@@ -2174,11 +2385,44 @@ class QSeeSimulator:
                 None,
                 True,
             )
+        gps_y = int(layout["gps"])
+        self.canvas.create_text(
+            94,
+            gps_y - 14,
+            anchor="w",
+            text=(
+                "WIRELESS ACTIVE"
+                if self.wireless_running
+                else "WIRELESS OFF"
+            ),
+            fill=(STATUS_READY if self.wireless_running else STATUS_WARNING),
+            font=(FONT_DISPLAY, 10),
+            tags="ui",
+        )
         if self._command_arc_visible():
-            commands = (("≡", False), ("➤", True), ("i", False))
-            for index, (icon, success) in enumerate(commands):
+            gps_role = (
+                "warning"
+                if self.scenario.name == "GPS SEARCHING"
+                else "success"
+            )
+            sd_role = (
+                "warning"
+                if self.scenario.name == "SD UNFORMATTED"
+                else "success"
+            )
+            commands = (
+                ("≡", "primary"),
+                ("➤", "success"),
+                (
+                    "power" if self.wireless_running else "wifi",
+                    "success" if self.wireless_running else "warning",
+                ),
+                ("gps", gps_role),
+                ("sd", sd_role),
+            )
+            for index, (icon, role) in enumerate(commands):
                 x, y, diameter = command_geometry(len(commands), index)
-                self._draw_command_button(x, y, icon, success, diameter)
+                self._draw_command_button(x, y, icon, role, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
 
@@ -2697,8 +2941,10 @@ class QSeeSimulator:
             self._fixed_canvas_offset_y(),
         )
         if self._command_arc_visible():
-            x, y, diameter = command_geometry(1, 0)
-            self._draw_command_button(x, y, "▥", True, diameter)
+            commands = (("fft", "success"), ("dual", "success"))
+            for index, (icon, role) in enumerate(commands):
+                x, y, diameter = command_geometry(len(commands), index)
+                self._draw_command_button(x, y, icon, role, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
         self._animate_audio()
@@ -2716,7 +2962,7 @@ class QSeeSimulator:
             "AUDIO FFT",
             "Spectrum diagnostics"
             if self.performance_mode
-            else "Mean of Mic 1 + Mic 2 · 16 bands",
+            else "Mic 1 or mean of Mic 1 + Mic 2 | 16 bands",
             0,
         )
         if self.performance_mode:
@@ -3193,6 +3439,198 @@ class QSeeSimulator:
         self._draw_edge_back()
         self._draw_safe_guide()
 
+    def show_gps_demo(self) -> None:
+        self.screen = "gps"
+        self._clear()
+        self._draw_atmosphere()
+        self._draw_status_bar()
+        content_start = self._next_canvas_item_id()
+        self._draw_page_heading(
+            "GPS LIVE",
+            "LC76G | SYNTHETIC DEVICE SNAPSHOT",
+            0,
+            title_size=18,
+            subtitle_baseline=132,
+            divider_y=150,
+        )
+
+        searching = self.scenario.name == "GPS SEARCHING"
+        accent = STATUS_WARNING if searching else STATUS_READY
+        fix_state = "NO FIX" if searching else "FIX ACTIVE"
+        self.canvas.create_text(
+            84,
+            166,
+            anchor="w",
+            text="LC76G READY | RECEIVER ONLINE",
+            fill=accent,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            382,
+            166,
+            anchor="e",
+            text=fix_state,
+            fill=accent,
+            font=(FONT_DISPLAY, 10),
+            tags="ui",
+        )
+        self._draw_panel(
+            81,
+            178,
+            304,
+            100,
+            top="#0d2636",
+            bottom="#06121b",
+            border=accent,
+            glow=accent,
+            glow_alpha=34,
+            radius=12,
+        )
+        position = (
+            ("NO FIX", "NO FIX")
+            if searching
+            else ("10.776900 N", "106.700900 E")
+        )
+        self.canvas.create_text(
+            96,
+            192,
+            anchor="w",
+            text="LATITUDE",
+            fill=STATUS_READY,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            96,
+            211,
+            anchor="w",
+            text=position[0],
+            fill=TEXT,
+            font=(FONT_TECH, 12, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            96,
+            235,
+            anchor="w",
+            text="LONGITUDE",
+            fill="#51c7f2",
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        self.canvas.create_text(
+            96,
+            254,
+            anchor="w",
+            text=position[1],
+            fill=TEXT,
+            font=(FONT_TECH, 12, "bold"),
+            tags="ui",
+        )
+
+        radar_x = 331
+        radar_y = 228
+        self._draw_glow_disc(radar_x, radar_y, 38, accent, 36)
+        self.canvas.create_oval(
+            radar_x - 36,
+            radar_y - 36,
+            radar_x + 36,
+            radar_y + 36,
+            fill="#081b27",
+            outline="#2c6077",
+            width=1,
+            tags="ui",
+        )
+        self.canvas.create_line(
+            radar_x - 27,
+            radar_y,
+            radar_x + 27,
+            radar_y,
+            fill="#2c6077",
+            tags="ui",
+        )
+        self.canvas.create_line(
+            radar_x,
+            radar_y - 27,
+            radar_x,
+            radar_y + 27,
+            fill="#2c6077",
+            tags="ui",
+        )
+        self.canvas.create_text(
+            radar_x,
+            radar_y - 27,
+            text="N",
+            fill=STATUS_WARNING,
+            font=(FONT_TECH, 7, "bold"),
+            tags="ui",
+        )
+        if not searching:
+            satellite_points = ((-18, -12), (15, -19), (22, 13), (-11, 21))
+            for dx, dy in satellite_points:
+                self.canvas.create_oval(
+                    radar_x + dx - 2,
+                    radar_y + dy - 2,
+                    radar_x + dx + 2,
+                    radar_y + dy + 2,
+                    fill="#80efff",
+                    outline="",
+                    tags="ui",
+                )
+        self.canvas.create_oval(
+            radar_x - 4,
+            radar_y - 4,
+            radar_x + 4,
+            radar_y + 4,
+            fill=accent,
+            outline="#e7ffff",
+            width=1,
+            tags="ui",
+        )
+
+        self.canvas.create_text(
+            233,
+            294,
+            text=(
+                "SYNTHETIC | RECEIVER READY | NO FIX"
+                if searching
+                else "SYNTHETIC | RECEIVER READY | FIX ACTIVE"
+            ),
+            fill=accent,
+            font=(FONT_TECH, 8, "bold"),
+            tags="ui",
+        )
+        metrics = (
+            (315, "SATELLITES", "3" if searching else "12", accent),
+            (333, "HDOP", "NO FIX" if searching else "0.8", "#51c7f2"),
+            (351, "ALTITUDE", "NO FIX" if searching else "12.4 m", STATUS_WARNING),
+            (369, "SPEED", "NO FIX" if searching else "0.12 m/s", "#c168ff"),
+            (387, "COURSE", "NO FIX" if searching else "185.4 deg", TEXT),
+            (
+                405,
+                "GNSS TIME",
+                "NO FIX" if searching else "09:42:18 UTC",
+                TEXT,
+            ),
+            (
+                423,
+                "SAMPLE",
+                "QUALITY 0 | SEARCHING"
+                if searching
+                else "QUALITY 1 | QUEUE 0 B",
+                accent,
+            ),
+        )
+        for y, label, value, color in metrics:
+            self._draw_battery_metric(y, label, value, color)
+        self._move_canvas_items_from(
+            content_start,
+            self._fixed_canvas_offset_y(),
+        )
+        self._draw_edge_back()
+        self._draw_safe_guide()
+
     def _draw_tof_sensor_panel(
         self,
         x: int,
@@ -3555,6 +3993,13 @@ class QSeeSimulator:
             )
             self.show_settings_demo()
             return
+        if self.screen == "gps":
+            self.logger.info(
+                "qsee_nav",
+                "Synthetic GPS closed; returning to Settings",
+            )
+            self.show_settings_demo()
+            return
         if self.screen == "tof-settings":
             self.logger.info(
                 "qsee_nav",
@@ -3692,6 +4137,7 @@ class QSeeSimulator:
             "fft": self.show_audio_fft_demo,
             "fft-detail": self.show_audio_detail_demo,
             "imu": self.show_imu_demo,
+            "gps": self.show_gps_demo,
             "tof": self.show_tof_demo,
             "tof-settings": self.show_tof_settings_demo,
             "confirmation": self.show_confirmation,
@@ -3747,6 +4193,7 @@ def main() -> None:
             "fft",
             "fft-detail",
             "imu",
+            "gps",
             "tof",
             "tof-settings",
             *sorted(PAIRING_SCREENS),
@@ -3770,6 +4217,7 @@ def main() -> None:
     parser.add_argument("--safe-guide", action="store_true")
     parser.add_argument("--no-sound", action="store_true")
     parser.add_argument("--performance-mode", action="store_true")
+    parser.add_argument("--wireless-running", action="store_true")
     args = parser.parse_args()
 
     if sys.platform == "win32":
@@ -3786,6 +4234,7 @@ def main() -> None:
         idle_state=args.idle_state,
     )
     simulator.performance_mode = args.performance_mode
+    simulator.wireless_running = args.wireless_running
     simulator.safe_guide = args.safe_guide
     if args.capture is not None:
         from PIL import ImageGrab
@@ -3804,6 +4253,7 @@ def main() -> None:
             "fft": simulator.show_audio_fft_demo,
             "fft-detail": simulator.show_audio_detail_demo,
             "imu": simulator.show_imu_demo,
+            "gps": simulator.show_gps_demo,
             "tof": simulator.show_tof_demo,
             "tof-settings": simulator.show_tof_settings_demo,
         }

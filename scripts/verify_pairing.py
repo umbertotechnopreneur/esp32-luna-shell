@@ -22,6 +22,7 @@ EXPECTED_LAZY_SCREEN_DOCUMENTS = {
     "screen_audio_fft.json": "qsee_audio_fft",
     "screen_audio_detail.json": "qsee_audio_detail",
     "screen_imu.json": "qsee_imu",
+    "screen_gps.json": "qsee_gps",
     "screen_tof.json": "qsee_tof",
     "screen_tof_settings.json": "qsee_tof_settings",
     "screen_settings.json": "qsee_settings",
@@ -40,6 +41,7 @@ EXPECTED_ROUTE_SCREENS = {
     "qsee_audio_detail",
     "qsee_audio_fft",
     "qsee_imu",
+    "qsee_gps",
     "qsee_tof",
     "qsee_tof_settings",
     "qsee_settings",
@@ -65,10 +67,8 @@ SETTINGS_ACTIONS = {
     "qsee.settings.imu_smoothing.changed",
     "qsee.settings.storage.mirror.changed",
     "qsee.settings.performance.changed",
-    "qsee.settings.radios.start",
     "qsee.settings.display.brightness.changed",
     "qsee.settings.display.rotation.changed",
-    "qsee.open.storage",
     "qsee.storage.format",
 }
 TOF_ACTIONS = {
@@ -315,6 +315,8 @@ def main() -> None:
         )
     require(radios, "qsee_wifi_init()", "radio startup")
     require(platform_header, "esp_err_t qsee_radios_init(void);", "platform API")
+    require(platform_header, "esp_err_t qsee_radios_stop(void);", "platform API")
+    require(platform_header, "esp_err_t qsee_wifi_stop(void);", "platform API")
     require(platform_cmake, '"qsee_provisioning.cpp"', "platform CMake")
     require(sdkconfig, "CONFIG_NETWORK_PROV_NETWORK_TYPE_WIFI=y", "sdkconfig defaults")
     require(
@@ -328,8 +330,18 @@ def main() -> None:
     forbid(main_source, "qsee_radios_init()", "ordered startup")
     require(app_header, "system::core::IApp", "System Core app header")
     require(app, "qsee.settings.radios.start", "System Core Settings actions")
+    require(app, "qsee.settings.radios.stop", "System Core Settings actions")
     require(app, "qsee_radios_init()", "System Core Settings radio action")
+    require(app, "qsee_radios_stop()", "System Core Settings radio action")
     require(app, "qsee.open.pairing", "pairing wizard entry")
+    require(app, "kAudioDualCommands", "Audio Scope command arc")
+    require(app, '"qsee.open.audio_fft"', "Audio Scope average FFT command")
+    require(app, '"qsee.open.audio_detail"', "Audio Scope dual FFT command")
+    require(
+        app,
+        "snapshot.audio.channel_count == 1U",
+        "single-channel FFT support",
+    )
     require(app, "qsee.next", "pairing wizard forward action")
     require(app, "qsee_provisioning_start()", "pairing wizard provisioning start")
     descriptor_start = app.index("App::lazy_screen_descriptor")
@@ -604,6 +616,16 @@ def main() -> None:
         for node in nodes
         if isinstance(node, dict) and isinstance(node.get("action"), str)
     }
+    settings_source = read(
+        "components/qsee_app/package/res/screen_settings.json"
+    )
+    forbid(settings_source, '"id": "radio_start"', "Settings body")
+    forbid(settings_source, '"id": "gps_action"', "Settings body")
+    forbid(settings_source, '"id": "storage_action"', "Settings body")
+    require(app, '"qsee.open.gps"', "Settings command arc")
+    require(app, '"qsee.open.storage"', "Settings command arc")
+    require(app, '"qsee.settings.radios.start"', "Settings command arc")
+    require(app, '"qsee.settings.radios.stop"', "Settings command arc")
     missing_actions = SETTINGS_ACTIONS - actions
     if missing_actions:
         raise AssertionError(
@@ -683,12 +705,12 @@ def main() -> None:
     )
     require(
         simulator_runner,
-        '"tof"',
+        "'tof'",
         "Windows simulator wrapper TOF route",
     )
     require(
         simulator_runner,
-        '"tof-settings"',
+        "'tof-settings'",
         "Windows simulator wrapper TOF settings route",
     )
     require(
@@ -826,7 +848,7 @@ def main() -> None:
         require(simulator, f'"{screen}"', "pairing simulator screen inventory")
         require(
             simulator_runner,
-            f'"{screen}"',
+            f"'{screen}'",
             "pairing simulator runner inventory",
         )
 

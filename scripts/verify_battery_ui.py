@@ -179,6 +179,15 @@ def verify_documents() -> None:
         canonical_screen.get("mountMode") == "dynamic",
         "qsee_battery must remain a dynamic lazy screen",
     )
+    battery_labels = [
+        node.get("labelProps", {}).get("text", "")
+        for node in walk_dicts(canonical_screen)
+        if isinstance(node.get("labelProps", {}).get("text"), str)
+    ]
+    require(
+        all("\u00b7" not in text for text in battery_labels),
+        "Battery labels must avoid the unsupported middle-dot glyph",
+    )
     require(
         "templates/qsee_power_metric.json" in generated["assets"],
         "generated Battery document does not import qsee_power_metric",
@@ -359,7 +368,7 @@ def verify_firmware_contract() -> None:
 
     settings_commands = initializer_text(
         app,
-        "kSettingsCommands",
+        "kSettingsCommandLayout",
         "qsee_app.cpp",
     )
     require_contains(

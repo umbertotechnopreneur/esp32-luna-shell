@@ -28,3 +28,8 @@ extern "C" esp_err_t qsee_radios_init(void)
     );
     return ESP_ERR_NOT_SUPPORTED;
 }
+
+extern "C" esp_err_t qsee_radios_stop(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

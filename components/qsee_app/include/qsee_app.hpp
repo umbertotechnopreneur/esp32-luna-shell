@@ -137,6 +137,26 @@ private:
         FixedTextCache<32> temperature;
     };
 
+    struct GpsUiCache {
+        FixedTextCache<160> device_state;
+        FixedTextCache<64> fix_state;
+        FixedTextCache<48> latitude;
+        FixedTextCache<48> longitude;
+        FixedTextCache<24> satellites;
+        FixedTextCache<24> hdop;
+        FixedTextCache<32> altitude;
+        FixedTextCache<32> speed;
+        FixedTextCache<32> course;
+        FixedTextCache<64> utc;
+        FixedTextCache<64> quality;
+        std::array<FixedTextCache<64>, 7> metric_values{};
+        std::array<FixedTextCache<8>, 5> accent{};
+        int32_t satellite_signal = 0;
+        bool satellite_signal_known = false;
+        bool satellite_signal_hidden = true;
+        bool satellite_signal_hidden_known = false;
+    };
+
     struct StorageUiCache {
         FixedTextCache<32> status;
         FixedTextCache<8> status_color;
@@ -339,8 +359,12 @@ private:
     void invalidate_audio_screen_cache(Screen screen);
     void invalidate_hardware_screen_cache();
     void invalidate_imu_screen_cache();
+    void invalidate_gps_screen_cache();
     void invalidate_storage_screen_cache();
     std::expected<void, std::string> refresh_imu(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_gps(
         esp_brookesia::system::core::AppContext &context
     );
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -489,6 +513,7 @@ private:
     bool performance_mode_enabled_ = false;
     bool audio_diagnostic_capture_active_ = false;
     bool audio_detail_palette_applied_ = false;
+    std::optional<bool> audio_dual_command_available_;
     CachedText audio_status_cache_;
     CachedText audio_values_cache_;
     AudioMeterCache audio_meter_cache_;
@@ -507,6 +532,7 @@ private:
     bool audio_detail_hidden_known_ = false;
     HardwareUiCache hardware_ui_cache_;
     ImuUiCache imu_ui_cache_;
+    GpsUiCache gps_ui_cache_;
     StorageUiCache storage_ui_cache_;
     bool storage_format_request_pending_ = false;
     uint32_t storage_format_request_attempt_ = 0;

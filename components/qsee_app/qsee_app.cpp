@@ -339,6 +339,43 @@ bool radio_deferred_by_policy(const qsee::ComponentSnapshot &radio)
            radio.last_success_at_us == 0;
 }
 
+bool audio_spectrum_available(const qsee::DeviceSnapshot &snapshot)
+{
+    return snapshot_available(snapshot) &&
+           component_ready(snapshot.audio.microphone) &&
+           component_ready(snapshot.diagnostics.monitor) &&
+           snapshot.diagnostics.monitor_active &&
+           snapshot.audio.channel_count >= 1U &&
+           snapshot.audio.channel_count <= 2U &&
+           snapshot.audio.sample_rate_hz == 22050U;
+}
+
+bool dual_audio_spectrum_available(const qsee::DeviceSnapshot &snapshot)
+{
+    return audio_spectrum_available(snapshot) &&
+           snapshot.audio.channel_count == 2U;
+}
+
+bool wifi_stopped_by_user(const qsee::WifiSnapshot &wifi)
+{
+    return !wifi.started &&
+           wifi.last_error == ESP_ERR_INVALID_STATE &&
+           !wifi.data_valid &&
+           !wifi.data_stale &&
+           wifi.last_attempt_at_us > 0;
+}
+
+bool ble_stopped_by_user(const qsee::BleSnapshot &ble)
+{
+    return !ble.provisioning &&
+           !ble.advertising &&
+           !ble.connected &&
+           ble.last_error == ESP_ERR_INVALID_STATE &&
+           !ble.data_valid &&
+           !ble.data_stale &&
+           ble.last_attempt_at_us > 0;
+}
+
 bool rtc_reading_valid(const qsee::RtcSnapshot &rtc)
 {
     return component_ready(rtc) && rtc.clock_integrity &&
@@ -498,6 +535,11 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
             .document_path = "res/screen_imu.json",
             .screen_path = "/qsee_imu",
         };
+    case Screen::Gps:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_gps.json",
+            .screen_path = "/qsee_gps",
+        };
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     case Screen::Tof:
         return LazyScreenDescriptor{
@@ -619,6 +661,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     static constexpr std::array<std::string_view, 1> kBatteryActions = {
         "qsee.chrome.activity.battery",
     };
+    static constexpr std::array<std::string_view, 1> kGpsActions = {
+        "qsee.chrome.activity.gps",
+    };
     static constexpr std::array<std::string_view, 1> kLogActions = {
         "qsee.chrome.activity.logs",
     };
@@ -651,11 +696,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     static constexpr std::array<std::string_view, 1> kHardwareDetailActions = {
         "qsee.chrome.activity.hardware_detail",
     };
-    static constexpr std::array<std::string_view, 4> kSettingsActions = {
+    static constexpr std::array<std::string_view, 2> kSettingsActions = {
         "qsee.chrome.activity.settings",
-        "qsee.open.storage",
         "qsee.open.about",
-        "qsee.settings.radios.start",
     };
     static constexpr std::array<std::string_view, 2> kStorageActions = {
         "qsee.chrome.activity.storage",
@@ -671,6 +714,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     switch (screen) {
     case Screen::Battery:
         forwarded_actions = kBatteryActions;
+        break;
+    case Screen::Gps:
+        forwarded_actions = kGpsActions;
         break;
     case Screen::Logs:
         forwarded_actions = kLogActions;
@@ -924,6 +970,9 @@ void App::invalidate_screen_document_state(Screen screen)
     }
     if (screen == Screen::Imu) {
         invalidate_imu_screen_cache();
+    }
+    if (screen == Screen::Gps) {
+        invalidate_gps_screen_cache();
     }
     if (screen == Screen::AudioDetail) {
         audio_detail_palette_applied_ = false;
@@ -2080,8 +2129,12 @@ std::expected<void, std::string> App::configure_chrome(
         },
         {"\xef\x8c\x84", "qsee.logs.search", ActionRole::Primary, false},
     }};
-    static constexpr std::array<CommandSpec, 1> kAudioCommands = {{
+    static constexpr std::array<CommandSpec, 1> kAudioSingleCommand = {{
         {"\xef\x83\x89", "qsee.open.audio_fft", ActionRole::Success, true},
+    }};
+    static constexpr std::array<CommandSpec, 2> kAudioDualCommands = {{
+        {"\xef\x83\x89", "qsee.open.audio_fft", ActionRole::Success, true},
+        {"\xef\x83\x9b", "qsee.open.audio_detail", ActionRole::Success, true},
     }};
     static constexpr std::array<CommandSpec, 1> kHardwareCommands = {{
         {"\xef\x80\xa1", "qsee.hardware.refresh", ActionRole::Success, true},
@@ -2097,21 +2150,91 @@ std::expected<void, std::string> App::configure_chrome(
         {"\xef\x81\x8b", "qsee.tof.calibration.start", ActionRole::Success, true},
     }};
 #endif
-    static constexpr std::array<CommandSpec, 3> kSettingsCommands = {{
+    static constexpr std::array<CommandSpec, 5> kSettingsCommandLayout = {{
         {"\xef\x80\x8b", "qsee.open.logs", ActionRole::Primary, false},
-        {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success, true},
-        {"\xef\x85\x9b", "qsee.open.about", ActionRole::Primary, false},
+        {"\xef\x8a\x93", "qsee.open.pairing", ActionRole::Success, false},
+        {
+            "\xef\x87\xab",
+            "qsee.settings.radios.start",
+            ActionRole::Warning,
+            true,
+        },
+        {"\xef\x8f\x85", "qsee.open.gps", ActionRole::Neutral, false},
+        {"\xef\x83\x87", "qsee.open.storage", ActionRole::Neutral, false},
     }};
+    const DeviceSnapshot chrome_snapshot =
+        DeviceSnapshotService::instance().snapshot();
+    const bool average_spectrum_available =
+        !performance_mode_enabled_ &&
+        audio_spectrum_available(chrome_snapshot);
+    const bool dual_spectrum_available =
+        !performance_mode_enabled_ &&
+        dual_audio_spectrum_available(chrome_snapshot);
+    const bool audio_spectrum_fault =
+        snapshot_available(chrome_snapshot) &&
+        !component_ready(chrome_snapshot.audio.microphone) &&
+        chrome_snapshot.audio.microphone.last_error != ESP_ERR_INVALID_STATE;
+    std::array<CommandSpec, 1> audio_single_command = kAudioSingleCommand;
+    std::array<CommandSpec, 2> audio_dual_commands = kAudioDualCommands;
+    audio_single_command[0].role =
+        average_spectrum_available
+            ? ActionRole::Success
+            : audio_spectrum_fault ? ActionRole::Danger : ActionRole::Neutral;
+    audio_dual_commands[0].role = audio_single_command[0].role;
+    const bool wireless_active =
+        (component_ready(chrome_snapshot.radios.wifi) &&
+         chrome_snapshot.radios.wifi.started) ||
+        (component_ready(chrome_snapshot.radios.ble) &&
+         (chrome_snapshot.radios.ble.provisioning ||
+          chrome_snapshot.radios.ble.advertising ||
+          chrome_snapshot.radios.ble.connected));
+    const bool wireless_fault =
+        (!radio_deferred_by_policy(chrome_snapshot.radios.wifi) &&
+         !wifi_stopped_by_user(chrome_snapshot.radios.wifi) &&
+         !component_ready(chrome_snapshot.radios.wifi)) ||
+        (!radio_deferred_by_policy(chrome_snapshot.radios.ble) &&
+         !ble_stopped_by_user(chrome_snapshot.radios.ble) &&
+         !component_ready(chrome_snapshot.radios.ble));
+    std::array<CommandSpec, 5> settings_commands = kSettingsCommandLayout;
+    settings_commands[2] = {
+        wireless_active ? "\xef\x80\x91" : "\xef\x87\xab",
+        wireless_active
+            ? "qsee.settings.radios.stop"
+            : "qsee.settings.radios.start",
+        wireless_fault
+            ? ActionRole::Danger
+            : wireless_active ? ActionRole::Success : ActionRole::Warning,
+        true,
+    };
+    settings_commands[3].role =
+        !snapshot_available(chrome_snapshot)
+            ? ActionRole::Neutral
+            : component_ready(chrome_snapshot.gps)
+                ? gps_fix_valid(chrome_snapshot.gps)
+                    ? ActionRole::Success
+                    : ActionRole::Warning
+                : chrome_snapshot.gps.last_error == ESP_ERR_INVALID_STATE
+                    ? ActionRole::Neutral
+                    : ActionRole::Danger;
+    settings_commands[4].role =
+        storage_cleanup_failed(chrome_snapshot.storage)
+            ? ActionRole::Danger
+            : storage_format_required(chrome_snapshot.storage)
+                ? ActionRole::Warning
+                : storage_mounted_ready(chrome_snapshot.storage)
+                    ? ActionRole::Success
+                    : ActionRole::Neutral;
     static_assert(valid_command_main_layout(kNoCommands));
     static_assert(valid_command_main_layout(kWelcomeCommands));
-    static_assert(valid_command_main_layout(kAudioCommands));
+    static_assert(valid_command_main_layout(kAudioSingleCommand));
+    static_assert(valid_command_main_layout(kAudioDualCommands));
     static_assert(valid_command_main_layout(kHardwareCommands));
     static_assert(valid_command_main_layout(kAudioFftCommands));
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     static_assert(valid_command_main_layout(kTofCommands));
     static_assert(valid_command_main_layout(kTofSettingsCommands));
 #endif
-    static_assert(valid_command_main_layout(kSettingsCommands));
+    static_assert(valid_command_main_layout(kSettingsCommandLayout));
 
     auto activate_result = [&]() -> std::expected<void, std::string> {
         switch (screen_) {
@@ -2133,7 +2256,9 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::Audio:
             return adaptive_chrome_.configure_commands(
                 context.gui(),
-                kAudioCommands
+                dual_spectrum_available
+                    ? std::span<const CommandSpec>(audio_dual_commands)
+                    : std::span<const CommandSpec>(audio_single_command)
             );
         case Screen::AudioFft:
             return adaptive_chrome_.configure_commands(
@@ -2155,7 +2280,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::Settings:
             return adaptive_chrome_.configure_commands(
                 context.gui(),
-                kSettingsCommands
+                settings_commands
             );
         case Screen::Hardware:
             return adaptive_chrome_.configure_commands(
@@ -2165,6 +2290,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::HardwareDetail:
         case Screen::AudioDetail:
         case Screen::Imu:
+        case Screen::Gps:
         case Screen::Storage:
         case Screen::About:
         case Screen::PairIntro:
@@ -2559,6 +2685,7 @@ std::expected<void, std::string> App::on_action(
     if (action == "qsee.chrome.activity" ||
         action == "qsee.chrome.activity.wake" ||
         action == "qsee.chrome.activity.battery" ||
+        action == "qsee.chrome.activity.gps" ||
         action == "qsee.chrome.activity.logs" ||
         action == "qsee.chrome.activity.hardware" ||
         action == "qsee.chrome.activity.hardware_detail" ||
@@ -2624,6 +2751,9 @@ std::expected<void, std::string> App::on_action(
     }
     if (action == "qsee.open.imu") {
         return open_screen(context, Screen::Imu, action);
+    }
+    if (action == "qsee.open.gps") {
+        return open_screen(context, Screen::Gps, action);
     }
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     if (action == "qsee.open.tof") {
@@ -2786,6 +2916,12 @@ std::expected<void, std::string> App::on_action(
             result = qsee_wifi_start_scan();
         }
         return finish_settings_command(result, "Radio startup");
+    }
+    if (action == "qsee.settings.radios.stop") {
+        return finish_settings_command(
+            qsee_radios_stop(),
+            "Radio shutdown"
+        );
     }
     return {};
 }
@@ -3782,6 +3918,13 @@ std::expected<void, std::string> App::sync_content_viewport(
                 0,
                 0,
             };
+        case Screen::Gps:
+            return {
+                "/qsee_gps/surface",
+                ViewportLayout::FixedCanvas,
+                0,
+                0,
+            };
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
         case Screen::Tof:
             return {
@@ -3942,6 +4085,8 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_audio_detail(context);
     case Screen::Imu:
         return refresh_imu(context);
+    case Screen::Gps:
+        return refresh_gps(context);
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     case Screen::Tof:
         return refresh_tof(context);
@@ -5610,6 +5755,7 @@ void App::invalidate_audio_screen_cache(Screen screen)
         audio_values_cache_.valid = false;
         audio_meter_cache_.level_known.fill(false);
         audio_meter_cache_.hidden_known.fill(false);
+        audio_dual_command_available_.reset();
         break;
     case Screen::AudioFft:
         audio_fft_status_cache_.valid = false;
@@ -5654,6 +5800,29 @@ void App::invalidate_imu_screen_cache()
     imu_ui_cache_.temperature.valid = false;
 }
 
+void App::invalidate_gps_screen_cache()
+{
+    gps_ui_cache_.device_state.valid = false;
+    gps_ui_cache_.fix_state.valid = false;
+    gps_ui_cache_.latitude.valid = false;
+    gps_ui_cache_.longitude.valid = false;
+    gps_ui_cache_.satellites.valid = false;
+    gps_ui_cache_.hdop.valid = false;
+    gps_ui_cache_.altitude.valid = false;
+    gps_ui_cache_.speed.valid = false;
+    gps_ui_cache_.course.valid = false;
+    gps_ui_cache_.utc.valid = false;
+    gps_ui_cache_.quality.valid = false;
+    for (auto &cache : gps_ui_cache_.metric_values) {
+        cache.valid = false;
+    }
+    for (auto &cache : gps_ui_cache_.accent) {
+        cache.valid = false;
+    }
+    gps_ui_cache_.satellite_signal_known = false;
+    gps_ui_cache_.satellite_signal_hidden_known = false;
+}
+
 void App::invalidate_storage_screen_cache()
 {
     storage_ui_cache_.status.valid = false;
@@ -5672,6 +5841,16 @@ void App::invalidate_storage_screen_cache()
 std::expected<void, std::string> App::refresh_audio(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    const bool dual_command_available =
+        !performance_mode_enabled_ &&
+        dual_audio_spectrum_available(snapshot);
+    if (!audio_dual_command_available_.has_value() ||
+        *audio_dual_command_available_ != dual_command_available) {
+        if (auto result = configure_chrome(context); !result) {
+            return result;
+        }
+        audio_dual_command_available_ = dual_command_available;
+    }
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
     }
@@ -6207,6 +6386,8 @@ std::string_view App::screen_action(Screen screen)
         return "qsee.open.audio_detail";
     case Screen::Imu:
         return "qsee.open.imu";
+    case Screen::Gps:
+        return "qsee.open.gps";
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     case Screen::Tof:
         return "qsee.open.tof";
@@ -6600,7 +6781,8 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
             "SPECTRUM STALE (WAITING FOR NEW SAMPLE)"
         );
         spectrum_valid = false;
-    } else if (snapshot.audio.channel_count != 2U ||
+    } else if (snapshot.audio.channel_count == 0U ||
+               snapshot.audio.channel_count > 2U ||
                snapshot.audio.sample_rate_hz != 22050U ||
                snapshot.audio.spectrum_sequence == 0U) {
         std::snprintf(
@@ -6610,7 +6792,9 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
         );
         spectrum_valid = false;
     } else {
-        for (size_t channel = 0; channel < 2U && spectrum_valid; ++channel) {
+        for (size_t channel = 0;
+             channel < snapshot.audio.channel_count && spectrum_valid;
+             ++channel) {
             for (size_t band = 0;
                  band < kAudioSpectrumBandCount;
                  ++band) {
@@ -6633,7 +6817,9 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
             std::snprintf(
                 status.data(),
                 status.size(),
-                "SPECTRUM READY | SEQ %lu | 22.05 kHz",
+                snapshot.audio.channel_count == 1U
+                    ? "SPECTRUM READY | CH1 | SEQ %lu | 22.05 kHz"
+                    : "SPECTRUM READY | MEAN 2CH | SEQ %lu | 22.05 kHz",
                 static_cast<unsigned long>(snapshot.audio.spectrum_sequence)
             );
         } else {
@@ -6672,10 +6858,18 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
     size_t height_change_count = 0;
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         const int32_t average =
-            (static_cast<int32_t>(snapshot.audio.channel_spectrum[0][band]) +
-             static_cast<int32_t>(snapshot.audio.channel_spectrum[1][band]) +
-             1) /
-            2;
+            snapshot.audio.channel_count == 1U
+                ? static_cast<int32_t>(
+                      snapshot.audio.channel_spectrum[0][band]
+                  )
+                : (static_cast<int32_t>(
+                       snapshot.audio.channel_spectrum[0][band]
+                   ) +
+                   static_cast<int32_t>(
+                       snapshot.audio.channel_spectrum[1][band]
+                   ) +
+                   1) /
+                      2;
         const int32_t height =
             std::max<int32_t>(1, (average * 94 + 99) / 100);
         next_heights[band] = static_cast<int16_t>(height);
@@ -7223,6 +7417,352 @@ std::expected<void, std::string> App::refresh_imu(AppContext &context)
         "/qsee_imu/surface/temperature",
         value.data()
     );
+}
+
+// Render only snapshot-owned GNSS data and hide every numeric fix field when
+// the receiver sample is unavailable, stale, or internally inconsistent.
+std::expected<void, std::string> App::refresh_gps(AppContext &context)
+{
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    const GpsSnapshot &gps = snapshot.gps;
+    const bool receiver_ready =
+        snapshot_available(snapshot) && component_ready(gps);
+    const bool valid_fix = receiver_ready && gps_fix_valid(gps);
+
+    std::string_view accent = palette::kStatusMuted;
+    if (receiver_ready) {
+        accent = valid_fix
+            ? palette::kStatusReady
+            : gps.has_fix
+                ? palette::kStatusFault
+                : palette::kStatusWarning;
+    } else if (snapshot_available(snapshot) &&
+               (gps.last_error != ESP_OK ||
+                gps.health == DeviceHealth::Degraded)) {
+        accent = palette::kStatusFault;
+    } else if (gps.data_stale) {
+        accent = palette::kStatusWarning;
+    }
+
+    std::array<char, 160> device_state{};
+    std::array<char, 64> fix_state{};
+    if (!snapshot_available(snapshot)) {
+        std::snprintf(
+            device_state.data(),
+            device_state.size(),
+            "LC76G UNAVAILABLE | SNAPSHOT NOT READY"
+        );
+        std::snprintf(fix_state.data(), fix_state.size(), "NO DATA");
+    } else if (!receiver_ready) {
+        std::snprintf(
+            device_state.data(),
+            device_state.size(),
+            "LC76G %s | %s",
+            component_state(gps),
+            component_reason(gps)
+        );
+        std::snprintf(
+            fix_state.data(),
+            fix_state.size(),
+            "%s",
+            component_state(gps)
+        );
+    } else if (!gps.has_fix) {
+        std::snprintf(
+            device_state.data(),
+            device_state.size(),
+            "LC76G READY | RECEIVER ONLINE"
+        );
+        std::snprintf(fix_state.data(), fix_state.size(), "NO FIX");
+    } else if (!valid_fix) {
+        std::snprintf(
+            device_state.data(),
+            device_state.size(),
+            "LC76G ERROR | INVALID FIX REJECTED"
+        );
+        std::snprintf(fix_state.data(), fix_state.size(), "FIX REJECTED");
+    } else {
+        std::snprintf(
+            device_state.data(),
+            device_state.size(),
+            "LC76G READY | SAMPLE %lld us",
+            static_cast<long long>(gps.last_success_at_us)
+        );
+        std::snprintf(fix_state.data(), fix_state.size(), "FIX ACTIVE");
+    }
+
+    const char *unavailable_value = receiver_ready
+        ? gps.has_fix ? "INVALID" : "NO FIX"
+        : "UNAVAILABLE";
+    std::array<char, 48> latitude{};
+    std::array<char, 48> longitude{};
+    std::array<char, 24> satellites{};
+    std::array<char, 24> hdop{};
+    std::array<char, 32> altitude{};
+    std::array<char, 32> speed{};
+    std::array<char, 32> course{};
+    std::array<char, 64> utc{};
+    std::array<char, 64> quality{};
+
+    if (valid_fix) {
+        std::snprintf(
+            latitude.data(),
+            latitude.size(),
+            "%.6f %c",
+            std::fabs(gps.latitude_degrees),
+            gps.latitude_degrees >= 0.0 ? 'N' : 'S'
+        );
+        std::snprintf(
+            longitude.data(),
+            longitude.size(),
+            "%.6f %c",
+            std::fabs(gps.longitude_degrees),
+            gps.longitude_degrees >= 0.0 ? 'E' : 'W'
+        );
+        std::snprintf(
+            hdop.data(),
+            hdop.size(),
+            "%.1f",
+            static_cast<double>(gps.hdop)
+        );
+        std::snprintf(
+            altitude.data(),
+            altitude.size(),
+            "%.1f m",
+            static_cast<double>(gps.altitude_m)
+        );
+        std::snprintf(
+            speed.data(),
+            speed.size(),
+            "%.2f m/s",
+            static_cast<double>(gps.speed_mps)
+        );
+        std::snprintf(
+            course.data(),
+            course.size(),
+            "%.1f deg",
+            static_cast<double>(gps.course_degrees)
+        );
+        if (gps.utc_date[0] != '\0' && gps.utc_time[0] != '\0') {
+            std::snprintf(
+                utc.data(),
+                utc.size(),
+                "UTC %s | %s",
+                gps.utc_date,
+                gps.utc_time
+            );
+        } else {
+            std::snprintf(
+                utc.data(),
+                utc.size(),
+                "UTC VALID | VALUE UNAVAILABLE"
+            );
+        }
+    } else {
+        std::snprintf(latitude.data(), latitude.size(), "%s", unavailable_value);
+        std::snprintf(longitude.data(), longitude.size(), "%s", unavailable_value);
+        std::snprintf(hdop.data(), hdop.size(), "%s", unavailable_value);
+        std::snprintf(altitude.data(), altitude.size(), "%s", unavailable_value);
+        std::snprintf(speed.data(), speed.size(), "%s", unavailable_value);
+        std::snprintf(course.data(), course.size(), "%s", unavailable_value);
+        std::snprintf(utc.data(), utc.size(), "UTC %s", unavailable_value);
+    }
+
+    if (receiver_ready) {
+        std::snprintf(
+            satellites.data(),
+            satellites.size(),
+            "%u",
+            static_cast<unsigned>(gps.satellites)
+        );
+        std::snprintf(
+            quality.data(),
+            quality.size(),
+            "QUALITY %u | NMEA QUEUE %lu B",
+            static_cast<unsigned>(gps.fix_quality),
+            static_cast<unsigned long>(gps.pending_nmea_bytes)
+        );
+    } else {
+        std::snprintf(
+            satellites.data(),
+            satellites.size(),
+            "UNAVAILABLE"
+        );
+        std::snprintf(
+            quality.data(),
+            quality.size(),
+            "QUALITY UNAVAILABLE"
+        );
+    }
+
+    const auto update_text = [this, &context](
+        auto &cache,
+        std::string_view path,
+        std::string_view text
+    ) -> std::expected<void, std::string> {
+        return set_cached_text(context, cache, path, text);
+    };
+    if (auto result = update_text(
+            gps_ui_cache_.device_state,
+            "/qsee_gps/surface/device_state",
+            device_state.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.fix_state,
+            "/qsee_gps/surface/fix_state",
+            fix_state.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.latitude,
+            "/qsee_gps/surface/position_card/latitude",
+            latitude.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.longitude,
+            "/qsee_gps/surface/position_card/longitude",
+            longitude.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.satellites,
+            "/qsee_gps/surface/satellites",
+            satellites.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.hdop,
+            "/qsee_gps/surface/hdop",
+            hdop.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.altitude,
+            "/qsee_gps/surface/altitude",
+            altitude.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.speed,
+            "/qsee_gps/surface/speed",
+            speed.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.course,
+            "/qsee_gps/surface/course",
+            course.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.utc,
+            "/qsee_gps/surface/utc",
+            utc.data()
+        ); !result) {
+        return result;
+    }
+    if (auto result = update_text(
+            gps_ui_cache_.quality,
+            "/qsee_gps/surface/quality",
+            quality.data()
+        ); !result) {
+        return result;
+    }
+
+    static constexpr std::array<std::string_view, 7> kMetricPaths = {
+        "/qsee_gps/surface/satellites_card/value",
+        "/qsee_gps/surface/hdop_card/value",
+        "/qsee_gps/surface/altitude_card/value",
+        "/qsee_gps/surface/speed_card/value",
+        "/qsee_gps/surface/course_card/value",
+        "/qsee_gps/surface/utc_card/detail",
+        "/qsee_gps/surface/quality_card/detail",
+    };
+    const std::array<std::string_view, 7> metric_values = {
+        satellites.data(),
+        hdop.data(),
+        altitude.data(),
+        speed.data(),
+        course.data(),
+        utc.data(),
+        quality.data(),
+    };
+    for (size_t index = 0; index < kMetricPaths.size(); ++index) {
+        if (auto result = update_text(
+                gps_ui_cache_.metric_values[index],
+                kMetricPaths[index],
+                metric_values[index]
+            ); !result) {
+            return result;
+        }
+    }
+
+    static constexpr std::array<std::string_view, 5> kAccentPaths = {
+        "/qsee_gps/surface/device_state",
+        "/qsee_gps/surface/fix_state",
+        "/qsee_gps/surface/position_card",
+        "/qsee_gps/surface/position_card/radar_fix",
+        "/qsee_gps/surface/satellite_signal",
+    };
+    for (size_t index = 0; index < kAccentPaths.size(); ++index) {
+        if (auto result = set_cached_binding_text(
+                context,
+                gps_ui_cache_.accent[index],
+                kAccentPaths[index],
+                "accent",
+                accent
+            ); !result) {
+            return result;
+        }
+    }
+
+    const bool signal_hidden = !receiver_ready;
+    if (!gps_ui_cache_.satellite_signal_hidden_known ||
+        gps_ui_cache_.satellite_signal_hidden != signal_hidden) {
+        if (auto result = set_hidden(
+                context,
+                "/qsee_gps/surface/satellite_signal",
+                signal_hidden
+            ); !result) {
+            return result;
+        }
+        gps_ui_cache_.satellite_signal_hidden = signal_hidden;
+        gps_ui_cache_.satellite_signal_hidden_known = true;
+    }
+    if (receiver_ready) {
+        const int32_t satellite_signal = std::min<int32_t>(
+            static_cast<int32_t>(gps.satellites),
+            32
+        );
+        if (!gps_ui_cache_.satellite_signal_known ||
+            gps_ui_cache_.satellite_signal != satellite_signal) {
+            if (auto result = set_value(
+                    context,
+                    "/qsee_gps/surface/satellite_signal",
+                    satellite_signal
+                ); !result) {
+                return result;
+            }
+            gps_ui_cache_.satellite_signal = satellite_signal;
+            gps_ui_cache_.satellite_signal_known = true;
+        }
+    }
+    return {};
 }
 
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -8044,6 +8584,9 @@ std::expected<void, std::string> App::set_settings_text(
 std::expected<void, std::string> App::refresh_settings(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = configure_chrome(context); !result) {
+        return result;
+    }
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
     }
@@ -8227,7 +8770,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
 
     std::array<char, 64> wifi_state{};
     std::array<char, 64> ble_state{};
-    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi) ||
+        wifi_stopped_by_user(snapshot.radios.wifi)) {
         std::snprintf(wifi_state.data(), wifi_state.size(), "off");
     } else if (component_ready(snapshot.radios.wifi)) {
         std::snprintf(
@@ -8241,7 +8785,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     } else {
         std::snprintf(wifi_state.data(), wifi_state.size(), "unavailable");
     }
-    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble) ||
+        ble_stopped_by_user(snapshot.radios.ble)) {
         std::snprintf(ble_state.data(), ble_state.size(), "off");
     } else if (component_ready(snapshot.radios.ble)) {
         std::snprintf(
@@ -8272,7 +8817,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         ); !result) {
         return result;
     }
-    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
+    if (radio_deferred_by_policy(snapshot.radios.wifi) ||
+        wifi_stopped_by_user(snapshot.radios.wifi)) {
         std::snprintf(
             text.data(),
             text.size(),
@@ -8325,7 +8871,8 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
 
-    if (radio_deferred_by_policy(snapshot.radios.ble)) {
+    if (radio_deferred_by_policy(snapshot.radios.ble) ||
+        ble_stopped_by_user(snapshot.radios.ble)) {
         std::snprintf(
             text.data(),
             text.size(),

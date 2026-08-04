@@ -760,6 +760,97 @@ fail:
     return error;
 }
 
+extern "C" esp_err_t qsee_wifi_stop(void)
+{
+    if (!s_initialized &&
+        s_ip_event_instance == nullptr &&
+        s_wifi_event_instance == nullptr &&
+        !s_driver_initialized &&
+        !s_driver_started &&
+        s_station_netif == nullptr) {
+        return ESP_OK;
+    }
+
+    const esp_err_t reconnect_error = cancel_reconnect();
+    if (reconnect_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi stop rejected because reconnect cancellation failed (%s)",
+            esp_err_to_name(reconnect_error)
+        );
+        record_error(reconnect_error);
+        return reconnect_error;
+    }
+
+    wifi_lock();
+    s_connect_requested = false;
+    s_status.connect_requested = false;
+    s_status.reconnect_pending = false;
+    wifi_unlock();
+
+    if (s_driver_started) {
+        const esp_err_t cleanup_error = esp_wifi_stop();
+        if (cleanup_error != ESP_OK) {
+            abort_incomplete_cleanup("Wi-Fi driver stop", cleanup_error);
+        }
+        s_driver_started = false;
+    }
+    if (s_ip_event_instance != nullptr) {
+        const esp_err_t cleanup_error =
+            esp_event_handler_instance_unregister(
+                IP_EVENT,
+                ESP_EVENT_ANY_ID,
+                s_ip_event_instance
+            );
+        if (cleanup_error != ESP_OK) {
+            abort_incomplete_cleanup(
+                "IP event handler cleanup",
+                cleanup_error
+            );
+        }
+        s_ip_event_instance = nullptr;
+    }
+    if (s_wifi_event_instance != nullptr) {
+        const esp_err_t cleanup_error =
+            esp_event_handler_instance_unregister(
+                WIFI_EVENT,
+                ESP_EVENT_ANY_ID,
+                s_wifi_event_instance
+            );
+        if (cleanup_error != ESP_OK) {
+            abort_incomplete_cleanup(
+                "Wi-Fi event handler cleanup",
+                cleanup_error
+            );
+        }
+        s_wifi_event_instance = nullptr;
+    }
+    if (s_driver_initialized) {
+        const esp_err_t cleanup_error = esp_wifi_deinit();
+        if (cleanup_error != ESP_OK) {
+            abort_incomplete_cleanup("Wi-Fi driver cleanup", cleanup_error);
+        }
+        s_driver_initialized = false;
+    }
+    if (s_station_netif != nullptr) {
+        esp_netif_destroy_default_wifi(s_station_netif);
+        s_station_netif = nullptr;
+    }
+
+    wifi_lock();
+    const uint32_t next_sequence = s_status.event_sequence + 1U;
+    std::memset(&s_status, 0, sizeof(s_status));
+    s_status.last_error = ESP_ERR_INVALID_STATE;
+    s_status.event_sequence = next_sequence;
+    s_initialized = false;
+    s_initialization_result = ESP_ERR_INVALID_STATE;
+    s_network_count = 0;
+    wifi_unlock();
+    publish_snapshot();
+    ESP_LOGI(TAG, "Wi-Fi station lifecycle stopped by explicit user action");
+    return ESP_OK;
+}
+
 extern "C" esp_err_t qsee_wifi_connect(const char *ssid, const char *password, bool persist)
 {
     if (!s_initialized) {

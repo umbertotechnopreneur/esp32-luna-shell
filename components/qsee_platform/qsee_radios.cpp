@@ -87,6 +87,7 @@ static TaskHandle_t s_ble_host_task_handle;
 static StaticSemaphore_t s_refresh_stop_ack_storage;
 static SemaphoreHandle_t s_refresh_stop_ack;
 static bool s_refresh_stop_requested;
+static bool s_ble_stop_requested;
 
 static bool has_fresh_data(const qsee::ComponentSnapshot &component)
 {
@@ -715,11 +716,16 @@ static void ble_host_task(void *arg)
 
     stop_refresh_snapshot_task();
     const esp_err_t cleanup_error = nimble_port_deinit();
-    const esp_err_t runtime_error =
-        cleanup_error == ESP_OK ? ESP_ERR_INVALID_STATE : cleanup_error;
+    bool stop_requested = false;
+    esp_err_t runtime_error = cleanup_error;
     {
         std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        stop_requested = s_ble_stop_requested;
+        runtime_error = cleanup_error == ESP_OK
+                            ? ESP_ERR_INVALID_STATE
+                            : cleanup_error;
         s_ble_host_task_handle = nullptr;
+        s_ble_initializing = false;
         s_ble_initialized = false;
         s_ble_host_synced = false;
         s_ble_advertising = false;
@@ -728,14 +734,23 @@ static void ble_host_task(void *arg)
         s_ble_initialization_result = runtime_error;
         s_ble_runtime_error = runtime_error;
         s_ble_cleanup_poisoned = cleanup_error != ESP_OK;
+        if (stop_requested && cleanup_error == ESP_OK) {
+            s_ble_initialization_attempted = false;
+        }
+        s_ble_stop_requested = false;
     }
     publish_ble_snapshot(runtime_error);
-    ESP_LOGE(
-        TAG,
-        "BLE host task stopped unexpectedly; NimBLE cleanup %s (%s)",
-        cleanup_error == ESP_OK ? "completed" : "failed",
-        esp_err_to_name(cleanup_error)
-    );
+    if (stop_requested && cleanup_error == ESP_OK) {
+        ESP_LOGI(TAG, "BLE telemetry lifecycle stopped by explicit user action");
+    } else {
+        ESP_LOGE(
+            TAG,
+            "BLE host task stopped %s; NimBLE cleanup %s (%s)",
+            stop_requested ? "with a cleanup failure" : "unexpectedly",
+            cleanup_error == ESP_OK ? "completed" : "failed",
+            esp_err_to_name(cleanup_error)
+        );
+    }
     vTaskDelete(nullptr);
 }
 
@@ -794,6 +809,68 @@ static esp_err_t fail_ble_initialization_after_port(
         );
     }
     return returned_error;
+}
+
+static esp_err_t stop_ble_telemetry()
+{
+    std::lock_guard<std::mutex> lifecycle_guard(s_ble_lifecycle_mutex);
+    {
+        std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        if (s_ble_cleanup_poisoned) {
+            return s_ble_runtime_error == ESP_OK
+                       ? ESP_ERR_INVALID_STATE
+                       : s_ble_runtime_error;
+        }
+        if (s_ble_initializing) {
+            ESP_LOGE(TAG, "BLE stop rejected while initialization is active");
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (!s_ble_initialized && s_ble_host_task_handle == nullptr) {
+            return ESP_OK;
+        }
+        s_ble_stop_requested = true;
+    }
+
+    const int stop_result = nimble_port_stop();
+    if (stop_result != 0) {
+        {
+            std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+            s_ble_stop_requested = false;
+            s_ble_runtime_error = ESP_FAIL;
+        }
+        publish_ble_snapshot(ESP_FAIL);
+        ESP_LOGE(
+            TAG,
+            "BLE telemetry stop request failed (NimBLE rc=%d)",
+            stop_result
+        );
+        return ESP_FAIL;
+    }
+
+    constexpr uint32_t kStopWaitMs = 3000U;
+    constexpr uint32_t kStopPollMs = 10U;
+    for (uint32_t waited_ms = 0;
+         waited_ms < kStopWaitMs;
+         waited_ms += kStopPollMs) {
+        {
+            std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+            if (s_ble_host_task_handle == nullptr) {
+                return s_ble_cleanup_poisoned
+                           ? s_ble_runtime_error
+                           : ESP_OK;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(kStopPollMs));
+    }
+
+    {
+        std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        s_ble_runtime_error = ESP_ERR_TIMEOUT;
+    }
+    publish_ble_snapshot(ESP_ERR_TIMEOUT);
+    ESP_LOGE(TAG, "BLE telemetry stop timed out after %lu ms",
+             static_cast<unsigned long>(kStopWaitMs));
+    return ESP_ERR_TIMEOUT;
 }
 
 extern "C" esp_err_t qsee_ble_init(void)
@@ -919,8 +996,10 @@ extern "C" esp_err_t qsee_ble_init(void)
         );
     }
 
-    s_refresh_stop_ack =
-        xSemaphoreCreateBinaryStatic(&s_refresh_stop_ack_storage);
+    if (s_refresh_stop_ack == nullptr) {
+        s_refresh_stop_ack =
+            xSemaphoreCreateBinaryStatic(&s_refresh_stop_ack_storage);
+    }
     if (s_refresh_stop_ack == nullptr) {
         return fail_ble_initialization_after_port(
             "refresh worker stop acknowledgement creation",
@@ -1147,5 +1226,56 @@ esp_err_t qsee_radios_init(void)
             "awaiting controller sync"
         );
     }
+    return ESP_OK;
+}
+
+esp_err_t qsee_radios_stop(void)
+{
+    std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
+
+    esp_err_t ble_result = ESP_OK;
+    if (qsee_provisioning_initialized()) {
+        if (qsee_provisioning_active()) {
+            ble_result = qsee_provisioning_stop();
+        }
+        if (ble_result == ESP_OK) {
+            ble_result = qsee_provisioning_deinit_for_ble();
+        }
+    } else {
+#if CONFIG_BT_NIMBLE_ENABLED
+        ble_result = stop_ble_telemetry();
+#endif
+    }
+    if (ble_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Radio shutdown stopped after BLE cleanup failed (%s)",
+            esp_err_to_name(ble_result)
+        );
+        return ble_result;
+    }
+
+    const esp_err_t wifi_result = qsee_wifi_stop();
+    if (wifi_result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Radio shutdown stopped after Wi-Fi cleanup failed (%s)",
+            esp_err_to_name(wifi_result)
+        );
+        return wifi_result;
+    }
+
+    qsee::DeviceSnapshotService::instance().reportBle(
+        false,
+        ESP_ERR_INVALID_STATE,
+        false,
+        false,
+        0xFFFF,
+        0,
+        0,
+        nullptr,
+        false
+    );
+    ESP_LOGI(TAG, "Wireless services stopped by explicit user action");
     return ESP_OK;
 }

@@ -320,6 +320,7 @@ bool qsee_performance_mode_get_enabled(void);
  * device-scoped name.
  */
 esp_err_t qsee_radios_init(void);
+esp_err_t qsee_radios_stop(void);
 esp_err_t qsee_ble_init(void);
 
 #define QSEE_WIFI_MAX_NETWORKS 16
@@ -363,6 +364,7 @@ typedef struct {
  * A profile previously stored by ESP-IDF is connected automatically.
  */
 esp_err_t qsee_wifi_init(void);
+esp_err_t qsee_wifi_stop(void);
 
 /**
  * Apply a station profile and connect. The password is never written to logs.

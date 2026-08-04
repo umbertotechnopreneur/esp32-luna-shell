@@ -403,7 +403,7 @@
                                     "type": "label",
                                     "id": "thresholds",
                                     "labelProps": {
-                                        "text": "CRITICAL 12%  ·  LOW 30%  ·  NORMAL"
+                                        "text": "CRITICAL 12%  |  LOW 30%  |  NORMAL"
                                     },
                                     "style": {
                                         "textColor": "#8aa7b6",
@@ -539,7 +539,7 @@
                                     "type": "label",
                                     "id": "truth_note",
                                     "labelProps": {
-                                        "text": "Canonical snapshots · configured policy · no estimates"
+                                        "text": "Canonical snapshots | configured policy | no estimates"
                                     },
                                     "style": {
                                         "textColor": "#617f91",

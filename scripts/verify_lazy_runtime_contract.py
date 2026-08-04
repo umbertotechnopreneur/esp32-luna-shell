@@ -202,6 +202,8 @@ def main() -> int:
         "hardware_ui_cache_.colors[index]",
         "imu_ui_cache_.status",
         "imu_ui_cache_.arc_opacity[axis]",
+        "gps_ui_cache_.device_state",
+        "gps_ui_cache_.satellite_signal",
     ):
         require_contains(app, fragment, "differential UI refresh")
     require(

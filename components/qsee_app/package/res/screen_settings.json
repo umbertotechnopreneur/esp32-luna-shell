@@ -402,59 +402,6 @@
                                     }
                                 },
                                 {
-                                    "type": "button",
-                                    "id": "storage_action",
-                                    "commonProps": {
-                                        "pressLock": false
-                                    },
-                                    "events": [
-                                        {
-                                            "type": "clicked",
-                                            "action": "qsee.open.storage"
-                                        }
-                                    ],
-                                    "style": {
-                                        "bgColor": "#0b55d9",
-                                        "borderColor": "#65c8ff",
-                                        "borderWidth": "1dp",
-                                        "radius": "10dp",
-                                        "padding": 0
-                                    },
-                                    "stateStyles": {
-                                        "pressed": {
-                                            "bgColor": "#1765ad",
-                                            "borderColor": "#9cddff",
-                                            "borderWidth": "1dp"
-                                        }
-                                    },
-                                    "placement": {
-                                        "width": "180dp",
-                                        "height": "42dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "label",
-                                            "id": "label",
-                                            "commonProps": {
-                                                "clickable": false,
-                                                "scrollable": false
-                                            },
-                                            "labelProps": {
-                                                "text": "MANAGE SD CARD"
-                                            },
-                                            "style": {
-                                                "textColor": "#ffffff",
-                                                "fontSize": "${constant.typography.detail}",
-                                                "textAlign": "center"
-                                            },
-                                            "placement": {
-                                                "mode": "relative",
-                                                "align": "center"
-                                            }
-                                        }
-                                    ]
-                                },
-                                {
                                     "type": "templateRef",
                                     "id": "storage_mirror",
                                     "templateId": "qsee_settings_switch",
@@ -528,45 +475,10 @@
                                     }
                                 },
                                 {
-                                    "type": "button",
-                                    "id": "radio_start",
-                                    "events": [
-                                        {
-                                            "type": "clicked",
-                                            "action": "qsee.settings.radios.start"
-                                        }
-                                    ],
-                                    "style": {
-                                        "bgColor": "#0b55d9",
-                                        "radius": "19dp"
-                                    },
-                                    "placement": {
-                                        "width": "176dp",
-                                        "height": "38dp"
-                                    },
-                                    "children": [
-                                        {
-                                            "type": "label",
-                                            "id": "label",
-                                            "labelProps": {
-                                                "text": "START WIRELESS"
-                                            },
-                                            "style": {
-                                                "textColor": "#ffffff",
-                                                "fontSize": "${constant.typography.detail}"
-                                            },
-                                            "placement": {
-                                                "mode": "relative",
-                                                "align": "center"
-                                            }
-                                        }
-                                    ]
-                                },
-                                {
                                     "type": "label",
                                     "id": "radio_policy",
                                     "labelProps": {
-                                        "text": "Wireless stays off until you start it."
+                                        "text": "Use the lower Wireless control to start or stop services."
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",

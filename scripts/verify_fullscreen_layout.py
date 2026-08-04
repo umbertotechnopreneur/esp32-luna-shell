@@ -172,6 +172,7 @@ def verify_package() -> None:
         "qsee_audio_fft",
         "qsee_audio_detail",
         "qsee_imu",
+        "qsee_gps",
         "qsee_tof",
         "qsee_tof_settings",
         "qsee_settings",
@@ -304,6 +305,7 @@ def verify_firmware_contract() -> None:
     require(app, "sync_content_viewport(context)", "viewport synchronization")
     require(app, "kCircularWideContentInsetDp", "round-display padding")
     require(app, '"/qsee_tof/surface"', "TOF fixed canvas")
+    require(app, '"/qsee_gps/surface"', "GPS fixed canvas")
     require(
         app,
         '"/qsee_tof_settings/surface"',
