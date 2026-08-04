@@ -92,7 +92,33 @@ static void read_sd_state(qsee_logger_sd_status_t *status, uint32_t *generation)
     portEXIT_CRITICAL(&s_sd_lock);
 }
 
-static void set_sd_enabled(void)
+// Wake the SD writer after a state change and report a broken task invariant.
+static esp_err_t notify_writer_state_change(const char *operation)
+{
+    TaskHandle_t writer_task_handle = s_writer_task;
+    if (writer_task_handle == NULL) {
+        serial_printf(
+            "E (%lld) %s: SD writer %s notification rejected: task is unavailable\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            operation
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xTaskNotifyGive(writer_task_handle) != pdPASS) {
+        serial_printf(
+            "E (%lld) %s: SD writer %s notification failed\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            operation
+        );
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// Publish the enabled generation and release a writer parked without polling.
+static esp_err_t set_sd_enabled(void)
 {
     const int64_t changed_at_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_sd_lock);
@@ -102,17 +128,21 @@ static void set_sd_enabled(void)
     s_sd_status.changed_at_us = changed_at_us;
     s_sd_generation++;
     portEXIT_CRITICAL(&s_sd_lock);
+    return notify_writer_state_change("enable");
 }
 
-static void set_sd_disabled(void)
+// Publish the disabled state and force a fresh idle acknowledgement.
+static esp_err_t set_sd_disabled(void)
 {
     const int64_t changed_at_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_sd_lock);
     s_sd_status.enabled = false;
     s_sd_status.changed_at_us = changed_at_us;
     portEXIT_CRITICAL(&s_sd_lock);
+    return notify_writer_state_change("disable");
 }
 
+// Record the real SD error and wake the writer so it can close its open file.
 static void record_sd_failure(const char *operation, esp_err_t error, int system_errno)
 {
     const int64_t changed_at_us = esp_timer_get_time();
@@ -132,6 +162,16 @@ static void record_sd_failure(const char *operation, esp_err_t error, int system
         esp_err_to_name(error),
         system_errno
     );
+    const esp_err_t notification_error =
+        notify_writer_state_change("failure-state");
+    if (notification_error != ESP_OK) {
+        serial_printf(
+            "E (%lld) %s: SD failure-state wake also failed: %s\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            esp_err_to_name(notification_error)
+        );
+    }
 }
 
 static void ring_push(const char *line)
@@ -373,6 +413,7 @@ static bool write_log_line(
     return true;
 }
 
+// Persist enabled SD logs and park indefinitely once the mirror is disabled.
 static void writer_task(void *arg)
 {
     (void)arg;
@@ -425,7 +466,7 @@ static void writer_task(void *arg)
                     /* A binary acknowledgement is already pending. */
                 }
             }
-            vTaskDelay(pdMS_TO_TICKS(100));
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             continue;
         }
 
@@ -441,6 +482,7 @@ static void writer_task(void *arg)
     }
 }
 
+// Disable the mirror and wait for the writer's post-close acknowledgement.
 static esp_err_t stop_sd_writer(void)
 {
     qsee_logger_sd_status_t before;
@@ -449,7 +491,11 @@ static esp_err_t stop_sd_writer(void)
     while (xSemaphoreTake(s_writer_idle, 0) == pdTRUE) {
         /* Remove a stale idle acknowledgement before requesting the stop. */
     }
-    set_sd_disabled();
+    const esp_err_t notification_error = set_sd_disabled();
+    if (notification_error != ESP_OK) {
+        record_sd_failure("stop notification", notification_error, 0);
+        return notification_error;
+    }
     if (xSemaphoreTake(s_writer_idle, pdMS_TO_TICKS(1000)) != pdTRUE) {
         record_sd_failure("stop acknowledgement", ESP_ERR_TIMEOUT, 0);
         return ESP_ERR_TIMEOUT;
@@ -579,7 +625,11 @@ esp_err_t qsee_logger_enable_sd(const char *mount_point)
         return ESP_FAIL;
     }
 
-    set_sd_enabled();
+    const esp_err_t enable_error = set_sd_enabled();
+    if (enable_error != ESP_OK) {
+        record_sd_failure("enable notification", enable_error, 0);
+        return enable_error;
+    }
     ESP_LOGI(TAG, "SD mirror enabled: %s", s_log_path);
     return ESP_OK;
 }

@@ -8,6 +8,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_settings.hpp"
@@ -19,7 +20,9 @@ constexpr char kTag[] = "qsee_full_snapshot";
 constexpr char kPeriodSetting[] = "snapshot_ms";
 constexpr char kRefreshReason[] = "periodic-full";
 constexpr uint32_t kDefaultPeriodMs = 1000;
-constexpr uint32_t kStandbyDelayMs = 250;
+constexpr uint32_t kPowerSuspendTimeoutMs = 5000;
+constexpr EventBits_t kWorkerQuiescentBit =
+    static_cast<EventBits_t>(1U << 0);
 // A full refresh keeps two DeviceSnapshot values on the caller stack.
 constexpr uint32_t kTaskStackBytes = 12U * 1024U;
 constexpr UBaseType_t kTaskPriority = 2;
@@ -27,12 +30,16 @@ std::atomic<uint32_t> s_period_ms{kDefaultPeriodMs};
 std::atomic_bool s_period_valid{false};
 std::atomic_bool s_monitor_requested{false};
 std::atomic_bool s_performance_suspended{false};
+std::atomic_bool s_power_suspended{false};
 std::atomic_bool s_monitor_active{false};
 bool s_task_started = false;
 TaskHandle_t s_task_handle = nullptr;
+EventGroupHandle_t s_task_events = nullptr;
 std::mutex s_settings_mutex;
+std::mutex s_power_transition_mutex;
 StaticTask_t s_task_control{};
 StackType_t s_task_stack[kTaskStackBytes]{};
+StaticEventGroup_t s_task_event_storage{};
 
 void publish_period(uint32_t period_ms, esp_err_t error)
 {
@@ -120,15 +127,22 @@ esp_err_t load_or_create_period_locked()
     return ESP_OK;
 }
 
+// Park without polling whenever no lifecycle owner needs Full Snapshots.
 void full_snapshot_task(void *)
 {
     bool stack_reported = false;
     while (true) {
         if (!s_monitor_active.load(std::memory_order_acquire)) {
-            (void)ulTaskNotifyTake(
-                pdTRUE,
-                pdMS_TO_TICKS(kStandbyDelayMs)
+            (void)xEventGroupSetBits(
+                s_task_events,
+                kWorkerQuiescentBit
             );
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
+        }
+
+        (void)xEventGroupClearBits(s_task_events, kWorkerQuiescentBit);
+        if (!s_monitor_active.load(std::memory_order_acquire)) {
             continue;
         }
 
@@ -172,6 +186,7 @@ void full_snapshot_task(void *)
                 : 0;
         const uint32_t remaining_ms =
             elapsed_ms < period_ms ? period_ms - elapsed_ms : 1;
+        (void)xEventGroupSetBits(s_task_events, kWorkerQuiescentBit);
         (void)ulTaskNotifyTake(
             pdTRUE,
             pdMS_TO_TICKS(std::max<uint32_t>(1, remaining_ms))
@@ -179,10 +194,19 @@ void full_snapshot_task(void *)
     }
 }
 
+// Create the worker and its static quiescence acknowledgement channel once.
 esp_err_t ensure_task_locked()
 {
     if (s_task_started) {
         return ESP_OK;
+    }
+
+    if (s_task_events == nullptr) {
+        s_task_events = xEventGroupCreateStatic(&s_task_event_storage);
+        if (s_task_events == nullptr) {
+            ESP_LOGE(kTag, "Full Snapshot event group creation failed");
+            return ESP_ERR_NO_MEM;
+        }
     }
 
     s_task_handle = xTaskCreateStatic(
@@ -204,11 +228,13 @@ esp_err_t ensure_task_locked()
     return ESP_OK;
 }
 
+// Combine independent lifecycle reasons without overwriting app intent.
 void apply_effective_monitor_state_locked()
 {
     const bool active =
         s_monitor_requested.load(std::memory_order_relaxed) &&
-        !s_performance_suspended.load(std::memory_order_relaxed);
+        !s_performance_suspended.load(std::memory_order_relaxed) &&
+        !s_power_suspended.load(std::memory_order_relaxed);
     s_monitor_active.store(active, std::memory_order_release);
     if (s_task_handle != nullptr) {
         xTaskNotifyGive(s_task_handle);
@@ -268,6 +294,56 @@ extern "C" esp_err_t qsee_hardware_set_full_snapshot_performance_suspended(
     ESP_LOGI(
         kTag,
         "Full Snapshot Performance Mode suppression: %s",
+        suspended ? "active" : "inactive"
+    );
+    return ESP_OK;
+}
+
+// Quiesce the worker synchronously while preserving its requested lifecycle.
+extern "C" esp_err_t qsee_hardware_set_full_snapshot_power_suspended(
+    bool suspended
+)
+{
+    std::lock_guard<std::mutex> transition_lock(s_power_transition_mutex);
+    bool wait_for_quiescence = false;
+    {
+        std::lock_guard<std::mutex> lock(s_settings_mutex);
+        s_power_suspended.store(suspended, std::memory_order_relaxed);
+        apply_effective_monitor_state_locked();
+        wait_for_quiescence = suspended && s_task_started;
+    }
+
+    if (wait_for_quiescence) {
+        const EventBits_t bits = xEventGroupWaitBits(
+            s_task_events,
+            kWorkerQuiescentBit,
+            pdFALSE,
+            pdTRUE,
+            pdMS_TO_TICKS(kPowerSuspendTimeoutMs)
+        );
+        if ((bits & kWorkerQuiescentBit) == 0U) {
+            {
+                std::lock_guard<std::mutex> lock(s_settings_mutex);
+                s_power_suspended.store(false, std::memory_order_relaxed);
+                apply_effective_monitor_state_locked();
+                publish_monitor(
+                    s_monitor_active.load(std::memory_order_acquire),
+                    ESP_ERR_TIMEOUT
+                );
+            }
+            ESP_LOGE(
+                kTag,
+                "Full Snapshot power suspension timed out after %lu ms; request rolled back (%s)",
+                static_cast<unsigned long>(kPowerSuspendTimeoutMs),
+                esp_err_to_name(ESP_ERR_TIMEOUT)
+            );
+            return ESP_ERR_TIMEOUT;
+        }
+    }
+
+    ESP_LOGI(
+        kTag,
+        "Full Snapshot power suspension: %s",
         suspended ? "active" : "inactive"
     );
     return ESP_OK;

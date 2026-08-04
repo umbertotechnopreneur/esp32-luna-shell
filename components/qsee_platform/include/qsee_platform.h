@@ -67,6 +67,8 @@ esp_err_t qsee_hardware_start_full_snapshot_monitor(void);
 esp_err_t qsee_hardware_stop_full_snapshot_monitor(void);
 /** Suppress periodic Full Snapshots without changing the requested lifecycle. */
 esp_err_t qsee_hardware_set_full_snapshot_performance_suspended(bool suspended);
+/** Quiesce Full Snapshots for system standby without changing app lifecycle. */
+esp_err_t qsee_hardware_set_full_snapshot_power_suspended(bool suspended);
 /** Persist one supported Full Snapshot cadence: 300-10000 ms presets only. */
 esp_err_t qsee_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
 
@@ -87,6 +89,14 @@ esp_err_t qsee_hardware_set_diagnostic_streams(
  * it does not poll microphones or expose a second sensor-data path to the UI.
  */
 esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled);
+/**
+ * Select the QMI8658 active or software-standby sampling profile.
+ *
+ * The low-power profile keeps accelerometer and gyroscope measurements valid
+ * at their lowest common 31.25 Hz ODR. Disabling it restores the normal 8
+ * g/500 Hz accelerometer and 512 dps/500 Hz gyroscope configuration.
+ */
+esp_err_t qsee_hardware_set_imu_low_power(bool enabled);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t qsee_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */
@@ -117,6 +127,8 @@ esp_err_t qsee_distance_set_sample_count(uint16_t sample_count);
 esp_err_t qsee_distance_set_sample_interval_ms(uint32_t interval_ms);
 /** Persist the 500..1500 mm physical calibration reference, in 10 mm steps. */
 esp_err_t qsee_distance_set_reference_mm(uint16_t reference_mm);
+/** Quiesce distance acquisition and its UART transports for system standby. */
+esp_err_t qsee_distance_set_power_suspended(bool suspended);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
 esp_err_t qsee_rtc_read(qsee_calendar_time_t *time);
@@ -151,6 +163,12 @@ esp_err_t qsee_power_manager_init(void);
 /** Record activity without blocking the touch or UI callback. */
 void qsee_power_manager_note_activity(void);
 
+/** Publish the exact UI quiescence result for one standby generation. */
+void qsee_power_manager_note_ui_standby_result(
+    uint32_t transition_sequence,
+    esp_err_t result
+);
+
 /** Persist and apply one supported inactivity timeout. */
 esp_err_t qsee_power_manager_set_timeout(
     qsee_power_timeout_t timeout,
@@ -180,6 +198,11 @@ esp_err_t qsee_storage_request_format(void);
 esp_err_t qsee_storage_set_logger_mirror(bool enabled);
 /** Pause effective SD log writes while preserving the user's saved preference. */
 esp_err_t qsee_storage_set_performance_suspended(bool suspended);
+/**
+ * Quiesce SD polling and mirroring for standby without unmounting the card.
+ * Resume validates the mounted card and FAT before restoring user mirroring.
+ */
+esp_err_t qsee_storage_set_power_suspended(bool suspended);
 
 /** Persist and apply AMOLED brightness (10-100 percent). */
 esp_err_t qsee_display_set_brightness_percent(uint32_t percent);
@@ -259,7 +282,7 @@ esp_err_t qsee_audio_capture_voice_pcm16(
 /** Reconfigure the shared speaker/microphone route for the 16 kHz voice AFE. */
 esp_err_t qsee_audio_prepare_voice_route(void);
 
-/** Close or restore the shared codec streams around global standby. */
+/** Atomically suspend or restore shared codec streams and the I2S transport. */
 esp_err_t qsee_audio_set_standby(bool standby);
 
 /** Start the optional ESP-SR speech-recognition AFE worker. */

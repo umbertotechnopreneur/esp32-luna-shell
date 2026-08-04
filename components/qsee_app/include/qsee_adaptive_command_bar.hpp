@@ -59,8 +59,15 @@ public:
         bool visible
     );
 
+    // Stop motion and input before the renderer enters device standby.
+    std::expected<void, std::string> quiesce(
+        const esp_brookesia::system::core::AppGuiRuntime &gui
+    );
+
     // Stop active animations before the route document or app is torn down.
-    void shutdown(const esp_brookesia::system::core::AppGuiRuntime &gui);
+    std::expected<void, std::string> shutdown(
+        const esp_brookesia::system::core::AppGuiRuntime &gui
+    );
 
     [[nodiscard]] bool has_commands() const;
     [[nodiscard]] bool target_visible() const;
@@ -79,7 +86,9 @@ private:
     );
 
     // Cancel the outstanding Brookesia animation subscription.
-    void stop_animations(const esp_brookesia::system::core::AppGuiRuntime &gui);
+    std::expected<void, std::string> stop_animations(
+        const esp_brookesia::system::core::AppGuiRuntime &gui
+    );
 
     // Finalize the one component transition.
     void animation_completed(

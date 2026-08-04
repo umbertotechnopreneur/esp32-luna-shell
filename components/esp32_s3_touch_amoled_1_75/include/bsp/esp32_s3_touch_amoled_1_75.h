@@ -147,6 +147,27 @@ esp_err_t bsp_i2c_get_handle(i2c_master_bus_handle_t *out_handle);
 esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config);
 
 /**
+ * @brief Suspend or resume the initialized I2S transport for system standby
+ *
+ * Codec streams must be closed before entering standby. The codec route and
+ * I2S channels remain allocated so resume does not recreate ownership. Calls
+ * that request the current state are idempotent.
+ *
+ * @param[in] standby true to stop TX/RX, false to restore selected directions
+ * @param[in] resume_tx true to restore TX when leaving standby; ignored while
+ *                      entering standby
+ * @param[in] resume_rx true to restore RX when leaving standby; ignored while
+ *                      entering standby
+ * @return ESP_OK or the exact I2S driver error. A failed transition is rolled
+ *         back to its previous state when possible.
+ */
+esp_err_t bsp_audio_set_transport_standby(
+    bool standby,
+    bool resume_tx,
+    bool resume_rx
+);
+
+/**
  * @brief Initialize the complete speaker and microphone codec route
  *
  * @param[out] out_speaker Initialized ES8311 codec device
@@ -372,6 +393,8 @@ esp_err_t bsp_io_expander_init(
 
 #if (BSP_CONFIG_NO_GRAPHIC_LIB == 0)
 
+#define BSP_DISPLAY_LVGL_PAUSE_TIMEOUT_MS (1000U)
+
 typedef void (*bsp_touch_activity_callback_t)(void *user_data);
 
 /**
@@ -433,6 +456,32 @@ esp_err_t bsp_display_set_touch_activity_callback(
     bsp_touch_activity_callback_t callback,
     void *user_data
 );
+
+/**
+ * @brief Pause the LVGL worker and its periodic tick for display standby.
+ *
+ * The pinned adapter is patched to clear its acknowledgement before publishing
+ * the pause request, roll the worker back on timeout, and propagate tick-timer
+ * errors. Completion is bounded by BSP_DISPLAY_LVGL_PAUSE_TIMEOUT_MS. Repeated
+ * calls are idempotent. This API must be paired with bsp_display_lvgl_resume()
+ * and must not be mixed with sleep_prepare().
+ *
+ * @return ESP_OK, ESP_ERR_TIMEOUT, ESP_ERR_INVALID_STATE, or the exact
+ *         esp_lv_adapter_pause() error
+ */
+esp_err_t bsp_display_lvgl_pause(void);
+
+/**
+ * @brief Resume the LVGL worker and periodic tick after display standby.
+ *
+ * Repeated calls are idempotent. A failed resume retains either the verified
+ * paused state or a faulted-paused state; only resume can retry the latter, so
+ * another pause cannot convert an ambiguous timer state into success.
+ *
+ * @return ESP_OK, ESP_ERR_INVALID_STATE, or the exact
+ *         esp_lv_adapter_resume() error
+ */
+esp_err_t bsp_display_lvgl_resume(void);
 
 /**
  * @brief Take LVGL mutex

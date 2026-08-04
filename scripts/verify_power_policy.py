@@ -31,11 +31,102 @@ BSP_DISPLAY_SOURCE = (
     / "esp32_s3_touch_amoled_1_75"
     / "esp32_s3_touch_amoled_1_75.c"
 )
+BSP_DISPLAY_CMAKE = (
+    ROOT / "components" / "esp32_s3_touch_amoled_1_75" / "CMakeLists.txt"
+)
+ADAPTER_PAUSE_PATCH = (
+    ROOT
+    / "components"
+    / "esp32_s3_touch_amoled_1_75"
+    / "patches"
+    / "esp_lvgl_adapter_pause_recovery.patch"
+)
+APP_SOURCE = ROOT / "components" / "qsee_app" / "qsee_app.cpp"
+APP_HEADER = ROOT / "components" / "qsee_app" / "include" / "qsee_app.hpp"
+ADAPTIVE_CHROME_SOURCE = (
+    ROOT / "components" / "qsee_app" / "qsee_adaptive_chrome.cpp"
+)
+ADAPTIVE_COMMAND_SOURCE = (
+    ROOT / "components" / "qsee_app" / "qsee_adaptive_command_bar.cpp"
+)
+BROOKESIA_GUI_SOURCE = (
+    ROOT
+    / "third_party"
+    / "esp-brookesia"
+    / "system"
+    / "brookesia_system_core"
+    / "src"
+    / "system"
+    / "gui.cpp"
+)
+BROOKESIA_GUI_RUNTIME_HEADER = (
+    ROOT
+    / "third_party"
+    / "esp-brookesia"
+    / "system"
+    / "brookesia_system_core"
+    / "include"
+    / "brookesia"
+    / "system_core"
+    / "app"
+    / "gui_runtime.hpp"
+)
+BROOKESIA_APP_MANAGER_SOURCE = (
+    ROOT
+    / "third_party"
+    / "esp-brookesia"
+    / "system"
+    / "brookesia_system_core"
+    / "src"
+    / "app"
+    / "manager.cpp"
+)
+BROOKESIA_TASK_SOURCE = (
+    ROOT
+    / "third_party"
+    / "esp-brookesia"
+    / "system"
+    / "brookesia_system_core"
+    / "src"
+    / "system"
+    / "task.cpp"
+)
+BROOKESIA_IMPL_HEADER = (
+    ROOT
+    / "third_party"
+    / "esp-brookesia"
+    / "system"
+    / "brookesia_system_core"
+    / "src"
+    / "private"
+    / "system"
+    / "impl.hpp"
+)
+AUDIO_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_audio.cpp"
+VOICE_AFE_SOURCE = (
+    ROOT / "components" / "qsee_platform" / "qsee_voice_afe.cpp"
+)
+LOGGER_SOURCE = ROOT / "components" / "qsee_logger" / "qsee_logger.c"
+SNAPSHOT_SOURCE = (
+    ROOT / "components" / "qsee_platform" / "qsee_snapshot_scheduler.cpp"
+)
+DISTANCE_SOURCE = (
+    ROOT / "components" / "qsee_platform" / "qsee_distance_service.cpp"
+)
+DISTANCE_STUB_SOURCE = (
+    ROOT / "components" / "qsee_platform" / "qsee_distance_service_stub.cpp"
+)
+STORAGE_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_storage.cpp"
+PLATFORM_CMAKE = ROOT / "components" / "qsee_platform" / "CMakeLists.txt"
+SDKCONFIG_DEFAULTS = ROOT / "sdkconfig.defaults"
 
 PKEY_SHORT_IRQ = 1 << 0
 PKEY_LONG_IRQ = 1 << 1
 ERR_OK = 0
 ERR_DELIVERY_FAILED = 1
+ERR_TRANSITION_FAILED = 2
+ERR_INCONSISTENT_STATE = 3
+ERR_STORAGE_FAILED = 4
 
 
 def require(condition: bool, message: str) -> None:
@@ -45,6 +136,21 @@ def require(condition: bool, message: str) -> None:
 
 def read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
+
+
+# Reconstruct the post-patch side of a unified diff for source-order checks.
+def patch_new_side(text: str) -> str:
+    result: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("@@"):
+            trailing_context = line.rsplit("@@", 1)[-1].strip()
+            if trailing_context:
+                result.append(trailing_context)
+        elif line.startswith(" "):
+            result.append(line[1:])
+        elif line.startswith("+") and not line.startswith("+++ "):
+            result.append(line[1:])
+    return "\n".join(result)
 
 
 def require_contains(text: str, fragment: str, source: str) -> None:
@@ -281,6 +387,155 @@ def publish_then_clear_pkey_irq(
         if error != ERR_OK:
             return error
     return clear()
+
+
+class TransactionState(Enum):
+    ACTIVE = auto()
+    ENTERING_STANDBY = auto()
+    STANDBY = auto()
+    WAKING = auto()
+
+
+@dataclass
+class FaultInjectedResource:
+    name: str
+    applied: bool = False
+    consistent: bool = True
+    outcomes: list[int] | None = None
+    calls: list[bool] | None = None
+
+    # Give each modeled resource independent fault and call histories.
+    def __post_init__(self) -> None:
+        self.outcomes = [] if self.outcomes is None else self.outcomes
+        self.calls = [] if self.calls is None else self.calls
+
+    # Queue deterministic outcomes for the next physical transition attempts.
+    def inject(self, *outcomes: int) -> None:
+        self.outcomes.extend(outcomes)
+
+    # Mark a failed transition unknown so compensation cannot skip it.
+    def transition(self, target: bool) -> int:
+        if self.consistent and self.applied == target:
+            return ERR_OK
+        self.calls.append(target)
+        error = self.outcomes.pop(0) if self.outcomes else ERR_OK
+        if error != ERR_OK:
+            # A failed operation cannot prove that its nested rollback worked.
+            self.consistent = False
+            return error
+        self.applied = target
+        self.consistent = True
+        return ERR_OK
+
+
+class StandbyTransactionModel:
+    """Executable specification for fail-fast standby compensation."""
+
+    # Initialize a coherent active device with four representative resources.
+    def __init__(self) -> None:
+        self.resources = {
+            name: FaultInjectedResource(name)
+            for name in ("producer", "storage", "audio", "display")
+        }
+        self.state = TransactionState.ACTIVE
+        self.published_error = ERR_OK
+
+    # Seed a coherent standby state for wake-path fault injection.
+    def assume_standby(self) -> None:
+        for resource in self.resources.values():
+            resource.applied = True
+            resource.consistent = True
+        self.state = TransactionState.STANDBY
+
+    # Verify a terminal state while permitting only documented SD degradation.
+    def _stable(self, target: bool, allow_storage_degraded: bool) -> bool:
+        return all(
+            (name == "storage" and allow_storage_degraded)
+            or (resource.consistent and resource.applied == target)
+            for name, resource in self.resources.items()
+        )
+
+    # Model ordered suspension and mandatory terminal-state validation.
+    def _suspend(self, best_effort: bool) -> int:
+        first_error = ERR_OK
+        for name in ("producer", "storage", "audio"):
+            if not best_effort and first_error != ERR_OK:
+                break
+            error = self.resources[name].transition(True)
+            if first_error == ERR_OK and error != ERR_OK:
+                first_error = error
+        if best_effort or first_error == ERR_OK:
+            error = self.resources["display"].transition(True)
+            if first_error == ERR_OK and error != ERR_OK:
+                first_error = error
+        if not self._stable(True, allow_storage_degraded=False):
+            first_error = first_error or ERR_INCONSISTENT_STATE
+        return first_error
+
+    # Model ordered resume while keeping optional SD errors separately visible.
+    def _resume(self, best_effort: bool) -> tuple[int, int]:
+        first_error = ERR_OK
+        storage_error = ERR_OK
+        for name in ("audio", "storage", "producer"):
+            if not best_effort and first_error != ERR_OK:
+                break
+            error = self.resources[name].transition(False)
+            if name == "storage" and error != ERR_OK:
+                storage_error = error
+            elif first_error == ERR_OK and error != ERR_OK:
+                first_error = error
+        # The active panel is optional-storage tolerant, but never exposed
+        # after an inconsistent mandatory producer.
+        if first_error == ERR_OK:
+            error = self.resources["display"].transition(False)
+            if error != ERR_OK:
+                first_error = error
+        if not self._stable(
+            False,
+            allow_storage_degraded=storage_error != ERR_OK,
+        ):
+            first_error = first_error or ERR_INCONSISTENT_STATE
+        return first_error, storage_error
+
+    # Enter standby or execute active/standby compensation after a failure.
+    def enter(self) -> int:
+        self.state = TransactionState.ENTERING_STANDBY
+        transition_error = self._suspend(best_effort=False)
+        if transition_error == ERR_OK:
+            self.state = TransactionState.STANDBY
+            self.published_error = ERR_OK
+            return ERR_OK
+
+        rollback_error, storage_error = self._resume(best_effort=True)
+        if rollback_error == ERR_OK:
+            self.state = TransactionState.ACTIVE
+            self.published_error = storage_error or transition_error
+            return transition_error
+        recovery_error = self._suspend(best_effort=True)
+        if recovery_error == ERR_OK:
+            self.state = TransactionState.STANDBY
+        self.published_error = transition_error
+        return transition_error
+
+    # Wake or compensate without exposing the panel after mandatory failure.
+    def wake(self) -> int:
+        self.state = TransactionState.WAKING
+        transition_error, storage_error = self._resume(best_effort=False)
+        if transition_error == ERR_OK:
+            self.state = TransactionState.ACTIVE
+            self.published_error = storage_error
+            return storage_error
+
+        rollback_error = self._suspend(best_effort=True)
+        if rollback_error == ERR_OK:
+            self.state = TransactionState.STANDBY
+            self.published_error = transition_error
+            return transition_error
+        recovery_error, recovery_storage_error = self._resume(best_effort=True)
+        if recovery_error == ERR_OK:
+            self.state = TransactionState.ACTIVE
+        self.published_error = recovery_storage_error or transition_error
+        return transition_error
 
 
 def verify_inactivity_timeline() -> None:
@@ -547,12 +802,176 @@ def verify_pkey_delivery_order() -> None:
     )
 
 
+def verify_transaction_fault_injection() -> None:
+    entry_recovery = StandbyTransactionModel()
+    entry_recovery.resources["producer"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_OK,
+    )
+    require(
+        entry_recovery.enter() == ERR_TRANSITION_FAILED,
+        "entry must preserve the original transition error",
+    )
+    require(
+        entry_recovery.state == TransactionState.ACTIVE,
+        "successful entry compensation must restore active state",
+    )
+    require(
+        entry_recovery.resources["producer"].calls == [True, False],
+        "unknown entry resource must be actively restored, not skipped",
+    )
+
+    entry_double_failure = StandbyTransactionModel()
+    entry_double_failure.resources["producer"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_TRANSITION_FAILED,
+        ERR_TRANSITION_FAILED,
+    )
+    entry_double_failure.enter()
+    require(
+        entry_double_failure.state == TransactionState.ENTERING_STANDBY,
+        "double-failed entry recovery must remain visibly incomplete",
+    )
+    require(
+        entry_double_failure.resources["producer"].calls
+        == [True, False, True],
+        "entry recovery must re-assert both compensation targets",
+    )
+
+    entry_storage_degraded = StandbyTransactionModel()
+    entry_storage_degraded.resources["storage"].inject(
+        ERR_OK,
+        ERR_STORAGE_FAILED,
+    )
+    entry_storage_degraded.resources["audio"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_OK,
+    )
+    entry_storage_degraded.enter()
+    require(
+        entry_storage_degraded.state == TransactionState.ACTIVE,
+        "entry compensation must restore the panel despite optional SD failure",
+    )
+    require(
+        entry_storage_degraded.published_error == ERR_STORAGE_FAILED,
+        "entry compensation must publish its optional SD recovery failure",
+    )
+    require(
+        not entry_storage_degraded.resources["display"].applied,
+        "entry compensation with degraded SD must leave the panel active",
+    )
+
+    wake_recovery = StandbyTransactionModel()
+    wake_recovery.assume_standby()
+    wake_recovery.resources["audio"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_OK,
+    )
+    require(
+        wake_recovery.wake() == ERR_TRANSITION_FAILED,
+        "wake rollback must preserve the original error",
+    )
+    require(
+        wake_recovery.state == TransactionState.STANDBY,
+        "successful wake compensation must restore standby",
+    )
+    require(
+        wake_recovery.resources["audio"].calls == [False, True],
+        "unknown wake resource must be actively re-suspended",
+    )
+
+    wake_double_failure = StandbyTransactionModel()
+    wake_double_failure.assume_standby()
+    wake_double_failure.resources["audio"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_TRANSITION_FAILED,
+        ERR_TRANSITION_FAILED,
+    )
+    wake_double_failure.wake()
+    require(
+        wake_double_failure.state == TransactionState.WAKING,
+        "double-failed wake recovery must remain visibly incomplete",
+    )
+    require(
+        wake_double_failure.resources["audio"].calls
+        == [False, True, False],
+        "wake recovery must retry an unknown resource in both directions",
+    )
+
+    wake_storage_degraded = StandbyTransactionModel()
+    wake_storage_degraded.assume_standby()
+    wake_storage_degraded.resources["audio"].inject(
+        ERR_TRANSITION_FAILED,
+        ERR_TRANSITION_FAILED,
+        ERR_OK,
+    )
+    wake_storage_degraded.resources["storage"].inject(
+        ERR_STORAGE_FAILED,
+    )
+    wake_storage_degraded.wake()
+    require(
+        wake_storage_degraded.state == TransactionState.ACTIVE,
+        "active recovery must tolerate optional SD failure after rollback",
+    )
+    require(
+        wake_storage_degraded.published_error == ERR_STORAGE_FAILED,
+        "active recovery must publish its optional SD failure",
+    )
+    require(
+        not wake_storage_degraded.resources["display"].applied,
+        "active recovery with degraded SD must expose the panel",
+    )
+
+    optional_storage = StandbyTransactionModel()
+    optional_storage.assume_standby()
+    optional_storage.resources["storage"].inject(ERR_STORAGE_FAILED)
+    require(
+        optional_storage.wake() == ERR_STORAGE_FAILED,
+        "optional SD wake failure must remain visible to the caller",
+    )
+    require(
+        optional_storage.state == TransactionState.ACTIVE,
+        "optional SD failure must not leave the device or panel in standby",
+    )
+    require(
+        optional_storage.resources["display"].consistent
+        and not optional_storage.resources["display"].applied,
+        "optional SD failure must still expose a coherent active panel",
+    )
+    require(
+        optional_storage.published_error == ERR_STORAGE_FAILED,
+        "optional SD recovery error must be published explicitly",
+    )
+
+
+# Tie the executable model to every firmware and scheduler lifecycle invariant.
 def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
     hardware = read(HARDWARE_SOURCE)
     header = read(PLATFORM_HEADER)
     display = read(DISPLAY_SOURCE)
     bsp_display = read(BSP_DISPLAY_SOURCE)
+    bsp_display_cmake = read(BSP_DISPLAY_CMAKE)
+    adapter_pause_patch = read(ADAPTER_PAUSE_PATCH)
+    adapter_pause_patch_new = patch_new_side(adapter_pause_patch)
+    app = read(APP_SOURCE)
+    app_header = read(APP_HEADER)
+    adaptive_chrome = read(ADAPTIVE_CHROME_SOURCE)
+    adaptive_command = read(ADAPTIVE_COMMAND_SOURCE)
+    brookesia_gui = read(BROOKESIA_GUI_SOURCE)
+    brookesia_gui_runtime_header = read(BROOKESIA_GUI_RUNTIME_HEADER)
+    brookesia_app_manager = read(BROOKESIA_APP_MANAGER_SOURCE)
+    brookesia_task = read(BROOKESIA_TASK_SOURCE)
+    brookesia_impl_header = read(BROOKESIA_IMPL_HEADER)
+    audio = read(AUDIO_SOURCE)
+    voice_afe = read(VOICE_AFE_SOURCE)
+    logger = read(LOGGER_SOURCE)
+    snapshot = read(SNAPSHOT_SOURCE)
+    distance = read(DISTANCE_SOURCE)
+    distance_stub = read(DISTANCE_STUB_SOURCE)
+    storage = read(STORAGE_SOURCE)
+    platform_cmake = read(PLATFORM_CMAKE)
+    sdkconfig_defaults = read(SDKCONFIG_DEFAULTS)
 
     require(
         "GPIO_NUM_41" not in power,
@@ -941,15 +1360,628 @@ def verify_source_contracts() -> None:
         "esp_err_t set_standby(",
         "standby transition",
     )
-    require_contains(
-        standby_transition,
-        "Display rollback after standby failure failed",
-        "standby display rollback",
+    for fragment in (
+        "suspend_standby_resources(false)",
+        "resume_standby_resources(true,",
+        "resume_standby_resources(false,",
+        "suspend_standby_resources(true)",
+        "begin_standby_sleep_measurement()",
+        "log_standby_sleep_measurement(",
+    ):
+        require_contains(standby_transition, fragment, "standby transaction")
+
+    ui_request_at = standby_transition.find(
+        "s_ui_quiescence_requested_sequence.store("
+    )
+    ui_wait_at = standby_transition.find("wait_for_ui_quiescence(")
+    resource_suspend_at = standby_transition.find(
+        "suspend_standby_resources(false)"
+    )
+    require(
+        0 <= ui_request_at < ui_wait_at < resource_suspend_at,
+        "UI producers must acknowledge quiescence before resource suspension",
+    )
+    for fragment in (
+        "std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE}",
+        "kUiQuiescenceTimeoutTicks",
+        "Standby control loop active",
+        "MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT",
+    ):
+        require_contains(power, fragment, "standby wake-control handshake")
+    require_regex(
+        header,
+        r"qsee_power_manager_note_ui_standby_result\s*\(\s*"
+        r"uint32_t\s+transition_sequence\s*,\s*"
+        r"esp_err_t\s+result\s*\)",
+        "standby UI result API",
+    )
+    require(
+        "qsee_power_manager_note_ui_standby_ready" not in power
+        and "qsee_power_manager_note_ui_standby_ready" not in header
+        and "qsee_power_manager_note_ui_standby_ready" not in app,
+        "the removed ready-only standby acknowledgement must not return",
+    )
+
+    ui_result_notifier = function_text(
+        power,
+        'extern "C" void qsee_power_manager_note_ui_standby_result(',
+        "standby UI result notifier",
+    )
+    require_regex(
+        ui_result_notifier,
+        r"s_ui_quiescence_requested_sequence\.load\(\s*"
+        r"std::memory_order_acquire\s*\).*?"
+        r"s_ui_quiescence_result\.store\(\s*result\s*,\s*"
+        r"std::memory_order_release\s*\).*?"
+        r"s_ui_quiescence_acknowledged_sequence\.store\(\s*"
+        r"transition_sequence\s*,\s*std::memory_order_release\s*\).*?"
+        r"xTaskNotifyGive\(s_task\)",
+        "standby result publication before acknowledgement and wake",
+    )
+    ui_quiescence_wait = function_text(
+        power,
+        "esp_err_t wait_for_ui_quiescence(",
+        "standby UI result wait",
+    )
+    require_regex(
+        ui_quiescence_wait,
+        r"s_ui_quiescence_acknowledged_sequence\.load\(\s*"
+        r"std::memory_order_acquire\s*\).*?"
+        r"s_ui_quiescence_result\.load\(std::memory_order_acquire\)",
+        "acknowledgement acquire before result acquire",
+    )
+    for fragment in (
+        "if (result != ESP_OK)",
+        "return result;",
+        "UI standby acknowledged: sequence=%lu",
+    ):
+        require_contains(
+            ui_quiescence_wait,
+            fragment,
+            "standby UI success and failure propagation",
+        )
+
+    app_power_timer = function_text(
+        app,
+        "std::expected<void, std::string> App::on_timer(",
+        "app power-state synchronization",
+    )
+    app_quiesce_order = [
+        app_power_timer.find(
+            "sync_refresh_timer(context, DisplayIdleStage::Off)"
+        ),
+        app_power_timer.find("adaptive_chrome_.quiesce(context.gui())"),
+        app_power_timer.find("context.gui().quiesce_input("),
+    ]
+    require(
+        all(index >= 0 for index in app_quiesce_order)
+        and app_quiesce_order == sorted(app_quiesce_order),
+        "app must stop refresh and Chrome before closing app input",
+    )
+    for failed_stage in (
+        r"sync_refresh_timer\(context, DisplayIdleStage::Off\).*?"
+        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
+        r"adaptive_chrome_\.quiesce\(context\.gui\(\)\).*?"
+        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
+        r"if\s*\(!drain_result\).*?"
+        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
+        r"if\s*\(!quiesce_result\).*?"
+        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
+    ):
+        require_regex(
+            app_power_timer,
+            failed_stage,
+            "QSee UI standby failure acknowledgement",
+        )
+    require_regex(
+        app_power_timer,
+        r"standby_ui_state_\s*=\s*StandbyUiState::Quiesced\s*;.*?"
+        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"transition_sequence\s*,\s*ESP_OK\s*\)",
+        "QSee UI standby success acknowledgement after natural drain",
+    )
+    for fragment in (
+        "enum class StandbyUiState",
+        "StandbyUiState standby_ui_state_ = StandbyUiState::Active",
+        "uint32_t standby_ui_generation_ = 0",
+        "uint32_t standby_ui_transition_sequence_ = 0",
+    ):
+        require_contains(app_header, fragment, "app standby generation gate")
+    app_action = function_text(
+        app,
+        "std::expected<void, std::string> App::on_action(",
+        "app action guard",
     )
     require_contains(
-        standby_transition,
-        "Display rollback after wake failure failed",
-        "wake display rollback",
+        app_action,
+        "standby_ui_state_ != StandbyUiState::Active",
+        "app standby action guard",
+    )
+    for fragment in (
+        "drain_pending_work() const",
+        "quiesce_input(",
+        "resume_input() const",
+        "std::expected<void, std::string> stop_animation(",
+    ):
+        require_contains(
+            brookesia_gui_runtime_header,
+            fragment,
+            "Brookesia app GUI lifecycle API",
+        )
+    gui_drain = function_text(
+        brookesia_gui,
+        "std::expected<void, std::string> System::gui_drain_pending_work(",
+        "Brookesia GUI drain",
+    )
+    gui_drain_order = [
+        gui_drain.find("SYSTEM_GUI_INPUT_TASK_GROUP"),
+        gui_drain.find("SYSTEM_GUI_TASK_GROUP"),
+        gui_drain.find("flush_pending_gui_bindings(app_id)"),
+    ]
+    require(
+        all(index >= 0 for index in gui_drain_order)
+        and gui_drain_order == sorted(gui_drain_order),
+        "GUI drain must serialize input before flushing pending bindings",
+    )
+    require_contains(
+        brookesia_impl_header,
+        "bool input_quiesced = false",
+        "Brookesia per-app input gate",
+    )
+    gui_stop_animation = function_text(
+        brookesia_gui,
+        "std::expected<void, std::string> System::gui_stop_animation(",
+        "Brookesia animation stop",
+    )
+    require_regex(
+        gui_stop_animation,
+        r"if\s*\(\s*!impl_->gui_runtime_->has_subscription\("
+        r"subscription_id\)\s*\)\s*\{.*?"
+        r"GUI animation already completed.*?return\s*\{\s*\}\s*;"
+        r".*?unsubscribe_subscription\(subscription_id\)",
+        "naturally completed animations are an idempotent stop success",
+    )
+    app_input_dispatch = function_text(
+        brookesia_task,
+        "std::expected<void, std::string> System::Impl::enqueue_app_input_task(",
+        "Brookesia app input dispatch gate",
+    )
+    for fragment in (
+        "!bypass_quiesce && record_result.value()->input_quiesced",
+        "record_result.value()->info.state != AppState::Running",
+        "task_scheduler_->post(",
+        "SYSTEM_APP_INPUT_TASK_GROUP",
+    ):
+        require_contains(
+            app_input_dispatch,
+            fragment,
+            "Brookesia app input execution gate",
+        )
+    app_input_barrier = function_text(
+        brookesia_task,
+        "std::expected<void, std::string> System::Impl::post_app_input_barrier(",
+        "Brookesia deferred AppInput barrier",
+    )
+    require_contains(
+        app_input_barrier,
+        "return enqueue_app_input_task(app_id, std::move(task), true);",
+        "Brookesia quiescence-bypassing AppInput barrier",
+    )
+    require(
+        "return post_task(" not in app_input_barrier,
+        "AppInput barrier must never execute inline from the App domain",
+    )
+    core_quiesce = function_text(
+        brookesia_app_manager,
+        "std::expected<void, std::string> System::app_quiesce_input(",
+        "Brookesia app input quiescence",
+    )
+    core_quiesce_order = [
+        core_quiesce.find("record.input_quiesced = true"),
+        core_quiesce.find("post_app_input_barrier("),
+        core_quiesce.find("gui_drain_pending_work(app_id)"),
+        core_quiesce.find("on_drained(std::move(drain_result))"),
+    ]
+    require(
+        all(index >= 0 for index in core_quiesce_order)
+        and core_quiesce_order == sorted(core_quiesce_order),
+        "Brookesia must gate input before its deferred GUI drain callback",
+    )
+    for fragment in (
+        "post_app_input_task(app_id, std::move(post_action))",
+        "impl_->post_app_input_task(",
+    ):
+        require_contains(
+            brookesia_gui,
+            fragment,
+            "Brookesia app-scoped GUI input dispatch",
+        )
+    adaptive_quiesce = function_text(
+        adaptive_chrome,
+        "std::expected<void, std::string> AdaptiveChromeController::quiesce(",
+        "adaptive chrome standby quiescence",
+    )
+    for fragment in (
+        "stop_status_animation(gui)",
+        'status_target_visible_ ? "255" : "0"',
+        "status_visible_ = status_target_visible_",
+        "command_bar_.quiesce(gui)",
+        "set_wake_surface(gui, false)",
+    ):
+        require_contains(
+            adaptive_quiesce,
+            fragment,
+            "adaptive chrome standby quiescence",
+        )
+    command_quiesce = function_text(
+        adaptive_command,
+        "std::expected<void, std::string> AdaptiveCommandBar::quiesce(",
+        "command bar standby quiescence",
+    )
+    for fragment in (
+        "stop_animations(gui)",
+        'animation_target_visible_ ? "255" : "0"',
+        "visible_ = animation_target_visible_",
+        "set_hit_testing(gui, false)",
+    ):
+        require_contains(
+            command_quiesce,
+            fragment,
+            "command bar standby quiescence",
+        )
+
+    resource_transition = function_text(
+        power,
+        "esp_err_t transition_standby_resource(",
+        "standby resource transition",
+    )
+    for fragment in (
+        "status.consistent && status.applied == target",
+        "status.consistent = false",
+        "status.applied = target",
+        "status.consistent = true",
+    ):
+        require_contains(
+            resource_transition,
+            fragment,
+            "standby unknown-state tracking",
+        )
+    require_contains(
+        power,
+        "standby_resources_match_target(",
+        "mandatory standby consistency validation",
+    )
+    for fragment in (
+        "optional_storage_error != ESP_OK",
+        "recovery_storage_error != ESP_OK",
+        "recovery_publication_error",
+    ):
+        require_contains(
+            standby_transition,
+            fragment,
+            "optional storage recovery publication",
+        )
+
+    suspend_resources = function_text(
+        power,
+        "esp_err_t suspend_standby_resources(",
+        "standby resource suspension",
+    )
+    suspend_order = [
+        suspend_resources.find("qsee_hardware_set_full_snapshot_power_suspended"),
+        suspend_resources.find("qsee_distance_set_power_suspended"),
+        suspend_resources.find("qsee_storage_set_power_suspended"),
+        suspend_resources.find("qsee_hardware_set_imu_low_power"),
+        suspend_resources.find("qsee_voice_afe_set_standby"),
+        suspend_resources.find("qsee_audio_set_standby"),
+        suspend_resources.find("transition_display_resource(true)"),
+        suspend_resources.find("set_lvgl_standby"),
+    ]
+    require(
+        all(index >= 0 for index in suspend_order)
+        and suspend_order == sorted(suspend_order),
+        "standby resources must quiesce producers before panel-off and LVGL pause",
+    )
+    bsp_pause = function_text(
+        bsp_display,
+        "esp_err_t bsp_display_lvgl_pause(void)",
+        "BSP LVGL pause",
+    )
+    for fragment in (
+        "esp_lv_adapter_pause(",
+        "recovery_result = esp_lv_adapter_resume()",
+        "BSP_DISPLAY_LVGL_FAULTED_PAUSED",
+    ):
+        require_contains(bsp_pause, fragment, "direct transactional LVGL pause")
+    bsp_resume = function_text(
+        bsp_display,
+        "esp_err_t bsp_display_lvgl_resume(void)",
+        "BSP LVGL resume",
+    )
+    for fragment in (
+        "previous_state != BSP_DISPLAY_LVGL_PAUSED",
+        "previous_state != BSP_DISPLAY_LVGL_FAULTED_PAUSED",
+        "result == ESP_OK ? BSP_DISPLAY_LVGL_ACTIVE : previous_state",
+    ):
+        require_contains(
+            bsp_resume,
+            fragment,
+            "verified and faulted LVGL resume recovery",
+        )
+    for removed_async_path in (
+        "lv_async_call(",
+        "lv_async_call_cancel(",
+        "bsp_display_lvgl_pause_from_worker",
+    ):
+        require(
+            removed_async_path not in bsp_display,
+            f"removed async LVGL pause path returned: {removed_async_path}",
+        )
+
+    require_regex(
+        bsp_display_cmake,
+        r"set\s*\(\s*_adapter_patches.*?"
+        r"esp_lvgl_adapter_pause_recovery\.patch.*?\).*?"
+        r"foreach\s*\(\s*_adapter_patch\s+IN\s+LISTS\s+"
+        r"_adapter_patches\s*\).*?"
+        r"\$\{GIT_EXECUTABLE\}\s+apply\s+--reverse\s+--check.*?"
+        r"\$\{GIT_EXECUTABLE\}\s+apply\s+--check.*?"
+        r"\$\{GIT_EXECUTABLE\}\s+apply\b",
+        "idempotent application of the pinned adapter pause-recovery patch",
+    )
+
+    patched_pause_signature = "esp_err_t esp_lv_adapter_pause(int32_t timeout_ms)"
+    patched_resume_signature = "esp_err_t esp_lv_adapter_resume(void)"
+    patched_resume_at = adapter_pause_patch_new.rfind(
+        patched_resume_signature
+    )
+    patched_pause_at = adapter_pause_patch_new.rfind(
+        patched_pause_signature,
+        0,
+        patched_resume_at,
+    )
+    require(
+        0 <= patched_pause_at < patched_resume_at,
+        "patched adapter pause/resume hunks are missing",
+    )
+    patched_pause = adapter_pause_patch_new[patched_pause_at:patched_resume_at]
+    pause_publish_order = [
+        patched_pause.find("xSemaphoreTake(s_ctx.pause_done_sem, 0)"),
+        patched_pause.find("s_ctx.paused = true"),
+        patched_pause.find("xTaskNotifyGive(s_ctx.task)"),
+    ]
+    require(
+        all(index >= 0 for index in pause_publish_order)
+        and pause_publish_order == sorted(pause_publish_order),
+        "adapter must clear stale ACK before publishing and notifying pause",
+    )
+    pause_timeout = require_regex(
+        patched_pause,
+        r"if\s*\(\s*xSemaphoreTake\(s_ctx\.pause_done_sem\s*,\s*ticks\)"
+        r"\s*!=\s*pdTRUE\s*\)\s*\{.*?return\s+ESP_ERR_TIMEOUT\s*;\s*\}",
+        "adapter pause timeout rollback",
+    ).group(0)
+    for fragment in (
+        "s_ctx.paused = false",
+        "s_ctx.pause_ack = false",
+        "xTaskNotifyGive(s_ctx.task)",
+    ):
+        require_contains(
+            pause_timeout,
+            fragment,
+            "adapter pause timeout rollback",
+        )
+    require(
+        patched_pause.count("adapter_stop_tick_timer()") >= 3
+        and patched_pause.count("adapter_start_tick_timer()") >= 3,
+        "every adapter pause ownership path must stop and recover the tick",
+    )
+    for fragment in (
+        "esp_err_t rollback_ret = adapter_start_tick_timer()",
+        "Failed to restore LVGL tick timer after pause error",
+    ):
+        require_contains(
+            patched_pause,
+            fragment,
+            "adapter tick-stop rollback",
+        )
+    patched_resume = adapter_pause_patch_new[patched_resume_at:]
+    resume_tick_order = [
+        patched_resume.find("esp_err_t ret = adapter_start_tick_timer()"),
+        patched_resume.find("if (ret != ESP_OK)"),
+        patched_resume.find("s_ctx.paused = false"),
+    ]
+    require(
+        all(index >= 0 for index in resume_tick_order)
+        and resume_tick_order == sorted(resume_tick_order),
+        "adapter resume must restart the tick before clearing paused",
+    )
+
+    resume_resources = function_text(
+        power,
+        "esp_err_t resume_standby_resources(",
+        "standby resource resume",
+    )
+    resume_order = [
+        resume_resources.find("set_lvgl_standby"),
+        resume_resources.find("qsee_hardware_set_imu_low_power"),
+        resume_resources.find("qsee_distance_set_power_suspended"),
+        resume_resources.find("qsee_storage_set_power_suspended"),
+        resume_resources.find("qsee_audio_set_standby"),
+        resume_resources.find("qsee_voice_afe_set_standby"),
+        resume_resources.find("qsee_hardware_set_full_snapshot_power_suspended"),
+        resume_resources.find("transition_display_resource(false)"),
+    ]
+    require(
+        all(index >= 0 for index in resume_order)
+        and resume_order == sorted(resume_order),
+        "wake must restore LVGL and producers before exposing the active panel",
+    )
+
+    for fragment in (
+        "qsee_hardware_set_full_snapshot_power_suspended(bool suspended)",
+        "qsee_distance_set_power_suspended(bool suspended)",
+        "qsee_storage_set_power_suspended(bool suspended)",
+        "qsee_hardware_set_imu_low_power(bool enabled)",
+    ):
+        require_contains(header, fragment, "qsee_platform.h standby lifecycle")
+    require_contains(
+        snapshot,
+        "ulTaskNotifyTake(pdTRUE, portMAX_DELAY)",
+        "parked Full Snapshot worker",
+    )
+    distance_power = function_text(
+        distance,
+        "esp_err_t distanceSetPowerSuspended(",
+        "TOF power lifecycle",
+    )
+    require_contains(
+        distance_power,
+        "qsee_tof400f_deinit()",
+        "standby TOF UART release",
+    )
+    distance_stub_power = function_text(
+        distance_stub,
+        "esp_err_t distanceSetPowerSuspended(",
+        "TOF build-off power lifecycle",
+    )
+    require_contains(
+        distance_stub_power,
+        "return ESP_ERR_NOT_SUPPORTED;",
+        "TOF build-off power lifecycle",
+    )
+    require_regex(
+        platform_cmake,
+        r"if\s*\(\s*CONFIG_QSEE_BUILD_ENABLE_DISTANCE\s+AND\s+"
+        r"CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART\s*\)"
+        r".*?qsee_distance_service\.cpp.*?else\s*\(\s*\)"
+        r".*?qsee_distance_service_stub\.cpp.*?endif\s*\(\s*\)",
+        "profile-selected distance lifecycle implementation",
+    )
+    require_contains(
+        storage,
+        "s_power_suspended",
+        "standby storage reason",
+    )
+    audio_standby = function_text(
+        audio,
+        "qsee_audio_set_standby(",
+        "audio standby transaction",
+    )
+    require_contains(
+        audio_standby,
+        "bsp_audio_set_transport_standby(true, false, false)",
+        "I2S standby",
+    )
+    require_contains(
+        audio_standby,
+        "error = bsp_audio_set_transport_standby(\n        false,",
+        "I2S resume",
+    )
+    voice_feed = function_text(
+        voice_afe,
+        "void voice_feed_task(",
+        "voice AFE feed worker",
+    )
+    require_regex(
+        voice_feed,
+        r"if\s*\(s_standby_requested\.load\(.*?"
+        r"ulTaskNotifyTake\s*\(\s*pdTRUE\s*,\s*portMAX_DELAY\s*\)",
+        "event-driven voice AFE standby",
+    )
+    afe_standby = function_text(
+        voice_afe,
+        "esp_err_t apply_afe_standby_locked(",
+        "voice AFE standby transaction",
+    )
+    audio_resume_index = afe_standby.find("qsee_audio_set_standby(false)")
+    afe_resume_order = [
+        audio_resume_index,
+        afe_standby.find(
+            "s_standby_requested.store(false",
+            audio_resume_index,
+        ),
+        afe_standby.find(
+            'notify_feed_task_locked("resume")',
+            audio_resume_index,
+        ),
+    ]
+    require(
+        all(index >= 0 for index in afe_resume_order)
+        and afe_resume_order == sorted(afe_resume_order),
+        "voice AFE must restore audio before releasing and waking its feed worker",
+    )
+    logger_writer = function_text(
+        logger,
+        "static void writer_task(",
+        "logger SD writer",
+    )
+    require_contains(
+        logger_writer,
+        "ulTaskNotifyTake(pdTRUE, portMAX_DELAY)",
+        "event-driven disabled logger",
+    )
+    require(
+        "vTaskDelay(pdMS_TO_TICKS(100))" not in logger_writer,
+        "disabled logger must not retain its former 100 ms polling wake",
+    )
+    for signature in (
+        "static esp_err_t set_sd_enabled(",
+        "static esp_err_t set_sd_disabled(",
+    ):
+        require_contains(
+            function_text(logger, signature, "logger SD state transition"),
+            "notify_writer_state_change(",
+            "logger writer wake",
+        )
+    require_contains(
+        bsp_display,
+        "esp_lv_adapter_pause(",
+        "LVGL pause",
+    )
+    require_contains(
+        bsp_display,
+        "esp_lv_adapter_resume()",
+        "LVGL resume",
+    )
+    imu_profile = function_text(
+        hardware,
+        "qsee_hardware_set_imu_low_power(",
+        "IMU low-power profile",
+    )
+    require_contains(imu_profile, "configure_imu_profile(enabled)", "IMU profile")
+    require_contains(hardware, "QMI8658_ACCEL_ODR_31_25HZ", "IMU low-power ODR")
+    require_contains(hardware, "QMI8658_GYRO_ODR_31_25HZ", "IMU low-power ODR")
+
+    for fragment in (
+        "CONFIG_PM_ENABLE=y",
+        "CONFIG_FREERTOS_USE_TICKLESS_IDLE=y",
+        "CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y",
+        "CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y",
+        "# CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP is not set",
+        "CONFIG_BT_CTRL_MODEM_SLEEP=y",
+        "CONFIG_ESP_PHY_MAC_BB_PD=y",
+    ):
+        require_contains(sdkconfig_defaults, fragment, "ESP-IDF power defaults")
+    require_regex(
+        power,
+        r"esp_pm_config_t\s+power_policy\s*=\s*\{.*?"
+        r"\.light_sleep_enable\s*=\s*true",
+        "automatic ESP-IDF Light-sleep policy",
+    )
+    require_contains(
+        power,
+        "esp_pm_light_sleep_register_cbs(",
+        "automatic Light-sleep residency measurement",
+    )
+    require_contains(
+        power,
+        "connected host holds ",
+        "USB Serial/JTAG Light-sleep host guard visibility",
     )
 
 
@@ -976,6 +2008,7 @@ def main() -> int:
         verify_motion_filter()
         verify_motion_does_not_starve_inactivity()
         verify_pkey_delivery_order()
+        verify_transaction_fault_injection()
     if not args.model_only:
         verify_source_contracts()
 
@@ -989,7 +2022,8 @@ def main() -> int:
     print(
         "power policy verification: PASS "
         f"({checked}: inactivity, 50% dim, qualified motion, "
-        "bounded PKEY isolation, serialized panel-off)"
+        "bounded PKEY isolation, fault-injected transactional standby, "
+        "event-driven idle workers, automatic Light-sleep)"
     )
     return 0
 

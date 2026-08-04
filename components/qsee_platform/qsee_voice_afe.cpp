@@ -28,6 +28,7 @@ constexpr size_t kReferenceRingFrames = 8000;
 constexpr size_t kFeedTaskStackWords = 4096;
 constexpr size_t kFetchTaskStackWords = 3072;
 constexpr TickType_t kReferenceLockTimeout = pdMS_TO_TICKS(20);
+constexpr TickType_t kTaskCancellationTimeout = pdMS_TO_TICKS(1000);
 
 #if CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
 constexpr char kAfeInputFormat[] = "MMNR";
@@ -59,12 +60,14 @@ StackType_t *s_feed_task_stack;
 StackType_t *s_fetch_task_stack;
 std::atomic_bool s_running{false};
 std::atomic_bool s_start_cancelled{false};
+std::atomic_bool s_feed_start_cancelled_ack{false};
 std::atomic_bool s_standby_requested{false};
 bool s_power_standby_requested;
 bool s_performance_suspended;
 bool s_diagnostic_suspended;
 std::mutex s_standby_mutex;
 std::atomic_bool s_feed_paused{false};
+std::atomic<TaskHandle_t> s_feed_task_handle{nullptr};
 std::atomic_bool s_initialization_attempted{false};
 std::atomic<esp_err_t> s_initialization_result{ESP_ERR_INVALID_STATE};
 
@@ -76,11 +79,40 @@ SemaphoreHandle_t reference_mutex()
     return s_reference_mutex;
 }
 
+// Wake the feed worker while the standby lock protects its published handle.
+esp_err_t notify_feed_task_locked(const char *operation)
+{
+    TaskHandle_t feed_task = s_feed_task_handle.load(std::memory_order_acquire);
+    if (feed_task == nullptr) {
+        ESP_LOGE(kTag, "AFE feed %s notification rejected: task is unavailable", operation);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xTaskNotifyGive(feed_task) != pdPASS) {
+        ESP_LOGE(kTag, "AFE feed %s notification failed", operation);
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// Remove the published handle under the standby lock before a live worker exits.
+void finish_feed_task()
+{
+    {
+        std::lock_guard<std::mutex> lock(s_standby_mutex);
+        s_feed_task_handle.store(nullptr, std::memory_order_release);
+    }
+    vTaskDelete(nullptr);
+}
+
+// Feed ESP-SR continuously while active and block without polling in standby.
 void voice_feed_task(void *arg)
 {
     (void)arg;
     while (!s_running.load(std::memory_order_acquire)) {
         if (s_start_cancelled.load(std::memory_order_acquire)) {
+            s_feed_start_cancelled_ack.store(true, std::memory_order_release);
+            // Initialization owns deletion after observing this parked state.
+            vTaskSuspend(nullptr);
             vTaskDelete(nullptr);
             return;
         }
@@ -98,7 +130,7 @@ void voice_feed_task(void *arg)
             kAfeInputFormat
         );
         s_running.store(false, std::memory_order_release);
-        vTaskDelete(nullptr);
+        finish_feed_task();
         return;
     }
 
@@ -121,7 +153,7 @@ void voice_feed_task(void *arg)
         free(microphones);
         free(feed);
         s_running.store(false, std::memory_order_release);
-        vTaskDelete(nullptr);
+        finish_feed_task();
         return;
     }
 
@@ -130,7 +162,7 @@ void voice_feed_task(void *arg)
             s_feed_paused.store(true, std::memory_order_release);
             while (s_running.load(std::memory_order_acquire) &&
                    s_standby_requested.load(std::memory_order_acquire)) {
-                vTaskDelay(pdMS_TO_TICKS(20));
+                (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
             }
             s_feed_paused.store(false, std::memory_order_release);
             continue;
@@ -187,9 +219,11 @@ void voice_feed_task(void *arg)
 
     free(microphones);
     free(feed);
-    vTaskDelete(nullptr);
+    s_feed_paused.store(false, std::memory_order_release);
+    finish_feed_task();
 }
 
+// Fetch AFE results and release a feed worker blocked during a terminal failure.
 void voice_fetch_task(void *arg)
 {
     (void)arg;
@@ -205,6 +239,19 @@ void voice_fetch_task(void *arg)
         if (result == nullptr) {
             ESP_LOGE(kTag, "AFE fetch returned null");
             s_running.store(false, std::memory_order_release);
+            esp_err_t notification_error = ESP_OK;
+            {
+                // Serialize against handle withdrawal in finish_feed_task().
+                std::lock_guard<std::mutex> lock(s_standby_mutex);
+                notification_error = notify_feed_task_locked("fetch-failure");
+            }
+            if (notification_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "AFE feed wake after fetch failure failed (%s)",
+                    esp_err_to_name(notification_error)
+                );
+            }
             break;
         }
         if (result->ret_value != ESP_OK) {
@@ -219,20 +266,36 @@ void voice_fetch_task(void *arg)
     vTaskDelete(nullptr);
 }
 
+// Transition the AFE and its audio route without releasing capture prematurely.
 esp_err_t apply_afe_standby_locked(bool standby)
 {
-    s_standby_requested.store(standby, std::memory_order_release);
     if (!s_running.load(std::memory_order_acquire)) {
+        s_standby_requested.store(standby, std::memory_order_release);
         return ESP_OK;
     }
 
     constexpr TickType_t kPauseTimeout = pdMS_TO_TICKS(1000);
     if (standby) {
+        s_standby_requested.store(true, std::memory_order_release);
         const TickType_t started_at = xTaskGetTickCount();
         while (!s_feed_paused.load(std::memory_order_acquire)) {
+            if (!s_running.load(std::memory_order_acquire)) {
+                ESP_LOGE(kTag, "AFE feed stopped while a pause was pending");
+                s_standby_requested.store(false, std::memory_order_release);
+                return ESP_ERR_INVALID_STATE;
+            }
             if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
                 ESP_LOGE(kTag, "AFE feed pause timed out");
                 s_standby_requested.store(false, std::memory_order_release);
+                const esp_err_t notification_error =
+                    notify_feed_task_locked("pause-timeout");
+                if (notification_error != ESP_OK) {
+                    ESP_LOGE(
+                        kTag,
+                        "AFE pause-timeout recovery notification failed (%s)",
+                        esp_err_to_name(notification_error)
+                    );
+                }
                 return ESP_ERR_TIMEOUT;
             }
             vTaskDelay(1);
@@ -240,27 +303,75 @@ esp_err_t apply_afe_standby_locked(bool standby)
         const esp_err_t audio_error = qsee_audio_set_standby(true);
         if (audio_error != ESP_OK) {
             s_standby_requested.store(false, std::memory_order_release);
+            const esp_err_t notification_error =
+                notify_feed_task_locked("audio-suspend-rollback");
+            if (notification_error != ESP_OK) {
+                s_standby_requested.store(true, std::memory_order_release);
+                ESP_LOGE(
+                    kTag,
+                    "AFE feed rollback notification failed after audio suspend error (%s)",
+                    esp_err_to_name(notification_error)
+                );
+            }
             return audio_error;
         }
         ESP_LOGI(kTag, "AFE capture loop suspended");
         return ESP_OK;
     }
 
-    // Claim capture before restoring the 16 kHz route so diagnostics cannot
-    // reopen the codec at 22.05 kHz between route setup and the first AFE read.
-    s_standby_requested.store(false, std::memory_order_release);
+    // Keep capture claimed until the 16 kHz route is fully restored so a
+    // diagnostic request cannot reopen the codec at 22.05 kHz in between.
     const esp_err_t audio_error = qsee_audio_set_standby(false);
     if (audio_error != ESP_OK) {
-        s_standby_requested.store(true, std::memory_order_release);
         return audio_error;
+    }
+    s_standby_requested.store(false, std::memory_order_release);
+    const esp_err_t notification_error = notify_feed_task_locked("resume");
+    if (notification_error != ESP_OK) {
+        s_standby_requested.store(true, std::memory_order_release);
+        const esp_err_t rollback_error = qsee_audio_set_standby(true);
+        if (rollback_error != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "AFE audio rollback failed after feed notification error (%s)",
+                esp_err_to_name(rollback_error)
+            );
+        }
+        return notification_error;
     }
     const TickType_t started_at = xTaskGetTickCount();
     while (s_feed_paused.load(std::memory_order_acquire)) {
+        if (!s_running.load(std::memory_order_acquire)) {
+            ESP_LOGE(kTag, "AFE feed stopped while a resume was pending");
+            s_standby_requested.store(true, std::memory_order_release);
+            const esp_err_t rollback_error = qsee_audio_set_standby(true);
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "AFE audio rollback failed after feed stopped (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
+            return ESP_ERR_INVALID_STATE;
+        }
         if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
             ESP_LOGE(kTag, "AFE feed resume timed out");
+            s_standby_requested.store(true, std::memory_order_release);
+            const esp_err_t rollback_error = qsee_audio_set_standby(true);
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "AFE audio rollback failed after feed resume timeout (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
             return ESP_ERR_TIMEOUT;
         }
         vTaskDelay(1);
+    }
+    if (!s_running.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "AFE feed stopped during resume completion");
+        return ESP_ERR_INVALID_STATE;
     }
     ESP_LOGI(kTag, "AFE capture loop resumed");
     return ESP_OK;
@@ -268,6 +379,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
 
 }  // namespace
 
+// Build the AFE and publish worker handles before opening the startup gate.
 extern "C" esp_err_t qsee_voice_afe_init(void)
 {
     if (s_running.load(std::memory_order_acquire)) {
@@ -339,6 +451,8 @@ extern "C" esp_err_t qsee_voice_afe_init(void)
     // an AFE instance that startup subsequently tears down.
     s_running.store(false, std::memory_order_release);
     s_start_cancelled.store(false, std::memory_order_release);
+    s_feed_start_cancelled_ack.store(false, std::memory_order_release);
+    s_feed_task_handle.store(nullptr, std::memory_order_release);
     s_feed_task_stack = static_cast<StackType_t *>(heap_caps_aligned_alloc(
         16,
         kFeedTaskStackWords * sizeof(StackType_t),
@@ -377,6 +491,22 @@ extern "C" esp_err_t qsee_voice_afe_init(void)
         s_feed_task_stack,
         &s_feed_task_control
     );
+    if (feed_task == nullptr) {
+        ESP_LOGE(kTag, "AFE feed task creation failed");
+        free(s_feed_task_stack);
+        free(s_fetch_task_stack);
+        s_feed_task_stack = nullptr;
+        s_fetch_task_stack = nullptr;
+        s_afe_handle->destroy(s_afe_data);
+        s_afe_data = nullptr;
+        s_afe_handle = nullptr;
+        free(s_reference_ring);
+        s_reference_ring = nullptr;
+        s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
+        return ESP_ERR_NO_MEM;
+    }
+    s_feed_task_handle.store(feed_task, std::memory_order_release);
+
     TaskHandle_t fetch_task = xTaskCreateStatic(
         voice_fetch_task,
         "qsee_afe_fetch",
@@ -386,10 +516,30 @@ extern "C" esp_err_t qsee_voice_afe_init(void)
         s_fetch_task_stack,
         &s_fetch_task_control
     );
-    if (feed_task == nullptr || fetch_task == nullptr) {
-        ESP_LOGE(kTag, "AFE task creation failed: feed=%p fetch=%p", feed_task, fetch_task);
+    if (fetch_task == nullptr) {
+        ESP_LOGE(kTag, "AFE fetch task creation failed after feed task startup");
         s_start_cancelled.store(true, std::memory_order_release);
-        vTaskDelay(1);
+        const TickType_t cancellation_started_at = xTaskGetTickCount();
+        while (!s_feed_start_cancelled_ack.load(std::memory_order_acquire)) {
+            if (xTaskGetTickCount() - cancellation_started_at >=
+                kTaskCancellationTimeout) {
+                ESP_LOGE(
+                    kTag,
+                    "AFE feed startup cancellation timed out; live task resources retained"
+                );
+                s_initialization_result.store(
+                    ESP_ERR_TIMEOUT,
+                    std::memory_order_release
+                );
+                return ESP_ERR_TIMEOUT;
+            }
+            vTaskDelay(1);
+        }
+        // The feed task acknowledged cancellation and parked before its static
+        // stack and AFE dependencies are released.
+        vTaskSuspend(feed_task);
+        vTaskDelete(feed_task);
+        s_feed_task_handle.store(nullptr, std::memory_order_release);
         s_afe_handle->destroy(s_afe_data);
         s_afe_data = nullptr;
         s_afe_handle = nullptr;

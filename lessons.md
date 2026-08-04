@@ -200,8 +200,59 @@ runtime behavior still requires authorized hardware validation.
   standby or wake display transition fails after changing hardware state,
   attempt the inverse display transition before restoring the software state.
 - This board has no verified ESP32 wake GPIO for the AXP2101 IRQ. PWR therefore
-  toggles software Device Standby while its polling task remains alive; do not
-  claim PWR wake from ESP light sleep without schematic and device evidence.
+  toggles software Device Standby while its polling task remains alive. Native
+  tickless idle may automatically Light-sleep between 100 ms polls, but that is
+  timer-driven residency rather than an asynchronous PWR wake source; do not
+  claim one continuous PWR-wakeable sleep without schematic and device evidence.
+- Enter Device Standby from data producers outward: quiesce Full Snapshot before
+  changing sensor/audio ownership, release TOF UARTs, park SD work, lower the IMU
+  rate, suspend AFE/base audio, turn the panel off, and only then pause LVGL.
+  Resume LVGL while the panel remains dark, restore IMU/TOF/storage/audio, enable
+  Full Snapshot last, and expose the panel only after required producers agree.
+- Display fades acquire the LVGL adapter lock. Pausing LVGL before panel-off can
+  therefore deadlock or time out the fade; panel-off precedes pause, while LVGL
+  resume precedes panel-on. A failed fade must attempt the inverse transition and
+  retain an explicit inconsistent state if that rollback also fails.
+- The app callback that observes `EnteringStandby` is itself still inside the
+  Brookesia App domain. It must first gate every app-scoped input callback,
+  cancel tracked animations, then defer an AppInput barrier which drains
+  GUIInput and GUI work. A standby acknowledgement sent before that barrier
+  returns permits animation completions and lazy-document handlers to enqueue
+  LVGL work after the renderer is paused.
+- A bounded LVGL pause must leave one provable state on every exit. Clear the
+  adapter acknowledgement before publishing `paused`, wake the worker
+  immediately, undo timeout and tick-stop failures, and propagate tick restart
+  errors. If both pause recovery and resume fail, retain a faulted state that
+  rejects another idempotent pause instead of converting ambiguity to success.
+- Keep the PKEY polling task stack in internal RAM. A task required to wake the
+  device must not depend on PSRAM/cache availability during the deepest idle
+  profile it controls.
+- `esp_codec_dev_close()` does not propagate its codec/data-interface disable
+  callback result in managed `esp_codec_dev` 1.3.1. Confirm I2S TX/RX directly
+  at the BSP owner and keep physical ES8311/ES7210 current as a device test.
+- ESP32-S3 CPU-domain Light-sleep power-down saves roughly 650 uA but consumes
+  at least 8.58 KB of internal retention RAM, plus cache-tag retention. Keep it
+  disabled in the memory-constrained full wireless profile until runtime heap
+  evidence supports enabling it; automatic Light-sleep and DFS remain active.
+- Brookesia's native `TaskScheduler` must not wake idle workers merely to call
+  `io_context::poll()`. Block on an explicit work-generation condition bounded
+  by the earliest tracked timer deadline. Do not replace it blindly with
+  `io_context::run()`: the current ESP Boost interrupter uses virtual pipe file
+  descriptors that the ESP `select()` adapter cannot wake. If the raw executor
+  escapes `get_executor()`, retain bounded compatibility polling for that
+  scheduler only.
+- A periodic worker that has no standby work must block on a notification. In
+  particular, park the disabled SD writer after its close acknowledgement and
+  keep the Voice AFE feed blocked until its audio route has been restored before
+  releasing the standby reason.
+- ESP32-S3 does not retain native USB Serial/JTAG in Light-sleep. With a USB
+  console enabled, set `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y`: ESP-IDF then
+  owns a host-connection-sensitive `ESP_PM_NO_LIGHT_SLEEP` lock, preserving
+  monitor/recovery access without disabling battery-mode automatic sleep.
+- The LC76G module VCC is tied to the board 3.3 V rail and its STANDBY pin is not
+  routed. Quectel Backup mode therefore cannot be reached by commands alone;
+  firmware-only Periodic/ALP operation is a product trade-off and must preserve
+  truthful GNSS validity, ACK, rollback, accuracy, and time-to-fix behavior.
 - A single noisy IMU sample must never reset the shared inactivity timeline.
   Require quiet re-arm, consecutive movement samples, hysteresis, and an
   explicit grace/cooldown around standby transitions.

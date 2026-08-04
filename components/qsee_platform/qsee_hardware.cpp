@@ -143,6 +143,11 @@ std::atomic<uint32_t> s_pkey_long_press_pending{0};
 uint64_t s_pmu_queued_pkey_status;
 bool s_rtc_ready;
 bool s_imu_ready;
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+bool s_imu_profile_low_power;
+bool s_imu_profile_valid;
+esp_err_t s_imu_profile_error = ESP_ERR_INVALID_STATE;
+#endif
 bool s_imu_calibrated;
 bool s_imu_calibration_stationary;
 uint16_t s_imu_calibration_samples;
@@ -2630,12 +2635,16 @@ esp_err_t sample_rtc(const char *phase)
     );
 }
 
+// Reject samples after a failed profile transition instead of publishing partial data.
 esp_err_t read_imu_sample(ImuRawSample *sample)
 {
     if (sample == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
 #if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+    if (s_imu_ready && !s_imu_profile_valid) {
+        return s_imu_profile_error;
+    }
     qmi8658_data_t raw = {};
     const esp_err_t error = qmi8658_read_sensor_data(&s_imu, &raw);
     if (error != ESP_OK) {
@@ -2656,6 +2665,158 @@ esp_err_t read_imu_sample(ImuRawSample *sample)
 #endif
 }
 
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+// Log the exact QMI8658 register operation that rejected a profile transition.
+esp_err_t imu_profile_step_result(
+    const char *profile,
+    const char *operation,
+    esp_err_t error
+)
+{
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 %s profile %s failed (%s)",
+            profile,
+            operation,
+            esp_err_to_name(error)
+        );
+    }
+    return error;
+}
+
+// Apply and read back one complete measured QMI8658 sampling profile.
+esp_err_t configure_imu_profile(bool low_power)
+{
+    const char *profile = low_power ? "low-power" : "active";
+    const qmi8658_accel_odr_t accel_odr = low_power
+        ? QMI8658_ACCEL_ODR_31_25HZ
+        : QMI8658_ACCEL_ODR_500HZ;
+    const qmi8658_gyro_odr_t gyro_odr = low_power
+        ? QMI8658_GYRO_ODR_31_25HZ
+        : QMI8658_GYRO_ODR_500HZ;
+
+    esp_err_t error = imu_profile_step_result(
+        profile,
+        "sensor-disable",
+        qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "accelerometer-range",
+        qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_8G)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "accelerometer-ODR",
+        qmi8658_set_accel_odr(&s_imu, accel_odr)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "gyroscope-range",
+        qmi8658_set_gyro_range(&s_imu, QMI8658_GYRO_RANGE_512DPS)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "gyroscope-ODR",
+        qmi8658_set_gyro_odr(&s_imu, gyro_odr)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "low-pass-filter",
+        qmi8658_write_register(&s_imu, QMI8658_CTRL5, 0x03)
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = imu_profile_step_result(
+        profile,
+        "sensor-enable",
+        qmi8658_enable_sensors(
+            &s_imu,
+            QMI8658_ENABLE_ACCEL | QMI8658_ENABLE_GYRO
+        )
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+
+    uint8_t control_registers[6] = {};
+    error = imu_profile_step_result(
+        profile,
+        "control-register-readback",
+        qmi8658_read_register(
+            &s_imu,
+            QMI8658_CTRL2,
+            control_registers,
+            static_cast<uint8_t>(sizeof(control_registers))
+        )
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    const uint8_t expected_ctrl2 =
+        (static_cast<uint8_t>(QMI8658_ACCEL_RANGE_8G) << 4U) |
+        static_cast<uint8_t>(accel_odr);
+    const uint8_t expected_ctrl3 =
+        (static_cast<uint8_t>(QMI8658_GYRO_RANGE_512DPS) << 4U) |
+        static_cast<uint8_t>(gyro_odr);
+    const uint8_t expected_ctrl5 = 0x03;
+    const uint8_t expected_ctrl7 =
+        QMI8658_ENABLE_ACCEL | QMI8658_ENABLE_GYRO;
+    if (control_registers[0] != expected_ctrl2 ||
+        control_registers[1] != expected_ctrl3 ||
+        control_registers[3] != expected_ctrl5 ||
+        control_registers[5] != expected_ctrl7) {
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 %s profile readback rejected: CTRL2=0x%02x/0x%02x CTRL3=0x%02x/0x%02x CTRL5=0x%02x/0x%02x CTRL7=0x%02x/0x%02x",
+            profile,
+            control_registers[0],
+            expected_ctrl2,
+            control_registers[1],
+            expected_ctrl3,
+            control_registers[3],
+            expected_ctrl5,
+            control_registers[5],
+            expected_ctrl7
+        );
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+#endif
+
+// Publish a failed IMU profile transition as unavailable measured telemetry.
+void publish_imu_profile_failure(esp_err_t error, int64_t attempted_at_us)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [error, attempted_at_us](qsee::DeviceSnapshot &snapshot) {
+            mark_sample_failure(snapshot.imu, error, attempted_at_us);
+        }
+    );
+    log_snapshot_publication_failure(
+        "IMU profile transition",
+        publication_error
+    );
+}
+
+// Initialize the QMI8658 in the canonical active sampling profile.
 esp_err_t init_imu(i2c_master_bus_handle_t bus)
 {
 #if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
@@ -2665,25 +2826,7 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         std::memset(&s_imu, 0, sizeof(s_imu));
         error = qmi8658_init(&s_imu, bus, addresses[i]);
         if (error == ESP_OK) {
-            error = qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_8G);
-        }
-        if (error == ESP_OK) {
-            error = qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_500HZ);
-        }
-        if (error == ESP_OK) {
-            error = qmi8658_set_gyro_range(&s_imu, QMI8658_GYRO_RANGE_512DPS);
-        }
-        if (error == ESP_OK) {
-            error = qmi8658_set_gyro_odr(&s_imu, QMI8658_GYRO_ODR_500HZ);
-        }
-        if (error == ESP_OK) {
-            error = qmi8658_write_register(&s_imu, QMI8658_CTRL5, 0x03);
-        }
-        if (error == ESP_OK) {
-            error = qmi8658_enable_sensors(
-                &s_imu,
-                QMI8658_ENABLE_ACCEL | QMI8658_ENABLE_GYRO
-            );
+            error = configure_imu_profile(false);
         }
         if (error == ESP_OK) {
             qmi8658_set_accel_unit_mps2(&s_imu, true);
@@ -2704,6 +2847,9 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         }
         if (error == ESP_OK) {
             s_imu_ready = true;
+            s_imu_profile_low_power = false;
+            s_imu_profile_valid = true;
+            s_imu_profile_error = ESP_OK;
             ESP_LOGI(
                 TAG,
                 "IMU QMI8658: ready at 0x%02x; accel=8g/500Hz gyro=512dps/500Hz LPF enabled",
@@ -2731,6 +2877,8 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
         set_component(snapshot.imu, error == ESP_OK, error);
     });
     if (!s_imu_ready) {
+        s_imu_profile_valid = false;
+        s_imu_profile_error = error;
         ESP_LOGW(TAG, "IMU QMI8658: not detected");
     }
     return error;
@@ -6409,6 +6557,118 @@ extern "C" esp_err_t qsee_hardware_set_ui_motion_monitor(bool enabled)
     return ESP_OK;
 }
 
+// Serialize QMI8658 profile changes with sampling and calibration ownership.
+extern "C" esp_err_t qsee_hardware_set_imu_low_power(bool enabled)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+#if !CONFIG_QSEE_BUILD_ENABLE_IMU || !CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+    publish_imu_profile_failure(ESP_ERR_NOT_SUPPORTED, attempted_at_us);
+    ESP_LOGE(
+        TAG,
+        "IMU QMI8658 profile transition rejected: driver is unavailable"
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!s_initialized || !s_imu_ready || s_imu.dev_handle == nullptr) {
+        publish_imu_profile_failure(ESP_ERR_INVALID_STATE, attempted_at_us);
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 profile transition rejected: hardware or IMU is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> calibration_lock(s_imu_calibration_mutex);
+    if (s_imu_calibration_request_pending.load(std::memory_order_acquire)) {
+        publish_imu_profile_failure(ESP_ERR_INVALID_STATE, attempted_at_us);
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 profile transition rejected: calibration is pending"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        publish_imu_profile_failure(ESP_ERR_NO_MEM, attempted_at_us);
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 profile transition failed: refresh mutex allocation failed"
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        publish_imu_profile_failure(ESP_ERR_TIMEOUT, attempted_at_us);
+        ESP_LOGE(
+            TAG,
+            "IMU QMI8658 profile transition failed: sampler quiescence timed out"
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    if (s_imu_profile_valid && s_imu_profile_low_power == enabled) {
+        give_refresh_mutex(refresh_mutex, "IMU profile transition");
+        return ESP_OK;
+    }
+
+    const bool previous_low_power = s_imu_profile_low_power;
+    const bool previous_valid = s_imu_profile_valid;
+    const esp_err_t transition_error = configure_imu_profile(enabled);
+    if (transition_error != ESP_OK) {
+        esp_err_t recovery_error = ESP_ERR_INVALID_STATE;
+        if (previous_valid) {
+            recovery_error = configure_imu_profile(previous_low_power);
+            if (recovery_error == ESP_OK) {
+                s_imu_profile_low_power = previous_low_power;
+                s_imu_profile_valid = true;
+                s_imu_profile_error = ESP_OK;
+                reset_imu_filter();
+                ESP_LOGW(
+                    TAG,
+                    "IMU QMI8658 profile transition rolled back to %s",
+                    previous_low_power ? "low-power" : "active"
+                );
+            }
+        }
+        if (!previous_valid || recovery_error != ESP_OK) {
+            esp_err_t invalid_profile_error =
+                previous_valid ? recovery_error : transition_error;
+            const esp_err_t disable_error = qmi8658_enable_sensors(
+                &s_imu,
+                QMI8658_DISABLE_ALL
+            );
+            if (disable_error != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "IMU QMI8658 failed-profile sensor-disable failed (%s)",
+                    esp_err_to_name(disable_error)
+                );
+                invalid_profile_error = disable_error;
+            }
+            s_imu_profile_valid = false;
+            s_imu_profile_error = invalid_profile_error;
+        }
+        give_refresh_mutex(refresh_mutex, "IMU profile transition rollback");
+        publish_imu_profile_failure(transition_error, attempted_at_us);
+        return transition_error;
+    }
+
+    s_imu_profile_low_power = enabled;
+    s_imu_profile_valid = true;
+    s_imu_profile_error = ESP_OK;
+    reset_imu_filter();
+    give_refresh_mutex(refresh_mutex, "IMU profile transition");
+    ESP_LOGI(
+        TAG,
+        "IMU QMI8658 profile: %s (accel=8g/%s gyro=512dps/%s)",
+        enabled ? "low-power" : "active",
+        enabled ? "31.25Hz" : "500Hz",
+        enabled ? "31.25Hz" : "500Hz"
+    );
+    return ESP_OK;
+#endif
+}
+
 // Change rotation state only after the shared monitor and snapshot are ready.
 static esp_err_t set_auto_rotation_runtime(bool enabled)
 {
@@ -6718,6 +6978,7 @@ extern "C" uint32_t qsee_hardware_get_imu_smoothing_percent(void)
     return s_imu_smoothing_percent.load(std::memory_order_relaxed);
 }
 
+// Reject calibration while the IMU is not in its canonical active profile.
 extern "C" esp_err_t qsee_imu_calibrate(void)
 {
     const int64_t calibration_attempted_at_us = esp_timer_get_time();
@@ -6746,6 +7007,19 @@ extern "C" esp_err_t qsee_imu_calibrate(void)
     }
 
     std::lock_guard<std::mutex> lock(s_imu_calibration_mutex);
+#if CONFIG_QSEE_BUILD_ENABLE_IMU && CONFIG_QSEE_BUILD_IMU_DRIVER_QMI8658
+    if (!s_imu_profile_valid || s_imu_profile_low_power) {
+        publish_imu_calibration_failure(
+            ESP_ERR_INVALID_STATE,
+            calibration_attempted_at_us
+        );
+        ESP_LOGE(
+            TAG,
+            "IMU calibration rejected: active 500 Hz profile is unavailable"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
     TaskHandle_t calibration_task = ensure_imu_calibration_task();
     if (calibration_task == nullptr) {
         publish_imu_calibration_failure(

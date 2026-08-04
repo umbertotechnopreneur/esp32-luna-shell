@@ -121,10 +121,35 @@
 
 ## Power and performance profiles
 
-- [x] Validate the AXP2101 PKEY standby/wake cycle, independent arc timeouts,
+- [ ] Revalidate the AXP2101 PKEY standby/wake cycle after the AppInput/GUI
+  quiescence fix, including at least five repeated PWR standby/wake cycles,
+  independent arc timeouts,
   exact 50% dim stage, and real AMOLED panel-off transition on the physical
   device.
+- [x] Coordinate Device Standby across Full Snapshot, dual-TOF UART ownership,
+  SD polling/mirroring, QMI8658 sampling rate, voice/audio/I2S, AMOLED output,
+  and the LVGL worker with a gated AppInput-to-GUI drain, transactional adapter
+  pause/resume, and rollback.
+- [x] Enable the supported ESP-IDF 6.0.2 DFS, tickless-idle automatic
+  Light-sleep, BLE modem sleep, and PHY MAC/baseband power-down paths, with
+  measured standby Light-sleep residency in runtime logs.
+- [x] Replace the seven idle Brookesia scheduler polls at 2--5 ms, the disabled
+  SD logger poll, and the suspended Voice AFE poll with event/deadline-driven
+  waits so those workers no longer prevent useful automatic Light-sleep.
+- [x] Enable the ESP-IDF USB Serial/JTAG host-connection guard so an attached
+  host holds `ESP_PM_NO_LIGHT_SLEEP` without disabling battery-mode sleep.
+- [ ] Measure active and Device Standby current on the physical board with an
+  inline power instrument, including Wi-Fi/BLE connected and disconnected
+  cases; serial logs prove lifecycle/residency but not electrical current.
+- [ ] Verify physical ES8311/ES7210 low-power current after codec stream close;
+  the managed codec API does not propagate its internal chip-disable result,
+  although I2S TX/RX shutdown is independently verified.
 - [ ] Validate qualified IMU wake from full standby on the physical device.
+- [ ] Design and measure a firmware-only LC76G Periodic or ALP policy with
+  bridge ACK verification, rollback, TTFF/accuracy acceptance criteria, and
+  explicitly unavailable or stale GNSS snapshots during standby. True Quectel
+  Backup mode also requires independently switching the module VCC rail, which
+  the current board does not expose.
 - [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
   `DisplayOff` transitions, preserving the user's configured brightness and
   publishing both configured and applied values in `DeviceSnapshotService`.

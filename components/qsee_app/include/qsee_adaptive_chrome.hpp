@@ -77,6 +77,11 @@ public:
         const esp_brookesia::system::core::AppGuiRuntime &gui
     );
 
+    // Stop animations and hit targets without changing the active route model.
+    std::expected<void, std::string> quiesce(
+        const esp_brookesia::system::core::AppGuiRuntime &gui
+    );
+
     // Stop animations, release hit targets, and restore full display power.
     std::expected<void, std::string> shutdown(
         const esp_brookesia::system::core::AppGuiRuntime &gui
@@ -109,7 +114,7 @@ private:
     std::expected<void, std::string> update_wake_surface(
         const esp_brookesia::system::core::AppGuiRuntime &gui
     );
-    void stop_status_animation(
+    std::expected<void, std::string> stop_status_animation(
         const esp_brookesia::system::core::AppGuiRuntime &gui
     );
     void status_animation_completed(uint32_t generation);

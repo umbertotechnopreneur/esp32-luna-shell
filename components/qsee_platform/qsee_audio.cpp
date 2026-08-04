@@ -34,8 +34,24 @@ uint8_t s_speaker_channel_count;
 uint8_t s_microphone_channel_count;
 bool s_speaker_open;
 bool s_microphone_open;
+std::atomic_bool s_standby;
+std::atomic_bool s_audio_state_poisoned;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
+
+struct AudioStreamState {
+    bool speaker_open;
+    uint32_t speaker_sample_rate_hz;
+    int speaker_volume;
+    bool speaker_muted;
+    bool microphone_open;
+    uint32_t microphone_sample_rate_hz;
+    uint8_t microphone_channel_count;
+    float microphone_gain_db;
+    bool microphone_muted;
+};
+AudioStreamState s_pre_standby_stream_state;
+bool s_pre_standby_stream_state_valid;
 
 SemaphoreHandle_t audio_mutex()
 {
@@ -53,6 +69,7 @@ void audio_unlock(SemaphoreHandle_t mutex)
     }
 }
 
+// Preserve the first exact codec error while closing every owned stream.
 esp_err_t close_streams()
 {
     esp_err_t error = ESP_OK;
@@ -60,44 +77,56 @@ esp_err_t close_streams()
         const int result = esp_codec_dev_close(s_speaker);
         if (result == ESP_CODEC_DEV_OK) {
             s_speaker_open = false;
+            s_speaker_sample_rate_hz = 0;
+            s_speaker_channel_count = 0;
         } else {
             ESP_LOGE(TAG, "Closing speaker stream failed (%d)", result);
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(result);
         }
     }
     if (s_microphone_open) {
         const int result = esp_codec_dev_close(s_microphone);
         if (result == ESP_CODEC_DEV_OK) {
             s_microphone_open = false;
+            s_microphone_sample_rate_hz = 0;
+            s_microphone_channel_count = 0;
         } else {
             ESP_LOGE(TAG, "Closing microphone stream failed (%d)", result);
             if (error == ESP_OK) {
-                error = ESP_FAIL;
+                error = static_cast<esp_err_t>(result);
             }
         }
     }
-    s_speaker_sample_rate_hz = 0;
-    s_microphone_sample_rate_hz = 0;
-    s_speaker_channel_count = 0;
-    s_microphone_channel_count = 0;
     return error;
 }
 
+// Configure speaker transport only while the base audio route is active.
 esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
 {
 #if !CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     (void)sample_rate_hz;
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (s_standby.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Speaker stream configuration rejected during standby");
+        return ESP_ERR_INVALID_STATE;
+    }
     if (sample_rate_hz == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     if (s_speaker_open && s_speaker_sample_rate_hz == sample_rate_hz) {
         return ESP_OK;
     }
-    if (s_speaker_open && esp_codec_dev_close(s_speaker) != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "Closing speaker stream before reconfiguration failed");
-        return ESP_FAIL;
+    if (s_speaker_open) {
+        const int close_result = esp_codec_dev_close(s_speaker);
+        if (close_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(
+                TAG,
+                "Closing speaker stream before reconfiguration failed: %d",
+                close_result
+            );
+            return static_cast<esp_err_t>(close_result);
+        }
     }
     s_speaker_open = false;
     esp_codec_dev_sample_info_t sample = {
@@ -112,7 +141,7 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
     if (result != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "Speaker stream configuration failed: rate=%lu result=%d",
                  static_cast<unsigned long>(sample_rate_hz), result);
-        return ESP_FAIL;
+        return static_cast<esp_err_t>(result);
     }
     s_speaker_sample_rate_hz = sample_rate_hz;
     s_speaker_channel_count = 1;
@@ -120,6 +149,7 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
 #endif
 }
 
+// Configure microphone transport only while the base audio route is active.
 esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_count)
 {
 #if CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
@@ -127,6 +157,10 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
     (void)channel_count;
     return ESP_ERR_NOT_SUPPORTED;
 #else
+    if (s_standby.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Microphone stream configuration rejected during standby");
+        return ESP_ERR_INVALID_STATE;
+    }
     if (sample_rate_hz == 0 || channel_count == 0 || channel_count > 2 ||
         channel_count != qsee_audio_input_channel_count()) {
         return ESP_ERR_INVALID_ARG;
@@ -136,10 +170,16 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
         s_microphone_channel_count == channel_count) {
         return ESP_OK;
     }
-    if (s_microphone_open &&
-        esp_codec_dev_close(s_microphone) != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "Closing microphone stream before reconfiguration failed");
-        return ESP_FAIL;
+    if (s_microphone_open) {
+        const int close_result = esp_codec_dev_close(s_microphone);
+        if (close_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(
+                TAG,
+                "Closing microphone stream before reconfiguration failed: %d",
+                close_result
+            );
+            return static_cast<esp_err_t>(close_result);
+        }
     }
     s_microphone_open = false;
     esp_codec_dev_sample_info_t sample = {
@@ -159,12 +199,203 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
             static_cast<unsigned>(channel_count),
             result
         );
-        return ESP_FAIL;
+        return static_cast<esp_err_t>(result);
     }
     s_microphone_sample_rate_hz = sample_rate_hz;
     s_microphone_channel_count = channel_count;
     return ESP_OK;
 #endif
+}
+
+// Capture the active codec policy before a reversible standby transition.
+esp_err_t capture_stream_state(AudioStreamState *state)
+{
+    if (state == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    *state = {
+        .speaker_open = s_speaker_open,
+        .speaker_sample_rate_hz = s_speaker_sample_rate_hz,
+        .speaker_volume = 0,
+        .speaker_muted = true,
+        .microphone_open = s_microphone_open,
+        .microphone_sample_rate_hz = s_microphone_sample_rate_hz,
+        .microphone_channel_count = s_microphone_channel_count,
+        .microphone_gain_db = 0.0F,
+        .microphone_muted = false,
+    };
+#if CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (state->speaker_open) {
+        int result = esp_codec_dev_get_out_vol(s_speaker, &state->speaker_volume);
+        if (result == ESP_CODEC_DEV_OK) {
+            result = esp_codec_dev_get_out_mute(s_speaker, &state->speaker_muted);
+        }
+        if (result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Capturing speaker policy failed: codec_result=%d", result);
+            return static_cast<esp_err_t>(result);
+        }
+    }
+#endif
+#if !CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
+    if (state->microphone_open) {
+        int result =
+            esp_codec_dev_get_in_gain(s_microphone, &state->microphone_gain_db);
+        if (result == ESP_CODEC_DEV_OK) {
+            result = esp_codec_dev_get_in_mute(
+                s_microphone,
+                &state->microphone_muted
+            );
+        }
+        if (result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Capturing microphone policy failed: codec_result=%d", result);
+            return static_cast<esp_err_t>(result);
+        }
+    }
+#endif
+    return ESP_OK;
+}
+
+// Restore stream formats and codec policy after standby or a failed transition.
+esp_err_t restore_stream_state(const AudioStreamState &state)
+{
+    esp_err_t error = close_streams();
+#if CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (error == ESP_OK && state.speaker_open) {
+        error = configure_speaker_stream(state.speaker_sample_rate_hz);
+    }
+    if (error == ESP_OK && state.speaker_open) {
+        const int volume_result =
+            esp_codec_dev_set_out_vol(s_speaker, state.speaker_volume);
+        const int mute_result =
+            esp_codec_dev_set_out_mute(s_speaker, state.speaker_muted);
+        if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
+            const int result = volume_result != ESP_CODEC_DEV_OK
+                ? volume_result
+                : mute_result;
+            ESP_LOGE(
+                TAG,
+                "Restoring speaker policy failed: volume=%d mute=%d",
+                volume_result,
+                mute_result
+            );
+            error = static_cast<esp_err_t>(result);
+        }
+    }
+#endif
+#if !CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
+    if (error == ESP_OK && state.microphone_open) {
+        error = configure_microphone_stream(
+            state.microphone_sample_rate_hz,
+            state.microphone_channel_count
+        );
+    }
+    if (error == ESP_OK && state.microphone_open) {
+        const int gain_result =
+            esp_codec_dev_set_in_gain(s_microphone, state.microphone_gain_db);
+        const int mute_result =
+            esp_codec_dev_set_in_mute(s_microphone, state.microphone_muted);
+        if (gain_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
+            const int result = gain_result != ESP_CODEC_DEV_OK
+                ? gain_result
+                : mute_result;
+            ESP_LOGE(
+                TAG,
+                "Restoring microphone policy failed: gain=%d mute=%d",
+                gain_result,
+                mute_result
+            );
+            error = static_cast<esp_err_t>(result);
+        }
+    }
+#endif
+    if (error != ESP_OK) {
+        const esp_err_t cleanup_error = close_streams();
+        if (cleanup_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Audio stream rollback cleanup failed (%s)",
+                esp_err_to_name(cleanup_error)
+            );
+        }
+    }
+    return error;
+}
+
+// Prepare the 16 kHz duplex route while the caller owns the audio mutex.
+esp_err_t prepare_voice_route_locked()
+{
+    if (s_audio_state_poisoned.load(std::memory_order_acquire) ||
+        s_standby.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Voice route preparation rejected by audio lifecycle state");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    esp_err_t error = ESP_OK;
+    const uint8_t microphone_channels = qsee_audio_input_channel_count();
+    const bool route_ready =
+        (!CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 ||
+         (s_speaker_open &&
+          s_speaker_sample_rate_hz == VOICE_SAMPLE_RATE_HZ)) &&
+        (microphone_channels == 0 ||
+         (s_microphone_open &&
+          s_microphone_sample_rate_hz == VOICE_SAMPLE_RATE_HZ &&
+          s_microphone_channel_count == microphone_channels));
+    if (route_ready) {
+        return ESP_OK;
+    }
+
+    error = close_streams();
+#if CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (error == ESP_OK) {
+        error = configure_speaker_stream(VOICE_SAMPLE_RATE_HZ);
+    }
+    if (error == ESP_OK) {
+        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
+        const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
+        if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
+            const int result = volume_result != ESP_CODEC_DEV_OK
+                ? volume_result
+                : mute_result;
+            ESP_LOGE(
+                TAG,
+                "Voice speaker idle policy failed: volume=%d mute=%d",
+                volume_result,
+                mute_result
+            );
+            error = static_cast<esp_err_t>(result);
+        }
+    }
+#endif
+#if !CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
+    if (error == ESP_OK) {
+        error = configure_microphone_stream(
+            VOICE_SAMPLE_RATE_HZ,
+            microphone_channels
+        );
+    }
+    if (error == ESP_OK) {
+        const int gain_result = esp_codec_dev_set_in_gain(s_microphone, 24.0F);
+        if (gain_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(
+                TAG,
+                "Voice microphone gain policy failed: result=%d",
+                gain_result
+            );
+            error = static_cast<esp_err_t>(gain_result);
+        }
+    }
+#endif
+    if (error != ESP_OK) {
+        const esp_err_t cleanup_error = close_streams();
+        if (cleanup_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Voice route cleanup failed (%s)",
+                esp_err_to_name(cleanup_error)
+            );
+        }
+    }
+    return error;
 }
 
 }  // namespace
@@ -180,8 +411,17 @@ extern "C" uint8_t qsee_audio_input_channel_count(void)
 #endif
 }
 
+// Initialize base audio unless standby owns or poisoned the shared route.
 extern "C" esp_err_t qsee_audio_init(void)
 {
+    if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Audio initialization rejected: state is poisoned");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_standby.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Audio initialization rejected during standby");
+        return ESP_ERR_INVALID_STATE;
+    }
     // Initialization is immutable after success; avoid waiting behind playback.
     if (s_initialized.load(std::memory_order_acquire)) {
         return ESP_OK;
@@ -196,6 +436,11 @@ extern "C" esp_err_t qsee_audio_init(void)
     if (s_initialized.load(std::memory_order_relaxed)) {
         audio_unlock(mutex);
         return ESP_OK;
+    }
+    if (s_standby.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Audio initialization cancelled by standby");
+        audio_unlock(mutex);
+        return ESP_ERR_INVALID_STATE;
     }
     if (s_initialization_attempted) {
         const esp_err_t cached_result = s_initialization_result;
@@ -579,6 +824,7 @@ extern "C" esp_err_t qsee_audio_capture_voice_pcm16(
     );
 }
 
+// Reconfigure the active base route for the AFE-owned 16 kHz stream.
 extern "C" esp_err_t qsee_audio_prepare_voice_route(void)
 {
     esp_err_t error = qsee_audio_init();
@@ -590,68 +836,7 @@ extern "C" esp_err_t qsee_audio_prepare_voice_route(void)
     if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
-
-    const uint8_t microphone_channels = qsee_audio_input_channel_count();
-    const bool route_ready =
-        (!CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 ||
-         (s_speaker_open &&
-          s_speaker_sample_rate_hz == VOICE_SAMPLE_RATE_HZ)) &&
-        (microphone_channels == 0 ||
-         (s_microphone_open &&
-          s_microphone_sample_rate_hz == VOICE_SAMPLE_RATE_HZ &&
-          s_microphone_channel_count == microphone_channels));
-    if (!route_ready) {
-        error = close_streams();
-#if CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-        if (error == ESP_OK) {
-            error = configure_speaker_stream(VOICE_SAMPLE_RATE_HZ);
-        }
-        if (error == ESP_OK) {
-            const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
-            const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
-            if (volume_result != ESP_CODEC_DEV_OK ||
-                mute_result != ESP_CODEC_DEV_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "Voice speaker idle policy failed: volume=%d mute=%d",
-                    volume_result,
-                    mute_result
-                );
-                error = ESP_FAIL;
-            }
-        }
-#endif
-#if !CONFIG_QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE
-        if (error == ESP_OK) {
-            error = configure_microphone_stream(
-                VOICE_SAMPLE_RATE_HZ,
-                microphone_channels
-            );
-        }
-        if (error == ESP_OK) {
-            const int gain_result =
-                esp_codec_dev_set_in_gain(s_microphone, 24.0F);
-            if (gain_result != ESP_CODEC_DEV_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "Voice microphone gain policy failed: result=%d",
-                    gain_result
-                );
-                error = ESP_FAIL;
-            }
-        }
-#endif
-        if (error != ESP_OK) {
-            const esp_err_t cleanup_error = close_streams();
-            if (cleanup_error != ESP_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "Voice route cleanup failed (%s)",
-                    esp_err_to_name(cleanup_error)
-                );
-            }
-        }
-    }
+    error = prepare_voice_route_locked();
     audio_unlock(mutex);
 
     if (error == ESP_OK) {
@@ -659,7 +844,7 @@ extern "C" esp_err_t qsee_audio_prepare_voice_route(void)
             TAG,
             "Voice duplex route ready: rate=%lu microphone-channels=%u",
             static_cast<unsigned long>(VOICE_SAMPLE_RATE_HZ),
-            static_cast<unsigned>(microphone_channels)
+            static_cast<unsigned>(qsee_audio_input_channel_count())
         );
     } else {
         ESP_LOGE(
@@ -671,27 +856,135 @@ extern "C" esp_err_t qsee_audio_prepare_voice_route(void)
     return error;
 }
 
+// Suspend or restore codec streams and I2S as one reversible transition.
 extern "C" esp_err_t qsee_audio_set_standby(bool standby)
 {
-    if (!standby) {
-        return qsee_audio_prepare_voice_route();
-    }
-    if (!s_initialized.load(std::memory_order_acquire)) {
-        return ESP_OK;
-    }
-
     SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
     if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return ESP_ERR_TIMEOUT;
     }
-    const esp_err_t error = close_streams();
+
+    if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Audio standby transition rejected: state is poisoned");
+        audio_unlock(mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (standby == s_standby.load(std::memory_order_acquire)) {
+        audio_unlock(mutex);
+        return ESP_OK;
+    }
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        s_pre_standby_stream_state_valid = false;
+        s_standby.store(standby, std::memory_order_release);
+        audio_unlock(mutex);
+        return ESP_OK;
+    }
+
+    esp_err_t error = ESP_OK;
+    if (standby) {
+        AudioStreamState previous = {};
+        error = capture_stream_state(&previous);
+        const bool state_captured = error == ESP_OK;
+        if (error == ESP_OK) {
+            error = close_streams();
+        }
+        if (error == ESP_OK) {
+            error = bsp_audio_set_transport_standby(true, false, false);
+        }
+        if (error != ESP_OK) {
+            const esp_err_t transport_rollback_error =
+                bsp_audio_set_transport_standby(
+                    false,
+                    state_captured && previous.speaker_open,
+                    state_captured && previous.microphone_open
+                );
+            const esp_err_t stream_rollback_error =
+                state_captured && transport_rollback_error == ESP_OK
+                    ? restore_stream_state(previous)
+                    : transport_rollback_error == ESP_OK
+                        ? ESP_OK
+                        : transport_rollback_error;
+            if (transport_rollback_error != ESP_OK ||
+                stream_rollback_error != ESP_OK) {
+                s_audio_state_poisoned.store(true, std::memory_order_release);
+                ESP_LOGE(
+                    TAG,
+                    "Audio standby rollback failed: transport=%s streams=%s",
+                    esp_err_to_name(transport_rollback_error),
+                    esp_err_to_name(stream_rollback_error)
+                );
+            }
+            audio_unlock(mutex);
+            ESP_LOGE(TAG, "Audio standby failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        s_pre_standby_stream_state = previous;
+        s_pre_standby_stream_state_valid = true;
+        s_standby.store(true, std::memory_order_release);
+        audio_unlock(mutex);
+        ESP_LOGI(TAG, "Audio codec streams and I2S transport suspended");
+        return ESP_OK;
+    }
+
+    const bool voice_route_requested = qsee_voice_afe_running();
+    const bool resume_speaker = voice_route_requested
+        ? CONFIG_QSEE_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+        : s_pre_standby_stream_state_valid &&
+              s_pre_standby_stream_state.speaker_open;
+    const bool resume_microphone = voice_route_requested
+        ? qsee_audio_input_channel_count() > 0
+        : s_pre_standby_stream_state_valid &&
+              s_pre_standby_stream_state.microphone_open;
+    error = bsp_audio_set_transport_standby(
+        false,
+        resume_speaker,
+        resume_microphone
+    );
+    if (error == ESP_OK) {
+        s_standby.store(false, std::memory_order_release);
+    }
+    if (error == ESP_OK && voice_route_requested) {
+        error = prepare_voice_route_locked();
+    } else if (error == ESP_OK && s_pre_standby_stream_state_valid) {
+        error = restore_stream_state(s_pre_standby_stream_state);
+    }
+    if (error != ESP_OK &&
+        !s_standby.load(std::memory_order_acquire)) {
+        const esp_err_t stream_rollback_error = close_streams();
+        const esp_err_t transport_rollback_error =
+            stream_rollback_error == ESP_OK
+                ? bsp_audio_set_transport_standby(true, false, false)
+                : stream_rollback_error;
+        if (stream_rollback_error == ESP_OK &&
+            transport_rollback_error == ESP_OK) {
+            s_standby.store(true, std::memory_order_release);
+        } else {
+            s_audio_state_poisoned.store(true, std::memory_order_release);
+            ESP_LOGE(
+                TAG,
+                "Audio resume rollback failed: streams=%s transport=%s",
+                esp_err_to_name(stream_rollback_error),
+                esp_err_to_name(transport_rollback_error)
+            );
+        }
+    }
+    if (error == ESP_OK) {
+        s_pre_standby_stream_state_valid = false;
+    }
     audio_unlock(mutex);
     if (error == ESP_OK) {
-        ESP_LOGI(TAG, "Audio codec streams suspended for standby");
+        ESP_LOGI(
+            TAG,
+            "Audio I2S transport resumed: route=%s",
+            voice_route_requested ? "voice" : "restored"
+        );
     } else {
         ESP_LOGE(
             TAG,
-            "Audio standby failed (%s)",
+            "Audio resume failed (%s)",
             esp_err_to_name(error)
         );
     }

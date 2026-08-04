@@ -80,6 +80,8 @@ These rules apply to the entire Distanziamoci firmware repository.
 ## Work Tracking
 
 - Treat `TODO.md` as the active backlog for open work.
+- Treat `planned-todo.md` as the deferred, non-priority backlog, grouped by
+  macro activity. Move an item to `TODO.md` when it becomes active work.
 - Move completed items to `done.md`, stored next to `TODO.md`, during periodic
   cleanup so the active list stays focused.
 - Record recurring repository lessons in `lessons.md` and check it before

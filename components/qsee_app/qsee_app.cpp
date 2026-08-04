@@ -580,6 +580,7 @@ void App::dispatch_screen_document_action(std::string action)
     }
 }
 
+// Route every lazy document callback through the standby producer gate.
 std::expected<void, std::string> App::subscribe_screen_document_actions(
     AppContext &context,
     esp_brookesia::gui::DocumentId document_id,
@@ -592,10 +593,19 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
         std::string_view action,
         esp_brookesia::gui::Runtime::ActionHandler handler
     ) -> std::expected<void, std::string> {
+        auto guarded_handler =
+            [this, handler = std::move(handler)](
+                const esp_brookesia::gui::Event &event
+            ) mutable {
+                if (standby_ui_state_ != StandbyUiState::Active) {
+                    return;
+                }
+                handler(event);
+            };
         auto connection = context.gui().subscribe_action(
             document_id,
             action,
-            std::move(handler)
+            std::move(guarded_handler)
         );
         if (!connection.connected()) {
             return std::unexpected(
@@ -1401,9 +1411,13 @@ esp_brookesia::system::core::AppGuiDescriptor App::get_gui_descriptor() const
     };
 }
 
+// Initialize a fresh active input generation for the mounted QSee app.
 std::expected<void, std::string> App::on_start(AppContext &context)
 {
     context_ = &context;
+    ++standby_ui_generation_;
+    standby_ui_state_ = StandbyUiState::Active;
+    standby_ui_transition_sequence_ = 0;
     status_bar_.invalidate();
     screen_ = Screen::Welcome;
     navigation_.reset(Screen::Welcome);
@@ -1569,8 +1583,12 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     return {};
 }
 
+// Invalidate pending standby callbacks before pausing app-owned producers.
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
+    ++standby_ui_generation_;
+    standby_ui_state_ = StandbyUiState::Quiescing;
+    standby_ui_transition_sequence_ = 0;
     audio_detail_palette_applied_ = false;
     std::string pause_error;
     if (auto result = adaptive_chrome_.shutdown(context.gui()); !result) {
@@ -1615,13 +1633,31 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         }
     }
     if (!pause_error.empty()) {
+        // Core keeps a failed pause in Running state, so restore every producer
+        // before returning the original lifecycle failure.
+        auto rollback_result = on_resume(context);
+        if (!rollback_result) {
+            ESP_LOGE(
+                kTag,
+                "QSee active rollback after pause failure failed: %s",
+                rollback_result.error().c_str()
+            );
+            pause_error += "; active rollback failed: " +
+                rollback_result.error();
+        } else {
+            ESP_LOGW(kTag, "QSee active state restored after pause failure");
+        }
         return std::unexpected(std::move(pause_error));
     }
     return {};
 }
 
+// Reopen Brookesia input only after every resumed producer and GUI update agrees.
 std::expected<void, std::string> App::on_resume(AppContext &context)
 {
+    ++standby_ui_generation_;
+    standby_ui_transition_sequence_ = 0;
+    standby_ui_state_ = StandbyUiState::Quiescing;
     settings_text_cache_valid_ = false;
     settings_controls_state_.reset();
 #if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -1659,9 +1695,33 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
             }
         }
     };
+    const auto stop_full_snapshot_after_failure = []() {
+        const esp_err_t result = qsee_hardware_stop_full_snapshot_monitor();
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Full Snapshot resume rollback failed: %s",
+                esp_err_to_name(result)
+            );
+        }
+    };
+    const auto shutdown_chrome_after_failure = [this, &context]() {
+        if (auto result = adaptive_chrome_.shutdown(context.gui()); !result) {
+            ESP_LOGE(
+                kTag,
+                "Adaptive Chrome resume rollback failed: %s",
+                result.error().c_str()
+            );
+        }
+    };
     const esp_err_t full_snapshot_result =
         qsee_hardware_start_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Failed to resume Full Snapshot monitor: %s",
+            esp_err_to_name(full_snapshot_result)
+        );
         return std::unexpected(
             "Failed to resume Full Snapshot monitor: " +
             std::string(esp_err_to_name(full_snapshot_result))
@@ -1669,38 +1729,59 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     }
     if (auto result = apply_diagnostic_monitor(context, screen_); !result) {
         rollback_diagnostics();
-        (void)qsee_hardware_stop_full_snapshot_monitor();
+        stop_full_snapshot_after_failure();
         return result;
     }
     if (auto result = configure_chrome(context); !result) {
         rollback_diagnostics();
-        (void)qsee_hardware_stop_full_snapshot_monitor();
+        stop_full_snapshot_after_failure();
         return result;
     }
     if (auto result = adaptive_chrome_.resume(context.gui()); !result) {
         rollback_diagnostics();
-        (void)qsee_hardware_stop_full_snapshot_monitor();
+        stop_full_snapshot_after_failure();
         return result;
     }
     if (auto result =
             sync_refresh_timer(context, DisplayIdleStage::Active);
         !result) {
-        (void)adaptive_chrome_.shutdown(context.gui());
+        shutdown_chrome_after_failure();
         rollback_diagnostics();
-        (void)qsee_hardware_stop_full_snapshot_monitor();
+        stop_full_snapshot_after_failure();
         return result;
     }
     if (auto result = refresh(context); !result) {
-        (void)adaptive_chrome_.shutdown(context.gui());
+        shutdown_chrome_after_failure();
         rollback_diagnostics();
-        (void)qsee_hardware_stop_full_snapshot_monitor();
+        stop_full_snapshot_after_failure();
         return result;
     }
+    if (auto result = context.gui().drain_pending_work(); !result) {
+        shutdown_chrome_after_failure();
+        rollback_diagnostics();
+        stop_full_snapshot_after_failure();
+        return std::unexpected(
+            "Failed to drain QSee GUI while resuming: " + result.error()
+        );
+    }
+    if (auto result = context.gui().resume_input(); !result) {
+        shutdown_chrome_after_failure();
+        rollback_diagnostics();
+        stop_full_snapshot_after_failure();
+        return std::unexpected(
+            "Failed to reopen QSee input while resuming: " + result.error()
+        );
+    }
+    standby_ui_state_ = StandbyUiState::Active;
     return {};
 }
 
+// Block late input callbacks while the QSee app tears down its GUI ownership.
 std::expected<void, std::string> App::on_stop(AppContext &context)
 {
+    ++standby_ui_generation_;
+    standby_ui_state_ = StandbyUiState::Quiescing;
+    standby_ui_transition_sequence_ = 0;
     std::string stop_error;
     if (auto chrome_result = adaptive_chrome_.shutdown(context.gui());
         !chrome_result) {
@@ -2453,11 +2534,15 @@ std::expected<void, std::string> App::open_screen(
     return {};
 }
 
+// Reject touch actions while the power owner has quiesced every GUI producer.
 std::expected<void, std::string> App::on_action(
     AppContext &context,
     std::string_view action
 )
 {
+    if (standby_ui_state_ != StandbyUiState::Active) {
+        return {};
+    }
     if (auto result = note_activity(context); !result) {
         return result;
     }
@@ -3328,6 +3413,7 @@ void App::handle_auto_rotation_event(
     );
 }
 
+// Close every UI producer before acknowledging a renderer pause request.
 std::expected<void, std::string> App::on_timer(
     AppContext &context,
     esp_brookesia::system::core::TimerId timer_id,
@@ -3336,10 +3422,124 @@ std::expected<void, std::string> App::on_timer(
 {
     if (timer_id == power_state_sync_timer_ &&
         name == kPowerStateSyncTimer) {
-        const DisplayIdleStage previous_stage =
-            adaptive_chrome_.display_idle_stage();
         const DeviceSnapshot snapshot =
             DeviceSnapshotService::instance().snapshot();
+        if (snapshot.power.state != DeviceOperatingState::Active) {
+            if (standby_ui_state_ == StandbyUiState::Active) {
+                standby_ui_state_ = StandbyUiState::Quiescing;
+                const uint32_t generation = ++standby_ui_generation_;
+                const uint32_t transition_sequence =
+                    snapshot.power.transition_sequence;
+                standby_ui_transition_sequence_ = transition_sequence;
+                if (auto result =
+                        sync_refresh_timer(context, DisplayIdleStage::Off);
+                    !result) {
+                    ESP_LOGE(
+                        kTag,
+                        "UI refresh timer quiescence failed for transition %lu: %s",
+                        static_cast<unsigned long>(transition_sequence),
+                        result.error().c_str()
+                    );
+                    qsee_power_manager_note_ui_standby_result(
+                        transition_sequence,
+                        ESP_FAIL
+                    );
+                    return result;
+                }
+                if (auto result = adaptive_chrome_.quiesce(context.gui());
+                    !result) {
+                    ESP_LOGE(
+                        kTag,
+                        "Adaptive Chrome quiescence failed for transition %lu: %s",
+                        static_cast<unsigned long>(transition_sequence),
+                        result.error().c_str()
+                    );
+                    qsee_power_manager_note_ui_standby_result(
+                        transition_sequence,
+                        ESP_FAIL
+                    );
+                    return result;
+                }
+                auto quiesce_result = context.gui().quiesce_input(
+                    [this, generation, transition_sequence](
+                        std::expected<void, std::string> drain_result
+                    ) {
+                        if (generation != standby_ui_generation_ ||
+                            standby_ui_state_ !=
+                                StandbyUiState::Quiescing ||
+                            standby_ui_transition_sequence_ !=
+                                transition_sequence) {
+                            return;
+                        }
+                        if (!drain_result) {
+                            ESP_LOGE(
+                                kTag,
+                                "UI standby drain failed for transition %lu: %s",
+                                static_cast<unsigned long>(transition_sequence),
+                                drain_result.error().c_str()
+                            );
+                            qsee_power_manager_note_ui_standby_result(
+                                transition_sequence,
+                                ESP_FAIL
+                            );
+                            return;
+                        }
+                        const DeviceSnapshot latest =
+                            DeviceSnapshotService::instance().snapshot();
+                        if (latest.power.state !=
+                                DeviceOperatingState::EnteringStandby ||
+                            latest.power.transition_sequence !=
+                                transition_sequence) {
+                            ESP_LOGW(
+                                kTag,
+                                "Ignored stale UI standby drain: requested=%lu current=%lu state=%u",
+                                static_cast<unsigned long>(transition_sequence),
+                                static_cast<unsigned long>(
+                                    latest.power.transition_sequence
+                                ),
+                                static_cast<unsigned>(latest.power.state)
+                            );
+                            return;
+                        }
+                        standby_ui_state_ = StandbyUiState::Quiesced;
+                        ESP_LOGI(
+                            kTag,
+                            "UI input and GUI work quiesced for transition %lu",
+                            static_cast<unsigned long>(transition_sequence)
+                        );
+                        qsee_power_manager_note_ui_standby_result(
+                            transition_sequence,
+                            ESP_OK
+                        );
+                    }
+                );
+                if (!quiesce_result) {
+                    ESP_LOGE(
+                        kTag,
+                        "Failed to schedule QSee input quiescence for transition %lu: %s",
+                        static_cast<unsigned long>(transition_sequence),
+                        quiesce_result.error().c_str()
+                    );
+                    qsee_power_manager_note_ui_standby_result(
+                        transition_sequence,
+                        ESP_FAIL
+                    );
+                    return std::unexpected(
+                        "Failed to schedule QSee input quiescence: " +
+                        quiesce_result.error()
+                    );
+                }
+            }
+            return {};
+        }
+
+        const bool resume_from_standby =
+            standby_ui_state_ != StandbyUiState::Active;
+        if (resume_from_standby) {
+            ++standby_ui_generation_;
+        }
+        const DisplayIdleStage previous_stage =
+            adaptive_chrome_.display_idle_stage();
         if (auto result =
                 adaptive_chrome_.update(context.gui(), snapshot);
             !result) {
@@ -3355,6 +3555,26 @@ std::expected<void, std::string> App::on_timer(
             !result) {
             return result;
         }
+        if (resume_from_standby) {
+            if (auto result = refresh(context); !result) {
+                return result;
+            }
+            if (auto result = context.gui().drain_pending_work(); !result) {
+                return std::unexpected(
+                    "Failed to drain restored QSee GUI: " + result.error()
+                );
+            }
+            if (auto result = context.gui().resume_input(); !result) {
+                return std::unexpected(
+                    "Failed to reopen QSee input after standby: " +
+                    result.error()
+                );
+            }
+            standby_ui_state_ = StandbyUiState::Active;
+            standby_ui_transition_sequence_ = 0;
+            ESP_LOGI(kTag, "UI input reopened after renderer wake");
+            return {};
+        }
         if (previous_stage == DisplayIdleStage::Off &&
             current_stage == DisplayIdleStage::Active) {
             return refresh(context);
@@ -3362,7 +3582,8 @@ std::expected<void, std::string> App::on_timer(
         return {};
     }
     if (timer_id == refresh_timer_ && name == kRefreshTimer) {
-        if (adaptive_chrome_.display_idle_stage() ==
+        if (standby_ui_state_ != StandbyUiState::Active ||
+            adaptive_chrome_.display_idle_stage() ==
             DisplayIdleStage::Off) {
             return {};
         }

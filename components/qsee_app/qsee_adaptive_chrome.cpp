@@ -210,15 +210,95 @@ std::expected<void, std::string> AdaptiveChromeController::resume(
     return note_activity(gui);
 }
 
+// Freeze chrome-owned motion and input before the shared renderer is paused.
+std::expected<void, std::string> AdaptiveChromeController::quiesce(
+    const esp_brookesia::system::core::AppGuiRuntime &gui
+)
+{
+    std::string first_error;
+    bool status_animation_stopped = true;
+    if (auto result = stop_status_animation(gui); !result) {
+        status_animation_stopped = false;
+        first_error = result.error();
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome status quiescence failed: %s",
+            result.error().c_str()
+        );
+    }
+    if (status_animation_stopped) {
+        auto result = gui.set_binding_value(
+            kStatusPath,
+            "opacity",
+            status_target_visible_ ? "255" : "0"
+        );
+        if (!result) {
+            ESP_LOGE(
+                kTag,
+                "Adaptive Chrome status snap failed during quiescence: %s",
+                result.error().c_str()
+            );
+            if (first_error.empty()) {
+                first_error =
+                    "Failed to snap Status Arc during quiescence: " +
+                    result.error();
+            }
+        } else {
+            status_visible_ = status_target_visible_;
+        }
+    }
+    if (auto result = command_bar_.quiesce(gui); !result) {
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome Command Arc quiescence failed: %s",
+            result.error().c_str()
+        );
+        if (first_error.empty()) {
+            first_error = result.error();
+        }
+    }
+    if (auto result = set_wake_surface(gui, false); !result) {
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome Wake Surface quiescence failed: %s",
+            result.error().c_str()
+        );
+        if (first_error.empty()) {
+            first_error = result.error();
+        }
+    }
+    if (!first_error.empty()) {
+        return std::unexpected(std::move(first_error));
+    }
+    return {};
+}
+
+// Tear down adaptive chrome while retaining the first real cleanup failure.
 std::expected<void, std::string> AdaptiveChromeController::shutdown(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
     active_ = false;
-    stop_status_animation(gui);
-    command_bar_.shutdown(gui);
-
     std::string first_error;
+    if (auto result = stop_status_animation(gui); !result) {
+        first_error = result.error();
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome status shutdown failed: %s",
+            result.error().c_str()
+        );
+    }
+    if (auto result = command_bar_.shutdown(gui); !result) {
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome Command Arc shutdown failed: %s",
+            result.error().c_str()
+        );
+        if (first_error.empty()) {
+            first_error = result.error();
+        }
+    }
+
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
     updates.reserve(3);
     add_binding(updates, kStatusPath, "opacity", "255");
@@ -227,6 +307,11 @@ std::expected<void, std::string> AdaptiveChromeController::shutdown(
     auto binding_result = gui.set_binding_values(updates);
     if (!binding_result) {
         wake_surface_enabled_.reset();
+        ESP_LOGE(
+            kTag,
+            "Adaptive Chrome binding reset failed during shutdown: %s",
+            binding_result.error().c_str()
+        );
         if (first_error.empty()) {
             first_error =
                 "Failed to reset Adaptive Chrome during shutdown: " +
@@ -324,6 +409,7 @@ bool AdaptiveChromeController::status_arc_visible() const
     return status_target_visible_;
 }
 
+// Replace the status transition only after the previous one is reconciled.
 std::expected<void, std::string>
 AdaptiveChromeController::set_status_visible(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
@@ -337,7 +423,9 @@ AdaptiveChromeController::set_status_visible(
         return {};
     }
 
-    stop_status_animation(gui);
+    if (auto result = stop_status_animation(gui); !result) {
+        return result;
+    }
     status_target_visible_ = visible;
     const uint32_t generation = status_animation_generation_;
     esp_brookesia::gui::Animation animation{
@@ -423,15 +511,22 @@ AdaptiveChromeController::update_wake_surface(
     return set_wake_surface(gui, should_capture);
 }
 
-void AdaptiveChromeController::stop_status_animation(
+// Cancel the status animation and invalidate any completion already queued.
+std::expected<void, std::string>
+AdaptiveChromeController::stop_status_animation(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
     ++status_animation_generation_;
     if (status_animation_id_ != 0) {
-        (void)gui.stop_animation(status_animation_id_);
+        if (auto result = gui.stop_animation(status_animation_id_); !result) {
+            return std::unexpected(
+                "Failed to stop Status Arc animation: " + result.error()
+            );
+        }
         status_animation_id_ = 0;
     }
+    return {};
 }
 
 void AdaptiveChromeController::status_animation_completed(

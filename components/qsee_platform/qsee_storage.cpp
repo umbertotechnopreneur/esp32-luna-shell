@@ -15,6 +15,7 @@
 #include "esp_log.h"
 #include "esp_vfs_fat.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "qsee_logger.h"
@@ -27,15 +28,26 @@ constexpr char kLoggerMirrorSetting[] = "sd_mirror";
 constexpr uint32_t kStorageStatusPollMs = 1000;
 constexpr uint32_t kInitialRetrySeconds = 15;
 constexpr uint32_t kMaximumRetrySeconds = 120;
+constexpr uint32_t kPowerSuspendTimeoutMs = 5000;
+constexpr EventBits_t kWorkerQuiescentBit =
+    static_cast<EventBits_t>(1U << 0);
+constexpr EventBits_t kWorkerResumeCompleteBit =
+    static_cast<EventBits_t>(1U << 1);
 
 std::mutex s_storage_mutex;
+std::mutex s_power_transition_mutex;
 TaskHandle_t s_storage_task;
+EventGroupHandle_t s_storage_events;
+StaticEventGroup_t s_storage_event_storage{};
 uint32_t s_mount_attempt_count;
 bool s_mounted;
 bool s_terminal_failure;
 bool s_waiting_for_format_authorization;
 bool s_logger_mirror_requested = true;
 bool s_performance_suspended;
+bool s_power_suspended;
+bool s_power_resume_requested;
+esp_err_t s_power_resume_error = ESP_ERR_INVALID_STATE;
 bool s_logger_mirror_enabled;
 esp_err_t s_last_logged_mirror_error = ESP_ERR_INVALID_STATE;
 uint32_t s_last_logged_mirror_failure_count;
@@ -47,9 +59,12 @@ bsp_sdcard_identity_t s_format_candidate_identity;
 uint32_t s_format_candidate_attempt;
 qsee::StorageMountReport s_last_mount_report;
 
+// Combine user intent with independent runtime suspension reasons.
 bool logger_mirror_should_run_locked()
 {
-    return s_logger_mirror_requested && !s_performance_suspended;
+    return s_logger_mirror_requested &&
+        !s_performance_suspended &&
+        !s_power_suspended;
 }
 
 struct MountAttempt {
@@ -403,6 +418,27 @@ esp_err_t refresh_logger_status_locked()
     return action_error;
 }
 
+// Apply the effective mirror state and verify the asynchronous writer result.
+esp_err_t apply_effective_logger_mirror_locked()
+{
+    const bool should_run = logger_mirror_should_run_locked();
+    esp_err_t operation_error = ESP_OK;
+    if (s_mounted && should_run) {
+        operation_error = qsee_logger_enable_sd(BSP_SD_MOUNT_POINT);
+    } else if (!should_run) {
+        operation_error = qsee_logger_disable_sd();
+    }
+    if (operation_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Applying effective SD mirror lifecycle failed (%s)",
+            esp_err_to_name(operation_error)
+        );
+        return operation_error;
+    }
+    return refresh_logger_status_locked();
+}
+
 MountAttempt begin_mount_attempt()
 {
     std::lock_guard<std::mutex> lock(s_storage_mutex);
@@ -517,6 +553,7 @@ void publish_failed_mount(
     }
 }
 
+// Mount once and apply only the currently effective logger preference.
 esp_err_t mount_once()
 {
     const MountAttempt attempt = begin_mount_attempt();
@@ -574,6 +611,8 @@ esp_err_t mount_once()
     esp_err_t aggregate = info_error;
     bool logger_mirror_requested = true;
     bool logger_mirror_enabled = false;
+    bool power_suspended = false;
+    bool performance_suspended = false;
     {
         std::lock_guard<std::mutex> lock(s_storage_mutex);
         s_mounted = true;
@@ -581,6 +620,8 @@ esp_err_t mount_once()
         s_waiting_for_format_authorization = false;
         clear_format_candidate_locked();
         logger_mirror_requested = logger_mirror_should_run_locked();
+        power_suspended = s_power_suspended;
+        performance_suspended = s_performance_suspended;
 
         const esp_err_t logger_operation =
             logger_mirror_requested
@@ -610,9 +651,11 @@ esp_err_t mount_once()
         info_error == ESP_OK ? "measured" : "unavailable",
         report.formatted ? "yes" : "no",
         !logger_mirror_requested
-            ? s_performance_suspended
-                ? "suspended by Performance Mode"
-                : "disabled by user"
+            ? power_suspended
+                ? "suspended by power lifecycle"
+                : performance_suspended
+                    ? "suspended by Performance Mode"
+                    : "disabled by user"
             : logger_mirror_enabled ? "mirrored" : "failed"
     );
     if (info_error == ESP_OK) {
@@ -785,6 +828,14 @@ esp_err_t poll_mounted_card()
     return logger_error;
 }
 
+// Mark every notification wait as quiescent for synchronous power handoff.
+void wait_for_storage_notification(TickType_t timeout_ticks)
+{
+    (void)xEventGroupSetBits(s_storage_events, kWorkerQuiescentBit);
+    (void)ulTaskNotifyTake(pdTRUE, timeout_ticks);
+}
+
+// Own SD/FatFs polling and park indefinitely while power is suspended.
 void storage_task(void *argument)
 {
     (void)argument;
@@ -793,20 +844,66 @@ void storage_task(void *argument)
         bool mounted = false;
         bool terminal_failure = false;
         bool waiting_for_format_authorization = false;
+        bool power_suspended = false;
+        bool power_resume_requested = false;
+        (void)xEventGroupClearBits(
+            s_storage_events,
+            kWorkerQuiescentBit
+        );
         {
             std::lock_guard<std::mutex> lock(s_storage_mutex);
             mounted = s_mounted;
             terminal_failure = s_terminal_failure;
+            power_suspended = s_power_suspended;
+            power_resume_requested = s_power_resume_requested;
             waiting_for_format_authorization =
                 s_waiting_for_format_authorization;
         }
 
+        if (power_resume_requested) {
+            esp_err_t resume_error =
+                mounted ? poll_mounted_card() : ESP_OK;
+            esp_err_t rollback_error = ESP_OK;
+            {
+                std::lock_guard<std::mutex> lock(s_storage_mutex);
+                if (!s_power_resume_requested) {
+                    resume_error = ESP_ERR_TIMEOUT;
+                } else if (resume_error == ESP_OK) {
+                    s_power_suspended = false;
+                    resume_error = apply_effective_logger_mirror_locked();
+                    if (resume_error != ESP_OK) {
+                        s_power_suspended = true;
+                        rollback_error =
+                            apply_effective_logger_mirror_locked();
+                    }
+                    publish_mount_report_locked(s_last_mount_report);
+                }
+                s_power_resume_requested = false;
+                s_power_resume_error = resume_error;
+            }
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "SD mirror rollback after power resume failed (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
+            (void)xEventGroupSetBits(
+                s_storage_events,
+                kWorkerResumeCompleteBit
+            );
+            continue;
+        }
+        if (power_suspended) {
+            wait_for_storage_notification(portMAX_DELAY);
+            continue;
+        }
         if (terminal_failure) {
-            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            wait_for_storage_notification(portMAX_DELAY);
             continue;
         }
         if (waiting_for_format_authorization) {
-            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            wait_for_storage_notification(portMAX_DELAY);
             continue;
         }
 
@@ -832,8 +929,7 @@ void storage_task(void *argument)
                     esp_err_to_name(result),
                     static_cast<unsigned long>(retry_seconds)
                 );
-                (void)ulTaskNotifyTake(
-                    pdTRUE,
+                wait_for_storage_notification(
                     pdMS_TO_TICKS(retry_seconds * 1000U)
                 );
                 if (retry_seconds < kMaximumRetrySeconds) {
@@ -848,8 +944,7 @@ void storage_task(void *argument)
         }
 
         (void)poll_mounted_card();
-        (void)ulTaskNotifyTake(
-            pdTRUE,
+        wait_for_storage_notification(
             pdMS_TO_TICKS(kStorageStatusPollMs)
         );
     }
@@ -857,6 +952,7 @@ void storage_task(void *argument)
 
 }  // namespace
 
+// Initialize storage ownership while respecting a pre-existing power reason.
 extern "C" esp_err_t qsee_storage_init(void)
 {
     std::lock_guard<std::mutex> lock(s_storage_mutex);
@@ -951,6 +1047,22 @@ extern "C" esp_err_t qsee_storage_init(void)
         0
     );
 
+    if (s_storage_events == nullptr) {
+        s_storage_events = xEventGroupCreateStatic(
+            &s_storage_event_storage
+        );
+        if (s_storage_events == nullptr) {
+            qsee::StorageMountReport report;
+            report.outcome = qsee::StorageMountOutcome::InternalFailed;
+            report.error = ESP_ERR_NO_MEM;
+            report.mount_attempt_count = s_mount_attempt_count;
+            s_terminal_failure = true;
+            publish_mount_report_locked(report);
+            ESP_LOGE(TAG, "SD worker event group creation failed");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     // The owner task only executes SD/FatFs work; keep its long-lived stack out
     // of the scarce internal heap.
     if (xTaskCreateWithCaps(
@@ -980,10 +1092,12 @@ extern "C" esp_err_t qsee_storage_init(void)
     return ESP_OK;
 }
 
+// Accept format authorization only while the storage owner can act immediately.
 extern "C" esp_err_t qsee_storage_request_format(void)
 {
     std::lock_guard<std::mutex> lock(s_storage_mutex);
     if (s_terminal_failure ||
+        s_power_suspended ||
         s_mounted ||
         s_storage_task == nullptr ||
         s_format_authorization_armed ||
@@ -991,9 +1105,10 @@ extern "C" esp_err_t qsee_storage_request_format(void)
         !s_format_candidate_valid) {
         ESP_LOGE(
             TAG,
-            "SD format rejected: terminal=%s mounted=%s task=%s "
+            "SD format rejected: terminal=%s power_suspended=%s mounted=%s task=%s "
             "armed=%s waiting=%s candidate=%s candidate_attempt=%lu",
             s_terminal_failure ? "yes" : "no",
+            s_power_suspended ? "yes" : "no",
             s_mounted ? "yes" : "no",
             s_storage_task != nullptr ? "ready" : "missing",
             s_format_authorization_armed ? "yes" : "no",
@@ -1177,6 +1292,249 @@ extern "C" esp_err_t qsee_storage_set_performance_suspended(bool suspended)
         "Performance Mode SD mirror suppression: %s (user preference=%s)",
         suspended ? "active" : "inactive",
         s_logger_mirror_requested ? "enabled" : "disabled"
+    );
+    return ESP_OK;
+}
+
+// Quiesce polling and mirroring transactionally without unmounting the card.
+extern "C" esp_err_t qsee_storage_set_power_suspended(bool suspended)
+{
+    std::lock_guard<std::mutex> transition_lock(s_power_transition_mutex);
+    TaskHandle_t storage_task_handle = nullptr;
+    EventGroupHandle_t storage_events = nullptr;
+    bool mounted_snapshot = false;
+    bool mirror_requested_snapshot = false;
+    if (suspended) {
+        bool previous = false;
+        bool format_state_expired = false;
+        {
+            std::lock_guard<std::mutex> lock(s_storage_mutex);
+            if (s_terminal_failure) {
+                ESP_LOGE(
+                    TAG,
+                    "Power storage change rejected: terminal ownership state (%s)",
+                    esp_err_to_name(ESP_ERR_INVALID_STATE)
+                );
+                return ESP_ERR_INVALID_STATE;
+            }
+            if (s_storage_task == nullptr) {
+                if (s_mounted) {
+                    ESP_LOGE(
+                        TAG,
+                        "Power storage change rejected: mounted card has no owner task (%s)",
+                        esp_err_to_name(ESP_ERR_INVALID_STATE)
+                    );
+                    return ESP_ERR_INVALID_STATE;
+                }
+                s_power_suspended = true;
+                ESP_LOGI(TAG, "SD pre-initialization power suspension: active");
+                return ESP_OK;
+            }
+            if (s_storage_events == nullptr || s_power_resume_requested) {
+                ESP_LOGE(
+                    TAG,
+                    "Power storage suspension rejected: worker transition unavailable (%s)",
+                    esp_err_to_name(ESP_ERR_INVALID_STATE)
+                );
+                return ESP_ERR_INVALID_STATE;
+            }
+
+            previous = s_power_suspended;
+            s_power_suspended = true;
+            if (s_format_authorization_armed ||
+                s_waiting_for_format_authorization ||
+                s_format_candidate_valid) {
+                format_state_expired = true;
+                s_format_authorization_armed = false;
+                s_authorized_identity = {};
+                s_waiting_for_format_authorization = false;
+                clear_format_candidate_locked();
+                ESP_LOGW(
+                    TAG,
+                    "SD format authorization/candidate expired for power suspension; a fresh verified probe is required"
+                );
+            }
+
+            const esp_err_t transition_error =
+                apply_effective_logger_mirror_locked();
+            if (transition_error != ESP_OK) {
+                s_power_suspended = previous;
+                const esp_err_t rollback_error =
+                    apply_effective_logger_mirror_locked();
+                publish_mount_report_locked(s_last_mount_report);
+                if (rollback_error != ESP_OK) {
+                    ESP_LOGE(
+                        TAG,
+                        "SD power mirror rollback failed (%s)",
+                        esp_err_to_name(rollback_error)
+                    );
+                }
+                if (format_state_expired &&
+                    xTaskNotifyGive(s_storage_task) != pdPASS) {
+                    ESP_LOGE(
+                        TAG,
+                        "Notifying SD service after format-state expiry failed (%s)",
+                        esp_err_to_name(ESP_ERR_TIMEOUT)
+                    );
+                }
+                ESP_LOGE(
+                    TAG,
+                    "SD power mirror transition failed (%s)",
+                    esp_err_to_name(transition_error)
+                );
+                return transition_error;
+            }
+            publish_mount_report_locked(s_last_mount_report);
+            storage_task_handle = s_storage_task;
+            storage_events = s_storage_events;
+        }
+
+        esp_err_t quiescence_error = ESP_OK;
+        if (xTaskNotifyGive(storage_task_handle) != pdPASS) {
+            quiescence_error = ESP_ERR_TIMEOUT;
+        } else {
+            const EventBits_t bits = xEventGroupWaitBits(
+                storage_events,
+                kWorkerQuiescentBit,
+                pdFALSE,
+                pdTRUE,
+                pdMS_TO_TICKS(kPowerSuspendTimeoutMs)
+            );
+            if ((bits & kWorkerQuiescentBit) == 0U) {
+                quiescence_error = ESP_ERR_TIMEOUT;
+            }
+        }
+        if (quiescence_error != ESP_OK) {
+            esp_err_t rollback_error = ESP_OK;
+            {
+                std::lock_guard<std::mutex> lock(s_storage_mutex);
+                s_power_suspended = previous;
+                rollback_error = apply_effective_logger_mirror_locked();
+                publish_mount_report_locked(s_last_mount_report);
+            }
+            (void)xTaskNotifyGive(storage_task_handle);
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "SD power quiescence rollback failed (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
+            ESP_LOGE(
+                TAG,
+                "SD power quiescence failed; timeout=%lu ms request rolled back (%s)",
+                static_cast<unsigned long>(kPowerSuspendTimeoutMs),
+                esp_err_to_name(quiescence_error)
+            );
+            return quiescence_error;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(s_storage_mutex);
+            mounted_snapshot = s_mounted;
+            mirror_requested_snapshot = s_logger_mirror_requested;
+        }
+        ESP_LOGI(
+            TAG,
+            "SD power suspension active (mounted=%s user mirror=%s)",
+            mounted_snapshot ? "yes" : "no",
+            mirror_requested_snapshot ? "enabled" : "disabled"
+        );
+        return ESP_OK;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        if (s_terminal_failure) {
+            ESP_LOGE(
+                TAG,
+                "Power storage resume rejected: terminal ownership state (%s)",
+                esp_err_to_name(ESP_ERR_INVALID_STATE)
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (s_storage_task == nullptr) {
+            if (s_mounted) {
+                ESP_LOGE(
+                    TAG,
+                    "Power storage resume rejected: mounted card has no owner task (%s)",
+                    esp_err_to_name(ESP_ERR_INVALID_STATE)
+                );
+                return ESP_ERR_INVALID_STATE;
+            }
+            s_power_suspended = false;
+            ESP_LOGI(TAG, "SD pre-initialization power suspension: inactive");
+            return ESP_OK;
+        }
+        if (s_storage_events == nullptr || s_power_resume_requested) {
+            ESP_LOGE(
+                TAG,
+                "Power storage resume rejected: worker transition unavailable (%s)",
+                esp_err_to_name(ESP_ERR_INVALID_STATE)
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (!s_power_suspended) {
+            return ESP_OK;
+        }
+
+        s_power_resume_requested = true;
+        s_power_resume_error = ESP_ERR_NOT_FINISHED;
+        (void)xEventGroupClearBits(
+            s_storage_events,
+            kWorkerResumeCompleteBit
+        );
+        storage_task_handle = s_storage_task;
+        storage_events = s_storage_events;
+    }
+
+    if (xTaskNotifyGive(storage_task_handle) != pdPASS) {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        s_power_resume_requested = false;
+        s_power_resume_error = ESP_ERR_TIMEOUT;
+        ESP_LOGE(
+            TAG,
+            "Notifying SD worker for power resume failed (%s)",
+            esp_err_to_name(ESP_ERR_TIMEOUT)
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const EventBits_t bits = xEventGroupWaitBits(
+        storage_events,
+        kWorkerResumeCompleteBit,
+        pdFALSE,
+        pdTRUE,
+        pdMS_TO_TICKS(kPowerSuspendTimeoutMs)
+    );
+    esp_err_t resume_error = ESP_ERR_TIMEOUT;
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        if ((bits & kWorkerResumeCompleteBit) != 0U ||
+            !s_power_resume_requested) {
+            resume_error = s_power_resume_error;
+        } else {
+            s_power_resume_requested = false;
+            s_power_resume_error = ESP_ERR_TIMEOUT;
+        }
+        mounted_snapshot = s_mounted;
+        mirror_requested_snapshot = s_logger_mirror_requested;
+    }
+    if (resume_error != ESP_OK) {
+        (void)xTaskNotifyGive(storage_task_handle);
+        ESP_LOGE(
+            TAG,
+            "SD power resume validation failed (%s)",
+            esp_err_to_name(resume_error)
+        );
+        return resume_error;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "SD power suspension inactive after card/FAT validation (mounted=%s user mirror=%s)",
+        mounted_snapshot ? "yes" : "no",
+        mirror_requested_snapshot ? "enabled" : "disabled"
     );
     return ESP_OK;
 }

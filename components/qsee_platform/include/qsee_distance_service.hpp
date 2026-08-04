@@ -24,4 +24,7 @@ esp_err_t distanceSetSampleIntervalMs(uint32_t interval_ms);
 /** Persist the physically measured calibration distance. */
 esp_err_t distanceSetReferenceMm(uint16_t reference_mm);
 
+/** Quiesce acquisition and release UART ownership while power is suspended. */
+esp_err_t distanceSetPowerSuspended(bool suspended);
+
 }  // namespace qsee

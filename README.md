@@ -149,9 +149,9 @@ construct a second widget framework or call LVGL directly.
 | `Wake Surface` | The transparent full-display touch target used while automatic Adaptive Chrome is hidden or the display is dimmed/off; manual Fullscreen leaves page controls interactive |
 | `Adaptive Chrome` | The reusable Status Arc and Command Arc renderer; it animates the canonical power state but owns no inactivity policy |
 | `Content Viewport` | The route surface between the currently visible arcs; it expands from the 320 x 320 safe square to 393 or 466 pixels as either or both arcs disappear |
-| `Power Management Service` | The single worker that owns BOOT input, AXP2101 PKEY events, inactivity timing, arc visibility, AMOLED fade/dim/off, audio standby, and IMU wake |
+| `Power Management Service` | The single worker that owns BOOT input, AXP2101 PKEY events, inactivity timing, arc visibility, AMOLED fade/dim/off, coordinated workload suspension, ESP-IDF automatic Light-sleep, and IMU wake |
 | `Screen Sleep` | The inactivity stage reached after dimming; AMOLED output and periodic UI refresh stop, while touch and IMU wake remain available |
-| `Device Standby` | The explicit `PWR`-controlled state with the display off and voice capture suspended while the IMU wake monitor remains active |
+| `Device Standby` | The explicit `PWR`-controlled state with display/LVGL, Full Snapshot, TOF UART, SD polling, voice/audio/I2S, and other periodic work suspended while the IMU wake monitor remains active at 31.25 Hz |
 | `Full Snapshot` | One serialized complete hardware and system acquisition, scheduled at the user-selected 300 ms to 10 s cadence |
 | `Diagnostic Stream` | The separate IMU/microphone live sampler enabled only by diagnostic routes |
 | `UI Refresh` | The snapshot-to-view binding pass: 1 Hz while active, 0.2 Hz while dimmed, and stopped while the display is off; it never samples hardware |
@@ -177,9 +177,10 @@ after a stable 500 ms release, including after light sleep, so a held or noisy
 startup level cannot become a false command. IMU wake requires a quiet dwell
 followed by three consecutive movement samples and uses a two-second
 grace/cooldown. `PWR` is the AXP2101 PKEY, not a GPIO: a short event toggles
-Device Standby and another short event or qualified IMU movement wakes it. A
-long event is recorded and requests standby without toggling an already
-sleeping device. BOOT held for three seconds performs a soft reset.
+Device Standby; another short event or qualified IMU movement is the intended
+wake path. Repeated post-fix physical wake validation remains tracked in
+`TODO.md`. A long event is recorded and requests standby without toggling an
+already sleeping device. BOOT held for three seconds performs a soft reset.
 
 Every route consumes the same canonical arc visibility when calculating its
 viewport. With both arcs visible the content surface is `y=73`, `height=320`;
@@ -188,13 +189,36 @@ pixels. Scrollable pages grow inside circular-safe 55-pixel edge insets, while
 fixed diagnostic canvases remain centered instead of being stretched or
 clipped.
 
-Device Standby is deliberately a software-managed state: the AMOLED controller
-output is disabled, the voice path is suspended, and both arcs and periodic UI
-work stop while the CPU keeps the PMU-isolated PKEY poll and IMU wake monitor
-alive. Panel power commands and rotation replay share the display lock, so
-rotation is deferred while output is disabled. The
-board does not provide a verified ESP32 wake GPIO for the AXP2101 IRQ, so this
-flow does not claim that PWR can wake the SoC from ESP light sleep. Every policy
+Device Standby remains a software-managed state, but it now uses the native
+ESP-IDF power stack between required wake checks. The coordinator quiesces Full
+Snapshot acquisition, releases both TOF UARTs, parks SD polling and mirroring,
+switches the QMI8658 accelerometer and gyroscope from 500 Hz to 31.25 Hz, closes
+the codec streams and I2S channels, closes QSee input producers, cancels tracked
+chrome animations, and drains Brookesia AppInput, GUIInput, and GUI work before
+the power task receives its standby acknowledgement. It then disables AMOLED
+output and pauses the LVGL worker/tick through the pinned Espressif adapter's
+bounded transaction. The adapter patch clears stale acknowledgements before a
+pause, wakes the worker immediately, propagates tick-timer failures, and retains
+an explicit faulted state if recovery cannot prove the renderer active. Disabled
+SD logging and a suspended voice AFE block on task
+notifications instead of waking periodically. Brookesia System Core and Service
+Manager workers also block until posted work or the next real timer deadline,
+rather than polling idle schedulers every 2--5 ms. The PMU-isolated PKEY poll
+runs from an internal-RAM task stack, and it plus the IMU motion monitor remain
+alive at a 100 ms cadence. ESP-IDF Dynamic
+Frequency Scaling and tickless idle can therefore enter automatic Light-sleep
+during the idle intervals; each completed standby logs measured Light-sleep
+cycles, milliseconds, and residency. Because ESP32-S3 cannot retain its native
+USB Serial/JTAG link through Light-sleep, the official ESP-IDF connection
+monitor holds `ESP_PM_NO_LIGHT_SLEEP` while a USB host is attached. Disconnecting
+the host releases that lock automatically, so battery operation retains the
+sleep policy without making a USB-connected development device inaccessible.
+
+Panel power commands and rotation replay share the display lock, so rotation is
+deferred while output is disabled. The board still has no verified ESP32 wake
+GPIO for the AXP2101 IRQ: PWR is observed by the next scheduled software poll,
+not by an explicit `esp_light_sleep_start()` PWR wake source. This flow therefore
+does not claim asynchronous PWR wake from one continuous SoC sleep. Every policy
 state and transition is published in `DeviceSnapshotService`; the UI only
 animates that immutable state.
 

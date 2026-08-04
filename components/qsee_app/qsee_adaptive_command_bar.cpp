@@ -177,6 +177,7 @@ void add_binding(
 
 namespace qsee {
 
+// Replace command bindings only after any prior animation is fully stopped.
 std::expected<void, std::string> AdaptiveCommandBar::activate(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     std::span<const CommandSpec> commands,
@@ -220,7 +221,9 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
         );
     }
 
-    stop_animations(gui);
+    if (auto result = stop_animations(gui); !result) {
+        return result;
+    }
     command_count_ = commands.size();
     for (std::string &action : actions_) {
         action.clear();
@@ -346,11 +349,73 @@ std::expected<void, std::string> AdaptiveCommandBar::set_visible(
     return animate_to(gui, visible);
 }
 
-void AdaptiveCommandBar::shutdown(
+// Stop command motion and hit testing while retaining the mounted route model.
+std::expected<void, std::string> AdaptiveCommandBar::quiesce(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
-    stop_animations(gui);
+    std::string first_error;
+    bool animation_stopped = true;
+    if (auto result = stop_animations(gui); !result) {
+        animation_stopped = false;
+        first_error = result.error();
+        ESP_LOGE(
+            kTag,
+            "Command Arc animation quiescence failed: %s",
+            result.error().c_str()
+        );
+    }
+    if (animation_stopped) {
+        auto result = gui.set_binding_value(
+            kCommandRoot,
+            "opacity",
+            animation_target_visible_ ? "255" : "0"
+        );
+        if (!result) {
+            ESP_LOGE(
+                kTag,
+                "Command Arc opacity snap failed during quiescence: %s",
+                result.error().c_str()
+            );
+            if (first_error.empty()) {
+                first_error =
+                    "Failed to snap Command Arc during quiescence: " +
+                    result.error();
+            }
+        } else {
+            visible_ = animation_target_visible_;
+        }
+    }
+    if (auto result = set_hit_testing(gui, false); !result) {
+        ESP_LOGE(
+            kTag,
+            "Command Arc hit-testing quiescence failed: %s",
+            result.error().c_str()
+        );
+        if (first_error.empty()) {
+            first_error = result.error();
+        }
+    }
+    if (!first_error.empty()) {
+        return std::unexpected(std::move(first_error));
+    }
+    return {};
+}
+
+// Tear down command state while retaining the first real cleanup failure.
+std::expected<void, std::string> AdaptiveCommandBar::shutdown(
+    const esp_brookesia::system::core::AppGuiRuntime &gui
+)
+{
+    std::string first_error;
+    if (auto result = stop_animations(gui); !result) {
+        first_error = result.error();
+        ESP_LOGE(
+            kTag,
+            "Command Arc animation shutdown failed: %s",
+            result.error().c_str()
+        );
+    }
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
     updates.reserve((kSlotCount * 2U) + 1U);
     add_binding(updates, kCommandRoot, "hidden", "true");
@@ -368,6 +433,9 @@ void AdaptiveCommandBar::shutdown(
             "Failed to hide Command Arc during shutdown: %s",
             result.error().c_str()
         );
+        if (first_error.empty()) {
+            first_error = result.error();
+        }
     } else {
         hit_testing_enabled_ = false;
     }
@@ -375,6 +443,10 @@ void AdaptiveCommandBar::shutdown(
     active_ = false;
     visible_ = true;
     animation_target_visible_ = true;
+    if (!first_error.empty()) {
+        return std::unexpected(std::move(first_error));
+    }
+    return {};
 }
 
 bool AdaptiveCommandBar::has_commands() const
@@ -387,6 +459,7 @@ bool AdaptiveCommandBar::target_visible() const
     return !active_ || animation_target_visible_;
 }
 
+// Start one command transition after reconciling the prior subscription.
 std::expected<void, std::string> AdaptiveCommandBar::animate_to(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     bool visible
@@ -399,7 +472,9 @@ std::expected<void, std::string> AdaptiveCommandBar::animate_to(
         return set_hit_testing(gui, visible);
     }
 
-    stop_animations(gui);
+    if (auto result = stop_animations(gui); !result) {
+        return result;
+    }
     animation_target_visible_ = visible;
     const uint32_t generation = animation_generation_;
     esp_brookesia::gui::Animation animation{
@@ -468,15 +543,21 @@ std::expected<void, std::string> AdaptiveCommandBar::set_hit_testing(
     return {};
 }
 
-void AdaptiveCommandBar::stop_animations(
+// Cancel the tracked animation and invalidate any completion already queued.
+std::expected<void, std::string> AdaptiveCommandBar::stop_animations(
     const esp_brookesia::system::core::AppGuiRuntime &gui
 )
 {
     ++animation_generation_;
     if (animation_id_ != 0) {
-        (void)gui.stop_animation(animation_id_);
+        if (auto result = gui.stop_animation(animation_id_); !result) {
+            return std::unexpected(
+                "Failed to stop Command Arc animation: " + result.error()
+            );
+        }
         animation_id_ = 0;
     }
+    return {};
 }
 
 void AdaptiveCommandBar::animation_completed(

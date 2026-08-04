@@ -47,6 +47,15 @@ static size_t display_frame_cache_full_row_count = 0;
 static bool display_frame_cache_valid = false;
 static bool display_panel_output_enabled = false;
 static bool display_dma_low_memory_reported = false;
+typedef enum {
+    BSP_DISPLAY_LVGL_ACTIVE = 0,
+    BSP_DISPLAY_LVGL_PAUSING,
+    BSP_DISPLAY_LVGL_PAUSED,
+    BSP_DISPLAY_LVGL_FAULTED_PAUSED,
+    BSP_DISPLAY_LVGL_RESUMING,
+} bsp_display_lvgl_state_t;
+static bsp_display_lvgl_state_t display_lvgl_state = BSP_DISPLAY_LVGL_ACTIVE;
+static portMUX_TYPE display_lvgl_state_lock = portMUX_INITIALIZER_UNLOCKED;
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 
 static void bsp_touch_activity_event_cb(lv_event_t *event)
@@ -161,6 +170,7 @@ static i2s_chan_handle_t i2s_rx_chan = NULL;
 static const audio_codec_data_if_t *i2s_data_if = NULL; /* Codec data interface */
 static bool i2s_tx_enabled;
 static bool i2s_rx_enabled;
+static bool audio_transport_standby;
 static bool audio_resources_poisoned;
 static esp_codec_dev_handle_t speaker_codec_device;
 static esp_codec_dev_handle_t microphone_codec_device;
@@ -1070,6 +1080,62 @@ static void record_audio_cleanup_error(
     }
 }
 
+// Stop one codec-managed I2S channel and confirm an already-stopped channel.
+static esp_err_t bsp_audio_disable_channel(
+    i2s_chan_handle_t channel,
+    bool *enabled,
+    const char *name
+)
+{
+    if (channel == NULL || enabled == NULL || name == NULL) {
+        ESP_LOGE(TAG, "Audio channel disable rejected: invalid channel state");
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t result = i2s_channel_disable(channel);
+    if (result == ESP_OK || result == ESP_ERR_INVALID_STATE) {
+        // esp_codec_dev_close() normally stops the channel before this BSP
+        // ownership layer confirms and records the transport state.
+        if (result == ESP_ERR_INVALID_STATE) {
+            ESP_LOGD(TAG, "Audio %s channel already stopped", name);
+        }
+        *enabled = false;
+        return ESP_OK;
+    }
+    ESP_LOGE(
+        TAG,
+        "Audio %s disable failed: %s",
+        name,
+        esp_err_to_name(result)
+    );
+    return result;
+}
+
+// Start one allocated I2S channel while retaining the exact driver failure.
+static esp_err_t bsp_audio_enable_channel(
+    i2s_chan_handle_t channel,
+    bool *enabled,
+    const char *name
+)
+{
+    if (channel == NULL || enabled == NULL || name == NULL) {
+        ESP_LOGE(TAG, "Audio channel enable rejected: invalid channel state");
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t result = i2s_channel_enable(channel);
+    if (result == ESP_OK) {
+        *enabled = true;
+        return ESP_OK;
+    }
+    ESP_LOGE(
+        TAG,
+        "Audio %s enable failed: %s",
+        name,
+        esp_err_to_name(result)
+    );
+    return result;
+}
+
+// Release every BSP-owned I2S resource and poison partial cleanup state.
 static esp_err_t bsp_audio_transport_cleanup(void)
 {
     esp_err_t aggregate = ESP_OK;
@@ -1083,31 +1149,17 @@ static esp_err_t bsp_audio_transport_cleanup(void)
     }
 
     if (i2s_rx_chan != NULL && i2s_rx_enabled) {
-        const esp_err_t result = i2s_channel_disable(i2s_rx_chan);
-        if (result == ESP_OK) {
-            i2s_rx_enabled = false;
-        } else {
-            ESP_LOGE(
-                TAG,
-                "Audio cleanup RX disable failed: %s",
-                esp_err_to_name(result)
-            );
+        const esp_err_t result =
+            bsp_audio_disable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
+        if (aggregate == ESP_OK && result != ESP_OK) {
             aggregate = result;
         }
     }
     if (i2s_tx_chan != NULL && i2s_tx_enabled) {
-        const esp_err_t result = i2s_channel_disable(i2s_tx_chan);
-        if (result == ESP_OK) {
-            i2s_tx_enabled = false;
-        } else {
-            ESP_LOGE(
-                TAG,
-                "Audio cleanup TX disable failed: %s",
-                esp_err_to_name(result)
-            );
-            if (aggregate == ESP_OK) {
-                aggregate = result;
-            }
+        const esp_err_t result =
+            bsp_audio_disable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX");
+        if (aggregate == ESP_OK && result != ESP_OK) {
+            aggregate = result;
         }
     }
 
@@ -1142,7 +1194,9 @@ static esp_err_t bsp_audio_transport_cleanup(void)
         }
     }
 
-    if (aggregate != ESP_OK) {
+    if (aggregate == ESP_OK) {
+        audio_transport_standby = false;
+    } else {
         audio_resources_poisoned = true;
     }
     return aggregate;
@@ -1231,6 +1285,7 @@ static esp_err_t bsp_audio_codec_cleanup(void)
     return aggregate;
 }
 
+// Allocate and initialize the shared duplex I2S transport once.
 esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
 {
     if (audio_resources_poisoned) {
@@ -1334,6 +1389,93 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
         }
         return primary_error;
     }
+    audio_transport_standby = false;
+    return ESP_OK;
+}
+
+// Transition both allocated I2S channels atomically for system standby.
+esp_err_t bsp_audio_set_transport_standby(
+    bool standby,
+    bool resume_tx,
+    bool resume_rx
+)
+{
+    if (audio_resources_poisoned) {
+        ESP_LOGE(TAG, "Audio transport transition rejected: resources are poisoned");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (standby == audio_transport_standby) {
+        return ESP_OK;
+    }
+    if (i2s_data_if == NULL || i2s_tx_chan == NULL || i2s_rx_chan == NULL) {
+        ESP_LOGE(TAG, "Audio transport transition rejected: route is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    if (standby) {
+        const esp_err_t rx_error =
+            bsp_audio_disable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
+        if (rx_error != ESP_OK) {
+            return rx_error;
+        }
+        const esp_err_t tx_error =
+            bsp_audio_disable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX");
+        if (tx_error != ESP_OK) {
+            const esp_err_t rollback_error =
+                bsp_audio_enable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX rollback");
+            if (rollback_error != ESP_OK) {
+                audio_resources_poisoned = true;
+                ESP_LOGE(
+                    TAG,
+                    "Audio standby rollback failed after TX error: %s",
+                    esp_err_to_name(rollback_error)
+                );
+            }
+            return tx_error;
+        }
+        audio_transport_standby = true;
+        ESP_LOGI(TAG, "Audio I2S transport suspended");
+        return ESP_OK;
+    }
+
+    bool tx_resumed = false;
+    if (resume_tx) {
+        const esp_err_t tx_error =
+            bsp_audio_enable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX");
+        if (tx_error != ESP_OK) {
+            return tx_error;
+        }
+        tx_resumed = true;
+    }
+    if (resume_rx) {
+        const esp_err_t rx_error =
+            bsp_audio_enable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
+        if (rx_error != ESP_OK) {
+            if (tx_resumed) {
+                const esp_err_t rollback_error = bsp_audio_disable_channel(
+                    i2s_tx_chan,
+                    &i2s_tx_enabled,
+                    "TX rollback"
+                );
+                if (rollback_error != ESP_OK) {
+                    audio_resources_poisoned = true;
+                    ESP_LOGE(
+                        TAG,
+                        "Audio resume rollback failed after RX error: %s",
+                        esp_err_to_name(rollback_error)
+                    );
+                }
+            }
+            return rx_error;
+        }
+    }
+    audio_transport_standby = false;
+    ESP_LOGI(
+        TAG,
+        "Audio I2S transport resumed: TX=%s RX=%s",
+        resume_tx ? "on" : "off",
+        resume_rx ? "on" : "off"
+    );
     return ESP_OK;
 }
 
@@ -2744,7 +2886,7 @@ esp_err_t bsp_display_start(lv_display_t **out_display)
     return bsp_display_start_with_config(&cfg, out_display);
 }
 
-
+// Initialize the display and its adapter-owned LVGL worker.
 esp_err_t bsp_display_start_with_config(
     const bsp_display_cfg_t *cfg,
     lv_display_t **out_display
@@ -2759,7 +2901,6 @@ esp_err_t bsp_display_start_with_config(
         ESP_LOGE(TAG, "Display is already initialized");
         return ESP_ERR_INVALID_STATE;
     }
-
     esp_err_t result = esp_lv_adapter_init(&cfg->lv_adapter_cfg);
     if (result != ESP_OK) {
         ESP_LOGE(TAG, "LVGL adapter initialization failed: %s", esp_err_to_name(result));
@@ -2983,6 +3124,101 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 bsp_display_rotation_t bsp_display_rotation_get(void)
 {
     return current_rotation;
+}
+
+// Pause the LVGL worker through the patched, bounded adapter transaction.
+esp_err_t bsp_display_lvgl_pause(void)
+{
+    if (display_handle == NULL) {
+        ESP_LOGE(TAG, "LVGL pause rejected: display is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    portENTER_CRITICAL(&display_lvgl_state_lock);
+    const bsp_display_lvgl_state_t previous_state = display_lvgl_state;
+    if (previous_state == BSP_DISPLAY_LVGL_PAUSED) {
+        portEXIT_CRITICAL(&display_lvgl_state_lock);
+        return ESP_OK;
+    }
+    if (previous_state != BSP_DISPLAY_LVGL_ACTIVE) {
+        portEXIT_CRITICAL(&display_lvgl_state_lock);
+        ESP_LOGE(TAG, "LVGL pause rejected: transition state=%d", previous_state);
+        return ESP_ERR_INVALID_STATE;
+    }
+    display_lvgl_state = BSP_DISPLAY_LVGL_PAUSING;
+    portEXIT_CRITICAL(&display_lvgl_state_lock);
+
+    const esp_err_t result = esp_lv_adapter_pause(
+        (int32_t)BSP_DISPLAY_LVGL_PAUSE_TIMEOUT_MS
+    );
+
+    esp_err_t recovery_result = ESP_OK;
+    if (result != ESP_OK) {
+        // Resume is idempotent and reconciles any ambiguous tick-stop failure.
+        recovery_result = esp_lv_adapter_resume();
+        if (recovery_result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "LVGL pause recovery failed after %s: %s",
+                esp_err_to_name(result),
+                esp_err_to_name(recovery_result)
+            );
+        }
+    }
+
+    portENTER_CRITICAL(&display_lvgl_state_lock);
+    display_lvgl_state =
+        result == ESP_OK
+        ? BSP_DISPLAY_LVGL_PAUSED
+        : (recovery_result == ESP_OK
+            ? BSP_DISPLAY_LVGL_ACTIVE
+            : BSP_DISPLAY_LVGL_FAULTED_PAUSED);
+    portEXIT_CRITICAL(&display_lvgl_state_lock);
+
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "LVGL pause failed: %s", esp_err_to_name(result));
+        return result;
+    }
+    ESP_LOGI(TAG, "LVGL worker and tick paused");
+    return ESP_OK;
+}
+
+// Resume the LVGL worker while retaining paused state on adapter failure.
+esp_err_t bsp_display_lvgl_resume(void)
+{
+    if (display_handle == NULL) {
+        ESP_LOGE(TAG, "LVGL resume rejected: display is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    portENTER_CRITICAL(&display_lvgl_state_lock);
+    const bsp_display_lvgl_state_t previous_state = display_lvgl_state;
+    if (previous_state == BSP_DISPLAY_LVGL_ACTIVE) {
+        portEXIT_CRITICAL(&display_lvgl_state_lock);
+        return ESP_OK;
+    }
+    if (previous_state != BSP_DISPLAY_LVGL_PAUSED &&
+        previous_state != BSP_DISPLAY_LVGL_FAULTED_PAUSED) {
+        portEXIT_CRITICAL(&display_lvgl_state_lock);
+        ESP_LOGE(TAG, "LVGL resume rejected: transition state=%d", previous_state);
+        return ESP_ERR_INVALID_STATE;
+    }
+    display_lvgl_state = BSP_DISPLAY_LVGL_RESUMING;
+    portEXIT_CRITICAL(&display_lvgl_state_lock);
+
+    const esp_err_t result = esp_lv_adapter_resume();
+
+    portENTER_CRITICAL(&display_lvgl_state_lock);
+    display_lvgl_state =
+        result == ESP_OK ? BSP_DISPLAY_LVGL_ACTIVE : previous_state;
+    portEXIT_CRITICAL(&display_lvgl_state_lock);
+
+    if (result != ESP_OK) {
+        ESP_LOGE(TAG, "LVGL resume failed: %s", esp_err_to_name(result));
+        return result;
+    }
+    ESP_LOGI(TAG, "LVGL worker and tick resumed");
+    return ESP_OK;
 }
 
 esp_err_t bsp_display_lock(uint32_t timeout_ms)

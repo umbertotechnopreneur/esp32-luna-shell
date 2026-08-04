@@ -22,6 +22,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/event_groups.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
 #include "qsee_device_snapshot.hpp"
@@ -60,6 +61,9 @@ constexpr uint16_t kCalibrationRecordVersion = 2;
 constexpr uint32_t kWorkerStackBytes = 12U * 1024U;
 constexpr UBaseType_t kWorkerPriority = 4;
 constexpr int64_t kWorkerWarningIntervalUs = 10'000'000;
+constexpr uint32_t kPowerSuspendTimeoutMs = 5000U;
+constexpr EventBits_t kWorkerQuiescentBit =
+    static_cast<EventBits_t>(1U << 0);
 constexpr float kPi = 3.14159265358979323846F;
 
 struct CalibrationRecord {
@@ -178,8 +182,10 @@ struct WorkerWarningState {
 };
 
 std::mutex s_mutex;
+std::mutex s_power_transition_mutex;
 bool s_initialized = false;
 bool s_worker_started = false;
+bool s_power_suspended = false;
 bool s_calibration_requested = false;
 bool s_calibration_valid = false;
 esp_err_t s_calibration_requirement_error = ESP_ERR_INVALID_STATE;
@@ -204,6 +210,8 @@ int64_t s_calibration_deadline_at_us = 0;
 uint32_t s_consecutive_transport_failures = 0;
 qsee::DistanceSnapshot s_distance{};
 TaskHandle_t s_worker = nullptr;
+EventGroupHandle_t s_worker_events = nullptr;
+StaticEventGroup_t s_worker_event_storage{};
 std::array<
     WorkerWarningState,
     static_cast<std::size_t>(WorkerWarningCategory::Count)
@@ -1936,7 +1944,12 @@ void process_runtime_sample(
     publish_locked(true);
 }
 
-void publish_transport_failure(esp_err_t error, int64_t attempted_at_us)
+// Publish a real transport failure from either worker or lifecycle context.
+void publish_transport_failure(
+    esp_err_t error,
+    int64_t attempted_at_us,
+    bool worker_context = true
+)
 {
     std::lock_guard<std::mutex> lock(s_mutex);
     for (SampleWindow &window : s_runtime_windows) {
@@ -1954,41 +1967,60 @@ void publish_transport_failure(esp_err_t error, int64_t attempted_at_us)
     }
     mark_distance_unavailable(error, attempted_at_us);
     s_distance.acquisition_timing_valid = false;
-    publish_locked(true);
+    publish_locked(worker_context);
 }
 
+// Wait interruptibly so a power transition never waits for a full cadence.
 void delay_until_next_interval(int64_t cycle_started_at_us, uint32_t interval_ms)
 {
+    (void)xEventGroupSetBits(s_worker_events, kWorkerQuiescentBit);
     const int64_t deadline_us =
         cycle_started_at_us + static_cast<int64_t>(interval_ms) * 1000LL;
     const int64_t remaining_us = deadline_us - esp_timer_get_time();
     if (remaining_us <= 0) {
-        vTaskDelay(1);
+        (void)ulTaskNotifyTake(pdTRUE, 1);
         return;
     }
     const uint32_t remaining_ms = static_cast<uint32_t>(
         (remaining_us + 999LL) / 1000LL
     );
-    vTaskDelay(pdMS_TO_TICKS(remaining_ms));
+    (void)ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(remaining_ms));
 }
 
+// Own all TOF transactions and park indefinitely while power is suspended.
 void distance_worker(void *)
 {
     while (true) {
         bool begin_calibration = false;
         bool calibration_running = false;
+        bool power_suspended = false;
         uint32_t interval_ms = kDefaultSampleIntervalMs;
+        (void)xEventGroupClearBits(
+            s_worker_events,
+            kWorkerQuiescentBit
+        );
         {
             std::lock_guard<std::mutex> lock(s_mutex);
-            begin_calibration = s_calibration_requested;
-            if (begin_calibration) {
-                begin_calibration_locked(esp_timer_get_time());
-                publish_locked(true);
+            power_suspended = s_power_suspended;
+            if (!power_suspended) {
+                begin_calibration = s_calibration_requested;
+                if (begin_calibration) {
+                    begin_calibration_locked(esp_timer_get_time());
+                    publish_locked(true);
+                }
+                calibration_running =
+                    s_distance.calibration.state ==
+                    qsee::DistanceCalibrationState::Running;
+                interval_ms = s_sample_interval_ms;
             }
-            calibration_running =
-                s_distance.calibration.state ==
-                qsee::DistanceCalibrationState::Running;
-            interval_ms = s_sample_interval_ms;
+        }
+        if (power_suspended) {
+            (void)xEventGroupSetBits(
+                s_worker_events,
+                kWorkerQuiescentBit
+            );
+            (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+            continue;
         }
 
         if (!qsee_tof400f_is_initialized()) {
@@ -2014,7 +2046,10 @@ void distance_worker(void *)
                 } else {
                     publish_transport_failure(init_error, failed_at_us);
                 }
-                vTaskDelay(pdMS_TO_TICKS(backoff_ms));
+                delay_until_next_interval(
+                    esp_timer_get_time(),
+                    backoff_ms
+                );
                 continue;
             }
         }
@@ -2138,14 +2173,39 @@ void reset_runtime_windows_locked()
     mark_distance_unavailable(ESP_ERR_NOT_FINISHED, esp_timer_get_time());
 }
 
+// Invalidate current telemetry without manufacturing a failed sensor sample.
+void mark_power_suspended_locked()
+{
+    for (SampleWindow &window : s_runtime_windows) {
+        window.clear();
+    }
+    for (SampleWindow &window : s_runtime_vertical_windows) {
+        window.clear();
+    }
+    for (qsee::TofSensorSnapshot &sensor : s_distance.sensors) {
+        sensor.data_stale = sensor.last_success_at_us > 0;
+        sensor.data_valid = false;
+        sensor.window_sample_count = 0;
+        sensor.inlier_count = 0;
+    }
+    s_distance.data_stale = s_distance.last_success_at_us > 0;
+    s_distance.data_valid = false;
+    s_distance.acquisition_timing_valid = false;
+    publish_locked();
+}
+
 }  // namespace
 
 namespace qsee {
 
+// Initialize the requested distance lifecycle without defeating pre-suspend.
 esp_err_t distanceServiceInit()
 {
     std::lock_guard<std::mutex> lock(s_mutex);
     if (s_initialized) {
+        if (s_power_suspended) {
+            return ESP_OK;
+        }
         if (qsee_tof400f_is_initialized()) {
             return ESP_OK;
         }
@@ -2171,13 +2231,39 @@ esp_err_t distanceServiceInit()
         return error;
     }
 
-    const esp_err_t transport_error = qsee_tof400f_init();
+    const esp_err_t transport_error =
+        s_power_suspended ? ESP_OK : qsee_tof400f_init();
     initialize_published_state(
         esp_timer_get_time(),
         ESP_OK,
-        transport_error == ESP_OK ? ESP_ERR_NOT_FINISHED : transport_error
+        !s_power_suspended && transport_error != ESP_OK
+            ? transport_error
+            : ESP_ERR_NOT_FINISHED
     );
     publish_locked();
+
+    if (s_worker_events == nullptr) {
+        s_worker_events = xEventGroupCreateStatic(&s_worker_event_storage);
+        if (s_worker_events == nullptr) {
+            const esp_err_t event_error = ESP_ERR_NO_MEM;
+            const esp_err_t cleanup_error = qsee_tof400f_deinit();
+            const int64_t failed_at_us = esp_timer_get_time();
+            for (qsee::TofSensorSnapshot &sensor : s_distance.sensors) {
+                mark_failure(sensor, event_error, failed_at_us);
+            }
+            mark_distance_unavailable(event_error, failed_at_us);
+            publish_locked();
+            ESP_LOGE(kTag, "TOF worker event group creation failed");
+            if (cleanup_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "TOF UART rollback after event group failure failed (%s)",
+                    esp_err_to_name(cleanup_error)
+                );
+            }
+            return event_error;
+        }
+    }
 
     s_worker_started =
         xTaskCreateWithCaps(
@@ -2223,6 +2309,7 @@ esp_err_t distanceServiceInit()
     return transport_error;
 }
 
+// Reject calibration while its acquisition lifecycle is power-suspended.
 esp_err_t distanceStartCalibration()
 {
     {
@@ -2231,6 +2318,13 @@ esp_err_t distanceStartCalibration()
             ESP_LOGE(
                 kTag,
                 "TOF calibration rejected: service is not initialized"
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (s_power_suspended) {
+            ESP_LOGE(
+                kTag,
+                "TOF calibration rejected: service is power-suspended"
             );
             return ESP_ERR_INVALID_STATE;
         }
@@ -2286,6 +2380,7 @@ esp_err_t distanceStartCalibration()
     {
         std::lock_guard<std::mutex> lock(s_mutex);
         if (!s_initialized || !s_worker_started ||
+            s_power_suspended ||
             !qsee_tof400f_is_initialized() ||
             s_calibration_requested ||
             s_distance.calibration.state ==
@@ -2422,6 +2517,145 @@ esp_err_t distanceSetReferenceMm(uint16_t reference_mm)
     return ESP_OK;
 }
 
+// Apply an idempotent power reason while preserving service start intent.
+esp_err_t distanceSetPowerSuspended(bool suspended)
+{
+    std::lock_guard<std::mutex> transition_lock(s_power_transition_mutex);
+    TaskHandle_t worker = nullptr;
+    EventGroupHandle_t worker_events = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        if (!s_initialized) {
+            s_power_suspended = suspended;
+            ESP_LOGI(
+                kTag,
+                "TOF pre-initialization power suspension: %s",
+                suspended ? "active" : "inactive"
+            );
+            return ESP_OK;
+        }
+        if (!s_worker_started || s_worker == nullptr ||
+            s_worker_events == nullptr) {
+            ESP_LOGE(
+                kTag,
+                "TOF power transition rejected: worker is unavailable (%s)",
+                esp_err_to_name(ESP_ERR_INVALID_STATE)
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (suspended &&
+            (s_calibration_requested ||
+             s_distance.calibration.state ==
+                 DistanceCalibrationState::Running)) {
+            ESP_LOGE(
+                kTag,
+                "TOF power suspension rejected: calibration is active (%s)",
+                esp_err_to_name(ESP_ERR_INVALID_STATE)
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
+        if (!suspended && !s_power_suspended) {
+            return ESP_OK;
+        }
+
+        if (suspended) {
+            s_power_suspended = true;
+        }
+        worker = s_worker;
+        worker_events = s_worker_events;
+    }
+
+    if (suspended) {
+        xTaskNotifyGive(worker);
+        const EventBits_t bits = xEventGroupWaitBits(
+            worker_events,
+            kWorkerQuiescentBit,
+            pdFALSE,
+            pdTRUE,
+            pdMS_TO_TICKS(kPowerSuspendTimeoutMs)
+        );
+        if ((bits & kWorkerQuiescentBit) == 0U) {
+            {
+                std::lock_guard<std::mutex> lock(s_mutex);
+                s_power_suspended = false;
+            }
+            xTaskNotifyGive(worker);
+            ESP_LOGE(
+                kTag,
+                "TOF power suspension timed out after %lu ms; request rolled back (%s)",
+                static_cast<unsigned long>(kPowerSuspendTimeoutMs),
+                esp_err_to_name(ESP_ERR_TIMEOUT)
+            );
+            return ESP_ERR_TIMEOUT;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(s_mutex);
+            mark_power_suspended_locked();
+        }
+        const esp_err_t cleanup_error = qsee_tof400f_deinit();
+        if (cleanup_error != ESP_OK) {
+            publish_transport_failure(
+                cleanup_error,
+                esp_timer_get_time(),
+                false
+            );
+            const esp_err_t rollback_error = qsee_tof400f_init();
+            {
+                std::lock_guard<std::mutex> lock(s_mutex);
+                s_power_suspended = false;
+            }
+            xTaskNotifyGive(worker);
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(
+                    kTag,
+                    "TOF UART power-suspend rollback failed (%s)",
+                    esp_err_to_name(rollback_error)
+                );
+            }
+            ESP_LOGE(
+                kTag,
+                "TOF UART power-suspend cleanup failed; acquisition request restored (%s)",
+                esp_err_to_name(cleanup_error)
+            );
+            return cleanup_error;
+        }
+        ESP_LOGI(kTag, "TOF acquisition and UART transports suspended");
+        return ESP_OK;
+    }
+
+    const esp_err_t init_error = qsee_tof400f_init();
+    if (init_error != ESP_OK) {
+        publish_transport_failure(
+            init_error,
+            esp_timer_get_time(),
+            false
+        );
+        const esp_err_t cleanup_error = qsee_tof400f_deinit();
+        ESP_LOGE(
+            kTag,
+            "TOF power resume failed (%s)",
+            esp_err_to_name(init_error)
+        );
+        if (cleanup_error != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "TOF UART resume rollback failed (%s)",
+                esp_err_to_name(cleanup_error)
+            );
+        }
+        return init_error;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(s_mutex);
+        s_power_suspended = false;
+    }
+    xTaskNotifyGive(worker);
+    ESP_LOGI(kTag, "TOF acquisition and UART transports resumed");
+    return ESP_OK;
+}
+
 }  // namespace qsee
 
 extern "C" esp_err_t qsee_distance_start_calibration(void)
@@ -2442,4 +2676,10 @@ extern "C" esp_err_t qsee_distance_set_sample_interval_ms(uint32_t interval_ms)
 extern "C" esp_err_t qsee_distance_set_reference_mm(uint16_t reference_mm)
 {
     return qsee::distanceSetReferenceMm(reference_mm);
+}
+
+// Forward the system power lifecycle to the single distance-service owner.
+extern "C" esp_err_t qsee_distance_set_power_suspended(bool suspended)
+{
+    return qsee::distanceSetPowerSuspended(suspended);
 }

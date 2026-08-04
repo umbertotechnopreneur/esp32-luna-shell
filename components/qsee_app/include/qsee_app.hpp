@@ -466,12 +466,21 @@ private:
     );
 #endif
 
+    enum class StandbyUiState : uint8_t {
+        Active,
+        Quiescing,
+        Quiesced,
+    };
+
     esp_brookesia::system::core::AppContext *context_ = nullptr;
     esp_brookesia::system::core::TimerId refresh_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
     esp_brookesia::system::core::TimerId power_state_sync_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
     uint32_t refresh_period_ms_ = 0;
+    StandbyUiState standby_ui_state_ = StandbyUiState::Active;
+    uint32_t standby_ui_generation_ = 0;
+    uint32_t standby_ui_transition_sequence_ = 0;
     esp_brookesia::system::core::KeyboardRequestId search_keyboard_ =
         esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID;
     Screen screen_ = Screen::Welcome;

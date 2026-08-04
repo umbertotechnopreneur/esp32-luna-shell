@@ -1,11 +1,11 @@
 set(REQ esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_sdmmc fatfs)
 set(PRIV_REQ esp_driver_ledc heap)
 
-# The board's PSRAM render path splits one LVGL flush into several synchronous
-# internal-DMA transfers. Patch the pinned adapter so only the logical flush,
-# rather than every transfer strip, releases LVGL's draw buffer.
-set(_adapter_patch
+# Patch the pinned adapter for the board's synchronous multi-strip flush and
+# for transactional worker pause/resume with real tick-timer error recovery.
+set(_adapter_patches
     "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_synchronous_custom_draw.patch"
+    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_pause_recovery.patch"
 )
 idf_build_get_property(_build_components BUILD_COMPONENTS)
 if(
@@ -35,50 +35,52 @@ if(
         "${_repo_root}"
         "${_adapter_dir}"
     )
-    execute_process(
-        COMMAND
-            ${GIT_EXECUTABLE} apply --reverse --check
-            --ignore-space-change
-            "--directory=${_adapter_dir_relative}"
-            -p1 "${_adapter_patch}"
-        WORKING_DIRECTORY "${_repo_root}"
-        RESULT_VARIABLE _adapter_patch_present
-        OUTPUT_QUIET
-        ERROR_QUIET
-    )
-    if(NOT _adapter_patch_present EQUAL 0)
+    foreach(_adapter_patch IN LISTS _adapter_patches)
         execute_process(
             COMMAND
-                ${GIT_EXECUTABLE} apply --check
+                ${GIT_EXECUTABLE} apply --reverse --check
                 --ignore-space-change
                 "--directory=${_adapter_dir_relative}"
                 -p1 "${_adapter_patch}"
             WORKING_DIRECTORY "${_repo_root}"
-            RESULT_VARIABLE _adapter_patch_check
+            RESULT_VARIABLE _adapter_patch_present
             OUTPUT_QUIET
             ERROR_QUIET
         )
-        if(NOT _adapter_patch_check EQUAL 0)
-            message(FATAL_ERROR
-                "The pinned esp_lvgl_adapter no longer accepts the required "
-                "synchronous custom-draw patch"
+        if(NOT _adapter_patch_present EQUAL 0)
+            execute_process(
+                COMMAND
+                    ${GIT_EXECUTABLE} apply --check
+                    --ignore-space-change
+                    "--directory=${_adapter_dir_relative}"
+                    -p1 "${_adapter_patch}"
+                WORKING_DIRECTORY "${_repo_root}"
+                RESULT_VARIABLE _adapter_patch_check
+                OUTPUT_QUIET
+                ERROR_QUIET
             )
-        endif()
-        execute_process(
-            COMMAND
-                ${GIT_EXECUTABLE} apply
-                --ignore-space-change
-                "--directory=${_adapter_dir_relative}"
-                -p1 "${_adapter_patch}"
-            WORKING_DIRECTORY "${_repo_root}"
-            RESULT_VARIABLE _adapter_patch_result
-        )
-        if(NOT _adapter_patch_result EQUAL 0)
-            message(FATAL_ERROR
-                "Applying the required esp_lvgl_adapter custom-draw patch failed"
+            if(NOT _adapter_patch_check EQUAL 0)
+                message(FATAL_ERROR
+                    "The pinned esp_lvgl_adapter no longer accepts required patch: "
+                    "${_adapter_patch}"
+                )
+            endif()
+            execute_process(
+                COMMAND
+                    ${GIT_EXECUTABLE} apply
+                    --ignore-space-change
+                    "--directory=${_adapter_dir_relative}"
+                    -p1 "${_adapter_patch}"
+                WORKING_DIRECTORY "${_repo_root}"
+                RESULT_VARIABLE _adapter_patch_result
             )
+            if(NOT _adapter_patch_result EQUAL 0)
+                message(FATAL_ERROR
+                    "Applying required esp_lvgl_adapter patch failed: ${_adapter_patch}"
+                )
+            endif()
         endif()
-    endif()
+    endforeach()
 endif()
 
 idf_component_register(

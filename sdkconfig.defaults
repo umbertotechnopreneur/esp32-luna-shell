@@ -27,6 +27,19 @@ CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB=y
 CONFIG_ESP32S3_DATA_CACHE_64KB=y
 CONFIG_ESP32S3_DATA_CACHE_LINE_64B=y
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# Let ESP-IDF scale the CPU while active and enter automatic Light-sleep once
+# every application task and driver has released its runtime requirements.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
+CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3
+CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
+# ESP32-S3 cannot retain USB Serial/JTAG through Light-sleep. Let the official
+# connection monitor hold ESP_PM_NO_LIGHT_SLEEP only while a USB host is present.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+# CPU-domain retention consumes scarce internal RAM on this PSRAM-heavy UI
+# image. Keep the core retained for the first measured power profile.
+# CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP is not set
 CONFIG_FREERTOS_HZ=1000
 CONFIG_LOG_DEFAULT_LEVEL_INFO=y
 CONFIG_LOG_MAXIMUM_LEVEL_VERBOSE=y
@@ -133,6 +146,14 @@ CONFIG_BT_CTRL_BLE_MAX_ACT=1
 CONFIG_BT_NIMBLE_DIS_SERVICE=y
 CONFIG_BT_NIMBLE_GAP_SERVICE=y
 CONFIG_BT_NIMBLE_GATT_SERVER=y
+
+# Allow the ESP32-S3 controller to sleep between BLE events. This board has no
+# verified external 32 kHz crystal, so use the supported main-XTAL clock path.
+CONFIG_BT_CTRL_MODEM_SLEEP=y
+CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
+CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
+CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y
+CONFIG_ESP_PHY_MAC_BB_PD=y
 
 # IDF 6 moves provisioning to the external network_provisioning component and
 # disables protocomm Security 1 by default. Keep the existing BLE protocol.
