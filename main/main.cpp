@@ -19,15 +19,15 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "../components/qsee_app/include/qsee_app.hpp"
-#include "../components/qsee_boot/include/qsee_boot.h"
-#include "qsee_device_snapshot.hpp"
-#include "qsee_logger.h"
-#include "qsee_platform.h"
+#include "../components/LUNASHELL_app/include/LUNASHELL_app.hpp"
+#include "../components/LUNASHELL_boot/include/LUNASHELL_boot.h"
+#include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_logger.h"
+#include "LUNASHELL_platform.h"
 
 namespace {
 
-constexpr char kTag[] = "qsee_main";
+constexpr char kTag[] = "LUNASHELL_main";
 constexpr size_t kBrookesiaBootstrapStackSize = 16 * 1024;
 
 std::unique_ptr<esp_brookesia::system::core::System> s_system;
@@ -35,8 +35,8 @@ std::unique_ptr<esp_brookesia::system::core::System> s_system;
 void report_touch_activity(void *user_data)
 {
     (void)user_data;
-    qsee::DeviceSnapshotService::instance().reportTouchActivity();
-    qsee_power_manager_note_activity();
+    LUNASHELL::DeviceSnapshotService::instance().reportTouchActivity();
+    LUNASHELL_power_manager_note_activity();
 }
 
 void report_optional_startup_failure(
@@ -59,10 +59,10 @@ void report_optional_startup_failure(
 
 bool start_brookesia()
 {
-#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI
     // Leave a fully repainted black frame immediately before System Core
-    // replaces the boot screen with the single QSee application surface.
-    const esp_err_t hide_result = qsee_boot_ui_hide();
+    // replaces the boot screen with the single LUNASHELL application surface.
+    const esp_err_t hide_result = LUNASHELL_boot_ui_hide();
     if (hide_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -107,7 +107,7 @@ bool start_brookesia()
         }
 
         for (const auto &app : s_system->list_apps()) {
-            if (app.manifest.id != qsee::kAppManifestId) {
+            if (app.manifest.id != LUNASHELL::kAppManifestId) {
                 continue;
             }
             auto app_start_result = s_system->start_app(app.app_id);
@@ -158,14 +158,14 @@ void brookesia_task()
         return;
     }
 
-#if CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     // System Core owns the critical internal-memory reservations. Voice is
     // optional and starts only after the single-app UI is fully operational.
-    report_optional_startup_failure("voice AFE", qsee_voice_afe_init());
+    report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());
 #endif
 
     const esp_err_t rotation_result =
-        qsee_display_apply_saved_auto_rotation();
+        LUNASHELL_display_apply_saved_auto_rotation();
     if (rotation_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -188,8 +188,8 @@ void brookesia_task()
 
 extern "C" void app_main(void)
 {
-    ESP_ERROR_CHECK(qsee_memory_telemetry_init());
-    ESP_ERROR_CHECK(qsee_logger_init());
+    ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
+    ESP_ERROR_CHECK(LUNASHELL_logger_init());
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Display contract: round 466x466, safe square 320x320 at (73,73)");
 
@@ -197,7 +197,7 @@ extern "C" void app_main(void)
     lv_display_t *display = nullptr;
     const esp_err_t display_result = bsp_display_start(&display);
     if (display_result != ESP_OK) {
-        qsee::DeviceSnapshotService::instance().reportDisplay(
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(
             false,
             display_result
         );
@@ -209,17 +209,17 @@ extern "C" void app_main(void)
         return;
     }
     if (display == nullptr) {
-        qsee::DeviceSnapshotService::instance().reportDisplay(
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(
             false,
             ESP_ERR_INVALID_STATE
         );
         ESP_LOGE(kTag, "Display startup returned no display handle");
         return;
     }
-    qsee::DeviceSnapshotService::instance().reportDisplay(true, ESP_OK);
+    LUNASHELL::DeviceSnapshotService::instance().reportDisplay(true, ESP_OK);
 
-#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
-    const esp_err_t boot_ui_result = qsee_boot_ui_show();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI
+    const esp_err_t boot_ui_result = LUNASHELL_boot_ui_show();
     if (boot_ui_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -231,7 +231,7 @@ extern "C" void app_main(void)
 #endif
 
     lv_indev_t *touch = bsp_display_get_input_dev();
-    qsee::DeviceSnapshotService::instance().reportTouch(
+    LUNASHELL::DeviceSnapshotService::instance().reportTouch(
         touch != nullptr,
         touch != nullptr ? ESP_OK : ESP_ERR_NOT_FOUND
     );
@@ -243,7 +243,7 @@ extern "C" void app_main(void)
                 nullptr
             );
         if (touch_observer_result != ESP_OK) {
-            qsee::DeviceSnapshotService::instance().reportTouch(
+            LUNASHELL::DeviceSnapshotService::instance().reportTouch(
                 false,
                 touch_observer_result
             );
@@ -256,10 +256,10 @@ extern "C" void app_main(void)
         }
     }
 
-    const esp_err_t hardware_result = qsee_hardware_init();
+    const esp_err_t hardware_result = LUNASHELL_hardware_init();
     report_optional_startup_failure("hardware inventory", hardware_result);
 
-    const esp_err_t brightness_result = qsee_display_apply_saved_brightness();
+    const esp_err_t brightness_result = LUNASHELL_display_apply_saved_brightness();
     if (brightness_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -269,8 +269,8 @@ extern "C" void app_main(void)
         return;
     }
 
-    report_optional_startup_failure("time", qsee_time_init("UTC0"));
-    const esp_err_t power_manager_result = qsee_power_manager_init();
+    report_optional_startup_failure("time", LUNASHELL_time_init("UTC0"));
+    const esp_err_t power_manager_result = LUNASHELL_power_manager_init();
     if (power_manager_result != ESP_OK) {
         ESP_LOGE(
             kTag,
@@ -279,20 +279,20 @@ extern "C" void app_main(void)
         );
         return;
     }
-#if CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO
-    report_optional_startup_failure("boot audio", qsee_boot_audio_play());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO
+    report_optional_startup_failure("boot audio", LUNASHELL_boot_audio_play());
 #endif
-    report_optional_startup_failure("removable storage", qsee_storage_init());
+    report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
     // Wi-Fi and BLE reserve a large part of internal SRAM on this S3. The
     // Settings action starts them explicitly after the UI is already usable.
     ESP_LOGI(kTag, "Wi-Fi/BLE startup deferred until Settings");
     report_optional_startup_failure(
         "pre-UI hardware refresh",
-        qsee_hardware_refresh("pre-ui")
+        LUNASHELL_hardware_refresh("pre-ui")
     );
 
-#if CONFIG_QSEE_BUILD_ENABLE_BOOT_UI
-    const esp_err_t ready_result = qsee_boot_ui_mark_ready();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI
+    const esp_err_t ready_result = LUNASHELL_boot_ui_mark_ready();
     if (ready_result != ESP_OK) {
         ESP_LOGE(
             kTag,

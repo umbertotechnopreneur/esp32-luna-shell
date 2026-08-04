@@ -44,9 +44,9 @@ def classify(
 
 
 def main() -> None:
-    hardware = read("components/qsee_platform/qsee_hardware.cpp")
-    status_bar = read("components/qsee_app/qsee_status_bar.cpp")
-    scheduler = read("components/qsee_platform/qsee_snapshot_scheduler.cpp")
+    hardware = read("components/LUNASHELL_platform/LUNASHELL_hardware.cpp")
+    status_bar = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
+    scheduler = read("components/LUNASHELL_platform/LUNASHELL_snapshot_scheduler.cpp")
 
     gps_start = hardware.index("esp_err_t sample_gps(")
     gps_end = hardware.index(
@@ -90,7 +90,7 @@ def main() -> None:
         "RTC reset-state classification",
     )
 
-    app = read("components/qsee_app/qsee_app.cpp")
+    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
     require(
         app,
         "bool rtc_calendar_structurally_valid(",

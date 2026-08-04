@@ -10,7 +10,7 @@ flowchart LR
     A --> D["Non-blocking queue"]
     C --> E["System Core Logs screen"]
     D --> F["Low-priority SD writer"]
-    F --> G["/sdcard/qsee/logs/qsee.log"]
+    F --> G["/sdcard/LUNASHELL/logs/LUNASHELL.log"]
 ```
 
 The SD writer starts with the logger but does not consume queued lines until a
@@ -51,7 +51,7 @@ sequenceDiagram
     Super->>Super: start System Core app
 ```
 
-`qsee_hardware_init()` runs PMU, RTC, IMU, GPS, and audio initialization in a
+`LUNASHELL_hardware_init()` runs PMU, RTC, IMU, GPS, and audio initialization in a
 fixed order and returns at its first failed stage. The main orchestrator
 explicitly allows hardware inventory, time, power inputs, boot audio, removable
 storage, and the pre-UI refresh to fail while continuing to the UI; their real
@@ -75,8 +75,8 @@ Every other route is stored in an independent `res/screen_*.json` document.
 System Core loads and mounts the requested route document, then unloads it
 before mounting another; at most one lazy route document is active.
 
-The editable declarative source is `components/qsee_app/gui/root.json`.
-`scripts/generate_qsee_gui_documents.py` emits the bootstrap and independently
+The editable declarative source is `components/LUNASHELL_app/gui/root.json`.
+`scripts/generate_LUNASHELL_gui_documents.py` emits the bootstrap and independently
 loadable route documents staged in LittleFS. The native app selects documents
 and binds values through the GUI interface. It reads hardware telemetry only
 from `DeviceSnapshotService`; the Logs screen reads only the canonical logger

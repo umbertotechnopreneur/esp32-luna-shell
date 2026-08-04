@@ -1,6 +1,6 @@
 <#!
 .SYNOPSIS
-Launch the QSee Windows simulator with an interactive terminal UI or direct arguments.
+Launch the LUNASHELL Windows simulator with an interactive terminal UI or direct arguments.
 
 .DESCRIPTION
 If no arguments are passed, this script shows a branded guided menu to configure
@@ -71,9 +71,9 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $ModulesPath = 'E:\tools\scripts\modules'
-$Simulator = Join-Path $PSScriptRoot 'qsee_simulator.py'
+$Simulator = Join-Path $PSScriptRoot 'LUNASHELL_simulator.py'
 
-$BrandName = 'QSee Simulator Console'
+$BrandName = 'LUNASHELL Simulator Console'
 $BrandTag = 'Windows simulator launcher'
 $BrandVersion = 'v1.7'
 

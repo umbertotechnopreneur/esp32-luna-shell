@@ -1,0 +1,113 @@
+{
+    "type": "viewTemplate",
+    "id": "LUNASHELL_power_metric",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "bgColor": "#0b1722",
+            "bgGradientColor": "#07111a",
+            "bgGradientDirection": "vertical",
+            "borderColor": "#1d4356",
+            "borderWidth": "1dp",
+            "radius": "12dp",
+            "padding": 0
+        },
+        "placement": {
+            "width": "282dp",
+            "height": "70dp"
+        },
+        "children": [
+            {
+                "type": "container",
+                "id": "accent",
+                "bindings": {
+                    "style.bgColor": "color"
+                },
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "style": {
+                    "bgColor": "#20dfc1",
+                    "radius": "2dp",
+                    "padding": 0
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "8dp",
+                    "y": "10dp",
+                    "width": "4dp",
+                    "height": "50dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "title",
+                "labelProps": {
+                    "text": "PMIC METRIC"
+                },
+                "style": {
+                    "textColor": "#8aa7b6",
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "20dp",
+                    "y": "7dp",
+                    "width": "122dp",
+                    "height": "18dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "value",
+                "bindings": {
+                    "labelProps.text": "text",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "UNAVAILABLE"
+                },
+                "style": {
+                    "textColor": "#f3f7fa",
+                    "fontSize": "${constant.typography.detail}",
+                    "textAlign": "right"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "142dp",
+                    "y": "6dp",
+                    "width": "128dp",
+                    "height": "20dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "detail",
+                "bindings": {
+                    "labelProps.text": "text"
+                },
+                "labelProps": {
+                    "text": "NO VALID TELEMETRY"
+                },
+                "style": {
+                    "textColor": "#9fb1c1",
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "left"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "20dp",
+                    "y": "31dp",
+                    "width": "250dp",
+                    "height": "32dp"
+                }
+            }
+        ]
+    }
+}

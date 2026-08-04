@@ -1,0 +1,553 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "8sp",
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        "templates/LUNASHELL_hardware_card.json",
+        {
+            "type": "viewScreen",
+            "id": "LUNASHELL_hardware",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "radius": "28dp",
+                        "padding": "10dp",
+                        "paddingTop": "48dp",
+                        "paddingBottom": "8dp"
+                    },
+                    "layout": {
+                        "type": "flex",
+                        "flexFlow": "column",
+                        "crossAlign": "center",
+                        "gap": "6dp"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "HARDWARE"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "26dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "subtitle",
+                            "labelProps": {
+                                "text": "All controls - swipe to scroll"
+                            },
+                            "style": {
+                                "textColor": "#9fb1c1",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "left"
+                            },
+                            "placement": {
+                                "width": "282dp",
+                                "height": "16dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "hardware_scroller",
+                            "commonProps": {
+                                "scrollable": true
+                            },
+                            "events": [
+                                {
+                                    "type": "scroll",
+                                    "action": "LUNASHELL.chrome.activity.hardware"
+                                }
+                            ],
+                            "style": {
+                                "borderWidth": "0dp",
+                                "padding": "2dp"
+                            },
+                            "layout": {
+                                "type": "grid",
+                                "gridTemplateColumns": [
+                                    "282dp"
+                                ],
+                                "gridTemplateRows": [
+                                    "24dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp",
+                                    "56dp"
+                                ],
+                                "gap": "2dp"
+                            },
+                            "placement": {
+                                "width": "300dp",
+                                "flexGrow": 1
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "summary",
+                                    "labelProps": {
+                                        "text": "SNAPSHOT UNAVAILABLE"
+                                    },
+                                    "style": {
+                                        "textColor": "#9fb1c1",
+                                        "fontSize": "${constant.typography.caption}"
+                                    },
+                                    "placement": {
+                                        "gridColumn": 0,
+                                        "gridRow": 0,
+                                        "gridColumnSpan": 1
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "battery",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.0"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 1
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BATTERY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "AXP2101"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "rtc",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.1"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 2
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "RTC"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "PCF85063"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "imu",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.2"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 3
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "IMU"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "QMI8658"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "gps",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.3"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 4
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "GPS"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "LC76G"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "wifi",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.4"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 5
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "WIFI"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "ble",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.5"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 6
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "BLE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "display",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.6"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 7
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "DISPLAY"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CO5300"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "touch",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.7"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 8
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "TOUCH"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "CST9217"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "speaker",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.8"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 9
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SPEAKER"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES8311"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "microphone",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.9"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 10
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "MICROPHONE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ES7210"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sd",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.10"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 11
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "SD CARD"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "SDMMC"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "processor",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.11"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 12
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "PROCESSOR"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "ESP32-S3"
+                                            }
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "tof",
+                                    "templateId": "LUNASHELL_hardware_card",
+                                    "overrides": {
+                                        ".": {
+                                            "events": [
+                                                {
+                                                    "type": "clicked",
+                                                    "action": "LUNASHELL.hardware.detail.12"
+                                                }
+                                            ],
+                                            "placement": {
+                                                "gridColumn": 0,
+                                                "gridRow": 13
+                                            }
+                                        },
+                                        "name": {
+                                            "labelProps": {
+                                                "text": "DISTANCE"
+                                            }
+                                        },
+                                        "part": {
+                                            "labelProps": {
+                                                "text": "2 x TOF400F"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

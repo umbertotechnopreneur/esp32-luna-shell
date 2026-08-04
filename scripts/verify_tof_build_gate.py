@@ -47,29 +47,29 @@ def load_json(relative_path: str) -> Any:
 def main() -> int:
     kconfig = read("main/Kconfig.projbuild")
     enable_match = re.search(
-        r"(?ms)^config QSEE_BUILD_ENABLE_DISTANCE\n"
+        r"(?ms)^config LUNASHELL_BUILD_ENABLE_DISTANCE\n"
         r"(?P<body>.*?)(?=^(?:choice|config|menu|endmenu)\b)",
         kconfig,
     )
-    require(enable_match is not None, "missing QSEE_BUILD_ENABLE_DISTANCE")
+    require(enable_match is not None, "missing LUNASHELL_BUILD_ENABLE_DISTANCE")
     require(
         re.search(r"(?m)^\s+default n\s*$", enable_match.group("body"))
         is not None,
-        "QSEE_BUILD_ENABLE_DISTANCE must default to n",
+        "LUNASHELL_BUILD_ENABLE_DISTANCE must default to n",
     )
 
     driver_choice = re.search(
-        r"(?ms)^choice QSEE_BUILD_DISTANCE_DRIVER\n"
+        r"(?ms)^choice LUNASHELL_BUILD_DISTANCE_DRIVER\n"
         r"(?P<body>.*?)^endchoice\s*$",
         kconfig,
     )
     require(driver_choice is not None, "missing distance-driver choice")
     require(
-        "depends on QSEE_BUILD_ENABLE_DISTANCE" in driver_choice.group("body"),
+        "depends on LUNASHELL_BUILD_ENABLE_DISTANCE" in driver_choice.group("body"),
         "distance-driver choice must depend on the distance feature",
     )
     require(
-        "default QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
+        "default LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
         in driver_choice.group("body"),
         "TOF400F must be the selected driver when the feature is enabled",
     )
@@ -77,48 +77,48 @@ def main() -> int:
     defaults = read("sdkconfig.defaults")
     require(
         re.search(
-            r"(?m)^CONFIG_QSEE_BUILD_ENABLE_DISTANCE=y\s*$",
+            r"(?m)^CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=y\s*$",
             defaults,
         )
         is None,
         "sdkconfig.defaults must not enable distance support",
     )
     require(
-        "# CONFIG_QSEE_BUILD_ENABLE_DISTANCE is not set" in defaults,
+        "# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set" in defaults,
         "sdkconfig.defaults must record the default-off distance profile",
     )
     distance_defaults = read("sdkconfig.distance.defaults")
     require(
-        "CONFIG_QSEE_BUILD_ENABLE_DISTANCE=y" in distance_defaults,
+        "CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=y" in distance_defaults,
         "distance overlay must enable distance support",
     )
     require(
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y"
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y"
         in distance_defaults,
         "distance overlay must select the dual-UART TOF400F driver",
     )
 
-    platform_cmake = read("components/qsee_platform/CMakeLists.txt")
+    platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
     require(
-        '"qsee_distance_service.cpp"' in platform_cmake
-        and '"qsee_distance_service_stub.cpp"' in platform_cmake,
-        "qsee_platform must select full and stub distance services",
+        '"LUNASHELL_distance_service.cpp"' in platform_cmake
+        and '"LUNASHELL_distance_service_stub.cpp"' in platform_cmake,
+        "LUNASHELL_platform must select full and stub distance services",
     )
     require(
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
         in platform_cmake,
-        "qsee_platform must bind the service to the selected TOF driver",
+        "LUNASHELL_platform must bind the service to the selected TOF driver",
     )
     require(
-        "idf_component_optional_requires(PRIVATE qsee_tof400f)"
+        "idf_component_optional_requires(PRIVATE LUNASHELL_tof400f)"
         in platform_cmake,
-        "the full distance service must use a private qsee_tof400f dependency",
+        "the full distance service must use a private LUNASHELL_tof400f dependency",
     )
 
-    hardware = read("components/qsee_platform/qsee_hardware.cpp")
+    hardware = read("components/LUNASHELL_platform/LUNASHELL_hardware.cpp")
     require(
-        "#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && "
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
+        "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && "
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"
         in hardware,
         "hardware startup must use the same feature-and-driver gate",
     )
@@ -128,36 +128,36 @@ def main() -> int:
         "disabled or driverless distance must be explicitly unavailable",
     )
 
-    app_cmake = read("components/qsee_app/CMakeLists.txt")
+    app_cmake = read("components/LUNASHELL_app/CMakeLists.txt")
     for required in (
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
         "screen_tof.json",
         "screen_tof_settings.json",
-        "qsee_settings_slider.json",
+        "LUNASHELL_settings_slider.json",
         'res/.variants"',
-        "qsee_prepare_runtime_app_package",
+        "LUNASHELL_prepare_runtime_app_package",
         "LittleFS -> prepare -> stage + verify",
     ):
         require(required in app_cmake, f"missing UI staging gate: {required}")
     require(
         re.search(
-            r"if\(CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND\s+"
-            r"CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART\)",
+            r"if\(CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND\s+"
+            r"CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART\)",
             app_cmake,
         )
         is not None,
         "distance UI staging must use the same feature-and-driver gate",
     )
     require(
-        "DEPENDS\n            ${qsee_app_package_stage_targets}\n"
-        "            qsee_verify_lazy_gui_documents" in app_cmake,
+        "DEPENDS\n            ${LUNASHELL_app_package_stage_targets}\n"
+        "            LUNASHELL_verify_lazy_gui_documents" in app_cmake,
         "package preparation must wait for raw staging and GUI verification",
     )
     require(
-        "set(qsee_runtime_stage_targets ${qsee_previous_runtime_stage_targets})"
+        "set(LUNASHELL_runtime_stage_targets ${LUNASHELL_previous_runtime_stage_targets})"
         in app_cmake
-        and "list(APPEND qsee_runtime_stage_targets "
-        "qsee_prepare_runtime_app_package)" in app_cmake,
+        and "list(APPEND LUNASHELL_runtime_stage_targets "
+        "LUNASHELL_prepare_runtime_app_package)" in app_cmake,
         "LittleFS stage property must replace the raw app target with prepare",
     )
     require(
@@ -175,7 +175,7 @@ def main() -> int:
         len(minify_positions) == 2,
         "both runtime package profiles must minify their staged JSON",
     )
-    variant_marker = '"${qsee_app_staged_package_dir}/res/.variants"'
+    variant_marker = '"${LUNASHELL_app_staged_package_dir}/res/.variants"'
     for position in minify_positions:
         target_start = app_cmake.rfind("add_custom_target(", 0, position)
         variant_removal = app_cmake.rfind(variant_marker, target_start, position)
@@ -189,21 +189,21 @@ def main() -> int:
         re.search(
             r"add_dependencies\(\s*"
             r"littlefs_littlefs_data_bin\s+"
-            r"qsee_prepare_runtime_app_package\s*\)",
+            r"LUNASHELL_prepare_runtime_app_package\s*\)",
             project_cmake,
         )
         is not None,
-        "LittleFS must wait for filtered QSee package preparation",
+        "LittleFS must wait for filtered LUNASHELL package preparation",
     )
     require(
-        "if(CONFIG_QSEE_BUILD_ENABLE_UI)" in project_cmake
+        "if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)" in project_cmake
         and "if(NOT TARGET littlefs_littlefs_data_bin)" in project_cmake
-        and "if(NOT TARGET qsee_prepare_runtime_app_package)"
+        and "if(NOT TARGET LUNASHELL_prepare_runtime_app_package)"
         in project_cmake,
         "UI package ordering must be guarded and fail during configuration",
     )
 
-    generator = read("scripts/generate_qsee_gui_documents.py")
+    generator = read("scripts/generate_LUNASHELL_gui_documents.py")
     require(
         "distance_disabled_hardware_document" in generator
         and "DISTANCE_DISABLED_HARDWARE_PATH" in generator,
@@ -211,10 +211,10 @@ def main() -> int:
     )
 
     canonical_hardware = load_json(
-        "components/qsee_app/package/res/screen_hardware.json"
+        "components/LUNASHELL_app/package/res/screen_hardware.json"
     )
     disabled_hardware = load_json(
-        "components/qsee_app/package/res/.variants/"
+        "components/LUNASHELL_app/package/res/.variants/"
         "distance_disabled/screen_hardware.json"
     )
     require(
@@ -227,9 +227,9 @@ def main() -> int:
     )
 
     for relative_path in (
-        "components/qsee_app/package/res/screen_tof.json",
-        "components/qsee_app/package/res/screen_tof_settings.json",
-        "components/qsee_app/package/res/templates/qsee_settings_slider.json",
+        "components/LUNASHELL_app/package/res/screen_tof.json",
+        "components/LUNASHELL_app/package/res/screen_tof_settings.json",
+        "components/LUNASHELL_app/package/res/templates/LUNASHELL_settings_slider.json",
     ):
         require(
             (REPO_ROOT / relative_path).is_file(),

@@ -7,9 +7,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HARDWARE = ROOT / "components" / "qsee_platform" / "qsee_hardware.cpp"
-TIME = ROOT / "components" / "qsee_platform" / "qsee_time.cpp"
-WIFI = ROOT / "components" / "qsee_platform" / "qsee_wifi.cpp"
+HARDWARE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
+TIME = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_time.cpp"
+WIFI = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_wifi.cpp"
 
 
 @dataclass(frozen=True)
@@ -112,12 +112,12 @@ def main() -> int:
         require_contains(time_source, fragment, "real UTC synchronization")
     require_contains(
         wifi,
-        "qsee_time_notify_wifi_online();",
+        "LUNASHELL_time_notify_wifi_online();",
         "DHCP-to-SNTP wiring",
     )
     require_contains(
         hardware,
-        "qsee_time_sync_from_gps(year, month, day, hour, minute, second);",
+        "LUNASHELL_time_sync_from_gps(year, month, day, hour, minute, second);",
         "GPS-to-RTC wiring",
     )
 

@@ -16,7 +16,7 @@ Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 | RTC | PCF85063 | Initialized and sampled with clock-integrity reporting |
 | I/O expander | TCA9554 at I2C `0x20` | Managed by the official BSP |
 | Wi-Fi | ESP32-S3 2.4 GHz 802.11 b/g/n | STA driver started with RAM-only config; no credentials embedded |
-| Bluetooth | Bluetooth LE | NimBLE peripheral advertises as `QSEE-xxxx` |
+| Bluetooth | Bluetooth LE | NimBLE peripheral advertises as `LUNASHELL-xxxx` |
 
 ## Shared bus and pin ownership
 
@@ -44,10 +44,10 @@ Runtime mount failures are logged and never trigger an implicit format.
 Expected runtime path:
 
 ```text
-/sdcard/qsee/logs/qsee.log
+/sdcard/LUNASHELL/logs/LUNASHELL.log
 ```
 
-The logger rotates the file at 2 MB to `qsee.log.1`.
+The logger rotates the file at 2 MB to `LUNASHELL.log.1`.
 
 An SDMMC OCR timeout happens before FAT parsing. It means that protocol
 initialization did not complete, so card presence and transport remain

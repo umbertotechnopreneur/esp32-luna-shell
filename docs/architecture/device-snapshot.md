@@ -1,6 +1,6 @@
 # Canonical device snapshot
 
-`qsee::DeviceSnapshotService` is the application boundary between physical
+`LUNASHELL::DeviceSnapshotService` is the application boundary between physical
 drivers and consumers such as diagnostics, UI, telemetry, and future sensor
 fusion.
 

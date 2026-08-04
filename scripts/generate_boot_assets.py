@@ -206,12 +206,12 @@ def main() -> None:
         "--source",
         type=Path,
         default=repo_root
-        / "assets/branding/qsee/source/qsee-ai-logo.pdf",
+        / "assets/branding/LUNASHELL/source/LUNASHELL-ai-logo.pdf",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=repo_root / "assets/branding/qsee/generated",
+        default=repo_root / "assets/branding/LUNASHELL/generated",
     )
     args = parser.parse_args()
 
@@ -220,8 +220,8 @@ def main() -> None:
     boot = make_boot_screen(artwork)
     guide = make_safe_area_guide()
 
-    png_path = args.output_dir / "qsee-boot-466x466.png"
-    raw_path = args.output_dir / "qsee-boot-466x466.rgb565le.bin"
+    png_path = args.output_dir / "LUNASHELL-boot-466x466.png"
+    raw_path = args.output_dir / "LUNASHELL-boot-466x466.rgb565le.bin"
     guide_path = args.output_dir / "round-466-safe-area-guide.png"
     manifest_path = args.output_dir / "boot-assets.manifest.json"
 

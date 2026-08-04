@@ -5,9 +5,9 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Venv = Join-Path $ProjectRoot ".venv-simulator"
 $Python = Join-Path $Venv "Scripts\python.exe"
-$Simulator = Join-Path $PSScriptRoot "qsee_simulator.py"
-$BootImage = Join-Path $ProjectRoot "assets\branding\qsee\generated\qsee-boot-466x466.png"
-$BootSound = Join-Path $ProjectRoot "assets\sfx\generated\qsee-boot.wav"
+$Simulator = Join-Path $PSScriptRoot "LUNASHELL_simulator.py"
+$BootImage = Join-Path $ProjectRoot "assets\branding\LUNASHELL\generated\LUNASHELL-boot-466x466.png"
+$BootSound = Join-Path $ProjectRoot "assets\sfx\generated\LUNASHELL-boot.wav"
 $Dist = Join-Path $PSScriptRoot "dist"
 $Work = Join-Path $PSScriptRoot "build"
 
@@ -21,12 +21,12 @@ if (-not (Test-Path $Python)) {
     --clean `
     --windowed `
     --onefile `
-    --name "QSeeDeviceSimulator" `
+    --name "LUNASHELLDeviceSimulator" `
     --distpath $Dist `
     --workpath $Work `
     --specpath $Work `
-    --add-data "$BootImage;assets/branding/qsee/generated" `
+    --add-data "$BootImage;assets/branding/LUNASHELL/generated" `
     --add-data "$BootSound;assets/sfx/generated" `
     $Simulator
 
-Write-Host "Windows simulator built at $Dist\QSeeDeviceSimulator.exe"
+Write-Host "Windows simulator built at $Dist\LUNASHELLDeviceSimulator.exe"

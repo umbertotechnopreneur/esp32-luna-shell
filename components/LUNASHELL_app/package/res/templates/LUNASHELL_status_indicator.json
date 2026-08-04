@@ -1,0 +1,96 @@
+{
+    "type": "viewTemplate",
+    "id": "LUNASHELL_status_indicator",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false
+        },
+        "style": {
+            "padding": 0
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "40dp",
+            "height": "47dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "icon",
+                "bindings": {
+                    "labelProps.text": "icon",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": ""
+                },
+                "style": {
+                    "textColor": "#f0b44d",
+                    "fontSize": "${constant.typography.control}",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": 0,
+                    "width": "40dp",
+                    "height": "31dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "charge",
+                "commonProps": {
+                    "hidden": true,
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "bindings": {
+                    "commonProps.hidden": "hidden",
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "\uf0e7"
+                },
+                "style": {
+                    "textColor": "#f4ffff",
+                    "fontSize": "${constant.typography.caption}",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": "27dp",
+                    "y": "-1dp",
+                    "width": "12dp",
+                    "height": "14dp"
+                }
+            },
+            {
+                "type": "label",
+                "id": "dot",
+                "bindings": {
+                    "style.textColor": "color"
+                },
+                "labelProps": {
+                    "text": "•"
+                },
+                "style": {
+                    "textColor": "#f0b44d",
+                    "fontSize": "${constant.typography.body}",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "absolute",
+                    "x": 0,
+                    "y": "31dp",
+                    "width": "40dp",
+                    "height": "20dp"
+                }
+            }
+        ]
+    }
+}

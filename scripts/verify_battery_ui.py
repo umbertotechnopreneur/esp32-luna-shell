@@ -11,12 +11,12 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-CANONICAL_GUI = ROOT / "components/qsee_app/gui/root.json"
+CANONICAL_GUI = ROOT / "components/LUNASHELL_app/gui/root.json"
 GENERATED_BATTERY = (
-    ROOT / "components/qsee_app/package/res/screen_battery.json"
+    ROOT / "components/LUNASHELL_app/package/res/screen_battery.json"
 )
 POWER_METRIC_TEMPLATE = (
-    ROOT / "components/qsee_app/package/res/templates/qsee_power_metric.json"
+    ROOT / "components/LUNASHELL_app/package/res/templates/LUNASHELL_power_metric.json"
 )
 
 
@@ -163,21 +163,21 @@ def verify_documents() -> None:
 
     canonical_screen = find_asset(
         canonical,
-        "qsee_battery",
+        "LUNASHELL_battery",
         "canonical GUI",
     )
     generated_screen = find_asset(
         generated,
-        "qsee_battery",
+        "LUNASHELL_battery",
         "generated Battery document",
     )
     require(
         canonical_screen == generated_screen,
-        "generated qsee_battery screen has drifted from the canonical GUI",
+        "generated LUNASHELL_battery screen has drifted from the canonical GUI",
     )
     require(
         canonical_screen.get("mountMode") == "dynamic",
-        "qsee_battery must remain a dynamic lazy screen",
+        "LUNASHELL_battery must remain a dynamic lazy screen",
     )
     battery_labels = [
         node.get("labelProps", {}).get("text", "")
@@ -189,30 +189,30 @@ def verify_documents() -> None:
         "Battery labels must avoid the unsupported middle-dot glyph",
     )
     require(
-        "templates/qsee_power_metric.json" in generated["assets"],
-        "generated Battery document does not import qsee_power_metric",
+        "templates/LUNASHELL_power_metric.json" in generated["assets"],
+        "generated Battery document does not import LUNASHELL_power_metric",
     )
 
-    content_flow = find_asset(canonical, "qsee_content", "canonical GUI")
+    content_flow = find_asset(canonical, "LUNASHELL_content", "canonical GUI")
     require(
-        "qsee_battery" in content_flow.get("screens", []),
-        "qsee_content does not register qsee_battery",
+        "LUNASHELL_battery" in content_flow.get("screens", []),
+        "LUNASHELL_content does not register LUNASHELL_battery",
     )
     transitions = content_flow.get("transitions", [])
     require(
         any(
             isinstance(transition, dict)
-            and transition.get("action") == "qsee.open.battery"
-            and transition.get("to") == "qsee_battery"
+            and transition.get("action") == "LUNASHELL.open.battery"
+            and transition.get("to") == "LUNASHELL_battery"
             for transition in transitions
         ),
-        "canonical qsee.open.battery transition is missing",
+        "canonical LUNASHELL.open.battery transition is missing",
     )
 
     scroller = find_node(
         canonical_screen,
         "battery_scroller",
-        "qsee_battery",
+        "LUNASHELL_battery",
     )
     require(
         scroller.get("commonProps", {}).get("scrollable") is True,
@@ -221,18 +221,18 @@ def verify_documents() -> None:
     require(
         any(
             event.get("type") == "scroll"
-            and event.get("action") == "qsee.chrome.activity.battery"
+            and event.get("action") == "LUNASHELL.chrome.activity.battery"
             for event in scroller.get("events", [])
             if isinstance(event, dict)
         ),
         "battery_scroller does not forward activity to Adaptive Chrome",
     )
 
-    state = find_node(canonical_screen, "state", "qsee_battery")
-    percent = find_node(canonical_screen, "percent", "qsee_battery")
-    charge = find_node(canonical_screen, "charge", "qsee_battery")
-    level = find_node(canonical_screen, "level", "qsee_battery")
-    health = find_node(canonical_screen, "health", "qsee_battery")
+    state = find_node(canonical_screen, "state", "LUNASHELL_battery")
+    percent = find_node(canonical_screen, "percent", "LUNASHELL_battery")
+    charge = find_node(canonical_screen, "charge", "LUNASHELL_battery")
+    level = find_node(canonical_screen, "level", "LUNASHELL_battery")
+    health = find_node(canonical_screen, "health", "LUNASHELL_battery")
     require_binding(state, "labelProps.text", "text", "battery state")
     require_binding(state, "style.textColor", "color", "battery state")
     require_binding(percent, "labelProps.text", "text", "battery percent")
@@ -262,7 +262,7 @@ def verify_documents() -> None:
         "normal_band": "#20dfc1",
     }
     for band_id, expected_color in expected_bands.items():
-        band = find_node(canonical_screen, band_id, "qsee_battery")
+        band = find_node(canonical_screen, band_id, "LUNASHELL_battery")
         require(
             band.get("style", {}).get("bgColor") == expected_color,
             f"{band_id} must use {expected_color}",
@@ -284,14 +284,14 @@ def verify_documents() -> None:
         "pwr_key",
         "sample",
     ):
-        metric = find_node(canonical_screen, metric_id, "qsee_battery")
+        metric = find_node(canonical_screen, metric_id, "LUNASHELL_battery")
         require(
             metric.get("type") == "templateRef"
-            and metric.get("templateId") == "qsee_power_metric",
-            f"{metric_id} must use qsee_power_metric",
+            and metric.get("templateId") == "LUNASHELL_power_metric",
+            f"{metric_id} must use LUNASHELL_power_metric",
         )
 
-    truth_note = find_node(canonical_screen, "truth_note", "qsee_battery")
+    truth_note = find_node(canonical_screen, "truth_note", "LUNASHELL_battery")
     require(
         re.search(
             r"\bno\s+estimat(?:e|es|ed|ion|ions)\b",
@@ -304,18 +304,18 @@ def verify_documents() -> None:
 
     require(
         metric_document.get("type") == "viewTemplate"
-        and metric_document.get("id") == "qsee_power_metric",
-        "qsee_power_metric template has the wrong type or id",
+        and metric_document.get("id") == "LUNASHELL_power_metric",
+        "LUNASHELL_power_metric template has the wrong type or id",
     )
     metric_template = metric_document
     template_root = metric_template.get("node")
     require(
         isinstance(template_root, dict),
-        "qsee_power_metric template has no root node",
+        "LUNASHELL_power_metric template has no root node",
     )
-    accent = find_node(template_root, "accent", "qsee_power_metric")
-    value = find_node(template_root, "value", "qsee_power_metric")
-    detail = find_node(template_root, "detail", "qsee_power_metric")
+    accent = find_node(template_root, "accent", "LUNASHELL_power_metric")
+    value = find_node(template_root, "value", "LUNASHELL_power_metric")
+    detail = find_node(template_root, "detail", "LUNASHELL_power_metric")
     require_binding(accent, "style.bgColor", "color", "power metric accent")
     require_binding(value, "labelProps.text", "text", "power metric value")
     require_binding(value, "style.textColor", "color", "power metric value")
@@ -323,11 +323,11 @@ def verify_documents() -> None:
 
 
 def verify_firmware_contract() -> None:
-    app = read("components/qsee_app/qsee_app.cpp")
+    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
     navigation = read(
-        "components/qsee_app/include/qsee_navigation_service.hpp"
+        "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
-    status_bar = read("components/qsee_app/qsee_status_bar.cpp")
+    status_bar = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
 
     require_regex(
         navigation,
@@ -339,12 +339,12 @@ def verify_firmware_contract() -> None:
         r"case\s+Screen::Battery\s*:\s*"
         r"return\s+LazyScreenDescriptor\s*\{\s*"
         r'\.document_path\s*=\s*"res/screen_battery\.json"\s*,\s*'
-        r'\.screen_path\s*=\s*"/qsee_battery"\s*,?\s*\};',
+        r'\.screen_path\s*=\s*"/LUNASHELL_battery"\s*,?\s*\};',
         "Battery lazy screen descriptor",
     )
     require_regex(
         app,
-        r'if\s*\(\s*action\s*==\s*"qsee\.open\.battery"\s*\)\s*\{\s*'
+        r'if\s*\(\s*action\s*==\s*"LUNASHELL\.open\.battery"\s*\)\s*\{\s*'
         r"return\s+open_screen\(\s*context\s*,\s*Screen::Battery\s*,\s*"
         r"action\s*\);",
         "Battery action route",
@@ -353,47 +353,47 @@ def verify_firmware_contract() -> None:
     welcome_commands = initializer_text(
         app,
         "kWelcomeCommands",
-        "qsee_app.cpp",
+        "LUNASHELL_app.cpp",
     )
     require_contains(
         welcome_commands,
-        '"qsee.open.battery"',
+        '"LUNASHELL.open.battery"',
         "Welcome commands",
     )
     forbid_contains(
         welcome_commands,
-        '"qsee.open.logs"',
+        '"LUNASHELL.open.logs"',
         "Welcome commands",
     )
 
     settings_commands = initializer_text(
         app,
         "kSettingsCommandLayout",
-        "qsee_app.cpp",
+        "LUNASHELL_app.cpp",
     )
     require_contains(
         settings_commands,
-        '"qsee.open.logs"',
+        '"LUNASHELL.open.logs"',
         "Settings commands",
     )
 
     hardware_details = function_text(
         app,
         "std::expected<void, std::string> App::show_hardware_details(",
-        "qsee_app.cpp",
+        "LUNASHELL_app.cpp",
     )
     require_regex(
         hardware_details,
         r"if\s*\(\s*component_index\s*==\s*0U\s*\)\s*\{\s*"
         r"return\s+open_screen\(\s*context\s*,\s*Screen::Battery\s*,\s*"
-        r'"qsee\.open\.battery"\s*\);',
+        r'"LUNASHELL\.open\.battery"\s*\);',
         "Battery hardware row redirect",
     )
 
     refresh = function_text(
         app,
         "std::expected<void, std::string> App::refresh_battery(",
-        "qsee_app.cpp",
+        "LUNASHELL_app.cpp",
     )
     require_contains(
         refresh,
@@ -435,7 +435,7 @@ def verify_firmware_contract() -> None:
     )
     require_contains(
         refresh,
-        '"/qsee_battery/surface/battery_scroller"',
+        '"/LUNASHELL_battery/surface/battery_scroller"',
         "Battery binding root",
     )
     for wording in ("UNAVAILABLE", "ERROR", "STALE"):
@@ -484,7 +484,7 @@ def verify_firmware_contract() -> None:
     battery_charging = function_text(
         status_bar,
         "bool battery_charging(",
-        "qsee_status_bar.cpp",
+        "LUNASHELL_status_bar.cpp",
     )
     require_contains(
         battery_charging,
@@ -509,7 +509,7 @@ def verify_firmware_contract() -> None:
 
 
 def verify_simulator_contract() -> None:
-    simulator = read("simulator/windows/qsee_simulator.py")
+    simulator = read("simulator/windows/LUNASHELL_simulator.py")
     battery_demo = python_function_text(
         simulator,
         "    def show_battery_demo(",

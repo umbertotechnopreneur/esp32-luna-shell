@@ -29,8 +29,8 @@ Its default toolchain is:
 | OpenOCD manifest | `v0.12.0-esp32-20260424` |
 
 Explicit `-IdfPath`, `-ToolsPath`, and `-PythonExe` parameters override the
-defaults. The dedicated `QSEE_IDF_PATH`, `QSEE_IDF_TOOLS_PATH`, and
-`QSEE_IDF_PYTHON` environment variables are secondary overrides. The selected
+defaults. The dedicated `LUNASHELL_IDF_PATH`, `LUNASHELL_IDF_TOOLS_PATH`, and
+`LUNASHELL_IDF_PYTHON` environment variables are secondary overrides. The selected
 versions are printed before an action starts.
 
 Initialize the official framework source, select the target, reconfigure,
@@ -101,8 +101,8 @@ graph.
 - The native UI is a native System Core `IApp` installed by a registered app
   provider and started by System Super.
 - Screen structure, layout, styling, action names, and transitions are edited
-  in `components/qsee_app/gui/root.json`.
-  `scripts/generate_qsee_gui_documents.py` produces the staged bootstrap and
+  in `components/LUNASHELL_app/gui/root.json`.
+  `scripts/generate_LUNASHELL_gui_documents.py` produces the staged bootstrap and
   one lazy runtime document for each non-Welcome content screen.
 - The current package contains Welcome, Logs, Hardware and Hardware Detail,
   Audio Scope, Audio FFT and Audio Detail, IMU, Settings, About, and Pairing.
@@ -136,7 +136,7 @@ graph.
   remains enabled, and the current BLE-only flow intentionally operates
   without a proof-of-possession value.
 - Wi-Fi and BLE are no longer allocated during boot. The pre-UI snapshot is
-  created first, and `qsee_radios_init()` runs only from Settings.
+  created first, and `LUNASHELL_radios_init()` runs only from Settings.
 - The firmware has no ESP-IDF 5.x or Brookesia 0.6/0.7 compatibility path.
   Partial initialization is returned as failure, invalid persisted settings
   are rejected, and only genuinely absent first-boot keys receive documented,

@@ -3,30 +3,30 @@
 ## Brookesia startup overlay
 
 - The `SuperOS` banner in the boot video came from Brookesia System Super's
-  startup overlay, not from the QSee app.
+  startup overlay, not from the LUNASHELL app.
 - The visible image is
   `third_party/esp-brookesia/system/brookesia_system_super/resource/startup/images/background.png`,
   loaded through the System Super startup overlay.
 - To remove that banner, disable
   `CONFIG_BROOKESIA_SYSTEM_SUPER_ENABLE_STARTUP_OVERLAY` instead of changing
-  the QSee boot screen.
-- The QSee boot image and the Brookesia startup overlay are separate stages, so
+  the LUNASHELL boot screen.
+- The LUNASHELL boot image and the Brookesia startup overlay are separate stages, so
   check both whenever a future video shows two branded frames.
 
 ## Single-app Brookesia runtime
 
 - System Core is the application/runtime layer. System Super adds an optional
   Shell application with launcher, global overlays, keyboard, and dialogs.
-- QSee is the only application on this device, so use System Core directly and
+- LUNASHELL is the only application on this device, so use System Core directly and
   do not stage, install, or start the System Super Shell.
 - Removing the Shell also removes its keyboard and message-dialog
-  implementations. Product flows that need them must use explicit QSee-owned
+  implementations. Product flows that need them must use explicit LUNASHELL-owned
   declarative components; do not silently ignore those requests or reintroduce
   the Shell as a fallback.
 
 ## Declarative GUI document lifetime
 
-- Keep `components/qsee_app/gui/root.json` as the single editable declarative
+- Keep `components/LUNASHELL_app/gui/root.json` as the single editable declarative
   source, but never ship it as one parsed runtime document. Generate a small
   resident bootstrap containing only the background, shared chrome, Welcome,
   and empty content target, plus one independent document per non-Welcome
@@ -61,7 +61,7 @@
   own scheduler. A 32 KiB internal Core worker also does not fit reliably after
   display and hardware startup because the remaining internal heap is
   fragmented.
-- Route QSee settings through its fixed internal-stack NVS executor. Keep
+- Route LUNASHELL settings through its fixed internal-stack NVS executor. Keep
   Brookesia's general service workers in PSRAM and use one internal secondary
   scheduler worker for the Storage service.
 
@@ -206,7 +206,7 @@ runtime behavior still requires authorized hardware validation.
 
 - The physical PWR control is the AXP2101 PKEY. GPIO41 is SDMMC chip select and
   must never be configured or polled as the power button.
-- Keep PMIC IRQ registers owned by `qsee_hardware`: queue decoded PKEY events
+- Keep PMIC IRQ registers owned by `LUNASHELL_hardware`: queue decoded PKEY events
   before a verified clear, and let the power worker consume them independently
   of the periodic Full Snapshot.
 - PKEY polling must use a PMU-only mutex. A display replay or another long

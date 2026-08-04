@@ -3,19 +3,19 @@ cmake_minimum_required(VERSION 3.16)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(distanziamoci)
 
-# `main` creates the LittleFS target before qsee_app can replace the raw
+# `main` creates the LittleFS target before LUNASHELL_app can replace the raw
 # Brookesia staging target. Add the final cross-component dependency here,
 # after ESP-IDF has configured every UI component.
-if(CONFIG_QSEE_BUILD_ENABLE_UI)
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     if(NOT TARGET littlefs_littlefs_data_bin)
         message(FATAL_ERROR "LittleFS image target was not created")
     endif()
-    if(NOT TARGET qsee_prepare_runtime_app_package)
-        message(FATAL_ERROR "QSee runtime package preparation target was not created")
+    if(NOT TARGET LUNASHELL_prepare_runtime_app_package)
+        message(FATAL_ERROR "LUNASHELL runtime package preparation target was not created")
     endif()
     add_dependencies(
         littlefs_littlefs_data_bin
-        qsee_prepare_runtime_app_package
+        LUNASHELL_prepare_runtime_app_package
     )
 endif()
 

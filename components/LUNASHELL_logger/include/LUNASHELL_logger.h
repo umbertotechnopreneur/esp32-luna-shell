@@ -1,0 +1,81 @@
+/*
+ * Firmware backend support module.
+ *
+ * Copyright (c) 2026
+ */
+
+// Canonical logger interface used across firmware components.
+// Initializes the logging pipeline before the rest of the firmware starts.
+
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#include "esp_err.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+/**
+ * Install the canonical logger before any other subsystem is initialized.
+ *
+ * Serial output remains authoritative. The same formatted lines are copied to
+ * a bounded in-memory ring and, once enabled, to a low-priority SD writer.
+ */
+esp_err_t LUNASHELL_logger_init(void);
+
+/**
+ * Enable SD mirroring after the card has been mounted.
+ *
+ * The logger never formats or mounts media by itself.
+ */
+esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point);
+
+/**
+ * Stop SD mirroring safely. Serial output and the RAM ring remain active.
+ */
+esp_err_t LUNASHELL_logger_disable_sd(void);
+
+/**
+ * Suspend or resume RAM-ring capture while keeping authoritative serial output.
+ *
+ * Performance Mode uses this to avoid the second formatting pass and ring
+ * synchronization on every log line. SD mirroring is controlled separately.
+ */
+esp_err_t LUNASHELL_logger_set_capture_suspended(bool suspended);
+
+typedef struct {
+    bool enabled;
+    esp_err_t last_error;
+    int last_errno;
+    int64_t changed_at_us;
+    uint32_t failure_count;
+} LUNASHELL_logger_sd_status_t;
+
+/**
+ * Return the current SD writer state, including asynchronous write failures.
+ */
+esp_err_t LUNASHELL_logger_get_sd_status(LUNASHELL_logger_sd_status_t *status);
+
+#define LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES 15U
+
+/**
+ * Copy up to LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES newest complete log lines into a
+ * caller-owned text buffer.
+ */
+esp_err_t LUNASHELL_logger_snapshot(
+    char *buffer,
+    size_t buffer_size,
+    size_t max_lines,
+    size_t *bytes_written
+);
+
+/** Clear only the in-memory UI ring; serial and SD logging continue. */
+esp_err_t LUNASHELL_logger_clear(void);
+
+#ifdef __cplusplus
+}
+#endif

@@ -95,7 +95,7 @@ CONFIG_FREERTOS_RUN_TIME_STATS_USING_ESP_TIMER=y
 
 # Keep Brookesia's three scheduler domains available: app startup synchronously
 # posts GUI work, and a single worker deadlocks waiting on itself. Their large
-# stacks stay in PSRAM. QSee settings have a fixed internal-stack executor, and
+# stacks stay in PSRAM. LUNASHELL settings have a fixed internal-stack executor, and
 # Brookesia Storage uses one internal secondary worker.
 CONFIG_BROOKESIA_SYSTEM_CORE_WORKER_NUM=3
 CONFIG_BROOKESIA_SYSTEM_CORE_WORKER_STACK_SIZE=65536
@@ -186,7 +186,7 @@ CONFIG_BSP_SD_MOUNT_POINT="/sdcard"
 CONFIG_FATFS_LFN_HEAP=y
 
 # The external dual-TOF distance feature is opt-in for product-specific builds.
-# CONFIG_QSEE_BUILD_ENABLE_DISTANCE is not set
+# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set
 
 # Keep the receive block-ack window within the configured Wi-Fi RX buffers.
 CONFIG_ESP_WIFI_RX_BA_WIN=4

@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GUI_RES = ROOT / "components/qsee_app/package/res"
+GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
 DISPLAY_SIZE = 466
 CHROME_INSET = 73
 SAFE_CONTENT_SIZE = 320
@@ -163,23 +163,23 @@ def verify_boot_fullscreen_model() -> None:
 def verify_package() -> None:
     documents = load_runtime_documents()
     screens = (
-        "qsee_welcome",
-        "qsee_battery",
-        "qsee_logs",
-        "qsee_hardware",
-        "qsee_hardware_detail",
-        "qsee_audio",
-        "qsee_audio_fft",
-        "qsee_audio_detail",
-        "qsee_imu",
-        "qsee_gps",
-        "qsee_tof",
-        "qsee_tof_settings",
-        "qsee_settings",
-        "qsee_storage",
-        "qsee_about",
+        "LUNASHELL_welcome",
+        "LUNASHELL_battery",
+        "LUNASHELL_logs",
+        "LUNASHELL_hardware",
+        "LUNASHELL_hardware_detail",
+        "LUNASHELL_audio",
+        "LUNASHELL_audio_fft",
+        "LUNASHELL_audio_detail",
+        "LUNASHELL_imu",
+        "LUNASHELL_gps",
+        "LUNASHELL_tof",
+        "LUNASHELL_tof_settings",
+        "LUNASHELL_settings",
+        "LUNASHELL_storage",
+        "LUNASHELL_about",
     )
-    padded_screens = set(screens) - {"qsee_about"}
+    padded_screens = set(screens) - {"LUNASHELL_about"}
 
     for screen_id in screens:
         surface = find_child(find_asset(documents, screen_id), "surface")
@@ -212,13 +212,13 @@ def verify_package() -> None:
                 raise AssertionError(f"{screen_id}: bottom padding is not bound")
 
     expanding_scrollers = {
-        "qsee_battery": "battery_scroller",
-        "qsee_logs": "log_scroller",
-        "qsee_hardware": "hardware_scroller",
-        "qsee_hardware_detail": "detail_scroller",
-        "qsee_tof_settings": "tof_settings_scroller",
-        "qsee_settings": "settings_scroller",
-        "qsee_storage": "storage_scroller",
+        "LUNASHELL_battery": "battery_scroller",
+        "LUNASHELL_logs": "log_scroller",
+        "LUNASHELL_hardware": "hardware_scroller",
+        "LUNASHELL_hardware_detail": "detail_scroller",
+        "LUNASHELL_tof_settings": "tof_settings_scroller",
+        "LUNASHELL_settings": "settings_scroller",
+        "LUNASHELL_storage": "storage_scroller",
     }
     for screen_id, scroller_id in expanding_scrollers.items():
         surface = find_child(find_asset(documents, screen_id), "surface")
@@ -232,8 +232,8 @@ def verify_package() -> None:
 
     pairing = json.loads(
         read(
-            "components/qsee_app/package/res/templates/"
-            "qsee_pairing_stage.json"
+            "components/LUNASHELL_app/package/res/templates/"
+            "LUNASHELL_pairing_stage.json"
         )
     )["node"]
     if pairing["placement"].get("x") != "73dp":
@@ -250,19 +250,19 @@ def verify_package() -> None:
 
 def verify_firmware_contract() -> None:
     snapshot = read(
-        "components/qsee_platform/include/qsee_device_snapshot.hpp"
+        "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
     )
-    power = read("components/qsee_platform/qsee_power.cpp")
-    chrome = read("components/qsee_app/qsee_adaptive_chrome.cpp")
+    power = read("components/LUNASHELL_platform/LUNASHELL_power.cpp")
+    chrome = read("components/LUNASHELL_app/LUNASHELL_adaptive_chrome.cpp")
     command_bar = read(
-        "components/qsee_app/qsee_adaptive_command_bar.cpp"
+        "components/LUNASHELL_app/LUNASHELL_adaptive_command_bar.cpp"
     )
     command_bar_header = read(
-        "components/qsee_app/include/qsee_adaptive_command_bar.hpp"
+        "components/LUNASHELL_app/include/LUNASHELL_adaptive_command_bar.hpp"
     )
-    simulator = read("simulator/windows/qsee_simulator.py")
-    app = read("components/qsee_app/qsee_app.cpp")
-    http = read("components/qsee_platform/qsee_http_json.cpp")
+    simulator = read("simulator/windows/LUNASHELL_simulator.py")
+    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    http = read("components/LUNASHELL_platform/LUNASHELL_http_json.cpp")
 
     require(snapshot, "bool fullscreen_active = false;", "snapshot")
     require(power, "handle_boot_short_press()", "BOOT toggle")
@@ -304,11 +304,11 @@ def verify_firmware_contract() -> None:
     )
     require(app, "sync_content_viewport(context)", "viewport synchronization")
     require(app, "kCircularWideContentInsetDp", "round-display padding")
-    require(app, '"/qsee_tof/surface"', "TOF fixed canvas")
-    require(app, '"/qsee_gps/surface"', "GPS fixed canvas")
+    require(app, '"/LUNASHELL_tof/surface"', "TOF fixed canvas")
+    require(app, '"/LUNASHELL_gps/surface"', "GPS fixed canvas")
     require(
         app,
-        '"/qsee_tof_settings/surface"',
+        '"/LUNASHELL_tof_settings/surface"',
         "TOF settings circular scroller",
     )
     require(http, '\\"fullscreen_active\\"', "HTTP snapshot")

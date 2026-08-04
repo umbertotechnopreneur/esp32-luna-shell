@@ -7,13 +7,13 @@
 #include <string_view>
 
 #include "esp_log.h"
-#include "qsee_device_snapshot.hpp"
-#include "qsee_logger.h"
-#include "qsee_platform.h"
+#include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_logger.h"
+#include "LUNASHELL_platform.h"
 
 namespace {
 
-constexpr char kTag[] = "qsee_main";
+constexpr char kTag[] = "LUNASHELL_main";
 
 void report_optional_startup_failure(
     std::string_view stage,
@@ -36,32 +36,32 @@ void report_optional_startup_failure(
 
 extern "C" void app_main(void)
 {
-    ESP_ERROR_CHECK(qsee_memory_telemetry_init());
-    ESP_ERROR_CHECK(qsee_logger_init());
+    ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
+    ESP_ERROR_CHECK(LUNASHELL_logger_init());
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Build profile: headless runtime");
 
-    report_optional_startup_failure("hardware inventory", qsee_hardware_init());
-    qsee::DeviceSnapshotService::instance().reportDisplay(
+    report_optional_startup_failure("hardware inventory", LUNASHELL_hardware_init());
+    LUNASHELL::DeviceSnapshotService::instance().reportDisplay(
         false,
         ESP_ERR_NOT_SUPPORTED
     );
-    qsee::DeviceSnapshotService::instance().reportTouch(
+    LUNASHELL::DeviceSnapshotService::instance().reportTouch(
         false,
         ESP_ERR_NOT_SUPPORTED
     );
-#if CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE
-    report_optional_startup_failure("voice AFE", qsee_voice_afe_init());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
+    report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());
 #endif
-    report_optional_startup_failure("time", qsee_time_init("UTC0"));
+    report_optional_startup_failure("time", LUNASHELL_time_init("UTC0"));
     report_optional_startup_failure(
         "power-management service",
-        qsee_power_manager_init()
+        LUNASHELL_power_manager_init()
     );
-    report_optional_startup_failure("removable storage", qsee_storage_init());
+    report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
     ESP_LOGI(kTag, "Wi-Fi/BLE startup deferred until Settings");
     report_optional_startup_failure(
         "headless hardware refresh",
-        qsee_hardware_refresh("headless")
+        LUNASHELL_hardware_refresh("headless")
     );
 }

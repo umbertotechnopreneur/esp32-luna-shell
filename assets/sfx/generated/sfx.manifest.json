@@ -8,11 +8,11 @@
   },
   "generated_assets": [
     {
-      "id": "qsee_boot",
+      "id": "LUNASHELL_boot",
       "purpose": "Played once while the boot screen is visible.",
       "source": "source/boot/soft-chime.original.wav",
       "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
-      "output": "generated/qsee-boot.wav",
+      "output": "generated/LUNASHELL-boot.wav",
       "output_sha256": "ace673452b90140543d825715992dd11d9bf17c076f20bfc05fe6256f45a1a53",
       "codec": "pcm_s16le",
       "sample_rate_hz": 22050,

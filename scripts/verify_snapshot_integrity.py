@@ -9,7 +9,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / "components" / "qsee_platform" / "qsee_hardware.cpp"
+SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
 MAIN_SOURCE = ROOT / "main" / "main.cpp"
 HEADLESS_SOURCE = ROOT / "main" / "main_headless.cpp"
 MINIMUM_MEASURED_SAMPLE_TTL_US = 5_000_000
@@ -282,19 +282,19 @@ def verify_source_contract() -> None:
     main_source = MAIN_SOURCE.read_text(encoding="utf-8")
     headless_source = HEADLESS_SOURCE.read_text(encoding="utf-8")
 
-    require_contains(source, "void mark_sample_success(", "qsee_hardware.cpp")
-    require_contains(source, "void mark_sample_failure(", "qsee_hardware.cpp")
-    require_contains(source, "void age_measured_sample(", "qsee_hardware.cpp")
-    require_contains(source, "void apply_measured_sample_aging(", "qsee_hardware.cpp")
+    require_contains(source, "void mark_sample_success(", "LUNASHELL_hardware.cpp")
+    require_contains(source, "void mark_sample_failure(", "LUNASHELL_hardware.cpp")
+    require_contains(source, "void age_measured_sample(", "LUNASHELL_hardware.cpp")
+    require_contains(source, "void apply_measured_sample_aging(", "LUNASHELL_hardware.cpp")
     require_contains(
         source,
         "constexpr int64_t kMinimumMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require_contains(
         source,
-        "int64_t measured_sample_ttl_us(const qsee::DeviceSnapshot &snapshot)",
-        "qsee_hardware.cpp",
+        "int64_t measured_sample_ttl_us(const LUNASHELL::DeviceSnapshot &snapshot)",
+        "LUNASHELL_hardware.cpp",
     )
     require_contains(
         source,
@@ -363,7 +363,7 @@ def verify_source_contract() -> None:
         "s_last_committed_diagnostic_microphone_us",
         "s_last_full_consumed_diagnostic_imu_us",
         "s_last_full_consumed_diagnostic_microphone_us",
-        "qsee_hardware_set_diagnostic_streams(",
+        "LUNASHELL_hardware_set_diagnostic_streams(",
     ):
         require_contains(source, fragment, "Diagnostic-to-Full reuse contract")
 
@@ -389,7 +389,7 @@ def verify_source_contract() -> None:
     )
 
     stream_setter_start = source.index(
-        'extern "C" esp_err_t qsee_hardware_set_diagnostic_streams('
+        'extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams('
     )
     stream_setter_lock_index = source.index(
         "xSemaphoreTake(refresh_mutex",
@@ -521,10 +521,10 @@ def verify_source_contract() -> None:
         ("headless app_main", headless_source),
     ):
         telemetry_init_index = entry_source.index(
-            "ESP_ERROR_CHECK(qsee_memory_telemetry_init());"
+            "ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());"
         )
         logger_init_index = entry_source.index(
-            "ESP_ERROR_CHECK(qsee_logger_init());"
+            "ESP_ERROR_CHECK(LUNASHELL_logger_init());"
         )
         require(
             telemetry_init_index < logger_init_index,

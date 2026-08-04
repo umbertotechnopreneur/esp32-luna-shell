@@ -6,53 +6,53 @@ from typing import Any
 
 
 ROOT = Path(__file__).resolve().parents[1]
-GUI_RES = ROOT / "components/qsee_app/package/res"
+GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
 
 EXPECTED_RESIDENT_SCREENS = {
-    "qsee_background_screen",
-    "qsee_welcome",
-    "qsee_content_idle",
+    "LUNASHELL_background_screen",
+    "LUNASHELL_welcome",
+    "LUNASHELL_content_idle",
 }
 EXPECTED_LAZY_SCREEN_DOCUMENTS = {
-    "screen_battery.json": "qsee_battery",
-    "screen_logs.json": "qsee_logs",
-    "screen_hardware.json": "qsee_hardware",
-    "screen_hardware_detail.json": "qsee_hardware_detail",
-    "screen_audio.json": "qsee_audio",
-    "screen_audio_fft.json": "qsee_audio_fft",
-    "screen_audio_detail.json": "qsee_audio_detail",
-    "screen_imu.json": "qsee_imu",
-    "screen_gps.json": "qsee_gps",
-    "screen_tof.json": "qsee_tof",
-    "screen_tof_settings.json": "qsee_tof_settings",
-    "screen_settings.json": "qsee_settings",
-    "screen_storage.json": "qsee_storage",
-    "screen_about.json": "qsee_about",
-    "screen_pairing.json": "qsee_pairing",
+    "screen_battery.json": "LUNASHELL_battery",
+    "screen_logs.json": "LUNASHELL_logs",
+    "screen_hardware.json": "LUNASHELL_hardware",
+    "screen_hardware_detail.json": "LUNASHELL_hardware_detail",
+    "screen_audio.json": "LUNASHELL_audio",
+    "screen_audio_fft.json": "LUNASHELL_audio_fft",
+    "screen_audio_detail.json": "LUNASHELL_audio_detail",
+    "screen_imu.json": "LUNASHELL_imu",
+    "screen_gps.json": "LUNASHELL_gps",
+    "screen_tof.json": "LUNASHELL_tof",
+    "screen_tof_settings.json": "LUNASHELL_tof_settings",
+    "screen_settings.json": "LUNASHELL_settings",
+    "screen_storage.json": "LUNASHELL_storage",
+    "screen_about.json": "LUNASHELL_about",
+    "screen_pairing.json": "LUNASHELL_pairing",
 }
 EXPECTED_ROUTE_SCREENS = {
-    "qsee_background_screen",
-    "qsee_welcome",
-    "qsee_battery",
-    "qsee_logs",
-    "qsee_hardware",
-    "qsee_hardware_detail",
-    "qsee_audio",
-    "qsee_audio_detail",
-    "qsee_audio_fft",
-    "qsee_imu",
-    "qsee_gps",
-    "qsee_tof",
-    "qsee_tof_settings",
-    "qsee_settings",
-    "qsee_storage",
-    "qsee_about",
-    "qsee_pairing",
+    "LUNASHELL_background_screen",
+    "LUNASHELL_welcome",
+    "LUNASHELL_battery",
+    "LUNASHELL_logs",
+    "LUNASHELL_hardware",
+    "LUNASHELL_hardware_detail",
+    "LUNASHELL_audio",
+    "LUNASHELL_audio_detail",
+    "LUNASHELL_audio_fft",
+    "LUNASHELL_imu",
+    "LUNASHELL_gps",
+    "LUNASHELL_tof",
+    "LUNASHELL_tof_settings",
+    "LUNASHELL_settings",
+    "LUNASHELL_storage",
+    "LUNASHELL_about",
+    "LUNASHELL_pairing",
 }
 EXPECTED_BOOTSTRAP_FLOWS = {
-    "qsee_background_flow",
-    "qsee_chrome_flow",
-    "qsee_content",
+    "LUNASHELL_background_flow",
+    "LUNASHELL_chrome_flow",
+    "LUNASHELL_content",
 }
 PAIRING_WIZARD_ROUTES = (
     "PairIntro",
@@ -63,35 +63,35 @@ PAIRING_WIZARD_ROUTES = (
     "PairResult",
 )
 SETTINGS_ACTIONS = {
-    "qsee.settings.diagnostic.changed",
-    "qsee.settings.imu_smoothing.changed",
-    "qsee.settings.storage.mirror.changed",
-    "qsee.settings.performance.changed",
-    "qsee.settings.display.brightness.changed",
-    "qsee.settings.display.rotation.changed",
-    "qsee.storage.format",
+    "LUNASHELL.settings.diagnostic.changed",
+    "LUNASHELL.settings.imu_smoothing.changed",
+    "LUNASHELL.settings.storage.mirror.changed",
+    "LUNASHELL.settings.performance.changed",
+    "LUNASHELL.settings.display.brightness.changed",
+    "LUNASHELL.settings.display.rotation.changed",
+    "LUNASHELL.storage.format",
 }
 TOF_ACTIONS = {
-    "qsee.hardware.detail.12",
-    "qsee.chrome.activity.tof_settings",
-    "qsee.tof.settings.samples.changed",
-    "qsee.tof.settings.interval.changed",
-    "qsee.tof.settings.reference.preview",
-    "qsee.tof.settings.reference.commit",
+    "LUNASHELL.hardware.detail.12",
+    "LUNASHELL.chrome.activity.tof_settings",
+    "LUNASHELL.tof.settings.samples.changed",
+    "LUNASHELL.tof.settings.interval.changed",
+    "LUNASHELL.tof.settings.reference.preview",
+    "LUNASHELL.tof.settings.reference.commit",
 }
 OBSOLETE_SETTINGS_ACTIONS = {
-    "qsee.settings.back",
-    "qsee.settings.debug.maximum",
-    "qsee.settings.diagnostic.faster",
-    "qsee.settings.diagnostic.slower",
-    "qsee.settings.diagnostic.reset",
-    "qsee.settings.imu_smoothing.less",
-    "qsee.settings.imu_smoothing.more",
-    "qsee.settings.storage.mirror.toggle",
-    "qsee.settings.display.brightness_down",
-    "qsee.settings.display.brightness_up",
-    "qsee.settings.display.rotation.toggle",
-    "qsee.settings.chrome.timeout.next",
+    "LUNASHELL.settings.back",
+    "LUNASHELL.settings.debug.maximum",
+    "LUNASHELL.settings.diagnostic.faster",
+    "LUNASHELL.settings.diagnostic.slower",
+    "LUNASHELL.settings.diagnostic.reset",
+    "LUNASHELL.settings.imu_smoothing.less",
+    "LUNASHELL.settings.imu_smoothing.more",
+    "LUNASHELL.settings.storage.mirror.toggle",
+    "LUNASHELL.settings.display.brightness_down",
+    "LUNASHELL.settings.display.brightness_up",
+    "LUNASHELL.settings.display.rotation.toggle",
+    "LUNASHELL.settings.chrome.timeout.next",
 }
 
 
@@ -131,7 +131,7 @@ def load_package_json() -> dict[str, Any]:
                 f"{error.msg}"
             ) from error
     if not documents:
-        raise AssertionError("QSee GUI package contains no JSON documents")
+        raise AssertionError("LUNASHELL GUI package contains no JSON documents")
     return documents
 
 
@@ -158,23 +158,23 @@ def verify_asset_references(
 
 
 def main() -> None:
-    provisioning = read("components/qsee_platform/qsee_provisioning.cpp")
-    provisioning_header = read("components/qsee_platform/include/qsee_provisioning.hpp")
-    radios = read("components/qsee_platform/qsee_radios.cpp")
-    platform_header = read("components/qsee_platform/include/qsee_platform.h")
-    platform_cmake = read("components/qsee_platform/CMakeLists.txt")
-    app_header = read("components/qsee_app/include/qsee_app.hpp")
-    app = read("components/qsee_app/qsee_app.cpp")
-    simulator = read("simulator/windows/qsee_simulator.py")
+    provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
+    provisioning_header = read("components/LUNASHELL_platform/include/LUNASHELL_provisioning.hpp")
+    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
+    platform_header = read("components/LUNASHELL_platform/include/LUNASHELL_platform.h")
+    platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
+    app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
+    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    simulator = read("simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("simulator/windows/run-simulator.ps1")
-    edge_navigation = read("components/qsee_app/qsee_edge_navigation.cpp")
-    simulator = read("simulator/windows/qsee_simulator.py")
+    edge_navigation = read("components/LUNASHELL_app/LUNASHELL_edge_navigation.cpp")
+    simulator = read("simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("simulator/windows/run-simulator.ps1")
     navigation_service = read(
-        "components/qsee_app/qsee_navigation_service.cpp"
+        "components/LUNASHELL_app/LUNASHELL_navigation_service.cpp"
     )
     navigation_header = read(
-        "components/qsee_app/include/qsee_navigation_service.hpp"
+        "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
     package_documents = load_package_json()
     app_root = package_documents.get("root.json")
@@ -204,8 +204,8 @@ def main() -> None:
         for path, document in runtime_documents.items()
     }
     verify_asset_references(runtime_documents, package_documents)
-    chrome = package_documents["templates/qsee_chrome.json"]
-    status_bar_source = read("components/qsee_app/qsee_status_bar.cpp")
+    chrome = package_documents["templates/LUNASHELL_chrome.json"]
+    status_bar_source = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
     main_source = read("main/main.cpp")
     sdkconfig = read("sdkconfig.defaults")
 
@@ -239,10 +239,10 @@ def main() -> None:
         "provisioning running-state contract",
     )
     active_start = provisioning.index(
-        'extern "C" bool qsee_provisioning_active(void)'
+        'extern "C" bool LUNASHELL_provisioning_active(void)'
     )
     active_end = provisioning.index(
-        'extern "C" qsee_provisioning_state_t qsee_provisioning_state(void)',
+        'extern "C" LUNASHELL_provisioning_state_t LUNASHELL_provisioning_state(void)',
         active_start,
     )
     active_source = provisioning[active_start:active_end]
@@ -283,7 +283,7 @@ def main() -> None:
     )
     require(
         platform_header,
-        "qsee_provisioning_failure_reason_t qsee_provisioning_failure_reason(void);",
+        "LUNASHELL_provisioning_failure_reason_t LUNASHELL_provisioning_failure_reason(void);",
         "public provisioning failure reason",
     )
     require(
@@ -307,17 +307,17 @@ def main() -> None:
         "provisioning event failure details",
     )
 
-    init_position = radios.find("qsee_provisioning_init()")
-    start_position = radios.find("qsee_provisioning_start()")
+    init_position = radios.find("LUNASHELL_provisioning_init()")
+    start_position = radios.find("LUNASHELL_provisioning_start()")
     if init_position < 0 or start_position < 0 or init_position > start_position:
         raise AssertionError(
-            "qsee_radios_init must initialize BLE provisioning before starting it"
+            "LUNASHELL_radios_init must initialize BLE provisioning before starting it"
         )
-    require(radios, "qsee_wifi_init()", "radio startup")
-    require(platform_header, "esp_err_t qsee_radios_init(void);", "platform API")
-    require(platform_header, "esp_err_t qsee_radios_stop(void);", "platform API")
-    require(platform_header, "esp_err_t qsee_wifi_stop(void);", "platform API")
-    require(platform_cmake, '"qsee_provisioning.cpp"', "platform CMake")
+    require(radios, "LUNASHELL_wifi_init()", "radio startup")
+    require(platform_header, "esp_err_t LUNASHELL_radios_init(void);", "platform API")
+    require(platform_header, "esp_err_t LUNASHELL_radios_stop(void);", "platform API")
+    require(platform_header, "esp_err_t LUNASHELL_wifi_stop(void);", "platform API")
+    require(platform_cmake, '"LUNASHELL_provisioning.cpp"', "platform CMake")
     require(sdkconfig, "CONFIG_NETWORK_PROV_NETWORK_TYPE_WIFI=y", "sdkconfig defaults")
     require(
         sdkconfig,
@@ -327,23 +327,23 @@ def main() -> None:
 
     # Radio allocation is intentionally deferred until the user requests it
     # from Settings; boot must remain usable without Wi-Fi or BLE.
-    forbid(main_source, "qsee_radios_init()", "ordered startup")
+    forbid(main_source, "LUNASHELL_radios_init()", "ordered startup")
     require(app_header, "system::core::IApp", "System Core app header")
-    require(app, "qsee.settings.radios.start", "System Core Settings actions")
-    require(app, "qsee.settings.radios.stop", "System Core Settings actions")
-    require(app, "qsee_radios_init()", "System Core Settings radio action")
-    require(app, "qsee_radios_stop()", "System Core Settings radio action")
-    require(app, "qsee.open.pairing", "pairing wizard entry")
+    require(app, "LUNASHELL.settings.radios.start", "System Core Settings actions")
+    require(app, "LUNASHELL.settings.radios.stop", "System Core Settings actions")
+    require(app, "LUNASHELL_radios_init()", "System Core Settings radio action")
+    require(app, "LUNASHELL_radios_stop()", "System Core Settings radio action")
+    require(app, "LUNASHELL.open.pairing", "pairing wizard entry")
     require(app, "kAudioDualCommands", "Audio Scope command arc")
-    require(app, '"qsee.open.audio_fft"', "Audio Scope average FFT command")
-    require(app, '"qsee.open.audio_detail"', "Audio Scope dual FFT command")
+    require(app, '"LUNASHELL.open.audio_fft"', "Audio Scope average FFT command")
+    require(app, '"LUNASHELL.open.audio_detail"', "Audio Scope dual FFT command")
     require(
         app,
         "snapshot.audio.channel_count == 1U",
         "single-channel FFT support",
     )
-    require(app, "qsee.next", "pairing wizard forward action")
-    require(app, "qsee_provisioning_start()", "pairing wizard provisioning start")
+    require(app, "LUNASHELL.next", "pairing wizard forward action")
+    require(app, "LUNASHELL_provisioning_start()", "pairing wizard provisioning start")
     descriptor_start = app.index("App::lazy_screen_descriptor")
     descriptor_end = app.index("bool App::shares_lazy_document", descriptor_start)
     descriptor_source = app[descriptor_start:descriptor_end]
@@ -390,7 +390,7 @@ def main() -> None:
     ):
         require(
             app,
-            f"case QSEE_PROVISIONING_STATE_{state}:",
+            f"case LUNASHELL_PROVISIONING_STATE_{state}:",
             "pairing provisioning state coverage",
         )
     require(app, "case Screen::PairResult:", "pairing result state")
@@ -407,8 +407,8 @@ def main() -> None:
     result_start = app.index("App::show_pairing_result")
     result_end = app.index("App::pairing_next", result_start)
     result_source = app[result_start:result_end]
-    active_check = result_source.find("qsee_provisioning_active()")
-    stop_call = result_source.find("qsee_provisioning_stop()")
+    active_check = result_source.find("LUNASHELL_provisioning_active()")
+    stop_call = result_source.find("LUNASHELL_provisioning_stop()")
     result_transition = result_source.find("Screen::PairResult")
     if not (
         0 <= active_check < stop_call < result_transition
@@ -419,12 +419,12 @@ def main() -> None:
         )
     require(
         edge_navigation,
-        '"/qsee_chrome_screen/chrome/back"',
+        '"/LUNASHELL_chrome_screen/chrome/back"',
         "edge navigation Back path",
     )
     require(
         edge_navigation,
-        '"/qsee_chrome_screen/chrome/next"',
+        '"/LUNASHELL_chrome_screen/chrome/next"',
         "edge navigation Next path",
     )
     require(
@@ -504,7 +504,7 @@ def main() -> None:
             f"lazy route screen path for {screen_id}",
         )
 
-    route_screen_ids = set(screen_owners) - {"qsee_content_idle"}
+    route_screen_ids = set(screen_owners) - {"LUNASHELL_content_idle"}
     if route_screen_ids != EXPECTED_ROUTE_SCREENS:
         raise AssertionError(
             "unexpected System Core route inventory: "
@@ -528,11 +528,11 @@ def main() -> None:
         for node in root_nodes
         if isinstance(node, dict)
         and node.get("type") == "screenFlow"
-        and node.get("id") == "qsee_content"
+        and node.get("id") == "LUNASHELL_content"
     )
-    if content_flow.get("screens") != ["qsee_welcome", "qsee_content_idle"]:
+    if content_flow.get("screens") != ["LUNASHELL_welcome", "LUNASHELL_content_idle"]:
         raise AssertionError(
-            "qsee_content must retain only resident Welcome and idle screens"
+            "LUNASHELL_content must retain only resident Welcome and idle screens"
         )
     transition_targets = {
         transition.get("action"): transition.get("to")
@@ -540,8 +540,8 @@ def main() -> None:
         if isinstance(transition, dict)
     }
     expected_transition_targets = {
-        "qsee.open.welcome": "qsee_welcome",
-        "qsee.content.release": "qsee_content_idle",
+        "LUNASHELL.open.welcome": "LUNASHELL_welcome",
+        "LUNASHELL.content.release": "LUNASHELL_content_idle",
     }
     if transition_targets != expected_transition_targets:
         raise AssertionError(
@@ -555,12 +555,12 @@ def main() -> None:
         for node in chrome_nodes
         if isinstance(node, dict) and node.get("type") == "templateRef"
     ]
-    if chrome_template_ids.count("qsee_status_bar") != 1:
+    if chrome_template_ids.count("LUNASHELL_status_bar") != 1:
         raise AssertionError(
-            "shared chrome must own exactly one qsee_status_bar"
+            "shared chrome must own exactly one LUNASHELL_status_bar"
         )
     for source, document in runtime_documents.items():
-        if "templates/qsee_adaptive_command_bar.json" in document.get(
+        if "templates/LUNASHELL_adaptive_command_bar.json" in document.get(
             "assets", []
         ):
             raise AssertionError(
@@ -573,7 +573,7 @@ def main() -> None:
         for nodes in runtime_nodes.values()
         for node in nodes
         if isinstance(node, dict)
-        and node.get("templateId") == "qsee_command_button"
+        and node.get("templateId") == "LUNASHELL_command_button"
     ]
     if root_command_refs:
         raise AssertionError(
@@ -584,7 +584,7 @@ def main() -> None:
         node
         for node in chrome_nodes
         if isinstance(node, dict)
-        and node.get("templateId") == "qsee_command_button"
+        and node.get("templateId") == "LUNASHELL_command_button"
     ]
     if len(command_slots) != 5:
         raise AssertionError(
@@ -596,7 +596,7 @@ def main() -> None:
         "const DeviceSnapshot &snapshot",
         "persistent status bar",
     )
-    forbid(status_bar_source, "qsee_platform.h", "persistent status bar")
+    forbid(status_bar_source, "LUNASHELL_platform.h", "persistent status bar")
 
     edge_buttons = {
         node.get("id")
@@ -617,15 +617,15 @@ def main() -> None:
         if isinstance(node, dict) and isinstance(node.get("action"), str)
     }
     settings_source = read(
-        "components/qsee_app/package/res/screen_settings.json"
+        "components/LUNASHELL_app/package/res/screen_settings.json"
     )
     forbid(settings_source, '"id": "radio_start"', "Settings body")
     forbid(settings_source, '"id": "gps_action"', "Settings body")
     forbid(settings_source, '"id": "storage_action"', "Settings body")
-    require(app, '"qsee.open.gps"', "Settings command arc")
-    require(app, '"qsee.open.storage"', "Settings command arc")
-    require(app, '"qsee.settings.radios.start"', "Settings command arc")
-    require(app, '"qsee.settings.radios.stop"', "Settings command arc")
+    require(app, '"LUNASHELL.open.gps"', "Settings command arc")
+    require(app, '"LUNASHELL.open.storage"', "Settings command arc")
+    require(app, '"LUNASHELL.settings.radios.start"', "Settings command arc")
+    require(app, '"LUNASHELL.settings.radios.stop"', "Settings command arc")
     missing_actions = SETTINGS_ACTIONS - actions
     if missing_actions:
         raise AssertionError(
@@ -670,21 +670,21 @@ def main() -> None:
             "Storage format button disabled state must be runtime-bound"
         )
 
-    require(app, "qsee.tof.calibration.start", "TOF calibration command")
+    require(app, "LUNASHELL.tof.calibration.start", "TOF calibration command")
     require(app, '"res/screen_tof.json"', "lazy TOF screen descriptor")
     require(
         app,
         '"res/screen_tof_settings.json"',
         "lazy TOF settings screen descriptor",
     )
-    require(app, '"qsee.open.tof"', "TOF navigation action")
-    require(app, '"qsee.open.tof_settings"', "TOF settings navigation action")
+    require(app, '"LUNASHELL.open.tof"', "TOF navigation action")
+    require(app, '"LUNASHELL.open.tof_settings"', "TOF settings navigation action")
     require(app, "kTofCommands", "TOF settings gear")
     require(app, "kTofSettingsCommands", "TOF calibration command")
     forbid(app, "kImuCommands", "IMU command behavior")
     require(
         app_header,
-        "#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
+        "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
         "TOF app declarations combined build guard",
     )
     require(simulator, "def show_tof_demo", "Windows TOF simulator")
@@ -729,7 +729,7 @@ def main() -> None:
         "Windows TOF default precision sample interval",
     )
 
-    pairing_template = package_documents["templates/qsee_pairing_stage.json"]
+    pairing_template = package_documents["templates/LUNASHELL_pairing_stage.json"]
     pairing_template_nodes = list(walk_json(pairing_template))
     pairing_by_id = {
         node["id"]: node
@@ -868,8 +868,8 @@ def main() -> None:
     )
 
     for legacy_path in (
-        "components/qsee_app/qsee_navigation.cpp",
-        "components/qsee_app/include/qsee_navigation.hpp",
+        "components/LUNASHELL_app/LUNASHELL_navigation.cpp",
+        "components/LUNASHELL_app/include/LUNASHELL_navigation.hpp",
     ):
         if ROOT.joinpath(legacy_path).exists():
             raise AssertionError(f"legacy Phone navigation file still exists: {legacy_path}")

@@ -6,9 +6,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HEADER = ROOT / "components/qsee_platform/include/qsee_http_server.hpp"
-SOURCE = ROOT / "components/qsee_platform/qsee_http_server.cpp"
-JSON_SOURCE = ROOT / "components/qsee_platform/qsee_http_json.cpp"
+HEADER = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_http_server.hpp"
+SOURCE = ROOT / "components/LUNASHELL_platform/LUNASHELL_http_server.cpp"
+JSON_SOURCE = ROOT / "components/LUNASHELL_platform/LUNASHELL_http_json.cpp"
 DOC = ROOT / "docs/architecture/http-device-api.md"
 
 MEMORY_FIELDS = (

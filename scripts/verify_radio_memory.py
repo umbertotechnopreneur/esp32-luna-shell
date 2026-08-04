@@ -16,9 +16,9 @@ def require(text: str, fragment: str, source: str) -> None:
 
 
 def main() -> None:
-    memory = read("components/qsee_platform/qsee_radio_memory.hpp")
-    radios = read("components/qsee_platform/qsee_radios.cpp")
-    provisioning = read("components/qsee_platform/qsee_provisioning.cpp")
+    memory = read("components/LUNASHELL_platform/LUNASHELL_radio_memory.hpp")
+    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
+    provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
     sdkconfig = read("sdkconfig.defaults")
 
     require(

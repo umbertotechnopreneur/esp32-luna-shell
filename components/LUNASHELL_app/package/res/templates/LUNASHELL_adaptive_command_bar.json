@@ -1,0 +1,104 @@
+{
+    "type": "viewTemplate",
+    "id": "LUNASHELL_adaptive_command_bar",
+    "node": {
+        "type": "container",
+        "commonProps": {
+            "clickable": false,
+            "scrollable": false,
+            "hidden": true
+        },
+        "bindings": {
+            "commonProps.hidden": "hidden",
+            "style.opacity": "opacity"
+        },
+        "style": {
+            "padding": 0,
+            "opacity": 255
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "466dp",
+            "height": "466dp"
+        },
+        "children": [
+            {
+                "type": "templateRef",
+                "id": "slot0",
+                "templateId": "LUNASHELL_command_button",
+                "overrides": {
+                    ".": {
+                        "events": [
+                            {
+                                "type": "clicked",
+                                "action": "LUNASHELL.command.0"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "slot1",
+                "templateId": "LUNASHELL_command_button",
+                "overrides": {
+                    ".": {
+                        "events": [
+                            {
+                                "type": "clicked",
+                                "action": "LUNASHELL.command.1"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "slot2",
+                "templateId": "LUNASHELL_command_button",
+                "overrides": {
+                    ".": {
+                        "events": [
+                            {
+                                "type": "clicked",
+                                "action": "LUNASHELL.command.2"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "slot3",
+                "templateId": "LUNASHELL_command_button",
+                "overrides": {
+                    ".": {
+                        "events": [
+                            {
+                                "type": "clicked",
+                                "action": "LUNASHELL.command.3"
+                            }
+                        ]
+                    }
+                }
+            },
+            {
+                "type": "templateRef",
+                "id": "slot4",
+                "templateId": "LUNASHELL_command_button",
+                "overrides": {
+                    ".": {
+                        "events": [
+                            {
+                                "type": "clicked",
+                                "action": "LUNASHELL.command.4"
+                            }
+                        ]
+                    }
+                }
+            }
+        ]
+    }
+}

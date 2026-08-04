@@ -24,7 +24,7 @@ param(
 
     [switch]$ResetBeforeCapture,
 
-    # Explicit parameters take precedence over the dedicated QSEE_IDF_*
+    # Explicit parameters take precedence over the dedicated LUNASHELL_IDF_*
     # environment variables and the workstation defaults below.
     [string]$IdfPath,
 
@@ -193,15 +193,15 @@ if ($Action -eq "discovery") {
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 if (-not $IdfPath) {
-    $IdfPath = if ($env:QSEE_IDF_PATH) {
-        $env:QSEE_IDF_PATH
+    $IdfPath = if ($env:LUNASHELL_IDF_PATH) {
+        $env:LUNASHELL_IDF_PATH
     } else {
         "E:\Espressif\.espressif\v6.0.2\esp-idf"
     }
 }
 if (-not $ToolsPath) {
-    $ToolsPath = if ($env:QSEE_IDF_TOOLS_PATH) {
-        $env:QSEE_IDF_TOOLS_PATH
+    $ToolsPath = if ($env:LUNASHELL_IDF_TOOLS_PATH) {
+        $env:LUNASHELL_IDF_TOOLS_PATH
     } else {
         "E:\Espressif"
     }
@@ -227,8 +227,8 @@ foreach ($requiredIdfFile in @($IdfPy, $IdfToolsPy)) {
 if (-not $PythonExe) {
     $idfInstallName = Split-Path -Leaf (Split-Path -Parent $IdfPath)
     $PythonExe = Join-Path $ToolsPath "tools\python\$idfInstallName\venv\Scripts\python.exe"
-    if ($env:QSEE_IDF_PYTHON) {
-        $PythonExe = $env:QSEE_IDF_PYTHON
+    if ($env:LUNASHELL_IDF_PYTHON) {
+        $PythonExe = $env:LUNASHELL_IDF_PYTHON
     }
 }
 if (-not (Test-Path -LiteralPath $PythonExe -PathType Leaf)) {

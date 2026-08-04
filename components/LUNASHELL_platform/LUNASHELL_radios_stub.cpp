@@ -1,0 +1,35 @@
+/*
+ * Firmware backend support module.
+ *
+ * Copyright (c) 2026
+ */
+
+#include "LUNASHELL_platform.h"
+#include "LUNASHELL_device_snapshot.hpp"
+
+extern "C" esp_err_t LUNASHELL_ble_init(void)
+{
+    LUNASHELL::DeviceSnapshotService::instance().reportBle(
+        false,
+        ESP_ERR_NOT_SUPPORTED
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" esp_err_t LUNASHELL_radios_init(void)
+{
+    LUNASHELL::WifiSnapshot wifi{};
+    wifi.last_error = ESP_ERR_NOT_SUPPORTED;
+    wifi.health = LUNASHELL::DeviceHealth::Missing;
+    LUNASHELL::DeviceSnapshotService::instance().reportWifi(wifi);
+    LUNASHELL::DeviceSnapshotService::instance().reportBle(
+        false,
+        ESP_ERR_NOT_SUPPORTED
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" esp_err_t LUNASHELL_radios_stop(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}

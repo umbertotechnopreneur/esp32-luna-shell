@@ -17,13 +17,13 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-POWER_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_power.cpp"
-HARDWARE_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_hardware.cpp"
+POWER_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_power.cpp"
+HARDWARE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
 PLATFORM_HEADER = (
-    ROOT / "components" / "qsee_platform" / "include" / "qsee_platform.h"
+    ROOT / "components" / "LUNASHELL_platform" / "include" / "LUNASHELL_platform.h"
 )
 DISPLAY_SOURCE = (
-    ROOT / "components" / "qsee_platform" / "qsee_display_settings.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_display_settings.cpp"
 )
 BSP_DISPLAY_SOURCE = (
     ROOT
@@ -41,13 +41,13 @@ ADAPTER_PAUSE_PATCH = (
     / "patches"
     / "esp_lvgl_adapter_pause_recovery.patch"
 )
-APP_SOURCE = ROOT / "components" / "qsee_app" / "qsee_app.cpp"
-APP_HEADER = ROOT / "components" / "qsee_app" / "include" / "qsee_app.hpp"
+APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp"
+APP_HEADER = ROOT / "components" / "LUNASHELL_app" / "include" / "LUNASHELL_app.hpp"
 ADAPTIVE_CHROME_SOURCE = (
-    ROOT / "components" / "qsee_app" / "qsee_adaptive_chrome.cpp"
+    ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_adaptive_chrome.cpp"
 )
 ADAPTIVE_COMMAND_SOURCE = (
-    ROOT / "components" / "qsee_app" / "qsee_adaptive_command_bar.cpp"
+    ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_adaptive_command_bar.cpp"
 )
 BROOKESIA_GUI_SOURCE = (
     ROOT
@@ -102,22 +102,22 @@ BROOKESIA_IMPL_HEADER = (
     / "system"
     / "impl.hpp"
 )
-AUDIO_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_audio.cpp"
+AUDIO_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_audio.cpp"
 VOICE_AFE_SOURCE = (
-    ROOT / "components" / "qsee_platform" / "qsee_voice_afe.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_voice_afe.cpp"
 )
-LOGGER_SOURCE = ROOT / "components" / "qsee_logger" / "qsee_logger.c"
+LOGGER_SOURCE = ROOT / "components" / "LUNASHELL_logger" / "LUNASHELL_logger.c"
 SNAPSHOT_SOURCE = (
-    ROOT / "components" / "qsee_platform" / "qsee_snapshot_scheduler.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_snapshot_scheduler.cpp"
 )
 DISTANCE_SOURCE = (
-    ROOT / "components" / "qsee_platform" / "qsee_distance_service.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_distance_service.cpp"
 )
 DISTANCE_STUB_SOURCE = (
-    ROOT / "components" / "qsee_platform" / "qsee_distance_service_stub.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_distance_service_stub.cpp"
 )
-STORAGE_SOURCE = ROOT / "components" / "qsee_platform" / "qsee_storage.cpp"
-PLATFORM_CMAKE = ROOT / "components" / "qsee_platform" / "CMakeLists.txt"
+STORAGE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_storage.cpp"
+PLATFORM_CMAKE = ROOT / "components" / "LUNASHELL_platform" / "CMakeLists.txt"
 SDKCONFIG_DEFAULTS = ROOT / "sdkconfig.defaults"
 
 PKEY_SHORT_IRQ = 1 << 0
@@ -975,31 +975,31 @@ def verify_source_contracts() -> None:
 
     require(
         "GPIO_NUM_41" not in power,
-        "qsee_power must not treat SDMMC_CS GPIO41 as the physical PWR key",
+        "LUNASHELL_power must not treat SDMMC_CS GPIO41 as the physical PWR key",
     )
     require(
         "gpio_get_level(kPowerButton)" not in power,
-        "qsee_power must consume PMIC PKEY events instead of polling a GPIO",
+        "LUNASHELL_power must consume PMIC PKEY events instead of polling a GPIO",
     )
     require_regex(
         header,
-        r"qsee_hardware_take_power_key_events\s*\(\s*"
+        r"LUNASHELL_hardware_take_power_key_events\s*\(\s*"
         r"uint32_t\s*\*\s*short_presses\s*,\s*"
         r"uint32_t\s*\*\s*long_presses\s*\)",
-        "qsee_platform.h",
+        "LUNASHELL_platform.h",
     )
-    require_contains(power, "qsee_hardware_take_power_key_events(", "qsee_power.cpp")
+    require_contains(power, "LUNASHELL_hardware_take_power_key_events(", "LUNASHELL_power.cpp")
     require_regex(
         power,
         r"(?:esp_err_t|auto)\s+\w+\s*="
-        r"\s*qsee_hardware_take_power_key_events\(",
+        r"\s*LUNASHELL_hardware_take_power_key_events\(",
         "checked PKEY consumption",
     )
 
     sample_pmu = function_text(
         hardware,
         "esp_err_t sample_pmu(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require(
         "read_pmu_irq_status(" not in sample_pmu
@@ -1011,7 +1011,7 @@ def verify_source_contracts() -> None:
     irq_reader = function_text(
         hardware,
         "esp_err_t read_pmu_irq_status(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require_regex(
         irq_reader,
@@ -1026,7 +1026,7 @@ def verify_source_contracts() -> None:
     irq_mask_verifier = function_text(
         hardware,
         "esp_err_t verify_pmu_irq_enable_mask(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     for fragment in (
         "XPOWERS_AXP2101_INTEN1",
@@ -1042,7 +1042,7 @@ def verify_source_contracts() -> None:
     init_pmu = function_text(
         hardware,
         "esp_err_t init_pmu(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require_regex(
         init_pmu,
@@ -1053,7 +1053,7 @@ def verify_source_contracts() -> None:
     runtime_pmu_reader = function_text(
         hardware,
         "esp_err_t read_pmu_registers(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require_contains(
         runtime_pmu_reader,
@@ -1067,7 +1067,7 @@ def verify_source_contracts() -> None:
     irq_clearer = function_text(
         hardware,
         "esp_err_t clear_and_verify_pmu_irq_status(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     require_contains(
         irq_clearer,
@@ -1088,7 +1088,7 @@ def verify_source_contracts() -> None:
     collector = function_text(
         hardware,
         "esp_err_t collect_pmu_irq_events(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware.cpp",
     )
     read_at = collector.find("read_pmu_irq_status(")
     clear_at = collector.find("clear_and_verify_pmu_irq_status(")
@@ -1131,8 +1131,8 @@ def verify_source_contracts() -> None:
 
     take_function = function_text(
         hardware,
-        "qsee_hardware_take_power_key_events(",
-        "qsee_hardware.cpp",
+        "LUNASHELL_hardware_take_power_key_events(",
+        "LUNASHELL_hardware.cpp",
     )
     require_contains(
         take_function,
@@ -1162,9 +1162,9 @@ def verify_source_contracts() -> None:
     power_task = function_text(
         power,
         "void power_task(",
-        "qsee_power.cpp",
+        "LUNASHELL_power.cpp",
     )
-    take_at = power_task.find("qsee_hardware_take_power_key_events(")
+    take_at = power_task.find("LUNASHELL_hardware_take_power_key_events(")
     handle_at = power_task.find("handle_power_key_events(")
     require(
         0 <= take_at < handle_at,
@@ -1179,7 +1179,7 @@ def verify_source_contracts() -> None:
     idle_policy = function_text(
         power,
         "esp_err_t apply_idle_policy(",
-        "qsee_power.cpp",
+        "LUNASHELL_power.cpp",
     )
     for fragment in (
         "s_command_timeout_seconds.load(",
@@ -1219,7 +1219,7 @@ def verify_source_contracts() -> None:
     motion_filter = function_text(
         power,
         "bool qualified_motion_detected(",
-        "qsee_power.cpp",
+        "LUNASHELL_power.cpp",
     )
     for fragment in (
         "now_us < s_motion_grace_until_us",
@@ -1253,7 +1253,7 @@ def verify_source_contracts() -> None:
     display_transition = function_text(
         display,
         "esp_err_t transition_power_mode_locked(",
-        "qsee_display_settings.cpp",
+        "LUNASHELL_display_settings.cpp",
     )
     panel_enable_at = require_regex(
         display_transition,
@@ -1344,7 +1344,7 @@ def verify_source_contracts() -> None:
     )
     fade_api = function_text(
         display,
-        "qsee_display_fade_to_power_mode(",
+        "LUNASHELL_display_fade_to_power_mode(",
         "display fade API",
     )
     fade_display_lock_at = fade_api.find("DisplayOperationLock")
@@ -1390,21 +1390,21 @@ def verify_source_contracts() -> None:
         require_contains(power, fragment, "standby wake-control handshake")
     require_regex(
         header,
-        r"qsee_power_manager_note_ui_standby_result\s*\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\s*\(\s*"
         r"uint32_t\s+transition_sequence\s*,\s*"
         r"esp_err_t\s+result\s*\)",
         "standby UI result API",
     )
     require(
-        "qsee_power_manager_note_ui_standby_ready" not in power
-        and "qsee_power_manager_note_ui_standby_ready" not in header
-        and "qsee_power_manager_note_ui_standby_ready" not in app,
+        "LUNASHELL_power_manager_note_ui_standby_ready" not in power
+        and "LUNASHELL_power_manager_note_ui_standby_ready" not in header
+        and "LUNASHELL_power_manager_note_ui_standby_ready" not in app,
         "the removed ready-only standby acknowledgement must not return",
     )
 
     ui_result_notifier = function_text(
         power,
-        'extern "C" void qsee_power_manager_note_ui_standby_result(',
+        'extern "C" void LUNASHELL_power_manager_note_ui_standby_result(',
         "standby UI result notifier",
     )
     require_regex(
@@ -1460,29 +1460,29 @@ def verify_source_contracts() -> None:
     )
     for failed_stage in (
         r"sync_refresh_timer\(context, DisplayIdleStage::Off\).*?"
-        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\(\s*"
         r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
         r"adaptive_chrome_\.quiesce\(context\.gui\(\)\).*?"
-        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\(\s*"
         r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
         r"if\s*\(!drain_result\).*?"
-        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\(\s*"
         r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
         r"if\s*\(!quiesce_result\).*?"
-        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\(\s*"
         r"transition_sequence\s*,\s*ESP_FAIL\s*\)",
     ):
         require_regex(
             app_power_timer,
             failed_stage,
-            "QSee UI standby failure acknowledgement",
+            "LUNASHELL UI standby failure acknowledgement",
         )
     require_regex(
         app_power_timer,
         r"standby_ui_state_\s*=\s*StandbyUiState::Quiesced\s*;.*?"
-        r"qsee_power_manager_note_ui_standby_result\(\s*"
+        r"LUNASHELL_power_manager_note_ui_standby_result\(\s*"
         r"transition_sequence\s*,\s*ESP_OK\s*\)",
-        "QSee UI standby success acknowledgement after natural drain",
+        "LUNASHELL UI standby success acknowledgement after natural drain",
     )
     for fragment in (
         "enum class StandbyUiState",
@@ -1672,12 +1672,12 @@ def verify_source_contracts() -> None:
         "standby resource suspension",
     )
     suspend_order = [
-        suspend_resources.find("qsee_hardware_set_full_snapshot_power_suspended"),
-        suspend_resources.find("qsee_distance_set_power_suspended"),
-        suspend_resources.find("qsee_storage_set_power_suspended"),
-        suspend_resources.find("qsee_hardware_set_imu_low_power"),
-        suspend_resources.find("qsee_voice_afe_set_standby"),
-        suspend_resources.find("qsee_audio_set_standby"),
+        suspend_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
+        suspend_resources.find("LUNASHELL_distance_set_power_suspended"),
+        suspend_resources.find("LUNASHELL_storage_set_power_suspended"),
+        suspend_resources.find("LUNASHELL_hardware_set_imu_low_power"),
+        suspend_resources.find("LUNASHELL_voice_afe_set_standby"),
+        suspend_resources.find("LUNASHELL_audio_set_standby"),
         suspend_resources.find("transition_display_resource(true)"),
         suspend_resources.find("set_lvgl_standby"),
     ]
@@ -1808,12 +1808,12 @@ def verify_source_contracts() -> None:
     )
     resume_order = [
         resume_resources.find("set_lvgl_standby"),
-        resume_resources.find("qsee_hardware_set_imu_low_power"),
-        resume_resources.find("qsee_distance_set_power_suspended"),
-        resume_resources.find("qsee_storage_set_power_suspended"),
-        resume_resources.find("qsee_audio_set_standby"),
-        resume_resources.find("qsee_voice_afe_set_standby"),
-        resume_resources.find("qsee_hardware_set_full_snapshot_power_suspended"),
+        resume_resources.find("LUNASHELL_hardware_set_imu_low_power"),
+        resume_resources.find("LUNASHELL_distance_set_power_suspended"),
+        resume_resources.find("LUNASHELL_storage_set_power_suspended"),
+        resume_resources.find("LUNASHELL_audio_set_standby"),
+        resume_resources.find("LUNASHELL_voice_afe_set_standby"),
+        resume_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
         resume_resources.find("transition_display_resource(false)"),
     ]
     require(
@@ -1823,12 +1823,12 @@ def verify_source_contracts() -> None:
     )
 
     for fragment in (
-        "qsee_hardware_set_full_snapshot_power_suspended(bool suspended)",
-        "qsee_distance_set_power_suspended(bool suspended)",
-        "qsee_storage_set_power_suspended(bool suspended)",
-        "qsee_hardware_set_imu_low_power(bool enabled)",
+        "LUNASHELL_hardware_set_full_snapshot_power_suspended(bool suspended)",
+        "LUNASHELL_distance_set_power_suspended(bool suspended)",
+        "LUNASHELL_storage_set_power_suspended(bool suspended)",
+        "LUNASHELL_hardware_set_imu_low_power(bool enabled)",
     ):
-        require_contains(header, fragment, "qsee_platform.h standby lifecycle")
+        require_contains(header, fragment, "LUNASHELL_platform.h standby lifecycle")
     require_contains(
         snapshot,
         "ulTaskNotifyTake(pdTRUE, portMAX_DELAY)",
@@ -1841,7 +1841,7 @@ def verify_source_contracts() -> None:
     )
     require_contains(
         distance_power,
-        "qsee_tof400f_deinit()",
+        "LUNASHELL_tof400f_deinit()",
         "standby TOF UART release",
     )
     distance_stub_power = function_text(
@@ -1856,10 +1856,10 @@ def verify_source_contracts() -> None:
     )
     require_regex(
         platform_cmake,
-        r"if\s*\(\s*CONFIG_QSEE_BUILD_ENABLE_DISTANCE\s+AND\s+"
-        r"CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART\s*\)"
-        r".*?qsee_distance_service\.cpp.*?else\s*\(\s*\)"
-        r".*?qsee_distance_service_stub\.cpp.*?endif\s*\(\s*\)",
+        r"if\s*\(\s*CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE\s+AND\s+"
+        r"CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART\s*\)"
+        r".*?LUNASHELL_distance_service\.cpp.*?else\s*\(\s*\)"
+        r".*?LUNASHELL_distance_service_stub\.cpp.*?endif\s*\(\s*\)",
         "profile-selected distance lifecycle implementation",
     )
     require_contains(
@@ -1869,7 +1869,7 @@ def verify_source_contracts() -> None:
     )
     audio_standby = function_text(
         audio,
-        "qsee_audio_set_standby(",
+        "LUNASHELL_audio_set_standby(",
         "audio standby transaction",
     )
     require_contains(
@@ -1898,7 +1898,7 @@ def verify_source_contracts() -> None:
         "esp_err_t apply_afe_standby_locked(",
         "voice AFE standby transaction",
     )
-    audio_resume_index = afe_standby.find("qsee_audio_set_standby(false)")
+    audio_resume_index = afe_standby.find("LUNASHELL_audio_set_standby(false)")
     afe_resume_order = [
         audio_resume_index,
         afe_standby.find(
@@ -1950,7 +1950,7 @@ def verify_source_contracts() -> None:
     )
     imu_profile = function_text(
         hardware,
-        "qsee_hardware_set_imu_low_power(",
+        "LUNASHELL_hardware_set_imu_low_power(",
         "IMU low-power profile",
     )
     require_contains(imu_profile, "configure_imu_profile(enabled)", "IMU profile")

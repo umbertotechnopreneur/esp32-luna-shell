@@ -1,4 +1,4 @@
-# QSee.ai Windows device simulator
+# LUNASHELL.ai Windows device simulator
 
 This desktop target mirrors the round 466 x 466 UI contract and application
 flow. It does not emulate the Waveshare electrical hardware or ESP-IDF drivers.
@@ -115,7 +115,7 @@ Build the standalone Windows executable:
 ```
 
 The build script creates an isolated `.venv-simulator` environment and writes
-the executable to `simulator/windows/dist/QSeeDeviceSimulator.exe`.
+the executable to `simulator/windows/dist/LUNASHELLDeviceSimulator.exe`.
 
 ## Audio scope demo
 

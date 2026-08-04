@@ -90,22 +90,22 @@ def require_wrap_height(node: dict[str, Any], path: str) -> None:
 def verify_tof_layout(gui_root: Path) -> None:
     document = json.loads(gui_root.read_text(encoding="utf-8"))
 
-    tof = screen_with_id(document, "qsee_tof")
-    tof_surface = child_with_id(tof, "surface", "qsee_tof")
+    tof = screen_with_id(document, "LUNASHELL_tof")
+    tof_surface = child_with_id(tof, "surface", "LUNASHELL_tof")
     require_minimum_height(
-        child_with_id(tof_surface, "title", "qsee_tof/surface"),
+        child_with_id(tof_surface, "title", "LUNASHELL_tof/surface"),
         28,
-        "qsee_tof/surface/title",
+        "LUNASHELL_tof/surface/title",
     )
     require_minimum_height(
-        child_with_id(tof_surface, "status", "qsee_tof/surface"),
+        child_with_id(tof_surface, "status", "LUNASHELL_tof/surface"),
         32,
-        "qsee_tof/surface/status",
+        "LUNASHELL_tof/surface/status",
     )
     require_minimum_height(
-        child_with_id(tof_surface, "calibration", "qsee_tof/surface"),
+        child_with_id(tof_surface, "calibration", "LUNASHELL_tof/surface"),
         32,
-        "qsee_tof/surface/calibration",
+        "LUNASHELL_tof/surface/calibration",
     )
 
     layout_budget_dp = 320.0
@@ -115,7 +115,7 @@ def verify_tof_layout(gui_root: Path) -> None:
         placement = child.get("placement", {})
         if placement.get("mode") != "absolute":
             continue
-        child_path = f"qsee_tof/surface/{child.get('id', '<unnamed>')}"
+        child_path = f"LUNASHELL_tof/surface/{child.get('id', '<unnamed>')}"
         top = dp_value(placement.get("y", 0), f"{child_path}.y")
         height = dp_value(placement.get("height"), f"{child_path}.height")
         require(top >= 0, f"{child_path}.y must not be negative")
@@ -125,25 +125,25 @@ def verify_tof_layout(gui_root: Path) -> None:
             f"{layout_budget_dp:g}dp screen budget",
         )
 
-    tof_settings = screen_with_id(document, "qsee_tof_settings")
+    tof_settings = screen_with_id(document, "LUNASHELL_tof_settings")
     settings_surface = child_with_id(
         tof_settings,
         "surface",
-        "qsee_tof_settings",
+        "LUNASHELL_tof_settings",
     )
     scroller = child_with_id(
         settings_surface,
         "tof_settings_scroller",
-        "qsee_tof_settings/surface",
+        "LUNASHELL_tof_settings/surface",
     )
     require_minimum_height(
         child_with_id(
             scroller,
             "title",
-            "qsee_tof_settings/surface/tof_settings_scroller",
+            "LUNASHELL_tof_settings/surface/tof_settings_scroller",
         ),
         28,
-        "qsee_tof_settings/surface/tof_settings_scroller/title",
+        "LUNASHELL_tof_settings/surface/tof_settings_scroller/title",
     )
     for child_id in (
         "settings_status",
@@ -154,9 +154,9 @@ def verify_tof_layout(gui_root: Path) -> None:
             child_with_id(
                 scroller,
                 child_id,
-                "qsee_tof_settings/surface/tof_settings_scroller",
+                "LUNASHELL_tof_settings/surface/tof_settings_scroller",
             ),
-            f"qsee_tof_settings/surface/tof_settings_scroller/{child_id}",
+            f"LUNASHELL_tof_settings/surface/tof_settings_scroller/{child_id}",
         )
 
 
@@ -270,29 +270,29 @@ def rate_limited_warning_emissions(
 
 
 def main() -> int:
-    driver = ROOT / "components/qsee_tof400f/include/qsee_tof400f.h"
-    driver_cmake = ROOT / "components/qsee_tof400f/CMakeLists.txt"
+    driver = ROOT / "components/LUNASHELL_tof400f/include/LUNASHELL_tof400f.h"
+    driver_cmake = ROOT / "components/LUNASHELL_tof400f/CMakeLists.txt"
     build_kconfig = ROOT / "main/Kconfig.projbuild"
-    service = ROOT / "components/qsee_platform/qsee_distance_service.cpp"
-    snapshot = ROOT / "components/qsee_platform/include/qsee_device_snapshot.hpp"
-    hardware = ROOT / "components/qsee_platform/qsee_hardware.cpp"
+    service = ROOT / "components/LUNASHELL_platform/LUNASHELL_distance_service.cpp"
+    snapshot = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
+    hardware = ROOT / "components/LUNASHELL_platform/LUNASHELL_hardware.cpp"
     wiring = ROOT / "docs/hardware/tof400f-dual-uart.md"
     sdkconfig_defaults = ROOT / "sdkconfig.defaults"
-    gui_root = ROOT / "components/qsee_app/gui/root.json"
+    gui_root = ROOT / "components/LUNASHELL_app/gui/root.json"
 
     for fragment in (
-        "#define QSEE_TOF400F_SHARED_TX_GPIO 16",
-        "#define QSEE_TOF400F_SENSOR_1_RX_GPIO 17",
-        "#define QSEE_TOF400F_SENSOR_2_RX_GPIO 18",
+        "#define LUNASHELL_TOF400F_SHARED_TX_GPIO 16",
+        "#define LUNASHELL_TOF400F_SENSOR_1_RX_GPIO 17",
+        "#define LUNASHELL_TOF400F_SENSOR_2_RX_GPIO 18",
         "int64_t requested_at_us",
-        "qsee_tof400f_deinit(void)",
+        "LUNASHELL_tof400f_deinit(void)",
     ):
         require_contains(driver, fragment)
 
     for fragment in (
-        "CONFIG_QSEE_BUILD_ENABLE_DISTANCE AND",
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
-        'SRCS\n            "qsee_tof400f.c"',
+        "CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND",
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
+        'SRCS\n            "LUNASHELL_tof400f.c"',
         "idf_component_optional_requires(PUBLIC esp_common)",
         "esp_driver_uart\n        esp_timer\n        freertos\n        log",
         "else()\n    idf_component_register()\nendif()",
@@ -301,17 +301,17 @@ def main() -> int:
 
     require_contains(
         build_kconfig,
-        "config QSEE_BUILD_ENABLE_DISTANCE\n"
+        "config LUNASHELL_BUILD_ENABLE_DISTANCE\n"
         '    bool "Include external precision distance support"\n'
         "    default n",
     )
     require_contains(
         sdkconfig_defaults,
-        "# CONFIG_QSEE_BUILD_ENABLE_DISTANCE is not set",
+        "# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set",
     )
 
     for fragment in (
-        "kDefaultSampleCount = qsee::kDistanceMaximumSampleCount",
+        "kDefaultSampleCount = LUNASHELL::kDistanceMaximumSampleCount",
         "interval_ms == 250U || interval_ms == 500U",
         "static_cast<uint32_t>(estimate.mad_mm) * 3U",
         "s_calibration_windows",
@@ -330,7 +330,7 @@ def main() -> int:
         "sensor.window_sample_count = 0",
         "settings_error",
         "mark_settings_persistence_failure_locked(",
-        "qsee_tof400f_deinit()",
+        "LUNASHELL_tof400f_deinit()",
         "uxTaskGetStackHighWaterMark(nullptr)",
         "TOF service is running but its transport is unavailable",
         "s_distance.last_error != ESP_OK",
@@ -437,7 +437,7 @@ def main() -> int:
             )
         else:
             setter_end = service_text.index(
-                "\n}  // namespace qsee",
+                "\n}  // namespace LUNASHELL",
                 setter_start,
             )
         setter_body = service_text[setter_start:setter_end]
@@ -465,8 +465,8 @@ def main() -> int:
         require_contains(snapshot, fragment)
 
     for fragment in (
-        "#if CONFIG_QSEE_BUILD_ENABLE_DISTANCE && "
-        "CONFIG_QSEE_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
+        "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && "
+        "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
         'sample_imu("distance-geometry", false)',
         "geometry->imu = s_snapshot.imu",
         "geometry->sensor_fusion = s_snapshot.sensor_fusion",

@@ -48,14 +48,14 @@
   returns its document memory without fragmentation growth.
 - [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
   mirroring, deferred radio startup, and persisted brightness.
-- [x] Stage only the QSee application resources in the internal LittleFS
+- [x] Stage only the LUNASHELL application resources in the internal LittleFS
   image; do not ship the unused System Super shell resources.
 - [ ] Define shared JSON design tokens for the circular 466 x 466 display and
   320 x 320 safe area.
-- [ ] Complete hardware validation of the QSee-owned Bluetooth, GPS, and CPU
+- [ ] Complete hardware validation of the LUNASHELL-owned Bluetooth, GPS, and CPU
   status bar under the single-app System Core runtime.
 - [ ] Replace the removed Shell keyboard and message-dialog services with
-  QSee-owned declarative components before exposing log search or destructive
+  LUNASHELL-owned declarative components before exposing log search or destructive
   confirmation actions on the System Core-only build.
 - [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
 - [ ] Remove proprietary branding markers (including branded identifiers and
@@ -69,7 +69,7 @@
   through `DeviceSnapshotService`; the board has no card-detect pin, so a
   failed SDMMC probe is never reported as physical absence.
 - [x] Make only an exact FatFs `FR_NO_FILESYSTEM` result eligible for format.
-- [x] Arm `qsee_storage_request_format()` only after an explicit destructive
+- [x] Arm `LUNASHELL_storage_request_format()` only after an explicit destructive
   confirmation is accepted, bind that one-shot permission to the
   observed CID fields and capacity, and consume it on the immediate attempt.
 - [x] Poll a mounted card and invalidate/unmount it when status reports removal

@@ -26,10 +26,10 @@ param(
     [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
     [string[]]$SourceRoot = @(
         'main',
-        'components/qsee_app',
-        'components/qsee_boot',
-        'components/qsee_logger',
-        'components/qsee_platform'
+        'components/LUNASHELL_app',
+        'components/LUNASHELL_boot',
+        'components/LUNASHELL_logger',
+        'components/LUNASHELL_platform'
     )
 )
 

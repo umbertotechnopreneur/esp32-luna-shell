@@ -77,7 +77,7 @@ def main() -> int:
         / "lib_utils"
         / "signal.hpp"
     )
-    app = read(ROOT / "components" / "qsee_app" / "qsee_app.cpp")
+    app = read(ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp")
 
     stop_start = manager.index(
         "std::expected<void, std::string> System::stop_app(AppId app_id)"
@@ -207,7 +207,7 @@ def main() -> int:
     ):
         require_contains(app, fragment, "differential UI refresh")
     require(
-        "QSEE_LAZY_GUI_STRESS" not in app
+        "LUNASHELL_LAZY_GUI_STRESS" not in app
         and "Lazy GUI stress" not in app,
         "diagnostic navigation harness must not ship in production",
     )

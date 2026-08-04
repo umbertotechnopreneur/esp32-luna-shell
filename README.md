@@ -59,7 +59,7 @@ complete geometry.
 11. launch the registered System Core application. Wi-Fi and BLE start only
     after the explicit action on the Settings screen.
 
-`qsee_hardware_init()` runs its PMU, RTC, IMU, GPS, and audio stages in a fixed
+`LUNASHELL_hardware_init()` runs its PMU, RTC, IMU, GPS, and audio stages in a fixed
 order and stops that service at the first failure. The startup orchestrator
 explicitly treats the hardware inventory, time service, power inputs, boot
 audio, removable storage, and pre-UI refresh as optional; their exact failures
@@ -71,15 +71,15 @@ success, and numeric telemetry is rendered only from a valid, fresh sample.
 
 Serial output is always authoritative. The logger also keeps a bounded RAM
 ring for the System Core Logs screen and mirrors queued lines to
-`/sdcard/qsee/logs/qsee.log` after a successful mount. The SD writer rotates at
-2 MB to `qsee.log.1`. Logger formatting and snapshots use static bounded
+`/sdcard/LUNASHELL/logs/LUNASHELL.log` after a successful mount. The SD writer rotates at
+2 MB to `LUNASHELL.log.1`. Logger formatting and snapshots use static bounded
 storage so logging cannot exhaust the `esp_timer` task stack.
 
 See [startup-and-logger.md](docs/architecture/startup-and-logger.md).
 
 ## Hardware snapshot
 
-`qsee::DeviceSnapshotService` is the single published view of:
+`LUNASHELL::DeviceSnapshotService` is the single published view of:
 
 - battery, USB power, AXP2101 charge policy, ADC telemetry, and latched events;
 - PCF85063 RTC;
@@ -117,10 +117,10 @@ and processor readings use native ESP-IDF and FreeRTOS APIs. See
 ## Navigation
 
 The native app implements the System Core `IApp` lifecycle. At boot GUI LVGL
-loads only `components/qsee_app/package/res/root.json`, which keeps the
+loads only `components/LUNASHELL_app/package/res/root.json`, which keeps the
 background, shared chrome, resident Welcome screen, and an empty content target.
 Every other route is emitted as an independent `res/screen_*.json` document.
-`qsee_app.cpp` releases the current content, unloads the previous route
+`LUNASHELL_app.cpp` releases the current content, unloads the previous route
 document, loads and mounts the requested one, and keeps at most one lazy route
 document active. It subscribes to that document's actions, refreshes the active
 screen from `DeviceSnapshotService`, and uses System Super services for the
@@ -130,7 +130,7 @@ small Pairing document, so advancing through the wizard does not repeatedly
 parse or allocate new GUI trees; the document is unloaded when the wizard ends.
 
 The editable declarative source remains
-`components/qsee_app/gui/root.json`; `scripts/generate_qsee_gui_documents.py`
+`components/LUNASHELL_app/gui/root.json`; `scripts/generate_LUNASHELL_gui_documents.py`
 produces the bootstrap and lazy runtime documents staged in LittleFS. Those JSON
 documents own view structure, layout, styles, and action names. C++ owns
 lifecycle, route-document selection, and data binding. App code does not
@@ -193,7 +193,7 @@ Device Standby remains a software-managed state, but it now uses the native
 ESP-IDF power stack between required wake checks. The coordinator quiesces Full
 Snapshot acquisition, releases both TOF UARTs, parks SD polling and mirroring,
 switches the QMI8658 accelerometer and gyroscope from 500 Hz to 31.25 Hz, closes
-the codec streams and I2S channels, closes QSee input producers, cancels tracked
+the codec streams and I2S channels, closes LUNASHELL input producers, cancels tracked
 chrome animations, and drains Brookesia AppInput, GUIInput, and GUI work before
 the power task receives its standby acknowledgement. It then disables AMOLED
 output and pauses the LVGL worker/tick through the pinned Espressif adapter's
@@ -225,11 +225,11 @@ animates that immutable state.
 ### Route index
 
 The editable route definitions live in
-[`components/qsee_app/gui/root.json`](components/qsee_app/gui/root.json).
+[`components/LUNASHELL_app/gui/root.json`](components/LUNASHELL_app/gui/root.json).
 The generated screen documents live under
-[`components/qsee_app/package/res`](components/qsee_app/package/res), while
+[`components/LUNASHELL_app/package/res`](components/LUNASHELL_app/package/res), while
 document selection and action handling live in
-[`components/qsee_app/qsee_app.cpp`](components/qsee_app/qsee_app.cpp). This is
+[`components/LUNASHELL_app/LUNASHELL_app.cpp`](components/LUNASHELL_app/LUNASHELL_app.cpp). This is
 the current code-grounded inventory:
 
 | Route | Status | Entry point | Purpose |
@@ -343,7 +343,7 @@ pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-idf6
 
 Build-time feature switches live in
 [`main/Kconfig.projbuild`](main/Kconfig.projbuild). They are exposed as
-`CONFIG_QSEE_BUILD_*` options and are intended to remove whole runtime paths
+`CONFIG_LUNASHELL_BUILD_*` options and are intended to remove whole runtime paths
 from the firmware image, not just hide them at runtime.
 
 Persist a profile in [`sdkconfig.defaults`](sdkconfig.defaults), then run
@@ -354,26 +354,26 @@ The available profile selectors are:
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `CONFIG_QSEE_BUILD_PROFILE_FULL` | `y` | Full Waveshare device runtime with the normal UI-first experience |
-| `CONFIG_QSEE_BUILD_PROFILE_HEADLESS` | `n` | Headless runtime that boots without the Brookesia UI stack and uses `main_headless.cpp` |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_FULL` | `y` | Full Waveshare device runtime with the normal UI-first experience |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_HEADLESS` | `n` | Headless runtime that boots without the Brookesia UI stack and uses `main_headless.cpp` |
 
 The available subsystem flags are:
 
 | Flag | Default | Effect |
 | --- | --- | --- |
-| `CONFIG_QSEE_BUILD_ENABLE_UI` | `y` | Includes the display and touch UI stack; disabling it removes the Brookesia app runtime and current BSP touch path from the build |
-| `CONFIG_QSEE_BUILD_ENABLE_BOOT_UI` | `y` | Keeps the boot splash screen; depends on the UI stack |
-| `CONFIG_QSEE_BUILD_ENABLE_AUDIO` | `y` | Includes the selected speaker and microphone paths plus related audio runtime |
-| `CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO` | `y` | Keeps the boot sound effect; depends on the selected ES8311 output path |
-| `CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE` | `n` | Starts the optional ESP-SR 16 kHz speech-recognition AFE; requires a selected ES8311 output and ES7210 input topology |
-| `CONFIG_QSEE_BUILD_ENABLE_WIFI` | `y` | Includes the Wi-Fi station stack |
-| `CONFIG_QSEE_BUILD_ENABLE_BLUETOOTH` | `y` | Includes the Bluetooth telemetry stack |
-| `CONFIG_QSEE_BUILD_ENABLE_PROVISIONING` | `y` | Includes the BLE Wi-Fi pairing flow used to provision Wi-Fi credentials; depends on Wi-Fi and Bluetooth |
-| `CONFIG_QSEE_BUILD_ENABLE_IMU` | `y` | Includes the QMI8658 motion pipeline and calibration path |
-| `CONFIG_QSEE_BUILD_ENABLE_POWER_INPUTS` | `y` | Includes the button and power-management pipeline |
-| `CONFIG_QSEE_BUILD_ENABLE_RTC` | `y` | Includes the RTC time pipeline |
-| `CONFIG_QSEE_BUILD_ENABLE_GNSS` | `y` | Includes the GNSS position pipeline |
-| `CONFIG_QSEE_BUILD_ENABLE_DISTANCE` | `n` | Includes the dual-TOF precision-distance driver, acquisition/calibration service, and TOF device/settings screens |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_UI` | `y` | Includes the display and touch UI stack; disabling it removes the Brookesia app runtime and current BSP touch path from the build |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI` | `y` | Keeps the boot splash screen; depends on the UI stack |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO` | `y` | Includes the selected speaker and microphone paths plus related audio runtime |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO` | `y` | Keeps the boot sound effect; depends on the selected ES8311 output path |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE` | `n` | Starts the optional ESP-SR 16 kHz speech-recognition AFE; requires a selected ES8311 output and ES7210 input topology |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_WIFI` | `y` | Includes the Wi-Fi station stack |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH` | `y` | Includes the Bluetooth telemetry stack |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING` | `y` | Includes the BLE Wi-Fi pairing flow used to provision Wi-Fi credentials; depends on Wi-Fi and Bluetooth |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_IMU` | `y` | Includes the QMI8658 motion pipeline and calibration path |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS` | `y` | Includes the button and power-management pipeline |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_RTC` | `y` | Includes the RTC time pipeline |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_GNSS` | `y` | Includes the GNSS position pipeline |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE` | `n` | Includes the dual-TOF precision-distance driver, acquisition/calibration service, and TOF device/settings screens |
 
 When a subsystem is disabled, the firmware now compiles the corresponding stub
 entry points so higher layers receive explicit `ESP_ERR_NOT_SUPPORTED` results
@@ -390,13 +390,13 @@ showing synthetic data.
 
 | Choice | Current implementation | Explicit off state |
 | --- | --- | --- |
-| `QSEE_BUILD_DISPLAY_DRIVER` | Waveshare AMOLED with CST9217 touch | `QSEE_BUILD_DISPLAY_DRIVER_NONE` |
-| `QSEE_BUILD_AUDIO_DRIVER` | ES8311 speaker codec with ES7210 microphone ADC | `QSEE_BUILD_AUDIO_DRIVER_NONE` |
-| `QSEE_BUILD_PMU_DRIVER` | AXP2101 | `QSEE_BUILD_PMU_DRIVER_NONE` |
-| `QSEE_BUILD_RTC_DRIVER` | PCF85063 | `QSEE_BUILD_RTC_DRIVER_NONE` |
-| `QSEE_BUILD_IMU_DRIVER` | QMI8658 | `QSEE_BUILD_IMU_DRIVER_NONE` |
-| `QSEE_BUILD_GNSS_DRIVER` | LC76G | `QSEE_BUILD_GNSS_DRIVER_NONE` |
-| `QSEE_BUILD_DISTANCE_DRIVER` | Two TOF400F modules on shared TX with independent RX lines | `QSEE_BUILD_DISTANCE_DRIVER_NONE` |
+| `LUNASHELL_BUILD_DISPLAY_DRIVER` | Waveshare AMOLED with CST9217 touch | `LUNASHELL_BUILD_DISPLAY_DRIVER_NONE` |
+| `LUNASHELL_BUILD_AUDIO_DRIVER` | ES8311 speaker codec with ES7210 microphone ADC | `LUNASHELL_BUILD_AUDIO_DRIVER_NONE` |
+| `LUNASHELL_BUILD_PMU_DRIVER` | AXP2101 | `LUNASHELL_BUILD_PMU_DRIVER_NONE` |
+| `LUNASHELL_BUILD_RTC_DRIVER` | PCF85063 | `LUNASHELL_BUILD_RTC_DRIVER_NONE` |
+| `LUNASHELL_BUILD_IMU_DRIVER` | QMI8658 | `LUNASHELL_BUILD_IMU_DRIVER_NONE` |
+| `LUNASHELL_BUILD_GNSS_DRIVER` | LC76G | `LUNASHELL_BUILD_GNSS_DRIVER_NONE` |
+| `LUNASHELL_BUILD_DISTANCE_DRIVER` | Two TOF400F modules on shared TX with independent RX lines | `LUNASHELL_BUILD_DISTANCE_DRIVER_NONE` |
 
 The distance feature is deliberately excluded from the default image. To build
 the driver, worker, calibration flow, Hardware card, and both TOF screens, use
@@ -409,7 +409,7 @@ pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-distance
 pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-distance
 ```
 
-With `CONFIG_QSEE_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition
+With `CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition
 worker are not compiled, the public entry points return
 `ESP_ERR_NOT_SUPPORTED`, and the staged Brookesia package omits every TOF
 screen and control.
@@ -420,20 +420,20 @@ variants without compiling an imaginary second channel:
 
 | Choice | Current selections | Explicit off state |
 | --- | --- | --- |
-| `QSEE_BUILD_AUDIO_OUTPUT_DRIVER` | ES8311 speaker output | `QSEE_BUILD_AUDIO_OUTPUT_DRIVER_NONE` |
-| `QSEE_BUILD_AUDIO_INPUT_DRIVER` | ES7210 dual microphone or ES7210 mono microphone | `QSEE_BUILD_AUDIO_INPUT_DRIVER_NONE` |
+| `LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER` | ES8311 speaker output | `LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_NONE` |
+| `LUNASHELL_BUILD_AUDIO_INPUT_DRIVER` | ES7210 dual microphone or ES7210 mono microphone | `LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE` |
 
 ### ESP-SR voice AFE
 
-`CONFIG_QSEE_BUILD_ENABLE_VOICE_AFE=y` adds a dedicated 16 kHz, signed-PCM16
+`CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE=y` adds a dedicated 16 kHz, signed-PCM16
 voice pipeline. It is intentionally separate from the 22.05 kHz diagnostic
 sampling path. On the current board, the ES7210 adapter provides interleaved
 microphone frames and the selected topology determines the ESP-SR input layout:
 
 | Selected input | ESP-SR layout | Meaning |
 | --- | --- | --- |
-| `QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL` | `MMNR` | microphone 0, microphone 1, unused slot, ES8311 speaker reference |
-| `QSEE_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO` | `MR` | one microphone and the ES8311 speaker reference |
+| `LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL` | `MMNR` | microphone 0, microphone 1, unused slot, ES8311 speaker reference |
+| `LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO` | `MR` | one microphone and the ES8311 speaker reference |
 
 Every 16 kHz PCM block accepted by the ES8311 output is copied into a bounded
 reference ring immediately before the corresponding speaker write. The AFE
@@ -443,8 +443,8 @@ accept a block, playback returns the real error and logs it instead of silently
 losing AEC alignment.
 
 The available profiles are
-`CONFIG_QSEE_BUILD_VOICE_AFE_SR_PROFILE_LOW_COST` and
-`CONFIG_QSEE_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF`. Both use the ESP-SR
+`CONFIG_LUNASHELL_BUILD_VOICE_AFE_SR_PROFILE_LOW_COST` and
+`CONFIG_LUNASHELL_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF`. Both use the ESP-SR
 speech-recognition AEC path. No `AEC_MODE_FD_*` full-duplex dialogue mode is
 compiled or selected yet. That leaves the future path open without enabling
 two-way conversational behavior prematurely.
@@ -469,8 +469,8 @@ to simulate a two-microphone board. A selected codec that is absent or fails
 must log and return its original error; startup reports the degraded component
 and continues with unrelated optional hardware.
 
-For example, `CONFIG_QSEE_BUILD_ENABLE_IMU=n` removes the motion pipeline,
-while `CONFIG_QSEE_BUILD_IMU_DRIVER_NONE=y` declares that the selected board
+For example, `CONFIG_LUNASHELL_BUILD_ENABLE_IMU=n` removes the motion pipeline,
+while `CONFIG_LUNASHELL_BUILD_IMU_DRIVER_NONE=y` declares that the selected board
 has no IMU. The default full profile selects the current Waveshare hardware.
 
 If a future board has another IMU, do not make the firmware probe several
@@ -480,11 +480,11 @@ selected driver fail with its real error if that expected hardware is absent.
 The existing shape is:
 
 ```text
-QSEE_BUILD_ENABLE_IMU = n             no IMU code
-QSEE_BUILD_ENABLE_IMU = y
-  QSEE_BUILD_IMU_DRIVER_QMI8658 = y   current Waveshare board
-  QSEE_BUILD_IMU_DRIVER_<NEW_CHIP> = y future board
-  QSEE_BUILD_IMU_DRIVER_NONE = y      explicit board with no IMU
+LUNASHELL_BUILD_ENABLE_IMU = n             no IMU code
+LUNASHELL_BUILD_ENABLE_IMU = y
+  LUNASHELL_BUILD_IMU_DRIVER_QMI8658 = y   current Waveshare board
+  LUNASHELL_BUILD_IMU_DRIVER_<NEW_CHIP> = y future board
+  LUNASHELL_BUILD_IMU_DRIVER_NONE = y      explicit board with no IMU
 ```
 
 The IMU selector is a mutually exclusive Kconfig `choice`, with the board
@@ -498,12 +498,12 @@ that normalized contract before it reaches the shared pipeline.
 
 Adding a new IMU therefore requires four contained changes: register only its
 driver dependency for the selected option; add a small driver adapter instead
-of including the chip API throughout `qsee_hardware.cpp`; put its I2C/SPI bus,
+of including the chip API throughout `LUNASHELL_hardware.cpp`; put its I2C/SPI bus,
 address, interrupt pin, axis orientation, and supported ranges in the board
 configuration; and validate both the selected build and the real board. The
 new adapter must be the only driver selected by its board profile. The current
 QMI8658 adapter is the reference implementation in
-`components/qsee_platform/qsee_hardware.cpp`.
+`components/LUNASHELL_platform/LUNASHELL_hardware.cpp`.
 
 Use this same split for display, touch, audio codecs, PMU, GNSS, and storage:
 one flag controls whether the subsystem exists, while a board selector chooses
@@ -553,7 +553,7 @@ single quotes. This prevents the invoking shell from expanding `$PID`, `$_`,
 and `$env:` before the inner PowerShell process receives them:
 
 ```powershell
-pwsh -NoProfile -Command '$selfPid = $PID; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $selfPid -and $_.CommandLine -match $env:QSEE_PORT }'
+pwsh -NoProfile -Command '$selfPid = $PID; Get-CimInstance Win32_Process | Where-Object { $_.ProcessId -ne $selfPid -and $_.CommandLine -match $env:LUNASHELL_PORT }'
 ```
 
 Avoid nested `-Command "..."` invocations containing PowerShell variables.
@@ -612,10 +612,10 @@ files, and other third-party code. Personal contact details are omitted from the
 | Path | Responsibility |
 | --- | --- |
 | `main/` | Ordered application startup |
-| `components/qsee_logger/` | Serial, bounded RAM, and SD logging |
-| `components/qsee_boot/` | Minimal boot screen and ES8311 playback |
-| `components/qsee_platform/` | Hardware drivers, radios, and snapshots |
-| `components/qsee_app/` | Native System Core app, lifecycle/data binding, and JSON screen package |
+| `components/LUNASHELL_logger/` | Serial, bounded RAM, and SD logging |
+| `components/LUNASHELL_boot/` | Minimal boot screen and ES8311 playback |
+| `components/LUNASHELL_platform/` | Hardware drivers, radios, and snapshots |
+| `components/LUNASHELL_app/` | Native System Core app, lifecycle/data binding, and JSON screen package |
 | `components/esp32_s3_touch_amoled_1_75/` | Local Waveshare BSP |
 | `third_party/esp-brookesia/` | Official pinned ESP-Brookesia monorepo submodule |
 | `assets/` | Canonical artwork and SFX inputs/derivatives |

@@ -1,0 +1,90 @@
+{
+    "type": "viewTemplate",
+    "id": "LUNASHELL_command_button",
+    "node": {
+        "type": "button",
+        "events": [],
+        "commonProps": {
+            "scrollable": false,
+            "pressLock": false,
+            "clickable": false,
+            "hidden": true
+        },
+        "bindings": {
+            "commonProps.hidden": "hidden",
+            "commonProps.clickable": "clickable",
+            "style.bgColor": "top",
+            "style.bgGradientColor": "bottom",
+            "style.borderColor": "border",
+            "style.shadowColor": "glow",
+            "stateStyles.pressed.bgColor": "pressed_top",
+            "stateStyles.pressed.bgGradientColor": "pressed_bottom",
+            "stateStyles.pressed.borderColor": "pressed_border",
+            "placement.x": "x",
+            "placement.y": "y",
+            "placement.width": "size",
+            "placement.height": "size",
+            "style.radius": "radius"
+        },
+        "style": {
+            "bgColor": "#247fd6",
+            "bgGradientColor": "#0a346b",
+            "bgGradientDirection": "vertical",
+            "borderColor": "#65c8ff",
+            "borderWidth": "1dp",
+            "radius": "27dp",
+            "shadowColor": "#0b55d9",
+            "shadowWidth": "0dp",
+            "shadowOffsetX": "0dp",
+            "shadowOffsetY": "0dp",
+            "padding": 0,
+            "opacity": 255
+        },
+        "stateStyles": {
+            "pressed": {
+                "bgColor": "#1765ad",
+                "bgGradientColor": "#082955",
+                "borderColor": "#9cddff",
+                "borderWidth": "1dp"
+            },
+            "disabled": {
+                "opacity": 0
+            }
+        },
+        "placement": {
+            "mode": "absolute",
+            "x": 0,
+            "y": 0,
+            "width": "54dp",
+            "height": "54dp"
+        },
+        "children": [
+            {
+                "type": "label",
+                "id": "icon",
+                "bindings": {
+                    "labelProps.text": "icon",
+                    "style.textColor": "color"
+                },
+                "commonProps": {
+                    "clickable": false,
+                    "scrollable": false
+                },
+                "labelProps": {
+                    "text": ""
+                },
+                "style": {
+                    "textColor": "#ffffff",
+                    "fontSize": "${constant.typography.control}",
+                    "textAlign": "center"
+                },
+                "placement": {
+                    "mode": "relative",
+                    "align": "center",
+                    "x": "0dp",
+                    "y": "0dp"
+                }
+            }
+        ]
+    }
+}

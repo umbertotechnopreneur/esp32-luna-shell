@@ -1,38 +1,38 @@
-set(qsee_main_srcs)
-set(qsee_main_requires
+set(LUNASHELL_main_srcs)
+set(LUNASHELL_main_requires
     littlefs
-    qsee_logger
-    qsee_platform
+    LUNASHELL_logger
+    LUNASHELL_platform
     fatfs
 )
 
-if(CONFIG_QSEE_BUILD_ENABLE_UI)
-    list(APPEND qsee_main_srcs "main.cpp")
-    list(APPEND qsee_main_requires
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
+    list(APPEND LUNASHELL_main_srcs "main.cpp")
+    list(APPEND LUNASHELL_main_requires
         brookesia_hal_adaptor
         brookesia_gui_lvgl
         brookesia_lib_utils
         brookesia_system_core
         esp32_s3_touch_amoled_1_75
-        qsee_app
+        LUNASHELL_app
     )
-    if(CONFIG_QSEE_BUILD_ENABLE_BOOT_UI OR CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO)
-        list(APPEND qsee_main_requires qsee_boot)
+    if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI OR CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
+        list(APPEND LUNASHELL_main_requires LUNASHELL_boot)
     endif()
 else()
-    list(APPEND qsee_main_srcs "main_headless.cpp")
+    list(APPEND LUNASHELL_main_srcs "main_headless.cpp")
 endif()
 
 idf_component_register(
-    SRCS ${qsee_main_srcs}
+    SRCS ${LUNASHELL_main_srcs}
     INCLUDE_DIRS "."
-    REQUIRES ${qsee_main_requires}
+    REQUIRES ${LUNASHELL_main_requires}
 )
 
 # ESP-IDF discovers the component graph before Kconfig values are available.
 # Attach profile-specific public dependencies in the normal evaluation pass so
 # the full build receives their include and link interfaces.
-if(CONFIG_QSEE_BUILD_ENABLE_UI)
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     idf_component_optional_requires(
         PUBLIC
         brookesia_hal_adaptor
@@ -40,10 +40,10 @@ if(CONFIG_QSEE_BUILD_ENABLE_UI)
         brookesia_lib_utils
         brookesia_system_core
         esp32_s3_touch_amoled_1_75
-        qsee_app
+        LUNASHELL_app
     )
-    if(CONFIG_QSEE_BUILD_ENABLE_BOOT_UI OR CONFIG_QSEE_BUILD_ENABLE_BOOT_AUDIO)
-        idf_component_optional_requires(PUBLIC qsee_boot)
+    if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI OR CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
+        idf_component_optional_requires(PUBLIC LUNASHELL_boot)
     endif()
 endif()
 
@@ -61,10 +61,10 @@ get_filename_component(
     ABSOLUTE
 )
 
-# System Core needs only the QSee app package. Remove stale System Super
+# System Core needs only the LUNASHELL app package. Remove stale System Super
 # resources left by older configurations before every LittleFS image.
 file(REMOVE_RECURSE "${brookesia_runtime_mount_root}/system")
-add_custom_target(qsee_remove_legacy_super_stage ALL
+add_custom_target(LUNASHELL_remove_legacy_super_stage ALL
     COMMAND
         ${CMAKE_COMMAND} -E remove_directory
         "${brookesia_runtime_mount_root}/system"
@@ -77,6 +77,6 @@ littlefs_create_partition_image(
     ../littlefs
     FLASH_IN_PROJECT
     DEPENDS
-        qsee_remove_legacy_super_stage
+        LUNASHELL_remove_legacy_super_stage
         ${brookesia_runtime_app_stage_targets}
 )

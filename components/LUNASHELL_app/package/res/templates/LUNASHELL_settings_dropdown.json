@@ -1,0 +1,53 @@
+{
+    "type": "viewTemplate",
+    "id": "LUNASHELL_settings_dropdown",
+    "node": {
+        "type": "dropdown",
+        "events": [],
+        "bindings": {
+            "commonProps.disabled": "disabled",
+            "dropdownProps.selectedIndex": "selectedIndex"
+        },
+        "commonProps": {
+            "disabled": false
+        },
+        "dropdownProps": {
+            "options": [
+                "10 seconds",
+                "30 seconds",
+                "1 minute",
+                "2 minutes",
+                "5 minutes",
+                "10 minutes",
+                "Never"
+            ],
+            "selectedIndex": 0
+        },
+        "style": {
+            "bgColor": "#0d2836",
+            "borderColor": "#2c6077",
+            "borderWidth": "1dp",
+            "radius": "10dp",
+            "textColor": "#f3f7fa",
+            "fontSize": "${constant.typography.detail}",
+            "padding": "9dp"
+        },
+        "stateStyles": {
+            "focused": {
+                "borderColor": "#20dfc1",
+                "borderWidth": "1dp"
+            }
+        },
+        "partStyles": {
+            "selected": {
+                "bgColor": "#1164ad",
+                "textColor": "#f3f7fa",
+                "radius": "6dp"
+            }
+        },
+        "placement": {
+            "width": "282dp",
+            "height": "44dp"
+        }
+    }
+}

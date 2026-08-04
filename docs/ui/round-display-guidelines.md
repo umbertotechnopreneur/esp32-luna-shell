@@ -1,4 +1,4 @@
-# QSee.ai round display guidelines
+# LUNASHELL.ai round display guidelines
 
 ## Device profile
 
@@ -6,7 +6,7 @@ The target is a circular 466 x 466 pixel AMOLED display. Its center is
 `(233, 233)` and its nominal radius is 233 pixels.
 
 The largest mathematical square inside that circle is about 329.5 pixels per
-side. QSee.ai uses a deliberately smaller 320 x 320 pixel safe-content square,
+side. LUNASHELL.ai uses a deliberately smaller 320 x 320 pixel safe-content square,
 positioned at `(73, 73)`. This leaves about 6.7 pixels of radial clearance at
 each corner.
 
@@ -94,15 +94,15 @@ Navigation must remain consistent across flows:
 
 ## Boot screen
 
-The QSee.ai boot screen is the first device-visible frame. It uses the supplied
-QSee.ai artwork without reinterpreting the logo, keeps the complete mark inside
+The LUNASHELL.ai boot screen is the first device-visible frame. It uses the supplied
+LUNASHELL.ai artwork without reinterpreting the logo, keeps the complete mark inside
 the safe square, and plays one short boot SFX.
 
 Production files:
 
-- `assets/branding/qsee/generated/qsee-boot-466x466.png`
-- `assets/branding/qsee/generated/qsee-boot-466x466.rgb565le.bin`
-- `assets/sfx/generated/qsee-boot.wav`
+- `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png`
+- `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin`
+- `assets/sfx/generated/LUNASHELL-boot.wav`
 
 The PNG is the canonical visual derivative. The raw file contains exactly
 466 x 466 little-endian RGB565 pixels with no header. It is suitable for direct
@@ -120,15 +120,15 @@ strip survives around the application surface.
 ## ESP-Brookesia integration boundary
 
 System Super is the device shell and service layer. System Core owns the
-QSee.ai native application lifecycle, while GUI LVGL loads and renders
-`components/qsee_app/package/res/root.json` as the resident background, chrome,
+LUNASHELL.ai native application lifecycle, while GUI LVGL loads and renders
+`components/LUNASHELL_app/package/res/root.json` as the resident background, chrome,
 Welcome, and empty content target. Non-Welcome content is loaded from one
 generated `res/screen_*.json` document at a time and unloaded when navigation
 leaves it. LVGL remains an implementation detail beneath that JSON interface.
 
 All current content screens center a 320 x 320 root surface on the 466 x 466
 display. Screen structure, layout, styles, and actions belong in the editable
-`components/qsee_app/gui/root.json`; the build generator splits that source
+`components/LUNASHELL_app/gui/root.json`; the build generator splits that source
 into the bootstrap and lazy runtime documents. C++ lifecycle code selects and
 mounts those documents and may bind text and progress values through the GUI
 interface, but it must not construct parallel screen-specific widgets.
@@ -145,7 +145,7 @@ System Super services so every screen receives the same behavior.
 Internal `/littlefs` stores the staged UI resources and the Brookesia HAL
 adaptor provides its LittleFS/NVS storage interfaces without automatic
 formatting. It is not the removable SD card, is not displayed as SD capacity,
-and must never be substituted for `/sdcard`. QSee alone owns the removable SD
+and must never be substituted for `/sdcard`. LUNASHELL alone owns the removable SD
 lifecycle and its card/transport-unconfirmed, ready, and format-required
 states. The board has no card-detect pin, so probe failure is never rendered as
 physical absence. Formatting requires exact `FR_NO_FILESYSTEM`, an explicit
