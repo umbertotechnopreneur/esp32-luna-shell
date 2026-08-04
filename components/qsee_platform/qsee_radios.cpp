@@ -6,6 +6,7 @@
 
 #include "qsee_platform.h"
 #include "qsee_device_snapshot.hpp"
+#include "qsee_radio_memory.hpp"
 
 #include <cstdlib>
 #include <mutex>
@@ -997,6 +998,26 @@ esp_err_t qsee_radios_init(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
 
+#if CONFIG_BT_CONTROLLER_ENABLED
+    qsee::radio_memory::BleControllerDmaReservation ble_controller_dma;
+    const esp_err_t reservation_error =
+        qsee::radio_memory::reserveBleControllerDma(ble_controller_dma);
+    if (reservation_error != ESP_OK) {
+        qsee::DeviceSnapshotService::instance().reportBle(
+            false,
+            reservation_error,
+            false,
+            false,
+            0xFFFF,
+            0,
+            0,
+            nullptr,
+            true
+        );
+        return reservation_error;
+    }
+#endif
+
     log_radio_heap_checkpoint("before-Wi-Fi");
     const esp_err_t wifi = qsee_wifi_init();
     log_radio_heap_checkpoint(
@@ -1044,7 +1065,16 @@ esp_err_t qsee_radios_init(void)
                 return ble;
             }
         }
-        ble = qsee_ble_init();
+#if CONFIG_BT_CONTROLLER_ENABLED
+        qsee::radio_memory::releaseBleControllerDma(
+            ble_controller_dma,
+            "BLE telemetry"
+        );
+        ble = qsee::radio_memory::validateBleControllerDma("BLE telemetry");
+#endif
+        if (ble == ESP_OK) {
+            ble = qsee_ble_init();
+        }
     } else {
 #if CONFIG_BT_NIMBLE_ENABLED
         if (ble_telemetry_owns_radio()) {
@@ -1057,6 +1087,14 @@ esp_err_t qsee_radios_init(void)
         }
 #endif
         ble = qsee_provisioning_init();
+        if (ble == ESP_OK) {
+#if CONFIG_BT_CONTROLLER_ENABLED
+            qsee::radio_memory::releaseBleControllerDma(
+                ble_controller_dma,
+                "BLE provisioning"
+            );
+#endif
+        }
         if (ble == ESP_OK) {
             ble = qsee_provisioning_start();
         }
@@ -1072,6 +1110,12 @@ esp_err_t qsee_radios_init(void)
             true
         );
     }
+#if CONFIG_BT_CONTROLLER_ENABLED
+    qsee::radio_memory::releaseBleControllerDma(
+        ble_controller_dma,
+        "radio startup cleanup"
+    );
+#endif
     log_radio_heap_checkpoint(
         ble == ESP_OK ? "after-BLE" : "after-BLE-failure"
     );

@@ -1,6 +1,7 @@
 #include "qsee_provisioning.hpp"
 #include "qsee_device_snapshot.hpp"
 #include "qsee_platform.h"
+#include "qsee_radio_memory.hpp"
 
 #include <mutex>
 #include <cstdio>
@@ -195,11 +196,15 @@ esp_err_t ProvisioningService::start()
         _state = ProvisioningState::Starting;
     }
 
-    const esp_err_t error = network_prov_mgr_start_provisioning(
-        NETWORK_PROV_SECURITY_1,
-        nullptr,
-        service_name,
-        nullptr);
+    esp_err_t error =
+        qsee::radio_memory::validateBleControllerDma("BLE provisioning");
+    if (error == ESP_OK) {
+        error = network_prov_mgr_start_provisioning(
+            NETWORK_PROV_SECURITY_1,
+            nullptr,
+            service_name,
+            nullptr);
+    }
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _operation = Operation::None;

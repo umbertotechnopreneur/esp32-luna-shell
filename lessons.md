@@ -147,6 +147,26 @@ runtime behavior still requires authorized hardware validation.
   transient low-memory slot from the largest current DMA-capable block, keep
   explicit allocator headroom, and split the same logical flush into shorter
   strips instead of letting the renderer enter an allocation-failure loop.
+- On ESP32-S3 controller build 51d9dfd, BLE initialization requests one
+  contiguous 0x7800-byte internal-DMA exchange-memory block and asserts inside
+  the binary controller when it cannot be allocated. Reserve that block before
+  starting Wi-Fi, release it immediately before the BLE owner starts, and
+  fail the radio action with `ESP_ERR_NO_MEM` if the post-Wi-Fi preflight no
+  longer proves the block and allocator headroom are available.
+- `CONFIG_ESP_PHY_MAC_BB_PD` makes the same controller allocate 1100 bytes
+  with `MALLOC_CAP_RETENTION` before its exchange memory. This board has no
+  allocatable retention block, so that optional MAC/BB power-down mode must
+  stay disabled even though controller modem sleep remains enabled with the
+  main-XTAL clock.
+- On ESP32-S3, `CONFIG_BT_CTRL_BLE_MAX_ACT` counts advertising and connections
+  as separate controller activities. A connectable provisioning service needs
+  two slots: one for its advertising instance and one for the peripheral
+  connection. A single slot lets the controller start but rejects advertising
+  with HCI `BLE_ERR_MEM_CAPACITY`.
+- With ESP-IDF 6.0.2 on this ESP32-S3, do not enable
+  `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION`. Its USB Serial/JTAG SOF tick hook can
+  acquire or release an ESP-PM lock while a flash operation has disabled cache,
+  causing a repeatable `Cache error` reboot even when both radios are off.
 - One LVGL flush may be split into several internal-DMA panel transfers, but it
   still has exactly one logical completion. Intermediate color-transfer ISRs
   must not release LVGL's draw buffer; signal flush-ready only after the

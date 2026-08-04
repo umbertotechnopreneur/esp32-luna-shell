@@ -34,9 +34,10 @@ CONFIG_PM_ENABLE=y
 CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 CONFIG_FREERTOS_IDLE_TIME_BEFORE_SLEEP=3
 CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
-# ESP32-S3 cannot retain USB Serial/JTAG through Light-sleep. Let the official
-# connection monitor hold ESP_PM_NO_LIGHT_SLEEP only while a USB host is present.
-CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y
+# Keep the USB Serial/JTAG connection monitor out of the PM-lock path. On this
+# ESP-IDF 6.0.2 target its tick hook can acquire/release that lock while a flash
+# operation has disabled cache, causing a repeatable Cache error reboot.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n
 # CPU-domain retention consumes scarce internal RAM on this PSRAM-heavy UI
 # image. Keep the core retained for the first measured power profile.
 # CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP is not set
@@ -125,10 +126,16 @@ CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
 CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 CONFIG_BT_NIMBLE_MEM_ALLOC_MODE_EXTERNAL=y
-# Provisioning and telemetry each use one peripheral connection; no scan or
-# concurrent advertising activity is used. ESP-IDF allocates about 828 B of
-# internal DRAM per controller activity, so keep one slot instead of two.
-CONFIG_BT_CTRL_BLE_MAX_ACT=1
+# The ESP32-S3 controller counts advertising and connections as separate BLE
+# activities. Provisioning needs one advertising instance plus one peripheral
+# connection, so two slots are the functional minimum (about 828 B per slot).
+CONFIG_BT_CTRL_BLE_MAX_ACT=2
+
+# This product never scans and does not expose controller direct-test mode.
+# Exclude both features so their controller state cannot consume scarce
+# internal DMA memory needed by the advertising/peripheral path.
+CONFIG_BT_CTRL_DTM_ENABLE=n
+CONFIG_BT_CTRL_BLE_SCAN=n
 
 # The firmware exposes only GAP, GATT, and Device Information. Keep the
 # optional NimBLE profile services out of the image and their static tables.
@@ -153,21 +160,27 @@ CONFIG_BT_CTRL_MODEM_SLEEP=y
 CONFIG_BT_CTRL_MODEM_SLEEP_MODE_1=y
 CONFIG_BT_CTRL_LPCLK_SEL_MAIN_XTAL=y
 CONFIG_BT_CTRL_MAIN_XTAL_PU_DURING_LIGHT_SLEEP=y
-CONFIG_ESP_PHY_MAC_BB_PD=y
+# ESP32-S3 BLE controller build 51d9dfd requests 1100 bytes of retention RAM
+# when MAC/BB power-down is enabled. This board exposes no allocatable block
+# with MALLOC_CAP_RETENTION, so keep controller modem sleep but leave MAC/BB
+# retention power-down disabled.
+CONFIG_ESP_PHY_MAC_BB_PD=n
 
 # IDF 6 moves provisioning to the external network_provisioning component and
 # disables protocomm Security 1 by default. Keep the existing BLE protocol.
 CONFIG_NETWORK_PROV_NETWORK_TYPE_WIFI=y
 CONFIG_ESP_PROTOCOMM_SUPPORT_SECURITY_VERSION_1=y
 
-# Keep enough DMA-capable internal RAM for the round AMOLED while Wi-Fi is idle.
-CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=6
+# Keep the Wi-Fi DMA footprint bounded so the BLE controller can still acquire
+# its required contiguous 0x7800-byte exchange-memory block. Four RX/TX buffers
+# are sufficient for the provisioning and telemetry traffic on this product.
+CONFIG_ESP_WIFI_STATIC_RX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_DYNAMIC_RX_BUFFER_NUM=12
 CONFIG_ESP_WIFI_STATIC_TX_BUFFER=y
-CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=8
+CONFIG_ESP_WIFI_STATIC_TX_BUFFER_NUM=4
 CONFIG_ESP_WIFI_CACHE_TX_BUFFER_NUM=8
 CONFIG_ESP_WIFI_RX_MGMT_BUF_NUM_DEF=3
-CONFIG_ESP_WIFI_MGMT_SBUF_NUM=8
+CONFIG_ESP_WIFI_MGMT_SBUF_NUM=6
 
 CONFIG_BSP_SD_MOUNT_POINT="/sdcard"
 CONFIG_FATFS_LFN_HEAP=y
@@ -176,7 +189,7 @@ CONFIG_FATFS_LFN_HEAP=y
 # CONFIG_QSEE_BUILD_ENABLE_DISTANCE is not set
 
 # Keep the receive block-ack window within the configured Wi-Fi RX buffers.
-CONFIG_ESP_WIFI_RX_BA_WIN=6
+CONFIG_ESP_WIFI_RX_BA_WIN=4
 
 # Boost.Asio in the Brookesia runtime compiles IPv6 socket types even when the
 # product currently uses IPv4 flows.

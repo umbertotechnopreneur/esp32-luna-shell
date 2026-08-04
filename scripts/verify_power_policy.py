@@ -1961,10 +1961,10 @@ def verify_source_contracts() -> None:
         "CONFIG_PM_ENABLE=y",
         "CONFIG_FREERTOS_USE_TICKLESS_IDLE=y",
         "CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y",
-        "CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=y",
+        "CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n",
         "# CONFIG_PM_POWER_DOWN_CPU_IN_LIGHT_SLEEP is not set",
         "CONFIG_BT_CTRL_MODEM_SLEEP=y",
-        "CONFIG_ESP_PHY_MAC_BB_PD=y",
+        "CONFIG_ESP_PHY_MAC_BB_PD=n",
     ):
         require_contains(sdkconfig_defaults, fragment, "ESP-IDF power defaults")
     require_regex(
