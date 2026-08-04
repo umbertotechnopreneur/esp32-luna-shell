@@ -2159,7 +2159,7 @@ std::expected<void, std::string> App::configure_chrome(
             ActionRole::Warning,
             true,
         },
-        {"\xef\x8f\x85", "LUNASHELL.open.gps", ActionRole::Neutral, false},
+        {"\xef\x84\xa4", "LUNASHELL.open.gps", ActionRole::Neutral, false},
         {"\xef\x83\x87", "LUNASHELL.open.storage", ActionRole::Neutral, false},
     }};
     const DeviceSnapshot chrome_snapshot =

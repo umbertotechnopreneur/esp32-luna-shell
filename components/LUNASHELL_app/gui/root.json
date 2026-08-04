@@ -2805,9 +2805,28 @@
                     "children": [
                         {
                             "type": "label",
+                            "id": "gps_icon",
+                            "labelProps": {
+                                "text": "\uf124"
+                            },
+                            "style": {
+                                "textColor": "#20dfc1",
+                                "fontSize": "${constant.typography.control}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "6dp",
+                                "width": "34dp",
+                                "height": "34dp"
+                            }
+                        },
+                        {
+                            "type": "label",
                             "id": "title",
                             "labelProps": {
-                                "text": "GPS LIVE"
+                                "text": "GNSS / GPS"
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
@@ -2816,9 +2835,9 @@
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "14dp",
+                                "x": "45dp",
                                 "y": "12dp",
-                                "width": "292dp",
+                                "width": "263dp",
                                 "height": "28dp"
                             }
                         },
@@ -2826,7 +2845,7 @@
                             "type": "label",
                             "id": "subtitle",
                             "labelProps": {
-                                "text": "LC76G GNSS | CANONICAL DEVICE SNAPSHOT"
+                                "text": "LC76G RECEIVER | SNAPSHOT-BOUND DATA"
                             },
                             "style": {
                                 "textColor": "#8aa7b6",
@@ -2835,9 +2854,9 @@
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "8dp",
+                                "x": "42dp",
                                 "y": "42dp",
-                                "width": "304dp",
+                                "width": "270dp",
                                 "height": "14dp"
                             }
                         },
@@ -3110,6 +3129,37 @@
                             ]
                         },
                         {
+                            "type": "container",
+                            "id": "signal_summary",
+                            "bindings": {
+                                "style.borderColor": "accent",
+                                "style.shadowColor": "accent"
+                            },
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#071622",
+                                "bgOpacity": 210,
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "10dp",
+                                "shadowColor": "#063f52",
+                                "shadowWidth": "5dp",
+                                "shadowOffsetX": "0dp",
+                                "shadowOffsetY": "0dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "190dp",
+                                "width": "304dp",
+                                "height": "52dp"
+                            }
+                        },
+                        {
                             "type": "label",
                             "id": "satellites_title",
                             "labelProps": {
@@ -3293,6 +3343,37 @@
                                 "y": "234dp",
                                 "width": "304dp",
                                 "height": "6dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "telemetry_summary",
+                            "bindings": {
+                                "style.borderColor": "accent",
+                                "style.shadowColor": "accent"
+                            },
+                            "commonProps": {
+                                "clickable": false,
+                                "scrollable": false
+                            },
+                            "style": {
+                                "bgColor": "#071622",
+                                "bgOpacity": 190,
+                                "borderColor": "#2c6077",
+                                "borderWidth": "1dp",
+                                "radius": "10dp",
+                                "shadowColor": "#063f52",
+                                "shadowWidth": "5dp",
+                                "shadowOffsetX": "0dp",
+                                "shadowOffsetY": "0dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "8dp",
+                                "y": "246dp",
+                                "width": "304dp",
+                                "height": "63dp"
                             }
                         },
                         {
