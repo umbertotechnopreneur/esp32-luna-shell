@@ -281,6 +281,25 @@ runtime behavior still requires authorized hardware validation.
   monitor from restoring high-rate sampling. Preserve requested settings,
   synchronize the gate through the refresh mutex, and require a fresh active
   orientation sample before replaying a pending panel rotation.
+- The configured `Screen sleep after display dim` timeout is a user-facing
+  promise of Device Standby, not merely an AMOLED-off state. When it expires,
+  enter the same transactional standby path as PKEY so every producer is
+  suspended; reset the qualified-motion baseline first to prevent in-progress
+  movement from immediately waking the device.
+- The App's power-state timer is the only current Power-to-App bridge. Keep it
+  at 200 ms while `EnteringStandby` waits for GUI quiescence and when waking;
+  only after `Standby` plus `Quiesced` may it fall to the one-second PKEY
+  cadence. Do not stop it without adding a serialized App-domain notification
+  path, and replace its timer by starting the new one before stopping the old.
+- The LC76G I2C bridge needs at least 10 ms after a successful 0x54 read before
+  the next 0x50 control phase. Without it, `0xAA531000` is NACKed before
+  PAIR003 reaches 0x58, correctly aborting transactional standby. Preserve this
+  phase boundary centrally in `gps_exchange()` so all consecutive reads/writes
+  obey it.
+- The first physical Device Standby trial at the ESP32-S3 40 MHz XTAL floor was
+  inconclusive: LC76G I2C phase timing first blocked standby and a later PKEY
+  wake did not return. Keep the validated 80 MHz floor until repeated baseline
+  PKEY cycles pass after the LC76G fix, then A/B test CPU frequency separately.
 
 ## Snapshot-owned Fullscreen and adaptive content
 

@@ -437,6 +437,10 @@ private:
         esp_brookesia::system::core::AppContext &context,
         DisplayIdleStage stage
     );
+    std::expected<void, std::string> sync_power_state_timer_period(
+        esp_brookesia::system::core::AppContext &context,
+        uint32_t desired_period_ms
+    );
     std::expected<void, std::string> note_activity(
         esp_brookesia::system::core::AppContext &context
     );
@@ -502,6 +506,7 @@ private:
     esp_brookesia::system::core::TimerId power_state_sync_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
     uint32_t refresh_period_ms_ = 0;
+    uint32_t power_state_sync_period_ms_ = 0;
     StandbyUiState standby_ui_state_ = StandbyUiState::Active;
     uint32_t standby_ui_generation_ = 0;
     uint32_t standby_ui_transition_sequence_ = 0;

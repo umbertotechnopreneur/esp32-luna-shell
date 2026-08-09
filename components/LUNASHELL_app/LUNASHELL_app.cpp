@@ -56,6 +56,9 @@ constexpr uint32_t kActiveRefreshPeriodMs = 1000;
 constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
 constexpr uint32_t kDimmedRefreshPeriodMs = 5000;
 constexpr uint32_t kPerformanceRefreshPeriodMs = 5000;
+constexpr uint32_t kActivePowerStateSyncPeriodMs =
+    LUNASHELL::AdaptiveChromeController::kPolicyPeriodMs;
+constexpr uint32_t kStandbyPowerStateSyncPeriodMs = 1000;
 constexpr int64_t kTouchRefreshQuietPeriodUs = 750000;
 constexpr int32_t kDisplaySizeDp = 466;
 constexpr int32_t kChromeInsetDp = 73;
@@ -1515,6 +1518,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     refresh_period_ms_ = 0;
     power_state_sync_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
+    power_state_sync_period_ms_ = 0;
     log_screen_document_heap("bootstrap_ready", Screen::Welcome, 0U);
     if (auto result = adaptive_chrome_.begin(); !result) {
         context_ = nullptr;
@@ -1587,7 +1591,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     }
     auto state_sync_timer_result = context.timer().start_periodic(
         kPowerStateSyncTimer,
-        AdaptiveChromeController::kPolicyPeriodMs
+        kActivePowerStateSyncPeriodMs
     );
     if (!state_sync_timer_result) {
         if (!context.timer().stop(refresh_timer_)) {
@@ -1608,6 +1612,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         );
     }
     power_state_sync_timer_ = *state_sync_timer_result;
+    power_state_sync_period_ms_ = kActivePowerStateSyncPeriodMs;
 
     auto refresh_result = refresh(context);
     if (!refresh_result) {
@@ -1621,6 +1626,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         }
         power_state_sync_timer_ =
             esp_brookesia::system::core::INVALID_TIMER_ID;
+        power_state_sync_period_ms_ = 0;
         (void)LUNASHELL_hardware_stop_full_snapshot_monitor();
         (void)adaptive_chrome_.shutdown(context.gui());
         screen_document_connections_.clear();
@@ -1897,6 +1903,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         }
         power_state_sync_timer_ =
             esp_brookesia::system::core::INVALID_TIMER_ID;
+        power_state_sync_period_ms_ = 0;
     }
     if (search_keyboard_ != esp_brookesia::system::core::INVALID_KEYBOARD_REQUEST_ID) {
         auto hide_result = context.system_service().hide_keyboard(search_keyboard_);
@@ -3666,9 +3673,37 @@ std::expected<void, std::string> App::on_timer(
                     );
                 }
             }
+            if (snapshot.power.state == DeviceOperatingState::Standby &&
+                standby_ui_state_ == StandbyUiState::Quiesced) {
+                if (auto result = sync_power_state_timer_period(
+                        context,
+                        kStandbyPowerStateSyncPeriodMs
+                    ); !result) {
+                    // This optimization is optional: preserving the current
+                    // timer keeps the Power-to-App wake bridge alive.
+                    ESP_LOGE(
+                        kTag,
+                        "Failed to slow power-state UI synchronization in "
+                        "standby: %s",
+                        result.error().c_str()
+                    );
+                }
+            }
             return {};
         }
 
+        if (auto result = sync_power_state_timer_period(
+                context,
+                kActivePowerStateSyncPeriodMs
+            ); !result) {
+            // Continue the wake on the current timer. A failed replacement
+            // must not leave the input and GUI quiesced after hardware wake.
+            ESP_LOGE(
+                kTag,
+                "Failed to restore active power-state UI synchronization: %s",
+                result.error().c_str()
+            );
+        }
         const bool resume_from_standby =
             standby_ui_state_ != StandbyUiState::Active;
         if (resume_from_standby) {
@@ -3734,6 +3769,68 @@ std::expected<void, std::string> App::on_timer(
         }
         return refresh(context);
     }
+    return {};
+}
+
+// Keep the Power-to-App bridge responsive through transitions, then reduce it
+// only after both the power transaction and app-owned quiescence are complete.
+std::expected<void, std::string> App::sync_power_state_timer_period(
+    AppContext &context,
+    uint32_t desired_period_ms
+)
+{
+    if (desired_period_ms == 0U) {
+        return std::unexpected(
+            "Power-state UI synchronization period must be positive"
+        );
+    }
+    if (power_state_sync_timer_ ==
+        esp_brookesia::system::core::INVALID_TIMER_ID) {
+        return std::unexpected("Power-state UI synchronization timer is not running");
+    }
+    if (desired_period_ms == power_state_sync_period_ms_) {
+        return {};
+    }
+
+    // System Core permits concurrent timer identities. Start first so a
+    // scheduler allocation failure cannot remove the existing wake bridge.
+    auto replacement_timer = context.timer().start_periodic(
+        kPowerStateSyncTimer,
+        static_cast<int>(desired_period_ms)
+    );
+    if (!replacement_timer) {
+        return std::unexpected(
+            "Failed to start power-state UI synchronization timer at " +
+            std::to_string(desired_period_ms) + " ms: " +
+            replacement_timer.error()
+        );
+    }
+
+    const auto previous_timer = power_state_sync_timer_;
+    if (!context.timer().stop(previous_timer)) {
+        if (!context.timer().stop(*replacement_timer)) {
+            ESP_LOGE(
+                kTag,
+                "Failed to stop replacement power-state UI synchronization "
+                "timer after preserving the previous timer"
+            );
+            return std::unexpected(
+                "Failed to stop previous or replacement power-state UI "
+                "synchronization timer"
+            );
+        }
+        return std::unexpected(
+            "Failed to stop previous power-state UI synchronization timer"
+        );
+    }
+
+    power_state_sync_timer_ = *replacement_timer;
+    power_state_sync_period_ms_ = desired_period_ms;
+    ESP_LOGI(
+        kTag,
+        "Power-state UI synchronization period: %lu ms",
+        static_cast<unsigned long>(desired_period_ms)
+    );
     return {};
 }
 
@@ -4920,6 +5017,9 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
             break;
         case DeviceStateReason::ImuMotion:
             reason = "IMU MOTION";
+            break;
+        case DeviceStateReason::Inactivity:
+            reason = "INACTIVITY";
             break;
         }
         std::snprintf(

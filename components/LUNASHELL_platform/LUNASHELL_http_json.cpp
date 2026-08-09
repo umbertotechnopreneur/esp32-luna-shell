@@ -437,6 +437,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
         return "touch";
     case LUNASHELL::DeviceStateReason::ImuMotion:
         return "imu-motion";
+    case LUNASHELL::DeviceStateReason::Inactivity:
+        return "inactivity";
     }
     return "unknown";
 }

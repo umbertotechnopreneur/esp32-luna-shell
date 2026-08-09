@@ -22,6 +22,14 @@ HARDWARE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardwa
 PLATFORM_HEADER = (
     ROOT / "components" / "LUNASHELL_platform" / "include" / "LUNASHELL_platform.h"
 )
+DEVICE_SNAPSHOT_HEADER = (
+    ROOT
+    / "components"
+    / "LUNASHELL_platform"
+    / "include"
+    / "LUNASHELL_device_snapshot.hpp"
+)
+HTTP_JSON_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_http_json.cpp"
 DISPLAY_SOURCE = (
     ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_display_settings.cpp"
 )
@@ -212,6 +220,7 @@ class IdleState:
     command_visible: bool
     status_visible: bool
     display: DisplayStage
+    standby: bool = False
 
 
 @dataclass
@@ -236,21 +245,26 @@ class InactivityTimeline:
         def expired(timeout_ms: int) -> bool:
             return timeout_ms > 0 and elapsed_ms >= timeout_ms
 
-        display = DisplayStage.ACTIVE
-        if expired(self.policy.dim_timeout_ms):
-            display = DisplayStage.DIMMED
-            if (
-                self.policy.screen_sleep_delay_ms > 0
-                and elapsed_ms
-                >= self.policy.dim_timeout_ms
-                + self.policy.screen_sleep_delay_ms
-            ):
-                display = DisplayStage.OFF
+        standby_due = (
+            expired(self.policy.dim_timeout_ms)
+            and self.policy.screen_sleep_delay_ms > 0
+            and elapsed_ms
+            >= self.policy.dim_timeout_ms
+            + self.policy.screen_sleep_delay_ms
+        )
+        display = (
+            DisplayStage.OFF
+            if standby_due
+            else DisplayStage.DIMMED
+            if expired(self.policy.dim_timeout_ms)
+            else DisplayStage.ACTIVE
+        )
 
         return IdleState(
             command_visible=not expired(self.policy.command_timeout_ms),
             status_visible=not expired(self.policy.status_timeout_ms),
             display=display,
+            standby=standby_due,
         )
 
 
@@ -556,7 +570,7 @@ def verify_inactivity_timeline() -> None:
         29_999: IdleState(False, False, DisplayStage.ACTIVE),
         30_000: IdleState(False, False, DisplayStage.DIMMED),
         69_999: IdleState(False, False, DisplayStage.DIMMED),
-        70_000: IdleState(False, False, DisplayStage.OFF),
+        70_000: IdleState(False, False, DisplayStage.OFF, True),
     }
     actual = {at_ms: timeline.state_at(at_ms) for at_ms in expected}
     require(actual == expected, f"inactivity boundary mismatch: {actual!r}")
@@ -565,7 +579,7 @@ def verify_inactivity_timeline() -> None:
     require(
         timeline.state_at(70_000)
         == IdleState(True, True, DisplayStage.ACTIVE),
-        "activity must synchronously restore chrome and active display",
+        "successful wake/activity must synchronously restore active state",
     )
     require(
         timeline.state_at(80_000)
@@ -584,7 +598,7 @@ def verify_inactivity_timeline() -> None:
     )
     require(
         no_panel_off.state_at(10_000) == IdleState(True, True, DisplayStage.DIMMED),
-        "zero sleep delay must disable OFF without disabling DIMMED",
+        "zero sleep delay must disable standby without disabling DIMMED",
     )
 
 
@@ -949,6 +963,8 @@ def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
     hardware = read(HARDWARE_SOURCE)
     header = read(PLATFORM_HEADER)
+    device_snapshot = read(DEVICE_SNAPSHOT_HEADER)
+    http_json = read(HTTP_JSON_SOURCE)
     display = read(DISPLAY_SOURCE)
     bsp_display = read(BSP_DISPLAY_SOURCE)
     bsp_display_cmake = read(BSP_DISPLAY_CMAKE)
@@ -1186,11 +1202,80 @@ def verify_source_contracts() -> None:
         "s_status_timeout_seconds.load(",
         "s_dim_timeout_seconds.load(",
         "s_screen_sleep_delay_seconds.load(",
-        "dim_seconds + screen_sleep_delay",
+        "const bool standby_due",
+        "static_cast<int64_t>(screen_sleep_delay)",
         "DisplayPowerMode::Dimmed",
-        "DisplayPowerMode::DisplayOff",
+        "begin_motion_grace(standby_requested_at_us)",
+        "DeviceStateReason::Inactivity",
+        "return set_standby(",
     ):
         require_contains(fragment=fragment, text=idle_policy, source="idle policy")
+    require(
+        "DisplayPowerMode::DisplayOff" not in idle_policy,
+        "the inactivity timeout must enter the full standby transaction, not panel-off alone",
+    )
+    require_contains(
+        device_snapshot,
+        "Inactivity,",
+        "device-state reason inventory",
+    )
+    require_contains(
+        http_json,
+        'return "inactivity";',
+        "HTTP power-reason serialization",
+    )
+    require_contains(
+        app,
+        'reason = "INACTIVITY";',
+        "battery UI power-reason rendering",
+    )
+
+    app_timer = function_text(
+        app,
+        "std::expected<void, std::string> App::on_timer(",
+        "LUNASHELL_app.cpp",
+    )
+    for fragment in (
+        "snapshot.power.state == DeviceOperatingState::Standby",
+        "standby_ui_state_ == StandbyUiState::Quiesced",
+        "kStandbyPowerStateSyncPeriodMs",
+        "kActivePowerStateSyncPeriodMs",
+        "sync_power_state_timer_period(",
+    ):
+        require_contains(
+            app_timer,
+            fragment,
+            "power-state UI synchronization lifecycle",
+        )
+    app_timer_sync = function_text(
+        app,
+        "std::expected<void, std::string> App::sync_power_state_timer_period(",
+        "LUNASHELL_app.cpp",
+    )
+    replacement_at = app_timer_sync.find("context.timer().start_periodic(")
+    stop_previous_at = app_timer_sync.find("context.timer().stop(previous_timer)")
+    publish_replacement_at = app_timer_sync.find(
+        "power_state_sync_timer_ = *replacement_timer"
+    )
+    require(
+        0 <= replacement_at < stop_previous_at < publish_replacement_at,
+        "power-state timer replacement must preserve the previous bridge until a new timer exists",
+    )
+    for fragment in (
+        "power_state_sync_period_ms_",
+        "replacement power-state UI synchronization",
+        "Failed to stop previous power-state UI synchronization timer",
+    ):
+        require_contains(
+            app_timer_sync,
+            fragment,
+            "power-state UI timer replacement",
+        )
+    require_contains(
+        app_header,
+        "uint32_t power_state_sync_period_ms_ = 0;",
+        "power-state UI timer period state",
+    )
 
     require_regex(
         power,

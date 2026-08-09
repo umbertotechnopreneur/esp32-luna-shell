@@ -3456,6 +3456,10 @@ esp_err_t gps_control_write(const uint8_t *data, size_t length)
     return i2c_master_transmit(s_gps_control, data, length, 1000);
 }
 
+// The LC76G I2C bridge requires a quiet phase after a read response before
+// accepting the next control frame (including 0xAA531000 for host writes).
+constexpr TickType_t kGpsI2cProtocolDelayTicks = pdMS_TO_TICKS(10);
+
 esp_err_t gps_exchange(
     const uint8_t *command,
     size_t command_length,
@@ -3472,6 +3476,10 @@ esp_err_t gps_exchange(
             error = i2c_master_receive(s_gps_read, data, data_length, 1000);
         }
         if (error == ESP_OK) {
+            // Do not begin a new LC76G I2C phase immediately after the 0x54
+            // read. The module NACKs the following 0x50 control transaction
+            // otherwise, which used to abort transactional Device Standby.
+            vTaskDelay(kGpsI2cProtocolDelayTicks);
             return ESP_OK;
         }
         ESP_LOGW(
@@ -4134,7 +4142,7 @@ esp_err_t gps_send_pair_command(
         );
         return error;
     }
-    vTaskDelay(pdMS_TO_TICKS(10));
+    vTaskDelay(kGpsI2cProtocolDelayTicks);
     error = i2c_master_transmit(
         s_gps_write,
         reinterpret_cast<const uint8_t *>(sentence),

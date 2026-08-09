@@ -166,6 +166,21 @@
   publishing both configured and applied values in `DeviceSnapshotService`.
 - [x] Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
   `DisplayOff` states tied to real inactivity/sleep transitions.
+- [x] Treat the configured `Screen sleep after display dim` timeout as a full
+  transactional Device Standby entry, not panel-off alone; retain PKEY and
+  qualified IMU wake while radio, GPS, storage, audio, snapshot, and UI work
+  are suspended.
+- [x] Keep the Power-to-App synchronization timer at 200 ms through the
+  quiescence/wake handshake, then slow it to 1 Hz only after confirmed Device
+  Standby and app quiescence.
+- [ ] Validate automatic Device Standby on hardware at the configured dim plus
+  sleep delay: confirm PKEY/motion wake, no immediate motion bounce, and a
+  maximum one-second App/UI restoration delay.
+- [ ] Keep the ESP32-S3 CPU floor at the validated 80 MHz while Device Standby
+  uses automatic Light-sleep. The first physical 40 MHz trial was inconclusive:
+  LC76G I2C phase timing first blocked standby and a later PKEY wake did not
+  return. Re-establish repeated baseline PKEY cycles after the LC76G fix before
+  attempting that reversible optimization again.
 - [x] When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
   the user's configured value rather than a fixed percentage.
 - [x] While dimmed, slow non-critical UI refresh work from the normal 1 second

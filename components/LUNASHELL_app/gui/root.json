@@ -5143,7 +5143,7 @@
                                     "type": "label",
                                     "id": "power_description",
                                     "labelProps": {
-                                        "text": "Dim, then screen sleep"
+                                        "text": "Dim, then Device Standby"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -5200,7 +5200,7 @@
                                     "type": "label",
                                     "id": "screen_sleep_delay_label",
                                     "labelProps": {
-                                        "text": "Full sleep after display dim"
+                                        "text": "Device Standby after display dim"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",

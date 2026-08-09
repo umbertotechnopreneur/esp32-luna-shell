@@ -401,6 +401,7 @@ enum class DeviceStateReason : uint8_t {
     PowerButton,
     Touch,
     ImuMotion,
+    Inactivity,
 };
 
 struct PowerManagementSnapshot : ComponentSnapshot {

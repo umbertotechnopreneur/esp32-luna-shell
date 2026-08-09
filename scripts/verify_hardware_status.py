@@ -65,6 +65,30 @@ def main() -> None:
         "transport online, no NMEA bytes waiting",
         "GPS empty-queue handling",
     )
+    gps_exchange_start = hardware.index("esp_err_t gps_exchange(")
+    gps_exchange_end = hardware.index(
+        "bool decimal_digits(",
+        gps_exchange_start,
+    )
+    gps_exchange = hardware[gps_exchange_start:gps_exchange_end]
+    receive_at = gps_exchange.index(
+        "i2c_master_receive(s_gps_read, data, data_length, 1000)"
+    )
+    phase_delay_at = gps_exchange.index(
+        "vTaskDelay(kGpsI2cProtocolDelayTicks)",
+        receive_at,
+    )
+    return_at = gps_exchange.index("return ESP_OK;", receive_at)
+    if not receive_at < phase_delay_at < return_at:
+        raise AssertionError(
+            "LC76G I2C exchange must wait after a successful 0x54 read before "
+            "the next 0x50 control phase"
+        )
+    require(
+        hardware,
+        "constexpr TickType_t kGpsI2cProtocolDelayTicks = pdMS_TO_TICKS(10);",
+        "LC76G I2C post-read phase delay",
+    )
     require(hardware, 'return gps.has_fix ? "fix" : "no-fix";', "serial summary")
     require(hardware, 'return "off-policy";', "radio serial summary")
 

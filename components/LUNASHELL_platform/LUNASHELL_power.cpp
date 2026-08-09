@@ -231,6 +231,25 @@ const char *standby_trace_phase_name(StandbyTracePhase phase)
     }
 }
 
+const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
+{
+    switch (reason) {
+    case LUNASHELL::DeviceStateReason::Startup:
+        return "startup";
+    case LUNASHELL::DeviceStateReason::BootButton:
+        return "boot-button";
+    case LUNASHELL::DeviceStateReason::PowerButton:
+        return "power-button";
+    case LUNASHELL::DeviceStateReason::Touch:
+        return "touch";
+    case LUNASHELL::DeviceStateReason::ImuMotion:
+        return "imu-motion";
+    case LUNASHELL::DeviceStateReason::Inactivity:
+        return "inactivity";
+    }
+    return "unknown";
+}
+
 void record_standby_trace(StandbyTracePhase phase, esp_err_t error)
 {
     // Publish the magic last so an interrupted RTC write is never presented
@@ -1371,7 +1390,8 @@ esp_err_t set_standby(
         record_standby_trace(StandbyTracePhase::StandbyEntered, ESP_OK);
         ESP_LOGI(
             kTag,
-            "PWR standby entered: sequence=%lu",
+            "Device standby entered: reason=%s sequence=%lu",
+            device_state_reason_name(reason),
             static_cast<unsigned long>(s_transition_sequence)
         );
         return ESP_OK;
@@ -1489,9 +1509,7 @@ esp_err_t set_standby(
     ESP_LOGI(
         kTag,
         "Device awake: reason=%s sequence=%lu storage=%s",
-        reason == LUNASHELL::DeviceStateReason::ImuMotion
-            ? "imu-motion"
-            : "pwr-button",
+        device_state_reason_name(reason),
         static_cast<unsigned long>(s_transition_sequence),
         optional_storage_error == ESP_OK
             ? "ready"
@@ -1713,20 +1731,36 @@ esp_err_t apply_idle_policy()
         LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
     const uint32_t dim_seconds =
         s_dim_timeout_seconds.load(std::memory_order_acquire);
+    const uint32_t screen_sleep_delay =
+        s_screen_sleep_delay_seconds.load(std::memory_order_acquire);
+    const bool standby_due =
+        expired(dim_seconds) &&
+        screen_sleep_delay > 0U &&
+        elapsed_us >=
+            (static_cast<int64_t>(dim_seconds) +
+             static_cast<int64_t>(screen_sleep_delay)) *
+                1000000LL;
+    if (standby_due) {
+        const int64_t standby_requested_at_us = esp_timer_get_time();
+        // A timeout commonly expires while the device is still moving. Reset
+        // the qualified-motion baseline before suspending so that movement
+        // already in progress cannot immediately undo the new standby state.
+        begin_motion_grace(standby_requested_at_us);
+        ESP_LOGI(
+            kTag,
+            "Inactivity timeout reached: entering Device Standby after "
+            "dim=%lu s + sleep=%lu s",
+            static_cast<unsigned long>(dim_seconds),
+            static_cast<unsigned long>(screen_sleep_delay)
+        );
+        return set_standby(
+            true,
+            LUNASHELL::DeviceStateReason::Inactivity
+        );
+    }
     if (expired(dim_seconds)) {
         display_stage =
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Dimmed;
-        const uint32_t screen_sleep_delay =
-            s_screen_sleep_delay_seconds.load(std::memory_order_acquire);
-        if (screen_sleep_delay > 0U &&
-            elapsed_us >=
-                static_cast<int64_t>(
-                    dim_seconds + screen_sleep_delay
-                ) *
-                    1000000LL) {
-            display_stage =
-                LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff;
-        }
     }
 
     bool changed =
@@ -1737,10 +1771,6 @@ esp_err_t apply_idle_policy()
         if (display_stage ==
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Dimmed) {
             mode = LUNASHELL_DISPLAY_POWER_DIMMED;
-        } else if (
-            display_stage ==
-            LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff) {
-            mode = LUNASHELL_DISPLAY_POWER_OFF;
         }
         const esp_err_t display_error =
             LUNASHELL_display_fade_to_power_mode(
