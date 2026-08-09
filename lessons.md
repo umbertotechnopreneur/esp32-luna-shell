@@ -276,6 +276,11 @@ runtime behavior still requires authorized hardware validation.
 - A single noisy IMU sample must never reset the shared inactivity timeline.
   Require quiet re-arm, consecutive movement samples, hysteresis, and an
   explicit grace/cooldown around standby transitions.
+- Device Standby must separately gate requested UI diagnostics and
+  auto-rotation. Lowering the IMU profile/cadence alone does not prevent their
+  monitor from restoring high-rate sampling. Preserve requested settings,
+  synchronize the gate through the refresh mutex, and require a fresh active
+  orientation sample before replaying a pending panel rotation.
 
 ## Snapshot-owned Fullscreen and adaptive content
 

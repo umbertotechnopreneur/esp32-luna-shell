@@ -1673,6 +1673,7 @@ def verify_source_contracts() -> None:
     )
     suspend_order = [
         suspend_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
+        suspend_resources.find("LUNASHELL_hardware_set_ui_sampling_power_suspended"),
         suspend_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
         suspend_resources.find("LUNASHELL_distance_set_power_suspended"),
         suspend_resources.find("LUNASHELL_storage_set_power_suspended"),
@@ -1817,6 +1818,7 @@ def verify_source_contracts() -> None:
         resume_resources.find("LUNASHELL_storage_set_power_suspended"),
         resume_resources.find("LUNASHELL_audio_set_standby"),
         resume_resources.find("LUNASHELL_voice_afe_set_standby"),
+        resume_resources.find("LUNASHELL_hardware_set_ui_sampling_power_suspended"),
         resume_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
         resume_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
         resume_resources.find("transition_display_resource(false)"),
@@ -1833,6 +1835,7 @@ def verify_source_contracts() -> None:
         "LUNASHELL_distance_set_power_suspended(bool suspended)",
         "LUNASHELL_storage_set_power_suspended(bool suspended)",
         "LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby)",
+        "LUNASHELL_hardware_set_ui_sampling_power_suspended(bool suspended)",
         "LUNASHELL_hardware_set_imu_low_power(bool enabled)",
     ):
         require_contains(header, fragment, "LUNASHELL_platform.h standby lifecycle")
@@ -1968,6 +1971,40 @@ def verify_source_contracts() -> None:
         "kUiMotionStandbySamplePeriodMs = 1000",
         "IMU standby motion cadence",
     )
+    ui_sampling = function_text(
+        hardware,
+        "LUNASHELL_hardware_set_ui_sampling_power_suspended(",
+        "UI sampling standby lifecycle",
+    )
+    for fragment in (
+        "s_diagnostic_settings_mutex",
+        "ensure_refresh_mutex()",
+        "s_ui_sampling_power_suspended.exchange(",
+        "s_ui_sampling_orientation_reset_pending.store(",
+        "UI sampling standby transition",
+    ):
+        require_contains(
+            ui_sampling,
+            fragment,
+            "transactional UI sampling standby lifecycle",
+        )
+    diagnostic_monitor = function_text(
+        hardware,
+        "void diagnostic_monitor_task(",
+        "diagnostic and orientation monitor",
+    )
+    for fragment in (
+        "auto_rotation_requested && !ui_sampling_power_suspended",
+        "effective_ui_sampling_power_suspended",
+        "!effective_ui_sampling_power_suspended &&",
+        "reset_auto_rotation_filter_after_power_resume()",
+        "s_ui_sampling_orientation_reset_pending.load(",
+    ):
+        require_contains(
+            diagnostic_monitor,
+            fragment,
+            "standby UI sampling gate",
+        )
     require_contains(
         power,
         "stop_radios_for_standby",

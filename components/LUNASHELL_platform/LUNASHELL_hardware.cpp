@@ -171,6 +171,10 @@ std::atomic_bool s_diagnostic_imu_active{false};
 std::atomic_bool s_diagnostic_microphone_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
 std::atomic_bool s_ui_motion_monitor_standby{false};
+// Device Standby preserves the user's requested diagnostics and rotation
+// preference, but must not leave their high-rate UI sampling active.
+std::atomic_bool s_ui_sampling_power_suspended{false};
+std::atomic_bool s_ui_sampling_orientation_reset_pending{false};
 std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
@@ -1273,6 +1277,20 @@ bool observe_auto_rotation_state(bool enabled)
         mark_sample_success(s_orientation.component, changed_at_us);
     }
     return true;
+}
+
+// A long standby gap invalidates the filter's time continuity without changing
+// either the persisted preference or the already-applied panel orientation.
+void reset_auto_rotation_filter_after_power_resume()
+{
+    s_orientation.filter_ready = false;
+    s_orientation.planar_active = false;
+    s_orientation.gravity_valid = false;
+    s_orientation.candidate_valid = false;
+    s_orientation.candidate_since_us = 0;
+    s_orientation.gyro_physical_degrees =
+        static_cast<float>(s_orientation.physical_degrees);
+    s_orientation.gyro_sampled_at_us = 0;
 }
 
 // Classify raw gravity into a stable cardinal physical orientation.
@@ -4591,19 +4609,31 @@ void diagnostic_monitor_task(void *arg)
     TickType_t last_ui_motion_sample = 0;
 
     for (;;) {
-        const bool diagnostic_imu_active =
+        const bool ui_sampling_power_suspended =
+            s_ui_sampling_power_suspended.load(std::memory_order_relaxed);
+        const bool diagnostic_imu_requested =
             s_diagnostic_imu_active.load(std::memory_order_relaxed);
-        const bool diagnostic_microphone_active =
+        const bool diagnostic_microphone_requested =
             s_diagnostic_microphone_active.load(std::memory_order_relaxed);
+        const bool diagnostic_imu_active =
+            !ui_sampling_power_suspended && diagnostic_imu_requested;
+        const bool diagnostic_microphone_active =
+            !ui_sampling_power_suspended &&
+            diagnostic_microphone_requested;
         const bool monitor_active =
             diagnostic_imu_active || diagnostic_microphone_active;
         const bool ui_motion_active =
             s_ui_motion_monitor_active.load(std::memory_order_relaxed);
         const bool ui_motion_standby =
             s_ui_motion_monitor_standby.load(std::memory_order_relaxed);
-        const bool auto_rotation_active =
+        const bool auto_rotation_requested =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
-        if (observe_auto_rotation_state(auto_rotation_active)) {
+        const bool auto_rotation_active =
+            auto_rotation_requested && !ui_sampling_power_suspended;
+        // Observe the persisted preference even while its sampling is gated.
+        // Treating standby as a preference change would reset the requested
+        // orientation to zero and lose the user's setting.
+        if (observe_auto_rotation_state(auto_rotation_requested)) {
             log_snapshot_publication_failure(
                 "Auto-rotation state",
                 publish_orientation_state()
@@ -4667,13 +4697,23 @@ void diagnostic_monitor_task(void *arg)
                     "Hardware monitor sample rejected: refresh mutex take timed out"
                 );
             } else {
-                // Stream selection can change while this task waits for the
-                // refresh lock. Re-check it under that same lock so disabling
-                // microphone diagnostics is a real quiescence barrier.
+                // Stream selection and standby UI sampling can both change
+                // while this task waits for the refresh lock. Re-check all of
+                // them under the same lock so either transition is a real
+                // quiescence barrier.
+                const bool effective_ui_sampling_power_suspended =
+                    s_ui_sampling_power_suspended.load(
+                        std::memory_order_acquire
+                    );
+                const bool effective_auto_rotation_active =
+                    s_auto_rotation_enabled.load(std::memory_order_acquire) &&
+                    !effective_ui_sampling_power_suspended;
                 effective_diagnostic_imu_due =
+                    !effective_ui_sampling_power_suspended &&
                     diagnostic_due &&
                     s_diagnostic_imu_active.load(std::memory_order_acquire);
                 effective_diagnostic_microphone_due =
+                    !effective_ui_sampling_power_suspended &&
                     diagnostic_due &&
                     s_diagnostic_microphone_active.load(
                         std::memory_order_acquire
@@ -4684,7 +4724,7 @@ void diagnostic_monitor_task(void *arg)
                 effective_imu_sample_due =
                     effective_diagnostic_imu_due ||
                     ui_motion_due ||
-                    orientation_due;
+                    effective_auto_rotation_active;
                 const bool effective_sampling_due =
                     effective_imu_sample_due ||
                     effective_diagnostic_microphone_due;
@@ -4705,6 +4745,14 @@ void diagnostic_monitor_task(void *arg)
                         esp_err_t imu_sample_error = ESP_OK;
                         esp_err_t microphone_sample_error = ESP_OK;
                         if (effective_imu_sample_due) {
+                            const bool reset_orientation_filter =
+                                effective_auto_rotation_active &&
+                                s_ui_sampling_orientation_reset_pending.load(
+                                    std::memory_order_acquire
+                                );
+                            if (reset_orientation_filter) {
+                                reset_auto_rotation_filter_after_power_resume();
+                            }
                             imu_sample_error = sample_imu(
                                 effective_diagnostic_imu_due
                                     ? "diagnostic-ui"
@@ -4712,8 +4760,15 @@ void diagnostic_monitor_task(void *arg)
                                         ? "adaptive-ui"
                                         : "auto-rotation",
                                 effective_diagnostic_imu_due,
-                                orientation_due
+                                effective_auto_rotation_active
                             );
+                            if (reset_orientation_filter &&
+                                imu_sample_error == ESP_OK) {
+                                s_ui_sampling_orientation_reset_pending.store(
+                                    false,
+                                    std::memory_order_release
+                                );
+                            }
                             record_first_error(
                                 imu_sample_error,
                                 &aggregate
@@ -4835,15 +4890,28 @@ void diagnostic_monitor_task(void *arg)
             }
         }
 
-        if (s_orientation.desired_rendering_degrees !=
-            s_orientation.applied_rendering_degrees) {
+        if (!s_ui_sampling_power_suspended.load(std::memory_order_acquire) &&
+            !s_ui_sampling_orientation_reset_pending.load(
+                std::memory_order_acquire
+            ) &&
+            s_orientation.desired_rendering_degrees !=
+                s_orientation.applied_rendering_degrees) {
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
             if (refresh_mutex != nullptr &&
                 xSemaphoreTake(
                     refresh_mutex,
                     pdMS_TO_TICKS(250)
                 ) == pdTRUE) {
-                (void)apply_pending_display_rotation();
+                if (!s_ui_sampling_power_suspended.load(
+                        std::memory_order_acquire
+                    ) &&
+                    !s_ui_sampling_orientation_reset_pending.load(
+                        std::memory_order_acquire
+                    ) &&
+                    s_orientation.desired_rendering_degrees !=
+                        s_orientation.applied_rendering_degrees) {
+                    (void)apply_pending_display_rotation();
+                }
                 (void)give_refresh_mutex(
                     refresh_mutex,
                     "Cardinal display rotation"
@@ -4851,10 +4919,15 @@ void diagnostic_monitor_task(void *arg)
             }
         }
 
-        const uint32_t delay_ms =
-            auto_rotation_active ||
+        const bool rotation_apply_pending =
+            !s_ui_sampling_power_suspended.load(std::memory_order_acquire) &&
+            !s_ui_sampling_orientation_reset_pending.load(
+                std::memory_order_acquire
+            ) &&
             s_orientation.desired_rendering_degrees !=
-                s_orientation.applied_rendering_degrees
+                s_orientation.applied_rendering_degrees;
+        const uint32_t delay_ms =
+            auto_rotation_active || rotation_apply_pending
                 ? kOrientationSamplePeriodMs
                 : ui_motion_active
                     ? ui_motion_period_ms
@@ -6891,6 +6964,74 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
                 ? kUiMotionStandbySamplePeriodMs
                 : kUiMotionSamplePeriodMs
         )
+    );
+    return ESP_OK;
+}
+
+// Preserve requested diagnostic streams and auto-rotation across Device
+// Standby while making their sampler quiescent at the shared refresh barrier.
+extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
+    bool suspended
+)
+{
+    if (!s_initialized) {
+        ESP_LOGE(
+            TAG,
+            "UI sampling standby transition rejected: hardware is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    std::lock_guard<std::mutex> lock(s_diagnostic_settings_mutex);
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        ESP_LOGE(
+            TAG,
+            "UI sampling standby transition failed: refresh mutex allocation failed"
+        );
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "UI sampling standby transition timed out waiting for sampler quiescence"
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const bool was_suspended = s_ui_sampling_power_suspended.exchange(
+        suspended,
+        std::memory_order_acq_rel
+    );
+    if (suspended) {
+        s_ui_sampling_orientation_reset_pending.store(
+            false,
+            std::memory_order_release
+        );
+    } else if (was_suspended) {
+        // Keep a pre-standby rotation pending until a new active IMU sample
+        // rebuilds the filter, rather than applying stale orientation data.
+        s_ui_sampling_orientation_reset_pending.store(
+            true,
+            std::memory_order_release
+        );
+    }
+
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex,
+        "UI sampling standby transition"
+    );
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "UI diagnostics and auto-rotation sampling: %s%s",
+        suspended ? "standby" : "active",
+        !suspended && was_suspended
+            ? "; awaiting a fresh orientation sample"
+            : ""
     );
     return ESP_OK;
 }

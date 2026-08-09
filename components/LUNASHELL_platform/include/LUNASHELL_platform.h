@@ -97,6 +97,12 @@ esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(bool enabled);
  */
 esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby);
 /**
+ * Quiesce optional diagnostic streams and auto-rotation during Device Standby
+ * without changing their requested settings. Low-rate UI motion wake remains
+ * enabled independently and a fresh orientation sample is required on wake.
+ */
+esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(bool suspended);
+/**
  * Select the QMI8658 active or software-standby sampling profile.
  *
  * The low-power profile keeps accelerometer and gyroscope measurements valid

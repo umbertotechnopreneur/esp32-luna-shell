@@ -129,6 +129,7 @@ struct StandbyResourceStatus {
 
 struct StandbyResourceState {
     StandbyResourceStatus full_snapshots;
+    StandbyResourceStatus ui_sampling;
     StandbyResourceStatus gps_low_power;
     StandbyResourceStatus distance;
     StandbyResourceStatus storage;
@@ -678,6 +679,7 @@ bool standby_resources_match_target(
     const bool display_matches = s_standby_resources.display_consistent;
 #endif
     return matches(s_standby_resources.full_snapshots) &&
+           matches(s_standby_resources.ui_sampling) &&
            matches(s_standby_resources.gps_low_power) &&
            matches(s_standby_resources.distance) &&
            storage_matches &&
@@ -714,6 +716,11 @@ esp_err_t suspend_standby_resources(bool best_effort)
         "Full Snapshot scheduler",
         s_standby_resources.full_snapshots,
         LUNASHELL_hardware_set_full_snapshot_power_suspended
+    );
+    step(
+        "UI diagnostics and auto-rotation sampling",
+        s_standby_resources.ui_sampling,
+        LUNASHELL_hardware_set_ui_sampling_power_suspended
     );
     step(
         "GPS LC76G subsystem",
@@ -867,6 +874,11 @@ esp_err_t resume_standby_resources(
         "Voice AFE",
         s_standby_resources.voice_afe,
         LUNASHELL_voice_afe_set_standby
+    );
+    step(
+        "UI diagnostics and auto-rotation sampling",
+        s_standby_resources.ui_sampling,
+        LUNASHELL_hardware_set_ui_sampling_power_suspended
     );
     step(
         "GPS LC76G subsystem",

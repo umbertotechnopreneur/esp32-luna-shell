@@ -125,6 +125,13 @@
   Device Standby; leave them stopped after wake until the user explicitly
   restarts them from Settings. Retain PWR wake and throttle, rather than
   disable, qualified IMU motion wake while standby is active.
+- [x] Quiesce requested diagnostic IMU/microphone streams and auto-rotation
+  during Device Standby while retaining 1 Hz qualified UI motion wake. Preserve
+  the user's requested streams/orientation and require a fresh active IMU
+  sample before replaying a pending display rotation.
+- [ ] Validate Device Standby with auto-rotation and both diagnostic streams
+  enabled: no diagnostic or panel-rotation work while off; PWR/motion wake must
+  restore the requested settings and apply orientation only after a fresh sample.
 - [ ] Revalidate the AXP2101 PKEY standby/wake cycle after the AppInput/GUI
   quiescence fix, including at least five repeated PWR standby/wake cycles,
   independent arc timeouts,
