@@ -296,6 +296,11 @@ runtime behavior still requires authorized hardware validation.
   PAIR003 reaches 0x58, correctly aborting transactional standby. Preserve this
   phase boundary centrally in `gps_exchange()` so all consecutive reads/writes
   obey it.
+- A PAIR001 response may coalesce the in-progress (`...,1`) and terminal
+  (`...,0`) lines in the same drained LC76G I2C payload. The acknowledgement
+  parser must keep scanning after `...,1` and give the terminal result priority;
+  returning early silently discards the final acknowledgement and makes PKEY
+  standby appear intermittent.
 - The first physical Device Standby trial at the ESP32-S3 40 MHz XTAL floor was
   inconclusive: LC76G I2C phase timing first blocked standby and a later PKEY
   wake did not return. Keep the validated 80 MHz floor until repeated baseline

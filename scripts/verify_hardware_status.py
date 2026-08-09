@@ -89,6 +89,29 @@ def main() -> None:
         "constexpr TickType_t kGpsI2cProtocolDelayTicks = pdMS_TO_TICKS(10);",
         "LC76G I2C post-read phase delay",
     )
+    pair_ack_start = hardware.index("GpsPairAck gps_find_pair_ack(")
+    pair_ack_end = hardware.index("esp_err_t gps_send_pair_command(", pair_ack_start)
+    pair_ack = hardware[pair_ack_start:pair_ack_end]
+    require(
+        pair_ack,
+        "GpsPairAck observed = GpsPairAck::None;",
+        "LC76G PAIR acknowledgement accumulation",
+    )
+    require(
+        pair_ack,
+        "observed = GpsPairAck::Processing;\n                        continue;",
+        "LC76G PAIR in-progress acknowledgement scan",
+    )
+    require(
+        pair_ack,
+        "return observed;",
+        "LC76G PAIR final acknowledgement result",
+    )
+    if "return GpsPairAck::Processing;" in pair_ack:
+        raise AssertionError(
+            "LC76G PAIR parser must scan past an in-progress acknowledgement "
+            "to find a coalesced final acknowledgement"
+        )
     require(hardware, 'return gps.has_fix ? "fix" : "no-fix";', "serial summary")
     require(hardware, 'return "off-policy";', "radio serial summary")
 

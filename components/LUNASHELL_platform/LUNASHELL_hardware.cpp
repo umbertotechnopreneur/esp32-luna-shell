@@ -4035,6 +4035,10 @@ GpsPairAck gps_find_pair_ack(
     if (payload == nullptr) {
         return GpsPairAck::None;
     }
+    // The LC76G may place the in-progress and final PAIR001 responses in one
+    // I2C payload. Retain an in-progress state, but keep scanning so the final
+    // acknowledgement in the same drained payload is never discarded.
+    GpsPairAck observed = GpsPairAck::None;
     size_t cursor = 0;
     while (cursor < length) {
         while (cursor < length && payload[cursor] != '$') {
@@ -4067,7 +4071,8 @@ GpsPairAck gps_find_pair_ack(
                         return GpsPairAck::Success;
                     }
                     if (command_end[1] == '1') {
-                        return GpsPairAck::Processing;
+                        observed = GpsPairAck::Processing;
+                        continue;
                     }
                     ESP_LOGE(
                         TAG,
@@ -4084,7 +4089,7 @@ GpsPairAck gps_find_pair_ack(
             ++cursor;
         }
     }
-    return GpsPairAck::None;
+    return observed;
 }
 
 esp_err_t gps_send_pair_command(
