@@ -719,6 +719,6 @@ direct_dependencies:
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
 - waveshare/qmi8658
-manifest_hash: d57f455e7d2c9028ecb37bec187669f20a06e8bef62e15eaae91bf7d0571f979
+manifest_hash: 5585829af0552d6dbee3c06606c477cf5720bd2a5a7cf60b413f90e353fb8252
 target: esp32s3
 version: 3.0.0

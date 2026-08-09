@@ -121,6 +121,10 @@
 
 ## Power and performance profiles
 
+- [ ] Stop and deinitialize Wi-Fi, BLE provisioning, and BLE telemetry on PWR
+  Device Standby; leave them stopped after wake until the user explicitly
+  restarts them from Settings. Retain PWR wake and throttle, rather than
+  disable, qualified IMU motion wake while standby is active.
 - [ ] Revalidate the AXP2101 PKEY standby/wake cycle after the AppInput/GUI
   quiescence fix, including at least five repeated PWR standby/wake cycles,
   independent arc timeouts,
@@ -145,10 +149,10 @@
   the managed codec API does not propagate its internal chip-disable result,
   although I2S TX/RX shutdown is independently verified.
 - [ ] Validate qualified IMU wake from full standby on the physical device.
-- [ ] Design and measure a firmware-only LC76G Periodic or ALP policy with
-  bridge ACK verification, rollback, TTFF/accuracy acceptance criteria, and
-  explicitly unavailable or stale GNSS snapshots during standby. True Quectel
-  Backup mode also requires independently switching the module VCC rail, which
+- [ ] Validate the LC76G I2C GNSS-subsystem standby policy on the physical board:
+  PAIR003/PAIR002 ACK, recovery after wake, TTFF/accuracy, and its electrical
+  impact. Firmware now publishes GPS unavailable during standby; true Quectel
+  Backup mode still requires independently switching the module VCC rail, which
   the current board does not expose.
 - [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
   `DisplayOff` transitions, preserving the user's configured brightness and

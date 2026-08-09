@@ -1,5 +1,10 @@
 cmake_minimum_required(VERSION 3.16)
 
+# Keep ESP-IDF compile and link invocations below Windows' command-line limit.
+# This is required by the Brookesia System Super example as well: the aggregate
+# ESP-IDF component include graph otherwise exceeds CreateProcess limits.
+set(CMAKE_NINJA_FORCE_RESPONSE_FILE 1 CACHE INTERNAL "")
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(distanziamoci)
 

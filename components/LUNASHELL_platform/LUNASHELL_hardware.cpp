@@ -68,6 +68,7 @@
 
 #define LC76G_WRITE_ADDRESS 0x50
 #define LC76G_READ_ADDRESS 0x54
+#define LC76G_DATA_WRITE_ADDRESS 0x58
 
 namespace {
 
@@ -83,6 +84,7 @@ constexpr uint32_t kImuSmoothingDefaultPercent = 70;
 constexpr uint32_t kImuSmoothingMaxPercent = 90;
 constexpr uint32_t kOrientationSamplePeriodMs = 100;
 constexpr uint32_t kUiMotionSamplePeriodMs = 100;
+constexpr uint32_t kUiMotionStandbySamplePeriodMs = 1000;
 constexpr int64_t kOrientationStableUs = 300000;
 constexpr float kOrientationMagnitudeMin = 7.0F;
 constexpr float kOrientationMagnitudeMax = 12.5F;
@@ -127,6 +129,7 @@ i2c_master_dev_handle_t s_pmu_device;
 i2c_master_dev_handle_t s_rtc;
 i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
+i2c_master_dev_handle_t s_gps_write;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
 qmi8658_dev_t s_imu;
 #endif
@@ -161,11 +164,13 @@ bool s_imu_filter_ready;
 std::atomic<uint32_t> s_imu_smoothing_percent{kImuSmoothingDefaultPercent};
 std::atomic_bool s_imu_smoothing_valid{false};
 bool s_gps_ready;
+bool s_gps_power_suspended;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 std::atomic_bool s_diagnostic_imu_active{false};
 std::atomic_bool s_diagnostic_microphone_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
+std::atomic_bool s_ui_motion_monitor_standby{false};
 std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
@@ -3391,6 +3396,14 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
         error = add_i2c_device(bus, LC76G_READ_ADDRESS, 100000, &s_gps_read);
     }
     if (error == ESP_OK) {
+        error = add_i2c_device(
+            bus,
+            LC76G_DATA_WRITE_ADDRESS,
+            100000,
+            &s_gps_write
+        );
+    }
+    if (error == ESP_OK) {
         const esp_err_t write_probe = i2c_master_probe(bus, LC76G_WRITE_ADDRESS, I2C_TIMEOUT_MS);
         ESP_LOGI(
             TAG,
@@ -3402,6 +3415,7 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
         }
     }
     s_gps_ready = error == ESP_OK;
+    s_gps_power_suspended = false;
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.gps, error == ESP_OK, error);
     });
@@ -3411,12 +3425,12 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
     }
     ESP_LOGI(
         TAG,
-        "GPS LC76G: Waveshare bridge protocol configured (control=0x50 read=0x54)"
+        "GPS LC76G: I2C bridge configured (control=0x50 read=0x54 data-write=0x58)"
     );
     return ESP_OK;
 }
 
-esp_err_t gps_write(const uint8_t *data, size_t length)
+esp_err_t gps_control_write(const uint8_t *data, size_t length)
 {
     if (data == nullptr || length == 0) {
         return ESP_ERR_INVALID_ARG;
@@ -3434,7 +3448,7 @@ esp_err_t gps_exchange(
 {
     esp_err_t error = ESP_FAIL;
     for (unsigned attempt = 1; attempt <= 3; ++attempt) {
-        error = gps_write(command, command_length);
+        error = gps_control_write(command, command_length);
         if (error == ESP_OK) {
             vTaskDelay(pdMS_TO_TICKS(100));
             error = i2c_master_receive(s_gps_read, data, data_length, 1000);
@@ -3891,11 +3905,293 @@ NmeaPayloadResult parse_nmea_payload(
     return result;
 }
 
+constexpr uint8_t kGpsPendingLengthCommand[] = {
+    0x08, 0x00, 0x51, 0xAA, 0x04, 0x00, 0x00, 0x00,
+};
+constexpr uint8_t kGpsWriteFreeLengthCommand[] = {
+    0x04, 0x00, 0x51, 0xAA, 0x04, 0x00, 0x00, 0x00,
+};
+constexpr uint8_t kGpsWriteConfigurationCommand[] = {
+    0x00, 0x10, 0x53, 0xAA,
+};
+constexpr unsigned kGpsPairAckAttempts = 10;
+constexpr TickType_t kGpsPairAckPollTicks = pdMS_TO_TICKS(100);
+
+uint32_t gps_le_u32(const uint8_t value[4])
+{
+    return static_cast<uint32_t>(value[0]) |
+           (static_cast<uint32_t>(value[1]) << 8) |
+           (static_cast<uint32_t>(value[2]) << 16) |
+           (static_cast<uint32_t>(value[3]) << 24);
+}
+
+esp_err_t gps_read_u32(
+    const uint8_t command[8],
+    const char *step,
+    uint32_t *value
+)
+{
+    if (value == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    uint8_t response[4] = {};
+    const esp_err_t error = gps_exchange(
+        command,
+        8,
+        response,
+        sizeof(response),
+        step
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    *value = gps_le_u32(response);
+    return ESP_OK;
+}
+
+esp_err_t gps_read_pending_payload(uint32_t *data_length)
+{
+    if (data_length == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t error = gps_read_u32(
+        kGpsPendingLengthCommand,
+        "pending length",
+        data_length
+    );
+    if (error != ESP_OK || *data_length == 0U) {
+        return error;
+    }
+    if (*data_length > GPS_MAX_PENDING_BYTES) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G: pending payload length %lu exceeds safety limit",
+            static_cast<unsigned long>(*data_length)
+        );
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const uint32_t read_length =
+        *data_length < GPS_MAX_PAYLOAD ? *data_length : GPS_MAX_PAYLOAD;
+    const uint8_t request[8] = {
+        0x00, 0x20, 0x51, 0xAA,
+        static_cast<uint8_t>(read_length),
+        static_cast<uint8_t>(read_length >> 8),
+        static_cast<uint8_t>(read_length >> 16),
+        static_cast<uint8_t>(read_length >> 24),
+    };
+    error = gps_exchange(
+        request,
+        sizeof(request),
+        reinterpret_cast<uint8_t *>(s_gps_payload),
+        read_length,
+        "pending payload"
+    );
+    if (error == ESP_OK) {
+        s_gps_payload[read_length] = '\0';
+        *data_length = read_length;
+    }
+    return error;
+}
+
+enum class GpsPairAck : uint8_t {
+    None,
+    Processing,
+    Success,
+    Rejected,
+};
+
+GpsPairAck gps_find_pair_ack(
+    const char *payload,
+    size_t length,
+    uint16_t command_id
+)
+{
+    if (payload == nullptr) {
+        return GpsPairAck::None;
+    }
+    size_t cursor = 0;
+    while (cursor < length) {
+        while (cursor < length && payload[cursor] != '$') {
+            ++cursor;
+        }
+        const size_t start = cursor;
+        while (cursor < length && payload[cursor] != '\r' &&
+               payload[cursor] != '\n') {
+            ++cursor;
+        }
+        const size_t sentence_length = cursor - start;
+        if (sentence_length > 0U && sentence_length < 64U) {
+            char sentence[64] = {};
+            std::memcpy(sentence, payload + start, sentence_length);
+            if (validate_and_strip_nmea_checksum(sentence, sentence_length) &&
+                std::strncmp(sentence, "$PAIR001,", 9) == 0) {
+                const char *command_text = sentence + 9;
+                char *command_end = nullptr;
+                const unsigned long acknowledged_command = std::strtoul(
+                    command_text,
+                    &command_end,
+                    10
+                );
+                if (command_end != command_text && command_end != nullptr &&
+                    *command_end == ',' &&
+                    acknowledged_command == command_id &&
+                    command_end[1] >= '0' && command_end[1] <= '5' &&
+                    command_end[2] == '\0') {
+                    if (command_end[1] == '0') {
+                        return GpsPairAck::Success;
+                    }
+                    if (command_end[1] == '1') {
+                        return GpsPairAck::Processing;
+                    }
+                    ESP_LOGE(
+                        TAG,
+                        "GPS LC76G: PAIR%03u rejected with result %c",
+                        static_cast<unsigned>(command_id),
+                        command_end[1]
+                    );
+                    return GpsPairAck::Rejected;
+                }
+            }
+        }
+        while (cursor < length && (payload[cursor] == '\r' ||
+                                   payload[cursor] == '\n')) {
+            ++cursor;
+        }
+    }
+    return GpsPairAck::None;
+}
+
+esp_err_t gps_send_pair_command(
+    uint16_t command_id,
+    const char *sentence,
+    const char *operation
+)
+{
+    if (sentence == nullptr || operation == nullptr || s_gps_control == nullptr ||
+        s_gps_read == nullptr || s_gps_write == nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    const size_t sentence_length = std::strlen(sentence);
+    if (sentence_length == 0U || sentence_length > UINT32_MAX) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint32_t write_free_length = 0;
+    esp_err_t error = gps_read_u32(
+        kGpsWriteFreeLengthCommand,
+        "write free length",
+        &write_free_length
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (write_free_length < sentence_length) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G: %s rejected; write buffer=%lu bytes, command=%u bytes",
+            operation,
+            static_cast<unsigned long>(write_free_length),
+            static_cast<unsigned>(sentence_length)
+        );
+        return ESP_ERR_NO_MEM;
+    }
+
+    uint8_t write_configuration[8] = {
+        kGpsWriteConfigurationCommand[0],
+        kGpsWriteConfigurationCommand[1],
+        kGpsWriteConfigurationCommand[2],
+        kGpsWriteConfigurationCommand[3],
+        static_cast<uint8_t>(sentence_length),
+        static_cast<uint8_t>(sentence_length >> 8),
+        static_cast<uint8_t>(sentence_length >> 16),
+        static_cast<uint8_t>(sentence_length >> 24),
+    };
+    error = gps_control_write(write_configuration, sizeof(write_configuration));
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G: %s write configuration failed (%s)",
+            operation,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    vTaskDelay(pdMS_TO_TICKS(10));
+    error = i2c_master_transmit(
+        s_gps_write,
+        reinterpret_cast<const uint8_t *>(sentence),
+        sentence_length,
+        I2C_TIMEOUT_MS
+    );
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G: %s command write failed (%s)",
+            operation,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+
+    for (unsigned attempt = 1; attempt <= kGpsPairAckAttempts; ++attempt) {
+        vTaskDelay(kGpsPairAckPollTicks);
+        uint32_t payload_length = 0;
+        error = gps_read_pending_payload(&payload_length);
+        if (error != ESP_OK) {
+            ESP_LOGW(
+                TAG,
+                "GPS LC76G: %s acknowledgement poll %u/%u failed (%s)",
+                operation,
+                attempt,
+                kGpsPairAckAttempts,
+                esp_err_to_name(error)
+            );
+            continue;
+        }
+        if (payload_length == 0U) {
+            continue;
+        }
+        const GpsPairAck acknowledgement = gps_find_pair_ack(
+            s_gps_payload,
+            payload_length,
+            command_id
+        );
+        if (acknowledgement == GpsPairAck::Success) {
+            return ESP_OK;
+        }
+        if (acknowledgement == GpsPairAck::Rejected) {
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    ESP_LOGE(
+        TAG,
+        "GPS LC76G: %s did not receive final PAIR%03u acknowledgement",
+        operation,
+        static_cast<unsigned>(command_id)
+    );
+    return error == ESP_OK ? ESP_ERR_TIMEOUT : error;
+}
+
 esp_err_t sample_gps(const char *phase)
 {
     static const uint8_t length_command[] = {0x08, 0x00, 0x51, 0xAA, 0x04, 0x00, 0x00, 0x00};
     LUNASHELL::GpsSnapshot sample;
     const int64_t attempted_at_us = esp_timer_get_time();
+    if (s_gps_power_suspended) {
+        const esp_err_t error = ESP_ERR_INVALID_STATE;
+        const esp_err_t publication_error = update_snapshot(
+            [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                mark_sample_failure(snapshot.gps, error, attempted_at_us);
+            }
+        );
+        ESP_LOGE(TAG, "GPS LC76G: %s sample rejected while GNSS is suspended", phase);
+        return sample_publication_result(
+            "GPS LC76G",
+            phase,
+            error,
+            publication_error
+        );
+    }
     uint8_t length_bytes[4] = {};
 
     esp_err_t error = gps_exchange(
@@ -4303,6 +4599,8 @@ void diagnostic_monitor_task(void *arg)
             diagnostic_imu_active || diagnostic_microphone_active;
         const bool ui_motion_active =
             s_ui_motion_monitor_active.load(std::memory_order_relaxed);
+        const bool ui_motion_standby =
+            s_ui_motion_monitor_standby.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         if (observe_auto_rotation_state(auto_rotation_active)) {
@@ -4320,8 +4618,11 @@ void diagnostic_monitor_task(void *arg)
             monitor_active &&
             (last_diagnostic_sample == 0 ||
              now - last_diagnostic_sample >= diagnostic_period);
+        const uint32_t ui_motion_period_ms = ui_motion_standby
+            ? kUiMotionStandbySamplePeriodMs
+            : kUiMotionSamplePeriodMs;
         const TickType_t ui_motion_period =
-            pdMS_TO_TICKS(kUiMotionSamplePeriodMs);
+            pdMS_TO_TICKS(ui_motion_period_ms);
         const bool ui_motion_due =
             ui_motion_active &&
             s_imu_ready &&
@@ -4556,7 +4857,7 @@ void diagnostic_monitor_task(void *arg)
                 s_orientation.applied_rendering_degrees
                 ? kOrientationSamplePeriodMs
                 : ui_motion_active
-                    ? kUiMotionSamplePeriodMs
+                    ? ui_motion_period_ms
                     : monitor_active
                       ? s_diagnostic_period_ms.load(std::memory_order_relaxed)
                       : 250U;
@@ -6343,6 +6644,7 @@ static esp_err_t ensure_hardware_monitor_task_locked()
     s_diagnostic_imu_active.store(false, std::memory_order_relaxed);
     s_diagnostic_microphone_active.store(false, std::memory_order_relaxed);
     s_ui_motion_monitor_active.store(false, std::memory_order_relaxed);
+    s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
     TaskHandle_t task = nullptr;
     s_diagnostic_monitor_started =
         xTaskCreateWithCaps(
@@ -6549,12 +6851,167 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(bool enabled)
     }
 
     s_ui_motion_monitor_active.store(enabled, std::memory_order_relaxed);
+    if (!enabled) {
+        s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
+    }
     ESP_LOGI(
         TAG,
         "Adaptive UI motion monitor: %s",
         enabled ? "active" : "standby"
     );
     return ESP_OK;
+}
+
+// Keep motion wake available in Device Standby without retaining the active
+// UI cadence. The IMU profile itself is selected separately by the power owner.
+extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby)
+{
+    if (!s_initialized || !s_imu_ready) {
+        ESP_LOGE(
+            TAG,
+            "Adaptive UI motion standby rejected: hardware or IMU is not initialized"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_ui_motion_monitor_active.load(std::memory_order_acquire)) {
+        ESP_LOGE(
+            TAG,
+            "Adaptive UI motion standby rejected: motion monitor is inactive"
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_ui_motion_monitor_standby.store(standby, std::memory_order_release);
+    ESP_LOGI(
+        TAG,
+        "Adaptive UI motion cadence: %s (%lu ms)",
+        standby ? "standby" : "active",
+        static_cast<unsigned long>(
+            standby
+                ? kUiMotionStandbySamplePeriodMs
+                : kUiMotionSamplePeriodMs
+        )
+    );
+    return ESP_OK;
+}
+
+// Send the LC76G subsystem power command while all snapshot I2C work is
+// quiesced. PAIR003 leaves the I2C command path available; PAIR002 restores
+// GNSS DSP, RF, PE, and clock before the snapshot scheduler is resumed.
+extern "C" esp_err_t LUNASHELL_hardware_set_gps_power_suspended(bool suspended)
+{
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
+    (void)suspended;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    const int64_t attempted_at_us = esp_timer_get_time();
+    if (!s_initialized || !s_gps_ready) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G power transition to %s rejected: GNSS is unavailable",
+            suspended ? "standby" : "active"
+        );
+        const esp_err_t publication_error = update_snapshot(
+            [attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                mark_sample_failure(
+                    snapshot.gps,
+                    ESP_ERR_INVALID_STATE,
+                    attempted_at_us
+                );
+            }
+        );
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "GPS LC76G power transition rejection publication failed (%s)",
+                esp_err_to_name(publication_error)
+            );
+        }
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G power transition to %s timed out waiting for refresh",
+            suspended ? "standby" : "active"
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_gps_power_suspended == suspended) {
+        return give_refresh_mutex(refresh_mutex, "GPS LC76G power transition");
+    }
+
+    static constexpr char kPairPowerOff[] = "$PAIR003*39\r\n";
+    static constexpr char kPairPowerOn[] = "$PAIR002*38\r\n";
+    const esp_err_t error = gps_send_pair_command(
+        suspended ? 3U : 2U,
+        suspended ? kPairPowerOff : kPairPowerOn,
+        suspended ? "GNSS subsystem power-off" : "GNSS subsystem power-on"
+    );
+    if (error == ESP_OK) {
+        s_gps_power_suspended = suspended;
+        const esp_err_t publication_error = update_snapshot(
+            [attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                mark_sample_failure(
+                    snapshot.gps,
+                    ESP_ERR_INVALID_STATE,
+                    attempted_at_us
+                );
+            }
+        );
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "GPS LC76G power transition publication failed (%s)",
+                esp_err_to_name(publication_error)
+            );
+            const esp_err_t release_error = give_refresh_mutex(
+                refresh_mutex,
+                "GPS LC76G power transition"
+            );
+            return release_error == ESP_OK ? publication_error : release_error;
+        }
+    } else {
+        const esp_err_t publication_error = update_snapshot(
+            [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                mark_sample_failure(snapshot.gps, error, attempted_at_us);
+            }
+        );
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "GPS LC76G failed transition publication (%s)",
+                esp_err_to_name(publication_error)
+            );
+        }
+    }
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex,
+        "GPS LC76G power transition"
+    );
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "GPS LC76G subsystem power-%s failed (%s)",
+            suspended ? "off" : "on",
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    ESP_LOGI(
+        TAG,
+        "GPS LC76G subsystem power-%s acknowledged",
+        suspended ? "off" : "on"
+    );
+    return ESP_OK;
+#endif
 }
 
 // Serialize QMI8658 profile changes with sampling and calibration ownership.

@@ -32,8 +32,8 @@ param(
 
     [string]$PythonExe,
 
-    # The workstation has 16 cores and 32 GB RAM; allow overriding for CI or
-    # constrained machines while keeping the local default fully parallel.
+    # Limit local compiler fan-out so a firmware validation cannot starve the
+    # workstation. CI may opt into a lower value, never a higher one.
     [int]$Jobs = 0
 )
 
@@ -822,9 +822,9 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     }
 
     $parallelJobs = if ($Jobs -gt 0) {
-        $Jobs
+        [Math]::Max(2, [Math]::Min(8, $Jobs))
     } else {
-        [Math]::Max(2, [Math]::Min(16, [Environment]::ProcessorCount))
+        [Math]::Max(2, [Math]::Min(8, [Environment]::ProcessorCount))
     }
     Write-Host "Building with Ninja parallelism: -j $parallelJobs"
     & ninja -C $RequestedBuildDir -j $parallelJobs all

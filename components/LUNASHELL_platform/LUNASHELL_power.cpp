@@ -16,6 +16,7 @@
 
 #include "bsp/esp-bsp.h"
 #include "driver/gpio.h"
+#include "esp_attr.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_pm.h"
@@ -30,7 +31,10 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_power_manager";
 constexpr gpio_num_t kBootButton = GPIO_NUM_0;
 constexpr TickType_t kPollTicks = pdMS_TO_TICKS(20);
-constexpr TickType_t kStandbyPollTicks = pdMS_TO_TICKS(100);
+// In standby, PWR events and the retained low-rate IMU monitor only need
+// human-scale responsiveness. A one-second cadence avoids waking the CPU and
+// shared I2C bus ten times per second while retaining both wake paths.
+constexpr TickType_t kStandbyPollTicks = pdMS_TO_TICKS(1000);
 constexpr TickType_t kPolicyTicks = pdMS_TO_TICKS(100);
 constexpr TickType_t kUiQuiescenceTimeoutTicks = pdMS_TO_TICKS(1500);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
@@ -47,8 +51,15 @@ constexpr uint32_t kMotionQuietSampleCount = 3;
 constexpr int64_t kMotionCooldownUs = 2LL * 1000LL * 1000LL;
 constexpr int64_t kMotionGraceUs = 2LL * 1000LL * 1000LL;
 constexpr int64_t kPkeyErrorReportIntervalUs = 5LL * 1000LL * 1000LL;
+// The USB Serial/JTAG endpoint may enumerate after the immediate wake logs.
+// Keep several diagnostic reports pending long enough for a host monitor to reopen.
+constexpr int64_t kDeferredStandbyTraceReportDelayUs =
+    20LL * 1000LL * 1000LL;
+constexpr uint32_t kDeferredStandbyTraceReportCount = 3U;
 constexpr int kMaximumCpuFrequencyMhz = 240;
 constexpr int kMinimumCpuFrequencyMhz = 80;
+constexpr uint32_t kStandbyTraceMagic = 0x53545243U;  // "STRC"
+constexpr uint32_t kStandbyTraceVersion = 1U;
 
 TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
@@ -104,6 +115,8 @@ bool s_motion_monitor_started;
 bool s_boot_armed;
 bool s_boot_release_tracking;
 bool s_standby_poll_observed;
+int64_t s_deferred_standby_trace_report_at_us;
+uint32_t s_deferred_standby_trace_reports_remaining;
 TickType_t s_boot_release_stable_at;
 std::atomic_bool s_boot_rearm_requested{false};
 std::atomic<uint32_t> s_pending_wakeup_cause{0};
@@ -116,9 +129,11 @@ struct StandbyResourceStatus {
 
 struct StandbyResourceState {
     StandbyResourceStatus full_snapshots;
+    StandbyResourceStatus gps_low_power;
     StandbyResourceStatus distance;
     StandbyResourceStatus storage;
     StandbyResourceStatus imu_low_power;
+    StandbyResourceStatus motion_wake_cadence;
     StandbyResourceStatus voice_afe;
     StandbyResourceStatus base_audio;
     bool display_off = false;
@@ -135,6 +150,35 @@ uint32_t s_standby_light_sleep_total_ms_base;
 int64_t s_standby_started_at_us;
 bool s_light_sleep_callback_registered;
 #endif
+
+enum class StandbyTracePhase : uint32_t {
+    None = 0,
+    EntryRequested,
+    UiQuiesced,
+    ResourcesSuspending,
+    RadiosStopping,
+    RadiosStopped,
+    StandbyEntered,
+    WakeRequested,
+    ResourcesResuming,
+    Awake,
+    EntryFailed,
+    WakeFailed,
+};
+
+// Retain the most recent PWR transition across software resets and automatic
+// Light-sleep. It is intentionally diagnostic-only: no flash write is made
+// on a user PWR press, and a lost RTC domain is reported as unavailable.
+struct StandbyTrace {
+    uint32_t magic;
+    uint32_t version;
+    uint32_t transition_sequence;
+    uint32_t phase;
+    int32_t error;
+    int64_t recorded_at_us;
+};
+
+RTC_NOINIT_ATTR StandbyTrace s_retained_standby_trace;
 
 struct ButtonState {
     bool raw_pressed = false;
@@ -153,6 +197,79 @@ enum class ButtonEvent : uint8_t {
 };
 
 ButtonState s_boot;
+
+const char *standby_trace_phase_name(StandbyTracePhase phase)
+{
+    switch (phase) {
+    case StandbyTracePhase::None:
+        return "none";
+    case StandbyTracePhase::EntryRequested:
+        return "entry-requested";
+    case StandbyTracePhase::UiQuiesced:
+        return "ui-quiesced";
+    case StandbyTracePhase::ResourcesSuspending:
+        return "resources-suspending";
+    case StandbyTracePhase::RadiosStopping:
+        return "radios-stopping";
+    case StandbyTracePhase::RadiosStopped:
+        return "radios-stopped";
+    case StandbyTracePhase::StandbyEntered:
+        return "standby-entered";
+    case StandbyTracePhase::WakeRequested:
+        return "wake-requested";
+    case StandbyTracePhase::ResourcesResuming:
+        return "resources-resuming";
+    case StandbyTracePhase::Awake:
+        return "awake";
+    case StandbyTracePhase::EntryFailed:
+        return "entry-failed";
+    case StandbyTracePhase::WakeFailed:
+        return "wake-failed";
+    default:
+        return "invalid";
+    }
+}
+
+void record_standby_trace(StandbyTracePhase phase, esp_err_t error)
+{
+    // Publish the magic last so an interrupted RTC write is never presented
+    // as a coherent previous trace at the next boot.
+    s_retained_standby_trace.magic = 0;
+    s_retained_standby_trace.version = kStandbyTraceVersion;
+    s_retained_standby_trace.transition_sequence = s_transition_sequence;
+    s_retained_standby_trace.phase = static_cast<uint32_t>(phase);
+    s_retained_standby_trace.error = static_cast<int32_t>(error);
+    s_retained_standby_trace.recorded_at_us = esp_timer_get_time();
+    s_retained_standby_trace.magic = kStandbyTraceMagic;
+    ESP_LOGI(
+        kTag,
+        "Standby trace: phase=%s sequence=%lu error=%s",
+        standby_trace_phase_name(phase),
+        static_cast<unsigned long>(s_transition_sequence),
+        esp_err_to_name(error)
+    );
+}
+
+void log_retained_standby_trace()
+{
+    if (s_retained_standby_trace.magic != kStandbyTraceMagic ||
+        s_retained_standby_trace.version != kStandbyTraceVersion) {
+        ESP_LOGI(kTag, "Previous standby trace unavailable: RTC retention was reset");
+        return;
+    }
+    const auto phase = static_cast<StandbyTracePhase>(
+        s_retained_standby_trace.phase
+    );
+    ESP_LOGW(
+        kTag,
+        "Retained standby trace: phase=%s sequence=%lu error=%s at=%lld us reset=%u",
+        standby_trace_phase_name(phase),
+        static_cast<unsigned long>(s_retained_standby_trace.transition_sequence),
+        esp_err_to_name(static_cast<esp_err_t>(s_retained_standby_trace.error)),
+        static_cast<long long>(s_retained_standby_trace.recorded_at_us),
+        static_cast<unsigned>(esp_reset_reason())
+    );
+}
 
 std::atomic<uint32_t> *timeout_storage(LUNASHELL_power_timeout_t timeout)
 {
@@ -391,6 +508,49 @@ esp_err_t set_lvgl_standby(bool standby)
 #endif
 }
 
+// Motion wake remains available in standby, but its host sampling cadence is
+// reduced from 10 Hz to 1 Hz. If motion wake is unavailable, PWR wake remains
+// a valid standalone policy and no transition is required.
+esp_err_t set_motion_wake_standby(bool standby)
+{
+    if (!s_motion_monitor_started) {
+        return ESP_OK;
+    }
+    return LUNASHELL_hardware_set_ui_motion_monitor_standby(standby);
+}
+
+// Wireless services are deliberately one-way for the PWR standby policy:
+// stopping them releases the Wi-Fi/BLE stacks and wake never restarts them
+// without a new explicit Settings action.
+esp_err_t stop_radios_for_standby()
+{
+    record_standby_trace(StandbyTracePhase::RadiosStopping, ESP_OK);
+    const esp_err_t error = LUNASHELL_radios_stop();
+    if (error == ESP_ERR_NOT_SUPPORTED) {
+        record_standby_trace(StandbyTracePhase::RadiosStopped, error);
+        ESP_LOGI(
+            kTag,
+            "Wireless standby transition unavailable in this build profile"
+        );
+        return ESP_OK;
+    }
+    if (error != ESP_OK) {
+        record_standby_trace(StandbyTracePhase::EntryFailed, error);
+        ESP_LOGE(
+            kTag,
+            "Wireless standby transition failed (%s)",
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    record_standby_trace(StandbyTracePhase::RadiosStopped, ESP_OK);
+    ESP_LOGI(
+        kTag,
+        "Wi-Fi and BLE stopped for standby; explicit Settings action is required after wake"
+    );
+    return ESP_OK;
+}
+
 // Apply the display-off policy before pausing LVGL, or restore it last.
 esp_err_t set_display_standby(bool standby)
 {
@@ -518,9 +678,11 @@ bool standby_resources_match_target(
     const bool display_matches = s_standby_resources.display_consistent;
 #endif
     return matches(s_standby_resources.full_snapshots) &&
+           matches(s_standby_resources.gps_low_power) &&
            matches(s_standby_resources.distance) &&
            storage_matches &&
            matches(s_standby_resources.imu_low_power) &&
+           matches(s_standby_resources.motion_wake_cadence) &&
            matches(s_standby_resources.voice_afe) &&
            matches(s_standby_resources.base_audio) &&
            matches(s_standby_resources.lvgl_paused) &&
@@ -554,6 +716,11 @@ esp_err_t suspend_standby_resources(bool best_effort)
         LUNASHELL_hardware_set_full_snapshot_power_suspended
     );
     step(
+        "GPS LC76G subsystem",
+        s_standby_resources.gps_low_power,
+        LUNASHELL_hardware_set_gps_power_suspended
+    );
+    step(
         "Distance acquisition",
         s_standby_resources.distance,
         LUNASHELL_distance_set_power_suspended
@@ -569,6 +736,11 @@ esp_err_t suspend_standby_resources(bool best_effort)
         LUNASHELL_hardware_set_imu_low_power
     );
     step(
+        "IMU motion wake cadence",
+        s_standby_resources.motion_wake_cadence,
+        set_motion_wake_standby
+    );
+    step(
         "Voice AFE",
         s_standby_resources.voice_afe,
         LUNASHELL_voice_afe_set_standby
@@ -578,6 +750,12 @@ esp_err_t suspend_standby_resources(bool best_effort)
         s_standby_resources.base_audio,
         LUNASHELL_audio_set_standby
     );
+    if (best_effort || first_error == ESP_OK) {
+        const esp_err_t radio_error = stop_radios_for_standby();
+        if (first_error == ESP_OK && radio_error != ESP_OK) {
+            first_error = radio_error;
+        }
+    }
     if (best_effort || first_error == ESP_OK) {
         const esp_err_t display_error =
             transition_display_resource(true);
@@ -648,6 +826,11 @@ esp_err_t resume_standby_resources(
         set_lvgl_standby
     );
     step(
+        "IMU motion wake cadence",
+        s_standby_resources.motion_wake_cadence,
+        set_motion_wake_standby
+    );
+    step(
         "IMU profile",
         s_standby_resources.imu_low_power,
         LUNASHELL_hardware_set_imu_low_power
@@ -686,9 +869,18 @@ esp_err_t resume_standby_resources(
         LUNASHELL_voice_afe_set_standby
     );
     step(
+        "GPS LC76G subsystem",
+        s_standby_resources.gps_low_power,
+        LUNASHELL_hardware_set_gps_power_suspended
+    );
+    step(
         "Full Snapshot scheduler",
         s_standby_resources.full_snapshots,
         LUNASHELL_hardware_set_full_snapshot_power_suspended
+    );
+    ESP_LOGI(
+        kTag,
+        "Wake leaves Wi-Fi and BLE stopped; restart remains an explicit Settings action"
     );
     // Keep the panel dark if any data producer failed to become coherent.
     if (first_error == ESP_OK) {
@@ -1051,9 +1243,12 @@ esp_err_t set_standby(
     }
 
     if (standby) {
+        s_deferred_standby_trace_report_at_us = 0;
+        s_deferred_standby_trace_reports_remaining = 0;
         s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;
         s_reason = reason;
         ++s_transition_sequence;
+        record_standby_trace(StandbyTracePhase::EntryRequested, ESP_OK);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
         (void)ulTaskNotifyTake(pdTRUE, 0);
         s_ui_quiescence_acknowledged_sequence.store(
@@ -1074,6 +1269,10 @@ esp_err_t set_standby(
         const esp_err_t ui_quiescence_error =
             wait_for_ui_quiescence(s_transition_sequence);
         if (ui_quiescence_error != ESP_OK) {
+            record_standby_trace(
+                StandbyTracePhase::EntryFailed,
+                ui_quiescence_error
+            );
             s_state = LUNASHELL::DeviceOperatingState::Active;
             publish_power(ui_quiescence_error);
             ESP_LOGE(
@@ -1084,9 +1283,15 @@ esp_err_t set_standby(
             return ui_quiescence_error;
         }
 
+        record_standby_trace(StandbyTracePhase::UiQuiesced, ESP_OK);
+        record_standby_trace(StandbyTracePhase::ResourcesSuspending, ESP_OK);
         const esp_err_t transition_error =
             suspend_standby_resources(false);
         if (transition_error != ESP_OK) {
+            record_standby_trace(
+                StandbyTracePhase::EntryFailed,
+                transition_error
+            );
             esp_err_t optional_storage_error = ESP_OK;
             const esp_err_t rollback_error =
                 resume_standby_resources(true, &optional_storage_error);
@@ -1151,6 +1356,7 @@ esp_err_t set_standby(
         begin_standby_sleep_measurement();
 #endif
         publish_power(ESP_OK);
+        record_standby_trace(StandbyTracePhase::StandbyEntered, ESP_OK);
         ESP_LOGI(
             kTag,
             "PWR standby entered: sequence=%lu",
@@ -1166,13 +1372,19 @@ esp_err_t set_standby(
         s_light_sleep_total_ms.load(std::memory_order_relaxed);
     const int64_t standby_ended_at_us = esp_timer_get_time();
 #endif
+    record_standby_trace(StandbyTracePhase::WakeRequested, ESP_OK);
     s_state = LUNASHELL::DeviceOperatingState::Waking;
     s_reason = reason;
     publish_power(ESP_OK);
     esp_err_t optional_storage_error = ESP_OK;
+    record_standby_trace(StandbyTracePhase::ResourcesResuming, ESP_OK);
     const esp_err_t transition_error =
         resume_standby_resources(false, &optional_storage_error);
     if (transition_error != ESP_OK) {
+        record_standby_trace(
+            StandbyTracePhase::WakeFailed,
+            transition_error
+        );
         const esp_err_t rollback_error =
             suspend_standby_resources(true);
         if (rollback_error == ESP_OK) {
@@ -1216,6 +1428,10 @@ esp_err_t set_standby(
                 standby_ended_at_us
             );
 #endif
+            record_standby_trace(
+                StandbyTracePhase::Awake,
+                recovery_storage_error
+            );
             if (recovery_storage_error != ESP_OK) {
                 recovery_publication_error = recovery_storage_error;
                 ESP_LOGE(
@@ -1253,6 +1469,11 @@ esp_err_t set_standby(
     );
 #endif
     publish_power(optional_storage_error);
+    record_standby_trace(StandbyTracePhase::Awake, optional_storage_error);
+    s_deferred_standby_trace_report_at_us =
+        esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
+    s_deferred_standby_trace_reports_remaining =
+        kDeferredStandbyTraceReportCount;
     ESP_LOGI(
         kTag,
         "Device awake: reason=%s sequence=%lu storage=%s",
@@ -1735,6 +1956,21 @@ void power_task(void *argument)
                 esp_err_to_name(idle_error)
             );
         }
+        if (s_deferred_standby_trace_report_at_us > 0 &&
+            s_state == LUNASHELL::DeviceOperatingState::Active &&
+            esp_timer_get_time() >= s_deferred_standby_trace_report_at_us) {
+            s_deferred_standby_trace_report_at_us = 0;
+            if (s_deferred_standby_trace_reports_remaining == 0U) {
+                ESP_LOGE(kTag, "Deferred standby-trace report had no remaining count");
+            } else {
+                log_retained_standby_trace();
+                --s_deferred_standby_trace_reports_remaining;
+                if (s_deferred_standby_trace_reports_remaining > 0U) {
+                    s_deferred_standby_trace_report_at_us =
+                        esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
+                }
+            }
+        }
         vTaskDelay(power_poll_delay());
     }
 }
@@ -1819,6 +2055,8 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
         );
         return result;
     }
+
+    log_retained_standby_trace();
 
     const esp_err_t motion_monitor_error =
         LUNASHELL_hardware_set_ui_motion_monitor(true);

@@ -1673,11 +1673,14 @@ def verify_source_contracts() -> None:
     )
     suspend_order = [
         suspend_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
+        suspend_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
         suspend_resources.find("LUNASHELL_distance_set_power_suspended"),
         suspend_resources.find("LUNASHELL_storage_set_power_suspended"),
         suspend_resources.find("LUNASHELL_hardware_set_imu_low_power"),
+        suspend_resources.find("set_motion_wake_standby"),
         suspend_resources.find("LUNASHELL_voice_afe_set_standby"),
         suspend_resources.find("LUNASHELL_audio_set_standby"),
+        suspend_resources.find("stop_radios_for_standby"),
         suspend_resources.find("transition_display_resource(true)"),
         suspend_resources.find("set_lvgl_standby"),
     ]
@@ -1808,11 +1811,13 @@ def verify_source_contracts() -> None:
     )
     resume_order = [
         resume_resources.find("set_lvgl_standby"),
+        resume_resources.find("set_motion_wake_standby"),
         resume_resources.find("LUNASHELL_hardware_set_imu_low_power"),
         resume_resources.find("LUNASHELL_distance_set_power_suspended"),
         resume_resources.find("LUNASHELL_storage_set_power_suspended"),
         resume_resources.find("LUNASHELL_audio_set_standby"),
         resume_resources.find("LUNASHELL_voice_afe_set_standby"),
+        resume_resources.find("LUNASHELL_hardware_set_gps_power_suspended"),
         resume_resources.find("LUNASHELL_hardware_set_full_snapshot_power_suspended"),
         resume_resources.find("transition_display_resource(false)"),
     ]
@@ -1824,8 +1829,10 @@ def verify_source_contracts() -> None:
 
     for fragment in (
         "LUNASHELL_hardware_set_full_snapshot_power_suspended(bool suspended)",
+        "LUNASHELL_hardware_set_gps_power_suspended(bool suspended)",
         "LUNASHELL_distance_set_power_suspended(bool suspended)",
         "LUNASHELL_storage_set_power_suspended(bool suspended)",
+        "LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby)",
         "LUNASHELL_hardware_set_imu_low_power(bool enabled)",
     ):
         require_contains(header, fragment, "LUNASHELL_platform.h standby lifecycle")
@@ -1956,6 +1963,35 @@ def verify_source_contracts() -> None:
     require_contains(imu_profile, "configure_imu_profile(enabled)", "IMU profile")
     require_contains(hardware, "QMI8658_ACCEL_ODR_31_25HZ", "IMU low-power ODR")
     require_contains(hardware, "QMI8658_GYRO_ODR_31_25HZ", "IMU low-power ODR")
+    require_contains(
+        hardware,
+        "kUiMotionStandbySamplePeriodMs = 1000",
+        "IMU standby motion cadence",
+    )
+    require_contains(
+        power,
+        "stop_radios_for_standby",
+        "standby radio shutdown",
+    )
+    require_contains(
+        power,
+        "RTC_NOINIT_ATTR StandbyTrace s_retained_standby_trace",
+        "retained standby trace",
+    )
+    for fragment in (
+        "StandbyTracePhase::EntryRequested",
+        "StandbyTracePhase::RadiosStopping",
+        "StandbyTracePhase::StandbyEntered",
+        "StandbyTracePhase::WakeRequested",
+        "StandbyTracePhase::Awake",
+        "Retained standby trace",
+        "kDeferredStandbyTraceReportDelayUs",
+        "kDeferredStandbyTraceReportCount",
+        "s_deferred_standby_trace_report_at_us",
+        "s_deferred_standby_trace_reports_remaining",
+        "kStandbyPollTicks = pdMS_TO_TICKS(1000)",
+    ):
+        require_contains(power, fragment, "standby trace lifecycle")
 
     for fragment in (
         "CONFIG_PM_ENABLE=y",

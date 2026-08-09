@@ -70,8 +70,10 @@ These rules apply to the entire Distanziamoci firmware repository.
   timeout for build invocations before treating them as stalled.
 - Do not run intermediate configure, build, or size passes while implementation
   and integration work is still in progress. Finish the code changes, static
-  review, and cross-component integration first; run the clean build,
-  incremental build, and size report only in the final validation phase.
+  review, and cross-component integration first; run one final validation
+  package only after the task is complete. Limit compiler parallelism to at
+  most 8 jobs, and after cancelling a build confirm that no Ninja or Xtensa
+  compiler process remains before starting any later validation.
 - Before delivery, run a clean build, an incremental build, the size report,
   simulator checks, `git diff --check`, dependency/legacy scans, and a
   changed-files secret scan.

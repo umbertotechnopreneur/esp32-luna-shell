@@ -1276,6 +1276,6 @@ esp_err_t LUNASHELL_radios_stop(void)
         nullptr,
         false
     );
-    ESP_LOGI(TAG, "Wireless services stopped by explicit user action");
+    ESP_LOGI(TAG, "Wireless services stopped");
     return ESP_OK;
 }

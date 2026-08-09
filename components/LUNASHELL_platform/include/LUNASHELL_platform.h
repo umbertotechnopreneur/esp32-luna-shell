@@ -69,6 +69,8 @@ esp_err_t LUNASHELL_hardware_stop_full_snapshot_monitor(void);
 esp_err_t LUNASHELL_hardware_set_full_snapshot_performance_suspended(bool suspended);
 /** Quiesce Full Snapshots for system standby without changing app lifecycle. */
 esp_err_t LUNASHELL_hardware_set_full_snapshot_power_suspended(bool suspended);
+/** Suspend or restore the LC76G GNSS DSP/RF subsystem through its I2C bridge. */
+esp_err_t LUNASHELL_hardware_set_gps_power_suspended(bool suspended);
 /** Persist one supported Full Snapshot cadence: 300-10000 ms presets only. */
 esp_err_t LUNASHELL_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
 
@@ -89,6 +91,11 @@ esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
  * it does not poll microphones or expose a second sensor-data path to the UI.
  */
 esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(bool enabled);
+/**
+ * Retain qualified IMU motion wake at a low 1 Hz host sampling cadence while
+ * Device Standby is active. The normal 10 Hz cadence is restored on wake.
+ */
+esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby);
 /**
  * Select the QMI8658 active or software-standby sampling profile.
  *
