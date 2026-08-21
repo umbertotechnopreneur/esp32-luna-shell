@@ -53,7 +53,7 @@ The complete upstream monorepo is the Git submodule
 `third_party/esp-brookesia`, pinned to:
 
 ```text
-5361118b9953800e4fe710e57e5314fccec9cbcf
+d802d808cfa7ccfbdac8c4f58530198203dfddea
 ```
 
 The project manifests select components from that pinned tree through local

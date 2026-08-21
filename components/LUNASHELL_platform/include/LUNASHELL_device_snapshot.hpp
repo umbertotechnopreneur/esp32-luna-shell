@@ -40,6 +40,8 @@ struct BatterySnapshot : ComponentSnapshot {
     bool battery_active_mode = false;
     bool thermal_regulation_active = false;
     bool input_current_limit_active = false;
+    bool level_percent_valid = false;
+    bool battery_mv_valid = false;
     int level_percent = -1;
     int battery_mv = 0;
     int usb_mv = 0;

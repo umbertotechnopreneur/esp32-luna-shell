@@ -43,6 +43,22 @@ def require_order(text: str, first: str, second: str, source: str) -> None:
     require(first_index < second_index, f"{first!r} must appear before {second!r} in {source}")
 
 
+def function_text(text: str, signature: str, source: str) -> str:
+    signature_at = text.find(signature)
+    require(signature_at >= 0, f"{signature!r} missing from {source}")
+    body_at = text.find("{", signature_at + len(signature))
+    require(body_at >= 0, f"body for {signature!r} missing from {source}")
+    depth = 0
+    for index in range(body_at, len(text)):
+        if text[index] == "{":
+            depth += 1
+        elif text[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[signature_at : index + 1]
+    raise AssertionError(f"unterminated body for {signature!r} in {source}")
+
+
 @dataclass
 class ComponentSnapshotModel:
     health: str = DEVICE_HEALTH_UNKNOWN
@@ -316,6 +332,121 @@ def verify_source_contract() -> None:
         "processor_completed_at_us",
         "processor completion timestamp",
     )
+
+    system_sample = function_text(
+        source,
+        "esp_err_t sample_system_state(",
+        "sample_system_state",
+    )
+    memory_cache_at = system_sample.index(
+        "if (s_static_memory_metadata.ready)"
+    )
+    heap_dynamic_at = system_sample.index(
+        "constexpr uint32_t internal_caps",
+        memory_cache_at,
+    )
+    memory_cache = system_sample[memory_cache_at:heap_dynamic_at]
+    memory_else_at = memory_cache.index("} else {")
+    memory_ready_branch = memory_cache[:memory_else_at]
+    memory_miss_branch = memory_cache[memory_else_at:]
+    for immutable_call in (
+        "esp_flash_get_size(",
+        "esp_ota_get_running_partition()",
+        "esp_image_get_metadata(",
+    ):
+        require_contains(
+            memory_miss_branch,
+            immutable_call,
+            "success-cached immutable memory metadata",
+        )
+        require(
+            immutable_call not in memory_ready_branch,
+            f"cache-hit memory branch repeated immutable call: {immutable_call}",
+        )
+    for cached_copy in (
+        "s_static_memory_metadata.flash_capacity_bytes",
+        "s_static_memory_metadata.app_partition_bytes",
+        "s_static_memory_metadata.firmware_image_bytes",
+    ):
+        require_contains(
+            memory_ready_branch,
+            cached_copy,
+            "cache-hit immutable memory metadata copy",
+        )
+    memory_success_at = memory_cache.index("if (memory_error == ESP_OK)")
+    memory_publish_at = memory_cache.index(
+        "s_static_memory_metadata =",
+        memory_success_at,
+    )
+    require(
+        memory_success_at < memory_publish_at,
+        "immutable memory metadata cache must publish only after full success",
+    )
+    for dynamic_call in (
+        "heap_caps_get_info(",
+        "heap_caps_get_total_size(",
+    ):
+        require(
+            dynamic_call not in memory_cache,
+            f"dynamic heap telemetry was incorrectly placed in the cache: {dynamic_call}",
+        )
+        require_contains(
+            system_sample[heap_dynamic_at:],
+            dynamic_call,
+            "per-sample dynamic heap telemetry",
+        )
+
+    processor_cache_at = system_sample.index(
+        "if (s_static_processor_metadata.ready)",
+        heap_dynamic_at,
+    )
+    cpu_dynamic_at = system_sample.index(
+        "const int core_count = processor.core_count",
+        processor_cache_at,
+    )
+    processor_cache = system_sample[processor_cache_at:cpu_dynamic_at]
+    processor_else_at = processor_cache.index("} else {")
+    processor_ready_branch = processor_cache[:processor_else_at]
+    processor_miss_branch = processor_cache[processor_else_at:]
+    require_contains(
+        processor_miss_branch,
+        "esp_chip_info(&chip);",
+        "success-cached immutable processor metadata",
+    )
+    require(
+        "esp_chip_info(&chip);" not in processor_ready_branch,
+        "cache-hit processor branch repeated esp_chip_info",
+    )
+    require_contains(
+        processor_ready_branch,
+        "s_static_processor_metadata.core_count",
+        "cache-hit immutable processor metadata copy",
+    )
+    processor_success_at = processor_cache.index(
+        "if (processor_error == ESP_OK)"
+    )
+    processor_publish_at = processor_cache.index(
+        "s_static_processor_metadata =",
+        processor_success_at,
+    )
+    require(
+        processor_success_at < processor_publish_at,
+        "immutable processor metadata cache must publish only after validation",
+    )
+    for dynamic_call in (
+        "esp_cpu_get_core_id()",
+        "ulTaskGetIdleRunTimeCounterForCore(core)",
+        "xTaskGetCurrentTaskHandle()",
+    ):
+        require(
+            dynamic_call not in processor_cache,
+            f"dynamic CPU telemetry was incorrectly placed in the cache: {dynamic_call}",
+        )
+        require_contains(
+            system_sample[cpu_dynamic_at:],
+            dynamic_call,
+            "per-sample dynamic CPU telemetry",
+        )
 
     require_contains(source, "apply_measured_sample_aging(copy, esp_timer_get_time());", "snapshot()")
     require_contains(source, "apply_measured_sample_aging(summary, esp_timer_get_time());", "refresh()")
@@ -891,7 +1022,8 @@ def main() -> int:
     print(
         "snapshot integrity verification: PASS "
         "(transaction visibility, cadence-aware completion TTL, recovery, one-shot Diagnostic reuse, "
-        "stream quiescence, heap-hook safety)"
+        "success-only metadata caches, dynamic telemetry, stream quiescence, "
+        "heap-hook safety)"
     )
     return 0
 

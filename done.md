@@ -37,3 +37,22 @@ Completed items moved out of `TODO.md` live here.
 
 Device behavior for these changes has not yet been verified; completion here
 records the implementation only.
+
+## Low-power runtime acquisition
+
+- [x] Make the shared hardware monitor block indefinitely when no diagnostic,
+  adaptive-motion, or auto-rotation consumer is active, and wake it from every
+  setter that can make sampling eligible.
+- [x] Enable and read back AXP2101 battery detection, sample cell telemetry only
+  when a battery is present, and publish explicit percentage/voltage validity.
+- [x] Latch a periodic PCF85063 oscillator-stop failure until a trusted RTC
+  write succeeds and is verified by hardware readback.
+- [x] Cache immutable flash, running-image, partition, and core-count metadata
+  after the first complete successful read while retaining dynamic runtime
+  sampling.
+- [x] Move successful periodic PMU, RTC, and GNSS detail logs to `DEBUG` while
+  preserving visible errors and structured health state.
+
+These entries record the implemented software package only. Electrical savings
+and the open physical standby/wake tests require target-device measurements and
+remain tracked in `TODO.md` and `planned-todo.md`.

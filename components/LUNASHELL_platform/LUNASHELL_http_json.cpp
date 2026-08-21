@@ -77,10 +77,34 @@ void writeComponentFields(
 
 void writeBattery(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BatterySnapshot &battery)
 {
+    const bool battery_current =
+        battery.health == LUNASHELL::DeviceHealth::Ready &&
+        battery.last_error == ESP_OK &&
+        battery.data_valid &&
+        !battery.data_stale;
+    const bool level_percent_valid =
+        battery_current &&
+        battery.level_percent_valid &&
+        battery.level_percent >= 0 &&
+        battery.level_percent <= 100;
+    const bool battery_mv_valid =
+        battery_current &&
+        battery.battery_mv_valid &&
+        battery.battery_mv > 0;
+
     (void)json.raw("{\"health\":");
     (void)json.quoted(LUNASHELL::deviceHealthName(battery.health));
     (void)json.raw(",\"last_error\":");
     (void)json.quoted(esp_err_to_name(battery.last_error));
+    (void)json.raw(",\"data_valid\":");
+    (void)json.boolean(battery.data_valid);
+    (void)json.raw(",\"data_stale\":");
+    (void)json.boolean(battery.data_stale);
+    (void)json.format(
+        ",\"last_attempt_at_us\":%lld,\"last_success_at_us\":%lld",
+        static_cast<long long>(battery.last_attempt_at_us),
+        static_cast<long long>(battery.last_success_at_us)
+    );
     (void)json.raw(",\"battery_present\":");
     (void)json.boolean(battery.battery_present);
     (void)json.raw(",\"usb_present\":");
@@ -95,10 +119,24 @@ void writeBattery(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BatterySnaps
     (void)json.boolean(battery.thermal_regulation_active);
     (void)json.raw(",\"input_current_limit_active\":");
     (void)json.boolean(battery.input_current_limit_active);
+    (void)json.raw(",\"level_percent_valid\":");
+    (void)json.boolean(level_percent_valid);
+    (void)json.raw(",\"level_percent\":");
+    if (level_percent_valid) {
+        (void)json.format("%d", battery.level_percent);
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"battery_mv_valid\":");
+    (void)json.boolean(battery_mv_valid);
+    (void)json.raw(",\"battery_mv\":");
+    if (battery_mv_valid) {
+        (void)json.format("%d", battery.battery_mv);
+    } else {
+        (void)json.raw("null");
+    }
     (void)json.format(
-        ",\"level_percent\":%d,\"battery_mv\":%d,\"usb_mv\":%d,\"system_mv\":%d,\"die_temperature_c\":%.2f,\"power_state\":",
-        battery.level_percent,
-        battery.battery_mv,
+        ",\"usb_mv\":%d,\"system_mv\":%d,\"die_temperature_c\":%.2f,\"power_state\":",
         battery.usb_mv,
         battery.system_mv,
         static_cast<double>(battery.die_temperature_c)

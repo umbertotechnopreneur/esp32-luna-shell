@@ -67,6 +67,7 @@ std::string_view battery_icon(const LUNASHELL::BatterySnapshot &battery)
 {
     if (!component_ready(battery) ||
         !battery.battery_present ||
+        !battery.level_percent_valid ||
         battery.level_percent < 0 ||
         battery.level_percent > 100) {
         return "\xef\x89\x84";
@@ -142,7 +143,8 @@ std::expected<void, std::string> LUNASHELLStatusBar::update(
             : palette::kStatusMuted;
         if (!snapshot.battery.battery_present) {
             battery_color = palette::kStatusMuted;
-        } else if (snapshot.battery.level_percent < 0 ||
+        } else if (!snapshot.battery.level_percent_valid ||
+                   snapshot.battery.level_percent < 0 ||
                    snapshot.battery.level_percent > 100 ||
                    snapshot.battery.level_percent <= 12) {
             battery_color = palette::kStatusFault;

@@ -145,6 +145,10 @@ std::atomic<uint32_t> s_pkey_short_press_pending{0};
 std::atomic<uint32_t> s_pkey_long_press_pending{0};
 uint64_t s_pmu_queued_pkey_status;
 bool s_rtc_ready;
+std::atomic_bool s_rtc_oscillator_stop_latched{false};
+std::atomic_bool s_rtc_recovery_readback_required{false};
+std::atomic<uint32_t> s_rtc_trusted_write_generation{0};
+std::mutex s_rtc_operation_mutex;
 bool s_imu_ready;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
 bool s_imu_profile_low_power;
@@ -167,6 +171,7 @@ bool s_gps_ready;
 bool s_gps_power_suspended;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
+std::atomic<TaskHandle_t> s_diagnostic_monitor_task_handle{nullptr};
 std::atomic_bool s_diagnostic_imu_active{false};
 std::atomic_bool s_diagnostic_microphone_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
@@ -258,6 +263,27 @@ struct ProcessorUsageState {
 };
 
 ProcessorUsageState s_processor_usage;
+
+struct StaticMemoryMetadata {
+    bool ready = false;
+    uint32_t flash_capacity_bytes = 0;
+    uint32_t app_partition_bytes = 0;
+    uint32_t firmware_image_bytes = 0;
+};
+
+struct StaticProcessorMetadata {
+    bool ready = false;
+    uint8_t core_count = 0;
+};
+
+struct RtcLatchObservation {
+    bool valid = false;
+    bool oscillator_stop = false;
+    uint32_t trusted_write_generation_at_read = 0;
+};
+
+StaticMemoryMetadata s_static_memory_metadata;
+StaticProcessorMetadata s_static_processor_metadata;
 
 // Chip-specific adapters return this normalized sample to the shared pipeline.
 struct ImuRawSample {
@@ -829,6 +855,16 @@ bool high_frequency_sample_phase(const char *phase)
     return phase != nullptr &&
            (std::strcmp(phase, "diagnostic-ui") == 0 ||
             std::strcmp(phase, "periodic-full") == 0);
+}
+
+void notify_hardware_monitor()
+{
+    TaskHandle_t task = s_diagnostic_monitor_task_handle.load(
+        std::memory_order_acquire
+    );
+    if (task != nullptr) {
+        xTaskNotifyGive(task);
+    }
 }
 
 const char *component_summary_state(
@@ -1636,6 +1672,68 @@ esp_err_t read_pmu_registers(
     return read_register(s_pmu_device, reg, data, length);
 }
 
+esp_err_t enable_and_verify_pmu_battery_detection()
+{
+    uint8_t value = 0;
+    esp_err_t error = read_pmu_registers(
+        XPOWERS_AXP2101_BAT_DET_CTRL,
+        &value,
+        1
+    );
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: battery detection control read failed at register=0x%02x (%s)",
+            XPOWERS_AXP2101_BAT_DET_CTRL,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    if ((value & BIT(0)) == 0U) {
+        error = write_register(
+            s_pmu_device,
+            XPOWERS_AXP2101_BAT_DET_CTRL,
+            static_cast<uint8_t>(value | BIT(0))
+        );
+        if (error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "PMU AXP2101: battery detection enable failed at register=0x%02x (%s)",
+                XPOWERS_AXP2101_BAT_DET_CTRL,
+                esp_err_to_name(error)
+            );
+            return error;
+        }
+    }
+
+    uint8_t readback = 0;
+    error = read_pmu_registers(
+        XPOWERS_AXP2101_BAT_DET_CTRL,
+        &readback,
+        1
+    );
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: battery detection enable readback failed at register=0x%02x (%s)",
+            XPOWERS_AXP2101_BAT_DET_CTRL,
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    if ((readback & BIT(0)) == 0U) {
+        ESP_LOGE(
+            TAG,
+            "PMU AXP2101: battery detection enable readback mismatch at register=0x%02x value=0x%02x (%s)",
+            XPOWERS_AXP2101_BAT_DET_CTRL,
+            readback,
+            esp_err_to_name(ESP_ERR_INVALID_RESPONSE)
+        );
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+
 esp_err_t read_pmu_irq_status(const char *operation, uint64_t *status)
 {
     if (status == nullptr) {
@@ -1937,6 +2035,139 @@ bool valid_bcd(uint8_t value)
     return (value & 0x0FU) <= 9U && ((value >> 4U) & 0x0FU) <= 9U;
 }
 
+bool calendar_fields_equal(
+    const LUNASHELL_calendar_time_t &left,
+    const LUNASHELL_calendar_time_t &right
+)
+{
+    return left.year == right.year &&
+           left.month == right.month &&
+           left.day == right.day &&
+           left.hour == right.hour &&
+           left.minute == right.minute &&
+           left.second == right.second;
+}
+
+void advance_calendar_one_second(LUNASHELL_calendar_time_t *time)
+{
+    if (time == nullptr) {
+        return;
+    }
+    if (++time->second <= 59U) {
+        return;
+    }
+    time->second = 0;
+    if (++time->minute <= 59U) {
+        return;
+    }
+    time->minute = 0;
+    if (++time->hour <= 23U) {
+        return;
+    }
+    time->hour = 0;
+    static constexpr uint8_t days_per_month[] = {
+        31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    };
+    uint8_t maximum_day = days_per_month[time->month - 1U];
+    const bool leap =
+        (time->year % 4U == 0U && time->year % 100U != 0U) ||
+        time->year % 400U == 0U;
+    if (time->month == 2U && leap) {
+        maximum_day = 29U;
+    }
+    if (++time->day <= maximum_day) {
+        return;
+    }
+    time->day = 1;
+    if (++time->month <= 12U) {
+        return;
+    }
+    time->month = 1;
+    ++time->year;
+}
+
+bool rtc_write_readback_matches(
+    const LUNASHELL_calendar_time_t &requested,
+    const LUNASHELL_calendar_time_t &observed
+)
+{
+    if (calendar_fields_equal(requested, observed)) {
+        return true;
+    }
+    LUNASHELL_calendar_time_t next = requested;
+    advance_calendar_one_second(&next);
+    return calendar_fields_equal(next, observed);
+}
+
+RtcLatchObservation make_rtc_latch_observation(
+    const LUNASHELL_calendar_time_t &time,
+    esp_err_t read_error,
+    esp_err_t publication_error,
+    uint32_t trusted_write_generation_at_read
+)
+{
+    RtcLatchObservation observation;
+    if (publication_error != ESP_OK) {
+        return observation;
+    }
+    if (read_error != ESP_ERR_INVALID_STATE ||
+        !valid_rtc_register_calendar(time) ||
+        time.clock_integrity) {
+        return observation;
+    }
+
+    observation.valid = true;
+    observation.oscillator_stop = true;
+    observation.trusted_write_generation_at_read =
+        trusted_write_generation_at_read;
+    return observation;
+}
+
+void apply_rtc_latch_observation_locked(
+    const RtcLatchObservation &observation
+)
+{
+    if (!observation.valid) {
+        return;
+    }
+    if (!observation.oscillator_stop) {
+        return;
+    }
+
+    if (s_rtc_trusted_write_generation.load(std::memory_order_acquire) !=
+        observation.trusted_write_generation_at_read) {
+        // A trusted write superseded this sample. Do not touch the latch: a
+        // newer read may already own a valid oscillator-stop observation.
+        return;
+    }
+    s_rtc_oscillator_stop_latched.store(true, std::memory_order_release);
+}
+
+void apply_rtc_latch_observation(const RtcLatchObservation &observation)
+{
+    // Pair the generation comparison with the latch update. RTC reads and
+    // trusted writes use the same mutex, so a stale observation can neither
+    // relatch after a write nor clear a newer observation.
+    std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
+    apply_rtc_latch_observation_locked(observation);
+}
+
+void require_rtc_recovery_readback(
+    const RtcLatchObservation &observation
+)
+{
+    if (observation.valid && observation.oscillator_stop) {
+        // This is intentionally immediate rather than commit-gated. A valid
+        // GNSS fix can write the RTC later in the same staged Full Snapshot;
+        // that write must verify recovery even before the persistent latch is
+        // applied after snapshot commit.
+        s_rtc_recovery_readback_required.store(
+            true,
+            std::memory_order_release
+        );
+    }
+}
+
 bool finite_imu_sample(const ImuRawSample &data)
 {
     return std::isfinite(data.accelX) &&
@@ -1959,6 +2190,8 @@ esp_err_t sample_pmu_locked(const char *phase)
     if (error != ESP_OK) {
         const esp_err_t publication_error = update_snapshot(
             [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                snapshot.battery.level_percent_valid = false;
+                snapshot.battery.battery_mv_valid = false;
                 mark_sample_failure(
                     snapshot.battery,
                     error,
@@ -1986,11 +2219,31 @@ esp_err_t sample_pmu_locked(const char *phase)
     if (error == ESP_OK) {
         error = read_pmu_registers(XPOWERS_AXP2101_STATUS2, &status2, 1);
     }
-    if (error == ESP_OK) {
+
+    sample.vbus_good = (status1 & BIT(5)) != 0;
+    sample.batfet_enabled = (status1 & BIT(4)) != 0;
+    sample.battery_present = (status1 & BIT(3)) != 0;
+    sample.battery_active_mode = (status1 & BIT(2)) != 0;
+    sample.thermal_regulation_active = (status1 & BIT(1)) != 0;
+    sample.input_current_limit_active = (status1 & BIT(0)) != 0;
+    sample.usb_present =
+        sample.vbus_good && (status2 & BIT(3)) == 0;
+
+    // BAT presence comes from the dedicated detector. Do not touch the cell
+    // ADC or percentage registers when no battery is connected: their bytes
+    // are not current telemetry and the extra I2C transactions are wasteful.
+    if (error == ESP_OK && sample.battery_present) {
         error = read_pmu_registers(
             XPOWERS_AXP2101_ADC_DATA_RELUST0,
             battery_adc,
             sizeof(battery_adc)
+        );
+    }
+    if (error == ESP_OK && sample.battery_present) {
+        error = read_pmu_registers(
+            XPOWERS_AXP2101_BAT_PERCENT_DATA,
+            &percent,
+            1
         );
     }
     if (error == ESP_OK) {
@@ -2012,22 +2265,6 @@ esp_err_t sample_pmu_locked(const char *phase)
             XPOWERS_AXP2101_ADC_DATA_RELUST8,
             temperature_adc,
             sizeof(temperature_adc)
-        );
-    }
-
-    sample.vbus_good = (status1 & BIT(5)) != 0;
-    sample.batfet_enabled = (status1 & BIT(4)) != 0;
-    sample.battery_present = (status1 & BIT(3)) != 0;
-    sample.battery_active_mode = (status1 & BIT(2)) != 0;
-    sample.thermal_regulation_active = (status1 & BIT(1)) != 0;
-    sample.input_current_limit_active = (status1 & BIT(0)) != 0;
-    sample.usb_present =
-        sample.vbus_good && (status2 & BIT(3)) == 0;
-    if (error == ESP_OK && sample.battery_present) {
-        error = read_pmu_registers(
-            XPOWERS_AXP2101_BAT_PERCENT_DATA,
-            &percent,
-            1
         );
     }
 
@@ -2071,9 +2308,12 @@ esp_err_t sample_pmu_locked(const char *phase)
          temperature_raw > 16383U)) {
         error = ESP_ERR_INVALID_RESPONSE;
     }
-    sample.level_percent =
-        sample.battery_present ? static_cast<int>(percent) : -1;
-    sample.battery_mv = battery_mv;
+    if (error == ESP_OK && sample.battery_present) {
+        sample.level_percent_valid = true;
+        sample.battery_mv_valid = true;
+        sample.level_percent = static_cast<int>(percent);
+        sample.battery_mv = battery_mv;
+    }
     sample.usb_mv = usb_mv;
     sample.system_mv = system_mv;
     sample.die_temperature_c =
@@ -2084,6 +2324,8 @@ esp_err_t sample_pmu_locked(const char *phase)
     if (error != ESP_OK) {
         const esp_err_t publication_error = update_snapshot(
             [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+                snapshot.battery.level_percent_valid = false;
+                snapshot.battery.battery_mv_valid = false;
                 mark_sample_failure(
                     snapshot.battery,
                     error,
@@ -2131,25 +2373,47 @@ esp_err_t sample_pmu_locked(const char *phase)
         }
     );
 
-    ESP_LOGI(
-        TAG,
-        "PMU AXP2101 %s: battery=%s %d%% %dmV, state=%s phase=%s, USB=%s good=%d %dmV, system=%dmV, die=%.1fC, BATFET=%d active=%d thermal=%d input-limit=%d",
-        phase,
-        sample.battery_present ? "present" : "absent",
-        sample.level_percent,
-        sample.battery_mv,
-        sample.power_state,
-        sample.charger_phase,
-        sample.usb_present ? "present" : "absent",
-        sample.vbus_good,
-        sample.usb_mv,
-        sample.system_mv,
-        sample.die_temperature_c,
-        sample.batfet_enabled,
-        sample.battery_active_mode,
-        sample.thermal_regulation_active,
-        sample.input_current_limit_active
-    );
+    const esp_log_level_t success_log_level =
+        high_frequency_sample_phase(phase) ? ESP_LOG_DEBUG : ESP_LOG_INFO;
+    if (sample.level_percent_valid && sample.battery_mv_valid) {
+        ESP_LOG_LEVEL_LOCAL(
+            success_log_level,
+            TAG,
+            "PMU AXP2101 %s: battery=present cell=%d%% %dmV, state=%s phase=%s, USB=%s good=%d %dmV, system=%dmV, die=%.1fC, BATFET=%d active=%d thermal=%d input-limit=%d",
+            phase,
+            sample.level_percent,
+            sample.battery_mv,
+            sample.power_state,
+            sample.charger_phase,
+            sample.usb_present ? "present" : "absent",
+            sample.vbus_good,
+            sample.usb_mv,
+            sample.system_mv,
+            sample.die_temperature_c,
+            sample.batfet_enabled,
+            sample.battery_active_mode,
+            sample.thermal_regulation_active,
+            sample.input_current_limit_active
+        );
+    } else {
+        ESP_LOG_LEVEL_LOCAL(
+            success_log_level,
+            TAG,
+            "PMU AXP2101 %s: battery=absent cell=UNAVAILABLE, state=%s phase=%s, USB=%s good=%d %dmV, system=%dmV, die=%.1fC, BATFET=%d active=%d thermal=%d input-limit=%d",
+            phase,
+            sample.power_state,
+            sample.charger_phase,
+            sample.usb_present ? "present" : "absent",
+            sample.vbus_good,
+            sample.usb_mv,
+            sample.system_mv,
+            sample.die_temperature_c,
+            sample.batfet_enabled,
+            sample.battery_active_mode,
+            sample.thermal_regulation_active,
+            sample.input_current_limit_active
+        );
+    }
     return sample_publication_result(
         "PMU AXP2101",
         phase,
@@ -2180,6 +2444,8 @@ esp_err_t publish_pmu_lock_failure(
     const int64_t attempted_at_us = esp_timer_get_time();
     const esp_err_t publication_error = update_snapshot(
         [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+            snapshot.battery.level_percent_valid = false;
+            snapshot.battery.battery_mv_valid = false;
             mark_sample_failure(
                 snapshot.battery,
                 error,
@@ -2278,7 +2544,11 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         }
         return applied;
     };
-    if (!require_pmu_write(
+    if (error == ESP_OK) {
+        error = enable_and_verify_pmu_battery_detection();
+    }
+    if (error == ESP_OK &&
+        (!require_pmu_write(
             s_power.enableVbusVoltageMeasure(),
             "enable VBUS voltage measurement"
         ) ||
@@ -2293,7 +2563,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         !require_pmu_write(
             s_power.enableTemperatureMeasure(),
             "enable die temperature measurement"
-        )) {
+        ))) {
         error = ESP_FAIL;
     }
     // The board has no battery NTC on TS; leaving TS measurement enabled can inhibit charging.
@@ -2380,7 +2650,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
     });
     ESP_LOGI(
         TAG,
-        "PMU AXP2101: ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
+        "PMU AXP2101: battery detector verified, ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
     );
     return ESP_OK;
 #else
@@ -2434,6 +2704,16 @@ esp_err_t init_rtc(i2c_master_bus_handle_t bus)
         error = write_register(s_rtc, PCF85063_REG_CTRL1, ctrl1);
     }
     s_rtc_ready = error == ESP_OK;
+    if (s_rtc_ready) {
+        s_rtc_oscillator_stop_latched.store(
+            false,
+            std::memory_order_release
+        );
+        s_rtc_recovery_readback_required.store(
+            false,
+            std::memory_order_release
+        );
+    }
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.rtc, error == ESP_OK, error);
     });
@@ -2622,13 +2902,46 @@ esp_err_t publish_rtc_read(
     );
 }
 
-esp_err_t sample_rtc(const char *phase)
+esp_err_t sample_rtc(
+    const char *phase,
+    RtcLatchObservation *latch_observation
+)
 {
+    if (latch_observation != nullptr) {
+        *latch_observation = {};
+    }
+    if (high_frequency_sample_phase(phase) &&
+        s_rtc_oscillator_stop_latched.load(std::memory_order_acquire)) {
+        // The previous physical read already proved the OS condition. Keep the
+        // real degraded result without repeating I2C traffic or pretending a
+        // new sample attempt occurred; a trusted write performs the recovery.
+        return ESP_ERR_INVALID_STATE;
+    }
+    // Serialize the complete read/observation sequence with direct reads and
+    // trusted write+readback transactions. The GNSS path calls rtc_write later
+    // in the same refresh, after this guard has been released.
+    std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
+    if (high_frequency_sample_phase(phase) &&
+        s_rtc_oscillator_stop_latched.load(std::memory_order_acquire)) {
+        return ESP_ERR_INVALID_STATE;
+    }
     LUNASHELL_calendar_time_t time = {};
+    const uint32_t trusted_write_generation_at_read =
+        s_rtc_trusted_write_generation.load(std::memory_order_acquire);
     const int64_t attempted_at_us = esp_timer_get_time();
     const esp_err_t error = read_rtc_calendar(&time);
     const esp_err_t publication_error =
         publish_rtc_read(time, error, attempted_at_us);
+    const RtcLatchObservation observation = make_rtc_latch_observation(
+        time,
+        error,
+        publication_error,
+        trusted_write_generation_at_read
+    );
+    require_rtc_recovery_readback(observation);
+    if (latch_observation != nullptr) {
+        *latch_observation = observation;
+    }
     if (error != ESP_OK) {
         ESP_LOGW(TAG, "RTC PCF85063: %s sample failed (%s)", phase, esp_err_to_name(error));
         return sample_publication_result(
@@ -2638,18 +2951,33 @@ esp_err_t sample_rtc(const char *phase)
             publication_error
         );
     }
-    ESP_LOGI(
-        TAG,
-        "RTC PCF85063 %s: %04u-%02u-%02u %02u:%02u:%02u, integrity=%s",
-        phase,
-        time.year,
-        time.month,
-        time.day,
-        time.hour,
-        time.minute,
-        time.second,
-        time.clock_integrity ? "valid" : "clock-reset"
-    );
+    if (high_frequency_sample_phase(phase)) {
+        ESP_LOGD(
+            TAG,
+            "RTC PCF85063 %s: %04u-%02u-%02u %02u:%02u:%02u, integrity=%s",
+            phase,
+            time.year,
+            time.month,
+            time.day,
+            time.hour,
+            time.minute,
+            time.second,
+            time.clock_integrity ? "valid" : "clock-reset"
+        );
+    } else {
+        ESP_LOGI(
+            TAG,
+            "RTC PCF85063 %s: %04u-%02u-%02u %02u:%02u:%02u, integrity=%s",
+            phase,
+            time.year,
+            time.month,
+            time.day,
+            time.hour,
+            time.minute,
+            time.second,
+            time.clock_integrity ? "valid" : "clock-reset"
+        );
+    }
     return sample_publication_result(
         "RTC PCF85063",
         phase,
@@ -4328,7 +4656,16 @@ esp_err_t sample_gps(const char *phase)
         ESP_OK,
         publication_error
     );
-    if (read_length == 0) {
+    if (high_frequency_sample_phase(phase)) {
+        ESP_LOGD(
+            TAG,
+            "GPS LC76G %s: read=%lu pending-before=%lu byte(s), fix=%s",
+            phase,
+            static_cast<unsigned long>(read_length),
+            static_cast<unsigned long>(data_length),
+            sample.has_fix ? "yes" : "no"
+        );
+    } else if (read_length == 0) {
         ESP_LOGI(TAG, "GPS LC76G %s: transport online, no NMEA bytes waiting", phase);
     } else if (sample.has_fix) {
         ESP_LOGI(
@@ -4939,15 +5276,25 @@ void diagnostic_monitor_task(void *arg)
             ) &&
             s_orientation.desired_rendering_degrees !=
                 s_orientation.applied_rendering_degrees;
-        const uint32_t delay_ms =
-            auto_rotation_active || rotation_apply_pending
-                ? kOrientationSamplePeriodMs
-                : ui_motion_active
-                    ? ui_motion_period_ms
-                    : monitor_active
-                      ? s_diagnostic_period_ms.load(std::memory_order_relaxed)
-                      : 250U;
-        vTaskDelay(pdMS_TO_TICKS(delay_ms));
+        const bool wait_indefinitely =
+            !auto_rotation_active &&
+            !rotation_apply_pending &&
+            !ui_motion_active &&
+            !monitor_active;
+        const TickType_t wait_ticks = wait_indefinitely
+            ? portMAX_DELAY
+            : pdMS_TO_TICKS(
+                auto_rotation_active || rotation_apply_pending
+                    ? kOrientationSamplePeriodMs
+                    : ui_motion_active
+                        ? ui_motion_period_ms
+                        : s_diagnostic_period_ms.load(
+                            std::memory_order_relaxed
+                        )
+            );
+        // Configuration setters notify this task, so an idle monitor has no
+        // polling wakeup and any newly requested consumer starts immediately.
+        (void)ulTaskNotifyTake(pdTRUE, wait_ticks);
     }
 }
 
@@ -5160,28 +5507,47 @@ esp_err_t sample_system_state()
     LUNASHELL::MemorySnapshot memory;
     LUNASHELL::ProcessorSnapshot processor;
     const int64_t attempted_at_us = esp_timer_get_time();
-    esp_err_t memory_error = esp_flash_get_size(
-        nullptr,
-        &memory.flash_capacity_bytes
-    );
+    esp_err_t memory_error = ESP_OK;
     esp_err_t processor_error = ESP_OK;
 
-    const esp_partition_t *running_partition = esp_ota_get_running_partition();
-    if (running_partition != nullptr) {
-        memory.app_partition_bytes = running_partition->size;
-        const esp_partition_pos_t partition_position = {
-            .offset = running_partition->address,
-            .size = running_partition->size,
-        };
-        esp_image_metadata_t image_metadata = {};
-        const esp_err_t metadata_error =
-            esp_image_get_metadata(&partition_position, &image_metadata);
-        record_first_error(metadata_error, &memory_error);
-        if (metadata_error == ESP_OK) {
-            memory.firmware_image_bytes = image_metadata.image_len;
-        }
+    if (s_static_memory_metadata.ready) {
+        memory.flash_capacity_bytes =
+            s_static_memory_metadata.flash_capacity_bytes;
+        memory.app_partition_bytes =
+            s_static_memory_metadata.app_partition_bytes;
+        memory.firmware_image_bytes =
+            s_static_memory_metadata.firmware_image_bytes;
     } else {
-        record_first_error(ESP_ERR_NOT_FOUND, &memory_error);
+        memory_error = esp_flash_get_size(
+            nullptr,
+            &memory.flash_capacity_bytes
+        );
+        const esp_partition_t *running_partition =
+            esp_ota_get_running_partition();
+        if (running_partition != nullptr) {
+            memory.app_partition_bytes = running_partition->size;
+            const esp_partition_pos_t partition_position = {
+                .offset = running_partition->address,
+                .size = running_partition->size,
+            };
+            esp_image_metadata_t image_metadata = {};
+            const esp_err_t metadata_error =
+                esp_image_get_metadata(&partition_position, &image_metadata);
+            record_first_error(metadata_error, &memory_error);
+            if (metadata_error == ESP_OK) {
+                memory.firmware_image_bytes = image_metadata.image_len;
+            }
+        } else {
+            record_first_error(ESP_ERR_NOT_FOUND, &memory_error);
+        }
+        if (memory_error == ESP_OK) {
+            s_static_memory_metadata = {
+                .ready = true,
+                .flash_capacity_bytes = memory.flash_capacity_bytes,
+                .app_partition_bytes = memory.app_partition_bytes,
+                .firmware_image_bytes = memory.firmware_image_bytes,
+            };
+        }
     }
 
     constexpr uint32_t internal_caps =
@@ -5278,17 +5644,28 @@ esp_err_t sample_system_state()
     }
     const int64_t memory_completed_at_us = esp_timer_get_time();
 
-    esp_chip_info_t chip = {};
-    esp_chip_info(&chip);
-    processor.core_count = static_cast<uint8_t>(chip.cores);
-    if (chip.cores < 1 || chip.cores > 2) {
-        record_first_error(
-            ESP_ERR_INVALID_RESPONSE,
-            &processor_error
-        );
+    if (s_static_processor_metadata.ready) {
+        processor.core_count = s_static_processor_metadata.core_count;
+    } else {
+        esp_chip_info_t chip = {};
+        esp_chip_info(&chip);
+        processor.core_count = static_cast<uint8_t>(chip.cores);
+        if (chip.cores < 1 || chip.cores > 2) {
+            record_first_error(
+                ESP_ERR_INVALID_RESPONSE,
+                &processor_error
+            );
+        }
+        if (processor_error == ESP_OK) {
+            s_static_processor_metadata = {
+                .ready = true,
+                .core_count = processor.core_count,
+            };
+        }
     }
+    const int core_count = processor.core_count;
     const int sampling_core = esp_cpu_get_core_id();
-    if (sampling_core < 0 || sampling_core >= chip.cores ||
+    if (sampling_core < 0 || sampling_core >= core_count ||
         sampling_core >= 2) {
         record_first_error(
             ESP_ERR_INVALID_RESPONSE,
@@ -5303,7 +5680,7 @@ esp_err_t sample_system_state()
         const configRUN_TIME_COUNTER_TYPE sampled_at =
             static_cast<configRUN_TIME_COUNTER_TYPE>(esp_timer_get_time());
         configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
-        for (int core = 0; core < chip.cores; ++core) {
+        for (int core = 0; core < core_count; ++core) {
             idle_runtime[core] = ulTaskGetIdleRunTimeCounterForCore(core);
             processor.cores[core].available = true;
         }
@@ -5316,7 +5693,7 @@ esp_err_t sample_system_state()
                     &processor_error
                 );
             } else {
-                for (int core = 0; core < chip.cores; ++core) {
+                for (int core = 0; core < core_count; ++core) {
                     const configRUN_TIME_COUNTER_TYPE idle_elapsed =
                         idle_runtime[core] -
                         s_processor_usage.idle_runtime[core];
@@ -5349,7 +5726,7 @@ esp_err_t sample_system_state()
         if (processor_error == ESP_OK) {
             s_processor_usage.initialized = true;
             s_processor_usage.sampled_at = sampled_at;
-            for (int core = 0; core < chip.cores; ++core) {
+            for (int core = 0; core < core_count; ++core) {
                 s_processor_usage.idle_runtime[core] = idle_runtime[core];
             }
         }
@@ -5729,6 +6106,7 @@ esp_err_t DeviceSnapshotService::refresh(
     bool summary_available = false;
     int64_t reused_diagnostic_imu_at_us = 0;
     int64_t reused_diagnostic_microphone_at_us = 0;
+    RtcLatchObservation rtc_latch_observation;
     const bool diagnostic_reuse_allowed =
         diagnostic_reuse_limit_ms > 0U &&
         std::strcmp(phase, "periodic-full") == 0;
@@ -5744,7 +6122,10 @@ esp_err_t DeviceSnapshotService::refresh(
             record_first_error(sample_pmu(phase), &aggregate);
         }
         if (s_rtc_ready) {
-            record_first_error(sample_rtc(phase), &aggregate);
+            record_first_error(
+                sample_rtc(phase, &rtc_latch_observation),
+                &aggregate
+            );
         }
         if (s_imu_ready) {
             const int64_t committed_diagnostic_imu_at_us =
@@ -5803,6 +6184,7 @@ esp_err_t DeviceSnapshotService::refresh(
         record_first_error(commit_error, &aggregate);
         summary_available = commit_error == ESP_OK;
         if (summary_available) {
+            apply_rtc_latch_observation(rtc_latch_observation);
             if (reused_diagnostic_imu_at_us > 0) {
                 s_last_full_consumed_diagnostic_imu_us =
                     reused_diagnostic_imu_at_us;
@@ -6743,9 +7125,14 @@ static esp_err_t ensure_hardware_monitor_task_locked()
             MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) == pdPASS;
     if (!s_diagnostic_monitor_started) {
+        s_diagnostic_monitor_task_handle.store(
+            nullptr,
+            std::memory_order_release
+        );
         ESP_LOGE(TAG, "Hardware monitor task creation failed");
         return ESP_ERR_NO_MEM;
     }
+    s_diagnostic_monitor_task_handle.store(task, std::memory_order_release);
     ESP_LOGI(TAG, "Hardware diagnostics/orientation monitor ready");
     return ESP_OK;
 }
@@ -6892,6 +7279,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
         refresh_mutex,
         "Diagnostic stream selection"
     );
+    notify_hardware_monitor();
     if (release_error != ESP_OK) {
         publish_diagnostic_monitor(release_error);
         return release_error;
@@ -6940,6 +7328,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(bool enabled)
     if (!enabled) {
         s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
     }
+    notify_hardware_monitor();
     ESP_LOGI(
         TAG,
         "Adaptive UI motion monitor: %s",
@@ -6968,6 +7357,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
     }
 
     s_ui_motion_monitor_standby.store(standby, std::memory_order_release);
+    notify_hardware_monitor();
     ESP_LOGI(
         TAG,
         "Adaptive UI motion cadence: %s (%lu ms)",
@@ -7034,6 +7424,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(
         refresh_mutex,
         "UI sampling standby transition"
     );
+    notify_hardware_monitor();
     if (release_error != ESP_OK) {
         return release_error;
     }
@@ -7313,6 +7704,7 @@ static esp_err_t set_auto_rotation_runtime(bool enabled)
         refresh_mutex,
         "Auto-rotation runtime update"
     );
+    notify_hardware_monitor();
     if (publication_error != ESP_OK) {
         return publication_error;
     }
@@ -7504,6 +7896,7 @@ extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_period_ms(uint32_t period
 
     s_diagnostic_period_ms.store(period_ms, std::memory_order_relaxed);
     s_diagnostic_period_valid.store(true, std::memory_order_relaxed);
+    notify_hardware_monitor();
     publish_diagnostic_period(ESP_OK);
     ESP_LOGI(TAG, "Diagnostic sample period: %lu ms",
              static_cast<unsigned long>(period_ms));
@@ -7669,11 +8062,22 @@ extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time)
         ESP_LOGE(TAG, "RTC read rejected: output is null");
         return ESP_ERR_INVALID_ARG;
     }
+    std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
     LUNASHELL_calendar_time_t sample = {};
+    const uint32_t trusted_write_generation_at_read =
+        s_rtc_trusted_write_generation.load(std::memory_order_acquire);
     const int64_t attempted_at_us = esp_timer_get_time();
     const esp_err_t error = read_rtc_calendar(&sample);
     const esp_err_t publication_error =
         publish_rtc_read(sample, error, attempted_at_us);
+    const RtcLatchObservation observation = make_rtc_latch_observation(
+        sample,
+        error,
+        publication_error,
+        trusted_write_generation_at_read
+    );
+    require_rtc_recovery_readback(observation);
+    apply_rtc_latch_observation_locked(observation);
     const esp_err_t result = sample_publication_result(
         "RTC PCF85063",
         "direct-read",
@@ -7701,6 +8105,10 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
         ESP_LOGE(TAG, "RTC write rejected: device is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
+    // Keep the register write and conditional recovery readback indivisible:
+    // SNTP and GNSS are independent writers and must not verify each other's
+    // calendar or publish their results out of order.
+    std::lock_guard<std::mutex> rtc_lock(s_rtc_operation_mutex);
     const uint8_t raw[7] = {
         decimal_to_bcd(time->second),
         decimal_to_bcd(time->minute),
@@ -7711,42 +8119,100 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
         decimal_to_bcd(static_cast<uint8_t>(time->year - 2000U)),
     };
     const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t error = write_registers(s_rtc, PCF85063_REG_SECONDS, raw, sizeof(raw));
+    const bool pending_recovery_at_start =
+        s_rtc_recovery_readback_required.exchange(
+            false,
+            std::memory_order_acq_rel
+        );
+    bool recovery_readback_required =
+        s_rtc_oscillator_stop_latched.load(std::memory_order_acquire) ||
+        pending_recovery_at_start;
+    esp_err_t error =
+        write_registers(s_rtc, PCF85063_REG_SECONDS, raw, sizeof(raw));
     esp_err_t publication_error = ESP_OK;
     if (error == ESP_OK) {
-        const LUNASHELL_calendar_time_t written = *time;
-        publication_error = update_snapshot(
-            [written, attempted_at_us](
-                LUNASHELL::DeviceSnapshot &snapshot
-            ) {
-                snapshot.rtc.clock_integrity = true;
-                snapshot.rtc.year = written.year;
-                snapshot.rtc.month = written.month;
-                snapshot.rtc.day = written.day;
-                snapshot.rtc.hour = written.hour;
-                snapshot.rtc.minute = written.minute;
-                snapshot.rtc.second = written.second;
-                mark_sample_success(snapshot.rtc, attempted_at_us);
+        LUNASHELL_calendar_time_t published = *time;
+        published.clock_integrity = true;
+        const bool pending_recovery_after_write =
+            s_rtc_recovery_readback_required.exchange(
+                false,
+                std::memory_order_acq_rel
+            );
+        recovery_readback_required =
+            recovery_readback_required ||
+            s_rtc_oscillator_stop_latched.load(
+                std::memory_order_acquire
+            ) ||
+            pending_recovery_after_write;
+        if (recovery_readback_required) {
+            error = read_rtc_calendar(&published);
+            if (error == ESP_OK &&
+                !rtc_write_readback_matches(*time, published)) {
+                ESP_LOGE(
+                    TAG,
+                    "RTC recovery readback mismatch: requested=%04u-%02u-%02u %02u:%02u:%02u observed=%04u-%02u-%02u %02u:%02u:%02u (%s)",
+                    time->year,
+                    time->month,
+                    time->day,
+                    time->hour,
+                    time->minute,
+                    time->second,
+                    published.year,
+                    published.month,
+                    published.day,
+                    published.hour,
+                    published.minute,
+                    published.second,
+                    esp_err_to_name(ESP_ERR_INVALID_RESPONSE)
+                );
+                error = ESP_ERR_INVALID_RESPONSE;
             }
+        }
+        publication_error =
+            publish_rtc_read(published, error, attempted_at_us);
+    } else {
+        LUNASHELL_calendar_time_t unavailable = {};
+        publication_error =
+            publish_rtc_read(unavailable, error, attempted_at_us);
+    }
+
+    if (error == ESP_OK && publication_error == ESP_OK) {
+        s_rtc_trusted_write_generation.fetch_add(
+            1,
+            std::memory_order_acq_rel
+        );
+        s_rtc_oscillator_stop_latched.store(
+            false,
+            std::memory_order_release
         );
         ESP_LOGI(
             TAG,
-            "RTC PCF85063 updated: %04u-%02u-%02u %02u:%02u:%02u UTC",
-            time->year, time->month, time->day, time->hour, time->minute, time->second
+            "RTC PCF85063 updated%s: %04u-%02u-%02u %02u:%02u:%02u UTC",
+            recovery_readback_required ? " and verified" : "",
+            time->year,
+            time->month,
+            time->day,
+            time->hour,
+            time->minute,
+            time->second
         );
-    } else {
-        publication_error = update_snapshot(
-            [error, attempted_at_us](
-                LUNASHELL::DeviceSnapshot &snapshot
-            ) {
-                mark_sample_failure(
-                    snapshot.rtc,
-                    error,
-                    attempted_at_us
-                );
-            }
+    } else if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "RTC %s failed (%s)",
+            recovery_readback_required ? "write/recovery" : "write",
+            esp_err_to_name(error)
         );
-        ESP_LOGE(TAG, "RTC write failed (%s)", esp_err_to_name(error));
+    }
+    if ((error != ESP_OK || publication_error != ESP_OK) &&
+        recovery_readback_required) {
+        // A consumed recovery request is single-owner but not lossy: any
+        // failed write, readback, or publication requires the next trusted
+        // write to verify the hardware again.
+        s_rtc_recovery_readback_required.store(
+            true,
+            std::memory_order_release
+        );
     }
     return sample_publication_result(
         "RTC PCF85063",

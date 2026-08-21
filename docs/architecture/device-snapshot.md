@@ -128,7 +128,8 @@ report, so a runtime trace can identify the published generation that changed.
 
 The Power Management Service is the only inactivity decision maker. Its one
 worker debounces BOOT, consumes lock-free touch activity, polls the AXP2101
-PKEY status every 100 ms, evaluates qualified IMU motion, controls the shared
+PKEY status at the active policy cadence and at one second in Device Standby,
+evaluates qualified IMU motion, controls the shared
 display fade/panel output, and pauses or resumes the voice AFE. The hardware
 service queues decoded PKEY events under a PMU-only mutex before it clears and
 verifies the PMIC IRQ registers; Full Snapshot, rotation, and panel I/O cannot

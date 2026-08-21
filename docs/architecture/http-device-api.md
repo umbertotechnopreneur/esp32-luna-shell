@@ -59,6 +59,25 @@ see the timestamp of the real sensor acquisition. Failed, stale,
 already-consumed, time-regressed, or source-mismatched data forces a physical
 read and retains the real failure state.
 
+## Battery telemetry validity
+
+The `battery` object in `/api/v1/info` and `/api/v1/diagnostics` separates PMIC
+sample validity from the availability of a physical cell. A valid PMIC sample
+with no detected battery keeps USB, system-rail, charger, and temperature state
+available. The object exposes `data_valid`, `data_stale`,
+`last_attempt_at_us`, and `last_success_at_us` alongside health/error state,
+while cell-only fields use explicit guards:
+
+- `level_percent_valid` controls `level_percent`;
+- `battery_mv_valid` controls `battery_mv`.
+
+The serialized field guards are effective guards: they are false whenever the
+PMIC sample is failed or stale, even if the underlying last successful cell
+sample had been valid. When a guard is false its value is JSON `null`, never a
+numeric zero presented as a measurement. Consumers must require current/ready
+PMIC health and then check the field guard; `battery_present=false` is a valid
+observation rather than a failed PMIC sample.
+
 ## Memory telemetry
 
 The `memory` object in `/api/v1/info` and `/api/v1/diagnostics` exposes raw

@@ -328,6 +328,7 @@ def verify_firmware_contract() -> None:
         "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
     status_bar = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
+    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
 
     require_regex(
         navigation,
@@ -409,9 +410,12 @@ def verify_firmware_contract() -> None:
         refresh,
         r"const\s+bool\s+level_valid\s*=\s*"
         r"pmic_ready\s*&&\s*battery\.battery_present\s*&&\s*"
+        r"battery\.level_percent_valid\s*&&\s*"
+        r"battery\.battery_mv_valid\s*&&\s*"
         r"battery\.level_percent\s*>=\s*0\s*&&\s*"
-        r"battery\.level_percent\s*<=\s*100",
-        "PMIC percentage validity gate",
+        r"battery\.level_percent\s*<=\s*100\s*&&\s*"
+        r"battery\.battery_mv\s*>\s*0",
+        "Battery screen percentage/voltage validity gate",
     )
     require_contains(
         refresh,
@@ -481,6 +485,17 @@ def verify_firmware_contract() -> None:
             f"refresh_battery derives percentage from voltage: /{pattern}/",
         )
 
+    require_regex(
+        hardware_details,
+        r"snapshot\.battery\.battery_present\s*&&\s*"
+        r"snapshot\.battery\.level_percent_valid\s*&&\s*"
+        r"snapshot\.battery\.battery_mv_valid\s*&&\s*"
+        r"snapshot\.battery\.level_percent\s*>=\s*0\s*&&\s*"
+        r"snapshot\.battery\.level_percent\s*<=\s*100\s*&&\s*"
+        r"snapshot\.battery\.battery_mv\s*>\s*0",
+        "hardware detail percentage/voltage validity gate",
+    )
+
     battery_charging = function_text(
         status_bar,
         "bool battery_charging(",
@@ -490,6 +505,42 @@ def verify_firmware_contract() -> None:
         battery_charging,
         'std::string_view(battery.power_state) == "charging"',
         "status-bar charging predicate",
+    )
+
+    battery_icon = function_text(
+        status_bar,
+        "std::string_view battery_icon(",
+        "LUNASHELL_status_bar.cpp",
+    )
+    require_contains(
+        battery_icon,
+        "!battery.level_percent_valid",
+        "status-bar percentage validity gate",
+    )
+    status_update = function_text(
+        status_bar,
+        "std::expected<void, std::string> LUNASHELLStatusBar::update(",
+        "LUNASHELL_status_bar.cpp",
+    )
+    require_contains(
+        status_update,
+        "!snapshot.battery.level_percent_valid",
+        "status-bar percentage color validity gate",
+    )
+
+    gatt_access = function_text(
+        radios,
+        "static int LUNASHELL_gatt_access(",
+        "LUNASHELL_radios.cpp",
+    )
+    require_regex(
+        gatt_access,
+        r"const\s+bool\s+battery_valid\s*=\s*"
+        r"has_fresh_data\(snapshot\.battery\)\s*&&\s*"
+        r"snapshot\.battery\.level_percent_valid\s*&&\s*"
+        r"snapshot\.battery\.level_percent\s*>=\s*0\s*&&\s*"
+        r"snapshot\.battery\.level_percent\s*<=\s*100",
+        "BLE percentage validity gate",
     )
     require_contains(
         battery_charging,

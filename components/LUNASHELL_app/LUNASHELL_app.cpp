@@ -4602,6 +4602,8 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
     const bool level_valid =
         pmic_ready &&
         battery.battery_present &&
+        battery.level_percent_valid &&
+        battery.battery_mv_valid &&
         battery.level_percent >= 0 &&
         battery.level_percent <= 100 &&
         battery.battery_mv > 0;
@@ -5566,6 +5568,8 @@ std::expected<void, std::string> App::show_hardware_details(
                 snapshot.battery.usb_present ? "PRESENT" : "ABSENT"
             );
             if (snapshot.battery.battery_present &&
+                snapshot.battery.level_percent_valid &&
+                snapshot.battery.battery_mv_valid &&
                 snapshot.battery.level_percent >= 0 &&
                 snapshot.battery.level_percent <= 100 &&
                 snapshot.battery.battery_mv > 0) {

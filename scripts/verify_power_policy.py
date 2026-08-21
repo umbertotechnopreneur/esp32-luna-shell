@@ -989,6 +989,15 @@ def verify_source_contracts() -> None:
     platform_cmake = read(PLATFORM_CMAKE)
     sdkconfig_defaults = read(SDKCONFIG_DEFAULTS)
 
+    for source, fragment, label in (
+        (snapshot, "constexpr uint32_t kDefaultPeriodMs = 1000;", "Full Snapshot default cadence"),
+        (hardware, "constexpr uint32_t kDiagnosticPeriodDefaultMs = 300;", "Diagnostic default cadence"),
+        (hardware, "constexpr uint32_t kDiagnosticPeriodMinMs = 100;", "Diagnostic minimum cadence"),
+        (hardware, "constexpr uint32_t kDiagnosticPeriodMaxMs = 2000;", "Diagnostic maximum cadence"),
+        (hardware, 'constexpr char kDiagnosticPeriodSetting[] = "diag_ms";', "persisted Diagnostic cadence key"),
+    ):
+        require_contains(source, fragment, label)
+
     require(
         "GPIO_NUM_41" not in power,
         "LUNASHELL_power must not treat SDMMC_CS GPIO41 as the physical PWR key",
@@ -1066,6 +1075,151 @@ def verify_source_contracts() -> None:
         r"xpowers_read_register\s*,\s*xpowers_write_register\s*\)",
         "bounded XPowers callback initialization",
     )
+    battery_detection = function_text(
+        hardware,
+        "esp_err_t enable_and_verify_pmu_battery_detection(",
+        "AXP2101 battery detector",
+    )
+    for fragment in (
+        "XPOWERS_AXP2101_BAT_DET_CTRL",
+        "static_cast<uint8_t>(value | BIT(0))",
+        "uint8_t readback = 0",
+        "(readback & BIT(0)) == 0U",
+        "return ESP_ERR_INVALID_RESPONSE;",
+    ):
+        require_contains(
+            battery_detection,
+            fragment,
+            "AXP2101 battery detector enable/readback",
+        )
+    require(
+        battery_detection.count("XPOWERS_AXP2101_BAT_DET_CTRL") >= 4,
+        "battery detector must address BAT_DET_CTRL for read, write, and readback",
+    )
+    require_regex(
+        battery_detection,
+        r"write_register\s*\(\s*s_pmu_device\s*,\s*"
+        r"XPOWERS_AXP2101_BAT_DET_CTRL\s*,\s*"
+        r"static_cast<uint8_t>\(value\s*\|\s*BIT\(0\)\)\s*\)",
+        "AXP2101 BAT_DET_CTRL read-modify-write",
+    )
+    detector_at = init_pmu.find("enable_and_verify_pmu_battery_detection()")
+    adc_enable_at = init_pmu.find("s_power.enableVbusVoltageMeasure()")
+    require(
+        0 <= detector_at < adc_enable_at,
+        "PMIC initialization must enable and verify battery detection before ADCs",
+    )
+
+    sample_pmu_locked = function_text(
+        hardware,
+        "esp_err_t sample_pmu_locked(",
+        "AXP2101 telemetry sample",
+    )
+    status1_at = sample_pmu_locked.find("XPOWERS_AXP2101_STATUS1")
+    status2_at = sample_pmu_locked.find("XPOWERS_AXP2101_STATUS2")
+    presence_at = sample_pmu_locked.find("sample.battery_present =")
+    battery_adc_at = sample_pmu_locked.find("XPOWERS_AXP2101_ADC_DATA_RELUST0")
+    percent_at = sample_pmu_locked.find("XPOWERS_AXP2101_BAT_PERCENT_DATA")
+    valid_at = sample_pmu_locked.find("sample.level_percent_valid = true")
+    require(
+        0 <= status1_at < status2_at < presence_at < battery_adc_at < percent_at < valid_at,
+        "STATUS1/STATUS2 and BAT presence must precede conditional cell telemetry",
+    )
+    require(
+        sample_pmu_locked.count(
+            "if (error == ESP_OK && sample.battery_present)"
+        ) >= 3,
+        "cell ADC, percentage, and validity publication must all require BAT presence",
+    )
+    for fragment in (
+        "bool level_percent_valid = false;",
+        "bool battery_mv_valid = false;",
+        "int level_percent = -1;",
+        "int battery_mv = 0;",
+    ):
+        require_contains(
+            device_snapshot,
+            fragment,
+            "absent-battery snapshot sentinels",
+        )
+    for fragment in (
+        "sample.level_percent_valid = true;",
+        "sample.battery_mv_valid = true;",
+        "sample.level_percent = static_cast<int>(percent);",
+        "sample.battery_mv = battery_mv;",
+    ):
+        require(
+            sample_pmu_locked.count(fragment) == 1,
+            f"cell telemetry assignment must have one presence-gated owner: {fragment}",
+        )
+    presence_gate_at = sample_pmu_locked.rfind(
+        "if (error == ESP_OK && sample.battery_present)",
+        0,
+        valid_at,
+    )
+    presence_gate_end = sample_pmu_locked.find("}", valid_at)
+    require(
+        0 <= presence_gate_at < valid_at < presence_gate_end,
+        "valid cell fields must be assigned only inside the BAT-present gate",
+    )
+    for fragment in (
+        "snapshot.battery.level_percent_valid = false;",
+        "snapshot.battery.battery_mv_valid = false;",
+    ):
+        require(
+            sample_pmu_locked.count(fragment) >= 2,
+            f"probe and telemetry failures must invalidate cell fields: {fragment}",
+        )
+    pmu_lock_failure = function_text(
+        hardware,
+        "esp_err_t publish_pmu_lock_failure(",
+        "AXP2101 telemetry lock failure",
+    )
+    for fragment in (
+        "snapshot.battery.level_percent_valid = false;",
+        "snapshot.battery.battery_mv_valid = false;",
+    ):
+        require_contains(
+            pmu_lock_failure,
+            fragment,
+            "PMU lock failure cell-field invalidation",
+        )
+    for sample_text, success_fragments, failure_fragment, label in (
+        (
+            sample_pmu_locked,
+            (
+                "high_frequency_sample_phase(phase)",
+                "ESP_LOG_LEVEL_LOCAL(",
+                "ESP_LOG_DEBUG",
+                "ESP_LOG_INFO",
+            ),
+            "ESP_LOGW(",
+            "PMU periodic log policy",
+        ),
+        (
+            function_text(hardware, "esp_err_t sample_rtc(", "RTC sample"),
+            (
+                "high_frequency_sample_phase(phase)",
+                "ESP_LOGD(",
+                "ESP_LOGI(",
+            ),
+            "ESP_LOGW(",
+            "RTC periodic log policy",
+        ),
+        (
+            function_text(hardware, "esp_err_t sample_gps(", "GNSS sample"),
+            (
+                "high_frequency_sample_phase(phase)",
+                "ESP_LOGD(",
+                "ESP_LOGI(",
+            ),
+            "ESP_LOGW(",
+            "GNSS periodic log policy",
+        ),
+    ):
+        for fragment in success_fragments:
+            require_contains(sample_text, fragment, label)
+        require_contains(sample_text, failure_fragment, f"{label} error visibility")
     runtime_pmu_reader = function_text(
         hardware,
         "esp_err_t read_pmu_registers(",
@@ -2089,6 +2243,70 @@ def verify_source_contracts() -> None:
             diagnostic_monitor,
             fragment,
             "standby UI sampling gate",
+        )
+    require(
+        "vTaskDelay(" not in diagnostic_monitor,
+        "idle hardware monitor must not retain a periodic vTaskDelay wake",
+    )
+    for fragment in (
+        "const bool wait_indefinitely =",
+        "? portMAX_DELAY",
+        "(void)ulTaskNotifyTake(pdTRUE, wait_ticks);",
+    ):
+        require_contains(
+            diagnostic_monitor,
+            fragment,
+            "event-driven hardware monitor idle wait",
+        )
+    require_regex(
+        diagnostic_monitor,
+        r"const\s+bool\s+wait_indefinitely\s*=\s*"
+        r"!auto_rotation_active\s*&&\s*"
+        r"!rotation_apply_pending\s*&&\s*"
+        r"!ui_motion_active\s*&&\s*"
+        r"!monitor_active\s*;",
+        "hardware monitor idle-only indefinite wait",
+    )
+    notifier = function_text(
+        hardware,
+        "void notify_hardware_monitor(",
+        "hardware monitor notifier",
+    )
+    require_contains(
+        notifier,
+        "xTaskNotifyGive(task);",
+        "hardware monitor notifier",
+    )
+    monitor_start = function_text(
+        hardware,
+        "static esp_err_t ensure_hardware_monitor_task_locked(",
+        "hardware monitor task start",
+    )
+    create_at = monitor_start.find("xTaskCreateWithCaps(")
+    handle_at = monitor_start.find(
+        "s_diagnostic_monitor_task_handle.store(task",
+        create_at,
+    )
+    ready_at = monitor_start.find(
+        "Hardware diagnostics/orientation monitor ready",
+        handle_at,
+    )
+    require(
+        0 <= create_at < handle_at < ready_at,
+        "created hardware monitor handle must be published before readiness",
+    )
+    for signature in (
+        'extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams(',
+        'extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(',
+        'extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(',
+        'extern "C" esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(',
+        "static esp_err_t set_auto_rotation_runtime(",
+        'extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_period_ms(',
+    ):
+        require_contains(
+            function_text(hardware, signature, "hardware monitor setter"),
+            "notify_hardware_monitor();",
+            f"hardware monitor wake from {signature}",
         )
     require_contains(
         power,

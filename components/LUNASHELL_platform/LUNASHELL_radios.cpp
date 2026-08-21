@@ -362,6 +362,7 @@ static int LUNASHELL_gatt_access(
             LUNASHELL::DeviceSnapshotService::instance().snapshot();
         const bool battery_valid =
             has_fresh_data(snapshot.battery) &&
+            snapshot.battery.level_percent_valid &&
             snapshot.battery.level_percent >= 0 &&
             snapshot.battery.level_percent <= 100;
         const bool gps_valid = has_fresh_data(snapshot.gps);
