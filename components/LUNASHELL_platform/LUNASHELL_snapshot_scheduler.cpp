@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdlib>
 #include <cstdint>
 #include <mutex>
 
@@ -11,6 +12,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/task.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
 
@@ -26,6 +28,11 @@ constexpr EventBits_t kWorkerQuiescentBit =
 // A full refresh keeps two DeviceSnapshot values on the caller stack.
 constexpr uint32_t kTaskStackBytes = 12U * 1024U;
 constexpr UBaseType_t kTaskPriority = 2;
+static_assert(
+    CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000U >=
+        LUNASHELL::kFullSnapshotPeriodsMs.back() + 1000U,
+    "Task WDT must outlive the longest snapshot cadence with margin"
+);
 std::atomic<uint32_t> s_period_ms{kDefaultPeriodMs};
 std::atomic_bool s_period_valid{false};
 std::atomic_bool s_monitor_requested{false};
@@ -131,8 +138,24 @@ esp_err_t load_or_create_period_locked()
 void full_snapshot_task(void *)
 {
     bool stack_reported = false;
+    bool watch_active = false;
     while (true) {
         if (!s_monitor_active.load(std::memory_order_acquire)) {
+            if (watch_active) {
+                const esp_err_t end_result = LUNASHELL_liveness_watch_end(
+                    LUNASHELL_LIVENESS_SNAPSHOT,
+                    ESP_OK
+                );
+                if (end_result != ESP_OK) {
+                    ESP_LOGE(
+                        kTag,
+                        "Full Snapshot watchdog stop failed (%s)",
+                        esp_err_to_name(end_result)
+                    );
+                    std::abort();
+                }
+                watch_active = false;
+            }
             (void)xEventGroupSetBits(
                 s_task_events,
                 kWorkerQuiescentBit
@@ -145,6 +168,23 @@ void full_snapshot_task(void *)
         if (!s_monitor_active.load(std::memory_order_acquire)) {
             continue;
         }
+
+        esp_err_t liveness_result = watch_active
+            ? LUNASHELL_liveness_watch_progress(
+                  LUNASHELL_LIVENESS_SNAPSHOT
+              )
+            : LUNASHELL_liveness_watch_begin(
+                  LUNASHELL_LIVENESS_SNAPSHOT
+              );
+        if (liveness_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Full Snapshot watchdog cycle start failed (%s)",
+                esp_err_to_name(liveness_result)
+            );
+            std::abort();
+        }
+        watch_active = true;
 
         const int64_t started_at_us = esp_timer_get_time();
         const uint32_t full_snapshot_period_ms =
@@ -164,6 +204,17 @@ void full_snapshot_task(void *)
                 "Periodic Full Snapshot refresh failed (%s)",
                 esp_err_to_name(refresh_error)
             );
+        }
+        liveness_result = LUNASHELL_liveness_watch_progress(
+            LUNASHELL_LIVENESS_SNAPSHOT
+        );
+        if (liveness_result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "Full Snapshot watchdog completion failed (%s)",
+                esp_err_to_name(liveness_result)
+            );
+            std::abort();
         }
         if (!stack_reported) {
             ESP_LOGI(
@@ -186,7 +237,9 @@ void full_snapshot_task(void *)
                 : 0;
         const uint32_t remaining_ms =
             elapsed_ms < period_ms ? period_ms - elapsed_ms : 1;
-        (void)xEventGroupSetBits(s_task_events, kWorkerQuiescentBit);
+        // Keep the quiescence acknowledgement clear for the entire active
+        // lifecycle, including cadence sleep. A power transition may consume
+        // it only after the inactive branch closes the SNAPSHOT watch.
         (void)ulTaskNotifyTake(
             pdTRUE,
             pdMS_TO_TICKS(std::max<uint32_t>(1, remaining_ms))

@@ -5,6 +5,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
 #include "LUNASHELL_settings.hpp"
 
@@ -516,12 +517,67 @@ void refresh_audio_suspend_flag()
 }
 
 // Bridge the BSP LVGL lifecycle only in profiles that own a UI worker.
+esp_err_t display_watch_active(bool *active)
+{
+    if (active == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    LUNASHELL_liveness_status_t status{};
+    const esp_err_t result = LUNASHELL_liveness_get_status(&status);
+    if (result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Display watchdog status read failed: %s",
+            esp_err_to_name(result)
+        );
+        return result;
+    }
+    *active =
+        (status.active_mask &
+         (1U << static_cast<uint32_t>(LUNASHELL_LIVENESS_DISPLAY))) != 0U;
+    return ESP_OK;
+}
+
 esp_err_t set_lvgl_standby(bool standby)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
-    return standby
-        ? bsp_display_lvgl_pause()
-        : bsp_display_lvgl_resume();
+    if (standby) {
+        // Keep the display subscription armed while pause waits for the LVGL
+        // worker. A wedged timer handler or panel flush therefore still trips
+        // the Task WDT instead of turning standby into an indefinite wait.
+        const esp_err_t pause_result = bsp_display_lvgl_pause();
+        if (pause_result != ESP_OK) {
+            return pause_result;
+        }
+        return LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_DISPLAY,
+            ESP_OK
+        );
+    }
+
+    bool watch_active = false;
+    esp_err_t result = display_watch_active(&watch_active);
+    if (result != ESP_OK) {
+        return result;
+    }
+    if (!watch_active) {
+        result = LUNASHELL_liveness_watch_begin(
+            LUNASHELL_LIVENESS_DISPLAY
+        );
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+    result = bsp_display_lvgl_resume();
+    if (result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "LVGL resume failed with its watchdog still armed: %s",
+            esp_err_to_name(result)
+        );
+        return result;
+    }
+    return ESP_OK;
 #else
     (void)standby;
     return ESP_ERR_NOT_SUPPORTED;

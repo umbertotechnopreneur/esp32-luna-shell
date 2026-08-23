@@ -18,6 +18,7 @@
 
 #include "esp_err.h"
 #include "esp_timer.h"
+#include "LUNASHELL_liveness.h"
 
 namespace {
 
@@ -750,7 +751,17 @@ void httpJsonWriteHealth(
     bool server_running
 )
 {
-    (void)json.raw("{\"schema\":\"LUNASHELL.device.health.v1\",\"api_version\":1,\"data\":{\"ok\":true,\"server_running\":");
+    LUNASHELL_liveness_status_t liveness{};
+    const esp_err_t liveness_result =
+        LUNASHELL_liveness_get_status(&liveness);
+    const bool liveness_ok =
+        liveness_result == ESP_OK && liveness.initialized &&
+        liveness.last_error == ESP_OK;
+    const bool healthy = server_running && liveness_ok;
+
+    (void)json.raw("{\"schema\":\"LUNASHELL.device.health.v1\",\"api_version\":1,\"data\":{\"ok\":");
+    (void)json.boolean(healthy);
+    (void)json.raw(",\"server_running\":");
     (void)json.boolean(server_running);
     (void)json.raw(",\"auth_required_for_data\":true,\"wifi_connected\":");
     (void)json.boolean(snapshot.radios.wifi.connected && snapshot.radios.wifi.ip_acquired);
@@ -758,8 +769,52 @@ void httpJsonWriteHealth(
                        static_cast<unsigned long>(snapshot.sequence),
                        static_cast<long long>(snapshot.last_update_attempt_at_us));
     (void)json.boolean(snapshot.last_update_complete);
-    (void)json.format(",\"age_ms\":%llu}}}",
+    (void)json.format(",\"age_ms\":%llu},\"liveness\":{\"available\":",
                       static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
+    (void)json.boolean(liveness_result == ESP_OK);
+    (void)json.raw(",\"query_error\":");
+    (void)json.quoted(esp_err_to_name(liveness_result));
+    (void)json.raw(",\"initialized\":");
+    (void)json.boolean(liveness.initialized);
+    (void)json.format(
+        ",\"boot_reset_reason\":%lu,\"watchdog_timeout_ms\":%lu,"
+        "\"operation_sequence\":%lu,\"active_mask\":%lu,\"last_error\":",
+        static_cast<unsigned long>(liveness.boot_reset_reason),
+        static_cast<unsigned long>(liveness.watchdog_timeout_ms),
+        static_cast<unsigned long>(liveness.operation_sequence),
+        static_cast<unsigned long>(liveness.active_mask)
+    );
+    (void)json.quoted(esp_err_to_name(liveness.last_error));
+    (void)json.raw(",\"last_progress\":{\"valid\":");
+    (void)json.boolean(liveness.last_progress_valid);
+    (void)json.raw(",\"point\":");
+    (void)json.quoted(
+        LUNASHELL_liveness_point_name(
+            liveness.last_progress_valid
+                ? liveness.last_progress_point
+                : LUNASHELL_LIVENESS_POINT_COUNT
+        )
+    );
+    (void)json.format(
+        ",\"age_ms\":%lu},\"previous_timeout\":{\"valid\":",
+        static_cast<unsigned long>(liveness.last_progress_age_ms)
+    );
+    (void)json.boolean(liveness.previous_timeout.valid);
+    (void)json.format(
+        ",\"operation_sequence\":%lu,\"active_mask\":%lu,\"last_progress_point\":",
+        static_cast<unsigned long>(
+            liveness.previous_timeout.operation_sequence
+        ),
+        static_cast<unsigned long>(liveness.previous_timeout.active_mask)
+    );
+    (void)json.quoted(
+        LUNASHELL_liveness_point_name(
+            liveness.previous_timeout.valid
+                ? liveness.previous_timeout.last_progress_point
+                : LUNASHELL_LIVENESS_POINT_COUNT
+        )
+    );
+    (void)json.raw("}}}}");
 }
 
 void httpJsonWriteInfo(

@@ -501,6 +501,7 @@ private:
     };
 
     esp_brookesia::system::core::AppContext *context_ = nullptr;
+    bool gui_liveness_watch_active_ = false;
     esp_brookesia::system::core::TimerId refresh_timer_ =
         esp_brookesia::system::core::INVALID_TIMER_ID;
     esp_brookesia::system::core::TimerId power_state_sync_timer_ =

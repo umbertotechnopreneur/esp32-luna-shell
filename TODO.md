@@ -1,5 +1,17 @@
 # TODO
 
+## Runtime liveness hardware validation
+
+- [ ] On a disposable development device, inject controlled stalls into GUI,
+  LVGL display, Full Snapshot, settings NVS, provisioning teardown, boot audio,
+  radio/Wi-Fi operations, asynchronous Wi-Fi scan completion, and Wi-Fi event
+  handling. Confirm the Task-WDT panic and reboot occur within the configured
+  12-second bound and that the retained timeout breadcrumb names the active
+  domain after reboot.
+- [ ] Measure the settings, provisioning, and boot-audio worker stack
+  high-watermarks on hardware under worst-case operations; increase the static
+  stack only from measured evidence.
+
 ## BLE Wi-Fi pairing task
 
 - [x] BLE-only Espressif provisioning flow; no SoftAP and no PIN/PoP.

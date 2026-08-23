@@ -6,6 +6,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 
 #include <cstdlib>
 #include <cstdio>
@@ -27,6 +28,7 @@
 
 #define WIFI_RECONNECT_INITIAL_MS 1000U
 #define WIFI_RECONNECT_MAX_MS 30000U
+#define WIFI_STATE_LOCK_TIMEOUT_MS 1000U
 
 namespace {
 
@@ -34,6 +36,9 @@ const char *TAG = "LUNASHELL_wifi";
 
 SemaphoreHandle_t s_lock;
 StaticSemaphore_t s_lock_storage;
+SemaphoreHandle_t s_lifecycle_lock;
+StaticSemaphore_t s_lifecycle_lock_storage;
+portMUX_TYPE s_lock_init_mux = portMUX_INITIALIZER_UNLOCKED;
 TimerHandle_t s_reconnect_timer;
 StaticTimer_t s_reconnect_timer_storage;
 esp_netif_t *s_station_netif;
@@ -43,6 +48,7 @@ bool s_initialized;
 bool s_driver_initialized;
 bool s_driver_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
+bool s_scan_watch_active;
 bool s_connect_requested;
 uint8_t s_consecutive_disconnects;
 LUNASHELL_wifi_status_t s_status;
@@ -80,17 +86,148 @@ void log_scan_heap_checkpoint(const char *stage)
     );
 }
 
+SemaphoreHandle_t ensure_wifi_state_lock()
+{
+    portENTER_CRITICAL(&s_lock_init_mux);
+    if (s_lock == nullptr) {
+        s_lock = xSemaphoreCreateMutexStatic(&s_lock_storage);
+    }
+    SemaphoreHandle_t lock = s_lock;
+    portEXIT_CRITICAL(&s_lock_init_mux);
+    return lock;
+}
+
+SemaphoreHandle_t ensure_wifi_lifecycle_lock()
+{
+    portENTER_CRITICAL(&s_lock_init_mux);
+    if (s_lifecycle_lock == nullptr) {
+        s_lifecycle_lock =
+            xSemaphoreCreateMutexStatic(&s_lifecycle_lock_storage);
+    }
+    SemaphoreHandle_t lock = s_lifecycle_lock;
+    portEXIT_CRITICAL(&s_lock_init_mux);
+    return lock;
+}
+
+esp_err_t wifi_lifecycle_lock(const char *operation)
+{
+    SemaphoreHandle_t lock = ensure_wifi_lifecycle_lock();
+    if (lock == nullptr) {
+        ESP_LOGE(TAG, "Wi-Fi %s lock creation failed", operation);
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(
+            lock,
+            pdMS_TO_TICKS(WIFI_STATE_LOCK_TIMEOUT_MS)
+        ) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi %s rejected: lifecycle busy for %u ms",
+            operation,
+            WIFI_STATE_LOCK_TIMEOUT_MS
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
+}
+
+esp_err_t wifi_lifecycle_try_lock(const char *operation)
+{
+    SemaphoreHandle_t lock = ensure_wifi_lifecycle_lock();
+    if (lock == nullptr) {
+        ESP_LOGE(TAG, "Wi-Fi %s lock creation failed", operation);
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(lock, 0) != pdTRUE) {
+        ESP_LOGW(TAG, "Wi-Fi %s deferred: lifecycle is busy", operation);
+        return ESP_ERR_TIMEOUT;
+    }
+    return ESP_OK;
+}
+
+void wifi_lifecycle_unlock()
+{
+    if (s_lifecycle_lock == nullptr ||
+        xSemaphoreGive(s_lifecycle_lock) != pdTRUE) {
+        ESP_LOGE(TAG, "Wi-Fi lifecycle lock release invariant failed");
+        std::abort();
+    }
+}
+
+class WifiLifecycleGuard final {
+public:
+    ~WifiLifecycleGuard()
+    {
+        wifi_lifecycle_unlock();
+    }
+
+    WifiLifecycleGuard() = default;
+    WifiLifecycleGuard(const WifiLifecycleGuard &) = delete;
+    WifiLifecycleGuard &operator=(const WifiLifecycleGuard &) = delete;
+};
+
+class WifiEventWatch final {
+public:
+    WifiEventWatch()
+    {
+        const esp_err_t result = LUNASHELL_liveness_watch_begin(
+            LUNASHELL_LIVENESS_WIFI_EVENTS
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Wi-Fi event watchdog start failed (%s)",
+                esp_err_to_name(result)
+            );
+            std::abort();
+        }
+    }
+
+    ~WifiEventWatch()
+    {
+        const esp_err_t result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_WIFI_EVENTS,
+            ESP_OK
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Wi-Fi event watchdog stop failed (%s)",
+                esp_err_to_name(result)
+            );
+            std::abort();
+        }
+    }
+
+    WifiEventWatch(const WifiEventWatch &) = delete;
+    WifiEventWatch &operator=(const WifiEventWatch &) = delete;
+};
+
 void wifi_lock()
 {
-    if (s_lock != nullptr) {
-        xSemaphoreTake(s_lock, portMAX_DELAY);
+    SemaphoreHandle_t lock = ensure_wifi_state_lock();
+    if (lock == nullptr) {
+        ESP_LOGE(TAG, "Wi-Fi state lock creation failed");
+        std::abort();
+    }
+    if (xSemaphoreTake(
+            lock,
+            pdMS_TO_TICKS(WIFI_STATE_LOCK_TIMEOUT_MS)
+        ) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi state lock timed out after %u ms",
+            WIFI_STATE_LOCK_TIMEOUT_MS
+        );
+        std::abort();
     }
 }
 
 void wifi_unlock()
 {
-    if (s_lock != nullptr) {
-        xSemaphoreGive(s_lock);
+    if (xSemaphoreGive(s_lock) != pdTRUE) {
+        ESP_LOGE(TAG, "Wi-Fi state lock release invariant failed");
+        std::abort();
     }
 }
 
@@ -150,6 +287,21 @@ void record_error(esp_err_t error)
     ++s_status.event_sequence;
     wifi_unlock();
     publish_snapshot();
+}
+
+esp_err_t finish_scan_watch_if_active(esp_err_t result)
+{
+    wifi_lock();
+    const bool active = s_scan_watch_active;
+    s_scan_watch_active = false;
+    wifi_unlock();
+    if (!active) {
+        return ESP_OK;
+    }
+    return LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_WIFI_SCAN,
+        result
+    );
 }
 
 [[noreturn]] void abort_incomplete_cleanup(
@@ -222,6 +374,36 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
 void reconnect_timer_callback(TimerHandle_t timer)
 {
     (void)timer;
+    const esp_err_t lifecycle_error =
+        wifi_lifecycle_try_lock("reconnect callback");
+    if (lifecycle_error != ESP_OK) {
+        wifi_lock();
+        const bool retry =
+            s_initialized && s_status.started && s_connect_requested;
+        if (!retry) {
+            s_status.reconnect_pending = false;
+            s_status.reconnect_delay_ms = 0;
+        }
+        wifi_unlock();
+        if (retry) {
+            const esp_err_t schedule_error =
+                schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+            if (schedule_error != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "Deferred reconnect could not be rescheduled (%s)",
+                    esp_err_to_name(schedule_error)
+                );
+            }
+        } else {
+            publish_snapshot();
+        }
+        return;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+
+    // State may have changed while this timer was pending. Recheck only after
+    // acquiring the lifecycle gate, before calling into the Wi-Fi driver.
     wifi_lock();
     const bool should_connect = s_initialized && s_status.started && s_connect_requested;
     s_status.reconnect_pending = false;
@@ -236,6 +418,17 @@ void reconnect_timer_callback(TimerHandle_t timer)
 
     if (!should_connect) {
         return;
+    }
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_WIFI
+    );
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi reconnect watchdog start failed (%s)",
+            esp_err_to_name(watch_error)
+        );
+        std::abort();
     }
     const esp_err_t error = esp_wifi_connect();
     if (error == ESP_ERR_WIFI_STATE) {
@@ -252,6 +445,10 @@ void reconnect_timer_callback(TimerHandle_t timer)
     } else {
         record_error(error);
     }
+    (void)LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_WIFI,
+        error
+    );
 }
 
 void handle_scan_done()
@@ -261,7 +458,6 @@ void handle_scan_done()
     const esp_err_t error = esp_wifi_scan_get_ap_records(&count, s_scan_records);
 
     wifi_lock();
-    s_status.scanning = false;
     ++s_status.event_sequence;
     if (error == ESP_OK) {
         s_network_count = count;
@@ -282,6 +478,14 @@ void handle_scan_done()
         s_status.last_error = error;
     }
     wifi_unlock();
+
+    // Keep the scan unavailable to a new caller until its cross-task watchdog
+    // user has been closed. The handler's WIFI_EVENTS watch remains active
+    // until this callback exits.
+    (void)finish_scan_watch_if_active(error);
+    wifi_lock();
+    s_status.scanning = false;
+    wifi_unlock();
     publish_snapshot();
 
     if (error == ESP_OK) {
@@ -295,6 +499,7 @@ void handle_scan_done()
 void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)arg;
+    WifiEventWatch event_watch;
 
     if (event_base == WIFI_EVENT) {
         switch (event_id) {
@@ -407,6 +612,15 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         return;
     }
     if (event_id == IP_EVENT_STA_GOT_IP) {
+        wifi_lock();
+        const bool ip_expected =
+            s_initialized && s_status.started && s_connect_requested;
+        wifi_unlock();
+        if (!ip_expected) {
+            ESP_LOGW(TAG, "Ignoring stale IP event without connection intent");
+            return;
+        }
+
         const auto *got_ip = static_cast<const ip_event_got_ip_t *>(event_data);
         wifi_ap_record_t access_point = {};
         const esp_err_t access_point_error =
@@ -421,6 +635,14 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         }
 
         wifi_lock();
+        if (!s_initialized || !s_status.started || !s_connect_requested) {
+            wifi_unlock();
+            ESP_LOGW(
+                TAG,
+                "Ignoring IP event after connection intent changed"
+            );
+            return;
+        }
         s_status.connected = true;
         s_status.ip_acquired = got_ip != nullptr;
         s_status.credentials_configured = true;
@@ -518,7 +740,7 @@ esp_err_t initialize_nvs()
 
 }  // namespace
 
-extern "C" esp_err_t LUNASHELL_wifi_init(void)
+static esp_err_t wifi_init_impl(void)
 {
     if (s_initialized) {
         wifi_lock();
@@ -544,10 +766,7 @@ extern "C" esp_err_t LUNASHELL_wifi_init(void)
         return residual_error;
     }
 
-    if (s_lock == nullptr) {
-        s_lock = xSemaphoreCreateMutexStatic(&s_lock_storage);
-    }
-    if (s_lock == nullptr) {
+    if (ensure_wifi_state_lock() == nullptr) {
         return ESP_ERR_NO_MEM;
     }
     if (s_reconnect_timer == nullptr) {
@@ -700,6 +919,13 @@ fail:
         }
         s_driver_started = false;
     }
+    // A successful driver stop is an explicit cancellation boundary for an
+    // asynchronous scan. SCAN_DONE may already have claimed the watch; the
+    // helper makes ownership single-use across the stop task and event loop.
+    const esp_err_t scan_watch_error = finish_scan_watch_if_active(ESP_OK);
+    if (scan_watch_error != ESP_OK) {
+        abort_incomplete_cleanup("Wi-Fi scan watchdog cleanup", scan_watch_error);
+    }
     if (s_ip_event_instance != nullptr) {
         const esp_err_t cleanup_error =
             esp_event_handler_instance_unregister(
@@ -760,7 +986,7 @@ fail:
     return error;
 }
 
-extern "C" esp_err_t LUNASHELL_wifi_stop(void)
+static esp_err_t wifi_stop_impl(void)
 {
     if (!s_initialized &&
         s_ip_event_instance == nullptr &&
@@ -794,6 +1020,13 @@ extern "C" esp_err_t LUNASHELL_wifi_stop(void)
             abort_incomplete_cleanup("Wi-Fi driver stop", cleanup_error);
         }
         s_driver_started = false;
+    }
+    // A successful driver stop is an explicit cancellation boundary for an
+    // asynchronous scan. SCAN_DONE may already have claimed the watch; the
+    // helper makes ownership single-use across the stop task and event loop.
+    const esp_err_t scan_watch_error = finish_scan_watch_if_active(ESP_OK);
+    if (scan_watch_error != ESP_OK) {
+        abort_incomplete_cleanup("Wi-Fi scan watchdog cleanup", scan_watch_error);
     }
     if (s_ip_event_instance != nullptr) {
         const esp_err_t cleanup_error =
@@ -851,7 +1084,11 @@ extern "C" esp_err_t LUNASHELL_wifi_stop(void)
     return ESP_OK;
 }
 
-extern "C" esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *password, bool persist)
+static esp_err_t wifi_connect_impl(
+    const char *ssid,
+    const char *password,
+    bool persist
+)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -919,7 +1156,7 @@ extern "C" esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *passwo
     return error;
 }
 
-extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
+static esp_err_t wifi_disconnect_impl(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -948,7 +1185,7 @@ extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
     return aggregate;
 }
 
-extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
+static esp_err_t wifi_start_scan_impl(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -965,11 +1202,26 @@ extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
     wifi_unlock();
     publish_snapshot();
 
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_WIFI_SCAN
+    );
+    if (watch_error != ESP_OK) {
+        wifi_lock();
+        s_status.scanning = false;
+        wifi_unlock();
+        record_error(watch_error);
+        return watch_error;
+    }
+    wifi_lock();
+    s_scan_watch_active = true;
+    wifi_unlock();
+
     wifi_scan_config_t config = {};
     config.show_hidden = true;
     log_scan_heap_checkpoint("before-scan");
     const esp_err_t error = esp_wifi_scan_start(&config, false);
     if (error != ESP_OK) {
+        (void)finish_scan_watch_if_active(error);
         wifi_lock();
         s_status.scanning = false;
         wifi_unlock();
@@ -1002,4 +1254,85 @@ extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
     wifi_lock();
     *status = s_status;
     wifi_unlock();
+}
+
+static esp_err_t run_watched_wifi_operation(
+    const char *operation_name,
+    esp_err_t (*operation)(void)
+)
+{
+    const esp_err_t lifecycle_error = wifi_lifecycle_lock(operation_name);
+    if (lifecycle_error != ESP_OK) {
+        return lifecycle_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_WIFI
+    );
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi %s watchdog start failed (%s)",
+            operation_name,
+            esp_err_to_name(watch_error)
+        );
+        return watch_error;
+    }
+    const esp_err_t operation_result = operation();
+    return LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_WIFI,
+        operation_result
+    );
+}
+
+extern "C" esp_err_t LUNASHELL_wifi_init(void)
+{
+    return run_watched_wifi_operation("initialization", wifi_init_impl);
+}
+
+extern "C" esp_err_t LUNASHELL_wifi_stop(void)
+{
+    return run_watched_wifi_operation("stop", wifi_stop_impl);
+}
+
+extern "C" esp_err_t LUNASHELL_wifi_connect(
+    const char *ssid,
+    const char *password,
+    bool persist
+)
+{
+    const esp_err_t lifecycle_error = wifi_lifecycle_lock("connect");
+    if (lifecycle_error != ESP_OK) {
+        return lifecycle_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_WIFI
+    );
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Wi-Fi connect watchdog start failed (%s)",
+            esp_err_to_name(watch_error)
+        );
+        return watch_error;
+    }
+    const esp_err_t operation_result =
+        wifi_connect_impl(ssid, password, persist);
+    return LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_WIFI,
+        operation_result
+    );
+}
+
+extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
+{
+    return run_watched_wifi_operation("disconnect", wifi_disconnect_impl);
+}
+
+extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
+{
+    return run_watched_wifi_operation("scan", wifi_start_scan_impl);
 }

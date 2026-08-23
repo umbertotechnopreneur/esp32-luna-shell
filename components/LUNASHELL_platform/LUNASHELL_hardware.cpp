@@ -110,6 +110,12 @@ constexpr int64_t kMinimumMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
 constexpr int64_t kFullSnapshotTtlNumerator = 6;
 constexpr int64_t kFullSnapshotTtlDenominator = 5;
 constexpr uint32_t kPeriodicSummaryIntervalMs = 30000U;
+// Snapshot ownership is held only while copying or committing the canonical
+// value. Reaching this deadline is therefore an invariant failure, not a slow
+// hardware sample, and must never leave UI/HTTP/radio callers blocked forever.
+constexpr uint32_t kSnapshotMutexTimeoutMs = 1000U;
+constexpr TickType_t kSnapshotMutexTimeoutTicks =
+    pdMS_TO_TICKS(kSnapshotMutexTimeoutMs);
 constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
 constexpr uint64_t kPmuIrqMask = 0xFFFFFFULL;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
@@ -482,8 +488,12 @@ esp_err_t update_snapshot(Update update)
         ESP_LOGE(TAG, "DeviceSnapshot update failed: mutex allocation failed");
         std::abort();
     }
-    if (xSemaphoreTake(mutex, portMAX_DELAY) != pdTRUE) {
-        ESP_LOGE(TAG, "DeviceSnapshot update failed: mutex take rejected");
+    if (xSemaphoreTake(mutex, kSnapshotMutexTimeoutTicks) != pdTRUE) {
+        ESP_LOGE(
+            TAG,
+            "DeviceSnapshot update failed: mutex take timed out after %lu ms",
+            static_cast<unsigned long>(kSnapshotMutexTimeoutMs)
+        );
         std::abort();
     }
 
@@ -6230,7 +6240,7 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
 {
     DeviceSnapshot copy;
     const esp_err_t lock_error =
-        take_snapshot_mutex(portMAX_DELAY, "read");
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "read");
     if (lock_error != ESP_OK) {
         ESP_LOGE(
             TAG,

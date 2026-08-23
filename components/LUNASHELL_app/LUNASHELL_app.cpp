@@ -30,6 +30,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_snapshot_semantics.hpp"
@@ -96,6 +97,95 @@ constexpr double kAudioMeterFloorDbfs = -60.0;
 constexpr double kPcm16FullScale = 32768.0;
 // The logger contract keeps the bounded snapshot inside the persistent 4 KB buffer.
 constexpr size_t kLogSnapshotLines = LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES;
+
+class GuiTimerProgress final {
+public:
+    explicit GuiTimerProgress(bool active)
+    {
+        if (!active) {
+            ESP_LOGE(kTag, "GUI timer dispatched without an active watchdog");
+            std::abort();
+        }
+    }
+
+    ~GuiTimerProgress()
+    {
+        const esp_err_t result = LUNASHELL_liveness_watch_progress(
+            LUNASHELL_LIVENESS_GUI
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "GUI timer completed but watchdog progress failed: %s",
+                esp_err_to_name(result)
+            );
+            std::abort();
+        }
+    }
+
+    GuiTimerProgress(const GuiTimerProgress &) = delete;
+    GuiTimerProgress &operator=(const GuiTimerProgress &) = delete;
+};
+
+class GuiWatchRollback final {
+public:
+    GuiWatchRollback(bool &active, bool armed)
+        : active_(active), armed_(armed)
+    {
+    }
+
+    ~GuiWatchRollback()
+    {
+        if (!armed_) {
+            return;
+        }
+        const esp_err_t result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_GUI,
+            ESP_OK
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(
+                kTag,
+                "GUI resume watchdog rollback failed: %s",
+                esp_err_to_name(result)
+            );
+            std::abort();
+        }
+        active_ = false;
+    }
+
+    void release()
+    {
+        armed_ = false;
+    }
+
+    GuiWatchRollback(const GuiWatchRollback &) = delete;
+    GuiWatchRollback &operator=(const GuiWatchRollback &) = delete;
+
+private:
+    bool &active_;
+    bool armed_;
+};
+
+void require_gui_watch_progress(bool active, const char *stage)
+{
+    if (!active) {
+        ESP_LOGE(kTag, "GUI stage %s has no active watchdog", stage);
+        std::abort();
+    }
+    const esp_err_t result = LUNASHELL_liveness_watch_progress(
+        LUNASHELL_LIVENESS_GUI
+    );
+    if (result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "GUI watchdog progress failed after %s: %s",
+            stage,
+            esp_err_to_name(result)
+        );
+        std::abort();
+    }
+}
 
 template <size_t CommandCount>
 constexpr bool valid_command_main_layout(
@@ -1466,6 +1556,17 @@ esp_brookesia::system::core::AppGuiDescriptor App::get_gui_descriptor() const
 // Initialize a fresh active input generation for the mounted LUNASHELL app.
 std::expected<void, std::string> App::on_start(AppContext &context)
 {
+    const esp_err_t liveness_result = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_GUI
+    );
+    if (liveness_result != ESP_OK) {
+        return std::unexpected(
+            "GUI watchdog start failed: " +
+            std::string(esp_err_to_name(liveness_result))
+        );
+    }
+    gui_liveness_watch_active_ = true;
+    GuiWatchRollback watch_rollback(gui_liveness_watch_active_, true);
     context_ = &context;
     ++standby_ui_generation_;
     standby_ui_state_ = StandbyUiState::Active;
@@ -1634,6 +1735,17 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         return refresh_result;
     }
 
+    const esp_err_t ready_liveness_result =
+        LUNASHELL_liveness_watch_progress(LUNASHELL_LIVENESS_GUI);
+    if (ready_liveness_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "GUI ready watchdog progress failed: %s",
+            esp_err_to_name(ready_liveness_result)
+        );
+        std::abort();
+    }
+    watch_rollback.release();
     ESP_LOGI(kTag, "LUNASHELL.ai native app started on Brookesia System 0.8");
     return {};
 }
@@ -1641,6 +1753,16 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 // Invalidate pending standby callbacks before pausing app-owned producers.
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
+    if (!gui_liveness_watch_active_) {
+        ESP_LOGE(kTag, "GUI pause rejected: watchdog is already inactive");
+        return std::unexpected(
+            "Cannot pause LUNASHELL from an already paused lifecycle state"
+        );
+    }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "pause entry"
+    );
     ++standby_ui_generation_;
     standby_ui_state_ = StandbyUiState::Quiescing;
     standby_ui_transition_sequence_ = 0;
@@ -1650,6 +1772,10 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         pause_error = result.error();
         ESP_LOGE(kTag, "%s", pause_error.c_str());
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "adaptive chrome pause"
+    );
     const esp_err_t diagnostic_result =
         LUNASHELL_hardware_set_diagnostic_streams(false, false);
     if (diagnostic_result != ESP_OK) {
@@ -1661,6 +1787,10 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
             pause_error = error;
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "diagnostic pause"
+    );
     if (audio_diagnostic_capture_active_) {
         const esp_err_t audio_result =
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
@@ -1676,6 +1806,10 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
             }
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "audio diagnostic pause"
+    );
     const esp_err_t full_snapshot_result =
         LUNASHELL_hardware_stop_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
@@ -1687,6 +1821,10 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
             pause_error = error;
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "snapshot monitor pause"
+    );
     if (!pause_error.empty()) {
         // Core keeps a failed pause in Running state, so restore every producer
         // before returning the original lifecycle failure.
@@ -1704,12 +1842,60 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         }
         return std::unexpected(std::move(pause_error));
     }
+
+    if (gui_liveness_watch_active_) {
+        const esp_err_t liveness_result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_GUI,
+            ESP_OK
+        );
+        if (liveness_result != ESP_OK) {
+            auto rollback_result = on_resume(context);
+            if (!rollback_result) {
+                ESP_LOGE(
+                    kTag,
+                    "LUNASHELL active rollback after watchdog pause failure failed: %s",
+                    rollback_result.error().c_str()
+                );
+            }
+            return std::unexpected(
+                "Failed to pause GUI watchdog: " +
+                std::string(esp_err_to_name(liveness_result))
+            );
+        }
+        gui_liveness_watch_active_ = false;
+    }
     return {};
 }
 
 // Reopen Brookesia input only after every resumed producer and GUI update agrees.
 std::expected<void, std::string> App::on_resume(AppContext &context)
 {
+    bool watch_started_for_resume = false;
+    esp_err_t liveness_result = ESP_OK;
+    if (gui_liveness_watch_active_) {
+        liveness_result = LUNASHELL_liveness_watch_progress(
+            LUNASHELL_LIVENESS_GUI
+        );
+    } else {
+        liveness_result = LUNASHELL_liveness_watch_begin(
+            LUNASHELL_LIVENESS_GUI
+        );
+        if (liveness_result == ESP_OK) {
+            gui_liveness_watch_active_ = true;
+            watch_started_for_resume = true;
+        }
+    }
+    if (liveness_result != ESP_OK) {
+        return std::unexpected(
+            "Failed to resume GUI watchdog: " +
+            std::string(esp_err_to_name(liveness_result))
+        );
+    }
+    GuiWatchRollback watch_rollback(
+        gui_liveness_watch_active_,
+        watch_started_for_resume
+    );
+
     ++standby_ui_generation_;
     standby_ui_transition_sequence_ = 0;
     standby_ui_state_ = StandbyUiState::Quiescing;
@@ -1782,21 +1968,37 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
             std::string(esp_err_to_name(full_snapshot_result))
         );
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "snapshot monitor resume"
+    );
     if (auto result = apply_diagnostic_monitor(context, screen_); !result) {
         rollback_diagnostics();
         stop_full_snapshot_after_failure();
         return result;
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "diagnostic resume"
+    );
     if (auto result = configure_chrome(context); !result) {
         rollback_diagnostics();
         stop_full_snapshot_after_failure();
         return result;
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "chrome configuration resume"
+    );
     if (auto result = adaptive_chrome_.resume(context.gui()); !result) {
         rollback_diagnostics();
         stop_full_snapshot_after_failure();
         return result;
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "adaptive chrome resume"
+    );
     if (auto result =
             sync_refresh_timer(context, DisplayIdleStage::Active);
         !result) {
@@ -1805,12 +2007,20 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
         stop_full_snapshot_after_failure();
         return result;
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "refresh timer resume"
+    );
     if (auto result = refresh(context); !result) {
         shutdown_chrome_after_failure();
         rollback_diagnostics();
         stop_full_snapshot_after_failure();
         return result;
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "GUI refresh resume"
+    );
     if (auto result = context.gui().drain_pending_work(); !result) {
         shutdown_chrome_after_failure();
         rollback_diagnostics();
@@ -1828,12 +2038,39 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
         );
     }
     standby_ui_state_ = StandbyUiState::Active;
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "GUI input resume"
+    );
+    watch_rollback.release();
     return {};
 }
 
 // Block late input callbacks while the LUNASHELL app tears down its GUI ownership.
 std::expected<void, std::string> App::on_stop(AppContext &context)
 {
+    // Brookesia may stop an app directly from Paused, where on_pause() has
+    // intentionally closed the GUI watch. Teardown must establish fresh
+    // coverage in that lifecycle path instead of silently running unwatched.
+    esp_err_t liveness_result = ESP_OK;
+    if (gui_liveness_watch_active_) {
+        liveness_result = LUNASHELL_liveness_watch_progress(
+            LUNASHELL_LIVENESS_GUI
+        );
+    } else {
+        liveness_result = LUNASHELL_liveness_watch_begin(
+            LUNASHELL_LIVENESS_GUI
+        );
+        if (liveness_result == ESP_OK) {
+            gui_liveness_watch_active_ = true;
+        }
+    }
+    if (liveness_result != ESP_OK) {
+        return std::unexpected(
+            "Failed to start GUI teardown watchdog: " +
+            std::string(esp_err_to_name(liveness_result))
+        );
+    }
     ++standby_ui_generation_;
     standby_ui_state_ = StandbyUiState::Quiescing;
     standby_ui_transition_sequence_ = 0;
@@ -1843,6 +2080,10 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         stop_error = chrome_result.error();
         ESP_LOGE(kTag, "%s", stop_error.c_str());
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "adaptive chrome stop"
+    );
     ++screen_document_generation_;
     screen_document_connections_.clear();
     const esp_err_t monitor_result =
@@ -1882,6 +2123,10 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             stop_error = error;
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "producer stop"
+    );
     if (refresh_timer_ != esp_brookesia::system::core::INVALID_TIMER_ID) {
         if (!context.timer().stop(refresh_timer_)) {
             ESP_LOGE(kTag, "Failed to stop LUNASHELL refresh timer");
@@ -1921,7 +2166,15 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             stop_error = "Failed to hide LUNASHELL dialogs: " + hide_result.error();
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "GUI producer stop"
+    );
     if (LUNASHELL_provisioning_active()) {
+        require_gui_watch_progress(
+            gui_liveness_watch_active_,
+            "provisioning stop start"
+        );
         const esp_err_t provisioning_result = LUNASHELL_provisioning_stop();
         if (provisioning_result != ESP_OK) {
             ESP_LOGE(
@@ -1932,9 +2185,13 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             if (stop_error.empty()) {
                 stop_error =
                     "Failed to stop active provisioning: " +
-                    std::string(esp_err_to_name(provisioning_result));
+                std::string(esp_err_to_name(provisioning_result));
             }
         }
+        require_gui_watch_progress(
+            gui_liveness_watch_active_,
+            "provisioning stop"
+        );
     }
     if (auto release_result = release_pairing_qr(context); !release_result) {
         ESP_LOGE(kTag, "%s", release_result.error().c_str());
@@ -1956,8 +2213,29 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             stop_error = "Failed to unregister LUNASHELL background image";
         }
     }
+    require_gui_watch_progress(
+        gui_liveness_watch_active_,
+        "GUI resource release"
+    );
     background_asset_registered_ = false;
     release_log_buffers();
+    if (gui_liveness_watch_active_) {
+        liveness_result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_GUI,
+            ESP_OK
+        );
+        if (liveness_result == ESP_OK) {
+            gui_liveness_watch_active_ = false;
+        } else {
+            const std::string error =
+                "Failed to stop GUI watchdog: " +
+                std::string(esp_err_to_name(liveness_result));
+            ESP_LOGE(kTag, "%s", error.c_str());
+            if (stop_error.empty()) {
+                stop_error = error;
+            }
+        }
+    }
     context_ = nullptr;
     ESP_LOGI(kTag, "LUNASHELL.ai native app stopped");
     if (!stop_error.empty()) {
@@ -3563,6 +3841,10 @@ std::expected<void, std::string> App::on_timer(
     std::string_view name
 )
 {
+    // Feed only when this callback exits. A wedged GUI or renderer path leaves
+    // the subscription unfed and therefore reaches the Task-WDT deadline.
+    GuiTimerProgress timer_progress(gui_liveness_watch_active_);
+
     if (timer_id == power_state_sync_timer_ &&
         name == kPowerStateSyncTimer) {
         const DeviceSnapshot snapshot =

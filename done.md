@@ -56,3 +56,22 @@ records the implementation only.
 These entries record the implemented software package only. Electrical savings
 and the open physical standby/wake tests require target-device measurements and
 remain tracked in `TODO.md` and `planned-todo.md`.
+
+## Runtime liveness and bounded operations
+
+- [x] Enable panic-and-reboot bootloader, interrupt, idle-core, and Task-WDT
+  policy, with a 12-second Task-WDT deadline and a best-effort retained timeout
+  breadcrumb exposed through the read-only health response.
+- [x] Add explicit liveness domains for startup, GUI, LVGL display, Full
+  Snapshot, settings NVS, provisioning, boot audio, radios, Wi-Fi operations,
+  asynchronous Wi-Fi scans, and Wi-Fi events.
+- [x] Replace indefinite application-owned mutex waits with bounded failures,
+  serialize Wi-Fi lifecycle operations, and keep the reconnect timer callback
+  non-blocking when that lifecycle is busy.
+- [x] Put potentially unbounded NVS, provisioning teardown, and boot-audio work
+  behind owned worker lifetimes and software deadlines that remain inside the
+  Task-WDT deadline.
+
+This section records host-validated implementation only. Forced-stall behavior,
+retained reset diagnostics, and worker stack margins remain hardware tests in
+`TODO.md`.

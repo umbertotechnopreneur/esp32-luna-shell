@@ -1,5 +1,8 @@
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_liveness.h"
 
+#include <atomic>
+#include <cstdlib>
 #include <cstring>
 #include <memory>
 #include <new>
@@ -18,6 +21,11 @@ constexpr char kNamespace[] = "LUNASHELL_user";
 constexpr char kTag[] = "LUNASHELL_settings";
 constexpr std::size_t kWorkerStackSize = 6 * 1024;
 constexpr UBaseType_t kWorkerPriority = 5;
+constexpr uint32_t kRequestTimeoutMs = 10000U;
+static_assert(
+    CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000U >= kRequestTimeoutMs + 1000U,
+    "Task WDT must outlive the settings deadline with recovery margin"
+);
 
 enum class SettingsOperation : uint8_t {
     Initialize,
@@ -49,7 +57,24 @@ union SettingsScalar {
     uint64_t u64;
 };
 
+struct InternalBufferDeleter {
+    void operator()(uint8_t *buffer) const
+    {
+        heap_caps_free(buffer);
+    }
+};
+
+using InternalBuffer = std::unique_ptr<uint8_t, InternalBufferDeleter>;
+
+enum class SettingsExecutorState : uint8_t {
+    Uninitialized,
+    Ready,
+    InFlight,
+    Poisoned,
+};
+
 struct SettingsRequest {
+    uint32_t generation = 0;
     SettingsOperation operation = SettingsOperation::Initialize;
     nvs_handle_t handle = 0;
     char key[NVS_KEY_NAME_MAX_SIZE] = {};
@@ -65,6 +90,13 @@ TaskHandle_t s_worker = nullptr;
 StaticSemaphore_t s_completion_control{};
 SemaphoreHandle_t s_completion = nullptr;
 SettingsRequest s_request{};
+InternalBuffer s_request_buffer{};
+std::atomic<SettingsExecutorState> s_executor_state{
+    SettingsExecutorState::Uninitialized
+};
+std::atomic<esp_err_t> s_poison_error{ESP_OK};
+std::atomic<uint32_t> s_completed_generation{0};
+uint32_t s_next_generation = 0;
 
 const char *operation_name(SettingsOperation operation)
 {
@@ -129,6 +161,45 @@ void log_operation_failure(
     );
 }
 
+esp_err_t executor_poison_error()
+{
+    const esp_err_t error = s_poison_error.load(std::memory_order_acquire);
+    return error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+}
+
+void poison_executor(
+    SettingsOperation operation,
+    const char *key,
+    uint32_t generation,
+    esp_err_t error,
+    const char *reason
+)
+{
+    esp_err_t expected = ESP_OK;
+    (void)s_poison_error.compare_exchange_strong(
+        expected,
+        error,
+        std::memory_order_acq_rel,
+        std::memory_order_acquire
+    );
+    s_executor_state.store(
+        SettingsExecutorState::Poisoned,
+        std::memory_order_release
+    );
+    ESP_LOGE(
+        kTag,
+        "Settings executor poisoned: operation=%s%s%s%s "
+        "generation=%lu reason=%s error=%s",
+        operation_name(operation),
+        key != nullptr && key[0] != '\0' ? " key='" : "",
+        key != nullptr && key[0] != '\0' ? key : "",
+        key != nullptr && key[0] != '\0' ? "'" : "",
+        static_cast<unsigned long>(generation),
+        reason,
+        esp_err_to_name(error)
+    );
+}
+
 esp_err_t copy_key(SettingsRequest &request, const char *key)
 {
     if (key == nullptr) {
@@ -151,6 +222,19 @@ esp_err_t prepare_request(
     const char *key = nullptr
 )
 {
+    const SettingsExecutorState state =
+        s_executor_state.load(std::memory_order_acquire);
+    if (state != SettingsExecutorState::Ready) {
+        const esp_err_t error = state == SettingsExecutorState::Poisoned
+            ? executor_poison_error()
+            : ESP_ERR_INVALID_STATE;
+        log_operation_failure(operation, key, error);
+        return error;
+    }
+    // The service mutex serializes callers. Releasing the previous buffer is
+    // safe only in Ready: a timed-out request leaves the executor Poisoned and
+    // retains its buffer for any late NVS completion.
+    s_request_buffer.reset();
     s_request = {};
     s_request.operation = operation;
     s_request.handle = handle;
@@ -308,12 +392,34 @@ void settings_worker(void *)
 {
     for (;;) {
         (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        s_request.result = execute_request(s_request);
-        if (xSemaphoreGive(s_completion) != pdTRUE) {
+        const uint32_t generation = s_request.generation;
+        const esp_err_t operation_result = execute_request(s_request);
+        const esp_err_t watched_result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_SETTINGS,
+            operation_result
+        );
+        if (operation_result == ESP_OK && watched_result != ESP_OK) {
             ESP_LOGE(
                 kTag,
-                "Settings worker could not publish completion"
+                "Settings watchdog cleanup failed: %s",
+                esp_err_to_name(watched_result)
             );
+            std::abort();
+        }
+        s_request.result = watched_result;
+        s_completed_generation.store(
+            generation,
+            std::memory_order_release
+        );
+        if (xSemaphoreGive(s_completion) != pdTRUE) {
+            poison_executor(
+                s_request.operation,
+                s_request.key,
+                generation,
+                ESP_ERR_INVALID_STATE,
+                "worker could not publish completion"
+            );
+            std::abort();
         }
     }
 }
@@ -321,6 +427,25 @@ void settings_worker(void *)
 esp_err_t ensure_worker()
 {
     if (s_worker != nullptr) {
+        const SettingsExecutorState state =
+            s_executor_state.load(std::memory_order_acquire);
+        if (state == SettingsExecutorState::Poisoned) {
+            const esp_err_t error = executor_poison_error();
+            log_operation_failure(
+                SettingsOperation::Initialize,
+                kNamespace,
+                error
+            );
+            return error;
+        }
+        if (state != SettingsExecutorState::Ready) {
+            log_operation_failure(
+                SettingsOperation::Initialize,
+                kNamespace,
+                ESP_ERR_INVALID_STATE
+            );
+            return ESP_ERR_INVALID_STATE;
+        }
         return ESP_OK;
     }
     s_completion =
@@ -343,6 +468,10 @@ esp_err_t ensure_worker()
         s_completion = nullptr;
         return ESP_ERR_NO_MEM;
     }
+    s_executor_state.store(
+        SettingsExecutorState::Ready,
+        std::memory_order_release
+    );
     ESP_LOGI(
         kTag,
         "Flash-safe settings worker ready: %u-byte internal stack",
@@ -362,26 +491,107 @@ esp_err_t submit_request()
         );
         return error;
     }
-    while (xSemaphoreTake(s_completion, 0) == pdTRUE) {
+    const SettingsExecutorState state =
+        s_executor_state.load(std::memory_order_acquire);
+    if (state != SettingsExecutorState::Ready) {
+        const esp_err_t error = state == SettingsExecutorState::Poisoned
+            ? executor_poison_error()
+            : ESP_ERR_INVALID_STATE;
+        log_operation_failure(
+            s_request.operation,
+            s_request.key,
+            error
+        );
+        return error;
     }
+    if (xSemaphoreTake(s_completion, 0) == pdTRUE) {
+        const esp_err_t error = ESP_ERR_INVALID_STATE;
+        poison_executor(
+            s_request.operation,
+            s_request.key,
+            s_request.generation,
+            error,
+            "unexpected stale completion"
+        );
+        return error;
+    }
+
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_SETTINGS
+    );
+    if (watch_error != ESP_OK) {
+        log_operation_failure(
+            s_request.operation,
+            s_request.key,
+            watch_error
+        );
+        return watch_error;
+    }
+    const auto finish_watched_request = [](esp_err_t result) {
+        return LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_SETTINGS,
+            result
+        );
+    };
+
+    ++s_next_generation;
+    if (s_next_generation == 0) {
+        ++s_next_generation;
+    }
+    const uint32_t expected_generation = s_next_generation;
+    s_request.generation = expected_generation;
+    s_completed_generation.store(0, std::memory_order_release);
+    s_executor_state.store(
+        SettingsExecutorState::InFlight,
+        std::memory_order_release
+    );
     if (xTaskNotifyGive(s_worker) != pdPASS) {
         const esp_err_t error = ESP_ERR_INVALID_STATE;
+        s_executor_state.store(
+            SettingsExecutorState::Ready,
+            std::memory_order_release
+        );
         log_operation_failure(
             s_request.operation,
             s_request.key,
             error
         );
-        return error;
+        return finish_watched_request(error);
     }
-    if (xSemaphoreTake(s_completion, portMAX_DELAY) != pdTRUE) {
-        const esp_err_t error = ESP_ERR_INVALID_STATE;
-        log_operation_failure(
+    if (xSemaphoreTake(
+            s_completion,
+            pdMS_TO_TICKS(kRequestTimeoutMs)
+        ) != pdTRUE) {
+        const esp_err_t error = ESP_ERR_TIMEOUT;
+        poison_executor(
             s_request.operation,
             s_request.key,
-            error
+            expected_generation,
+            error,
+            "completion deadline expired"
+        );
+        // The worker owns watch closure after a successful notification. If
+        // NVS eventually returns it closes the watch before publishing its
+        // late completion; if it never returns the Task WDT resets the boot.
+        return error;
+    }
+    const uint32_t completed_generation =
+        s_completed_generation.load(std::memory_order_acquire);
+    if (completed_generation != expected_generation) {
+        const esp_err_t error = ESP_ERR_INVALID_RESPONSE;
+        poison_executor(
+            s_request.operation,
+            s_request.key,
+            expected_generation,
+            error,
+            "completion generation mismatch"
         );
         return error;
     }
+    s_executor_state.store(
+        SettingsExecutorState::Ready,
+        std::memory_order_release
+    );
     if (s_request.result != ESP_OK) {
         log_operation_failure(
             s_request.operation,
@@ -391,15 +601,6 @@ esp_err_t submit_request()
     }
     return s_request.result;
 }
-
-struct InternalBufferDeleter {
-    void operator()(uint8_t *buffer) const
-    {
-        heap_caps_free(buffer);
-    }
-};
-
-using InternalBuffer = std::unique_ptr<uint8_t, InternalBufferDeleter>;
 
 InternalBuffer allocate_internal(
     size_t size,
@@ -419,6 +620,19 @@ InternalBuffer allocate_internal(
     }
     return InternalBuffer{buffer};
 }
+
+class RequestBufferReleaseGuard final {
+public:
+    ~RequestBufferReleaseGuard()
+    {
+        if (s_executor_state.load(std::memory_order_acquire) ==
+            SettingsExecutorState::Ready) {
+            s_request.data = nullptr;
+            s_request.size = 0;
+            s_request_buffer.reset();
+        }
+    }
+};
 }
 
 UserSettingsService &UserSettingsService::instance()
@@ -443,7 +657,20 @@ esp_err_t UserSettingsService::initialize()
 {
     std::lock_guard<std::mutex> lock(_mutex);
     if (_initialized) {
-        return ESP_OK;
+        const SettingsExecutorState state =
+            s_executor_state.load(std::memory_order_acquire);
+        if (state == SettingsExecutorState::Ready) {
+            return ESP_OK;
+        }
+        const esp_err_t error = state == SettingsExecutorState::Poisoned
+            ? executor_poison_error()
+            : ESP_ERR_INVALID_STATE;
+        log_operation_failure(
+            SettingsOperation::Initialize,
+            kNamespace,
+            error
+        );
+        return error;
     }
 
     esp_err_t error = ensure_worker();
@@ -471,11 +698,17 @@ esp_err_t UserSettingsService::initialize()
 bool UserSettingsService::isInitialized() const
 {
     std::lock_guard<std::mutex> lock(_mutex);
-    return _initialized;
+    return _initialized &&
+        s_executor_state.load(std::memory_order_acquire) ==
+            SettingsExecutorState::Ready;
 }
 
 esp_err_t UserSettingsService::ensureInitialized() const
 {
+    if (s_executor_state.load(std::memory_order_acquire) ==
+        SettingsExecutorState::Poisoned) {
+        return executor_poison_error();
+    }
     return _initialized ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
@@ -622,13 +855,14 @@ esp_err_t UserSettingsService::setString(const char *key, const char *value)
         return error;
     }
     const size_t length = std::strlen(value) + 1;
-    InternalBuffer buffer =
+    s_request_buffer =
         allocate_internal(length, SettingsOperation::SetString, key);
-    if (buffer == nullptr) {
+    if (s_request_buffer == nullptr) {
         return ESP_ERR_NO_MEM;
     }
-    std::memcpy(buffer.get(), value, length);
-    s_request.data = buffer.get();
+    RequestBufferReleaseGuard release_buffer;
+    std::memcpy(s_request_buffer.get(), value, length);
+    s_request.data = s_request_buffer.get();
     s_request.size = length;
     return submit_request();
 }
@@ -669,23 +903,26 @@ esp_err_t UserSettingsService::getString(const char *key, std::string *value) co
         );
         return ESP_ERR_INVALID_SIZE;
     }
-    InternalBuffer buffer =
-        allocate_internal(length, SettingsOperation::GetString, key);
-    if (buffer == nullptr) {
-        return ESP_ERR_NO_MEM;
-    }
     error = prepare_request(SettingsOperation::GetString, _handle, key);
     if (error != ESP_OK) {
         return error;
     }
-    s_request.data = buffer.get();
+    s_request_buffer =
+        allocate_internal(length, SettingsOperation::GetString, key);
+    if (s_request_buffer == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    RequestBufferReleaseGuard release_buffer;
+    s_request.data = s_request_buffer.get();
     s_request.size = length;
     error = submit_request();
     if (error != ESP_OK) {
         return error;
     }
     try {
-        std::string output{reinterpret_cast<const char *>(buffer.get())};
+        std::string output{
+            reinterpret_cast<const char *>(s_request_buffer.get())
+        };
         *value = std::move(output);
     } catch (const std::bad_alloc &) {
         log_operation_failure(
@@ -718,15 +955,16 @@ esp_err_t UserSettingsService::setBlob(const char *key, const void *data, size_t
     if (error != ESP_OK) {
         return error;
     }
-    InternalBuffer buffer =
+    s_request_buffer =
         allocate_internal(size, SettingsOperation::SetBlob, key);
-    if (size != 0 && buffer == nullptr) {
+    if (size != 0 && s_request_buffer == nullptr) {
         return ESP_ERR_NO_MEM;
     }
+    RequestBufferReleaseGuard release_buffer;
     if (size != 0) {
-        std::memcpy(buffer.get(), data, size);
+        std::memcpy(s_request_buffer.get(), data, size);
     }
-    s_request.data = buffer.get();
+    s_request.data = s_request_buffer.get();
     s_request.size = size;
     return submit_request();
 }
@@ -759,16 +997,17 @@ esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *da
         return error;
     }
     const size_t size = s_request.size;
-    InternalBuffer buffer =
-        allocate_internal(size, SettingsOperation::GetBlob, key);
-    if (size != 0 && buffer == nullptr) {
-        return ESP_ERR_NO_MEM;
-    }
     error = prepare_request(SettingsOperation::GetBlob, _handle, key);
     if (error != ESP_OK) {
         return error;
     }
-    s_request.data = buffer.get();
+    s_request_buffer =
+        allocate_internal(size, SettingsOperation::GetBlob, key);
+    if (size != 0 && s_request_buffer == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    RequestBufferReleaseGuard release_buffer;
+    s_request.data = s_request_buffer.get();
     s_request.size = size;
     error = submit_request();
     if (error != ESP_OK) {
@@ -777,7 +1016,10 @@ esp_err_t UserSettingsService::getBlob(const char *key, std::vector<uint8_t> *da
     try {
         std::vector<uint8_t> output;
         if (size != 0) {
-            output.assign(buffer.get(), buffer.get() + size);
+            output.assign(
+                s_request_buffer.get(),
+                s_request_buffer.get() + size
+            );
         }
         *data = std::move(output);
     } catch (const std::bad_alloc &) {

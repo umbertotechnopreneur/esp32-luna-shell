@@ -6,6 +6,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_radio_memory.hpp"
 
 #include <cstdlib>
@@ -35,6 +36,22 @@
 
 static const char *TAG = "LUNASHELL_radios";
 static std::recursive_mutex s_radios_init_mutex;
+
+static void radio_operation_progress(const char *stage)
+{
+    const esp_err_t result = LUNASHELL_liveness_watch_progress(
+        LUNASHELL_LIVENESS_RADIOS
+    );
+    if (result != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Radio watchdog progress failed after %s (%s)",
+            stage,
+            esp_err_to_name(result)
+        );
+        std::abort();
+    }
+}
 
 static void log_radio_heap_checkpoint(const char *stage)
 {
@@ -1074,7 +1091,7 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
 }
 #endif
 
-esp_err_t LUNASHELL_radios_init(void)
+static esp_err_t radios_init_impl(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
 
@@ -1100,6 +1117,7 @@ esp_err_t LUNASHELL_radios_init(void)
 
     log_radio_heap_checkpoint("before-Wi-Fi");
     const esp_err_t wifi = LUNASHELL_wifi_init();
+    radio_operation_progress("Wi-Fi initialization");
     log_radio_heap_checkpoint(
         wifi == ESP_OK ? "after-Wi-Fi" : "after-Wi-Fi-failure"
     );
@@ -1135,6 +1153,7 @@ esp_err_t LUNASHELL_radios_init(void)
                 "starting BLE telemetry"
             );
             ble = LUNASHELL_provisioning_deinit_for_ble();
+            radio_operation_progress("provisioning handoff");
             if (ble != ESP_OK) {
                 ESP_LOGE(
                     TAG,
@@ -1154,6 +1173,7 @@ esp_err_t LUNASHELL_radios_init(void)
 #endif
         if (ble == ESP_OK) {
             ble = LUNASHELL_ble_init();
+            radio_operation_progress("BLE telemetry initialization");
         }
     } else {
 #if CONFIG_BT_NIMBLE_ENABLED
@@ -1167,6 +1187,7 @@ esp_err_t LUNASHELL_radios_init(void)
         }
 #endif
         ble = LUNASHELL_provisioning_init();
+        radio_operation_progress("provisioning initialization");
         if (ble == ESP_OK) {
 #if CONFIG_BT_CONTROLLER_ENABLED
             LUNASHELL::radio_memory::releaseBleControllerDma(
@@ -1177,6 +1198,7 @@ esp_err_t LUNASHELL_radios_init(void)
         }
         if (ble == ESP_OK) {
             ble = LUNASHELL_provisioning_start();
+            radio_operation_progress("provisioning start");
         }
         LUNASHELL::DeviceSnapshotService::instance().reportBle(
             ble == ESP_OK,
@@ -1230,7 +1252,7 @@ esp_err_t LUNASHELL_radios_init(void)
     return ESP_OK;
 }
 
-esp_err_t LUNASHELL_radios_stop(void)
+static esp_err_t radios_stop_impl(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
 
@@ -1238,13 +1260,16 @@ esp_err_t LUNASHELL_radios_stop(void)
     if (LUNASHELL_provisioning_initialized()) {
         if (LUNASHELL_provisioning_active()) {
             ble_result = LUNASHELL_provisioning_stop();
+            radio_operation_progress("provisioning stop");
         }
         if (ble_result == ESP_OK) {
             ble_result = LUNASHELL_provisioning_deinit_for_ble();
+            radio_operation_progress("provisioning deinitialize");
         }
     } else {
 #if CONFIG_BT_NIMBLE_ENABLED
         ble_result = stop_ble_telemetry();
+        radio_operation_progress("BLE telemetry stop");
 #endif
     }
     if (ble_result != ESP_OK) {
@@ -1257,6 +1282,7 @@ esp_err_t LUNASHELL_radios_stop(void)
     }
 
     const esp_err_t wifi_result = LUNASHELL_wifi_stop();
+    radio_operation_progress("Wi-Fi stop");
     if (wifi_result != ESP_OK) {
         ESP_LOGE(
             TAG,
@@ -1279,4 +1305,39 @@ esp_err_t LUNASHELL_radios_stop(void)
     );
     ESP_LOGI(TAG, "Wireless services stopped");
     return ESP_OK;
+}
+
+static esp_err_t run_watched_radio_operation(
+    const char *operation_name,
+    esp_err_t (*operation)(void)
+)
+{
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_RADIOS
+    );
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Radio %s watchdog start failed (%s)",
+            operation_name,
+            esp_err_to_name(watch_error)
+        );
+        return watch_error;
+    }
+
+    const esp_err_t operation_result = operation();
+    return LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_RADIOS,
+        operation_result
+    );
+}
+
+esp_err_t LUNASHELL_radios_init(void)
+{
+    return run_watched_radio_operation("startup", radios_init_impl);
+}
+
+esp_err_t LUNASHELL_radios_stop(void)
+{
+    return run_watched_radio_operation("shutdown", radios_stop_impl);
 }

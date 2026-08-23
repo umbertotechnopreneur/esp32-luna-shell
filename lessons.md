@@ -325,3 +325,19 @@ runtime behavior still requires authorized hardware validation.
 - Arm BOOT actions only after a stable released interval at startup and after
   light sleep. A sampled-low boot strap or held wake press must not become a
   Fullscreen toggle or soft reset.
+
+## Watchdog ownership and bounded recovery
+
+- A software timeout does not make an unbounded SDK call disappear. The worker
+  that entered the call must retain its Task-WDT user and every referenced
+  buffer until it exits; the caller may mark the subsystem poisoned, but must
+  not delete the watchdog user or reclaim worker-owned storage.
+- Publish a worker completion signal only after its watchdog user has been
+  removed. Otherwise a caller can start another operation in the same liveness
+  domain while the previous user is still active.
+- Keep every recoverable software deadline below the Task-WDT deadline with an
+  explicit compile-time margin. Bounded mutex waits fail fast; a genuinely
+  wedged underlying call remains armed until the Task-WDT resets the device.
+- A watchdog proves scheduler or operation progress, not semantic success.
+  Fast repeated errors stay visible through component snapshots and logs rather
+  than being reclassified as a hang.

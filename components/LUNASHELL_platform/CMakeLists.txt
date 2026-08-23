@@ -1,5 +1,6 @@
 set(LUNASHELL_platform_srcs
     "LUNASHELL_hardware.cpp"
+    "LUNASHELL_liveness.cpp"
     "LUNASHELL_snapshot_scheduler.cpp"
     "LUNASHELL_sensor_fusion.cpp"
     "LUNASHELL_storage.cpp"
@@ -18,6 +19,7 @@ set(LUNASHELL_platform_requires
     heap
     esp_driver_gpio
     esp_hw_support
+    esp_system
     fatfs
     app_update
     bootloader_support

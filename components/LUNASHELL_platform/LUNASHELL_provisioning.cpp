@@ -1,21 +1,269 @@
 #include "LUNASHELL_provisioning.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_radio_memory.hpp"
 
-#include <mutex>
+#include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <mutex>
 
+#include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/idf_additions.h"
+#include "freertos/semphr.h"
+#include "freertos/task.h"
 #include "lwip/inet.h"
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 
 namespace {
 constexpr char kTag[] = "LUNASHELL_prov";
+constexpr uint32_t kManagerOperationTimeoutMs = 10000;
+constexpr uint32_t kManagerOperationTaskStackSize = 4096;
+constexpr UBaseType_t kManagerOperationTaskPriority = 3;
+static_assert(
+    CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000U >=
+        kManagerOperationTimeoutMs + 1000U,
+    "Task WDT must outlive the provisioning deadline with recovery margin"
+);
+
+enum class ManagerOperation : uint8_t {
+    None,
+    Stop,
+    Deinitialize,
+};
+
+enum {
+    MANAGER_CLEANUP_UNCLAIMED = 0,
+    MANAGER_CLEANUP_WAITER,
+    MANAGER_CLEANUP_WORKER,
+};
+
+StaticSemaphore_t s_manager_stop_done_storage;
+SemaphoreHandle_t s_manager_stop_done = nullptr;
+std::atomic<ManagerOperation> s_manager_operation{ManagerOperation::None};
+std::atomic<esp_err_t> s_manager_operation_result{ESP_ERR_INVALID_STATE};
+std::atomic_int s_manager_cleanup_owner{MANAGER_CLEANUP_UNCLAIMED};
+
+void finish_manager_operation_task()
+{
+    int expected = MANAGER_CLEANUP_UNCLAIMED;
+    const bool worker_owns_cleanup =
+        s_manager_cleanup_owner.compare_exchange_strong(
+            expected,
+            MANAGER_CLEANUP_WORKER,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire
+        ) || expected == MANAGER_CLEANUP_WORKER;
+    if (worker_owns_cleanup) {
+        vTaskDeleteWithCaps(nullptr);
+        ESP_LOGE(kTag, "manager lifecycle worker returned after self-delete");
+        std::abort();
+    }
+
+    vTaskSuspend(nullptr);
+    ESP_LOGE(kTag, "manager lifecycle worker resumed after completion");
+    std::abort();
+}
+
+void manager_operation_task(void *)
+{
+    const ManagerOperation operation =
+        s_manager_operation.load(std::memory_order_acquire);
+    esp_err_t result = ESP_ERR_INVALID_STATE;
+    switch (operation) {
+    case ManagerOperation::Stop:
+        network_prov_mgr_stop_provisioning();
+        network_prov_mgr_wait();
+        result = ESP_OK;
+        break;
+    case ManagerOperation::Deinitialize:
+        result = network_prov_mgr_deinit();
+        break;
+    case ManagerOperation::None:
+        ESP_LOGE(kTag, "manager lifecycle worker received no operation");
+        break;
+    }
+    const esp_err_t watched_result = LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_PROVISIONING,
+        result
+    );
+    if (result == ESP_OK && watched_result != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "Manager watchdog cleanup failed: %s",
+            esp_err_to_name(watched_result)
+        );
+        std::abort();
+    }
+    s_manager_operation_result.store(
+        watched_result,
+        std::memory_order_release
+    );
+
+    if (xSemaphoreGive(s_manager_stop_done) != pdTRUE) {
+        ESP_LOGE(kTag, "manager lifecycle completion signal failed");
+        std::abort();
+    }
+    finish_manager_operation_task();
+}
+
+esp_err_t run_manager_operation_with_deadline(
+    ManagerOperation requested_operation,
+    const char *operation
+)
+{
+    if (requested_operation == ManagerOperation::None || operation == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_manager_stop_done == nullptr) {
+        s_manager_stop_done =
+            xSemaphoreCreateBinaryStatic(&s_manager_stop_done_storage);
+        if (s_manager_stop_done == nullptr) {
+            ESP_LOGE(
+                kTag,
+                "%s: manager lifecycle completion signal creation failed",
+                operation
+            );
+            return ESP_ERR_NO_MEM;
+        }
+    }
+    if (xSemaphoreTake(s_manager_stop_done, 0) == pdTRUE) {
+        ESP_LOGE(
+            kTag,
+            "%s: stale manager lifecycle completion detected",
+            operation
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_PROVISIONING
+    );
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "%s: provisioning liveness watch failed: %s",
+            operation,
+            esp_err_to_name(watch_error)
+        );
+        return watch_error;
+    }
+
+    s_manager_operation.store(requested_operation, std::memory_order_release);
+    s_manager_operation_result.store(
+        ESP_ERR_INVALID_STATE,
+        std::memory_order_release
+    );
+    s_manager_cleanup_owner.store(
+        MANAGER_CLEANUP_UNCLAIMED,
+        std::memory_order_release
+    );
+
+    TaskHandle_t task = nullptr;
+    if (xTaskCreateWithCaps(
+            manager_operation_task,
+            "LUNASHELL_prov_mgr",
+            kManagerOperationTaskStackSize,
+            nullptr,
+            kManagerOperationTaskPriority,
+            &task,
+            MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT
+        ) != pdPASS) {
+        s_manager_operation.store(ManagerOperation::None);
+        ESP_LOGE(kTag, "%s: manager lifecycle worker creation failed", operation);
+        return LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_PROVISIONING,
+            ESP_ERR_NO_MEM
+        );
+    }
+
+    if (xSemaphoreTake(
+            s_manager_stop_done,
+            pdMS_TO_TICKS(kManagerOperationTimeoutMs)
+        ) != pdTRUE) {
+        // The manager may still own BLE resources and the worker may still be
+        // inside its stop path. It is unsafe to delete that task or reuse the
+        // manager during this boot, so the caller must poison the lifecycle.
+        ESP_LOGE(
+            kTag,
+            "%s: manager lifecycle exceeded %lu ms",
+            operation,
+            static_cast<unsigned long>(kManagerOperationTimeoutMs)
+        );
+        // Delegate task cleanup. The worker owns the still-armed watch for
+        // every submitted operation, so a late completion closes it and a
+        // genuinely stuck lifecycle path reaches the Task-WDT deadline.
+        int cleanup_expected = MANAGER_CLEANUP_UNCLAIMED;
+        (void)s_manager_cleanup_owner.compare_exchange_strong(
+            cleanup_expected,
+            MANAGER_CLEANUP_WORKER,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+
+    const esp_err_t operation_result =
+        s_manager_operation_result.load(std::memory_order_acquire);
+    int cleanup_expected = MANAGER_CLEANUP_UNCLAIMED;
+    const bool waiter_owns_cleanup =
+        s_manager_cleanup_owner.compare_exchange_strong(
+            cleanup_expected,
+            MANAGER_CLEANUP_WAITER,
+            std::memory_order_acq_rel,
+            std::memory_order_acquire
+        );
+    if (waiter_owns_cleanup) {
+        vTaskDeleteWithCaps(task);
+    }
+    s_manager_operation.store(ManagerOperation::None, std::memory_order_release);
+    const esp_err_t result = operation_result;
+    if (result == ESP_OK) {
+        ESP_LOGI(kTag, "%s: manager lifecycle completed", operation);
+    } else {
+        ESP_LOGE(
+            kTag,
+            "%s: manager lifecycle failed: %s",
+            operation,
+            esp_err_to_name(result)
+        );
+    }
+    return result;
+}
+
+void publish_manager_stop_failure(
+    const char *operation,
+    esp_err_t error,
+    const char *service_name,
+    bool poisoned
+)
+{
+    LUNASHELL::DeviceSnapshotService::instance().reportBle(
+        false,
+        error,
+        false,
+        false,
+        0xFFFF,
+        0,
+        0,
+        service_name,
+        true
+    );
+    ESP_LOGE(
+        kTag,
+        "%s failed: %s; provisioning lifecycle %s",
+        operation,
+        esp_err_to_name(error),
+        poisoned ? "is poisoned for this boot" : "remains retryable"
+    );
+}
 
 LUNASHELL_provisioning_state_t to_c_state(LUNASHELL::ProvisioningState state)
 {
@@ -131,7 +379,16 @@ esp_err_t ProvisioningService::initialize()
 
     // The manager invokes the application callback synchronously from init.
     // Never hold the service mutex across this call.
-    const esp_err_t error = network_prov_mgr_init(config);
+    esp_err_t error = LUNASHELL_liveness_watch_begin(
+        LUNASHELL_LIVENESS_PROVISIONING
+    );
+    if (error == ESP_OK) {
+        const esp_err_t init_error = network_prov_mgr_init(config);
+        error = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_PROVISIONING,
+            init_error
+        );
+    }
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _operation = Operation::None;
@@ -188,22 +445,62 @@ esp_err_t ProvisioningService::start()
     }
 
     if (restart_failed_session) {
-        // Stop completion emits NETWORK_PROV_END synchronously or asynchronously.
-        // Both manager calls must run without the service mutex held.
-        network_prov_mgr_stop_provisioning();
-        network_prov_mgr_wait();
-        std::lock_guard<std::mutex> guard(_mutex);
-        _state = ProvisioningState::Starting;
+        // The Espressif stop API and its wait path both contain unbounded
+        // waits. Run them away from the caller and bound the entire operation.
+        esp_err_t stop_error = run_manager_operation_with_deadline(
+            ManagerOperation::Stop,
+            "failed-session restart"
+        );
+        bool poisoned = false;
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            if (stop_error == ESP_OK && _running) {
+                // A completed manager wait must have emitted NETWORK_PROV_END.
+                // Continuing would reuse resources with indeterminate ownership.
+                stop_error = ESP_ERR_INVALID_STATE;
+            }
+            if (stop_error != ESP_OK) {
+                poisoned = stop_error != ESP_ERR_NO_MEM;
+                _operation = Operation::None;
+                _last_error = stop_error;
+                _poisoned = poisoned;
+                _state = poisoned
+                             ? ProvisioningState::Poisoned
+                             : ProvisioningState::Failed;
+            } else {
+                _state = ProvisioningState::Starting;
+            }
+        }
+        if (stop_error != ESP_OK) {
+            publish_manager_stop_failure(
+                "failed-session restart",
+                stop_error,
+                service_name,
+                poisoned
+            );
+            return stop_error;
+        }
     }
 
     esp_err_t error =
         LUNASHELL::radio_memory::validateBleControllerDma("BLE provisioning");
     if (error == ESP_OK) {
-        error = network_prov_mgr_start_provisioning(
-            NETWORK_PROV_SECURITY_1,
-            nullptr,
-            service_name,
-            nullptr);
+        error = LUNASHELL_liveness_watch_begin(
+            LUNASHELL_LIVENESS_PROVISIONING
+        );
+        if (error == ESP_OK) {
+            const esp_err_t start_error =
+                network_prov_mgr_start_provisioning(
+                    NETWORK_PROV_SECURITY_1,
+                    nullptr,
+                    service_name,
+                    nullptr
+                );
+            error = LUNASHELL_liveness_watch_end(
+                LUNASHELL_LIVENESS_PROVISIONING,
+                start_error
+            );
+        }
     }
     {
         std::lock_guard<std::mutex> guard(_mutex);
@@ -232,6 +529,7 @@ esp_err_t ProvisioningService::start()
 
 esp_err_t ProvisioningService::stop()
 {
+    char service_name[sizeof(_service_name)]{};
     {
         std::lock_guard<std::mutex> guard(_mutex);
         if (_poisoned) {
@@ -252,21 +550,50 @@ esp_err_t ProvisioningService::stop()
         }
         _operation = Operation::Stop;
         _state = ProvisioningState::Stopping;
+        std::snprintf(
+            service_name,
+            sizeof(service_name),
+            "%s",
+            _service_name
+        );
     }
 
-    // Stop can emit NETWORK_PROV_END; do not hold _mutex while it does.
-    network_prov_mgr_stop_provisioning();
-    network_prov_mgr_wait();
+    // Stop can emit NETWORK_PROV_END; do not hold _mutex while it does. The
+    // manager implementation can otherwise wait forever, so isolate and bound
+    // the whole stop transaction.
+    esp_err_t error = run_manager_operation_with_deadline(
+        ManagerOperation::Stop,
+        "explicit stop"
+    );
+    bool poisoned = false;
     {
         std::lock_guard<std::mutex> guard(_mutex);
+        if (error == ESP_OK && _running) {
+            error = ESP_ERR_INVALID_STATE;
+        }
         _operation = Operation::None;
-        _last_error = ESP_OK;
-        _running = false;
-        if (_state != ProvisioningState::Success) {
-            _state = ProvisioningState::Stopped;
+        _last_error = error;
+        if (error == ESP_OK) {
+            if (_state != ProvisioningState::Success) {
+                _state = ProvisioningState::Stopped;
+            }
+        } else {
+            poisoned = error != ESP_ERR_NO_MEM;
+            _poisoned = poisoned;
+            _state = poisoned
+                         ? ProvisioningState::Poisoned
+                         : ProvisioningState::Failed;
         }
     }
-    return ESP_OK;
+    if (error != ESP_OK) {
+        publish_manager_stop_failure(
+            "explicit stop",
+            error,
+            service_name,
+            poisoned
+        );
+    }
+    return error;
 }
 
 esp_err_t ProvisioningService::deinitializeForBleTelemetry()
@@ -288,14 +615,18 @@ esp_err_t ProvisioningService::deinitializeForBleTelemetry()
         _state = ProvisioningState::Deinitializing;
     }
 
-    // Deinit synchronously emits END and DEINIT. The callbacks need _mutex.
-    const esp_err_t error = network_prov_mgr_deinit();
+    // Deinit may wait on manager locks and event-loop delivery. Run it away
+    // from the caller with the same bounded ownership policy as stop.
+    const esp_err_t error = run_manager_operation_with_deadline(
+        ManagerOperation::Deinitialize,
+        "manager deinitialize"
+    );
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _operation = Operation::None;
         _last_error = error;
-        _running = false;
         if (error == ESP_OK) {
+            _running = false;
             _initialized = false;
             _state = ProvisioningState::Stopped;
         } else {
@@ -468,6 +799,19 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
             "%s",
             _service_name
         );
+        if (_poisoned) {
+            if (event == NETWORK_PROV_END || event == NETWORK_PROV_DEINIT) {
+                _running = false;
+            }
+            ESP_LOGE(
+                kTag,
+                "manager event %d arrived after lifecycle poison; state "
+                "remains poisoned (%s)",
+                static_cast<int>(event),
+                esp_err_to_name(_last_error)
+            );
+            return;
+        }
         switch (event) {
         case NETWORK_PROV_INIT:
             break;
