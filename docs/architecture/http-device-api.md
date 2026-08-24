@@ -47,9 +47,24 @@ task: it consumes the same Full Snapshot generations as the UI and reports the
 active user cadence through `/api/v1/capabilities`. Request handlers never
 access peripheral drivers directly. JSON data responses use a versioned
 envelope with `sequence`, `last_update_attempt_at_us`,
-`last_update_complete` and `age_ms`. The timestamp is explicitly the last
-refresh attempt, so an incomplete refresh cannot be presented as a successful
-sample.
+`last_update_complete`, `last_update_error` and `age_ms`. The timestamp is
+explicitly the last refresh attempt, so an incomplete refresh cannot be
+presented as a successful sample and retains its real `esp_err_t` name.
+
+`/api/v1/info` returns the authenticated operational view with Wi-Fi identity
+and the raw first GPS sentence redacted. `/api/v1/diagnostics` uses the distinct
+`LUNASHELL.device.diagnostics.v1` schema and serializes every `DeviceSnapshot`
+group: battery, IMU, sensor fusion, distance, RTC, GPS, audio, radios, storage,
+diagnostic settings, UI, input, power, memory, and processor. Every embedded
+component includes health, real error, validity, freshness, last-attempt, and
+last-success fields. GPS fix-dependent numeric fields are `null` unless the
+complete current fix is valid.
+
+The diagnostics storage object preserves mount outcome/stage, cleanup stage and
+error, guarded FatFs results, cleanup/poison state, verified-card and
+`format_required` state, single-use authorization evidence, partition/format
+results, capacity/space values, and logger-mirror state. A FatFs result whose
+corresponding `*_valid` flag is false is serialized as `null`.
 
 IMU and microphone diagnostics are separately enabled streams. A periodic Full
 generation may consume one newly committed Diagnostic sample when it is still

@@ -57,11 +57,16 @@ void httpJsonWriteHealth(
     bool server_running
 );
 
-/** Serialize public info, optionally adding authenticated diagnostics. */
+/** Serialize the authenticated, network-redacted operational view. */
 void httpJsonWriteInfo(
     HttpJsonWriter &json,
-    const DeviceSnapshot &snapshot,
-    bool include_sensitive
+    const DeviceSnapshot &snapshot
+);
+
+/** Serialize the complete authenticated DeviceSnapshot diagnostic view. */
+void httpJsonWriteDiagnostics(
+    HttpJsonWriter &json,
+    const DeviceSnapshot &snapshot
 );
 
 void httpJsonWriteRtc(HttpJsonWriter &json, const DeviceSnapshot &snapshot);

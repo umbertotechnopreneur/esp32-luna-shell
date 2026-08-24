@@ -12,6 +12,7 @@
 
 #include "LUNASHELL_http_json.hpp"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -52,11 +53,21 @@ void writeEnvelopeStart(
         static_cast<long long>(snapshot.last_update_attempt_at_us)
     );
     (void)json.boolean(snapshot.last_update_complete);
+    (void)json.raw(",\"last_update_error\":");
+    (void)json.quoted(esp_err_to_name(snapshot.last_update_error));
     (void)json.format(",\"age_ms\":%llu,\"data\":",
                       static_cast<unsigned long long>(snapshotAgeMs(snapshot)));
 }
 
-void writeComponentFields(
+bool componentCurrent(const LUNASHELL::ComponentSnapshot &component)
+{
+    return component.health == LUNASHELL::DeviceHealth::Ready &&
+           component.last_error == ESP_OK &&
+           component.data_valid &&
+           !component.data_stale;
+}
+
+void writeComponentStart(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::ComponentSnapshot &component
 )
@@ -70,19 +81,24 @@ void writeComponentFields(
     (void)json.raw(",\"data_stale\":");
     (void)json.boolean(component.data_stale);
     (void)json.format(
-        ",\"last_attempt_at_us\":%lld,\"last_success_at_us\":%lld}",
+        ",\"last_attempt_at_us\":%lld,\"last_success_at_us\":%lld",
         static_cast<long long>(component.last_attempt_at_us),
         static_cast<long long>(component.last_success_at_us)
     );
 }
 
+void writeComponentFields(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::ComponentSnapshot &component
+)
+{
+    writeComponentStart(json, component);
+    (void)json.raw("}");
+}
+
 void writeBattery(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BatterySnapshot &battery)
 {
-    const bool battery_current =
-        battery.health == LUNASHELL::DeviceHealth::Ready &&
-        battery.last_error == ESP_OK &&
-        battery.data_valid &&
-        !battery.data_stale;
+    const bool battery_current = componentCurrent(battery);
     const bool level_percent_valid =
         battery_current &&
         battery.level_percent_valid &&
@@ -93,19 +109,7 @@ void writeBattery(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BatterySnaps
         battery.battery_mv_valid &&
         battery.battery_mv > 0;
 
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(battery.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(battery.last_error));
-    (void)json.raw(",\"data_valid\":");
-    (void)json.boolean(battery.data_valid);
-    (void)json.raw(",\"data_stale\":");
-    (void)json.boolean(battery.data_stale);
-    (void)json.format(
-        ",\"last_attempt_at_us\":%lld,\"last_success_at_us\":%lld",
-        static_cast<long long>(battery.last_attempt_at_us),
-        static_cast<long long>(battery.last_success_at_us)
-    );
+    writeComponentStart(json, battery);
     (void)json.raw(",\"battery_present\":");
     (void)json.boolean(battery.battery_present);
     (void)json.raw(",\"usb_present\":");
@@ -150,10 +154,9 @@ void writeBattery(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BatterySnaps
 
 void writeImu(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::ImuSnapshot &imu)
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(imu.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(imu.last_error));
+    writeComponentStart(json, imu);
+    (void)json.raw(",\"calibration\":");
+    writeComponentFields(json, imu.calibration);
     (void)json.format(
         ",\"acceleration_mps2\":[%.4f,%.4f,%.4f],\"angular_velocity_dps\":[%.4f,%.4f,%.4f],\"temperature_c\":%.2f,\"calibrated\":",
         static_cast<double>(imu.acceleration_mps2[0]),
@@ -186,10 +189,7 @@ void writeSensorFusion(
     const LUNASHELL::SensorFusionSnapshot &fusion
 )
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(fusion.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(fusion.last_error));
+    writeComponentStart(json, fusion);
     (void)json.raw(",\"gravity_dominant\":");
     (void)json.boolean(fusion.gravity_dominant);
     (void)json.raw(",\"stationary\":");
@@ -203,10 +203,9 @@ void writeSensorFusion(
 
 void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::RtcSnapshot &rtc)
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(rtc.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(rtc.last_error));
+    writeComponentStart(json, rtc);
+    (void)json.raw(",\"system_time\":");
+    writeComponentFields(json, rtc.system_time);
     (void)json.raw(",\"clock_integrity\":");
     (void)json.boolean(rtc.clock_integrity);
     (void)json.raw(",\"system_time_valid\":");
@@ -234,26 +233,69 @@ void writeGpsData(
     bool include_sensitive
 )
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(gps.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(gps.last_error));
+    const bool fix_valid =
+        componentCurrent(gps) && gps.has_fix && gps.utc_valid &&
+        gps.fix_quality > 0U && gps.satellites > 0U &&
+        std::isfinite(gps.latitude_degrees) &&
+        gps.latitude_degrees >= -90.0 && gps.latitude_degrees <= 90.0 &&
+        std::isfinite(gps.longitude_degrees) &&
+        gps.longitude_degrees >= -180.0 && gps.longitude_degrees <= 180.0 &&
+        std::isfinite(gps.altitude_m) && std::isfinite(gps.speed_mps) &&
+        gps.speed_mps >= 0.0F && std::isfinite(gps.course_degrees) &&
+        gps.course_degrees >= 0.0F && gps.course_degrees <= 360.0F &&
+        std::isfinite(gps.hdop) && gps.hdop >= 0.0F;
+
+    writeComponentStart(json, gps);
     (void)json.format(
         ",\"pending_nmea_bytes\":%lu,\"has_fix\":",
         static_cast<unsigned long>(gps.pending_nmea_bytes)
     );
     (void)json.boolean(gps.has_fix);
+    (void)json.raw(",\"utc_valid\":");
+    (void)json.boolean(gps.utc_valid);
+    (void)json.raw(",\"fix_valid\":");
+    (void)json.boolean(fix_valid);
     (void)json.format(
-        ",\"fix_quality\":%u,\"satellites\":%u,\"latitude_degrees\":%.7f,\"longitude_degrees\":%.7f,\"altitude_m\":%.2f,\"speed_mps\":%.2f,\"course_degrees\":%.2f,\"hdop\":%.2f,\"utc_time\":",
+        ",\"fix_quality\":%u,\"satellites\":%u,\"latitude_degrees\":",
         static_cast<unsigned>(gps.fix_quality),
-        static_cast<unsigned>(gps.satellites),
-        gps.latitude_degrees,
-        gps.longitude_degrees,
-        static_cast<double>(gps.altitude_m),
-        static_cast<double>(gps.speed_mps),
-        static_cast<double>(gps.course_degrees),
-        static_cast<double>(gps.hdop)
+        static_cast<unsigned>(gps.satellites)
     );
+    if (fix_valid) {
+        (void)json.format("%.7f", gps.latitude_degrees);
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"longitude_degrees\":");
+    if (fix_valid) {
+        (void)json.format("%.7f", gps.longitude_degrees);
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"altitude_m\":");
+    if (fix_valid) {
+        (void)json.format("%.2f", static_cast<double>(gps.altitude_m));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"speed_mps\":");
+    if (fix_valid) {
+        (void)json.format("%.2f", static_cast<double>(gps.speed_mps));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"course_degrees\":");
+    if (fix_valid) {
+        (void)json.format("%.2f", static_cast<double>(gps.course_degrees));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"hdop\":");
+    if (fix_valid) {
+        (void)json.format("%.2f", static_cast<double>(gps.hdop));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"utc_time\":");
     (void)json.quoted(gps.utc_time);
     (void)json.raw(",\"utc_date\":");
     (void)json.quoted(gps.utc_date);
@@ -271,7 +313,7 @@ void writeAudio(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::AudioSnapshot 
     (void)json.raw(",\"microphone\":");
     writeComponentFields(json, audio.microphone);
     (void)json.format(
-        ",\"channel_count\":%u,\"sample_rate_hz\":%lu,\"microphone_mean_level\":%lu,\"microphone_peak_level\":%lu,\"channel_mean_level\":[%lu,%lu],\"channel_peak_level\":[%lu,%lu]}",
+        ",\"channel_count\":%u,\"sample_rate_hz\":%lu,\"microphone_mean_level\":%lu,\"microphone_peak_level\":%lu,\"channel_mean_level\":[%lu,%lu],\"channel_peak_level\":[%lu,%lu]",
         static_cast<unsigned>(audio.channel_count),
         static_cast<unsigned long>(audio.sample_rate_hz),
         static_cast<unsigned long>(audio.microphone_mean_level),
@@ -281,6 +323,25 @@ void writeAudio(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::AudioSnapshot 
         static_cast<unsigned long>(audio.channel_peak_level[0]),
         static_cast<unsigned long>(audio.channel_peak_level[1])
     );
+    (void)json.raw(",\"channel_spectrum\":[");
+    for (std::size_t channel = 0U; channel < 2U; ++channel) {
+        if (channel != 0U) (void)json.raw(",");
+        (void)json.raw("[");
+        for (std::size_t band = 0U;
+             band < LUNASHELL::kAudioSpectrumBandCount;
+             ++band) {
+            if (band != 0U) (void)json.raw(",");
+            (void)json.format(
+                "%u",
+                static_cast<unsigned>(audio.channel_spectrum[channel][band])
+            );
+        }
+        (void)json.raw("]");
+    }
+    (void)json.format(
+        "],\"spectrum_sequence\":%lu}",
+        static_cast<unsigned long>(audio.spectrum_sequence)
+    );
 }
 
 void writeWifi(
@@ -289,10 +350,7 @@ void writeWifi(
     bool include_sensitive
 )
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(wifi.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(wifi.last_error));
+    writeComponentStart(json, wifi);
     (void)json.raw(",\"started\":");
     (void)json.boolean(wifi.started);
     (void)json.raw(",\"credentials_configured\":");
@@ -328,10 +386,7 @@ void writeWifi(
 
 void writeBle(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BleSnapshot &ble)
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(ble.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(ble.last_error));
+    writeComponentStart(json, ble);
     (void)json.raw(",\"provisioning\":");
     (void)json.boolean(ble.provisioning);
     (void)json.raw(",\"advertising\":");
@@ -348,26 +403,157 @@ void writeBle(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BleSnapshot &ble
     (void)json.raw("}");
 }
 
-void writeStorage(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::StorageSnapshot &storage)
+const char *storageMountOutcomeName(LUNASHELL::StorageMountOutcome outcome)
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(storage.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(storage.last_error));
+    switch (outcome) {
+    case LUNASHELL::StorageMountOutcome::NotAttempted:
+        return "not-attempted";
+    case LUNASHELL::StorageMountOutcome::Mounted:
+        return "mounted";
+    case LUNASHELL::StorageMountOutcome::CardOrTransportFailed:
+        return "card-or-transport-failed";
+    case LUNASHELL::StorageMountOutcome::FormatRequired:
+        return "format-required";
+    case LUNASHELL::StorageMountOutcome::FilesystemFailed:
+        return "filesystem-failed";
+    case LUNASHELL::StorageMountOutcome::FormatFailed:
+        return "format-failed";
+    case LUNASHELL::StorageMountOutcome::InternalFailed:
+        return "internal-failed";
+    }
+    return "unknown";
+}
+
+const char *storageMountStageName(LUNASHELL::StorageMountStage stage)
+{
+    switch (stage) {
+    case LUNASHELL::StorageMountStage::None: return "none";
+    case LUNASHELL::StorageMountStage::Request: return "request";
+    case LUNASHELL::StorageMountStage::HostInit: return "host-init";
+    case LUNASHELL::StorageMountStage::SlotInit: return "slot-init";
+    case LUNASHELL::StorageMountStage::CardInit: return "card-init";
+    case LUNASHELL::StorageMountStage::CardIdentity: return "card-identity";
+    case LUNASHELL::StorageMountStage::DriveAlloc: return "drive-alloc";
+    case LUNASHELL::StorageMountStage::DiskIoRegister:
+        return "disk-io-register";
+    case LUNASHELL::StorageMountStage::VfsRegister: return "vfs-register";
+    case LUNASHELL::StorageMountStage::FatMount: return "fat-mount";
+    case LUNASHELL::StorageMountStage::PreFormatUnmount:
+        return "pre-format-unmount";
+    case LUNASHELL::StorageMountStage::Partition: return "partition";
+    case LUNASHELL::StorageMountStage::Format: return "format";
+    case LUNASHELL::StorageMountStage::PostFormatMount:
+        return "post-format-mount";
+    case LUNASHELL::StorageMountStage::RuntimeStatus:
+        return "runtime-status";
+    case LUNASHELL::StorageMountStage::RuntimeFilesystem:
+        return "runtime-filesystem";
+    case LUNASHELL::StorageMountStage::RuntimeUnmount:
+        return "runtime-unmount";
+    }
+    return "unknown";
+}
+
+const char *storageCleanupStageName(LUNASHELL::StorageCleanupStage stage)
+{
+    switch (stage) {
+    case LUNASHELL::StorageCleanupStage::None: return "none";
+    case LUNASHELL::StorageCleanupStage::FatUnmount: return "fat-unmount";
+    case LUNASHELL::StorageCleanupStage::VfsUnregister:
+        return "vfs-unregister";
+    case LUNASHELL::StorageCleanupStage::HostDeinit: return "host-deinit";
+    }
+    return "unknown";
+}
+
+void writeNullableInt32(
+    LUNASHELL::HttpJsonWriter &json,
+    bool valid,
+    int32_t value
+)
+{
+    if (valid) {
+        (void)json.format("%ld", static_cast<long>(value));
+    } else {
+        (void)json.raw("null");
+    }
+}
+
+void writeStorage(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::StorageSnapshot &storage
+)
+{
+    writeComponentStart(json, storage);
+    (void)json.raw(",\"logger_mirror\":");
+    writeComponentFields(json, storage.logger_mirror);
+    (void)json.raw(",\"mount_outcome\":");
+    (void)json.quoted(storageMountOutcomeName(storage.mount_outcome));
+    (void)json.raw(",\"mount_stage\":");
+    (void)json.quoted(storageMountStageName(storage.mount_stage));
+    (void)json.raw(",\"cleanup_stage\":");
+    (void)json.quoted(storageCleanupStageName(storage.cleanup_stage));
+    (void)json.raw(",\"cleanup_error\":");
+    (void)json.quoted(esp_err_to_name(storage.cleanup_error));
+
+    (void)json.raw(",\"initial_fatfs_result_valid\":");
+    (void)json.boolean(storage.initial_fatfs_result_valid);
+    (void)json.raw(",\"initial_fatfs_result\":");
+    writeNullableInt32(
+        json,
+        storage.initial_fatfs_result_valid,
+        storage.initial_fatfs_result
+    );
+    (void)json.raw(",\"fatfs_result_valid\":");
+    (void)json.boolean(storage.fatfs_result_valid);
+    (void)json.raw(",\"fatfs_result\":");
+    writeNullableInt32(json, storage.fatfs_result_valid, storage.fatfs_result);
+    (void)json.raw(",\"cleanup_fatfs_result_valid\":");
+    (void)json.boolean(storage.cleanup_fatfs_result_valid);
+    (void)json.raw(",\"cleanup_fatfs_result\":");
+    writeNullableInt32(
+        json,
+        storage.cleanup_fatfs_result_valid,
+        storage.cleanup_fatfs_result
+    );
+
+    (void)json.raw(",\"cleanup_complete\":");
+    (void)json.boolean(storage.cleanup_complete);
+    (void)json.raw(",\"poisoned\":");
+    (void)json.boolean(storage.poisoned);
+    (void)json.raw(",\"mounted\":");
+    (void)json.boolean(storage.mounted);
     (void)json.raw(",\"card_response_verified\":");
     (void)json.boolean(storage.card_response_verified);
+    (void)json.raw(",\"format_required\":");
+    (void)json.boolean(storage.format_required);
+    (void)json.raw(",\"authorization_consumed\":");
+    (void)json.boolean(storage.authorization_consumed);
+    (void)json.raw(",\"authorization_identity_matched\":");
+    (void)json.boolean(storage.authorization_identity_matched);
     (void)json.raw(",\"format_attempted\":");
     (void)json.boolean(storage.format_attempted);
+    (void)json.raw(",\"partition_written\":");
+    (void)json.boolean(storage.partition_written);
     (void)json.raw(",\"formatted\":");
     (void)json.boolean(storage.formatted);
     (void)json.format(
-        ",\"mount_attempt_count\":%lu,\"capacity_bytes\":%llu,\"filesystem_total_bytes\":%llu,\"free_bytes\":%llu,\"logger_mirror_enabled\":",
+        ",\"mount_attempt_count\":%lu,\"capacity_bytes\":%llu,\"filesystem_total_bytes\":%llu,\"free_bytes\":%llu",
         static_cast<unsigned long>(storage.mount_attempt_count),
         static_cast<unsigned long long>(storage.capacity_bytes),
         static_cast<unsigned long long>(storage.filesystem_total_bytes),
         static_cast<unsigned long long>(storage.free_bytes)
     );
+    (void)json.raw(",\"logger_mirror_requested\":");
+    (void)json.boolean(storage.logger_mirror_requested);
+    (void)json.raw(",\"logger_mirror_enabled\":");
     (void)json.boolean(storage.logger_mirror_enabled);
+    (void)json.format(
+        ",\"logger_mirror_errno\":%d,\"logger_mirror_changed_at_us\":%lld,\"logger_mirror_failure_count\":%lu",
+        storage.logger_mirror_errno,
+        static_cast<long long>(storage.logger_mirror_changed_at_us),
+        static_cast<unsigned long>(storage.logger_mirror_failure_count)
+    );
     (void)json.raw("}");
 }
 
@@ -395,20 +581,18 @@ void writeUi(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::UiHardwareSnapsho
     writeComponentFields(json, ui.touch);
     (void)json.raw(",\"brightness\":");
     writeComponentFields(json, ui.brightness);
+    (void)json.raw(",\"display_power_mode\":");
+    writeComponentFields(json, ui.display_power_mode);
     (void)json.format(
-        ",\"brightness_percent\":%lu,\"configured_brightness_percent\":%lu,\"display_power_mode\":",
+        ",\"touch_activity_sequence\":%lu,\"touch_last_activity_at_us\":%lld,\"brightness_percent\":%lu,\"configured_brightness_percent\":%lu,\"display_power_mode_state\":",
+        static_cast<unsigned long>(ui.touch_activity_sequence),
+        static_cast<long long>(ui.touch_last_activity_at_us),
         static_cast<unsigned long>(ui.brightness_percent),
         static_cast<unsigned long>(ui.configured_brightness_percent)
     );
     (void)json.quoted(displayPowerModeName(ui.display_power_mode_state));
-    (void)json.raw(",\"orientation\":{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(ui.orientation.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(ui.orientation.last_error));
-    (void)json.raw(",\"data_valid\":");
-    (void)json.boolean(ui.orientation.data_valid);
-    (void)json.raw(",\"data_stale\":");
-    (void)json.boolean(ui.orientation.data_stale);
+    (void)json.raw(",\"orientation\":");
+    writeComponentStart(json, ui.orientation);
     (void)json.raw(",\"auto_rotation_enabled\":");
     (void)json.boolean(ui.orientation.auto_rotation_enabled);
     (void)json.raw(",\"gravity_valid\":");
@@ -487,10 +671,7 @@ void writePowerManagement(
     const LUNASHELL::PowerManagementSnapshot &power
 )
 {
-    (void)json.raw("{\"health\":");
-    (void)json.quoted(LUNASHELL::deviceHealthName(power.health));
-    (void)json.raw(",\"last_error\":");
-    (void)json.quoted(esp_err_to_name(power.last_error));
+    writeComponentStart(json, power);
     (void)json.raw(",\"state\":");
     (void)json.quoted(operatingStateName(power.state));
     (void)json.raw(",\"reason\":");
@@ -519,8 +700,9 @@ void writePowerManagement(
 
 void writeMemory(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::MemorySnapshot &memory)
 {
+    writeComponentStart(json, memory);
     (void)json.format(
-        "{\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_total_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu",
+        ",\"flash_capacity_bytes\":%lu,\"app_partition_bytes\":%lu,\"firmware_image_bytes\":%lu,\"heap_total_bytes\":%lu,\"heap_free_bytes\":%lu,\"heap_minimum_free_bytes\":%lu",
         static_cast<unsigned long>(memory.flash_capacity_bytes),
         static_cast<unsigned long>(memory.app_partition_bytes),
         static_cast<unsigned long>(memory.firmware_image_bytes),
@@ -565,14 +747,30 @@ void writeMemory(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::MemorySnapsho
 
 void writeProcessor(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::ProcessorSnapshot &processor)
 {
+    writeComponentStart(json, processor);
     (void)json.format(
-        "{\"core_count\":%u,\"sampling_core\":%u,\"cores\":[",
+        ",\"core_count\":%u,\"sampling_core\":%u,\"cores\":[",
         static_cast<unsigned>(processor.core_count),
         static_cast<unsigned>(processor.sampling_core)
     );
     for (std::size_t index = 0U; index < 2U; ++index) {
         if (index != 0U) (void)json.raw(",");
-        (void)json.raw("{\"current_task\":");
+        (void)json.raw("{\"available\":");
+        (void)json.boolean(processor.cores[index].available);
+        (void)json.raw(",\"utilization_available\":");
+        (void)json.boolean(processor.cores[index].utilization_available);
+        (void)json.raw(",\"utilization_percent\":");
+        if (processor.cores[index].utilization_available) {
+            (void)json.format(
+                "%u",
+                static_cast<unsigned>(
+                    processor.cores[index].utilization_percent
+                )
+            );
+        } else {
+            (void)json.raw("null");
+        }
+        (void)json.raw(",\"current_task\":");
         (void)json.quoted(processor.cores[index].current_task);
         (void)json.format(
             ",\"stack_high_water_words\":%lu,\"priority\":%lu}",
@@ -581,6 +779,176 @@ void writeProcessor(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::ProcessorS
         );
     }
     (void)json.raw("]}");
+}
+
+const char *distanceCalibrationStateName(
+    LUNASHELL::DistanceCalibrationState state
+)
+{
+    switch (state) {
+    case LUNASHELL::DistanceCalibrationState::Required: return "required";
+    case LUNASHELL::DistanceCalibrationState::Ready: return "ready";
+    case LUNASHELL::DistanceCalibrationState::Running: return "running";
+    case LUNASHELL::DistanceCalibrationState::Succeeded: return "succeeded";
+    case LUNASHELL::DistanceCalibrationState::Failed: return "failed";
+    }
+    return "unknown";
+}
+
+void writeTofSensor(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::TofSensorSnapshot &sensor
+)
+{
+    writeComponentStart(json, sensor);
+    (void)json.format(
+        ",\"raw_distance_mm\":%u,\"filtered_distance_mm\":%u,\"window_sample_count\":%u,\"inlier_count\":%u,\"median_absolute_deviation_mm\":%u,\"calibration_offset_mm\":%ld",
+        static_cast<unsigned>(sensor.raw_distance_mm),
+        static_cast<unsigned>(sensor.filtered_distance_mm),
+        static_cast<unsigned>(sensor.window_sample_count),
+        static_cast<unsigned>(sensor.inlier_count),
+        static_cast<unsigned>(sensor.median_absolute_deviation_mm),
+        static_cast<long>(sensor.calibration_offset_mm)
+    );
+    (void)json.format(
+        ",\"frame_sequence\":%lu,\"crc_error_count\":%lu,\"protocol_error_count\":%lu,\"timeout_count\":%lu,\"uart_error_count\":%lu}",
+        static_cast<unsigned long>(sensor.frame_sequence),
+        static_cast<unsigned long>(sensor.crc_error_count),
+        static_cast<unsigned long>(sensor.protocol_error_count),
+        static_cast<unsigned long>(sensor.timeout_count),
+        static_cast<unsigned long>(sensor.uart_error_count)
+    );
+}
+
+void writeDistanceSettings(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::DistanceSettingsSnapshot &settings
+)
+{
+    writeComponentStart(json, settings);
+    (void)json.format(
+        ",\"sample_count\":%u,\"reference_distance_mm\":%u,\"sample_interval_ms\":%lu}",
+        static_cast<unsigned>(settings.sample_count),
+        static_cast<unsigned>(settings.reference_distance_mm),
+        static_cast<unsigned long>(settings.sample_interval_ms)
+    );
+}
+
+void writeDistanceCalibration(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::DistanceCalibrationSnapshot &calibration
+)
+{
+    writeComponentStart(json, calibration);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(distanceCalibrationStateName(calibration.state));
+    (void)json.raw(",\"record_valid\":");
+    (void)json.boolean(calibration.record_valid);
+    (void)json.format(
+        ",\"requested_samples\":%u,\"accepted_samples\":[%u,%u],\"rejected_samples\":[%u,%u],\"reference_distance_mm\":%u,\"progress_percent\":%u,\"offsets_mm\":[%ld,%ld],\"z_axis_sign\":%d",
+        static_cast<unsigned>(calibration.requested_samples),
+        static_cast<unsigned>(calibration.accepted_samples[0]),
+        static_cast<unsigned>(calibration.accepted_samples[1]),
+        static_cast<unsigned>(calibration.rejected_samples[0]),
+        static_cast<unsigned>(calibration.rejected_samples[1]),
+        static_cast<unsigned>(calibration.reference_distance_mm),
+        static_cast<unsigned>(calibration.progress_percent),
+        static_cast<long>(calibration.offsets_mm[0]),
+        static_cast<long>(calibration.offsets_mm[1]),
+        static_cast<int>(calibration.z_axis_sign)
+    );
+    (void)json.format(
+        ",\"started_at_us\":%lld,\"completed_at_us\":%lld}",
+        static_cast<long long>(calibration.started_at_us),
+        static_cast<long long>(calibration.completed_at_us)
+    );
+}
+
+void writeDistance(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::DistanceSnapshot &distance
+)
+{
+    writeComponentStart(json, distance);
+    (void)json.raw(",\"sensors\":[");
+    for (std::size_t index = 0U; index < LUNASHELL::kTofSensorCount; ++index) {
+        if (index != 0U) (void)json.raw(",");
+        writeTofSensor(json, distance.sensors[index]);
+    }
+    (void)json.raw("],\"settings\":");
+    writeDistanceSettings(json, distance.settings);
+    (void)json.raw(",\"calibration\":");
+    writeDistanceCalibration(json, distance.calibration);
+    (void)json.format(
+        ",\"slant_distance_mm\":%u,\"vertical_distance_mm\":%u,\"sensor_spread_mm\":%u,\"samples_used\":%u,\"tilt_degrees\":%.3f,\"confidence_percent\":%u",
+        static_cast<unsigned>(distance.slant_distance_mm),
+        static_cast<unsigned>(distance.vertical_distance_mm),
+        static_cast<unsigned>(distance.sensor_spread_mm),
+        static_cast<unsigned>(distance.samples_used),
+        static_cast<double>(distance.tilt_degrees),
+        static_cast<unsigned>(distance.confidence_percent)
+    );
+    (void)json.raw(",\"tilt_compensated\":");
+    (void)json.boolean(distance.tilt_compensated);
+    (void)json.raw(",\"acquisition_timing_valid\":");
+    (void)json.boolean(distance.acquisition_timing_valid);
+    (void)json.format(
+        ",\"tof_pair_skew_us\":%lu,\"geometry_skew_us\":%lu,\"rejected_pair_count\":%lu,\"timing_rejection_count\":%lu",
+        static_cast<unsigned long>(distance.tof_pair_skew_us),
+        static_cast<unsigned long>(distance.geometry_skew_us),
+        static_cast<unsigned long>(distance.rejected_pair_count),
+        static_cast<unsigned long>(distance.timing_rejection_count)
+    );
+    (void)json.format(
+        ",\"consecutive_transport_failure_count\":%lu,\"recovery_attempt_count\":%lu,\"current_backoff_ms\":%lu,\"worker_stack_high_water_valid\":",
+        static_cast<unsigned long>(
+            distance.consecutive_transport_failure_count
+        ),
+        static_cast<unsigned long>(distance.recovery_attempt_count),
+        static_cast<unsigned long>(distance.current_backoff_ms)
+    );
+    (void)json.boolean(distance.worker_stack_high_water_valid);
+    (void)json.raw(",\"worker_stack_min_free_bytes\":");
+    if (distance.worker_stack_high_water_valid) {
+        (void)json.format(
+            "%lu",
+            static_cast<unsigned long>(distance.worker_stack_min_free_bytes)
+        );
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw("}");
+}
+
+void writeDiagnosticsSettings(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::DiagnosticsSettingsSnapshot &diagnostics
+)
+{
+    (void)json.raw("{\"sample_period\":");
+    writeComponentFields(json, diagnostics.sample_period);
+    (void)json.raw(",\"imu_smoothing\":");
+    writeComponentFields(json, diagnostics.imu_smoothing);
+    (void)json.raw(",\"monitor\":");
+    writeComponentFields(json, diagnostics.monitor);
+    (void)json.raw(",\"full_snapshot_period\":");
+    writeComponentFields(json, diagnostics.full_snapshot_period);
+    (void)json.raw(",\"full_snapshot_monitor\":");
+    writeComponentFields(json, diagnostics.full_snapshot_monitor);
+    (void)json.format(
+        ",\"sample_period_ms\":%lu,\"imu_smoothing_percent\":%lu,\"full_snapshot_period_ms\":%lu,\"monitor_active\":",
+        static_cast<unsigned long>(diagnostics.sample_period_ms),
+        static_cast<unsigned long>(diagnostics.imu_smoothing_percent),
+        static_cast<unsigned long>(diagnostics.full_snapshot_period_ms)
+    );
+    (void)json.boolean(diagnostics.monitor_active);
+    (void)json.raw(",\"imu_monitor_active\":");
+    (void)json.boolean(diagnostics.imu_monitor_active);
+    (void)json.raw(",\"microphone_monitor_active\":");
+    (void)json.boolean(diagnostics.microphone_monitor_active);
+    (void)json.raw(",\"full_snapshot_monitor_active\":");
+    (void)json.boolean(diagnostics.full_snapshot_monitor_active);
+    (void)json.raw("}");
 }
 
 // Collapse required component health into the public device health value.
@@ -609,10 +977,10 @@ LUNASHELL::DeviceHealth overallHealth(const LUNASHELL::DeviceSnapshot &snapshot)
     return LUNASHELL::DeviceHealth::Ready;
 }
 
-void writeInfoData(
+void writeSnapshotData(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::DeviceSnapshot &snapshot,
-    bool include_sensitive
+    bool complete_diagnostics
 )
 {
     (void)json.raw("{\"reason\":");
@@ -623,18 +991,26 @@ void writeInfoData(
     writeImu(json, snapshot.imu);
     (void)json.raw(",\"sensor_fusion\":");
     writeSensorFusion(json, snapshot.sensor_fusion);
+    if (complete_diagnostics) {
+        (void)json.raw(",\"distance\":");
+        writeDistance(json, snapshot.distance);
+    }
     (void)json.raw(",\"rtc\":");
     writeRtcData(json, snapshot.rtc);
     (void)json.raw(",\"gps\":");
-    writeGpsData(json, snapshot.gps, include_sensitive);
+    writeGpsData(json, snapshot.gps, complete_diagnostics);
     (void)json.raw(",\"audio\":");
     writeAudio(json, snapshot.audio);
     (void)json.raw(",\"radios\":{\"wifi\":");
-    writeWifi(json, snapshot.radios.wifi, include_sensitive);
+    writeWifi(json, snapshot.radios.wifi, complete_diagnostics);
     (void)json.raw(",\"ble\":");
     writeBle(json, snapshot.radios.ble);
     (void)json.raw("},\"storage\":");
     writeStorage(json, snapshot.storage);
+    if (complete_diagnostics) {
+        (void)json.raw(",\"diagnostics\":");
+        writeDiagnosticsSettings(json, snapshot.diagnostics);
+    }
     (void)json.raw(",\"ui\":");
     writeUi(json, snapshot.ui);
     (void)json.raw(",\"input\":");
@@ -819,12 +1195,21 @@ void httpJsonWriteHealth(
 
 void httpJsonWriteInfo(
     HttpJsonWriter &json,
-    const DeviceSnapshot &snapshot,
-    bool include_sensitive
+    const DeviceSnapshot &snapshot
 )
 {
     writeEnvelopeStart(json, "LUNASHELL.device.info.v1", snapshot);
-    writeInfoData(json, snapshot, include_sensitive);
+    writeSnapshotData(json, snapshot, false);
+    (void)json.raw("}");
+}
+
+void httpJsonWriteDiagnostics(
+    HttpJsonWriter &json,
+    const DeviceSnapshot &snapshot
+)
+{
+    writeEnvelopeStart(json, "LUNASHELL.device.diagnostics.v1", snapshot);
+    writeSnapshotData(json, snapshot, true);
     (void)json.raw("}");
 }
 

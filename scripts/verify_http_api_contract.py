@@ -67,22 +67,50 @@ def main() -> int:
     require_contains(source, "if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP)", "station lifecycle start")
     require_contains(doc, "httpServerSetApiKey()", "API documentation")
 
+    component_current = function_text(
+        json_source,
+        "bool componentCurrent(",
+        "component current predicate",
+    )
+    for fragment in (
+        "component.health == LUNASHELL::DeviceHealth::Ready",
+        "component.last_error == ESP_OK",
+        "component.data_valid",
+        "!component.data_stale",
+    ):
+        require_contains(
+            component_current,
+            fragment,
+            "component current predicate",
+        )
+
+    component_json = function_text(
+        json_source,
+        "void writeComponentStart(",
+        "component freshness JSON serializer",
+    )
+    for fragment in (
+        '\\"data_valid\\"',
+        "json.boolean(component.data_valid)",
+        '\\"data_stale\\"',
+        "json.boolean(component.data_stale)",
+        '\\"last_attempt_at_us\\"',
+        '\\"last_success_at_us\\"',
+    ):
+        require_contains(
+            component_json,
+            fragment,
+            "component freshness JSON contract",
+        )
+
     battery_json = function_text(
         json_source,
         "void writeBattery(",
         "battery JSON serializer",
     )
     for fragment in (
-        "battery.health == LUNASHELL::DeviceHealth::Ready",
-        "battery.last_error == ESP_OK",
-        "battery.data_valid",
-        "!battery.data_stale",
-        '\\"data_valid\\"',
-        "json.boolean(battery.data_valid)",
-        '\\"data_stale\\"',
-        "json.boolean(battery.data_stale)",
-        '\\"last_attempt_at_us\\"',
-        '\\"last_success_at_us\\"',
+        "const bool battery_current = componentCurrent(battery);",
+        "writeComponentStart(json, battery);",
     ):
         require_contains(
             battery_json,
@@ -128,6 +156,208 @@ def main() -> int:
             f"`{field}`",
             f"documented memory JSON field {field}",
         )
+
+    require_contains(
+        source,
+        "LUNASHELL::httpJsonWriteInfo(response, snapshot);",
+        "redacted info dispatch",
+    )
+    require_contains(
+        source,
+        "LUNASHELL::httpJsonWriteDiagnostics(response, snapshot);",
+        "complete diagnostics dispatch",
+    )
+
+    envelope_json = function_text(
+        json_source,
+        "void writeEnvelopeStart(",
+        "snapshot JSON envelope",
+    )
+    for fragment in (
+        '\\"last_update_error\\"',
+        "esp_err_to_name(snapshot.last_update_error)",
+    ):
+        require_contains(
+            envelope_json,
+            fragment,
+            "snapshot last-update error envelope",
+        )
+
+    info_json = function_text(
+        json_source,
+        "void httpJsonWriteInfo(",
+        "info JSON serializer",
+    )
+    require_contains(
+        info_json,
+        '"LUNASHELL.device.info.v1"',
+        "info JSON schema",
+    )
+    require_contains(
+        info_json,
+        "writeSnapshotData(json, snapshot, false);",
+        "redacted info snapshot",
+    )
+
+    diagnostics_json = function_text(
+        json_source,
+        "void httpJsonWriteDiagnostics(",
+        "diagnostics JSON serializer",
+    )
+    require_contains(
+        diagnostics_json,
+        '"LUNASHELL.device.diagnostics.v1"',
+        "diagnostics JSON schema",
+    )
+    require_contains(
+        diagnostics_json,
+        "writeSnapshotData(json, snapshot, true);",
+        "complete diagnostics snapshot",
+    )
+
+    snapshot_json = function_text(
+        json_source,
+        "void writeSnapshotData(",
+        "DeviceSnapshot JSON serializer",
+    )
+    for group in (
+        "battery",
+        "imu",
+        "sensor_fusion",
+        "distance",
+        "rtc",
+        "gps",
+        "audio",
+        "radios",
+        "storage",
+        "diagnostics",
+        "ui",
+        "input",
+        "power",
+        "memory",
+        "processor",
+    ):
+        require_contains(
+            snapshot_json,
+            f'\\"{group}\\"',
+            f"complete DeviceSnapshot group {group}",
+        )
+
+    for signature, label in (
+        ("void writeImu(", "IMU"),
+        ("void writeSensorFusion(", "sensor fusion"),
+        ("void writeRtcData(", "RTC"),
+        ("void writeGpsData(", "GPS"),
+        ("void writeWifi(", "Wi-Fi"),
+        ("void writeBle(", "BLE"),
+        ("void writeStorage(", "storage"),
+        ("void writePowerManagement(", "power management"),
+        ("void writeMemory(", "memory"),
+        ("void writeProcessor(", "processor"),
+        ("void writeTofSensor(", "ToF sensor"),
+        ("void writeDistanceSettings(", "distance settings"),
+        ("void writeDistanceCalibration(", "distance calibration"),
+        ("void writeDistance(", "distance"),
+    ):
+        component_writer = function_text(
+            json_source,
+            signature,
+            f"{label} JSON serializer",
+        )
+        require_contains(
+            component_writer,
+            "writeComponentStart(json,",
+            f"{label} common component prefix",
+        )
+
+    gps_json = function_text(
+        json_source,
+        "void writeGpsData(",
+        "GPS JSON serializer",
+    )
+    for fragment in (
+        '\\"fix_valid\\"',
+        "componentCurrent(gps)",
+        "std::isfinite(gps.latitude_degrees)",
+        "std::isfinite(gps.longitude_degrees)",
+        'json.raw("null")',
+    ):
+        require_contains(gps_json, fragment, "guarded GPS numeric telemetry")
+
+    storage_json = function_text(
+        json_source,
+        "void writeStorage(",
+        "storage JSON serializer",
+    )
+    for field in (
+        "logger_mirror",
+        "mount_outcome",
+        "mount_stage",
+        "cleanup_stage",
+        "cleanup_error",
+        "initial_fatfs_result_valid",
+        "initial_fatfs_result",
+        "fatfs_result_valid",
+        "fatfs_result",
+        "cleanup_fatfs_result_valid",
+        "cleanup_fatfs_result",
+        "cleanup_complete",
+        "poisoned",
+        "mounted",
+        "card_response_verified",
+        "format_required",
+        "authorization_consumed",
+        "authorization_identity_matched",
+        "format_attempted",
+        "partition_written",
+        "formatted",
+        "mount_attempt_count",
+        "capacity_bytes",
+        "filesystem_total_bytes",
+        "free_bytes",
+        "logger_mirror_requested",
+        "logger_mirror_enabled",
+        "logger_mirror_errno",
+        "logger_mirror_changed_at_us",
+        "logger_mirror_failure_count",
+    ):
+        require_contains(
+            storage_json,
+            f'\\"{field}\\"',
+            f"complete storage field {field}",
+        )
+
+    audio_json = function_text(
+        json_source,
+        "void writeAudio(",
+        "audio JSON serializer",
+    )
+    for fragment in (
+        '\\"channel_spectrum\\"',
+        "audio.channel_spectrum[channel][band]",
+        '\\"spectrum_sequence\\"',
+    ):
+        require_contains(audio_json, fragment, "complete audio spectrum")
+
+    processor_json = function_text(
+        json_source,
+        "void writeProcessor(",
+        "processor JSON serializer",
+    )
+    for fragment in (
+        '\\"available\\"',
+        '\\"utilization_available\\"',
+        '\\"utilization_percent\\"',
+        'json.raw("null")',
+    ):
+        require_contains(processor_json, fragment, "processor validity contract")
+
+    for fragment in (
+        "`LUNASHELL.device.diagnostics.v1`",
+        "`last_update_error`",
+        "`format_required`",
+    ):
+        require_contains(doc, fragment, "documented diagnostics contract")
 
     print(
         "HTTP API contract verification: PASS "

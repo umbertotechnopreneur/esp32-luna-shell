@@ -343,9 +343,9 @@ esp_err_t handleApiRequest(httpd_req_t *request)
                 : 0U;
         LUNASHELL::httpJsonWriteCapabilities(response, refresh_interval_ms);
     } else if (std::strcmp(route, kInfoPath) == 0) {
-        LUNASHELL::httpJsonWriteInfo(response, snapshot, false);
+        LUNASHELL::httpJsonWriteInfo(response, snapshot);
     } else if (std::strcmp(route, kDiagnosticsPath) == 0) {
-        LUNASHELL::httpJsonWriteInfo(response, snapshot, true);
+        LUNASHELL::httpJsonWriteDiagnostics(response, snapshot);
     } else if (std::strcmp(route, kRtcPath) == 0) {
         LUNASHELL::httpJsonWriteRtc(response, snapshot);
     } else if (std::strcmp(route, kGpsPath) == 0) {
