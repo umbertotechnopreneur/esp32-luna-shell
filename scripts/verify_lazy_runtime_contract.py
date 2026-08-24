@@ -52,6 +52,27 @@ def require_config_value(defaults: str, name: str, expected: str) -> None:
     )
 
 
+def anchored_section(
+    text: str,
+    start_anchor: str,
+    end_anchor: str,
+    source: str,
+) -> str:
+    start = text.find(start_anchor)
+    require(start >= 0, f"start anchor {start_anchor!r} missing from {source}")
+    end = text.find(end_anchor, start + len(start_anchor))
+    require(end >= 0, f"end anchor {end_anchor!r} missing from {source}")
+    return text[start:end]
+
+
+def named_test_case(text: str, name: str, source: str) -> str:
+    start_anchor = f"BROOKESIA_TEST_CASE(\n    {name},"
+    start = text.find(start_anchor)
+    require(start >= 0, f"test case {name!r} missing from {source}")
+    end = text.find("\nBROOKESIA_TEST_CASE(", start + len(start_anchor))
+    return text[start:] if end < 0 else text[start:end]
+
+
 def load_json(path: Path) -> Any:
     try:
         return json.loads(read(path))
@@ -201,6 +222,14 @@ def main() -> int:
         / "src"
         / "runtime.cpp"
     )
+    runtime_host_tests = read(
+        BROOKESIA
+        / "gui"
+        / "brookesia_gui_interface"
+        / "test_apps"
+        / "main"
+        / "test_gui_interface.cpp"
+    )
     props = read(
         BROOKESIA
         / "gui"
@@ -329,6 +358,234 @@ def main() -> int:
         "resolved_style_cache_.erase(erase_it);",
         "in-place style cache release",
     )
+
+    binding_batch = anchored_section(
+        runtime,
+        "    void set_binding_values(DocumentId document_id, "
+        "const std::vector<BindingValueUpdate> &updates)",
+        "    void apply_initial_bindings(",
+        "Brookesia runtime",
+    )
+    binding_batch_code = cpp_code_only(binding_batch)
+    old_pointer_staging = re.compile(
+        r"\bchanged_updates\b|"
+        r"std::vector\s*<\s*const\s+BindingValueUpdate\s*\*\s*>|"
+        r"\.reserve\s*\(\s*updates\.size\(\)\s*\)|"
+        r"\.push_back\s*\(\s*&update\s*\)"
+    )
+    require(
+        old_pointer_staging.search(binding_batch_code) is None,
+        "set_binding_values must not restore the changed-update pointer vector",
+    )
+    for fragment in (
+        "static constexpr size_t CHANGED_UPDATE_WORD_BITS = sizeof(uint64_t) * 8U;",
+        "const size_t changed_update_word_count =",
+        "updates.size() / CHANGED_UPDATE_WORD_BITS +",
+        "updates.size() % CHANGED_UPDATE_WORD_BITS != 0U ? 1U : 0U",
+        "std::array<uint64_t, INLINE_CHANGED_UPDATE_WORDS> inline_changed_update_bits{};",
+        "std::vector<uint64_t> spilled_changed_update_bits;",
+        "uint64_t *changed_update_bits = inline_changed_update_bits.data();",
+        "if (changed_update_word_count > inline_changed_update_bits.size())",
+        "spilled_changed_update_bits.assign(changed_update_word_count, 0U);",
+        "changed_update_bits = spilled_changed_update_bits.data();",
+        "lib_utils::FunctionGuard restore_binding_listener_apply(",
+        "[this, previous_suppress]() noexcept",
+        "bool has_changed_updates = false;",
+        "const auto previous = store->get_string(",
+        "if (previous.has_value() && *previous == update.value)",
+        "store->set_string(document_id, update.absolute_path, update.key, update.value);",
+        "has_changed_updates = true;",
+        "changed_update_bits[update_index / CHANGED_UPDATE_WORD_BITS] |=",
+        "uint64_t{1} << (update_index % CHANGED_UPDATE_WORD_BITS);",
+        "restore_binding_listener_apply.release();",
+        "if (!has_changed_updates)",
+        "boost::unordered_flat_map<uint64_t, BindingApplyMasks> dirty_nodes;",
+        "if ((changed_update_bits[update_index / CHANGED_UPDATE_WORD_BITS] &",
+        "== 0U) {",
+        "const auto query = normalize_absolute_path(update.absolute_path);",
+        "auto apply_result = apply_binding_value(",
+        "merge_binding_mask(dirty_nodes[record->uid], *binding_target);",
+        "for (auto &[uid, masks] : dirty_nodes)",
+        "reapply_binding_masks(*tree, *record, masks);",
+    ):
+        require_contains(binding_batch_code, fragment, "two-phase set_binding_values")
+    inline_capacity = re.search(
+        r"static constexpr size_t INLINE_CHANGED_UPDATE_WORDS\s*=\s*"
+        r"([1-9][0-9]*)U?\s*;",
+        binding_batch_code,
+    )
+    require(
+        inline_capacity is not None,
+        "set_binding_values change bitmap must have positive inline capacity",
+    )
+    update_loop = (
+        "for (size_t update_index = 0; update_index < updates.size(); "
+        "++update_index)"
+    )
+    loop_indices = [
+        match.start()
+        for match in re.finditer(re.escape(update_loop), binding_batch_code)
+    ]
+    require(
+        len(loop_indices) == 2,
+        "set_binding_values must have exactly two indexed update passes",
+    )
+    first_loop, apply_loop = loop_indices
+    guard_index = binding_batch_code.index(
+        "lib_utils::FunctionGuard restore_binding_listener_apply("
+    )
+    persist_index = binding_batch_code.index(
+        "store->set_string(document_id, update.absolute_path, update.key, update.value);"
+    )
+    mark_index = binding_batch_code.index(
+        "changed_update_bits[update_index / CHANGED_UPDATE_WORD_BITS] |="
+    )
+    restore_index = binding_batch_code.rindex(
+        "suppress_binding_listener_apply_ = previous_suppress;"
+    )
+    release_index = binding_batch_code.index(
+        "restore_binding_listener_apply.release();",
+        restore_index,
+    )
+    dirty_map_index = binding_batch_code.index(
+        "boost::unordered_flat_map<uint64_t, BindingApplyMasks> dirty_nodes;"
+    )
+    bit_test_index = binding_batch_code.index(
+        "if ((changed_update_bits[update_index / CHANGED_UPDATE_WORD_BITS] &",
+        apply_loop,
+    )
+    apply_index = binding_batch_code.index(
+        "auto apply_result = apply_binding_value(", apply_loop
+    )
+    merge_index = binding_batch_code.index(
+        "merge_binding_mask(dirty_nodes[record->uid], *binding_target);",
+        apply_index,
+    )
+    dirty_reapply_index = binding_batch_code.index(
+        "for (auto &[uid, masks] : dirty_nodes)"
+    )
+    require(
+        guard_index
+        < first_loop
+        < persist_index
+        < mark_index
+        < restore_index
+        < release_index
+        < dirty_map_index
+        < apply_loop
+        < bit_test_index
+        < apply_index
+        < merge_index
+        < dirty_reapply_index,
+        "binding updates must write and mark under suppression, restore listeners, "
+        "apply flagged updates, then reapply coalesced dirty nodes",
+    )
+
+    binding_test_name = "test_gui_interface_runtime_batches_binding_updates"
+    binding_test = named_test_case(
+        runtime_host_tests,
+        binding_test_name,
+        "Brookesia GUI interface host tests",
+    )
+    for fragment in (
+        '"labelProps.text": "text"',
+        '"commonProps.hidden": "hidden"',
+        '"style.textColor": "color"',
+        '"style.bgColor": "background"',
+        '"rangeProps.value": "level"',
+    ):
+        require_contains(
+            runtime_host_tests,
+            fragment,
+            "Brookesia batched-binding host fixture",
+        )
+    for fragment in (
+        '{"/binding_screen/status", "text", "Updated"}',
+        '{"/binding_screen/status", "hidden", "true"}',
+        '{"/binding_screen/status", "color", "#00FF00"}',
+        '{"/binding_screen/status", "background", "#0F172A"}',
+        "auto background_subscription = runtime.subscribe_binding_value(",
+        '"background",',
+        "text_seen_during_store_notification = status.text();",
+        "TEST_ASSERT_TRUE(background_subscription.connected());",
+        'TEST_ASSERT_EQUAL_STRING("Updated", status.text().c_str());',
+        'TEST_ASSERT_EQUAL_STRING("Initial", '
+        "text_seen_during_store_notification.c_str());",
+        '{"/binding_screen/missing", "orphan", "persisted"}',
+        "auto missing_value = runtime.get_binding_value(",
+        'TEST_ASSERT_EQUAL_STRING("persisted", missing_value->c_str());',
+        '{"/binding_screen/level", "level", "not-an-int"}',
+        "auto invalid_value = runtime.get_binding_value(",
+        'TEST_ASSERT_EQUAL_STRING("not-an-int", invalid_value->c_str());',
+        '{"/binding_screen/level", "level", "42"}',
+        "auto recovered_value = runtime.get_binding_value(",
+        'TEST_ASSERT_EQUAL_STRING("42", recovered_value->c_str());',
+        "TEST_ASSERT_EQUAL_INT32(42, level.value());",
+    ):
+        require_contains(binding_test, fragment, binding_test_name)
+    require(
+        binding_test.count(
+            "runtime.set_binding_values(document_id.value(), coalesced_updates);"
+        )
+        == 2,
+        f"{binding_test_name} must replay the unchanged coalesced batch",
+    )
+    require(
+        binding_test.count("TEST_ASSERT_EQUAL_INT32(30, level.value());") >= 2,
+        f"{binding_test_name} must prove the invalid binding leaves level unchanged",
+    )
+    boundary_test = anchored_section(
+        binding_test,
+        "    std::vector<BindingValueUpdate> boundary_updates;",
+        "    const auto props_before_missing",
+        binding_test_name,
+    )
+    for fragment in (
+        "boundary_updates.reserve(129);",
+        "for (size_t index = 0; index < 129; ++index)",
+        "boundary_updates.push_back({",
+        '"/binding_screen/status",',
+        '"text",',
+        '"boundary-" + std::to_string(index),',
+        "runtime.set_binding_values(document_id.value(), boundary_updates);",
+        'TEST_ASSERT_EQUAL_STRING("boundary-128", status.text().c_str());',
+    ):
+        require_contains(boundary_test, fragment, f"{binding_test_name} boundary batch")
+    for counter, adjustment in (
+        ("props", " + 1"),
+        ("style", " + 1"),
+        ("layout", ""),
+        ("placement", ""),
+    ):
+        batch_assertion = (
+            f"TEST_ASSERT_EQUAL_size_t({counter}_before_batch{adjustment}, "
+            f"backend_ptr->{counter}_apply_count());"
+        )
+        require(
+            binding_test.count(batch_assertion) == 2,
+            f"{binding_test_name} must pin coalesced and unchanged {counter} work",
+        )
+        boundary_adjustment = " + 1" if counter == "props" else ""
+        require_contains(
+            boundary_test,
+            f"TEST_ASSERT_EQUAL_size_t({counter}_before_boundaries"
+            f"{boundary_adjustment}, backend_ptr->{counter}_apply_count());",
+            f"{binding_test_name} boundary batch",
+        )
+        for scenario in ("missing", "invalid"):
+            require_contains(
+                binding_test,
+                f"TEST_ASSERT_EQUAL_size_t({counter}_before_{scenario}, "
+                f"backend_ptr->{counter}_apply_count());",
+                f"{binding_test_name} {scenario} update",
+            )
+        recovery_adjustment = " + 1" if counter == "props" else ""
+        require_contains(
+            binding_test,
+            f"TEST_ASSERT_EQUAL_size_t({counter}_before_invalid"
+            f"{recovery_adjustment}, backend_ptr->{counter}_apply_count());",
+            f"{binding_test_name} valid recovery",
+        )
 
     child_error = runtime.index("if (!child_uid)", runtime.index("create_subtree("))
     rollback = runtime.index("destroy_subtree(tree, uid);", child_error)
@@ -641,7 +898,8 @@ def main() -> int:
 
     print(
         "lazy runtime contract verification: PASS "
-        "(timers, signal release, bounded logs, unload, rollback, UI caches, "
+        "(timers, signal release, bounded logs, unload, two-phase binding "
+        "batches with inline bitmap and no pointer staging, rollback, UI caches, "
         "no external media)"
     )
     return 0
