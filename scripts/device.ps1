@@ -792,7 +792,116 @@ function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]
     }
 }
 
+function Get-SdkconfigDefaultsState {
+    $baseDefaults = if (
+        -not [string]::IsNullOrWhiteSpace($env:SDKCONFIG_DEFAULTS)
+    ) {
+        @($env:SDKCONFIG_DEFAULTS -split ';' | Where-Object {
+            -not [string]::IsNullOrWhiteSpace($_)
+        })
+    } else {
+        @("sdkconfig.defaults")
+    }
+
+    $activeDefaults = [System.Collections.Generic.List[string]]::new()
+    foreach ($baseDefault in $baseDefaults) {
+        $candidate = $baseDefault.Trim()
+        if (-not [System.IO.Path]::IsPathRooted($candidate)) {
+            $candidate = Join-Path $ProjectRoot $candidate
+        }
+        $resolvedDefault = [System.IO.Path]::GetFullPath($candidate)
+        if (-not (Test-Path -LiteralPath $resolvedDefault -PathType Leaf)) {
+            throw "Active SDKCONFIG_DEFAULTS file not found: $resolvedDefault"
+        }
+        $activeDefaults.Add($resolvedDefault)
+
+        $targetDefault = "$resolvedDefault.esp32s3"
+        if (Test-Path -LiteralPath $targetDefault -PathType Leaf) {
+            $activeDefaults.Add($targetDefault)
+        }
+    }
+
+    $signatureEntries = foreach ($defaultPath in $activeDefaults) {
+        $normalizedPath = [System.IO.Path]::GetRelativePath(
+            $ProjectRoot,
+            $defaultPath
+        ).Replace('\', '/').ToLowerInvariant()
+        $hash = (Get-FileHash -LiteralPath $defaultPath -Algorithm SHA256).Hash
+        "$normalizedPath|$($hash.ToLowerInvariant())"
+    }
+    $generatedSdkconfig = Join-Path $ProjectRoot "sdkconfig"
+    if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf)) {
+        throw "Generated sdkconfig not found: $generatedSdkconfig"
+    }
+    $sdkconfigHash = (
+        Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    return [pscustomobject]@{
+        Files = @($activeDefaults)
+        Signature = (
+            @("target=esp32s3") +
+            $signatureEntries +
+            "sdkconfig|$sdkconfigHash"
+        ) -join "`n"
+    }
+}
+
+function Get-SdkconfigDefaultsStatePath([string]$RequestedBuildDir) {
+    $buildDirectory = if (
+        [System.IO.Path]::IsPathRooted($RequestedBuildDir)
+    ) {
+        [System.IO.Path]::GetFullPath($RequestedBuildDir)
+    } else {
+        [System.IO.Path]::GetFullPath(
+            (Join-Path $ProjectRoot $RequestedBuildDir)
+        )
+    }
+    return Join-Path $buildDirectory ".LUNASHELL-sdkconfig-defaults.state"
+}
+
+function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
+    return "pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir $RequestedBuildDir"
+}
+
+function Save-SdkconfigDefaultsState([string]$RequestedBuildDir) {
+    $state = Get-SdkconfigDefaultsState
+    $statePath = Get-SdkconfigDefaultsStatePath $RequestedBuildDir
+    $stateDirectory = Split-Path -Parent $statePath
+    if (-not (Test-Path -LiteralPath $stateDirectory -PathType Container)) {
+        throw "Build directory missing after set-target: $stateDirectory"
+    }
+    [System.IO.File]::WriteAllText(
+        $statePath,
+        $state.Signature,
+        [System.Text.UTF8Encoding]::new($false)
+    )
+}
+
+function Assert-SdkconfigDefaultsApplied([string]$RequestedBuildDir) {
+    $recoveryCommand = Get-SetTargetRecoveryCommand $RequestedBuildDir
+    $generatedSdkconfig = Join-Path $ProjectRoot "sdkconfig"
+    $statePath = Get-SdkconfigDefaultsStatePath $RequestedBuildDir
+    if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf) -or
+        -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
+        throw "SDKCONFIG defaults state is unverified; run '$recoveryCommand'."
+    }
+
+    $expectedState = Get-SdkconfigDefaultsState
+    $appliedSignature = [System.IO.File]::ReadAllText($statePath)
+    if (-not [string]::Equals(
+            $appliedSignature,
+            $expectedState.Signature,
+            [StringComparison]::Ordinal
+        )) {
+        throw (
+            "SDKCONFIG, defaults, or active overlays changed; run " +
+            "'$recoveryCommand'."
+        )
+    }
+}
+
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {
+    Assert-SdkconfigDefaultsApplied $RequestedBuildDir
     $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
     $reconfigure = -not (Test-Path $buildNinja)
 
@@ -801,7 +910,15 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
             Get-ChildItem -Path $ProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
                 Where-Object {
                     $_.FullName -notlike "$(Join-Path $ProjectRoot $RequestedBuildDir)\*" -and
-                    ($_.Name -eq "CMakeLists.txt" -or $_.Name -eq "sdkconfig" -or $_.Name -eq "sdkconfig.defaults")
+                    ($_.Name -eq "CMakeLists.txt" -or
+                     $_.Name -eq "sdkconfig" -or
+                     $_.Name -like "sdkconfig*.defaults" -or
+                     $_.Name -like "sdkconfig.defaults.*" -or
+                     $_.Name -eq "idf_component.yml" -or
+                     $_.Name -eq "Kconfig" -or
+                     $_.Name -like "Kconfig.*" -or
+                     $_.Name -eq "dependencies.lock" -or
+                     $_.Name -eq "partitions.csv")
                 }
         )
         $latestInput = $trackedBuildInputs |
@@ -831,6 +948,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed"
     }
+    Save-SdkconfigDefaultsState $RequestedBuildDir
 }
 
 Push-Location $ProjectRoot
@@ -854,22 +972,27 @@ try {
             }
         }
         "reconfigure" {
+            Assert-SdkconfigDefaultsApplied $BuildDir
             & $PythonExe $IdfPy @commonArgs reconfigure
             if ($LASTEXITCODE -ne 0) {
                 throw "Reconfigure failed"
             }
+            Save-SdkconfigDefaultsState $BuildDir
         }
         "set-target" {
             & $PythonExe $IdfPy @commonArgs set-target esp32s3
             if ($LASTEXITCODE -ne 0) {
                 throw "Set target failed"
             }
+            Save-SdkconfigDefaultsState $BuildDir
         }
         "size" {
+            Assert-SdkconfigDefaultsApplied $BuildDir
             & $PythonExe $IdfPy @commonArgs size
             if ($LASTEXITCODE -ne 0) {
                 throw "Size report failed"
             }
+            Save-SdkconfigDefaultsState $BuildDir
         }
         "ports" {
             Show-SerialPorts
@@ -890,6 +1013,7 @@ try {
             }
         }
         "flash" {
+            Assert-SdkconfigDefaultsApplied $BuildDir
             $Port = Normalize-PortName $Port
             Stop-StaleMonitorProcesses $Port
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
@@ -897,6 +1021,7 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
             }
+            Save-SdkconfigDefaultsState $BuildDir
         }
         "reset" {
             Invoke-DeviceReset $Port $Baud

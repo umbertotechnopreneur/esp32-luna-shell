@@ -146,6 +146,138 @@ $deviceActions = @(
 Assert-Contains -Values $deviceActions -Expected 'capture' `
     -Message 'device.ps1 no longer exposes the capture action.'
 
+$projectBuildFunction = $asts.Device.Find(
+    {
+        param($node)
+        $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+            $node.Name -ceq 'Invoke-ProjectBuild'
+    },
+    $true
+)
+if ($null -eq $projectBuildFunction) {
+    throw 'device.ps1 no longer defines Invoke-ProjectBuild.'
+}
+$projectBuildText = $projectBuildFunction.Extent.Text
+$projectBuildStringLiterals = @(
+    $projectBuildFunction.FindAll(
+        {
+            param($node)
+            $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
+        },
+        $true
+    ) | ForEach-Object { $_.Value }
+)
+foreach ($requiredBuildInput in @(
+    'CMakeLists.txt',
+    'sdkconfig',
+    'sdkconfig*.defaults',
+    'sdkconfig.defaults.*',
+    'idf_component.yml',
+    'Kconfig',
+    'Kconfig.*',
+    'dependencies.lock',
+    'partitions.csv'
+)) {
+    if ($projectBuildStringLiterals -cnotcontains $requiredBuildInput) {
+        throw "device.ps1 reconfigure tracking lost exact input $requiredBuildInput."
+    }
+}
+
+$defaultsFunctions = @{}
+foreach ($functionName in @(
+    'Get-SdkconfigDefaultsState',
+    'Get-SdkconfigDefaultsStatePath',
+    'Get-SetTargetRecoveryCommand',
+    'Save-SdkconfigDefaultsState',
+    'Assert-SdkconfigDefaultsApplied'
+)) {
+    $functionAst = $asts.Device.Find(
+        {
+            param($node)
+            $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $node.Name -ceq $functionName
+        },
+        $true
+    )
+    if ($null -eq $functionAst) {
+        throw "device.ps1 lost sdkconfig state function $functionName."
+    }
+    $defaultsFunctions[$functionName] = $functionAst.Extent.Text
+}
+
+$defaultsStateText = $defaultsFunctions['Get-SdkconfigDefaultsState']
+foreach ($requiredDefaultsStateFragment in @(
+    '$env:SDKCONFIG_DEFAULTS',
+    "-split ';'",
+    'sdkconfig.defaults',
+    '$resolvedDefault.esp32s3',
+    'Get-FileHash -LiteralPath $defaultPath -Algorithm SHA256',
+    'Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256',
+    'sdkconfig|$sdkconfigHash',
+    'target=esp32s3'
+)) {
+    Assert-TextContains -Text $defaultsStateText `
+        -Expected $requiredDefaultsStateFragment `
+        -Message "device.ps1 defaults fingerprint lost $requiredDefaultsStateFragment."
+}
+foreach ($requiredAppliedStateFragment in @(
+    'Get-SdkconfigDefaultsState',
+    '[System.IO.File]::ReadAllText($statePath)',
+    '[StringComparison]::Ordinal',
+    'SDKCONFIG, defaults, or active overlays changed'
+)) {
+    Assert-TextContains `
+        -Text $defaultsFunctions['Assert-SdkconfigDefaultsApplied'] `
+        -Expected $requiredAppliedStateFragment `
+        -Message "device.ps1 defaults comparison lost $requiredAppliedStateFragment."
+}
+Assert-TextContains -Text $defaultsFunctions['Save-SdkconfigDefaultsState'] `
+    -Expected '[System.IO.File]::WriteAllText(' `
+    -Message 'device.ps1 no longer persists the applied defaults fingerprint.'
+Assert-TextOrder -Text $projectBuildText `
+    -Earlier 'Assert-SdkconfigDefaultsApplied $RequestedBuildDir' `
+    -Later '$buildNinja = Join-Path $RequestedBuildDir "build.ninja"' `
+    -Message 'Project builds must verify defaults before inspecting build state.'
+Assert-TextOrder -Text $projectBuildText `
+    -Earlier '& ninja -C $RequestedBuildDir -j $parallelJobs all' `
+    -Later 'Save-SdkconfigDefaultsState $RequestedBuildDir' `
+    -Message 'Successful project builds must attest the resulting sdkconfig.'
+
+$actionSwitch = $asts.Device.Find(
+    {
+        param($node)
+        $node -is [System.Management.Automation.Language.SwitchStatementAst] -and
+            $node.Condition.Extent.Text -ceq '$Action'
+    },
+    $true
+)
+if ($null -eq $actionSwitch) {
+    throw 'device.ps1 no longer dispatches actions through switch ($Action).'
+}
+$actionBodies = @{}
+foreach ($clause in $actionSwitch.Clauses) {
+    $actionBodies[$clause.Item1.SafeGetValue()] = $clause.Item2.Extent.Text
+}
+foreach ($protectedAction in @('reconfigure', 'size', 'flash')) {
+    Assert-TextOrder -Text $actionBodies[$protectedAction] `
+        -Earlier 'Assert-SdkconfigDefaultsApplied $BuildDir' `
+        -Later '& $PythonExe $IdfPy' `
+        -Message "device.ps1 $protectedAction must verify defaults before ESP-IDF."
+    Assert-TextOrder -Text $actionBodies[$protectedAction] `
+        -Earlier '& $PythonExe $IdfPy' `
+        -Later 'Save-SdkconfigDefaultsState $BuildDir' `
+        -Message "device.ps1 $protectedAction must attest the resulting sdkconfig."
+}
+foreach ($buildAction in @('build', 'combo', 'recover')) {
+    Assert-TextContains -Text $actionBodies[$buildAction] `
+        -Expected 'Invoke-ProjectBuild $BuildDir' `
+        -Message "device.ps1 $buildAction bypasses the guarded build path."
+}
+Assert-TextOrder -Text $actionBodies['set-target'] `
+    -Earlier '& $PythonExe $IdfPy @commonArgs set-target esp32s3' `
+    -Later 'Save-SdkconfigDefaultsState $BuildDir' `
+    -Message 'set-target must persist its defaults fingerprint after ESP-IDF succeeds.'
+
 foreach ($standaloneKey in @('Assets', 'Sfx', 'Banner', 'SimulatorBuild')) {
     $standaloneText = Get-Content -Raw -LiteralPath $paths[$standaloneKey]
     if ($standaloneText -match '(?i)device\.ps1') {
