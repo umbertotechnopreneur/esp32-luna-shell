@@ -19,6 +19,11 @@ Completed items moved out of `TODO.md` live here.
 - [x] Preserve repeated Full Snapshot aggregate errors in return values and
   structured state while coalescing only their duplicate scheduler log into
   immediate transitions, counted 60-second reminders, and immediate recovery.
+- [x] Replace Brookesia's per-call `changed_updates` pointer-vector allocation
+  with a compact inline bitmap that covers up to 128 updates without heap
+  growth, while preserving the two-phase store/apply order, restoring listener
+  suppression with a guard, and retaining host coverage for unchanged values,
+  missing targets, binding errors, and dirty-node reapplication.
 
 These entries record the implemented software contracts. Interactive UI,
 rotation, removable-media, and forced-failure scenarios remain physical-device

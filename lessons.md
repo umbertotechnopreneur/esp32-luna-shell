@@ -186,6 +186,12 @@ runtime behavior still requires authorized hardware validation.
   applying them to nodes. Reapplying unchanged telemetry still invalidates
   styles and labels, making an otherwise static scroll appear to repaint in
   narrow bands.
+- Preserve the two-phase store/apply order in declarative binding batches so
+  subscribers observe all store notifications before any node mutation. Track
+  changed indices with a compact inline bitmap instead of a pointer vector,
+  restore listener suppression with a guard before applying nodes, keep missing
+  targets and binding failures visible, and coalesce only successful dirty masks
+  per node.
 
 ## Mutually exclusive runtime profiles
 

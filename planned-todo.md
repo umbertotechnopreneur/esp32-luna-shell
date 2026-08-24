@@ -39,10 +39,6 @@ priority. Promote an item to `TODO.md` when it becomes active.
 - [ ] Make the Brookesia GUI LVGL default feature bundle configurable so this
   application can disable unused image-font, stdio filesystem, and POSIX
   filesystem support without carrying a private submodule patch.
-- [ ] Remove the per-call `changed_updates` heap allocation from Brookesia's
-  batched binding runtime, with host coverage for unchanged values, missing
-  targets, binding errors, and dirty-node reapplication before updating the
-  pinned submodule revision.
 - [ ] Extract the GNSS NMEA parser only together with host tests for GGA, RMC,
   checksums, malformed frames, and partial input so the maintenance split does
   not change live fix validity semantics.
