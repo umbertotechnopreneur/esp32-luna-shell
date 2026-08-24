@@ -123,11 +123,12 @@ The native app implements the System Core `IApp` lifecycle. At boot GUI LVGL
 loads only `components/LUNASHELL_app/package/res/root.json`, which keeps the
 background, shared chrome, resident Welcome screen, and an empty content target.
 Every other route is emitted as an independent `res/screen_*.json` document.
-`LUNASHELL_app.cpp` releases the current content, unloads the previous route
-document, loads and mounts the requested one, and keeps at most one lazy route
-document active. It subscribes to that document's actions, refreshes the active
-screen from `DeviceSnapshotService`, and uses System Super services for the
-log-search keyboard and the destructive SD confirmation dialog.
+`LUNASHELL_app_documents.cpp` releases the current content, unloads the previous
+route document, loads and mounts the requested one, and keeps at most one lazy
+route document active. `LUNASHELL_app.cpp` subscribes to that document's
+actions, refreshes the active screen from `DeviceSnapshotService`, and uses
+System Super services for the log-search keyboard and the destructive SD
+confirmation dialog.
 The five Bluetooth/Wi-Fi provisioning stages plus the result state share one
 small Pairing document, so advancing through the wizard does not repeatedly
 parse or allocate new GUI trees; the document is unloaded when the wizard ends.
@@ -138,6 +139,12 @@ produces the bootstrap and lazy runtime documents staged in LittleFS. Those JSON
 documents own view structure, layout, styles, and action names. C++ owns
 lifecycle, route-document selection, and data binding. App code does not
 construct a second widget framework or call LVGL directly.
+
+The staged runtime package is JSON-only. The background and generated pairing
+QR are registered from native LVGL descriptors, so PNG/JPEG and external font
+payloads are not duplicated in LittleFS. The declarative typography set is
+limited to the compiled Montserrat 10, 12, 16, 20, 24, and 32 sizes; static
+contract checks resolve every `fontSize` constant before accepting a build.
 
 ### UI glossary
 
@@ -232,8 +239,9 @@ The editable route definitions live in
 The generated screen documents live under
 [`components/LUNASHELL_app/package/res`](components/LUNASHELL_app/package/res), while
 document selection and action handling live in
-[`components/LUNASHELL_app/LUNASHELL_app.cpp`](components/LUNASHELL_app/LUNASHELL_app.cpp). This is
-the current code-grounded inventory:
+[`components/LUNASHELL_app/LUNASHELL_app_documents.cpp`](components/LUNASHELL_app/LUNASHELL_app_documents.cpp)
+and [`components/LUNASHELL_app/LUNASHELL_app.cpp`](components/LUNASHELL_app/LUNASHELL_app.cpp).
+This is the current code-grounded inventory:
 
 | Route | Status | Entry point | Purpose |
 | --- | --- | --- | --- |
@@ -319,8 +327,12 @@ Select the target and generate a clean configuration:
 
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-idf6
-pwsh -NoProfile -File .\scripts\device.ps1 reconfigure -BuildDir build-idf6
 ```
+
+Run `set-target` again after changing any `sdkconfig*.defaults` file. A normal
+`reconfigure` does not reapply defaults over an existing generated `sdkconfig`,
+so the build wrapper fails fast with the exact recovery command when it detects
+that stale state.
 
 Build:
 
@@ -350,8 +362,8 @@ Build-time feature switches live in
 from the firmware image, not just hide them at runtime.
 
 Persist a profile in [`sdkconfig.defaults`](sdkconfig.defaults), then run
-`reconfigure` or `build` again through `scripts/device.ps1`. Do not rely on the
-generated `sdkconfig` file as a source-controlled configuration surface.
+`set-target` again through `scripts/device.ps1` before building. Do not rely on
+the generated `sdkconfig` file as a source-controlled configuration surface.
 
 The available profile selectors are:
 
