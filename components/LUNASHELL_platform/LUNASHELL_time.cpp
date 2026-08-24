@@ -11,11 +11,13 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 #include <sys/time.h>
 
 #include "esp_log.h"
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "esp_timer.h"
 
 namespace {
 
@@ -24,6 +26,20 @@ bool s_initialized;
 bool s_sntp_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 char s_timezone[40] = "UTC0";
+std::mutex s_sync_mutex;
+bool s_trusted_gps_fix_observed;
+bool s_reported_system_time_valid;
+bool s_reported_system_time_synchronized;
+char s_reported_system_time_source[8] = "none";
+time_t s_last_rtc_persisted_epoch;
+int64_t s_rtc_persistence_retry_after_us;
+uint32_t s_rtc_persistence_retry_delay_seconds;
+esp_err_t s_rtc_persistence_error = ESP_OK;
+
+constexpr int64_t kGpsSystemResyncDriftUs = 2LL * 1000LL * 1000LL;
+constexpr time_t kGpsRtcPersistenceIntervalSeconds = 6 * 60 * 60;
+constexpr uint32_t kRtcPersistenceRetryInitialSeconds = 30;
+constexpr uint32_t kRtcPersistenceRetryMaximumSeconds = 30 * 60;
 
 bool epoch_valid(time_t epoch)
 {
@@ -183,6 +199,16 @@ void report_time(
     esp_err_t error
 )
 {
+    s_reported_system_time_valid = valid;
+    s_reported_system_time_synchronized = synchronized;
+    if (source != nullptr && source[0] != '\0' &&
+        std::strlen(source) < sizeof(s_reported_system_time_source)) {
+        strlcpy(
+            s_reported_system_time_source,
+            source,
+            sizeof(s_reported_system_time_source)
+        );
+    }
     LUNASHELL::DeviceSnapshotService::instance().reportTime(
         valid,
         synchronized,
@@ -190,6 +216,56 @@ void report_time(
         s_timezone,
         error
     );
+}
+
+void report_time_failure_preserving_valid_clock(esp_err_t error)
+{
+    struct timeval current_time = {};
+    const bool clock_still_valid =
+        s_reported_system_time_valid &&
+        gettimeofday(&current_time, nullptr) == 0 &&
+        epoch_valid(current_time.tv_sec);
+    if (!clock_still_valid) {
+        report_time(false, false, "none", error);
+        return;
+    }
+    LUNASHELL::DeviceSnapshotService::instance().reportTime(
+        true,
+        s_reported_system_time_synchronized,
+        s_reported_system_time_source,
+        s_timezone,
+        error
+    );
+}
+
+void record_rtc_persistence_success(time_t persisted_epoch)
+{
+    s_last_rtc_persisted_epoch = persisted_epoch;
+    s_rtc_persistence_retry_after_us = 0;
+    s_rtc_persistence_retry_delay_seconds = 0;
+    s_rtc_persistence_error = ESP_OK;
+}
+
+uint32_t record_rtc_persistence_failure(
+    esp_err_t error,
+    int64_t failed_at_us
+)
+{
+    uint32_t retry_delay_seconds = s_rtc_persistence_retry_delay_seconds;
+    if (retry_delay_seconds == 0) {
+        retry_delay_seconds = kRtcPersistenceRetryInitialSeconds;
+    } else if (
+        retry_delay_seconds <= kRtcPersistenceRetryMaximumSeconds / 2U
+    ) {
+        retry_delay_seconds *= 2U;
+    } else {
+        retry_delay_seconds = kRtcPersistenceRetryMaximumSeconds;
+    }
+    s_rtc_persistence_retry_delay_seconds = retry_delay_seconds;
+    s_rtc_persistence_retry_after_us =
+        failed_at_us + static_cast<int64_t>(retry_delay_seconds) * 1000000LL;
+    s_rtc_persistence_error = error;
+    return retry_delay_seconds;
 }
 
 esp_err_t persist_epoch_to_rtc(time_t epoch)
@@ -210,9 +286,17 @@ esp_err_t persist_epoch_to_rtc(time_t epoch)
 
 void sntp_sync_callback(struct timeval *time_value)
 {
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
     if (time_value == nullptr || !epoch_valid(time_value->tv_sec)) {
-        ESP_LOGW(TAG, "SNTP callback supplied an invalid epoch");
-        report_time(false, false, "none", ESP_ERR_INVALID_RESPONSE);
+        ESP_LOGE(
+            TAG,
+            "SNTP callback rejected an invalid epoch (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_RESPONSE)
+        );
+        // A rejected network sample is not proof that a previously trusted
+        // RTC/GPS/SNTP clock became invalid. Preserve that clock state while
+        // publishing the real synchronization failure.
+        report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_RESPONSE);
         return;
     }
 
@@ -220,6 +304,7 @@ void sntp_sync_callback(struct timeval *time_value)
     struct tm utc = {};
     gmtime_r(&time_value->tv_sec, &utc);
     if (rtc_result == ESP_OK) {
+        record_rtc_persistence_success(time_value->tv_sec);
         ESP_LOGI(
             TAG,
             "SNTP synchronized UTC=%04d-%02d-%02d %02d:%02d:%02d",
@@ -231,26 +316,38 @@ void sntp_sync_callback(struct timeval *time_value)
             utc.tm_sec
         );
     } else {
+        const uint32_t retry_delay_seconds = record_rtc_persistence_failure(
+            rtc_result,
+            esp_timer_get_time()
+        );
         ESP_LOGE(
             TAG,
-            "SNTP set system UTC but RTC persistence failed (%s)",
-            esp_err_to_name(rtc_result)
+            "SNTP set system UTC but RTC persistence failed (%s); retry in "
+            "%lu s",
+            esp_err_to_name(rtc_result),
+            static_cast<unsigned long>(retry_delay_seconds)
         );
     }
     s_initialization_result = rtc_result;
-    report_time(true, true, "sntp", rtc_result);
+    // The system clock was already committed by SNTP. RTC persistence is a
+    // separate component result and must not invalidate that real clock.
+    report_time(true, true, "sntp", ESP_OK);
 }
 
-esp_err_t apply_utc_calendar(
+esp_err_t validate_utc_calendar(
     uint16_t year,
     uint8_t month,
     uint8_t day,
     uint8_t hour,
     uint8_t minute,
     uint8_t second,
-    const char *source
+    time_t *epoch
 )
 {
+    if (epoch == nullptr) {
+        ESP_LOGE(TAG, "GPS time rejected: epoch output is null");
+        return ESP_ERR_INVALID_ARG;
+    }
     const LUNASHELL_calendar_time_t calendar = {
         .clock_integrity = true,
         .year = year,
@@ -261,18 +358,21 @@ esp_err_t apply_utc_calendar(
         .second = second,
     };
     if (!calendar_valid(calendar)) {
-        ESP_LOGE(
-            TAG,
-            "%s time rejected: invalid UTC calendar",
-            source != nullptr ? source : "unknown"
-        );
+        ESP_LOGE(TAG, "GPS time rejected: invalid UTC calendar");
         return ESP_ERR_INVALID_ARG;
     }
-    const time_t epoch = utc_epoch(year, month, day, hour, minute, second);
-    if (epoch <= 0 || !epoch_valid(epoch)) {
+    const time_t candidate = utc_epoch(year, month, day, hour, minute, second);
+    if (candidate <= 0 || !epoch_valid(candidate)) {
+        ESP_LOGE(TAG, "GPS time rejected: invalid UTC epoch");
         return ESP_ERR_INVALID_ARG;
     }
 
+    *epoch = candidate;
+    return ESP_OK;
+}
+
+esp_err_t apply_system_utc(time_t epoch, const char *source)
+{
     const struct timeval system_time = {
         .tv_sec = epoch,
         .tv_usec = 0,
@@ -281,28 +381,15 @@ esp_err_t apply_utc_calendar(
         report_time(false, false, "none", ESP_FAIL);
         return ESP_FAIL;
     }
-
-    const esp_err_t rtc_result = persist_epoch_to_rtc(epoch);
-    report_time(true, true, source, rtc_result);
-    ESP_LOGI(
-        TAG,
-        "%s synchronized UTC=%04u-%02u-%02u %02u:%02u:%02u RTC=%s",
-        source,
-        year,
-        month,
-        day,
-        hour,
-        minute,
-        second,
-        esp_err_to_name(rtc_result)
-    );
-    return rtc_result;
+    report_time(true, true, source, ESP_OK);
+    return ESP_OK;
 }
 
 }  // namespace
 
 extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 {
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
     if (s_initialized) {
         return s_initialization_result;
     }
@@ -396,6 +483,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 
 extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
 {
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -421,5 +509,115 @@ extern "C" esp_err_t LUNASHELL_time_sync_from_gps(
     uint8_t second
 )
 {
-    return apply_utc_calendar(year, month, day, hour, minute, second, "gps");
+    time_t gps_epoch = 0;
+    const esp_err_t validation_error = validate_utc_calendar(
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        &gps_epoch
+    );
+    if (validation_error != ESP_OK) {
+        return validation_error;
+    }
+
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+    struct timeval current_time = {};
+    const bool system_time_valid =
+        gettimeofday(&current_time, nullptr) == 0 &&
+        epoch_valid(current_time.tv_sec);
+    const int64_t gps_epoch_us =
+        static_cast<int64_t>(gps_epoch) * 1000LL * 1000LL;
+    const int64_t current_epoch_us =
+        static_cast<int64_t>(current_time.tv_sec) * 1000LL * 1000LL +
+        current_time.tv_usec;
+    const int64_t drift_us = system_time_valid
+        ? std::llabs(gps_epoch_us - current_epoch_us)
+        : kGpsSystemResyncDriftUs;
+    const bool system_sync_required =
+        !s_trusted_gps_fix_observed ||
+        !system_time_valid ||
+        drift_us >= kGpsSystemResyncDriftUs;
+    const int64_t persisted_delta_seconds =
+        s_last_rtc_persisted_epoch == 0
+            ? static_cast<int64_t>(kGpsRtcPersistenceIntervalSeconds)
+            : std::llabs(
+                  static_cast<int64_t>(gps_epoch) -
+                  static_cast<int64_t>(s_last_rtc_persisted_epoch)
+              );
+    const bool rtc_persistence_required =
+        system_sync_required ||
+        persisted_delta_seconds >=
+            static_cast<int64_t>(kGpsRtcPersistenceIntervalSeconds);
+
+    if (system_sync_required) {
+        const esp_err_t system_error = apply_system_utc(gps_epoch, "gps");
+        if (system_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "GPS UTC system synchronization failed: drift_us=%lld (%s)",
+                static_cast<long long>(drift_us),
+                esp_err_to_name(system_error)
+            );
+            return system_error;
+        }
+        s_trusted_gps_fix_observed = true;
+    } else {
+        // A coalesced fix still proves that the already-running system clock is
+        // valid. Repair any older unavailable snapshot without rewriting it.
+        report_time(true, true, "gps", ESP_OK);
+    }
+
+    if (!rtc_persistence_required) {
+        return ESP_OK;
+    }
+
+    const int64_t persistence_attempt_at_us = esp_timer_get_time();
+    if (s_rtc_persistence_retry_after_us != 0) {
+        if (persistence_attempt_at_us < s_rtc_persistence_retry_after_us) {
+            // The previous real error remains latched in the RTC snapshot and
+            // in s_initialization_result. This fix performs no new persistence
+            // I/O, so return that same error without manufacturing a new
+            // hardware attempt or success sample.
+            return s_rtc_persistence_error;
+        }
+        ESP_LOGW(
+            TAG,
+            "Retrying RTC persistence after %s",
+            esp_err_to_name(s_rtc_persistence_error)
+        );
+    }
+
+    const esp_err_t rtc_result = persist_epoch_to_rtc(gps_epoch);
+    s_initialization_result = rtc_result;
+    if (rtc_result != ESP_OK) {
+        const uint32_t retry_delay_seconds = record_rtc_persistence_failure(
+            rtc_result,
+            persistence_attempt_at_us
+        );
+        ESP_LOGE(
+            TAG,
+            "GPS UTC is valid but RTC persistence failed (%s); retry in "
+            "%lu s",
+            esp_err_to_name(rtc_result),
+            static_cast<unsigned long>(retry_delay_seconds)
+        );
+        return rtc_result;
+    }
+    record_rtc_persistence_success(gps_epoch);
+    ESP_LOGI(
+        TAG,
+        "GPS synchronized UTC=%04u-%02u-%02u %02u:%02u:%02u "
+        "system=%s RTC=persisted",
+        year,
+        month,
+        day,
+        hour,
+        minute,
+        second,
+        system_sync_required ? "updated" : "unchanged"
+    );
+    return ESP_OK;
 }

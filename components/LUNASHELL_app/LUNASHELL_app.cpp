@@ -1576,7 +1576,31 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     navigation_.reset(Screen::Welcome);
     logs_paused_ = false;
     logs_follow_latest_ = true;
-    performance_mode_enabled_ = LUNASHELL_performance_mode_get_enabled();
+    LUNASHELL_performance_mode_status_t performance_status = {};
+    LUNASHELL_performance_mode_get_status(&performance_status);
+    if (!performance_status.state_known) {
+        const bool reconcile_target = performance_status.enabled;
+        const esp_err_t reconcile_result =
+            LUNASHELL_performance_mode_set_enabled(reconcile_target);
+        if (reconcile_result != ESP_OK) {
+            context_ = nullptr;
+            return std::unexpected(
+                "Failed to reconcile unknown Performance Mode state: " +
+                std::string(esp_err_to_name(reconcile_result))
+            );
+        }
+        LUNASHELL_performance_mode_get_status(&performance_status);
+        if (!performance_status.state_known ||
+            performance_status.enabled != reconcile_target) {
+            context_ = nullptr;
+            return std::unexpected(
+                "Performance Mode reconciliation returned an unknown state"
+            );
+        }
+    }
+    performance_mode_enabled_ = performance_status.enabled;
+    performance_ui_cadence_known_ = false;
+    performance_ui_cadence_error_ = ESP_ERR_INVALID_STATE;
     pairing_qr_registered_ = false;
     background_asset_registered_ = false;
     pairing_result_success_ = false;
@@ -1652,7 +1676,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     }
 
     const esp_err_t monitor_result =
-        LUNASHELL_hardware_set_diagnostic_streams(false, false);
+        LUNASHELL_hardware_set_diagnostic_streams(false, false, false);
     if (monitor_result != ESP_OK) {
         (void)adaptive_chrome_.shutdown(context.gui());
         screen_document_connections_.clear();
@@ -1662,6 +1686,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
             std::string(esp_err_to_name(monitor_result))
         );
     }
+    audio_spectrum_diagnostic_active_ = false;
     const esp_err_t full_snapshot_result =
         LUNASHELL_hardware_start_full_snapshot_monitor();
     if (full_snapshot_result != ESP_OK) {
@@ -1777,7 +1802,7 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         "adaptive chrome pause"
     );
     const esp_err_t diagnostic_result =
-        LUNASHELL_hardware_set_diagnostic_streams(false, false);
+        LUNASHELL_hardware_set_diagnostic_streams(false, false, false);
     if (diagnostic_result != ESP_OK) {
         const std::string error =
             "Failed to pause LUNASHELL diagnostic monitor: " +
@@ -1786,6 +1811,8 @@ std::expected<void, std::string> App::on_pause(AppContext &context)
         if (pause_error.empty()) {
             pause_error = error;
         }
+    } else {
+        audio_spectrum_diagnostic_active_ = false;
     }
     require_gui_watch_progress(
         gui_liveness_watch_active_,
@@ -1914,13 +1941,15 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
     invalidate_storage_screen_cache();
     const auto rollback_diagnostics = [this]() {
         const esp_err_t monitor_result =
-            LUNASHELL_hardware_set_diagnostic_streams(false, false);
+            LUNASHELL_hardware_set_diagnostic_streams(false, false, false);
         if (monitor_result != ESP_OK) {
             ESP_LOGE(
                 kTag,
                 "Diagnostic monitor resume rollback failed: %s",
                 esp_err_to_name(monitor_result)
             );
+        } else {
+            audio_spectrum_diagnostic_active_ = false;
         }
         if (audio_diagnostic_capture_active_) {
             const esp_err_t audio_result =
@@ -2087,7 +2116,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
     ++screen_document_generation_;
     screen_document_connections_.clear();
     const esp_err_t monitor_result =
-        LUNASHELL_hardware_set_diagnostic_streams(false, false);
+        LUNASHELL_hardware_set_diagnostic_streams(false, false, false);
     if (monitor_result != ESP_OK) {
         const std::string error =
             "Failed to stop LUNASHELL diagnostic monitor: " +
@@ -2096,6 +2125,8 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         if (stop_error.empty()) {
             stop_error = error;
         }
+    } else {
+        audio_spectrum_diagnostic_active_ = false;
     }
     if (audio_diagnostic_capture_active_) {
         const esp_err_t audio_result =
@@ -2255,6 +2286,9 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         screen == Screen::AudioDetail;
     const bool diagnostics_allowed = !performance_mode_enabled_;
     const bool audio_enabled = diagnostics_allowed && audio_screen;
+    const bool audio_spectrum_enabled =
+        diagnostics_allowed &&
+        (screen == Screen::AudioFft || screen == Screen::AudioDetail);
     const bool imu_enabled =
         diagnostics_allowed && screen == Screen::Imu;
     const bool enabled = audio_enabled || imu_enabled;
@@ -2291,7 +2325,8 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
     // Stop diagnostic capture before the AFE can reclaim the microphones.
     const esp_err_t result = LUNASHELL_hardware_set_diagnostic_streams(
         imu_enabled,
-        audio_enabled
+        audio_enabled,
+        audio_spectrum_enabled
     );
     if (result != ESP_OK && entering_audio) {
         const esp_err_t rollback_result =
@@ -2332,7 +2367,11 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
             LUNASHELL_voice_afe_set_diagnostic_suspended(false);
         if (audio_result != ESP_OK) {
             const esp_err_t rollback_result =
-                LUNASHELL_hardware_set_diagnostic_streams(false, true);
+                LUNASHELL_hardware_set_diagnostic_streams(
+                    false,
+                    true,
+                    audio_spectrum_diagnostic_active_
+                );
             if (rollback_result != ESP_OK) {
                 ESP_LOGE(
                     kTag,
@@ -2366,11 +2405,14 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         const DeviceSnapshot snapshot =
             DeviceSnapshotService::instance().snapshot();
         diagnostic_activation_sample_at_us_ =
-            audio_enabled
+            audio_spectrum_enabled
+                ? snapshot.audio.spectrum.last_success_at_us
+                : audio_enabled
                 ? snapshot.audio.microphone.last_success_at_us
                 : snapshot.imu.last_success_at_us;
     }
     audio_diagnostic_capture_active_ = audio_enabled;
+    audio_spectrum_diagnostic_active_ = audio_spectrum_enabled;
     return {};
 }
 
@@ -2861,6 +2903,8 @@ std::expected<void, std::string> App::open_screen(
                                  !is_pairing_screen(screen);
     const bool leaving_pairing_qr = screen != Screen::PairQr &&
                                     screen != Screen::AppStoreQr;
+    const bool entering_storage =
+        screen == Screen::Storage && screen_ != Screen::Storage;
     if (screen == Screen::Settings && screen_ != Screen::Settings) {
         settings_text_cache_valid_ = false;
         settings_controls_state_.reset();
@@ -2935,6 +2979,22 @@ std::expected<void, std::string> App::open_screen(
             "LUNASHELL diagnostic policy failed after navigation: " +
             monitor_result.error()
         );
+    }
+    if (entering_storage) {
+        const DeviceSnapshot storage_entry_snapshot =
+            DeviceSnapshotService::instance().snapshot();
+        if (storage_entry_snapshot.storage.mounted) {
+            const esp_err_t space_refresh_result =
+                LUNASHELL_storage_request_space_refresh();
+            if (space_refresh_result != ESP_OK) {
+                ESP_LOGW(
+                    kTag,
+                    "Storage entry space refresh request failed (%s); "
+                    "continuing with the current snapshot",
+                    esp_err_to_name(space_refresh_result)
+                );
+            }
+        }
     }
     if (auto refresh_result = refresh(context); !refresh_result) {
         return fail_navigation(
@@ -3730,7 +3790,11 @@ void App::handle_performance_event(
         ESP_LOGE(kTag, "Performance switch event omitted checked state");
         return;
     }
-    if (*checked == performance_mode_enabled_) {
+    LUNASHELL_performance_mode_status_t performance_status = {};
+    LUNASHELL_performance_mode_get_status(&performance_status);
+    if (*checked == performance_mode_enabled_ &&
+        performance_status.state_known &&
+        performance_ui_cadence_known_) {
         return;
     }
     const esp_err_t result =
@@ -3739,8 +3803,12 @@ void App::handle_performance_event(
         finish_settings_event(result, "Performance mode");
         return;
     }
-    performance_mode_enabled_ = LUNASHELL_performance_mode_get_enabled();
-    if (performance_mode_enabled_ != *checked) {
+    LUNASHELL_performance_mode_get_status(&performance_status);
+    performance_mode_enabled_ = performance_status.enabled;
+    performance_ui_cadence_known_ = false;
+    performance_ui_cadence_error_ = ESP_ERR_INVALID_STATE;
+    if (!performance_status.state_known ||
+        performance_mode_enabled_ != *checked) {
         finish_settings_event(
             ESP_ERR_INVALID_RESPONSE,
             "Performance mode"
@@ -3752,6 +3820,7 @@ void App::handle_performance_event(
             adaptive_chrome_.display_idle_stage()
         ); !timer_result) {
         ESP_LOGE(kTag, "%s", timer_result.error().c_str());
+        performance_ui_cadence_error_ = ESP_FAIL;
         finish_settings_event(ESP_FAIL, "Performance refresh timer");
         return;
     }
@@ -4147,6 +4216,8 @@ std::expected<void, std::string> App::sync_refresh_timer(
         esp_brookesia::system::core::INVALID_TIMER_ID;
     if (desired_period_ms == refresh_period_ms_ &&
         timer_running == (desired_period_ms > 0U)) {
+        performance_ui_cadence_known_ = true;
+        performance_ui_cadence_error_ = ESP_OK;
         return {};
     }
 
@@ -4163,6 +4234,8 @@ std::expected<void, std::string> App::sync_refresh_timer(
     }
 
     if (desired_period_ms == 0U) {
+        performance_ui_cadence_known_ = true;
+        performance_ui_cadence_error_ = ESP_OK;
         ESP_LOGI(kTag, "UI Refresh stopped while display is off");
         return {};
     }
@@ -4180,6 +4253,8 @@ std::expected<void, std::string> App::sync_refresh_timer(
     }
     refresh_timer_ = *timer_result;
     refresh_period_ms_ = desired_period_ms;
+    performance_ui_cadence_known_ = true;
+    performance_ui_cadence_error_ = ESP_OK;
     ESP_LOGI(
         kTag,
         "UI Refresh period: %lu ms",
@@ -7152,19 +7227,37 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
         );
         spectrum_valid = false;
     } else if (!component_ready(snapshot.diagnostics.monitor) ||
-               !snapshot.diagnostics.monitor_active) {
+               !snapshot.diagnostics.monitor_active ||
+               !snapshot.diagnostics.microphone_spectrum_monitor_active) {
         std::snprintf(
             status.data(),
             status.size(),
             "SPECTRUM UNAVAILABLE (DIAGNOSTIC MONITOR OFF)"
         );
         spectrum_valid = false;
-    } else if (snapshot.audio.microphone.last_success_at_us <=
+    } else if (snapshot.audio.spectrum.last_attempt_at_us <=
                diagnostic_activation_sample_at_us_) {
         std::snprintf(
             status.data(),
             status.size(),
             "SPECTRUM STALE (WAITING FOR NEW SAMPLE)"
+        );
+        spectrum_valid = false;
+    } else if (!component_ready(snapshot.audio.spectrum)) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM %s (%s)",
+            component_state(snapshot.audio.spectrum),
+            component_reason(snapshot.audio.spectrum)
+        );
+        spectrum_valid = false;
+    } else if (snapshot.audio.spectrum.last_success_at_us <=
+               diagnostic_activation_sample_at_us_) {
+        std::snprintf(
+            status.data(),
+            status.size(),
+            "SPECTRUM STALE (LATEST ATTEMPT FAILED)"
         );
         spectrum_valid = false;
     } else if (snapshot.audio.channel_count == 0U ||
@@ -7331,9 +7424,12 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
     bool spectrum_valid = !performance_mode_enabled_ &&
                           snapshot_available(snapshot) &&
                           component_ready(snapshot.audio.microphone) &&
+                          component_ready(snapshot.audio.spectrum) &&
                           component_ready(snapshot.diagnostics.monitor) &&
                           snapshot.diagnostics.monitor_active &&
-                          snapshot.audio.microphone.last_success_at_us >
+                          snapshot.diagnostics
+                              .microphone_spectrum_monitor_active &&
+                          snapshot.audio.spectrum.last_success_at_us >
                               diagnostic_activation_sample_at_us_ &&
                           snapshot.audio.channel_count == 2U &&
                           snapshot.audio.sample_rate_hz == 22050U &&
@@ -7349,13 +7445,22 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
                       component_state(snapshot.audio.microphone),
                       component_reason(snapshot.audio.microphone));
     } else if (!component_ready(snapshot.diagnostics.monitor) ||
-               !snapshot.diagnostics.monitor_active) {
+               !snapshot.diagnostics.monitor_active ||
+               !snapshot.diagnostics.microphone_spectrum_monitor_active) {
         std::snprintf(status.data(), status.size(),
                       "SPECTRUM UNAVAILABLE (DIAGNOSTIC MONITOR OFF)");
-    } else if (snapshot.audio.microphone.last_success_at_us <=
+    } else if (snapshot.audio.spectrum.last_attempt_at_us <=
                diagnostic_activation_sample_at_us_) {
         std::snprintf(status.data(), status.size(),
                       "SPECTRUM STALE (WAITING FOR NEW SAMPLE)");
+    } else if (!component_ready(snapshot.audio.spectrum)) {
+        std::snprintf(status.data(), status.size(), "SPECTRUM %s (%s)",
+                      component_state(snapshot.audio.spectrum),
+                      component_reason(snapshot.audio.spectrum));
+    } else if (snapshot.audio.spectrum.last_success_at_us <=
+               diagnostic_activation_sample_at_us_) {
+        std::snprintf(status.data(), status.size(),
+                      "SPECTRUM STALE (LATEST ATTEMPT FAILED)");
     } else if (snapshot.audio.channel_count != 2U ||
                snapshot.audio.sample_rate_hz != 22050U ||
                snapshot.audio.spectrum_sequence == 0U) {
@@ -8970,26 +9075,59 @@ std::expected<void, std::string> App::set_settings_text(
 std::expected<void, std::string> App::refresh_settings(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    LUNASHELL_performance_mode_status_t performance_status = {};
+    LUNASHELL_performance_mode_get_status(&performance_status);
+    performance_mode_enabled_ = performance_status.enabled;
     if (auto result = configure_chrome(context); !result) {
         return result;
     }
-    if (auto result = refresh_chrome(context, snapshot); !result) {
-        return result;
-    }
     std::array<char, 256> text{};
-    std::snprintf(
-        text.data(),
-        text.size(),
-        performance_mode_enabled_
-            ? "Performance profile is active"
-            : "Standard service profile"
-    );
-    if (auto result = set_settings_text(
+    const auto update_performance_status = [&]()
+        -> std::expected<void, std::string> {
+        if (!performance_status.state_known) {
+            std::snprintf(
+                text.data(),
+                text.size(),
+                "Performance profile UNKNOWN | primary=%s rollback=%s",
+                esp_err_to_name(performance_status.primary_error),
+                esp_err_to_name(performance_status.rollback_error)
+            );
+        } else if (!performance_ui_cadence_known_) {
+            std::snprintf(
+                text.data(),
+                text.size(),
+                "%s | UI cadence UNKNOWN: %s",
+                performance_mode_enabled_
+                    ? "Performance profile applied"
+                    : "Standard profile applied",
+                esp_err_to_name(performance_ui_cadence_error_)
+            );
+        } else {
+            std::snprintf(
+                text.data(),
+                text.size(),
+                performance_mode_enabled_
+                    ? "Performance profile is active"
+                    : "Standard service profile"
+            );
+        }
+        return set_settings_text(
             context,
             SettingsTextSlot::Performance,
             "/LUNASHELL_settings/surface/settings_scroller/performance_status",
             text.data()
-        ); !result) {
+        );
+    };
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        if (!performance_ui_cadence_known_) {
+            if (auto status_result = update_performance_status();
+                !status_result) {
+                ESP_LOGE(kTag, "%s", status_result.error().c_str());
+            }
+        }
+        return result;
+    }
+    if (auto result = update_performance_status(); !result) {
         return result;
     }
 

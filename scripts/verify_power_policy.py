@@ -39,6 +39,14 @@ BSP_DISPLAY_SOURCE = (
     / "esp32_s3_touch_amoled_1_75"
     / "esp32_s3_touch_amoled_1_75.c"
 )
+BSP_DISPLAY_HEADER = (
+    ROOT
+    / "components"
+    / "esp32_s3_touch_amoled_1_75"
+    / "include"
+    / "bsp"
+    / "display.h"
+)
 BSP_DISPLAY_CMAKE = (
     ROOT / "components" / "esp32_s3_touch_amoled_1_75" / "CMakeLists.txt"
 )
@@ -967,6 +975,7 @@ def verify_source_contracts() -> None:
     http_json = read(HTTP_JSON_SOURCE)
     display = read(DISPLAY_SOURCE)
     bsp_display = read(BSP_DISPLAY_SOURCE)
+    bsp_display_header = read(BSP_DISPLAY_HEADER)
     bsp_display_cmake = read(BSP_DISPLAY_CMAKE)
     adapter_pause_patch = read(ADAPTER_PAUSE_PATCH)
     adapter_pause_patch_new = patch_new_side(adapter_pause_patch)
@@ -1580,6 +1589,198 @@ def verify_source_contracts() -> None:
         rotation_set,
         "if (!display_panel_output_enabled)",
         "deferred rotation while the panel is off",
+    )
+    require_contains(
+        bsp_display,
+        "static bool display_rotation_consistent = true;",
+        "BSP rotation consistency state",
+    )
+    rotation_consistency_at = rotation_set.find(
+        "if (!display_rotation_consistent)"
+    )
+    rotation_noop_at = rotation_set.find("if (rotation == current_rotation)")
+    require(
+        0 <= rotation_consistency_at < rotation_noop_at,
+        "BSP rotation must reject an inconsistent state before its no-op path",
+    )
+    for fragment in (
+        "bsp_display_rollback_rotation_config(",
+        "display_rotation_consistent = rollback_result == ESP_OK",
+        "BSP_DISPLAY_ERR_ROTATION_INCONSISTENT",
+    ):
+        require_contains(
+            rotation_set,
+            fragment,
+            "BSP rotation verified rollback",
+        )
+    require_contains(
+        bsp_display_header,
+        "#define BSP_DISPLAY_ERR_ROTATION_INCONSISTENT "
+        "ESP_ERR_INVALID_RESPONSE",
+        "BSP terminal rotation error",
+    )
+    require_contains(
+        bsp_display_header,
+        "bool bsp_display_rotation_is_consistent(void);",
+        "BSP rotation consistency query",
+    )
+    require_contains(
+        bsp_display,
+        "bool bsp_display_rotation_is_consistent(void)",
+        "BSP rotation consistency query",
+    )
+    require(
+        rotation_set.count("BSP_DISPLAY_ERR_ROTATION_INCONSISTENT") >= 3,
+        "BSP rotation must return its terminal error for a latched state and "
+        "both failed rollback paths",
+    )
+    rotation_apply = function_text(
+        hardware,
+        "esp_err_t apply_pending_display_rotation()",
+        "hardware display rotation apply",
+    )
+    for fragment in (
+        "if (result == BSP_DISPLAY_ERR_ROTATION_INCONSISTENT &&",
+        "!bsp_display_rotation_is_consistent()",
+        "s_rotation_retry_blocked.store(true",
+        "s_rotation_failure_latched.store(true",
+        "s_rotation_retry_after_us.store(",
+        "kOrientationApplyRetryBackoffMs",
+        "mark_sample_failure(",
+        "publish_orientation_state()",
+    ):
+        require_contains(
+            rotation_apply,
+            fragment,
+            "terminal display rotation publication",
+        )
+    orientation_sample = function_text(
+        hardware,
+        "void process_orientation_sample(",
+        "orientation sampling",
+    )
+    failure_guard_at = orientation_sample.find(
+        "if (!s_rotation_failure_latched.load("
+    )
+    sample_success_at = orientation_sample.find(
+        "mark_sample_success(s_orientation.component",
+        failure_guard_at,
+    )
+    require(
+        0 <= failure_guard_at < sample_success_at,
+        "a successful IMU sample must not overwrite a latched rotation failure",
+    )
+    rotation_monitor = function_text(
+        hardware,
+        "void diagnostic_monitor_task(",
+        "hardware rotation monitor",
+    )
+    require(
+        rotation_monitor.count(
+            "!s_rotation_retry_blocked.load("
+        ) >= 3,
+        "terminal display rotation must block every retry and pending-wake path",
+    )
+    for fragment in (
+        "const bool rotation_retry_due =",
+        "rotation_attempt_check_us >= rotation_retry_after_us",
+        "pending_retry_after_us > rotation_wait_started_us",
+        "rotation_wait_ms",
+    ):
+        require_contains(
+            rotation_monitor,
+            fragment,
+            "bounded display rotation retry",
+        )
+
+    app_start = function_text(
+        app,
+        "std::expected<void, std::string> App::on_start(",
+        "LUNASHELL app startup",
+    )
+    performance_status_at = app_start.find(
+        "LUNASHELL_performance_mode_get_status(&performance_status)"
+    )
+    performance_unknown_at = app_start.find(
+        "if (!performance_status.state_known)",
+        performance_status_at,
+    )
+    performance_reconcile_at = app_start.find(
+        "LUNASHELL_performance_mode_set_enabled(reconcile_target)",
+        performance_unknown_at,
+    )
+    performance_recheck_at = app_start.find(
+        "LUNASHELL_performance_mode_get_status(&performance_status)",
+        performance_reconcile_at,
+    )
+    performance_cache_at = app_start.find(
+        "performance_mode_enabled_ = performance_status.enabled",
+        performance_recheck_at,
+    )
+    require(
+        0 <= performance_status_at < performance_unknown_at
+        < performance_reconcile_at < performance_recheck_at
+        < performance_cache_at,
+        "app startup must reconcile an unknown Performance Mode transaction "
+        "before caching its state",
+    )
+    settings_refresh = function_text(
+        app,
+        "std::expected<void, std::string> App::refresh_settings(",
+        "Settings refresh",
+    )
+    for fragment in (
+        "LUNASHELL_performance_mode_get_status(&performance_status)",
+        "if (!performance_status.state_known)",
+        "Performance profile UNKNOWN",
+        "UI cadence UNKNOWN",
+        "performance_ui_cadence_error_",
+        "performance_status.primary_error",
+        "performance_status.rollback_error",
+    ):
+        require_contains(
+            settings_refresh,
+            fragment,
+            "explicit unknown Performance Mode status",
+        )
+    performance_event = function_text(
+        app,
+        "void App::handle_performance_event(",
+        "Performance Mode event",
+    )
+    for fragment in (
+        "performance_ui_cadence_known_",
+        "performance_ui_cadence_known_ = false;",
+        "performance_ui_cadence_error_ = ESP_ERR_INVALID_STATE;",
+        "sync_refresh_timer(",
+        "performance_ui_cadence_error_ = ESP_FAIL;",
+    ):
+        require_contains(
+            performance_event,
+            fragment,
+            "Performance Mode UI cadence transaction",
+        )
+    require_contains(
+        app_header,
+        "bool performance_ui_cadence_known_ = true;",
+        "Performance Mode UI cadence state",
+    )
+    diagnostic_disable_at = app_start.find(
+        "LUNASHELL_hardware_set_diagnostic_streams(false, false, false)"
+    )
+    spectrum_flag_reset_at = app_start.find(
+        "audio_spectrum_diagnostic_active_ = false",
+        diagnostic_disable_at,
+    )
+    full_snapshot_start_at = app_start.find(
+        "LUNASHELL_hardware_start_full_snapshot_monitor()",
+        spectrum_flag_reset_at,
+    )
+    require(
+        0 <= diagnostic_disable_at < spectrum_flag_reset_at
+        < full_snapshot_start_at,
+        "app startup must clear its spectrum lease flag after disabling the "
+        "hardware stream",
     )
     fade_api = function_text(
         display,

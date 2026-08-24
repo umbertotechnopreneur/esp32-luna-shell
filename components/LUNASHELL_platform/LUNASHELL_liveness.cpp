@@ -22,9 +22,12 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_liveness";
 constexpr TickType_t kLockTimeout = pdMS_TO_TICKS(100);
 constexpr uint32_t kTraceMagic = 0x4C574454U;  // "LWDT"
-constexpr uint32_t kTraceVersion = 1U;
-constexpr uint32_t kNoPoint =
-    static_cast<uint32_t>(LUNASHELL_LIVENESS_POINT_COUNT);
+// Retained schema v1 used POINT_COUNT as its no-point sentinel. Appending a
+// domain could therefore reinterpret an old sentinel as a real point. Version
+// 2 deliberately invalidates that diagnostic-only record and uses a stable
+// value that cannot collide with future enum additions.
+constexpr uint32_t kTraceVersion = 2U;
+constexpr uint32_t kNoPoint = UINT32_MAX;
 static_assert(
     LUNASHELL_LIVENESS_POINT_COUNT <= 32,
     "Liveness active-mask capacity exceeded"
@@ -53,6 +56,9 @@ DRAM_ATTR char s_settings_watch_name[] = "settings-nvs";
 DRAM_ATTR char s_provisioning_watch_name[] = "provisioning";
 DRAM_ATTR char s_boot_audio_watch_name[] = "boot-audio";
 DRAM_ATTR char s_snapshot_watch_name[] = "snapshot";
+DRAM_ATTR char s_storage_watch_name[] = "storage-io";
+DRAM_ATTR char s_storage_format_watch_name[] = "storage-format";
+DRAM_ATTR char s_logger_watch_name[] = "logger-io";
 DRAM_ATTR char s_radios_watch_name[] = "radios";
 DRAM_ATTR char s_wifi_watch_name[] = "wifi-driver";
 DRAM_ATTR char s_wifi_scan_watch_name[] = "wifi-scan";
@@ -71,6 +77,9 @@ std::array<WatchSlot, LUNASHELL_LIVENESS_POINT_COUNT> s_slots{{
     {s_wifi_scan_watch_name, nullptr, false},
     {s_wifi_events_watch_name, nullptr, false},
     {s_startup_watch_name, nullptr, false},
+    {s_storage_watch_name, nullptr, false},
+    {s_storage_format_watch_name, nullptr, false},
+    {s_logger_watch_name, nullptr, false},
 }};
 
 StaticSemaphore_t s_lock_storage;
@@ -113,6 +122,9 @@ bool retained_trace_valid()
 {
     return s_retained_timeout.magic == kTraceMagic &&
            s_retained_timeout.version == kTraceVersion &&
+           (s_retained_timeout.last_progress_point == kNoPoint ||
+            s_retained_timeout.last_progress_point <
+                static_cast<uint32_t>(LUNASHELL_LIVENESS_POINT_COUNT)) &&
            s_retained_timeout.integrity == trace_integrity(
                s_retained_timeout.operation_sequence,
                s_retained_timeout.active_mask,
@@ -189,7 +201,7 @@ void consume_previous_timeout_trace()
         s_previous_timeout.active_mask = s_retained_timeout.active_mask;
         const uint32_t point = s_retained_timeout.last_progress_point;
         s_previous_timeout.last_progress_point =
-            point < kNoPoint
+            point < static_cast<uint32_t>(LUNASHELL_LIVENESS_POINT_COUNT)
                 ? static_cast<LUNASHELL_liveness_point_t>(point)
                 : LUNASHELL_LIVENESS_POINT_COUNT;
         ESP_LOGW(

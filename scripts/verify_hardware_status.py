@@ -1,5 +1,6 @@
 """Deterministic checks for the hardware-status classification contract."""
 
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
@@ -13,6 +14,42 @@ class Indicator(Enum):
     MUTED = auto()
     MISSING = auto()
     FAULT = auto()
+
+
+@dataclass
+class RefreshErrorReportModel:
+    last_error: int = 0
+    last_report_ms: int = 0
+    repeated_count: int = 0
+
+    def observe(self, error: int, now_ms: int) -> tuple[str, int] | None:
+        if error == 0:
+            if self.last_error == 0:
+                return None
+            event = ("recovered", self.repeated_count)
+            self.last_error = 0
+            self.last_report_ms = 0
+            self.repeated_count = 0
+            return event
+        if self.last_error != error:
+            previous_repeats = self.repeated_count
+            event = (
+                "changed" if self.last_error != 0 else "failed",
+                previous_repeats,
+            )
+            self.last_error = error
+            self.last_report_ms = now_ms
+            self.repeated_count = 0
+            return event
+
+        self.repeated_count += 1
+        elapsed_ms = (now_ms - self.last_report_ms) & 0xFFFF_FFFF
+        if elapsed_ms < 60_000:
+            return None
+        event = ("reminder", self.repeated_count)
+        self.last_report_ms = now_ms
+        self.repeated_count = 0
+        return event
 
 
 def read(relative: str) -> str:
@@ -41,6 +78,49 @@ def classify(
     if ready and not waiting:
         return Indicator.READY
     return Indicator.WARNING
+
+
+def verify_refresh_error_reporting() -> None:
+    model = RefreshErrorReportModel()
+    if model.observe(1, 9_000) != ("failed", 0):
+        raise AssertionError("first aggregate refresh error was not reported")
+    if model.observe(1, 10_000) is not None or model.repeated_count != 1:
+        raise AssertionError("identical aggregate refresh error was not coalesced")
+    if model.observe(1, 68_999) is not None or model.repeated_count != 2:
+        raise AssertionError("refresh-error reminder fired before 60 seconds")
+    if model.observe(1, 69_000) != ("reminder", 3):
+        raise AssertionError("refresh-error reminder lost its repeat count")
+    if model.observe(1, 70_000) is not None:
+        raise AssertionError("post-reminder aggregate error was not coalesced")
+    if model.observe(2, 71_000) != ("changed", 1):
+        raise AssertionError("aggregate error change was not reported immediately")
+    if model.observe(0, 72_000) != ("recovered", 0):
+        raise AssertionError("aggregate refresh recovery was not reported immediately")
+    if model.observe(0, 73_000) is not None:
+        raise AssertionError("healthy refresh emitted a redundant recovery report")
+    if model.observe(1, 74_000) != ("failed", 0):
+        raise AssertionError("a new aggregate failure after recovery was not immediate")
+
+    wrapped = RefreshErrorReportModel()
+    wrap_start_ms = 0xFFFF_F000
+    if wrapped.observe(1, wrap_start_ms) != ("failed", 0):
+        raise AssertionError("tick-wrap fixture did not report its first failure")
+    if wrapped.observe(1, (wrap_start_ms + 59_999) & 0xFFFF_FFFF) is not None:
+        raise AssertionError("tick-wrap reminder fired before 60 seconds")
+    if wrapped.observe(1, (wrap_start_ms + 60_000) & 0xFFFF_FFFF) != (
+        "reminder",
+        2,
+    ):
+        raise AssertionError("tick-wrap reminder was not subtraction-safe")
+
+    fastest = RefreshErrorReportModel()
+    if fastest.observe(1, 0) != ("failed", 0):
+        raise AssertionError("minimum-cadence fixture did not report first failure")
+    for offset_ms in range(300, 60_000, 300):
+        if fastest.observe(1, offset_ms) is not None:
+            raise AssertionError("minimum-cadence reminder fired before 60 seconds")
+    if fastest.observe(1, 60_000) != ("reminder", 200):
+        raise AssertionError("minimum-cadence reminder count is not deterministic")
 
 
 def main() -> None:
@@ -184,6 +264,32 @@ def main() -> None:
         "Full Snapshot stack high-water mark:",
         "periodic Full Snapshot stack evidence",
     )
+    for fragment in (
+        "constexpr uint32_t kRefreshErrorReminderMs = 60U * 1000U;",
+        "struct RefreshErrorState",
+        "void report_periodic_refresh_result(",
+        "if (refresh_error == ESP_OK)",
+        "if (state.last_error != refresh_error)",
+        "state.repeated_count < UINT32_MAX",
+        "now_tick - state.last_report_tick < reminder_ticks",
+        "Periodic Full Snapshot refresh remains unavailable",
+        "Periodic Full Snapshot refresh recovered from",
+        "report_periodic_refresh_result(refresh_error, refresh_error_state);",
+    ):
+        require(scheduler, fragment, "periodic refresh error coalescing")
+    refresh_at = scheduler.index("const esp_err_t refresh_error =")
+    report_at = scheduler.index(
+        "report_periodic_refresh_result(refresh_error, refresh_error_state);",
+        refresh_at,
+    )
+    completion_watch_at = scheduler.index(
+        "LUNASHELL_liveness_watch_progress(",
+        report_at,
+    )
+    if not refresh_at < report_at < completion_watch_at:
+        raise AssertionError(
+            "aggregate refresh reporting must preserve refresh and watchdog ordering"
+        )
 
     expected = {
         "healthy": Indicator.READY,
@@ -204,9 +310,12 @@ def main() -> None:
     if actual != expected:
         raise AssertionError(f"hardware status matrix mismatch: {actual!r}")
 
+    verify_refresh_error_reporting()
+
     print(
         "hardware status verification: PASS "
-        "(ready, off-policy, no-fix, missing, unconfirmed, fault)"
+        "(ready, off-policy, no-fix, missing, unconfirmed, fault, "
+        "coalesced aggregate refresh errors)"
     )
 
 

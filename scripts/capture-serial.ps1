@@ -1,58 +1,55 @@
 <#
 .SYNOPSIS
-Compatibility shim for the script console.
+Capture a bounded LUNASHELL serial log through scripts/device.ps1.
 
 .DESCRIPTION
-Run without parameters to open the shared menu. Pass any parameter, or
--NonInteractive alone, to run the historical serial-capture operation.
-
-.PARAMETER StopStaleMonitors
-Explicitly allow the capture workflow to close matching stale monitor processes.
+This is a thin alias for the supported device.ps1 capture action. It accepts
+only parameters that device.ps1 understands and never falls back to a build.
 #>
 
 [CmdletBinding()]
 param(
-    [string]$Port = 'COM12',
+    [string]$Port,
     [int]$Baud = 115200,
+    [ValidateRange(1, 86400)]
     [int]$DurationSeconds = 30,
     [string]$OutputPath,
     [string]$BuildDir = 'build',
     [int]$WaitSeconds = 30,
-    [switch]$StopStaleMonitors,
-    [switch]$NonInteractive,
-    [switch]$NoBanner
+    [switch]$ResetBeforeCapture,
+    [string]$IdfPath,
+    [string]$ToolsPath,
+    [string]$PythonExe,
+    [int]$Jobs = 0
 )
 
+Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($Port)) {
+    throw 'Specify the serial port explicitly, for example -Port COM12.'
+}
+
 $entrypoint = Join-Path $PSScriptRoot 'device.ps1'
-if ($PSBoundParameters.Count -eq 0) {
-    & $entrypoint
-    return
+$resolvedOutputPath = if ([string]::IsNullOrWhiteSpace($OutputPath)) {
+    $null
+}
+elseif ([System.IO.Path]::IsPathRooted($OutputPath)) {
+    [System.IO.Path]::GetFullPath($OutputPath)
+}
+else {
+    [System.IO.Path]::GetFullPath((Join-Path (Get-Location).Path $OutputPath))
 }
 
-$callerDirectory = (Get-Location).Path
-$forward = @{
-    Action = 'capture'
-    NonInteractive = $true
-}
-foreach ($name in @(
-    'Port', 'Baud', 'DurationSeconds', 'BuildDir', 'WaitSeconds',
-    'StopStaleMonitors', 'NoBanner'
-)) {
-    if ($PSBoundParameters.ContainsKey($name)) {
-        $forward[$name] = $PSBoundParameters[$name]
-    }
-}
-if (
-    $PSBoundParameters.ContainsKey('OutputPath') -and
-    -not [string]::IsNullOrWhiteSpace($OutputPath)
-) {
-    $forward.OutputPath = if ([System.IO.Path]::IsPathRooted($OutputPath)) {
-        [System.IO.Path]::GetFullPath($OutputPath)
-    }
-    else {
-        [System.IO.Path]::GetFullPath((Join-Path $callerDirectory $OutputPath))
-    }
-}
-
-& $entrypoint @forward
+& $entrypoint capture `
+    -Port $Port `
+    -Baud $Baud `
+    -DurationSeconds $DurationSeconds `
+    -OutputPath $resolvedOutputPath `
+    -BuildDir $BuildDir `
+    -WaitSeconds $WaitSeconds `
+    -ResetBeforeCapture:$ResetBeforeCapture `
+    -IdfPath $IdfPath `
+    -ToolsPath $ToolsPath `
+    -PythonExe $PythonExe `
+    -Jobs $Jobs

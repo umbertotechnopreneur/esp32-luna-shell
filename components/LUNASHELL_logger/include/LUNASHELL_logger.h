@@ -47,12 +47,31 @@ esp_err_t LUNASHELL_logger_disable_sd(void);
  */
 esp_err_t LUNASHELL_logger_set_capture_suspended(bool suspended);
 
+/**
+ * Liveness hooks supplied by the removable-storage owner.
+ *
+ * The logger component deliberately does not own the firmware watchdog. The
+ * platform registers these hooks once, before SD mirroring can start, so the
+ * writer can cover only real filesystem work and remain unsubscribed while it
+ * is parked waiting for data.
+ */
+typedef struct {
+    esp_err_t (*begin)(void);
+    esp_err_t (*end)(esp_err_t operation_result);
+} LUNASHELL_logger_io_watch_t;
+
+esp_err_t LUNASHELL_logger_set_io_watch(
+    const LUNASHELL_logger_io_watch_t *watch
+);
+
 typedef struct {
     bool enabled;
     esp_err_t last_error;
     int last_errno;
     int64_t changed_at_us;
     uint32_t failure_count;
+    /** Advances only after buffered SD data is flushed successfully. */
+    uint32_t persisted_write_sequence;
 } LUNASHELL_logger_sd_status_t;
 
 /**

@@ -542,6 +542,13 @@ Capture a bounded diagnostic log:
 pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
 ```
 
+`capture-serial.ps1` is a thin alias for that same supported action; it never
+builds implicitly and still routes the operation through `device.ps1`:
+
+```powershell
+pwsh -NoProfile -File .\scripts\capture-serial.ps1 -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
+```
+
 ### PowerShell quoting on Windows
 
 Run every PowerShell command with `pwsh -NoProfile`. Prefer `-File` for
@@ -592,13 +599,36 @@ device derivatives with:
 pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
 ```
 
+Regenerate only the configured sound effects with:
+
+```powershell
+pwsh -NoProfile -File .\scripts\generate-sfx.ps1
+```
+
 Generated outputs include the 466 x 466 PNG, a headerless little-endian RGB565
 frame, a 22.05 kHz mono PCM16 boot sound, and SHA-256 manifests. Never modify
-the preserved source assets to create a derivative.
+the preserved source assets to create a derivative. These asset scripts are
+standalone and do not initialize ESP-IDF or access the device. Source overrides
+remain confined to the canonical `source` trees and generated outputs to their
+matching `generated` trees, so a malformed configuration cannot overwrite a
+preserved input. The combined command preflights both generators before writes
+and restores the complete previous asset package if either commit fails. The
+combined and standalone generators share the fail-closed
+`assets/.device-asset-generator.lock` across preflight, snapshot, generation,
+and commit. An inherited token lets the combined command call both child
+generators without deadlock; a stale lock remains visible for inspection instead
+of being guessed safe and removed. The SFX plan is parsed from one byte snapshot
+and bound to its SHA-256; a configuration change aborts the commit and restores
+the asset package without overwriting the externally changed configuration.
+Use `-ValidateOnly` for an end-to-end preflight with no canonical output writes;
+it acquires and releases the same transient coordination lock. New regenerations
+record the exact Python, Pillow, Poppler, PowerShell, FFmpeg, FFprobe, and font
+provenance used; older tracked schema-1 manifests may omit those additive fields
+until the next intentional regeneration.
 
 ## Source ownership banner
 
-Owned C and C++ sources use the canonical source banner.
+Owned C and C++ sources can be normalized to the canonical source banner.
 Preview or apply it with:
 
 ```powershell
@@ -608,7 +638,19 @@ pwsh -NoProfile -File .\scripts\add-source-banner.ps1 -Apply
 
 The script is idempotent, supports `-Remove -Apply`, and intentionally excludes
 the Waveshare BSP, ESP-Brookesia, managed components, build output, generated
-files, and other third-party code. Personal contact details are omitted from the public tree.
+files, and other third-party code. It explicitly replaces the recognized legacy
+personal-contact banner and refuses an apply before writing when an unfamiliar
+leading comment needs manual review. The broader UI branding sweep remains a
+separate pre-publication backlog item.
+
+Validate the maintenance entrypoint contracts and scan changed files for
+common secret literals without generating assets, building, or opening a
+serial port:
+
+```powershell
+pwsh -NoProfile -File .\scripts\verify_script_contracts.ps1
+python -B .\scripts\verify_changed_secrets.py
+```
 
 ## Repository map
 

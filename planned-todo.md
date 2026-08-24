@@ -13,14 +13,6 @@ priority. Promote an item to `TODO.md` when it becomes active.
   sampling profile that keeps Full Snapshot at the requested cadence but lowers
   unleased motion/rotation work to 2 Hz without exceeding a 600 ms P99 wake
   latency.
-- [ ] Coalesce repeated valid-GNSS system/RTC synchronization after the first
-  trusted fix, with explicit drift and maximum-persistence intervals plus RTC
-  oscillator-stop recovery coverage.
-- [ ] Make the empty SD logger queue notification-driven, and refresh FAT free
-  space on mount/write/explicit Storage refresh instead of every health cycle.
-- [ ] Evaluate computing microphone FFT bands only for an active audio
-  diagnostic lease while preserving measured mean/peak telemetry at the
-  requested Full Snapshot and Diagnostic cadences.
 - [ ] Evaluate disabling the AXP2101 cell-voltage ADC while no battery is
   detected; require verified BAT_INSERT re-enable, conversion settling, and
   present/absent current measurements before adoption.
@@ -30,3 +22,10 @@ priority. Promote an item to `TODO.md` when it becomes active.
   `docs/architecture/low-power-management.md`: present/absent battery,
   oscillator-stop recovery, metadata across reboot, updated-image serial
   traffic, task wakeups, and current measurements with image hash and state.
+
+## Repository maintenance
+
+- [ ] After the 35 existing leading source comments receive an explicit banner
+  policy, make `add-source-banner.ps1 -Apply` a staged multi-file transaction
+  with verified rollback so an I/O failure cannot leave a partially normalized
+  tree.

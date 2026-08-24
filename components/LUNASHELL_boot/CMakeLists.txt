@@ -43,7 +43,7 @@ endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
     target_add_binary_data(
         ${COMPONENT_LIB}
-        "${PROJECT_DIR}/assets/sfx/generated/LUNASHELL-boot.wav"
+        "${PROJECT_DIR}/assets/sfx/generated/lunashell-boot.wav"
         BINARY
         RENAME_TO LUNASHELL_boot_wav
     )

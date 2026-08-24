@@ -480,6 +480,7 @@ def verify_source_contract() -> None:
         "age_measured_sample(sensor, now_us, ttl_us);",
         "age_measured_sample(snapshot.gps, now_us, ttl_us);",
         "age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);",
+        "age_measured_sample(snapshot.audio.spectrum, now_us, ttl_us);",
         "age_measured_sample(snapshot.memory, now_us, ttl_us);",
         "age_measured_sample(snapshot.processor, now_us, ttl_us);",
     ):
@@ -508,7 +509,7 @@ def verify_source_contract() -> None:
         diagnostic_refresh_lock_index,
     )
     diagnostic_microphone_sample_index = source.index(
-        'sample_microphone("diagnostic-ui")',
+        'sample_microphone(',
         diagnostic_microphone_recheck_index,
     )
     require(
@@ -540,6 +541,99 @@ def verify_source_contract() -> None:
         < stream_setter_unlock_index,
         "Diagnostic stream selection must update microphone state inside the "
         "refresh-lock quiescence barrier",
+    )
+    spectrum_store_index = source.index(
+        "s_diagnostic_microphone_spectrum_active.store(",
+        stream_setter_store_index,
+    )
+    require(
+        stream_setter_store_index < spectrum_store_index < stream_setter_unlock_index,
+        "Spectrum lease must change inside the microphone quiescence barrier",
+    )
+    for fragment in (
+        "if (spectrum_requested)",
+        "mark_sample_success(",
+        "snapshot.audio.spectrum",
+        "microphone_spectrum_monitor_active",
+    ):
+        require_contains(source, fragment, "spectrum lease publication")
+    microphone_merge = function_text(
+        source,
+        "void merge_staged_microphone(",
+        "merge_staged_microphone",
+    )
+    def gated_block(marker: str, label: str) -> tuple[int, int, str]:
+        gate_at = microphone_merge.index(marker)
+        gate_body_at = microphone_merge.index("{", gate_at)
+        depth = 0
+        gate_end = -1
+        for index in range(gate_body_at, len(microphone_merge)):
+            if microphone_merge[index] == "{":
+                depth += 1
+            elif microphone_merge[index] == "}":
+                depth -= 1
+                if depth == 0:
+                    gate_end = index + 1
+                    break
+        require(gate_end > 0, f"{label} merge gate is incomplete")
+        return gate_at, gate_end, microphone_merge[gate_at:gate_end]
+
+    microphone_gate_at, microphone_gate_end, microphone_gate = gated_block(
+        "if (stage_is_newer(staged.microphone, current.microphone))",
+        "microphone",
+    )
+    spectrum_gate_at, spectrum_gate_end, spectrum_merge = gated_block(
+        "if (stage_is_newer(staged.spectrum, current.spectrum))",
+        "spectrum",
+    )
+    require(
+        spectrum_gate_at >= microphone_gate_end,
+        "spectrum freshness gate must be independent of microphone freshness",
+    )
+    for fragment in (
+        "current.spectrum = staged.spectrum;",
+        "current.channel_spectrum,",
+        "staged.channel_spectrum,",
+        "current.spectrum_sequence = staged.spectrum_sequence;",
+    ):
+        require_contains(
+            spectrum_merge,
+            fragment,
+            "generation-consistent spectrum merge",
+        )
+    for fragment in (
+        "current.microphone = staged.microphone;",
+        "current.channel_count = staged.channel_count;",
+        "current.sample_rate_hz = staged.sample_rate_hz;",
+        "current.microphone_mean_level = staged.microphone_mean_level;",
+        "current.microphone_peak_level = staged.microphone_peak_level;",
+        "current.channel_mean_level,",
+        "current.channel_peak_level,",
+    ):
+        require_contains(
+            microphone_gate,
+            fragment,
+            "generation-consistent microphone merge",
+        )
+    microphone_only_merge = (
+        microphone_gate
+    )
+    require(
+        "channel_spectrum" not in microphone_only_merge
+        and "spectrum_sequence" not in microphone_only_merge,
+        "spectrum payload must not move independently of its component gate",
+    )
+    hardware_initialize = function_text(
+        source,
+        "esp_err_t DeviceSnapshotService::initialize()",
+        "DeviceSnapshotService initialization",
+    )
+    require(
+        hardware_initialize.count(
+            "set_component(snapshot.audio.spectrum, false,"
+        ) >= 3,
+        "every unsupported, failed, or absent microphone initialization path "
+        "must publish spectrum as unavailable",
     )
 
     diagnostic_commit_index = source.index(

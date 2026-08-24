@@ -12,6 +12,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdatomic.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -31,6 +32,9 @@
 #define LUNASHELL_LOG_QUEUE_LINES 48
 #define LUNASHELL_LOG_FORMAT_SLOTS 4
 #define LUNASHELL_LOG_FILE_LIMIT_BYTES (2U * 1024U * 1024U)
+#define LUNASHELL_LOG_FLUSH_DEADLINE_MS 100U
+#define LUNASHELL_LOG_IO_BATCH_LINES 8U
+#define LUNASHELL_LOG_ENQUEUE_QUIESCE_TIMEOUT_MS 1000U
 
 typedef struct {
     char text[LUNASHELL_LOG_LINE_BYTES];
@@ -68,6 +72,10 @@ static uint32_t s_sd_generation;
 static portMUX_TYPE s_sd_lock = portMUX_INITIALIZER_UNLOCKED;
 static bool s_initialized;
 static atomic_bool s_capture_suspended;
+static atomic_bool s_sd_enqueue_open;
+static atomic_uint s_sd_enqueue_inflight;
+static LUNASHELL_logger_io_watch_t s_io_watch;
+static atomic_bool s_io_watch_configured;
 
 static int serial_printf(const char *format, ...)
 {
@@ -117,6 +125,160 @@ static esp_err_t notify_writer_state_change(const char *operation)
     return ESP_OK;
 }
 
+static esp_err_t begin_watched_io(const char *operation)
+{
+    if (!atomic_load_explicit(
+            &s_io_watch_configured,
+            memory_order_acquire
+        )) {
+        serial_printf(
+            "E (%lld) %s: SD mirror %s rejected: I/O liveness is not configured\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            operation
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t error = s_io_watch.begin();
+    if (error != ESP_OK) {
+        serial_printf(
+            "E (%lld) %s: SD mirror %s liveness start failed: %s\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            operation,
+            esp_err_to_name(error)
+        );
+    }
+    return error;
+}
+
+static esp_err_t end_watched_io(
+    const char *operation,
+    esp_err_t operation_result
+)
+{
+    const esp_err_t error = s_io_watch.end(operation_result);
+    if (error != operation_result) {
+        serial_printf(
+            "E (%lld) %s: SD mirror %s liveness completion changed %s to %s\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG,
+            operation,
+            esp_err_to_name(operation_result),
+            esp_err_to_name(error)
+        );
+    }
+    return error;
+}
+
+static esp_err_t current_sd_error(void)
+{
+    LUNASHELL_logger_sd_status_t status;
+    read_sd_state(&status, NULL);
+    return status.last_error != ESP_OK ? status.last_error : ESP_FAIL;
+}
+
+static void note_persisted_write(void)
+{
+    portENTER_CRITICAL(&s_sd_lock);
+    s_sd_status.persisted_write_sequence++;
+    portEXIT_CRITICAL(&s_sd_lock);
+}
+
+// Admit an SD queue producer without ever blocking the logging callback.
+// The second gate read closes the load-before-disable race: a producer that was
+// preempted before incrementing the counter observes the closed gate and exits
+// without touching the queue.
+static bool begin_sd_enqueue(
+    LUNASHELL_logger_sd_status_t *status,
+    uint32_t *generation
+)
+{
+    if (!atomic_load_explicit(
+            &s_sd_enqueue_open,
+            memory_order_seq_cst
+        )) {
+        return false;
+    }
+
+    (void)atomic_fetch_add_explicit(
+        &s_sd_enqueue_inflight,
+        1U,
+        memory_order_seq_cst
+    );
+    if (!atomic_load_explicit(
+            &s_sd_enqueue_open,
+            memory_order_seq_cst
+        )) {
+        (void)atomic_fetch_sub_explicit(
+            &s_sd_enqueue_inflight,
+            1U,
+            memory_order_seq_cst
+        );
+        return false;
+    }
+
+    read_sd_state(status, generation);
+    if (!status->enabled) {
+        (void)atomic_fetch_sub_explicit(
+            &s_sd_enqueue_inflight,
+            1U,
+            memory_order_seq_cst
+        );
+        return false;
+    }
+    return true;
+}
+
+static void end_sd_enqueue(void)
+{
+    const unsigned int previous = atomic_fetch_sub_explicit(
+        &s_sd_enqueue_inflight,
+        1U,
+        memory_order_seq_cst
+    );
+    if (previous == 0U) {
+        serial_printf(
+            "E (%lld) %s: SD enqueue ownership counter underflow\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG
+        );
+        abort();
+    }
+}
+
+// Close producer admission and wait only for callbacks already inside their
+// bounded, non-blocking queue section. A stuck producer keeps stop incomplete,
+// so callers cannot treat the writer acknowledgement as permission to unmount.
+static esp_err_t close_sd_enqueue_gate(void)
+{
+    atomic_store_explicit(
+        &s_sd_enqueue_open,
+        false,
+        memory_order_seq_cst
+    );
+    const TickType_t started_at = xTaskGetTickCount();
+    const TickType_t timeout_ticks = pdMS_TO_TICKS(
+        LUNASHELL_LOG_ENQUEUE_QUIESCE_TIMEOUT_MS
+    );
+    while (atomic_load_explicit(
+               &s_sd_enqueue_inflight,
+               memory_order_seq_cst
+           ) != 0U) {
+        if ((xTaskGetTickCount() - started_at) >= timeout_ticks) {
+            serial_printf(
+                "E (%lld) %s: SD enqueue quiescence timed out after %u ms\n",
+                (long long)(esp_timer_get_time() / 1000),
+                TAG,
+                (unsigned int)LUNASHELL_LOG_ENQUEUE_QUIESCE_TIMEOUT_MS
+            );
+            return ESP_ERR_TIMEOUT;
+        }
+        vTaskDelay(1);
+    }
+    return ESP_OK;
+}
+
 // Publish the enabled generation and release a writer parked without polling.
 static esp_err_t set_sd_enabled(void)
 {
@@ -128,12 +290,25 @@ static esp_err_t set_sd_enabled(void)
     s_sd_status.changed_at_us = changed_at_us;
     s_sd_generation++;
     portEXIT_CRITICAL(&s_sd_lock);
-    return notify_writer_state_change("enable");
+    const esp_err_t notification_error =
+        notify_writer_state_change("enable");
+    if (notification_error == ESP_OK) {
+        atomic_store_explicit(
+            &s_sd_enqueue_open,
+            true,
+            memory_order_seq_cst
+        );
+    }
+    return notification_error;
 }
 
 // Publish the disabled state and force a fresh idle acknowledgement.
 static esp_err_t set_sd_disabled(void)
 {
+    const esp_err_t quiescence_error = close_sd_enqueue_gate();
+    if (quiescence_error != ESP_OK) {
+        return quiescence_error;
+    }
     const int64_t changed_at_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_sd_lock);
     s_sd_status.enabled = false;
@@ -143,16 +318,49 @@ static esp_err_t set_sd_disabled(void)
 }
 
 // Record the real SD error and wake the writer so it can close its open file.
-static void record_sd_failure(const char *operation, esp_err_t error, int system_errno)
+// Producer-side failures bind to the generation they entered: a delayed
+// callback from an old lease must never close a newly enabled mirror.
+static bool record_sd_failure_impl(
+    const char *operation,
+    esp_err_t error,
+    int system_errno,
+    bool expected_generation_valid,
+    uint32_t expected_generation
+)
 {
     const int64_t changed_at_us = esp_timer_get_time();
+    bool committed = false;
+    uint32_t current_generation = 0U;
     portENTER_CRITICAL(&s_sd_lock);
-    s_sd_status.enabled = false;
-    s_sd_status.last_error = error;
-    s_sd_status.last_errno = system_errno;
-    s_sd_status.changed_at_us = changed_at_us;
-    s_sd_status.failure_count++;
+    current_generation = s_sd_generation;
+    if (!expected_generation_valid ||
+        expected_generation == current_generation) {
+        atomic_store_explicit(
+            &s_sd_enqueue_open,
+            false,
+            memory_order_seq_cst
+        );
+        s_sd_status.enabled = false;
+        s_sd_status.last_error = error;
+        s_sd_status.last_errno = system_errno;
+        s_sd_status.changed_at_us = changed_at_us;
+        s_sd_status.failure_count++;
+        committed = true;
+    }
     portEXIT_CRITICAL(&s_sd_lock);
+
+    if (!committed) {
+        serial_printf(
+            "W (%lld) %s: Ignoring stale SD mirror %s failure for generation %lu; current generation=%lu error=%s\n",
+            (long long)(changed_at_us / 1000),
+            TAG,
+            operation,
+            (unsigned long)expected_generation,
+            (unsigned long)current_generation,
+            esp_err_to_name(error)
+        );
+        return false;
+    }
 
     serial_printf(
         "E (%lld) %s: SD mirror %s failed: %s (errno=%d)\n",
@@ -172,6 +380,38 @@ static void record_sd_failure(const char *operation, esp_err_t error, int system
             esp_err_to_name(notification_error)
         );
     }
+    return true;
+}
+
+static void record_sd_failure(
+    const char *operation,
+    esp_err_t error,
+    int system_errno
+)
+{
+    (void)record_sd_failure_impl(
+        operation,
+        error,
+        system_errno,
+        false,
+        0U
+    );
+}
+
+static void record_sd_failure_for_generation(
+    const char *operation,
+    esp_err_t error,
+    int system_errno,
+    uint32_t expected_generation
+)
+{
+    (void)record_sd_failure_impl(
+        operation,
+        error,
+        system_errno,
+        true,
+        expected_generation
+    );
 }
 
 static void ring_push(const char *line)
@@ -234,9 +474,15 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
     LUNASHELL_log_line_t *line = acquire_format_slot();
     if (line == NULL) {
         LUNASHELL_logger_sd_status_t sd_status;
-        read_sd_state(&sd_status, NULL);
-        if (sd_status.enabled) {
-            record_sd_failure("format slot", ESP_ERR_NO_MEM, 0);
+        uint32_t sd_generation;
+        if (begin_sd_enqueue(&sd_status, &sd_generation)) {
+            record_sd_failure_for_generation(
+                "format slot",
+                ESP_ERR_NO_MEM,
+                0,
+                sd_generation
+            );
+            end_sd_enqueue();
         } else {
             serial_printf(
                 "E (%lld) %s: Log capture format slots exhausted; serial output only\n",
@@ -279,11 +525,35 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
     ring_push(line->text);
     LUNASHELL_logger_sd_status_t sd_status;
     uint32_t sd_generation;
-    read_sd_state(&sd_status, &sd_generation);
-    line->sd_generation = sd_generation;
-    if (sd_status.enabled && s_write_queue != NULL &&
-        xQueueSend(s_write_queue, line, 0) != pdTRUE) {
-        record_sd_failure("queue", ESP_ERR_NO_MEM, 0);
+    bool enqueue_failed = false;
+    esp_err_t notification_error = ESP_OK;
+    if (s_write_queue != NULL &&
+        begin_sd_enqueue(&sd_status, &sd_generation)) {
+        line->sd_generation = sd_generation;
+        if (xQueueSend(s_write_queue, line, 0) != pdTRUE) {
+            enqueue_failed = true;
+        } else {
+            notification_error = notify_writer_state_change("queued-data");
+        }
+        if (enqueue_failed) {
+            record_sd_failure_for_generation(
+                "queue",
+                ESP_ERR_NO_MEM,
+                0,
+                sd_generation
+            );
+        } else if (notification_error != ESP_OK) {
+            record_sd_failure_for_generation(
+                "queue notification",
+                notification_error,
+                0,
+                sd_generation
+            );
+        }
+        // Failure publication is part of producer ownership. Stop cannot
+        // acknowledge quiescence, nor can a new generation open, before this
+        // callback has either committed or rejected its generation-bound error.
+        end_sd_enqueue();
     }
     release_format_slot(line);
 
@@ -358,6 +628,7 @@ static bool flush_log_file(
         close_log_file(file, "close after flush");
         return false;
     }
+    note_persisted_write();
     *lines_since_flush = 0;
     return true;
 }
@@ -413,6 +684,108 @@ static bool write_log_line(
     return true;
 }
 
+static bool write_queued_lines_watched(
+    FILE **file,
+    unsigned int *lines_since_flush,
+    const LUNASHELL_log_line_t *first_line,
+    uint32_t active_generation
+)
+{
+    esp_err_t result = begin_watched_io("write batch");
+    if (result != ESP_OK) {
+        record_sd_failure("write liveness", result, 0);
+        return false;
+    }
+
+    LUNASHELL_log_line_t line = *first_line;
+    unsigned int processed_lines = 0U;
+    while (processed_lines < LUNASHELL_LOG_IO_BATCH_LINES) {
+        processed_lines++;
+        if (line.sd_generation == active_generation) {
+            if (!write_log_line(file, lines_since_flush, &line)) {
+                result = current_sd_error();
+                break;
+            }
+        }
+        if (processed_lines >= LUNASHELL_LOG_IO_BATCH_LINES) {
+            break;
+        }
+        if (xQueueReceive(s_write_queue, &line, 0) != pdTRUE) {
+            break;
+        }
+    }
+
+    const esp_err_t watch_error = end_watched_io("write batch", result);
+    if (result == ESP_OK && watch_error != ESP_OK) {
+        record_sd_failure("write liveness completion", watch_error, 0);
+        return false;
+    }
+    return result == ESP_OK;
+}
+
+static bool flush_and_close_watched(
+    FILE **file,
+    unsigned int *lines_since_flush,
+    const char *flush_operation,
+    const char *close_operation
+)
+{
+    if (*file == NULL && *lines_since_flush == 0U) {
+        return true;
+    }
+
+    esp_err_t result = begin_watched_io(close_operation);
+    if (result != ESP_OK) {
+        record_sd_failure("close liveness", result, 0);
+        return false;
+    }
+
+    const bool flushed = flush_log_file(
+        file,
+        lines_since_flush,
+        flush_operation
+    );
+    if (!flushed) {
+        result = current_sd_error();
+    }
+
+    const bool closed = close_log_file(file, close_operation);
+    if (!closed && result == ESP_OK) {
+        result = current_sd_error();
+    }
+    const esp_err_t watch_error = end_watched_io(close_operation, result);
+    if (result == ESP_OK && watch_error != ESP_OK) {
+        record_sd_failure("close liveness completion", watch_error, 0);
+        return false;
+    }
+    return flushed && closed && result == ESP_OK;
+}
+
+static bool flush_log_file_watched(
+    FILE **file,
+    unsigned int *lines_since_flush,
+    const char *operation
+)
+{
+    if (*file == NULL || *lines_since_flush == 0U) {
+        return true;
+    }
+
+    esp_err_t result = begin_watched_io(operation);
+    if (result != ESP_OK) {
+        record_sd_failure("flush liveness", result, 0);
+        return false;
+    }
+    const bool flushed = flush_log_file(file, lines_since_flush, operation);
+    result = flushed ? ESP_OK : current_sd_error();
+    const esp_err_t watch_error = end_watched_io(operation, result);
+    if (flushed && watch_error != ESP_OK) {
+        record_sd_failure("flush liveness completion", watch_error, 0);
+        return false;
+    }
+    return flushed;
+}
+
 // Persist enabled SD logs and park indefinitely once the mirror is disabled.
 static void writer_task(void *arg)
 {
@@ -429,12 +802,16 @@ static void writer_task(void *arg)
 
         if (generation != active_generation) {
             if (file != NULL) {
-                if (!flush_log_file(
+                if (!flush_and_close_watched(
                         &file,
                         &lines_since_flush,
-                        "configuration flush"
-                    ) ||
-                    !close_log_file(&file, "configuration close")) {
+                        "configuration flush",
+                        "configuration close"
+                    )) {
+                    if (file != NULL) {
+                        vTaskDelay(pdMS_TO_TICKS(10));
+                        continue;
+                    }
                     lines_since_flush = 0;
                     active_generation = generation;
                     continue;
@@ -447,10 +824,21 @@ static void writer_task(void *arg)
 
         if (!sd_status.enabled) {
             if (sd_status.last_error == ESP_OK) {
+                bool persistence_available = true;
                 while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
-                    if (line.sd_generation == active_generation &&
-                        !write_log_line(&file, &lines_since_flush, &line)) {
+                    if (!write_queued_lines_watched(
+                        &file,
+                        &lines_since_flush,
+                        &line,
+                        active_generation
+                    )) {
+                        persistence_available = false;
                         break;
+                    }
+                }
+                if (!persistence_available) {
+                    while (xQueueReceive(s_write_queue, &line, 0) == pdTRUE) {
+                        /* The recorded failure prevents further persistence. */
                     }
                 }
             } else {
@@ -458,8 +846,16 @@ static void writer_task(void *arg)
                     /* The recorded writer failure prevents safe persistence. */
                 }
             }
-            flush_log_file(&file, &lines_since_flush, "stop flush");
-            close_log_file(&file, "stop close");
+            const bool stop_io_complete = flush_and_close_watched(
+                &file,
+                &lines_since_flush,
+                "stop flush",
+                "stop close"
+            );
+            if (!stop_io_complete && file != NULL) {
+                vTaskDelay(pdMS_TO_TICKS(10));
+                continue;
+            }
             if (s_writer_idle != NULL) {
                 const BaseType_t acknowledged = xSemaphoreGive(s_writer_idle);
                 if (acknowledged != pdTRUE) {
@@ -470,15 +866,26 @@ static void writer_task(void *arg)
             continue;
         }
 
-        if (xQueueReceive(s_write_queue, &line, pdMS_TO_TICKS(100)) != pdTRUE) {
-            flush_log_file(&file, &lines_since_flush, "idle flush");
+        if (xQueueReceive(s_write_queue, &line, 0) != pdTRUE) {
+            const TickType_t wait_ticks = lines_since_flush == 0U
+                ? portMAX_DELAY
+                : pdMS_TO_TICKS(LUNASHELL_LOG_FLUSH_DEADLINE_MS);
+            if (ulTaskNotifyTake(pdTRUE, wait_ticks) == 0U &&
+                lines_since_flush != 0U) {
+                (void)flush_log_file_watched(
+                    &file,
+                    &lines_since_flush,
+                    "idle flush"
+                );
+            }
             continue;
         }
-        if (line.sd_generation != active_generation) {
-            continue;
-        }
-
-        write_log_line(&file, &lines_since_flush, &line);
+        (void)write_queued_lines_watched(
+            &file,
+            &lines_since_flush,
+            &line,
+            active_generation
+        );
     }
 }
 
@@ -493,7 +900,7 @@ static esp_err_t stop_sd_writer(void)
     }
     const esp_err_t notification_error = set_sd_disabled();
     if (notification_error != ESP_OK) {
-        record_sd_failure("stop notification", notification_error, 0);
+        record_sd_failure("stop transition", notification_error, 0);
         return notification_error;
     }
     if (xSemaphoreTake(s_writer_idle, pdMS_TO_TICKS(1000)) != pdTRUE) {
@@ -505,6 +912,53 @@ static esp_err_t stop_sd_writer(void)
     read_sd_state(&after, NULL);
     if (after.failure_count != before.failure_count) {
         return after.last_error;
+    }
+    return ESP_OK;
+}
+
+static esp_err_t prepare_sd_mirror_path(const char *mount_point)
+{
+    char app_dir[128];
+    char logs_dir[144];
+    const int app_dir_length =
+        snprintf(app_dir, sizeof(app_dir), "%s/LUNASHELL", mount_point);
+    if (app_dir_length < 0 || (size_t)app_dir_length >= sizeof(app_dir)) {
+        record_sd_failure("application path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const int logs_dir_length =
+        snprintf(logs_dir, sizeof(logs_dir), "%s/logs", app_dir);
+    if (logs_dir_length < 0 || (size_t)logs_dir_length >= sizeof(logs_dir)) {
+        record_sd_failure("logs path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
+
+    if ((mkdir(app_dir, 0775) != 0) && errno != EEXIST) {
+        const int mkdir_errno = errno;
+        record_sd_failure("application directory", ESP_FAIL, mkdir_errno);
+        return ESP_FAIL;
+    }
+    if ((mkdir(logs_dir, 0775) != 0) && errno != EEXIST) {
+        const int mkdir_errno = errno;
+        record_sd_failure("logs directory", ESP_FAIL, mkdir_errno);
+        return ESP_FAIL;
+    }
+    const int log_path_length =
+        snprintf(s_log_path, sizeof(s_log_path), "%s/LUNASHELL.log", logs_dir);
+    if (log_path_length < 0 || (size_t)log_path_length >= sizeof(s_log_path)) {
+        record_sd_failure("log path", ESP_ERR_INVALID_SIZE, 0);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    FILE *probe = fopen(s_log_path, "ab");
+    if (probe == NULL) {
+        const int open_errno = errno;
+        record_sd_failure("probe open", ESP_FAIL, open_errno);
+        return ESP_FAIL;
+    }
+    if (fclose(probe) != 0) {
+        const int close_errno = errno;
+        record_sd_failure("probe close", ESP_FAIL, close_errno);
+        return ESP_FAIL;
     }
     return ESP_OK;
 }
@@ -557,12 +1011,78 @@ esp_err_t LUNASHELL_logger_init(void)
         .last_errno = 0,
         .changed_at_us = initialized_at_us,
         .failure_count = 0,
+        .persisted_write_sequence = 0,
     };
     s_sd_generation = 1;
     portEXIT_CRITICAL(&s_sd_lock);
+    atomic_store_explicit(
+        &s_sd_enqueue_open,
+        false,
+        memory_order_seq_cst
+    );
+    atomic_store_explicit(
+        &s_sd_enqueue_inflight,
+        0U,
+        memory_order_seq_cst
+    );
     s_initialized = true;
     atomic_store_explicit(&s_capture_suspended, false, memory_order_relaxed);
     ESP_LOGI(TAG, "Canonical logger online: serial + RAM ring");
+    return ESP_OK;
+}
+
+esp_err_t LUNASHELL_logger_set_io_watch(
+    const LUNASHELL_logger_io_watch_t *watch
+)
+{
+    if (!s_initialized) {
+        serial_printf(
+            "E (0) %s: Cannot configure SD I/O liveness before logger init\n",
+            TAG
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (watch == NULL || watch->begin == NULL || watch->end == NULL) {
+        serial_printf(
+            "E (%lld) %s: Invalid SD I/O liveness hooks\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    LUNASHELL_logger_sd_status_t status;
+    read_sd_state(&status, NULL);
+    if (status.enabled) {
+        serial_printf(
+            "E (%lld) %s: Cannot replace SD I/O liveness while mirroring is active\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (atomic_load_explicit(
+            &s_io_watch_configured,
+            memory_order_acquire
+        )) {
+        if (s_io_watch.begin == watch->begin &&
+            s_io_watch.end == watch->end) {
+            return ESP_OK;
+        }
+        serial_printf(
+            "E (%lld) %s: SD I/O liveness hooks are immutable after registration\n",
+            (long long)(esp_timer_get_time() / 1000),
+            TAG
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_io_watch = *watch;
+    atomic_store_explicit(
+        &s_io_watch_configured,
+        true,
+        memory_order_release
+    );
     return ESP_OK;
 }
 
@@ -581,48 +1101,22 @@ esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point)
         return stop_result;
     }
 
-    char app_dir[128];
-    char logs_dir[144];
-    const int app_dir_length =
-        snprintf(app_dir, sizeof(app_dir), "%s/LUNASHELL", mount_point);
-    if (app_dir_length < 0 || (size_t)app_dir_length >= sizeof(app_dir)) {
-        record_sd_failure("application path", ESP_ERR_INVALID_SIZE, 0);
-        return ESP_ERR_INVALID_SIZE;
+    const esp_err_t watch_error = begin_watched_io("enable");
+    if (watch_error != ESP_OK) {
+        record_sd_failure("enable liveness", watch_error, 0);
+        return watch_error;
     }
-    const int logs_dir_length =
-        snprintf(logs_dir, sizeof(logs_dir), "%s/logs", app_dir);
-    if (logs_dir_length < 0 || (size_t)logs_dir_length >= sizeof(logs_dir)) {
-        record_sd_failure("logs path", ESP_ERR_INVALID_SIZE, 0);
-        return ESP_ERR_INVALID_SIZE;
-    }
-
-    if ((mkdir(app_dir, 0775) != 0) && errno != EEXIST) {
-        const int mkdir_errno = errno;
-        record_sd_failure("application directory", ESP_FAIL, mkdir_errno);
-        return ESP_FAIL;
-    }
-    if ((mkdir(logs_dir, 0775) != 0) && errno != EEXIST) {
-        const int mkdir_errno = errno;
-        record_sd_failure("logs directory", ESP_FAIL, mkdir_errno);
-        return ESP_FAIL;
-    }
-
-    const int log_path_length =
-        snprintf(s_log_path, sizeof(s_log_path), "%s/LUNASHELL.log", logs_dir);
-    if (log_path_length < 0 || (size_t)log_path_length >= sizeof(s_log_path)) {
-        record_sd_failure("log path", ESP_ERR_INVALID_SIZE, 0);
-        return ESP_ERR_INVALID_SIZE;
-    }
-    FILE *probe = fopen(s_log_path, "ab");
-    if (probe == NULL) {
-        const int open_errno = errno;
-        record_sd_failure("probe open", ESP_FAIL, open_errno);
-        return ESP_FAIL;
-    }
-    if (fclose(probe) != 0) {
-        const int close_errno = errno;
-        record_sd_failure("probe close", ESP_FAIL, close_errno);
-        return ESP_FAIL;
+    const esp_err_t prepare_error = prepare_sd_mirror_path(mount_point);
+    const esp_err_t watch_end_error = end_watched_io("enable", prepare_error);
+    if (watch_end_error != ESP_OK) {
+        if (prepare_error == ESP_OK) {
+            record_sd_failure(
+                "enable liveness completion",
+                watch_end_error,
+                0
+            );
+        }
+        return watch_end_error;
     }
 
     const esp_err_t enable_error = set_sd_enabled();

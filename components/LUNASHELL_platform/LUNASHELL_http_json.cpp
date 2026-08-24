@@ -312,6 +312,8 @@ void writeAudio(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::AudioSnapshot 
     writeComponentFields(json, audio.speaker);
     (void)json.raw(",\"microphone\":");
     writeComponentFields(json, audio.microphone);
+    (void)json.raw(",\"spectrum\":");
+    writeComponentFields(json, audio.spectrum);
     (void)json.format(
         ",\"channel_count\":%u,\"sample_rate_hz\":%lu,\"microphone_mean_level\":%lu,\"microphone_peak_level\":%lu,\"channel_mean_level\":[%lu,%lu],\"channel_peak_level\":[%lu,%lu]",
         static_cast<unsigned>(audio.channel_count),
@@ -946,6 +948,8 @@ void writeDiagnosticsSettings(
     (void)json.boolean(diagnostics.imu_monitor_active);
     (void)json.raw(",\"microphone_monitor_active\":");
     (void)json.boolean(diagnostics.microphone_monitor_active);
+    (void)json.raw(",\"microphone_spectrum_monitor_active\":");
+    (void)json.boolean(diagnostics.microphone_spectrum_monitor_active);
     (void)json.raw(",\"full_snapshot_monitor_active\":");
     (void)json.boolean(diagnostics.full_snapshot_monitor_active);
     (void)json.raw("}");
@@ -1030,14 +1034,17 @@ namespace LUNASHELL {
 
 HttpJsonWriter::HttpJsonWriter(httpd_req_t *request): _request(request)
 {
-    (void)httpd_resp_set_type(_request, "application/json");
-    (void)httpd_resp_set_hdr(_request, "Cache-Control", "no-store");
 }
 
 // Stream arbitrary text through the fixed response buffer.
 bool HttpJsonWriter::raw(const char *text)
 {
-    if (_failed || text == nullptr) return !_failed;
+    if (_failed) return false;
+    if (text == nullptr) {
+        _failed = true;
+        _last_error = ESP_ERR_INVALID_ARG;
+        return false;
+    }
     while (*text != '\0') {
         if (_used == sizeof(_buffer) && !flush()) return false;
         const std::size_t available = sizeof(_buffer) - _used;
@@ -1059,6 +1066,7 @@ bool HttpJsonWriter::format(const char *format_string, ...)
     va_end(arguments);
     if (length < 0 || static_cast<std::size_t>(length) >= sizeof(rendered)) {
         _failed = true;
+        _last_error = length < 0 ? ESP_FAIL : ESP_ERR_INVALID_SIZE;
         return false;
     }
     return raw(rendered);
@@ -1097,12 +1105,17 @@ bool HttpJsonWriter::boolean(bool value)
 }
 
 // Flush buffered JSON and terminate the chunked HTTP response.
-bool HttpJsonWriter::finish()
+esp_err_t HttpJsonWriter::finish()
 {
-    if (_failed || !flush()) return false;
+    if (_failed || !flush()) {
+        return _last_error != ESP_OK ? _last_error : ESP_FAIL;
+    }
     const esp_err_t error = httpd_resp_send_chunk(_request, nullptr, 0);
-    if (error != ESP_OK) _failed = true;
-    return error == ESP_OK;
+    if (error != ESP_OK) {
+        _failed = true;
+        _last_error = error;
+    }
+    return error;
 }
 
 bool HttpJsonWriter::append(char value)
@@ -1117,14 +1130,17 @@ bool HttpJsonWriter::flush()
     if (_used == 0U) return true;
     const esp_err_t error = httpd_resp_send_chunk(_request, _buffer, _used);
     _used = 0U;
-    if (error != ESP_OK) _failed = true;
+    if (error != ESP_OK) {
+        _failed = true;
+        _last_error = error;
+    }
     return error == ESP_OK;
 }
 
 void httpJsonWriteHealth(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,
-    bool server_running
+    const HttpLifecycleView &lifecycle
 )
 {
     LUNASHELL_liveness_status_t liveness{};
@@ -1133,12 +1149,20 @@ void httpJsonWriteHealth(
     const bool liveness_ok =
         liveness_result == ESP_OK && liveness.initialized &&
         liveness.last_error == ESP_OK;
-    const bool healthy = server_running && liveness_ok;
+    const bool healthy =
+        lifecycle.running && lifecycle.accepting_requests &&
+        !lifecycle.cleanup_required && liveness_ok;
 
     (void)json.raw("{\"schema\":\"LUNASHELL.device.health.v1\",\"api_version\":1,\"data\":{\"ok\":");
     (void)json.boolean(healthy);
     (void)json.raw(",\"server_running\":");
-    (void)json.boolean(server_running);
+    (void)json.boolean(lifecycle.running);
+    (void)json.raw(",\"server_cleanup_required\":");
+    (void)json.boolean(lifecycle.cleanup_required);
+    (void)json.raw(",\"server_handle_retained\":");
+    (void)json.boolean(lifecycle.handle_retained);
+    (void)json.raw(",\"server_accepting_requests\":");
+    (void)json.boolean(lifecycle.accepting_requests);
     (void)json.raw(",\"auth_required_for_data\":true,\"wifi_connected\":");
     (void)json.boolean(snapshot.radios.wifi.connected && snapshot.radios.wifi.ip_acquired);
     (void)json.format(",\"snapshot\":{\"sequence\":%lu,\"last_update_attempt_at_us\":%lld,\"last_update_complete\":",
@@ -1231,14 +1255,20 @@ void httpJsonWriteStatus(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,
     const HttpMetricsView &metrics,
-    bool server_running
+    const HttpLifecycleView &lifecycle
 )
 {
     writeEnvelopeStart(json, "LUNASHELL.device.status.v1", snapshot);
     (void)json.raw("{\"overall\":");
     (void)json.quoted(deviceHealthName(overallHealth(snapshot)));
     (void)json.raw(",\"server_running\":");
-    (void)json.boolean(server_running);
+    (void)json.boolean(lifecycle.running);
+    (void)json.raw(",\"server_cleanup_required\":");
+    (void)json.boolean(lifecycle.cleanup_required);
+    (void)json.raw(",\"server_handle_retained\":");
+    (void)json.boolean(lifecycle.handle_retained);
+    (void)json.raw(",\"server_accepting_requests\":");
+    (void)json.boolean(lifecycle.accepting_requests);
     (void)json.raw(",\"components\":{");
     struct NamedComponent {
         const char *name;
@@ -1249,6 +1279,7 @@ void httpJsonWriteStatus(
         {"imu", &snapshot.imu}, {"sensor_fusion", &snapshot.sensor_fusion},
         {"gps", &snapshot.gps},
         {"speaker", &snapshot.audio.speaker}, {"microphone", &snapshot.audio.microphone},
+        {"spectrum", &snapshot.audio.spectrum},
         {"wifi", &snapshot.radios.wifi}, {"ble", &snapshot.radios.ble},
         {"storage", &snapshot.storage}, {"display", &snapshot.ui.display},
         {"touch", &snapshot.ui.touch}, {"io_expander", &snapshot.input.io_expander},
@@ -1274,7 +1305,7 @@ void httpJsonWriteStatus(
     (void)json.boolean(snapshot.storage.formatted);
     (void)json.raw("},\"metrics\":{");
     (void)json.format(
-        "\"request_count\":%lu,\"authorized_count\":%lu,\"unauthorized_count\":%lu,\"response_failure_count\":%lu,\"start_count\":%lu,\"stop_count\":%lu,\"start_failure_count\":%lu,\"auth_failures_in_window\":%lu}",
+        "\"request_count\":%lu,\"authorized_count\":%lu,\"unauthorized_count\":%lu,\"response_failure_count\":%lu,\"start_count\":%lu,\"stop_count\":%lu,\"start_failure_count\":%lu,\"stop_failure_count\":%lu,\"event_lifecycle_failure_count\":%lu,\"last_lifecycle_error\":%ld,\"auth_failures_in_window\":%lu}",
         static_cast<unsigned long>(metrics.request_count),
         static_cast<unsigned long>(metrics.authorized_count),
         static_cast<unsigned long>(metrics.unauthorized_count),
@@ -1282,6 +1313,9 @@ void httpJsonWriteStatus(
         static_cast<unsigned long>(metrics.start_count),
         static_cast<unsigned long>(metrics.stop_count),
         static_cast<unsigned long>(metrics.start_failure_count),
+        static_cast<unsigned long>(metrics.stop_failure_count),
+        static_cast<unsigned long>(metrics.event_lifecycle_failure_count),
+        static_cast<long>(metrics.last_lifecycle_error),
         static_cast<unsigned long>(metrics.auth_failures_in_window)
     );
     (void)json.raw("}}");

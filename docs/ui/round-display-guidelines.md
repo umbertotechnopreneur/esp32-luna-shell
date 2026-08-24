@@ -102,7 +102,7 @@ Production files:
 
 - `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png`
 - `assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin`
-- `assets/sfx/generated/LUNASHELL-boot.wav`
+- `assets/sfx/generated/lunashell-boot.wav`
 
 The PNG is the canonical visual derivative. The raw file contains exactly
 466 x 466 little-endian RGB565 pixels with no header. It is suitable for direct

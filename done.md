@@ -2,6 +2,28 @@
 
 Completed items moved out of `TODO.md` live here.
 
+## Runtime efficiency and transactional recovery
+
+- [x] Coalesce repeated trusted-GNSS clock updates by explicit system-drift and
+  maximum RTC-persistence intervals while preserving oscillator-stop recovery.
+- [x] Park the empty SD logger indefinitely, drain writes in bounded watched
+  batches, and refresh FAT free space only on mount, persisted writes, an
+  explicit Storage request, or the slow safety deadline.
+- [x] Compute microphone FFT bands only while an FFT/detail diagnostic lease is
+  active, while preserving measured mean and peak telemetry for level-only
+  consumers.
+- [x] Reconcile Performance Mode, display rotation, and HTTP server lifecycle as
+  explicit transactions whose failed cleanup remains visible and retryable.
+- [x] Publish retained liveness breadcrumbs with a versioned, non-colliding
+  sentinel and cover removable-storage, logger, and formatting I/O domains.
+- [x] Preserve repeated Full Snapshot aggregate errors in return values and
+  structured state while coalescing only their duplicate scheduler log into
+  immediate transitions, counted 60-second reminders, and immediate recovery.
+
+These entries record the implemented software contracts. Interactive UI,
+rotation, removable-media, and forced-failure scenarios remain physical-device
+tests where tracked in `TODO.md`.
+
 ## Audio scope visualization
 
 - [x] Improve FFT sensitivity by mapping the measured DFT range from -90 to

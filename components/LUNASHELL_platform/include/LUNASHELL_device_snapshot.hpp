@@ -102,6 +102,7 @@ constexpr std::size_t kAudioSpectrumBandCount = 16;
 struct AudioSnapshot {
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
+    ComponentSnapshot spectrum;
     uint8_t channel_count = 0;
     uint32_t sample_rate_hz = 0;
     uint32_t microphone_mean_level = 0;
@@ -374,6 +375,7 @@ struct DiagnosticsSettingsSnapshot {
     bool monitor_active = false;
     bool imu_monitor_active = false;
     bool microphone_monitor_active = false;
+    bool microphone_spectrum_monitor_active = false;
     bool full_snapshot_monitor_active = false;
 };
 
@@ -548,6 +550,7 @@ public:
     void reportDiagnosticMonitor(
         bool imu_monitor_active,
         bool microphone_monitor_active,
+        bool microphone_spectrum_monitor_active,
         esp_err_t error
     );
     void reportDisplayBrightness(uint32_t brightness_percent, esp_err_t error);

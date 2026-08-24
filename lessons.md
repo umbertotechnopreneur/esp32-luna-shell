@@ -84,6 +84,14 @@
 - A Full Snapshot may consume a newly committed Diagnostic IMU or microphone
   sample only once within its reuse window. Preserve the original measurement
   timestamp and mark it consumed only after the Full Snapshot commits.
+- A retained component failure can make every Full Snapshot return the same
+  real aggregate error even when no new hardware operation occurs. Keep that
+  return value and component state intact, but coalesce only the scheduler's
+  duplicate aggregate log: report the first/new error immediately, emit a
+  counted reminder every 60 seconds, and report recovery immediately. Do not
+  back off the whole Full Snapshot worker because healthy sensors still need
+  their configured cadence; each actual sampler failure remains logged at its
+  owner.
 - Gate Diagnostic IMU and microphone streams independently so a page never
   polls or claims an unrelated sensor stream. Before returning microphone
   ownership to the AFE, disable diagnostics under the shared refresh mutex and

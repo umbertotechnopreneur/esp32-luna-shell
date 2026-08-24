@@ -208,6 +208,91 @@ def main() -> int:
         "void reconnect_timer_callback(",
         "LUNASHELL_wifi.cpp",
     )
+    schedule_reconnect = function_text(
+        wifi,
+        "esp_err_t schedule_reconnect(",
+        "LUNASHELL_wifi.cpp",
+    )
+    cancel_reconnect = function_text(
+        wifi,
+        "esp_err_t cancel_reconnect(",
+        "LUNASHELL_wifi.cpp",
+    )
+    schedule_timer_at = schedule_reconnect.find("xTimerChangePeriod(")
+    schedule_lock_at = schedule_reconnect.rfind(
+        "wifi_lock();",
+        0,
+        schedule_timer_at,
+    )
+    schedule_commit_at = schedule_reconnect.find(
+        "s_status.reconnect_pending = true",
+        schedule_timer_at,
+    )
+    schedule_unlock_at = schedule_reconnect.find(
+        "wifi_unlock();",
+        schedule_commit_at,
+    )
+    schedule_publish_at = schedule_reconnect.find(
+        "publish_snapshot();",
+        schedule_unlock_at,
+    )
+    require(
+        0 <= schedule_lock_at < schedule_timer_at < schedule_commit_at
+        < schedule_unlock_at < schedule_publish_at,
+        "reconnect schedule command and published pending state must commit "
+        "under one Wi-Fi status transaction",
+    )
+    schedule_intent_guard_at = schedule_reconnect.find(
+        "if (!s_initialized || !s_status.started || !s_connect_requested)"
+    )
+    require(
+        0 <= schedule_lock_at < schedule_intent_guard_at < schedule_timer_at,
+        "reconnect scheduling must revalidate connection intent under the "
+        "timer-command lock",
+    )
+    cancel_timer_at = cancel_reconnect.find("xTimerStop(")
+    cancel_lock_at = cancel_reconnect.rfind(
+        "wifi_lock();",
+        0,
+        cancel_timer_at,
+    )
+    cancel_commit_at = cancel_reconnect.find(
+        "s_status.reconnect_pending = false",
+        cancel_timer_at,
+    )
+    cancel_unlock_at = cancel_reconnect.find(
+        "wifi_unlock();",
+        cancel_commit_at,
+    )
+    cancel_publish_at = cancel_reconnect.find(
+        "publish_snapshot();",
+        cancel_unlock_at,
+    )
+    require(
+        0 <= cancel_lock_at < cancel_timer_at < cancel_commit_at
+        < cancel_unlock_at < cancel_publish_at,
+        "reconnect cancel command and published cleared state must commit "
+        "under one Wi-Fi status transaction",
+    )
+    cancel_intent_clear_at = cancel_reconnect.find(
+        "s_connect_requested = false;",
+        cancel_lock_at,
+    )
+    cancel_intent_restore_at = cancel_reconnect.find(
+        "s_connect_requested = previous_connect_requested;",
+        cancel_timer_at,
+    )
+    require(
+        0 <= cancel_intent_clear_at < cancel_timer_at < cancel_intent_restore_at,
+        "explicit reconnect cancellation must clear intent before the timer "
+        "command and restore it only when an aborting transaction fails",
+    )
+    require(
+        "record_error(" not in schedule_reconnect
+        and "record_error(" not in cancel_reconnect,
+        "reconnect timer transactions must publish errors only after releasing "
+        "wifi_lock",
+    )
     require_order(
         reconnect_callback,
         'wifi_lifecycle_try_lock("reconnect callback")',
@@ -217,6 +302,17 @@ def main() -> int:
     require(
         "wifi_lifecycle_lock(" not in reconnect_callback,
         "reconnect callback must never block the timer daemon on lifecycle",
+    )
+    callback_busy_end = reconnect_callback.find("WifiLifecycleGuard lifecycle_guard")
+    callback_busy = reconnect_callback[:callback_busy_end]
+    callback_pending_clear_at = callback_busy.find(
+        "s_status.reconnect_pending = false;"
+    )
+    callback_reschedule_at = callback_busy.find("schedule_reconnect(")
+    require(
+        0 <= callback_pending_clear_at < callback_reschedule_at,
+        "a fired reconnect timer must clear pending state before deferred "
+        "rescheduling",
     )
     wifi_event_handler = function_text(
         wifi,
@@ -254,6 +350,21 @@ def main() -> int:
         wifi_stop,
         "finish_scan_watch_if_active(ESP_OK)",
         "wifi_stop_impl",
+    )
+    require_contains(
+        wifi_stop,
+        "cancel_reconnect(true, true)",
+        "atomic Wi-Fi stop intent cancellation",
+    )
+    wifi_disconnect = function_text(
+        wifi,
+        "static esp_err_t wifi_disconnect_impl(",
+        "LUNASHELL_wifi.cpp",
+    )
+    require_contains(
+        wifi_disconnect,
+        "cancel_reconnect(true, false)",
+        "atomic explicit Wi-Fi disconnect intent cancellation",
     )
     for wrapper, expected in (
         ("LUNASHELL_wifi_init(", 'run_watched_wifi_operation("initialization"'),

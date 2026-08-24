@@ -603,7 +603,7 @@ class LUNASHELLSimulator:
         image_path = resource_path("assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png")
         if image_path.exists():
             self.boot_image = tk.PhotoImage(file=image_path)
-        sound_path = resource_path("assets/sfx/generated/LUNASHELL-boot.wav")
+        sound_path = resource_path("assets/sfx/generated/lunashell-boot.wav")
         if play_sound and sound_path.exists():
             winsound.PlaySound(str(sound_path), winsound.SND_FILENAME | winsound.SND_ASYNC)
 

@@ -83,6 +83,7 @@ constexpr uint32_t kDiagnosticPeriodMaxMs = 2000;
 constexpr uint32_t kImuSmoothingDefaultPercent = 70;
 constexpr uint32_t kImuSmoothingMaxPercent = 90;
 constexpr uint32_t kOrientationSamplePeriodMs = 100;
+constexpr uint32_t kOrientationApplyRetryBackoffMs = 1000;
 constexpr uint32_t kUiMotionSamplePeriodMs = 100;
 constexpr uint32_t kUiMotionStandbySamplePeriodMs = 1000;
 constexpr int64_t kOrientationStableUs = 300000;
@@ -154,6 +155,8 @@ bool s_rtc_ready;
 std::atomic_bool s_rtc_oscillator_stop_latched{false};
 std::atomic_bool s_rtc_recovery_readback_required{false};
 std::atomic<uint32_t> s_rtc_trusted_write_generation{0};
+std::atomic<esp_err_t> s_rtc_persistence_error_latched{ESP_OK};
+std::atomic<int64_t> s_rtc_persistence_failure_at_us{0};
 std::mutex s_rtc_operation_mutex;
 bool s_imu_ready;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
@@ -180,6 +183,7 @@ bool s_diagnostic_monitor_started;
 std::atomic<TaskHandle_t> s_diagnostic_monitor_task_handle{nullptr};
 std::atomic_bool s_diagnostic_imu_active{false};
 std::atomic_bool s_diagnostic_microphone_active{false};
+std::atomic_bool s_diagnostic_microphone_spectrum_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
 std::atomic_bool s_ui_motion_monitor_standby{false};
 // Device Standby preserves the user's requested diagnostics and rotation
@@ -190,6 +194,9 @@ std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
 std::atomic_bool s_auto_rotation_enabled{false};
+std::atomic_bool s_rotation_retry_blocked{false};
+std::atomic_bool s_rotation_failure_latched{false};
+std::atomic<int64_t> s_rotation_retry_after_us{0};
 int64_t s_last_committed_diagnostic_imu_us;
 int64_t s_last_committed_diagnostic_microphone_us;
 int64_t s_last_full_consumed_diagnostic_imu_us;
@@ -700,30 +707,32 @@ void merge_staged_microphone(
     const LUNASHELL::AudioSnapshot &staged
 )
 {
-    if (!stage_is_newer(staged.microphone, current.microphone)) {
-        return;
+    if (stage_is_newer(staged.microphone, current.microphone)) {
+        current.microphone = staged.microphone;
+        current.channel_count = staged.channel_count;
+        current.sample_rate_hz = staged.sample_rate_hz;
+        current.microphone_mean_level = staged.microphone_mean_level;
+        current.microphone_peak_level = staged.microphone_peak_level;
+        std::memcpy(
+            current.channel_mean_level,
+            staged.channel_mean_level,
+            sizeof(current.channel_mean_level)
+        );
+        std::memcpy(
+            current.channel_peak_level,
+            staged.channel_peak_level,
+            sizeof(current.channel_peak_level)
+        );
     }
-    current.microphone = staged.microphone;
-    current.channel_count = staged.channel_count;
-    current.sample_rate_hz = staged.sample_rate_hz;
-    current.microphone_mean_level = staged.microphone_mean_level;
-    current.microphone_peak_level = staged.microphone_peak_level;
-    std::memcpy(
-        current.channel_mean_level,
-        staged.channel_mean_level,
-        sizeof(current.channel_mean_level)
-    );
-    std::memcpy(
-        current.channel_peak_level,
-        staged.channel_peak_level,
-        sizeof(current.channel_peak_level)
-    );
-    std::memcpy(
-        current.channel_spectrum,
-        staged.channel_spectrum,
-        sizeof(current.channel_spectrum)
-    );
-    current.spectrum_sequence = staged.spectrum_sequence;
+    if (stage_is_newer(staged.spectrum, current.spectrum)) {
+        current.spectrum = staged.spectrum;
+        std::memcpy(
+            current.channel_spectrum,
+            staged.channel_spectrum,
+            sizeof(current.channel_spectrum)
+        );
+        current.spectrum_sequence = staged.spectrum_sequence;
+    }
 }
 
 enum class SnapshotStageKind {
@@ -974,6 +983,7 @@ void apply_measured_sample_aging(
     }
     age_measured_sample(snapshot.gps, now_us, ttl_us);
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
+    age_measured_sample(snapshot.audio.spectrum, now_us, ttl_us);
     if (snapshot.ui.orientation.auto_rotation_enabled) {
         age_measured_sample(snapshot.ui.orientation, now_us, ttl_us);
     }
@@ -1024,6 +1034,9 @@ void publish_diagnostic_monitor(esp_err_t error)
     LUNASHELL::DeviceSnapshotService::instance().reportDiagnosticMonitor(
         s_diagnostic_imu_active.load(std::memory_order_relaxed),
         s_diagnostic_microphone_active.load(std::memory_order_relaxed),
+        s_diagnostic_microphone_spectrum_active.load(
+            std::memory_order_relaxed
+        ),
         error
     );
 }
@@ -1320,7 +1333,18 @@ bool observe_auto_rotation_state(bool enabled)
     if (!enabled) {
         s_orientation.desired_rendering_degrees = 0;
         s_orientation.sampled_at_us = changed_at_us;
-        mark_sample_success(s_orientation.component, changed_at_us);
+        if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
+            s_rotation_retry_after_us.load(std::memory_order_acquire) != 0 &&
+            s_orientation.desired_rendering_degrees ==
+                s_orientation.applied_rendering_degrees) {
+            // Cancelling a retryable request is a real reconciliation because
+            // the BSP rollback already restored a consistent panel/touch map.
+            s_rotation_retry_after_us.store(0, std::memory_order_release);
+            s_rotation_failure_latched.store(false, std::memory_order_release);
+        }
+        if (!s_rotation_failure_latched.load(std::memory_order_acquire)) {
+            mark_sample_success(s_orientation.component, changed_at_us);
+        }
     }
     return true;
 }
@@ -1350,7 +1374,19 @@ void process_orientation_sample(
         raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2]
     );
     s_orientation.sampled_at_us = sampled_at_us;
-    mark_sample_success(s_orientation.component, sampled_at_us);
+    if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
+        s_rotation_retry_after_us.load(std::memory_order_acquire) != 0 &&
+        s_orientation.desired_rendering_degrees ==
+            s_orientation.applied_rendering_degrees) {
+        s_rotation_retry_after_us.store(0, std::memory_order_release);
+        s_rotation_failure_latched.store(false, std::memory_order_release);
+    }
+    // A valid IMU sample does not prove that a failed panel/touch rotation or
+    // its persistence succeeded. Retain that structured failure until the
+    // requested rotation is reconciled or a later transaction commits.
+    if (!s_rotation_failure_latched.load(std::memory_order_acquire)) {
+        mark_sample_success(s_orientation.component, sampled_at_us);
+    }
 
     if (magnitude < kOrientationMagnitudeMin ||
         magnitude > kOrientationMagnitudeMax) {
@@ -1507,6 +1543,16 @@ esp_err_t apply_pending_display_rotation()
 {
     if (s_orientation.desired_rendering_degrees ==
         s_orientation.applied_rendering_degrees) {
+        if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
+            s_rotation_retry_after_us.load(std::memory_order_acquire) != 0) {
+            s_rotation_retry_after_us.store(0, std::memory_order_release);
+            s_rotation_failure_latched.store(false, std::memory_order_release);
+            mark_sample_success(
+                s_orientation.component,
+                esp_timer_get_time()
+            );
+            return publish_orientation_state();
+        }
         return ESP_OK;
     }
 
@@ -1514,18 +1560,28 @@ esp_err_t apply_pending_display_rotation()
         bsp_rotation_for_degrees(s_orientation.desired_rendering_degrees)
     );
     if (result == ESP_OK) {
+        s_rotation_retry_blocked.store(false, std::memory_order_release);
+        s_rotation_retry_after_us.store(0, std::memory_order_release);
         s_orientation.applied_rendering_degrees =
             s_orientation.desired_rendering_degrees;
         const esp_err_t persist_error = persist_display_rotation(
             s_orientation.applied_rendering_degrees
         );
         if (persist_error != ESP_OK) {
+            s_rotation_failure_latched.store(true, std::memory_order_release);
             mark_sample_failure(
                 s_orientation.component,
                 persist_error,
                 esp_timer_get_time()
             );
-            (void)publish_orientation_state();
+            const esp_err_t publication_error = publish_orientation_state();
+            if (publication_error != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "Display rotation persistence failure publication failed (%s)",
+                    esp_err_to_name(publication_error)
+                );
+            }
             ESP_LOGE(
                 TAG,
                 "Cardinal display rotation persistence failed (%s)",
@@ -1533,6 +1589,7 @@ esp_err_t apply_pending_display_rotation()
             );
             return persist_error;
         }
+        s_rotation_failure_latched.store(false, std::memory_order_release);
         mark_sample_success(
             s_orientation.component,
             esp_timer_get_time()
@@ -1540,7 +1597,47 @@ esp_err_t apply_pending_display_rotation()
         return publish_orientation_state();
     }
 
+    if (result == BSP_DISPLAY_ERR_ROTATION_INCONSISTENT &&
+        !bsp_display_rotation_is_consistent()) {
+        s_rotation_retry_blocked.store(true, std::memory_order_release);
+        s_rotation_failure_latched.store(true, std::memory_order_release);
+        s_rotation_retry_after_us.store(0, std::memory_order_release);
+        mark_sample_failure(
+            s_orientation.component,
+            result,
+            esp_timer_get_time()
+        );
+        const esp_err_t publication_error = publish_orientation_state();
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Terminal display rotation failure could not be published (%s)",
+                esp_err_to_name(publication_error)
+            );
+        }
+        ESP_LOGE(
+            TAG,
+            "Cardinal display rotation retries blocked: panel/touch state is "
+            "inconsistent"
+        );
+        return result;
+    }
+
     const int64_t now = esp_timer_get_time();
+    s_rotation_failure_latched.store(true, std::memory_order_release);
+    s_rotation_retry_after_us.store(
+        now + static_cast<int64_t>(kOrientationApplyRetryBackoffMs) * 1000LL,
+        std::memory_order_release
+    );
+    mark_sample_failure(s_orientation.component, result, now);
+    const esp_err_t publication_error = publish_orientation_state();
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Deferred display rotation failure publication failed (%s)",
+            esp_err_to_name(publication_error)
+        );
+    }
     if (now - s_orientation.last_error_log_us >= 5000000) {
         s_orientation.last_error_log_us = now;
         ESP_LOGW(
@@ -2723,6 +2820,14 @@ esp_err_t init_rtc(i2c_master_bus_handle_t bus)
             false,
             std::memory_order_release
         );
+        s_rtc_persistence_error_latched.store(
+            ESP_OK,
+            std::memory_order_release
+        );
+        s_rtc_persistence_failure_at_us.store(
+            0,
+            std::memory_order_release
+        );
     }
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.rtc, error == ESP_OK, error);
@@ -2879,8 +2984,14 @@ esp_err_t publish_rtc_read(
     sample.month = time.month;
     sample.year = time.year;
     mark_sample_success(sample, attempted_at_us);
+    const esp_err_t persistence_error =
+        s_rtc_persistence_error_latched.load(std::memory_order_acquire);
+    const int64_t persistence_failure_at_us =
+        s_rtc_persistence_failure_at_us.load(std::memory_order_acquire);
     return update_snapshot(
-        [&sample](LUNASHELL::DeviceSnapshot &snapshot) {
+        [&sample, persistence_error, persistence_failure_at_us](
+            LUNASHELL::DeviceSnapshot &snapshot
+        ) {
             const LUNASHELL::ComponentSnapshot system_time =
                 snapshot.rtc.system_time;
             const bool system_time_valid =
@@ -2908,6 +3019,16 @@ esp_err_t publish_rtc_read(
                 timezone,
                 sizeof(snapshot.rtc.timezone)
             );
+            if (persistence_error != ESP_OK) {
+                // A successful read of the old calendar does not prove that a
+                // failed trusted write persisted. Keep the original failure
+                // and attempt timestamp visible until a write commits.
+                mark_sample_failure(
+                    snapshot.rtc,
+                    persistence_error,
+                    persistence_failure_at_us
+                );
+            }
         }
     );
 }
@@ -4776,8 +4897,9 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
     }
 }
 
-// Capture one selected-microphone window and publish levels plus the validated DFT bank.
-esp_err_t sample_microphone(const char *phase)
+// Capture one selected-microphone window and build the DFT bank only for a
+// caller that owns the explicit spectrum lease.
+esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
 {
     const size_t channel_count = LUNASHELL_audio_input_channel_count();
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -4787,7 +4909,7 @@ esp_err_t sample_microphone(const char *phase)
                 ? ESP_ERR_NOT_SUPPORTED
                 : ESP_ERR_INVALID_RESPONSE;
         const esp_err_t publication_error = update_snapshot(
-            [attempted_at_us, channel_error](
+            [attempted_at_us, channel_error, spectrum_requested](
                 LUNASHELL::DeviceSnapshot &snapshot
             ) {
                 mark_sample_failure(
@@ -4795,6 +4917,13 @@ esp_err_t sample_microphone(const char *phase)
                     channel_error,
                     attempted_at_us
                 );
+                if (spectrum_requested) {
+                    mark_sample_failure(
+                        snapshot.audio.spectrum,
+                        channel_error,
+                        attempted_at_us
+                    );
+                }
             }
         );
         return sample_publication_result(
@@ -4811,12 +4940,21 @@ esp_err_t sample_microphone(const char *phase)
         // conflict instead of presenting the previous diagnostic sample as new.
         constexpr esp_err_t ownership_error = ESP_ERR_NOT_ALLOWED;
         const esp_err_t publication_error = update_snapshot(
-            [attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+            [attempted_at_us, spectrum_requested](
+                LUNASHELL::DeviceSnapshot &snapshot
+            ) {
                 mark_sample_failure(
                     snapshot.audio.microphone,
                     ESP_ERR_NOT_ALLOWED,
                     attempted_at_us
                 );
+                if (spectrum_requested) {
+                    mark_sample_failure(
+                        snapshot.audio.spectrum,
+                        ESP_ERR_NOT_ALLOWED,
+                        attempted_at_us
+                    );
+                }
             }
         );
         ESP_LOGD(
@@ -4832,12 +4970,21 @@ esp_err_t sample_microphone(const char *phase)
     }
     if (!s_microphone_ready) {
         const esp_err_t publication_error = update_snapshot(
-            [attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+            [attempted_at_us, spectrum_requested](
+                LUNASHELL::DeviceSnapshot &snapshot
+            ) {
                 mark_sample_failure(
                     snapshot.audio.microphone,
                     ESP_ERR_NOT_SUPPORTED,
                     attempted_at_us
                 );
+                if (spectrum_requested) {
+                    mark_sample_failure(
+                        snapshot.audio.spectrum,
+                        ESP_ERR_NOT_SUPPORTED,
+                        attempted_at_us
+                    );
+                }
             }
         );
         return sample_publication_result(
@@ -4857,12 +5004,21 @@ esp_err_t sample_microphone(const char *phase)
 
     if (error != ESP_OK) {
         const esp_err_t publication_error = update_snapshot(
-            [error, attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
+            [error, attempted_at_us, spectrum_requested](
+                LUNASHELL::DeviceSnapshot &snapshot
+            ) {
                 mark_sample_failure(
                     snapshot.audio.microphone,
                     error,
                     attempted_at_us
                 );
+                if (spectrum_requested) {
+                    mark_sample_failure(
+                        snapshot.audio.spectrum,
+                        error,
+                        attempted_at_us
+                    );
+                }
             }
         );
         ESP_LOGW(
@@ -4881,7 +5037,7 @@ esp_err_t sample_microphone(const char *phase)
 
     uint32_t absolute_sum[2] = {};
     uint32_t peak[2] = {};
-    AudioSpectrumBands spectrum;
+    AudioSpectrumBands spectrum = {};
     for (size_t index = 0; index < frame_count; ++index) {
         for (size_t channel = 0; channel < channel_count; ++channel) {
             const int16_t raw =
@@ -4896,7 +5052,9 @@ esp_err_t sample_microphone(const char *phase)
             }
         }
     }
-    build_audio_spectrum(spectrum, channel_count);
+    if (spectrum_requested) {
+        build_audio_spectrum(spectrum, channel_count);
+    }
     const uint32_t mean =
         (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
     const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
@@ -4906,7 +5064,7 @@ esp_err_t sample_microphone(const char *phase)
     const uint32_t channel_peak1 = peak[1];
     const esp_err_t publication_error = update_snapshot(
         [&spectrum, mean, aggregate_peak, channel_count, channel_mean0,
-         channel_mean1, channel_peak0, channel_peak1,
+         channel_mean1, channel_peak0, channel_peak1, spectrum_requested,
          attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
             mark_sample_success(
                 snapshot.audio.microphone,
@@ -4921,12 +5079,18 @@ esp_err_t sample_microphone(const char *phase)
             snapshot.audio.channel_mean_level[1] = channel_mean1;
             snapshot.audio.channel_peak_level[0] = channel_peak0;
             snapshot.audio.channel_peak_level[1] = channel_peak1;
-            std::memcpy(
-                snapshot.audio.channel_spectrum,
-                spectrum.value,
-                sizeof(snapshot.audio.channel_spectrum)
-            );
-            ++snapshot.audio.spectrum_sequence;
+            if (spectrum_requested) {
+                std::memcpy(
+                    snapshot.audio.channel_spectrum,
+                    spectrum.value,
+                    sizeof(snapshot.audio.channel_spectrum)
+                );
+                ++snapshot.audio.spectrum_sequence;
+                mark_sample_success(
+                    snapshot.audio.spectrum,
+                    attempted_at_us
+                );
+            }
         }
     );
     if (high_frequency_sample_phase(phase)) {
@@ -4975,6 +5139,10 @@ void diagnostic_monitor_task(void *arg)
             s_diagnostic_imu_active.load(std::memory_order_relaxed);
         const bool diagnostic_microphone_requested =
             s_diagnostic_microphone_active.load(std::memory_order_relaxed);
+        const bool diagnostic_microphone_spectrum_requested =
+            s_diagnostic_microphone_spectrum_active.load(
+                std::memory_order_relaxed
+            );
         const bool diagnostic_imu_active =
             !ui_sampling_power_suspended && diagnostic_imu_requested;
         const bool diagnostic_microphone_active =
@@ -4989,7 +5157,8 @@ void diagnostic_monitor_task(void *arg)
         const bool auto_rotation_requested =
             s_auto_rotation_enabled.load(std::memory_order_relaxed);
         const bool auto_rotation_active =
-            auto_rotation_requested && !ui_sampling_power_suspended;
+            auto_rotation_requested && !ui_sampling_power_suspended &&
+            !s_rotation_retry_blocked.load(std::memory_order_acquire);
         // Observe the persisted preference even while its sampling is gated.
         // Treating standby as a preference change would reset the requested
         // orientation to zero and lose the user's setting.
@@ -5032,6 +5201,9 @@ void diagnostic_monitor_task(void *arg)
         bool effective_diagnostic_imu_due = diagnostic_imu_due;
         bool effective_diagnostic_microphone_due =
             diagnostic_microphone_due;
+        bool effective_diagnostic_microphone_spectrum_due =
+            diagnostic_microphone_due &&
+            diagnostic_microphone_spectrum_requested;
         bool effective_imu_sample_due = imu_sample_due;
 
         if (sampling_due) {
@@ -5067,7 +5239,8 @@ void diagnostic_monitor_task(void *arg)
                     );
                 const bool effective_auto_rotation_active =
                     s_auto_rotation_enabled.load(std::memory_order_acquire) &&
-                    !effective_ui_sampling_power_suspended;
+                    !effective_ui_sampling_power_suspended &&
+                    !s_rotation_retry_blocked.load(std::memory_order_acquire);
                 effective_diagnostic_imu_due =
                     !effective_ui_sampling_power_suspended &&
                     diagnostic_due &&
@@ -5076,6 +5249,11 @@ void diagnostic_monitor_task(void *arg)
                     !effective_ui_sampling_power_suspended &&
                     diagnostic_due &&
                     s_diagnostic_microphone_active.load(
+                        std::memory_order_acquire
+                    );
+                effective_diagnostic_microphone_spectrum_due =
+                    effective_diagnostic_microphone_due &&
+                    s_diagnostic_microphone_spectrum_active.load(
                         std::memory_order_acquire
                     );
                 effective_diagnostic_due =
@@ -5137,7 +5315,10 @@ void diagnostic_monitor_task(void *arg)
                         if (effective_diagnostic_due) {
                             if (effective_diagnostic_microphone_due) {
                                 microphone_sample_error =
-                                    sample_microphone("diagnostic-ui");
+                                    sample_microphone(
+                                        "diagnostic-ui",
+                                        effective_diagnostic_microphone_spectrum_due
+                                    );
                                 record_first_error(
                                     microphone_sample_error,
                                     &aggregate
@@ -5250,10 +5431,18 @@ void diagnostic_monitor_task(void *arg)
             }
         }
 
-        if (!s_ui_sampling_power_suspended.load(std::memory_order_acquire) &&
+        const int64_t rotation_attempt_check_us = esp_timer_get_time();
+        const int64_t rotation_retry_after_us =
+            s_rotation_retry_after_us.load(std::memory_order_acquire);
+        const bool rotation_retry_due =
+            rotation_retry_after_us == 0 ||
+            rotation_attempt_check_us >= rotation_retry_after_us;
+        if (rotation_retry_due &&
+            !s_ui_sampling_power_suspended.load(std::memory_order_acquire) &&
             !s_ui_sampling_orientation_reset_pending.load(
                 std::memory_order_acquire
             ) &&
+            !s_rotation_retry_blocked.load(std::memory_order_acquire) &&
             s_orientation.desired_rendering_degrees !=
                 s_orientation.applied_rendering_degrees) {
             SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
@@ -5262,10 +5451,17 @@ void diagnostic_monitor_task(void *arg)
                     refresh_mutex,
                     pdMS_TO_TICKS(250)
                 ) == pdTRUE) {
-                if (!s_ui_sampling_power_suspended.load(
+                const int64_t locked_retry_after_us =
+                    s_rotation_retry_after_us.load(std::memory_order_acquire);
+                if ((locked_retry_after_us == 0 ||
+                     esp_timer_get_time() >= locked_retry_after_us) &&
+                    !s_ui_sampling_power_suspended.load(
                         std::memory_order_acquire
                     ) &&
                     !s_ui_sampling_orientation_reset_pending.load(
+                        std::memory_order_acquire
+                    ) &&
+                    !s_rotation_retry_blocked.load(
                         std::memory_order_acquire
                     ) &&
                     s_orientation.desired_rendering_degrees !=
@@ -5279,29 +5475,45 @@ void diagnostic_monitor_task(void *arg)
             }
         }
 
+        const int64_t rotation_wait_started_us = esp_timer_get_time();
+        const int64_t pending_retry_after_us =
+            s_rotation_retry_after_us.load(std::memory_order_acquire);
         const bool rotation_apply_pending =
             !s_ui_sampling_power_suspended.load(std::memory_order_acquire) &&
             !s_ui_sampling_orientation_reset_pending.load(
                 std::memory_order_acquire
             ) &&
+            !s_rotation_retry_blocked.load(std::memory_order_acquire) &&
             s_orientation.desired_rendering_degrees !=
                 s_orientation.applied_rendering_degrees;
+        uint32_t rotation_wait_ms = kOrientationSamplePeriodMs;
+        if (rotation_apply_pending && !auto_rotation_active &&
+            pending_retry_after_us > rotation_wait_started_us) {
+            const int64_t remaining_us =
+                pending_retry_after_us - rotation_wait_started_us;
+            rotation_wait_ms = static_cast<uint32_t>(
+                (remaining_us + 999LL) / 1000LL
+            );
+        }
         const bool wait_indefinitely =
             !auto_rotation_active &&
             !rotation_apply_pending &&
             !ui_motion_active &&
             !monitor_active;
-        const TickType_t wait_ticks = wait_indefinitely
+        TickType_t wait_ticks = wait_indefinitely
             ? portMAX_DELAY
             : pdMS_TO_TICKS(
                 auto_rotation_active || rotation_apply_pending
-                    ? kOrientationSamplePeriodMs
+                    ? rotation_wait_ms
                     : ui_motion_active
                         ? ui_motion_period_ms
                         : s_diagnostic_period_ms.load(
                             std::memory_order_relaxed
                         )
             );
+        if (!wait_indefinitely && wait_ticks == 0) {
+            wait_ticks = 1;
+        }
         // Configuration setters notify this task, so an idle monitor has no
         // polling wakeup and any newly requested consumer starts immediately.
         (void)ulTaskNotifyTake(pdTRUE, wait_ticks);
@@ -6024,30 +6236,33 @@ esp_err_t DeviceSnapshotService::initialize()
     if (error == ESP_ERR_NOT_SUPPORTED) {
         update_snapshot([error](DeviceSnapshot &snapshot) {
             set_component(snapshot.audio.microphone, false, error);
+            set_component(snapshot.audio.spectrum, false, error);
             set_component(snapshot.audio.speaker, false, error);
         });
         ESP_LOGI(TAG, "Audio codecs: disabled by board hardware selection");
     } else if (error != ESP_OK) {
         update_snapshot([error](DeviceSnapshot &snapshot) {
             set_component(snapshot.audio.microphone, false, error);
+            set_component(snapshot.audio.spectrum, false, error);
             set_component(snapshot.audio.speaker, false, error);
         });
         record_optional_chip("audio codecs", error);
     } else {
         s_microphone_ready = LUNASHELL_audio_input_channel_count() > 0;
         if (s_microphone_ready) {
-            error = sample_microphone("initial");
+            error = sample_microphone("initial", false);
             record_optional_chip("microphones", error);
         } else {
             update_snapshot([](DeviceSnapshot &snapshot) {
                 set_component(snapshot.audio.microphone, false, ESP_ERR_NOT_SUPPORTED);
+                set_component(snapshot.audio.spectrum, false, ESP_ERR_NOT_SUPPORTED);
             });
             ESP_LOGI(TAG, "Microphones: disabled by board hardware selection");
         }
     }
 
     s_initialized = true;
-    error = LUNASHELL_hardware_set_diagnostic_streams(false, false);
+    error = LUNASHELL_hardware_set_diagnostic_streams(false, false, false);
     if (error != ESP_OK) {
         s_initialization_result = error;
         return error;
@@ -6179,7 +6394,10 @@ esp_err_t DeviceSnapshotService::refresh(
                 reused_diagnostic_microphone_at_us =
                     committed_diagnostic_microphone_at_us;
             } else {
-                record_first_error(sample_microphone(phase), &aggregate);
+                record_first_error(
+                    sample_microphone(phase, false),
+                    &aggregate
+                );
             }
         }
         record_first_error(sample_system_state(), &aggregate);
@@ -6670,6 +6888,7 @@ void DeviceSnapshotService::reportDistance(const DistanceSnapshot &distance)
 void DeviceSnapshotService::reportDiagnosticMonitor(
     bool imu_monitor_active,
     bool microphone_monitor_active,
+    bool microphone_spectrum_monitor_active,
     esp_err_t error
 )
 {
@@ -6683,6 +6902,8 @@ void DeviceSnapshotService::reportDiagnosticMonitor(
                     imu_monitor_active;
                 snapshot.diagnostics.microphone_monitor_active =
                     microphone_monitor_active;
+                snapshot.diagnostics.microphone_spectrum_monitor_active =
+                    microphone_spectrum_monitor_active;
                 mark_sample_success(
                     snapshot.diagnostics.monitor,
                     attempted_at_us
@@ -7121,6 +7342,10 @@ static esp_err_t ensure_hardware_monitor_task_locked()
     }
     s_diagnostic_imu_active.store(false, std::memory_order_relaxed);
     s_diagnostic_microphone_active.store(false, std::memory_order_relaxed);
+    s_diagnostic_microphone_spectrum_active.store(
+        false,
+        std::memory_order_relaxed
+    );
     s_ui_motion_monitor_active.store(false, std::memory_order_relaxed);
     s_ui_motion_monitor_standby.store(false, std::memory_order_relaxed);
     TaskHandle_t task = nullptr;
@@ -7214,9 +7439,18 @@ extern "C" esp_err_t LUNASHELL_hardware_take_power_key_events(
 
 extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
     bool imu_enabled,
-    bool microphone_enabled
+    bool microphone_enabled,
+    bool microphone_spectrum_enabled
 )
 {
+    if (microphone_spectrum_enabled && !microphone_enabled) {
+        publish_diagnostic_monitor(ESP_ERR_INVALID_ARG);
+        ESP_LOGE(
+            TAG,
+            "Diagnostic streams rejected: spectrum requires microphone capture"
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!s_initialized) {
         publish_diagnostic_monitor(ESP_ERR_INVALID_STATE);
         ESP_LOGE(
@@ -7285,6 +7519,10 @@ extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
         microphone_enabled,
         std::memory_order_release
     );
+    s_diagnostic_microphone_spectrum_active.store(
+        microphone_spectrum_enabled,
+        std::memory_order_release
+    );
     const esp_err_t release_error = give_refresh_mutex(
         refresh_mutex,
         "Diagnostic stream selection"
@@ -7298,9 +7536,10 @@ extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
     publish_diagnostic_monitor(ESP_OK);
     ESP_LOGI(
         TAG,
-        "Diagnostic streams: IMU=%s microphone=%s",
+        "Diagnostic streams: IMU=%s microphone=%s spectrum=%s",
         imu_enabled ? "active" : "standby",
-        microphone_enabled ? "active" : "standby"
+        microphone_enabled ? "active" : "standby",
+        microphone_spectrum_enabled ? "active" : "standby"
     );
     return ESP_OK;
 }
@@ -7826,6 +8065,9 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
     s_orientation.persisted_rendering_valid = true;
     s_orientation.persisted_rendering_degrees =
         static_cast<uint16_t>(saved_rendering_degrees);
+    s_rotation_retry_blocked.store(false, std::memory_order_release);
+    s_rotation_failure_latched.store(false, std::memory_order_release);
+    s_rotation_retry_after_us.store(0, std::memory_order_release);
     s_orientation.applied_rendering_degrees = applied_degrees;
     s_orientation.physical_degrees = rendering_rotation_for_physical(
         static_cast<uint16_t>(saved_rendering_degrees)
@@ -8178,6 +8420,19 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
                 error = ESP_ERR_INVALID_RESPONSE;
             }
         }
+        if (error == ESP_OK) {
+            // Clear the old latch before publishing the newly committed write.
+            // If publication itself fails, the result below restores a latch
+            // with that real error and the same attempt timestamp.
+            s_rtc_persistence_error_latched.store(
+                ESP_OK,
+                std::memory_order_release
+            );
+            s_rtc_persistence_failure_at_us.store(
+                0,
+                std::memory_order_release
+            );
+        }
         publication_error =
             publish_rtc_read(published, error, attempted_at_us);
     } else {
@@ -8224,10 +8479,21 @@ extern "C" esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time)
             std::memory_order_release
         );
     }
-    return sample_publication_result(
+    const esp_err_t result = sample_publication_result(
         "RTC PCF85063",
         "write",
         error,
         publication_error
     );
+    if (result != ESP_OK) {
+        s_rtc_persistence_failure_at_us.store(
+            attempted_at_us,
+            std::memory_order_release
+        );
+        s_rtc_persistence_error_latched.store(
+            result,
+            std::memory_order_release
+        );
+    }
+    return result;
 }

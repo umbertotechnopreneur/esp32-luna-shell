@@ -23,6 +23,7 @@ constexpr char kPeriodSetting[] = "snapshot_ms";
 constexpr char kRefreshReason[] = "periodic-full";
 constexpr uint32_t kDefaultPeriodMs = 1000;
 constexpr uint32_t kPowerSuspendTimeoutMs = 5000;
+constexpr uint32_t kRefreshErrorReminderMs = 60U * 1000U;
 constexpr EventBits_t kWorkerQuiescentBit =
     static_cast<EventBits_t>(1U << 0);
 // A full refresh keeps two DeviceSnapshot values on the caller stack.
@@ -47,6 +48,73 @@ std::mutex s_power_transition_mutex;
 StaticTask_t s_task_control{};
 StackType_t s_task_stack[kTaskStackBytes]{};
 StaticEventGroup_t s_task_event_storage{};
+
+struct RefreshErrorState {
+    esp_err_t last_error = ESP_OK;
+    TickType_t last_report_tick = 0;
+    uint32_t repeated_count = 0;
+};
+
+void report_periodic_refresh_result(
+    esp_err_t refresh_error,
+    RefreshErrorState &state
+)
+{
+    if (refresh_error == ESP_OK) {
+        if (state.last_error != ESP_OK) {
+            ESP_LOGI(
+                kTag,
+                "Periodic Full Snapshot refresh recovered from %s; "
+                "%lu repeated aggregate failures since the previous report",
+                esp_err_to_name(state.last_error),
+                static_cast<unsigned long>(state.repeated_count)
+            );
+        }
+        state = {};
+        return;
+    }
+
+    const TickType_t now_tick = xTaskGetTickCount();
+    if (state.last_error != refresh_error) {
+        if (state.last_error != ESP_OK && state.repeated_count > 0U) {
+            ESP_LOGW(
+                kTag,
+                "Previous periodic Full Snapshot error %s repeated %lu "
+                "additional times before changing",
+                esp_err_to_name(state.last_error),
+                static_cast<unsigned long>(state.repeated_count)
+            );
+        }
+        ESP_LOGE(
+            kTag,
+            "Periodic Full Snapshot refresh failed (%s)",
+            esp_err_to_name(refresh_error)
+        );
+        state.last_error = refresh_error;
+        state.last_report_tick = now_tick;
+        state.repeated_count = 0;
+        return;
+    }
+
+    if (state.repeated_count < UINT32_MAX) {
+        ++state.repeated_count;
+    }
+    const TickType_t reminder_ticks =
+        pdMS_TO_TICKS(kRefreshErrorReminderMs);
+    if (now_tick - state.last_report_tick < reminder_ticks) {
+        return;
+    }
+
+    ESP_LOGE(
+        kTag,
+        "Periodic Full Snapshot refresh remains unavailable "
+        "(%s; repeated=%lu since the previous report)",
+        esp_err_to_name(refresh_error),
+        static_cast<unsigned long>(state.repeated_count)
+    );
+    state.last_report_tick = now_tick;
+    state.repeated_count = 0;
+}
 
 void publish_period(uint32_t period_ms, esp_err_t error)
 {
@@ -139,6 +207,7 @@ void full_snapshot_task(void *)
 {
     bool stack_reported = false;
     bool watch_active = false;
+    RefreshErrorState refresh_error_state;
     while (true) {
         if (!s_monitor_active.load(std::memory_order_acquire)) {
             if (watch_active) {
@@ -198,13 +267,11 @@ void full_snapshot_task(void *)
                 kRefreshReason,
                 diagnostic_reuse_limit_ms
             );
-        if (refresh_error != ESP_OK) {
-            ESP_LOGE(
-                kTag,
-                "Periodic Full Snapshot refresh failed (%s)",
-                esp_err_to_name(refresh_error)
-            );
-        }
+        // Individual samplers log each new hardware or publication failure.
+        // Coalesce only this aggregate result so a retained component state
+        // (for example, the RTC oscillator-stop latch) cannot create a serial
+        // log storm while its original error remains published and returned.
+        report_periodic_refresh_result(refresh_error, refresh_error_state);
         liveness_result = LUNASHELL_liveness_watch_progress(
             LUNASHELL_LIVENESS_SNAPSHOT
         );

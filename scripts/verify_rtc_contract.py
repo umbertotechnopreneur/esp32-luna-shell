@@ -175,6 +175,54 @@ def rtc_write_readback_matches(
     return observed_at in (requested_at, next_at)
 
 
+def gps_sync_decision(
+    *,
+    trusted_fix_observed: bool,
+    system_time_valid: bool,
+    drift_us: int,
+    last_persisted_epoch: int,
+    gps_epoch: int,
+) -> tuple[bool, bool]:
+    """Executable specification for coalesced GNSS clock persistence."""
+
+    system_sync_required = (
+        not trusted_fix_observed or
+        not system_time_valid or
+        abs(drift_us) >= 2_000_000
+    )
+    persisted_delta_seconds = (
+        6 * 60 * 60
+        if last_persisted_epoch == 0
+        else abs(gps_epoch - last_persisted_epoch)
+    )
+    rtc_persistence_required = (
+        system_sync_required or
+        persisted_delta_seconds >= 6 * 60 * 60
+    )
+    return system_sync_required, rtc_persistence_required
+
+
+def rtc_retry_delay_seconds(previous_delay_seconds: int) -> int:
+    """Executable specification for bounded RTC persistence backoff."""
+
+    if previous_delay_seconds == 0:
+        return 30
+    if previous_delay_seconds <= (30 * 60) // 2:
+        return previous_delay_seconds * 2
+    return 30 * 60
+
+
+def rtc_retry_decision(
+    *,
+    now_us: int,
+    retry_after_us: int,
+    retained_error: int,
+) -> tuple[bool, int]:
+    if retry_after_us != 0 and now_us < retry_after_us:
+        return False, retained_error
+    return True, ESP_OK
+
+
 def function_text(text: str, signature: str, source: str) -> str:
     signature_at = text.find(signature)
     require(signature_at >= 0, f"{signature!r} missing from {source}")
@@ -355,6 +403,65 @@ def verify_latch_model() -> None:
     require(not reset.integrity, "model reset fixture must carry OS state")
 
 
+def verify_gps_sync_model() -> None:
+    first = gps_sync_decision(
+        trusted_fix_observed=False,
+        system_time_valid=True,
+        drift_us=0,
+        last_persisted_epoch=0,
+        gps_epoch=1_800_000_000,
+    )
+    require(first == (True, True), "first trusted GPS fix must fully synchronize")
+
+    steady = gps_sync_decision(
+        trusted_fix_observed=True,
+        system_time_valid=True,
+        drift_us=250_000,
+        last_persisted_epoch=1_800_000_000,
+        gps_epoch=1_800_000_001,
+    )
+    require(steady == (False, False), "steady GPS fixes must be coalesced")
+
+    drifted = gps_sync_decision(
+        trusted_fix_observed=True,
+        system_time_valid=True,
+        drift_us=2_000_000,
+        last_persisted_epoch=1_800_000_000,
+        gps_epoch=1_800_000_002,
+    )
+    require(drifted == (True, True), "clock drift must synchronize and persist")
+
+    interval = gps_sync_decision(
+        trusted_fix_observed=True,
+        system_time_valid=True,
+        drift_us=0,
+        last_persisted_epoch=1_800_000_000,
+        gps_epoch=1_800_000_000 + 6 * 60 * 60,
+    )
+    require(interval == (False, True), "RTC maximum persistence interval was lost")
+
+    delay = 0
+    for expected in (30, 60, 120, 240, 480, 960, 1800, 1800):
+        delay = rtc_retry_delay_seconds(delay)
+        require(delay == expected, "RTC retry backoff is not bounded exponential")
+    require(
+        rtc_retry_decision(
+            now_us=1_000_000,
+            retry_after_us=2_000_000,
+            retained_error=ESP_ERR_INVALID_RESPONSE,
+        ) == (False, ESP_ERR_INVALID_RESPONSE),
+        "RTC backoff must retain the original persistence error",
+    )
+    require(
+        rtc_retry_decision(
+            now_us=2_000_000,
+            retry_after_us=2_000_000,
+            retained_error=ESP_ERR_INVALID_RESPONSE,
+        ) == (True, ESP_OK),
+        "RTC persistence retry did not become due at its deadline",
+    )
+
+
 def main() -> int:
     hardware = HARDWARE.read_text(encoding="utf-8")
     time_source = TIME.read_text(encoding="utf-8")
@@ -399,6 +506,28 @@ def main() -> int:
         rtc_publish,
         "snapshot.rtc.year = time.year;",
         "RTC recovery-state publication",
+    )
+    for fragment in (
+        "s_rtc_persistence_error_latched.load(",
+        "s_rtc_persistence_failure_at_us.load(",
+        "if (persistence_error != ESP_OK)",
+        "mark_sample_failure(",
+        "persistence_failure_at_us",
+    ):
+        require_contains(
+            rtc_publish,
+            fragment,
+            "latched RTC persistence failure publication",
+        )
+    rtc_success_copy_at = rtc_publish.find("snapshot.rtc = sample;")
+    rtc_persistence_guard_at = rtc_publish.find(
+        "if (persistence_error != ESP_OK)",
+        rtc_success_copy_at,
+    )
+    require(
+        0 <= rtc_success_copy_at < rtc_persistence_guard_at,
+        "a successful RTC read must restore a pending write failure after "
+        "copying current calendar data",
     )
     require_contains(
         hardware,
@@ -603,13 +732,160 @@ def main() -> int:
         recovery_at < readback_at < publish_at < success_at < generation_at < clear_at,
         "RTC recovery must verify and publish before advancing generation or clearing",
     )
+    for fragment in (
+        "s_rtc_persistence_error_latched.store(",
+        "s_rtc_persistence_failure_at_us.store(",
+        "const esp_err_t result = sample_publication_result(",
+        "if (result != ESP_OK)",
+    ):
+        require_contains(
+            rtc_write,
+            fragment,
+            "RTC persistence failure latch",
+        )
 
     for fragment in (
         "config.sync_cb = sntp_sync_callback;",
         "persist_epoch_to_rtc(time_value->tv_sec)",
-        'apply_utc_calendar(year, month, day, hour, minute, second, "gps")',
+        "kGpsSystemResyncDriftUs",
+        "kGpsRtcPersistenceIntervalSeconds",
+        "kRtcPersistenceRetryInitialSeconds",
+        "kRtcPersistenceRetryMaximumSeconds",
     ):
         require_contains(time_source, fragment, "real UTC synchronization")
+    sntp_callback = function_text(
+        time_source,
+        "void sntp_sync_callback(",
+        "SNTP callback",
+    )
+    require_contains(
+        sntp_callback,
+        'report_time(true, true, "sntp", ESP_OK);',
+        "SNTP system-time publication",
+    )
+    sntp_lock_at = sntp_callback.find(
+        "std::lock_guard<std::mutex> sync_lock(s_sync_mutex)"
+    )
+    sntp_validation_at = sntp_callback.find(
+        "if (time_value == nullptr || !epoch_valid(time_value->tv_sec))"
+    )
+    require(
+        0 <= sntp_lock_at < sntp_validation_at,
+        "SNTP success and invalid-sample publications must share the UTC sync "
+        "transaction",
+    )
+    sntp_invalid_end = sntp_callback.find(
+        "const esp_err_t rtc_result",
+        sntp_validation_at,
+    )
+    sntp_invalid_path = sntp_callback[sntp_validation_at:sntp_invalid_end]
+    require_contains(
+        sntp_invalid_path,
+        "report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_RESPONSE)",
+        "invalid SNTP publication",
+    )
+    require(
+        'report_time(false, false, "none", ESP_ERR_INVALID_RESPONSE)' not in
+        sntp_invalid_path,
+        "an invalid SNTP sample must not blindly invalidate a trusted clock",
+    )
+    preserve_clock = function_text(
+        time_source,
+        "void report_time_failure_preserving_valid_clock(",
+        "SNTP clock preservation",
+    )
+    for fragment in (
+        "s_reported_system_time_valid &&",
+        "gettimeofday(&current_time, nullptr) == 0",
+        "epoch_valid(current_time.tv_sec)",
+        "s_reported_system_time_source",
+        "error",
+    ):
+        require_contains(
+            preserve_clock,
+            fragment,
+            "truthful invalid SNTP publication",
+        )
+    time_init = function_text(
+        time_source,
+        'extern "C" esp_err_t LUNASHELL_time_init(',
+        "time initialization",
+    )
+    time_notify = function_text(
+        time_source,
+        'extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(',
+        "Wi-Fi-to-SNTP notification",
+    )
+    for body, first_shared_state, source in (
+        (time_init, "if (s_initialized)", "time initialization"),
+        (time_notify, "if (!s_initialized)", "SNTP start notification"),
+    ):
+        lock_at = body.find(
+            "std::lock_guard<std::mutex> sync_lock(s_sync_mutex)"
+        )
+        shared_state_at = body.find(first_shared_state)
+        require(
+            0 <= lock_at < shared_state_at,
+            f"{source} must serialize time-service state before its first read",
+        )
+    sntp_deferred_at = time_init.find("config.start = false;")
+    sntp_init_at = time_init.find("esp_netif_sntp_init(&config)")
+    require(
+        0 <= sntp_deferred_at < sntp_init_at,
+        "time initialization must keep SNTP callbacks deferred while holding "
+        "the service-state transaction",
+    )
+    notify_lock_at = time_notify.find(
+        "std::lock_guard<std::mutex> sync_lock(s_sync_mutex)"
+    )
+    sntp_start_at = time_notify.find("esp_netif_sntp_start()")
+    require(
+        0 <= notify_lock_at < sntp_start_at,
+        "SNTP start must run inside the serialized time-service transaction",
+    )
+    gps_sync = function_text(
+        time_source,
+        'extern "C" esp_err_t LUNASHELL_time_sync_from_gps(',
+        "GPS synchronization",
+    )
+    for fragment in (
+        "system_sync_required",
+        "rtc_persistence_required",
+        'apply_system_utc(gps_epoch, "gps")',
+        'report_time(true, true, "gps", ESP_OK);',
+        "persist_epoch_to_rtc(gps_epoch)",
+        "s_initialization_result = rtc_result;",
+        "record_rtc_persistence_failure(",
+        "record_rtc_persistence_success(gps_epoch);",
+        "return s_rtc_persistence_error;",
+    ):
+        require_contains(gps_sync, fragment, "coalesced GPS synchronization")
+    gps_sync_gate_at = gps_sync.find("if (system_sync_required)")
+    gps_snapshot_repair_at = gps_sync.find(
+        'report_time(true, true, "gps", ESP_OK);',
+        gps_sync_gate_at,
+    )
+    gps_rtc_gate_at = gps_sync.find(
+        "if (!rtc_persistence_required)",
+        gps_snapshot_repair_at,
+    )
+    require(
+        0 <= gps_sync_gate_at < gps_snapshot_repair_at < gps_rtc_gate_at,
+        "a coalesced GPS fix must repair the system-time snapshot before the "
+        "RTC persistence fast path returns",
+    )
+    gps_retry_gate_at = gps_sync.find(
+        "if (s_rtc_persistence_retry_after_us != 0)",
+        gps_rtc_gate_at,
+    )
+    gps_persist_at = gps_sync.find(
+        "persist_epoch_to_rtc(gps_epoch)",
+        gps_retry_gate_at,
+    )
+    require(
+        0 <= gps_rtc_gate_at < gps_retry_gate_at < gps_persist_at,
+        "RTC persistence backoff must gate physical writes after the cadence gate",
+    )
     require_contains(
         wifi,
         "LUNASHELL_time_notify_wifi_online();",
@@ -622,11 +898,13 @@ def main() -> int:
     )
 
     verify_latch_model()
+    verify_gps_sync_model()
 
     print(
         "RTC contract verification: PASS "
         "(OS latch, conditional recovery readback, generation race, "
-        "trusted epoch, SNTP/GPS persistence)"
+        "trusted epoch, truthful SNTP state, retained persistence errors, "
+        "coalesced GPS persistence, bounded retry)"
     )
     return 0
 

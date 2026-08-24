@@ -18,6 +18,7 @@
 #include "freertos/event_groups.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
+#include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_settings.hpp"
 
@@ -25,10 +26,20 @@ namespace {
 
 const char *TAG = "LUNASHELL_storage";
 constexpr char kLoggerMirrorSetting[] = "sd_mirror";
-constexpr uint32_t kStorageStatusPollMs = 1000;
+// Keep the protocol-level card check responsive, but coalesce expensive FAT
+// space walks after writes and refresh an otherwise idle measurement at 60 s.
+constexpr uint32_t kStorageHealthPollMs = 1000;
+constexpr uint32_t kStorageSpaceWriteRefreshMs = 10000;
+constexpr uint32_t kStorageSpaceRefreshMs = 60000;
 constexpr uint32_t kInitialRetrySeconds = 15;
 constexpr uint32_t kMaximumRetrySeconds = 120;
 constexpr uint32_t kPowerSuspendTimeoutMs = 5000;
+constexpr uint32_t kStorageFormatWatchdogDeadlineMs = 12000;
+static_assert(
+    CONFIG_ESP_TASK_WDT_TIMEOUT_S * 1000U ==
+        kStorageFormatWatchdogDeadlineMs,
+    "The identity-bound SD format policy requires its reviewed hard deadline"
+);
 constexpr EventBits_t kWorkerQuiescentBit =
     static_cast<EventBits_t>(1U << 0);
 constexpr EventBits_t kWorkerResumeCompleteBit =
@@ -58,6 +69,49 @@ bool s_format_candidate_valid;
 bsp_sdcard_identity_t s_format_candidate_identity;
 uint32_t s_format_candidate_attempt;
 LUNASHELL::StorageMountReport s_last_mount_report;
+bool s_space_refresh_tick_valid;
+TickType_t s_last_space_refresh_tick;
+uint32_t s_last_space_write_sequence;
+bool s_space_refresh_requested;
+
+esp_err_t logger_watch_begin()
+{
+    return LUNASHELL_liveness_watch_begin(LUNASHELL_LIVENESS_LOGGER);
+}
+
+esp_err_t logger_watch_end(esp_err_t operation_result)
+{
+    return LUNASHELL_liveness_watch_end(
+        LUNASHELL_LIVENESS_LOGGER,
+        operation_result
+    );
+}
+
+constexpr LUNASHELL_logger_io_watch_t kLoggerIoWatch{
+    .begin = logger_watch_begin,
+    .end = logger_watch_end,
+};
+
+template <typename Operation>
+esp_err_t run_watched_storage_io(
+    LUNASHELL_liveness_point_t point,
+    const char *operation_name,
+    Operation operation
+)
+{
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(point);
+    if (watch_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "SD %s watchdog start failed (%s)",
+            operation_name,
+            esp_err_to_name(watch_error)
+        );
+        return watch_error;
+    }
+    const esp_err_t operation_error = operation();
+    return LUNASHELL_liveness_watch_end(point, operation_error);
+}
 
 // Combine user intent with independent runtime suspension reasons.
 bool logger_mirror_should_run_locked()
@@ -357,7 +411,9 @@ LUNASHELL::StorageMountReport make_mount_report(
     return report;
 }
 
-esp_err_t refresh_logger_status_locked()
+esp_err_t refresh_logger_status_locked(
+    LUNASHELL_logger_sd_status_t *observed_status = nullptr
+)
 {
     LUNASHELL_logger_sd_status_t status = {};
     const esp_err_t query_error = LUNASHELL_logger_get_sd_status(&status);
@@ -381,12 +437,17 @@ esp_err_t refresh_logger_status_locked()
         return query_error;
     }
 
+    if (observed_status != nullptr) {
+        *observed_status = status;
+    }
     s_logger_mirror_enabled = status.enabled;
     esp_err_t reported_error = status.last_error;
     const bool should_run = logger_mirror_should_run_locked();
     esp_err_t action_error = should_run ? status.last_error : ESP_OK;
     if (s_mounted && status.enabled != should_run) {
-        action_error = ESP_ERR_INVALID_STATE;
+        action_error = status.last_error != ESP_OK
+            ? status.last_error
+            : ESP_ERR_INVALID_STATE;
         if (reported_error == ESP_OK) {
             reported_error = action_error;
         }
@@ -437,6 +498,84 @@ esp_err_t apply_effective_logger_mirror_locked()
         return operation_error;
     }
     return refresh_logger_status_locked();
+}
+
+// Complete a logger-mirror rollback while the storage ownership lock is held.
+// Keep the transition failure as the primary storage error and publish the
+// rollback failure separately as cleanup_error. A live mount whose logger
+// ownership cannot be restored is terminal for this boot; an unmounted service
+// remains explicitly unresolved so a later mount can reconcile the backend.
+esp_err_t finish_logger_transition_rollback_locked(
+    const char *owner,
+    const char *failed_phase,
+    esp_err_t transition_error,
+    esp_err_t rollback_error
+)
+{
+    if (rollback_error == ESP_OK) {
+        publish_mount_report_locked(s_last_mount_report);
+        ESP_LOGE(
+            TAG,
+            "%s SD mirror %s failed (%s); backend rollback completed",
+            owner,
+            failed_phase,
+            esp_err_to_name(transition_error)
+        );
+        return transition_error;
+    }
+
+    // `apply_effective_logger_mirror_locked` returns before its status query
+    // when the backend operation itself fails. Query once here so the mirror
+    // component publishes the real asynchronous writer state as well.
+    const esp_err_t status_error = refresh_logger_status_locked();
+    if (status_error != ESP_OK && status_error != rollback_error) {
+        ESP_LOGE(
+            TAG,
+            "%s SD mirror rollback status also failed (%s)",
+            owner,
+            esp_err_to_name(status_error)
+        );
+    }
+
+    LUNASHELL::StorageMountReport report = s_last_mount_report;
+    report.error = transition_error;
+    report.cleanup_error = rollback_error;
+    report.cleanup_complete = false;
+    report.poisoned = s_mounted;
+    if (s_mounted) {
+        s_terminal_failure = true;
+    }
+    publish_mount_report_locked(report);
+    ESP_LOGE(
+        TAG,
+        "%s SD mirror %s failed (%s); rollback failed (%s), storage ownership is %s",
+        owner,
+        failed_phase,
+        esp_err_to_name(transition_error),
+        esp_err_to_name(rollback_error),
+        s_terminal_failure
+            ? "terminal for this boot"
+            : "unmounted and explicitly unresolved"
+    );
+    return rollback_error;
+}
+
+// Restore the exact backend state associated with the previous Performance
+// Mode reason and apply the shared terminal/unresolved rollback policy.
+esp_err_t rollback_performance_storage_locked(
+    bool previous_suspended,
+    const char *failed_phase,
+    esp_err_t transition_error
+)
+{
+    s_performance_suspended = previous_suspended;
+    const esp_err_t rollback_error = apply_effective_logger_mirror_locked();
+    return finish_logger_transition_rollback_locked(
+        "Performance Mode",
+        failed_phase,
+        transition_error,
+        rollback_error
+    );
 }
 
 MountAttempt begin_mount_attempt()
@@ -509,6 +648,7 @@ void publish_failed_mount(
     std::lock_guard<std::mutex> lock(s_storage_mutex);
     s_mounted = false;
     s_logger_mirror_enabled = false;
+    s_space_refresh_requested = false;
     s_terminal_failure =
         disposition == MountFailureDisposition::Terminal;
     s_waiting_for_format_authorization =
@@ -566,8 +706,38 @@ esp_err_t mount_once()
     );
 
     bsp_sdcard_mount_result_t result = {};
-    const esp_err_t mount_error =
-        bsp_sdcard_mount(&attempt.request, &result);
+    if (attempt.request.format_authorized) {
+        ESP_LOGW(
+            TAG,
+            "Single-use SD format attempt uses dedicated watchdog domain; "
+            "hard deadline=%lu ms",
+            static_cast<unsigned long>(
+                kStorageFormatWatchdogDeadlineMs
+            )
+        );
+    }
+    bool mount_invoked = false;
+    const LUNASHELL_liveness_point_t watch_point =
+        attempt.request.format_authorized
+            ? LUNASHELL_LIVENESS_STORAGE_FORMAT
+            : LUNASHELL_LIVENESS_STORAGE;
+    const esp_err_t mount_error = run_watched_storage_io(
+        watch_point,
+        attempt.request.format_authorized ? "format/mount" : "mount",
+        [&attempt, &result, &mount_invoked]() {
+            mount_invoked = true;
+            return bsp_sdcard_mount(&attempt.request, &result);
+        }
+    );
+    if (!mount_invoked) {
+        result.outcome = BSP_SDCARD_MOUNT_OUTCOME_INTERNAL_FAILED;
+        result.stage = BSP_SDCARD_STAGE_REQUEST;
+        result.error = mount_error;
+        result.cleanup_error = ESP_OK;
+        result.cleanup_complete = true;
+        result.authorization_consumed =
+            attempt.request.format_authorized;
+    }
     if (mount_error != ESP_OK || !result.mounted) {
         publish_failed_mount(result, attempt, mount_error);
         return mount_error;
@@ -586,12 +756,17 @@ esp_err_t mount_once()
 
     uint64_t filesystem_total = 0;
     uint64_t filesystem_free = 0;
-    const esp_err_t info_error =
-        esp_vfs_fat_info(
-            BSP_SD_MOUNT_POINT,
-            &filesystem_total,
-            &filesystem_free
-        );
+    const esp_err_t info_error = run_watched_storage_io(
+        LUNASHELL_LIVENESS_STORAGE,
+        "space query after mount",
+        [&filesystem_total, &filesystem_free]() {
+            return esp_vfs_fat_info(
+                BSP_SD_MOUNT_POINT,
+                &filesystem_total,
+                &filesystem_free
+            );
+        }
+    );
     if (info_error != ESP_OK) {
         ESP_LOGE(
             TAG,
@@ -613,33 +788,63 @@ esp_err_t mount_once()
     bool logger_mirror_enabled = false;
     bool power_suspended = false;
     bool performance_suspended = false;
+    LUNASHELL_logger_sd_status_t logger_status = {};
+    esp_err_t terminal_mount_error = ESP_OK;
     {
         std::lock_guard<std::mutex> lock(s_storage_mutex);
-        s_mounted = true;
-        s_terminal_failure = false;
-        s_waiting_for_format_authorization = false;
-        clear_format_candidate_locked();
-        logger_mirror_requested = logger_mirror_should_run_locked();
-        power_suspended = s_power_suspended;
-        performance_suspended = s_performance_suspended;
+        if (s_terminal_failure) {
+            terminal_mount_error = s_last_mount_report.error != ESP_OK
+                ? s_last_mount_report.error
+                : ESP_ERR_INVALID_STATE;
+            report.error = terminal_mount_error;
+            // The BSP completed and still owns this mount. Preserve that fact,
+            // but do not enable a logger whose lifecycle is terminal.
+            s_mounted = true;
+            publish_mount_report_locked(report);
+        } else {
+            s_mounted = true;
+            s_terminal_failure = false;
+            s_waiting_for_format_authorization = false;
+            clear_format_candidate_locked();
+            logger_mirror_requested = logger_mirror_should_run_locked();
+            power_suspended = s_power_suspended;
+            performance_suspended = s_performance_suspended;
 
-        const esp_err_t logger_operation =
-            logger_mirror_requested
-                ? LUNASHELL_logger_enable_sd(BSP_SD_MOUNT_POINT)
-                : LUNASHELL_logger_disable_sd();
-        if (logger_operation != ESP_OK) {
-            ESP_LOGE(
-                TAG,
-                "Applying SD logger mirror preference failed (%s)",
-                esp_err_to_name(logger_operation)
-            );
+            const esp_err_t logger_operation =
+                logger_mirror_requested
+                    ? LUNASHELL_logger_enable_sd(BSP_SD_MOUNT_POINT)
+                    : LUNASHELL_logger_disable_sd();
+            if (logger_operation != ESP_OK) {
+                ESP_LOGE(
+                    TAG,
+                    "Applying SD logger mirror preference failed (%s)",
+                    esp_err_to_name(logger_operation)
+                );
+            }
+            record_first_error(logger_operation, &aggregate);
+            const esp_err_t logger_status_error =
+                refresh_logger_status_locked(&logger_status);
+            record_first_error(logger_status_error, &aggregate);
+            logger_mirror_enabled = s_logger_mirror_enabled;
+            if (info_error == ESP_OK) {
+                s_last_space_refresh_tick = xTaskGetTickCount();
+                s_space_refresh_tick_valid = true;
+                s_last_space_write_sequence =
+                    logger_status.persisted_write_sequence;
+            } else {
+                s_space_refresh_tick_valid = false;
+            }
+            publish_mount_report_locked(report);
         }
-        record_first_error(logger_operation, &aggregate);
-        const esp_err_t logger_status_error =
-            refresh_logger_status_locked();
-        record_first_error(logger_status_error, &aggregate);
-        logger_mirror_enabled = s_logger_mirror_enabled;
-        publish_mount_report_locked(report);
+    }
+
+    if (terminal_mount_error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "SD mount completed after a terminal logger transition; mount retained without mirroring (%s)",
+            esp_err_to_name(terminal_mount_error)
+        );
+        return terminal_mount_error;
     }
 
     ESP_LOGI(
@@ -683,6 +888,15 @@ esp_err_t invalidate_mounted_card(
         stage == LUNASHELL::StorageMountStage::RuntimeStatus &&
         card_transport_error_is_explicitly_transient(primary_error);
     std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_terminal_failure) {
+        ESP_LOGE(
+            TAG,
+            "Mounted SD invalidation skipped because ownership is already terminal: stage=%s error=%s",
+            stage_name(stage),
+            esp_err_to_name(primary_error)
+        );
+        return primary_error;
+    }
     LUNASHELL::StorageMountReport report = s_last_mount_report;
     report.outcome = card_response_verified
         ? LUNASHELL::StorageMountOutcome::FilesystemFailed
@@ -705,22 +919,39 @@ esp_err_t invalidate_mounted_card(
     const esp_err_t logger_stop_error = LUNASHELL_logger_disable_sd();
     s_logger_mirror_enabled = false;
     s_mounted = false;
+    s_space_refresh_tick_valid = false;
+    s_space_refresh_requested = false;
     const esp_err_t logger_status_error =
         refresh_logger_status_locked();
 
     esp_err_t unmount_error = ESP_OK;
-    if (logger_stop_error == ESP_ERR_TIMEOUT) {
+    if (logger_stop_error != ESP_OK) {
         report.cleanup_error = logger_stop_error;
         report.cleanup_complete = false;
         report.poisoned = true;
         s_terminal_failure = true;
         ESP_LOGE(
             TAG,
-            "SD unmount blocked: logger writer did not acknowledge close"
+            "SD unmount blocked: logger writer did not complete a verified "
+            "clean close (%s)",
+            esp_err_to_name(logger_stop_error)
         );
     } else {
         bsp_sdcard_unmount_result_t unmount_result = {};
-        unmount_error = bsp_sdcard_unmount(&unmount_result);
+        bool unmount_invoked = false;
+        unmount_error = run_watched_storage_io(
+            LUNASHELL_LIVENESS_STORAGE,
+            "runtime unmount",
+            [&unmount_result, &unmount_invoked]() {
+                unmount_invoked = true;
+                return bsp_sdcard_unmount(&unmount_result);
+            }
+        );
+        if (!unmount_invoked) {
+            unmount_result.error = unmount_error;
+            unmount_result.complete = false;
+            unmount_result.poisoned = true;
+        }
         if (unmount_result.error != unmount_error ||
             (unmount_error == ESP_OK &&
              (!unmount_result.complete || unmount_result.poisoned)) ||
@@ -782,9 +1013,13 @@ esp_err_t invalidate_mounted_card(
     return primary_error;
 }
 
-esp_err_t poll_mounted_card()
+esp_err_t poll_mounted_card(bool force_space_refresh = false)
 {
-    const esp_err_t status_error = bsp_sdcard_get_status();
+    const esp_err_t status_error = run_watched_storage_io(
+        LUNASHELL_LIVENESS_STORAGE,
+        "runtime card status",
+        []() { return bsp_sdcard_get_status(); }
+    );
     if (status_error != ESP_OK) {
         return invalidate_mounted_card(
             status_error,
@@ -793,14 +1028,45 @@ esp_err_t poll_mounted_card()
         );
     }
 
+    LUNASHELL_logger_sd_status_t logger_status = {};
+    esp_err_t logger_error = ESP_OK;
+    bool refresh_space = force_space_refresh;
+    {
+        std::lock_guard<std::mutex> lock(s_storage_mutex);
+        logger_error = refresh_logger_status_locked(&logger_status);
+        const TickType_t now = xTaskGetTickCount();
+        const TickType_t elapsed = now - s_last_space_refresh_tick;
+        const bool slow_refresh_due =
+            !s_space_refresh_tick_valid ||
+            elapsed >= pdMS_TO_TICKS(kStorageSpaceRefreshMs);
+        const bool persisted_write_observed =
+            logger_error == ESP_OK &&
+            logger_status.persisted_write_sequence !=
+                s_last_space_write_sequence;
+        const bool write_refresh_due =
+            persisted_write_observed &&
+            elapsed >= pdMS_TO_TICKS(kStorageSpaceWriteRefreshMs);
+        refresh_space = refresh_space || slow_refresh_due || write_refresh_due;
+    }
+    if (!refresh_space) {
+        // Card health is current, while the last filesystem-space timestamp is
+        // intentionally left untouched because no FAT space read occurred.
+        return logger_error;
+    }
+
     uint64_t filesystem_total = 0;
     uint64_t filesystem_free = 0;
-    const esp_err_t info_error =
-        esp_vfs_fat_info(
-            BSP_SD_MOUNT_POINT,
-            &filesystem_total,
-            &filesystem_free
-        );
+    const esp_err_t info_error = run_watched_storage_io(
+        LUNASHELL_LIVENESS_STORAGE,
+        "runtime filesystem space",
+        [&filesystem_total, &filesystem_free]() {
+            return esp_vfs_fat_info(
+                BSP_SD_MOUNT_POINT,
+                &filesystem_total,
+                &filesystem_free
+            );
+        }
+    );
     if (info_error != ESP_OK) {
         return invalidate_mounted_card(
             info_error,
@@ -810,6 +1076,14 @@ esp_err_t poll_mounted_card()
     }
 
     std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_terminal_failure) {
+        ESP_LOGE(
+            TAG,
+            "SD filesystem-space result discarded after terminal ownership transition (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_STATE)
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
     LUNASHELL::StorageMountReport report = s_last_mount_report;
     report.outcome = LUNASHELL::StorageMountOutcome::Mounted;
     report.stage = LUNASHELL::StorageMountStage::RuntimeFilesystem;
@@ -823,7 +1097,12 @@ esp_err_t poll_mounted_card()
     report.format_required = false;
     report.filesystem_total_bytes = filesystem_total;
     report.free_bytes = filesystem_free;
-    const esp_err_t logger_error = refresh_logger_status_locked();
+    s_last_space_refresh_tick = xTaskGetTickCount();
+    s_space_refresh_tick_valid = true;
+    if (logger_error == ESP_OK) {
+        s_last_space_write_sequence =
+            logger_status.persisted_write_sequence;
+    }
     publish_mount_report_locked(report);
     return logger_error;
 }
@@ -846,6 +1125,7 @@ void storage_task(void *argument)
         bool waiting_for_format_authorization = false;
         bool power_suspended = false;
         bool power_resume_requested = false;
+        bool force_space_refresh = false;
         (void)xEventGroupClearBits(
             s_storage_events,
             kWorkerQuiescentBit
@@ -858,12 +1138,16 @@ void storage_task(void *argument)
             power_resume_requested = s_power_resume_requested;
             waiting_for_format_authorization =
                 s_waiting_for_format_authorization;
+            if (mounted && s_space_refresh_requested &&
+                (!power_suspended || power_resume_requested)) {
+                force_space_refresh = true;
+                s_space_refresh_requested = false;
+            }
         }
 
         if (power_resume_requested) {
             esp_err_t resume_error =
-                mounted ? poll_mounted_card() : ESP_OK;
-            esp_err_t rollback_error = ESP_OK;
+                mounted ? poll_mounted_card(true) : ESP_OK;
             {
                 std::lock_guard<std::mutex> lock(s_storage_mutex);
                 if (!s_power_resume_requested) {
@@ -872,21 +1156,23 @@ void storage_task(void *argument)
                     s_power_suspended = false;
                     resume_error = apply_effective_logger_mirror_locked();
                     if (resume_error != ESP_OK) {
+                        const esp_err_t transition_error = resume_error;
                         s_power_suspended = true;
-                        rollback_error =
+                        const esp_err_t rollback_error =
                             apply_effective_logger_mirror_locked();
+                        resume_error =
+                            finish_logger_transition_rollback_locked(
+                                "Power",
+                                "resume transition",
+                                transition_error,
+                                rollback_error
+                            );
+                    } else {
+                        publish_mount_report_locked(s_last_mount_report);
                     }
-                    publish_mount_report_locked(s_last_mount_report);
                 }
                 s_power_resume_requested = false;
                 s_power_resume_error = resume_error;
-            }
-            if (rollback_error != ESP_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "SD mirror rollback after power resume failed (%s)",
-                    esp_err_to_name(rollback_error)
-                );
             }
             (void)xEventGroupSetBits(
                 s_storage_events,
@@ -916,10 +1202,10 @@ void storage_task(void *argument)
                 waiting_for_format_authorization =
                     s_waiting_for_format_authorization;
             }
+            if (terminal_failure) {
+                continue;
+            }
             if (!mounted) {
-                if (terminal_failure) {
-                    continue;
-                }
                 if (waiting_for_format_authorization) {
                     continue;
                 }
@@ -943,9 +1229,9 @@ void storage_task(void *argument)
             retry_seconds = kInitialRetrySeconds;
         }
 
-        (void)poll_mounted_card();
+        (void)poll_mounted_card(force_space_refresh);
         wait_for_storage_notification(
-            pdMS_TO_TICKS(kStorageStatusPollMs)
+            pdMS_TO_TICKS(kStorageHealthPollMs)
         );
     }
 }
@@ -966,6 +1252,24 @@ extern "C" esp_err_t LUNASHELL_storage_init(void)
     if (s_mounted) {
         ESP_LOGE(TAG, "SD service has a mount without an owner task");
         return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t logger_watch_error =
+        LUNASHELL_logger_set_io_watch(&kLoggerIoWatch);
+    if (logger_watch_error != ESP_OK) {
+        LUNASHELL::StorageMountReport report;
+        report.outcome = LUNASHELL::StorageMountOutcome::InternalFailed;
+        report.stage = LUNASHELL::StorageMountStage::Request;
+        report.error = logger_watch_error;
+        report.mount_attempt_count = s_mount_attempt_count;
+        s_terminal_failure = true;
+        publish_mount_report_locked(report);
+        ESP_LOGE(
+            TAG,
+            "SD logger liveness registration failed (%s)",
+            esp_err_to_name(logger_watch_error)
+        );
+        return logger_watch_error;
     }
 
     auto &settings = LUNASHELL::UserSettingsService::instance();
@@ -1038,6 +1342,7 @@ extern "C" esp_err_t LUNASHELL_storage_init(void)
     s_logger_mirror_requested = saved_mirror;
     s_logger_mirror_enabled = false;
     s_waiting_for_format_authorization = false;
+    s_space_refresh_requested = false;
     LUNASHELL::DeviceSnapshotService::instance().reportStorageMirror(
         s_logger_mirror_requested,
         false,
@@ -1141,6 +1446,47 @@ extern "C" esp_err_t LUNASHELL_storage_request_format(void)
             s_authorized_identity.capacity_bytes
         )
     );
+    return ESP_OK;
+}
+
+// Queue one FAT space measurement on the storage owner task. The request is
+// intentionally asynchronous so UI callers never perform removable-media I/O.
+extern "C" esp_err_t LUNASHELL_storage_request_space_refresh(void)
+{
+    std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_terminal_failure ||
+        s_storage_task == nullptr ||
+        s_power_suspended ||
+        s_power_resume_requested ||
+        !s_mounted) {
+        ESP_LOGE(
+            TAG,
+            "SD space refresh rejected: terminal=%s task=%s "
+            "power_suspended=%s resume_pending=%s mounted=%s (%s)",
+            s_terminal_failure ? "yes" : "no",
+            s_storage_task != nullptr ? "ready" : "missing",
+            s_power_suspended ? "yes" : "no",
+            s_power_resume_requested ? "yes" : "no",
+            s_mounted ? "yes" : "no",
+            esp_err_to_name(ESP_ERR_INVALID_STATE)
+        );
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_space_refresh_requested) {
+        return ESP_OK;
+    }
+
+    s_space_refresh_requested = true;
+    if (xTaskNotifyGive(s_storage_task) != pdPASS) {
+        s_space_refresh_requested = false;
+        ESP_LOGE(
+            TAG,
+            "Notifying SD owner for space refresh failed (%s)",
+            esp_err_to_name(ESP_ERR_TIMEOUT)
+        );
+        return ESP_ERR_TIMEOUT;
+    }
+    ESP_LOGI(TAG, "Fresh SD filesystem-space measurement requested");
     return ESP_OK;
 }
 
@@ -1253,38 +1599,20 @@ extern "C" esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended)
         operation_error = LUNASHELL_logger_disable_sd();
     }
     if (operation_error != ESP_OK) {
-        s_performance_suspended = previous;
-        ESP_LOGE(
-            TAG,
-            "Performance Mode SD mirror transition failed (%s)",
-            esp_err_to_name(operation_error)
+        return rollback_performance_storage_locked(
+            previous,
+            "transition",
+            operation_error
         );
-        return operation_error;
     }
 
     const esp_err_t status_error = refresh_logger_status_locked();
     if (status_error != ESP_OK) {
-        s_performance_suspended = previous;
-        const bool rollback_should_run = logger_mirror_should_run_locked();
-        const esp_err_t rollback_error =
-            s_mounted && rollback_should_run
-                ? LUNASHELL_logger_enable_sd(BSP_SD_MOUNT_POINT)
-                : !rollback_should_run
-                    ? LUNASHELL_logger_disable_sd()
-                    : ESP_OK;
-        if (rollback_error != ESP_OK) {
-            ESP_LOGE(
-                TAG,
-                "Performance Mode SD mirror rollback failed (%s)",
-                esp_err_to_name(rollback_error)
-            );
-        }
-        ESP_LOGE(
-            TAG,
-            "Performance Mode SD mirror status failed (%s)",
-            esp_err_to_name(status_error)
+        return rollback_performance_storage_locked(
+            previous,
+            "status verification",
+            status_error
         );
-        return status_error;
     }
     publish_mount_report_locked(s_last_mount_report);
     ESP_LOGI(
@@ -1361,14 +1689,13 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
                 s_power_suspended = previous;
                 const esp_err_t rollback_error =
                     apply_effective_logger_mirror_locked();
-                publish_mount_report_locked(s_last_mount_report);
-                if (rollback_error != ESP_OK) {
-                    ESP_LOGE(
-                        TAG,
-                        "SD power mirror rollback failed (%s)",
-                        esp_err_to_name(rollback_error)
+                const esp_err_t rollback_result =
+                    finish_logger_transition_rollback_locked(
+                        "Power",
+                        "suspension transition",
+                        transition_error,
+                        rollback_error
                     );
-                }
                 if (format_state_expired &&
                     xTaskNotifyGive(s_storage_task) != pdPASS) {
                     ESP_LOGE(
@@ -1377,12 +1704,7 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
                         esp_err_to_name(ESP_ERR_TIMEOUT)
                     );
                 }
-                ESP_LOGE(
-                    TAG,
-                    "SD power mirror transition failed (%s)",
-                    esp_err_to_name(transition_error)
-                );
-                return transition_error;
+                return rollback_result;
             }
             publish_mount_report_locked(s_last_mount_report);
             storage_task_handle = s_storage_task;
@@ -1405,28 +1727,27 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
             }
         }
         if (quiescence_error != ESP_OK) {
-            esp_err_t rollback_error = ESP_OK;
+            esp_err_t rollback_result = quiescence_error;
             {
                 std::lock_guard<std::mutex> lock(s_storage_mutex);
                 s_power_suspended = previous;
-                rollback_error = apply_effective_logger_mirror_locked();
-                publish_mount_report_locked(s_last_mount_report);
-            }
-            (void)xTaskNotifyGive(storage_task_handle);
-            if (rollback_error != ESP_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "SD power quiescence rollback failed (%s)",
-                    esp_err_to_name(rollback_error)
+                const esp_err_t rollback_error =
+                    apply_effective_logger_mirror_locked();
+                rollback_result = finish_logger_transition_rollback_locked(
+                    "Power",
+                    "quiescence transition",
+                    quiescence_error,
+                    rollback_error
                 );
             }
+            (void)xTaskNotifyGive(storage_task_handle);
             ESP_LOGE(
                 TAG,
                 "SD power quiescence failed; timeout=%lu ms request rolled back (%s)",
                 static_cast<unsigned long>(kPowerSuspendTimeoutMs),
-                esp_err_to_name(quiescence_error)
+                esp_err_to_name(rollback_result)
             );
-            return quiescence_error;
+            return rollback_result;
         }
 
         {

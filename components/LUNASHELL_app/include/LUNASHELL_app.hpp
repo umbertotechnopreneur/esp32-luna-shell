@@ -517,7 +517,10 @@ private:
     bool logs_paused_ = false;
     bool logs_follow_latest_ = true;
     bool performance_mode_enabled_ = false;
+    bool performance_ui_cadence_known_ = true;
+    esp_err_t performance_ui_cadence_error_ = ESP_OK;
     bool audio_diagnostic_capture_active_ = false;
+    bool audio_spectrum_diagnostic_active_ = false;
     bool audio_detail_palette_applied_ = false;
     std::optional<bool> audio_dual_command_available_;
     CachedText audio_status_cache_;

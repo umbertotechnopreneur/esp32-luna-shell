@@ -327,27 +327,70 @@ esp_err_t finish_scan_watch_if_active(esp_err_t result)
     std::abort();
 }
 
-esp_err_t cancel_reconnect()
+esp_err_t cancel_reconnect(
+    bool clear_connection_intent,
+    bool restore_connection_intent_on_failure
+)
 {
-    if (s_reconnect_timer == nullptr) {
-        ESP_LOGE(TAG, "Reconnect cancellation failed: timer unavailable");
-        return ESP_ERR_INVALID_STATE;
-    }
-    if (xTimerStop(s_reconnect_timer, 0) != pdPASS) {
-        ESP_LOGE(TAG, "Reconnect cancellation failed: timer queue full");
-        return ESP_ERR_TIMEOUT;
-    }
     wifi_lock();
-    s_status.reconnect_pending = false;
-    s_status.reconnect_delay_ms = 0;
+    const bool previous_connect_requested = s_connect_requested;
+    const bool previous_status_connect_requested = s_status.connect_requested;
+    if (clear_connection_intent) {
+        // Intent and timer cancellation share the status lock, so a stale
+        // disconnect event cannot observe the old intent after cancellation.
+        s_connect_requested = false;
+        s_status.connect_requested = false;
+    }
+    const bool timer_available = s_reconnect_timer != nullptr;
+    const bool command_accepted = timer_available &&
+        xTimerStop(s_reconnect_timer, 0) == pdPASS;
+    if (command_accepted) {
+        s_status.reconnect_pending = false;
+        s_status.reconnect_delay_ms = 0;
+    } else {
+        if (clear_connection_intent &&
+            restore_connection_intent_on_failure) {
+            s_connect_requested = previous_connect_requested;
+            s_status.connect_requested = previous_status_connect_requested;
+        }
+        s_status.last_error = timer_available
+            ? ESP_ERR_TIMEOUT
+            : ESP_ERR_INVALID_STATE;
+    }
+    ++s_status.event_sequence;
     wifi_unlock();
+    publish_snapshot();
+    if (!command_accepted) {
+        const esp_err_t error = timer_available
+            ? ESP_ERR_TIMEOUT
+            : ESP_ERR_INVALID_STATE;
+        if (timer_available) {
+            ESP_LOGE(
+                TAG,
+                "Reconnect cancellation failed: timer queue full (%s)",
+                esp_err_to_name(error)
+            );
+        } else {
+            ESP_LOGE(
+                TAG,
+                "Reconnect cancellation failed: timer unavailable (%s)",
+                esp_err_to_name(error)
+            );
+        }
+        return error;
+    }
     return ESP_OK;
 }
 
 esp_err_t schedule_reconnect(uint32_t delay_ms)
 {
     if (s_reconnect_timer == nullptr) {
-        record_error(ESP_ERR_INVALID_STATE);
+        ESP_LOGE(TAG, "Scheduling Wi-Fi reconnect failed: timer unavailable");
+        wifi_lock();
+        s_status.last_error = ESP_ERR_INVALID_STATE;
+        ++s_status.event_sequence;
+        wifi_unlock();
+        publish_snapshot();
         return ESP_ERR_INVALID_STATE;
     }
     if (delay_ms < WIFI_RECONNECT_INITIAL_MS) {
@@ -357,15 +400,41 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
     }
 
     wifi_lock();
-    s_status.reconnect_pending = true;
-    s_status.reconnect_delay_ms = delay_ms;
+    if (!s_initialized || !s_status.started || !s_connect_requested) {
+        // A disconnect event may have captured an older intent before an
+        // explicit disconnect/stop transaction cancelled it. Revalidate under
+        // the same lock as the timer command and treat the newer intent as the
+        // authoritative no-reconnect result.
+        s_status.reconnect_pending = false;
+        s_status.reconnect_delay_ms = 0;
+        ++s_status.event_sequence;
+        wifi_unlock();
+        publish_snapshot();
+        ESP_LOGI(
+            TAG,
+            "Reconnect scheduling skipped: connection intent is inactive"
+        );
+        return ESP_OK;
+    }
+    // Publish the pending reconnect only after the timer daemon has accepted
+    // the command. On failure, an already-active reconnect (if any) remains
+    // represented by its previous delay instead of exposing an unscheduled one.
+    const bool command_accepted = xTimerChangePeriod(
+        s_reconnect_timer,
+        pdMS_TO_TICKS(delay_ms),
+        0
+    ) == pdPASS;
+    if (command_accepted) {
+        s_status.reconnect_pending = true;
+        s_status.reconnect_delay_ms = delay_ms;
+    } else {
+        s_status.last_error = ESP_ERR_TIMEOUT;
+    }
     ++s_status.event_sequence;
     wifi_unlock();
     publish_snapshot();
-
-    if (xTimerChangePeriod(s_reconnect_timer, pdMS_TO_TICKS(delay_ms), 0) != pdPASS) {
+    if (!command_accepted) {
         ESP_LOGE(TAG, "Scheduling Wi-Fi reconnect failed: timer queue full");
-        record_error(ESP_ERR_TIMEOUT);
         return ESP_ERR_TIMEOUT;
     }
     return ESP_OK;
@@ -380,10 +449,12 @@ void reconnect_timer_callback(TimerHandle_t timer)
         wifi_lock();
         const bool retry =
             s_initialized && s_status.started && s_connect_requested;
-        if (!retry) {
-            s_status.reconnect_pending = false;
-            s_status.reconnect_delay_ms = 0;
-        }
+        // A one-shot timer is no longer pending once its callback begins.
+        // Clear it before rescheduling so a queue failure cannot leave a false
+        // pending latch behind.
+        s_status.reconnect_pending = false;
+        s_status.reconnect_delay_ms = 0;
+        ++s_status.event_sequence;
         wifi_unlock();
         if (retry) {
             const esp_err_t schedule_error =
@@ -586,7 +657,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             break;
 
         case WIFI_EVENT_STA_STOP: {
-            const esp_err_t cancel_error = cancel_reconnect();
+            const esp_err_t cancel_error = cancel_reconnect(true, false);
             wifi_lock();
             s_status.started = false;
             s_status.connected = false;
@@ -629,7 +700,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             got_ip == nullptr
                 ? ESP_ERR_INVALID_RESPONSE
                 : access_point_error;
-        const esp_err_t cancel_error = cancel_reconnect();
+        const esp_err_t cancel_error = cancel_reconnect(false, false);
         if (event_error == ESP_OK && cancel_error != ESP_OK) {
             event_error = cancel_error;
         }
@@ -997,7 +1068,7 @@ static esp_err_t wifi_stop_impl(void)
         return ESP_OK;
     }
 
-    const esp_err_t reconnect_error = cancel_reconnect();
+    const esp_err_t reconnect_error = cancel_reconnect(true, true);
     if (reconnect_error != ESP_OK) {
         ESP_LOGE(
             TAG,
@@ -1007,12 +1078,6 @@ static esp_err_t wifi_stop_impl(void)
         record_error(reconnect_error);
         return reconnect_error;
     }
-
-    wifi_lock();
-    s_connect_requested = false;
-    s_status.connect_requested = false;
-    s_status.reconnect_pending = false;
-    wifi_unlock();
 
     if (s_driver_started) {
         const esp_err_t cleanup_error = esp_wifi_stop();
@@ -1108,7 +1173,7 @@ static esp_err_t wifi_connect_impl(
     config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
     config.sta.threshold.authmode = safe_password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
 
-    esp_err_t error = cancel_reconnect();
+    esp_err_t error = cancel_reconnect(false, false);
     if (error != ESP_OK) {
         record_error(error);
         return error;
@@ -1161,10 +1226,8 @@ static esp_err_t wifi_disconnect_impl(void)
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
-    esp_err_t aggregate = cancel_reconnect();
+    esp_err_t aggregate = cancel_reconnect(true, false);
     wifi_lock();
-    s_connect_requested = false;
-    s_status.connect_requested = false;
     s_status.connected = false;
     s_status.ip_acquired = false;
     s_status.rssi = 0;

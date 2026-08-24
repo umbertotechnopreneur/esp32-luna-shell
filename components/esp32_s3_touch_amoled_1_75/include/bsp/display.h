@@ -40,6 +40,13 @@ typedef enum {
 } bsp_display_rotation_t;
 
 /**
+ * Rotation failed and its rollback could not restore one coherent panel/touch
+ * mapping. This terminal result must not be retried until display state is
+ * explicitly restored.
+ */
+#define BSP_DISPLAY_ERR_ROTATION_INCONSISTENT ESP_ERR_INVALID_RESPONSE
+
+/**
  * @brief Create new display panel
  *
  * For maximum flexibility, this function performs only reset and initialization of the display.
@@ -80,10 +87,13 @@ esp_err_t bsp_display_brightness_init(void);
  *
  * LVGL remains at logical rotation 0. The operation is serialized with the
  * display task, rejected while a pointer is pressed, and invalidates the
- * active screen after a successful cardinal change.
+ * active screen after a successful cardinal change. A failed rollback returns
+ * BSP_DISPLAY_ERR_ROTATION_INCONSISTENT and blocks subsequent changes.
  */
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation);
 bsp_display_rotation_t bsp_display_rotation_get(void);
+/** Distinguish a failed-but-rolled-back call from a terminal mapping failure. */
+bool bsp_display_rotation_is_consistent(void);
 
 /**
  * @brief Set display's brightness

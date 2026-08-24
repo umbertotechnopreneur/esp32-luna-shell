@@ -19,6 +19,19 @@ the lease or station is lost.
 | `GET` | `/api/v1/gps` | API key | GPS health, fix, coordinates, satellites and NMEA metadata |
 | `GET` | `/api/v1/status` | API key | Compact health/status view for every device component |
 
+The health and status payloads expose `server_running`,
+`server_cleanup_required`, `server_handle_retained`, and
+`server_accepting_requests`. `server_running` is conservative: it remains true
+when ESP-IDF fails to confirm server-task shutdown and the handle must be
+retained for cleanup. Such a state is never healthy. The public health route
+returns `503 Service Unavailable` with those lifecycle fields, while every data
+route fails closed before authentication whenever the desired lifecycle is not
+fully Running. The per-request gate observes `http_enabled` directly, so the
+persisted disable takes effect before asynchronous server teardown begins. A
+later lifecycle reconciliation retries cleanup of the retained handle before
+any restart. `server_handle_retained` is also true during normal Running
+ownership; `server_cleanup_required` distinguishes the failed-cleanup case.
+
 The API key is shared by the devices and is read directly from the user setting
 `ApiKey`:
 

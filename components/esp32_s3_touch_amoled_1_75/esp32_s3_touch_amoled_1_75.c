@@ -41,6 +41,7 @@ static lv_indev_t *disp_indev = NULL;
 static bsp_touch_activity_callback_t touch_activity_callback = NULL;
 static void *touch_activity_user_data = NULL;
 static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
+static bool display_rotation_consistent = true;
 static uint8_t *display_frame_cache = NULL;
 static bool display_frame_cache_rows[BSP_LCD_V_RES];
 static size_t display_frame_cache_full_row_count = 0;
@@ -2933,6 +2934,10 @@ esp_err_t bsp_display_start_with_config(
         return result;
     }
 
+    // A successful full hardware initialization is the only implicit recovery
+    // from an indeterminate runtime rotation transaction.
+    current_rotation = BSP_DISPLAY_ROTATE_0;
+    display_rotation_consistent = true;
     return ESP_OK;
 }
 
@@ -2965,6 +2970,21 @@ typedef struct {
     bool touch_mirror_x;
     bool touch_mirror_y;
 } bsp_display_rotation_config_t;
+
+typedef enum {
+    BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY = (1U << 0),
+    BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR = (1U << 1),
+    BSP_DISPLAY_ROTATION_STEP_PANEL_GAP = (1U << 2),
+    BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY = (1U << 3),
+    BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X = (1U << 4),
+    BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y = (1U << 5),
+} bsp_display_rotation_step_t;
+
+typedef struct {
+    esp_err_t error;
+    uint32_t attempted_steps;
+    bsp_display_rotation_step_t failed_step;
+} bsp_display_rotation_apply_result_t;
 
 // Keep CO5300 scan direction and CST9217 coordinates in the same cardinal frame.
 static bool bsp_display_rotation_config(
@@ -3010,36 +3030,135 @@ static bool bsp_display_rotation_config(
     }
 }
 
-// Apply a complete rotation atomically enough that visible pixels and touches agree.
-static esp_err_t bsp_display_apply_rotation_config(
+static const char *bsp_display_rotation_step_name(
+    bsp_display_rotation_step_t step
+)
+{
+    switch (step) {
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY:
+        return "panel swap-xy";
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR:
+        return "panel mirror";
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_GAP:
+        return "panel gap";
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY:
+        return "touch swap-xy";
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X:
+        return "touch mirror-x";
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y:
+        return "touch mirror-y";
+    default:
+        return "unknown";
+    }
+}
+
+static esp_err_t bsp_display_apply_rotation_step(
+    const bsp_display_rotation_config_t *config,
+    bsp_display_rotation_step_t step
+)
+{
+    switch (step) {
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY:
+        return esp_lcd_panel_swap_xy(panel_handle, config->panel_swap_xy);
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR:
+        return esp_lcd_panel_mirror(
+            panel_handle,
+            config->panel_mirror_x,
+            config->panel_mirror_y
+        );
+    case BSP_DISPLAY_ROTATION_STEP_PANEL_GAP:
+        return esp_lcd_panel_set_gap(
+            panel_handle,
+            config->panel_x_gap,
+            config->panel_y_gap
+        );
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY:
+        return esp_lcd_touch_set_swap_xy(tp, config->touch_swap_xy);
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X:
+        return esp_lcd_touch_set_mirror_x(tp, config->touch_mirror_x);
+    case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y:
+        return esp_lcd_touch_set_mirror_y(tp, config->touch_mirror_y);
+    default:
+        return ESP_ERR_INVALID_ARG;
+    }
+}
+
+// Apply each controller mutation explicitly so an interrupted transaction can
+// restore every operation that may have changed hardware state.
+static bsp_display_rotation_apply_result_t bsp_display_apply_rotation_config(
     const bsp_display_rotation_config_t *config
 )
 {
-    esp_err_t result = esp_lcd_panel_swap_xy(panel_handle, config->panel_swap_xy);
-    if (result != ESP_OK) {
-        return result;
+    static const bsp_display_rotation_step_t steps[] = {
+        BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY,
+        BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR,
+        BSP_DISPLAY_ROTATION_STEP_PANEL_GAP,
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY,
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X,
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y,
+    };
+    bsp_display_rotation_apply_result_t result = {
+        .error = ESP_OK,
+        .attempted_steps = 0,
+        .failed_step = BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY,
+    };
+
+    for (size_t index = 0; index < sizeof(steps) / sizeof(steps[0]); ++index) {
+        const bsp_display_rotation_step_t step = steps[index];
+        result.attempted_steps |= (uint32_t)step;
+        result.error = bsp_display_apply_rotation_step(config, step);
+        if (result.error != ESP_OK) {
+            result.failed_step = step;
+            ESP_LOGE(
+                TAG,
+                "Display rotation apply failed at %s (%s)",
+                bsp_display_rotation_step_name(step),
+                esp_err_to_name(result.error)
+            );
+            return result;
+        }
     }
-    result = esp_lcd_panel_mirror(
-        panel_handle, config->panel_mirror_x, config->panel_mirror_y
-    );
-    if (result != ESP_OK) {
-        return result;
+
+    return result;
+}
+
+static esp_err_t bsp_display_rollback_rotation_config(
+    const bsp_display_rotation_config_t *config,
+    uint32_t attempted_steps
+)
+{
+    static const bsp_display_rotation_step_t rollback_steps[] = {
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y,
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X,
+        BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY,
+        BSP_DISPLAY_ROTATION_STEP_PANEL_GAP,
+        BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR,
+        BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY,
+    };
+    esp_err_t first_error = ESP_OK;
+
+    for (size_t index = 0;
+         index < sizeof(rollback_steps) / sizeof(rollback_steps[0]);
+         ++index) {
+        const bsp_display_rotation_step_t step = rollback_steps[index];
+        if ((attempted_steps & (uint32_t)step) == 0) {
+            continue;
+        }
+        const esp_err_t result = bsp_display_apply_rotation_step(config, step);
+        if (result != ESP_OK) {
+            if (first_error == ESP_OK) {
+                first_error = result;
+            }
+            ESP_LOGE(
+                TAG,
+                "Display rotation rollback failed at %s (%s)",
+                bsp_display_rotation_step_name(step),
+                esp_err_to_name(result)
+            );
+        }
     }
-    result = esp_lcd_panel_set_gap(
-        panel_handle, config->panel_x_gap, config->panel_y_gap
-    );
-    if (result != ESP_OK) {
-        return result;
-    }
-    result = esp_lcd_touch_set_swap_xy(tp, config->touch_swap_xy);
-    if (result != ESP_OK) {
-        return result;
-    }
-    result = esp_lcd_touch_set_mirror_x(tp, config->touch_mirror_x);
-    if (result != ESP_OK) {
-        return result;
-    }
-    return esp_lcd_touch_set_mirror_y(tp, config->touch_mirror_y);
+
+    return first_error;
 }
 
 // Rotate only between touch releases, preserving the logical LVGL coordinate system.
@@ -3060,6 +3179,15 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
     if (lock_result != ESP_OK) {
         return lock_result;
     }
+    if (!display_rotation_consistent) {
+        ESP_LOGE(
+            TAG,
+            "Display rotation %d rejected: panel/touch state is inconsistent",
+            rotation
+        );
+        bsp_display_unlock();
+        return BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
+    }
     if (!display_panel_output_enabled) {
         bsp_display_unlock();
         return ESP_ERR_INVALID_STATE;
@@ -3074,14 +3202,50 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
     }
 
     bsp_display_rotation_config_t previous_config;
-    (void)bsp_display_rotation_config(current_rotation, &previous_config);
-    const int64_t started_at_us = esp_timer_get_time();
-    const esp_err_t apply_result = bsp_display_apply_rotation_config(&requested_config);
-    if (apply_result != ESP_OK) {
-        ESP_LOGE(TAG, "Display rotation %d failed (%s)", rotation, esp_err_to_name(apply_result));
-        (void)bsp_display_apply_rotation_config(&previous_config);
+    if (!bsp_display_rotation_config(current_rotation, &previous_config)) {
+        display_rotation_consistent = false;
+        ESP_LOGE(
+            TAG,
+            "Display rotation rejected: committed rotation %d is invalid",
+            current_rotation
+        );
         bsp_display_unlock();
-        return apply_result;
+        return BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
+    }
+    const int64_t started_at_us = esp_timer_get_time();
+    display_rotation_consistent = false;
+    const bsp_display_rotation_apply_result_t apply_result =
+        bsp_display_apply_rotation_config(&requested_config);
+    if (apply_result.error != ESP_OK) {
+        const esp_err_t rollback_result =
+            bsp_display_rollback_rotation_config(
+                &previous_config,
+                apply_result.attempted_steps
+            );
+        display_rotation_consistent = rollback_result == ESP_OK;
+        if (rollback_result == ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "Display rotation %d failed at %s (%s); previous state restored",
+                rotation,
+                bsp_display_rotation_step_name(apply_result.failed_step),
+                esp_err_to_name(apply_result.error)
+            );
+        } else {
+            ESP_LOGE(
+                TAG,
+                "Display rotation %d failed at %s (%s); rollback failed (%s), "
+                "panel/touch state is inconsistent",
+                rotation,
+                bsp_display_rotation_step_name(apply_result.failed_step),
+                esp_err_to_name(apply_result.error),
+                esp_err_to_name(rollback_result)
+            );
+        }
+        bsp_display_unlock();
+        return rollback_result == ESP_OK
+                   ? apply_result.error
+                   : BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
     }
 
     const bool replay_ready = display_frame_cache_valid;
@@ -3089,21 +3253,39 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
         const esp_err_t replay_result = bsp_display_replay_cached_frame();
         if (replay_result != ESP_OK) {
             const esp_err_t rollback_result =
-                bsp_display_apply_rotation_config(&previous_config);
+                bsp_display_rollback_rotation_config(
+                    &previous_config,
+                    apply_result.attempted_steps
+                );
+            display_rotation_consistent = rollback_result == ESP_OK;
             if (rollback_result != ESP_OK) {
                 ESP_LOGE(
                     TAG,
-                    "Display rotation replay failed (%s); rollback also failed (%s)",
+                    "Display rotation replay failed (%s); rollback also failed "
+                    "(%s), panel/touch state is inconsistent",
                     esp_err_to_name(replay_result),
                     esp_err_to_name(rollback_result)
                 );
+            } else {
+                ESP_LOGE(
+                    TAG,
+                    "Display rotation replay failed (%s); previous state restored",
+                    esp_err_to_name(replay_result)
+                );
+                lv_obj_t *screen = lv_display_get_screen_active(display_handle);
+                if (screen != NULL) {
+                    lv_obj_invalidate(screen);
+                }
             }
             bsp_display_unlock();
-            return replay_result;
+            return rollback_result == ESP_OK
+                       ? replay_result
+                       : BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
         }
     }
 
     current_rotation = rotation;
+    display_rotation_consistent = true;
     if (!replay_ready) {
         lv_obj_t *screen = lv_display_get_screen_active(display_handle);
         if (screen != NULL) {
@@ -3124,6 +3306,11 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 bsp_display_rotation_t bsp_display_rotation_get(void)
 {
     return current_rotation;
+}
+
+bool bsp_display_rotation_is_consistent(void)
+{
+    return display_rotation_consistent;
 }
 
 // Pause the LVGL worker through the patched, bounded adapter transaction.

@@ -78,11 +78,13 @@ esp_err_t LUNASHELL_hardware_set_full_snapshot_period_ms(uint32_t period_ms);
  * Select the measured streams needed by the active diagnostic page.
  *
  * IMU and microphone sampling are independently gated so an audio page never
- * polls the IMU and the IMU page never claims the microphone.
+ * polls the IMU and the IMU page never claims the microphone. Spectrum work is
+ * a separate lease so level-only pages do not execute the DFT bank.
  */
 esp_err_t LUNASHELL_hardware_set_diagnostic_streams(
     bool imu_enabled,
-    bool microphone_enabled
+    bool microphone_enabled,
+    bool microphone_spectrum_enabled
 );
 /**
  * Enable or disable lightweight IMU publication for adaptive UI wake.
@@ -208,6 +210,8 @@ esp_err_t LUNASHELL_storage_init(void);
  * latest verified FR_NO_FILESYSTEM probe and expires when consumed.
  */
 esp_err_t LUNASHELL_storage_request_format(void);
+/** Ask the storage owner task for one fresh mounted-filesystem space sample. */
+esp_err_t LUNASHELL_storage_request_space_refresh(void);
 esp_err_t LUNASHELL_storage_set_logger_mirror(bool enabled);
 /** Pause effective SD log writes while preserving the user's saved preference. */
 esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended);
@@ -324,9 +328,24 @@ esp_err_t LUNASHELL_voice_afe_push_speaker_pcm16(
     uint32_t sample_rate_hz
 );
 
+typedef struct {
+    /** Last completely committed target; authoritative only when state_known. */
+    bool enabled;
+    /** False after any ambiguous component transition until full reconciliation. */
+    bool state_known;
+    /** Error returned by the component that made the state ambiguous. */
+    esp_err_t primary_error;
+    /** First coordinator rollback error, retained until reconciliation succeeds. */
+    esp_err_t rollback_error;
+} LUNASHELL_performance_mode_status_t;
+
 /** Apply the runtime UI-performance profile; the selection is session-scoped. */
 esp_err_t LUNASHELL_performance_mode_set_enabled(bool enabled);
 bool LUNASHELL_performance_mode_get_enabled(void);
+/** Report whether every Performance Mode owner agrees with the committed state. */
+void LUNASHELL_performance_mode_get_status(
+    LUNASHELL_performance_mode_status_t *status
+);
 
 /**
  * Start the Wi-Fi station lifecycle and BLE advertising with a

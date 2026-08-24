@@ -56,10 +56,29 @@ struct HttpMetricsState {
 };
 
 httpd_handle_t s_server = nullptr;
-bool s_initialized = false;
+enum class ServerLifecycleState : uint8_t {
+    Stopped,
+    Running,
+    CleanupRequired,
+};
+
+ServerLifecycleState s_server_state = ServerLifecycleState::Stopped;
+std::atomic<bool> s_initialized{false};
 std::atomic<bool> s_enabled{false};
-std::atomic<bool> s_server_running{false};
+constexpr uint32_t kLifecycleRunning = 1U << 0;
+constexpr uint32_t kLifecycleCleanupRequired = 1U << 1;
+constexpr uint32_t kLifecycleHandleRetained = 1U << 2;
+constexpr uint32_t kLifecycleAcceptingRequests = 1U << 3;
+std::atomic<uint32_t> s_lifecycle_flags{0U};
+// HTTP settings reads/writes and initialization decisions share this lock. It
+// is always acquired before s_lifecycle_mutex when both are needed.
+std::mutex s_initialization_mutex;
 std::mutex s_lifecycle_mutex;
+// The event loop owns these observations under s_lifecycle_mutex. Events may
+// arrive during initialization, but cannot act until infrastructure is ready.
+bool s_infrastructure_ready = false;
+bool s_network_event_seen = false;
+bool s_network_has_ip = false;
 
 std::mutex s_auth_mutex;
 bool s_auth_ready = false;
@@ -73,6 +92,42 @@ HttpMetricsState s_metrics{};
 
 esp_event_handler_instance_t s_ip_event_instance = nullptr;
 esp_event_handler_instance_t s_wifi_event_instance = nullptr;
+
+// Publish every externally observable lifecycle property in one atomic word.
+// The caller owns s_lifecycle_mutex and has already committed s_server and
+// s_server_state. A retained handle is conservatively reported as running when
+// ESP-IDF did not confirm that its server task stopped.
+void publishLifecycleLocked(bool serving_possible, bool accepting_requests)
+{
+    uint32_t flags = 0U;
+    if (serving_possible) {
+        flags |= kLifecycleRunning;
+    }
+    if (s_server_state == ServerLifecycleState::CleanupRequired) {
+        flags |= kLifecycleCleanupRequired;
+    }
+    if (s_server != nullptr) {
+        flags |= kLifecycleHandleRetained;
+    }
+    if (accepting_requests) {
+        flags |= kLifecycleAcceptingRequests;
+    }
+    s_lifecycle_flags.store(flags, std::memory_order_release);
+}
+
+LUNASHELL::HttpLifecycleView snapshotLifecycle()
+{
+    const uint32_t flags =
+        s_lifecycle_flags.load(std::memory_order_acquire);
+    return {
+        .running = (flags & kLifecycleRunning) != 0U,
+        .cleanup_required =
+            (flags & kLifecycleCleanupRequired) != 0U,
+        .handle_retained = (flags & kLifecycleHandleRetained) != 0U,
+        .accepting_requests =
+            (flags & kLifecycleAcceptingRequests) != 0U,
+    };
+}
 
 void resetAuthWindowIfExpired(uint64_t now_us)
 {
@@ -128,6 +183,18 @@ void recordServerStartFailure()
 {
     std::lock_guard<std::mutex> lock(s_metrics_mutex);
     ++s_metrics.view.start_failure_count;
+}
+
+void recordServerStopFailure()
+{
+    std::lock_guard<std::mutex> lock(s_metrics_mutex);
+    ++s_metrics.view.stop_failure_count;
+}
+
+void recordEventLifecycleFailure()
+{
+    std::lock_guard<std::mutex> lock(s_metrics_mutex);
+    ++s_metrics.view.event_lifecycle_failure_count;
 }
 
 LUNASHELL::HttpMetricsView snapshotMetrics()
@@ -269,6 +336,28 @@ bool authorized(httpd_req_t *request)
     );
 }
 
+esp_err_t prepareJsonResponse(
+    httpd_req_t *request,
+    const char *status = nullptr
+)
+{
+    esp_err_t error = httpd_resp_set_type(request, "application/json");
+    if (error == ESP_OK) {
+        error = httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    }
+    if (error == ESP_OK && status != nullptr) {
+        error = httpd_resp_set_status(request, status);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "HTTP response metadata failed (%s)",
+            esp_err_to_name(error)
+        );
+    }
+    return error;
+}
+
 esp_err_t sendError(
     httpd_req_t *request,
     const char *status,
@@ -277,15 +366,30 @@ esp_err_t sendError(
     bool retry_after
 )
 {
-    (void)httpd_resp_set_type(request, "application/json");
-    (void)httpd_resp_set_hdr(request, "Cache-Control", "no-store");
+    esp_err_t error = prepareJsonResponse(request, status);
     if (challenge) {
-        (void)httpd_resp_set_hdr(request, "WWW-Authenticate", "Bearer");
+        if (error == ESP_OK) {
+            error = httpd_resp_set_hdr(
+                request,
+                "WWW-Authenticate",
+                "Bearer"
+            );
+        }
     }
     if (retry_after) {
-        (void)httpd_resp_set_hdr(request, "Retry-After", "60");
+        if (error == ESP_OK) {
+            error = httpd_resp_set_hdr(request, "Retry-After", "60");
+        }
     }
-    (void)httpd_resp_set_status(request, status);
+    if (error != ESP_OK) {
+        recordResponseFailure();
+        ESP_LOGE(
+            kTag,
+            "HTTP error response setup failed (%s)",
+            esp_err_to_name(error)
+        );
+        return error;
+    }
     char body[160] = {};
     const int length = std::snprintf(
         body,
@@ -294,15 +398,33 @@ esp_err_t sendError(
         message != nullptr ? message : "request failed"
     );
     if (length < 0 || static_cast<std::size_t>(length) >= sizeof(body)) {
-        return httpd_resp_send(request, "{\"error\":\"request failed\"}", HTTPD_RESP_USE_STRLEN);
+        error = httpd_resp_send(
+            request,
+            "{\"error\":\"request failed\"}",
+            HTTPD_RESP_USE_STRLEN
+        );
+    } else {
+        error = httpd_resp_send(request, body, length);
     }
-    return httpd_resp_send(request, body, length);
+    if (error != ESP_OK) {
+        recordResponseFailure();
+        ESP_LOGE(
+            kTag,
+            "HTTP error response send failed (%s)",
+            esp_err_to_name(error)
+        );
+    }
+    return error;
 }
 
 // Record lifecycle failures without inventing an HTTP component snapshot.
 void reportLifecycle(esp_err_t error = ESP_OK)
 {
     if (error != ESP_OK) {
+        {
+            std::lock_guard<std::mutex> lock(s_metrics_mutex);
+            s_metrics.view.last_lifecycle_error = error;
+        }
         ESP_LOGW(kTag, "HTTP lifecycle error: %s", esp_err_to_name(error));
     }
 }
@@ -317,6 +439,28 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     }
 
     const bool is_health = std::strcmp(route, kHealthPath) == 0;
+    const bool desired_enabled =
+        s_enabled.load(std::memory_order_acquire);
+    LUNASHELL::HttpLifecycleView lifecycle = snapshotLifecycle();
+    // The persisted preference is committed before reconciliation starts. Fold
+    // it into every request so disabling fails closed even while this handler
+    // still races the old Running lifecycle snapshot. The redundant lifecycle
+    // predicates also keep a malformed/cleanup state from ever accepting data.
+    lifecycle.accepting_requests =
+        desired_enabled &&
+        lifecycle.running &&
+        !lifecycle.cleanup_required &&
+        lifecycle.handle_retained &&
+        lifecycle.accepting_requests;
+    if (!lifecycle.accepting_requests && !is_health) {
+        return sendError(
+            request,
+            "503 Service Unavailable",
+            "server lifecycle is not accepting requests",
+            false,
+            true
+        );
+    }
     if (!is_health) {
         if (authRateLimited()) {
             return sendError(request, "429 Too Many Requests", "too many authentication failures", false, true);
@@ -329,9 +473,19 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     }
 
     const LUNASHELL::DeviceSnapshot snapshot = LUNASHELL::DeviceSnapshotService::instance().snapshot();
+    const esp_err_t response_setup_error = prepareJsonResponse(
+        request,
+        is_health && !lifecycle.accepting_requests
+            ? "503 Service Unavailable"
+            : nullptr
+    );
+    if (response_setup_error != ESP_OK) {
+        recordResponseFailure();
+        return response_setup_error;
+    }
     LUNASHELL::HttpJsonWriter response(request);
     if (is_health) {
-        LUNASHELL::httpJsonWriteHealth(response, snapshot, s_server_running.load());
+        LUNASHELL::httpJsonWriteHealth(response, snapshot, lifecycle);
     } else if (std::strcmp(route, kCapabilitiesPath) == 0) {
         const uint32_t refresh_interval_ms =
             snapshot.diagnostics.full_snapshot_period.health ==
@@ -351,28 +505,69 @@ esp_err_t handleApiRequest(httpd_req_t *request)
     } else if (std::strcmp(route, kGpsPath) == 0) {
         LUNASHELL::httpJsonWriteGps(response, snapshot);
     } else if (std::strcmp(route, kStatusPath) == 0) {
-        LUNASHELL::httpJsonWriteStatus(response, snapshot, snapshotMetrics(), s_server_running.load());
+        LUNASHELL::httpJsonWriteStatus(
+            response,
+            snapshot,
+            snapshotMetrics(),
+            lifecycle
+        );
     } else {
         return sendError(request, "404 Not Found", "route not found", false, false);
     }
 
-    if (!response.finish()) {
+    const esp_err_t response_error = response.finish();
+    if (response_error != ESP_OK) {
         recordResponseFailure();
-        return ESP_FAIL;
+        return response_error;
     }
     return ESP_OK;
 }
 
 // Start read-only routes; the canonical Full Snapshot worker owns acquisition.
-esp_err_t startServer()
+esp_err_t startServerLocked()
 {
-    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
-    if (!s_enabled.load()) {
-        reportLifecycle();
+    if (s_server_state == ServerLifecycleState::Running) {
+        if (s_server == nullptr) {
+            const esp_err_t error = ESP_ERR_INVALID_STATE;
+            s_server_state = ServerLifecycleState::CleanupRequired;
+            publishLifecycleLocked(false, false);
+            recordServerStartFailure();
+            reportLifecycle(error);
+            ESP_LOGE(kTag, "HTTP running state has no server handle");
+            return error;
+        }
+        publishLifecycleLocked(true, true);
         return ESP_OK;
     }
     if (s_server != nullptr) {
-        return ESP_OK;
+        publishLifecycleLocked(true, false);
+        const esp_err_t cleanup_error = httpd_stop(s_server);
+        if (cleanup_error != ESP_OK) {
+            s_server_state = ServerLifecycleState::CleanupRequired;
+            publishLifecycleLocked(true, false);
+            recordServerStopFailure();
+            reportLifecycle(cleanup_error);
+            ESP_LOGE(
+                kTag,
+                "HTTP retained-server cleanup failed before start (%s); "
+                "handle retained",
+                esp_err_to_name(cleanup_error)
+            );
+            return cleanup_error;
+        }
+        s_server = nullptr;
+        s_server_state = ServerLifecycleState::Stopped;
+        publishLifecycleLocked(false, false);
+        recordServerStop();
+        ESP_LOGI(kTag, "HTTP retained server cleaned up before restart");
+    } else if (s_server_state != ServerLifecycleState::Stopped) {
+        const esp_err_t error = ESP_ERR_INVALID_STATE;
+        s_server_state = ServerLifecycleState::CleanupRequired;
+        publishLifecycleLocked(false, false);
+        recordServerStartFailure();
+        reportLifecycle(error);
+        ESP_LOGE(kTag, "HTTP lifecycle state requires cleanup but has no handle");
+        return error;
     }
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = LUNASHELL::kHttpServerPort;
@@ -384,6 +579,7 @@ esp_err_t startServer()
     httpd_handle_t server = nullptr;
     esp_err_t error = httpd_start(&server, &config);
     if (error != ESP_OK) {
+        publishLifecycleLocked(false, false);
         recordServerStartFailure();
         reportLifecycle(error);
         ESP_LOGW(kTag, "HTTP server start failed: %s", esp_err_to_name(error));
@@ -402,41 +598,118 @@ esp_err_t startServer()
     for (const httpd_uri_t &route : routes) {
         error = httpd_register_uri_handler(server, &route);
         if (error != ESP_OK) {
-            (void)httpd_stop(server);
             recordServerStartFailure();
             reportLifecycle(error);
-            ESP_LOGW(kTag, "HTTP route registration failed: %s", esp_err_to_name(error));
+            ESP_LOGE(
+                kTag,
+                "HTTP route registration failed: %s",
+                esp_err_to_name(error)
+            );
+            const esp_err_t cleanup_error = httpd_stop(server);
+            if (cleanup_error != ESP_OK) {
+                s_server = server;
+                s_server_state = ServerLifecycleState::CleanupRequired;
+                publishLifecycleLocked(true, false);
+                recordServerStopFailure();
+                reportLifecycle(cleanup_error);
+                ESP_LOGE(
+                    kTag,
+                    "HTTP failed-start cleanup failed (%s); handle retained",
+                    esp_err_to_name(cleanup_error)
+                );
+            }
             return error;
         }
     }
 
     s_server = server;
-    s_server_running.store(true);
+    s_server_state = ServerLifecycleState::Running;
+    publishLifecycleLocked(true, true);
     recordServerStart();
     reportLifecycle();
     ESP_LOGI(kTag, "HTTP API online on port %u", static_cast<unsigned>(LUNASHELL::kHttpServerPort));
     return ESP_OK;
 }
 
-esp_err_t stopServer()
+esp_err_t stopServerLocked()
 {
-    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
     if (s_server == nullptr) {
-        s_server_running.store(false);
+        if (s_server_state != ServerLifecycleState::Stopped) {
+            const esp_err_t error = ESP_ERR_INVALID_STATE;
+            s_server_state = ServerLifecycleState::CleanupRequired;
+            publishLifecycleLocked(false, false);
+            recordServerStopFailure();
+            reportLifecycle(error);
+            ESP_LOGE(kTag, "HTTP stop cannot reconcile a missing server handle");
+            return error;
+        }
+        publishLifecycleLocked(false, false);
         reportLifecycle();
         return ESP_OK;
     }
-    s_server_running.store(false);
+    // Stop accepting protected data immediately, but keep reporting that the
+    // ESP-IDF server may be serving until httpd_stop confirms task teardown.
+    publishLifecycleLocked(true, false);
     const esp_err_t error = httpd_stop(s_server);
-    s_server = nullptr;
-    recordServerStop();
-    reportLifecycle(error);
     if (error != ESP_OK) {
-        ESP_LOGW(kTag, "HTTP server stop failed: %s", esp_err_to_name(error));
-    } else {
-        ESP_LOGI(kTag, "HTTP API offline until the next Wi-Fi lease");
+        s_server_state = ServerLifecycleState::CleanupRequired;
+        publishLifecycleLocked(true, false);
+        recordServerStopFailure();
+        reportLifecycle(error);
+        ESP_LOGE(
+            kTag,
+            "HTTP server stop failed (%s); handle retained for reconciliation",
+            esp_err_to_name(error)
+        );
+        return error;
     }
-    return error;
+    s_server = nullptr;
+    s_server_state = ServerLifecycleState::Stopped;
+    publishLifecycleLocked(false, false);
+    recordServerStop();
+    reportLifecycle();
+    ESP_LOGI(kTag, "HTTP API offline until the next Wi-Fi lease");
+    return ESP_OK;
+}
+
+// Reconcile desired availability with every owned handle/state combination.
+// The caller must hold s_lifecycle_mutex.
+esp_err_t reconcileServerLocked(bool should_run)
+{
+    return should_run ? startServerLocked() : stopServerLocked();
+}
+
+esp_err_t reconcileServer(bool should_run)
+{
+    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
+    return reconcileServerLocked(should_run);
+}
+
+esp_err_t reconcileObservedNetworkState(
+    bool observed_has_ip,
+    bool commit_infrastructure
+)
+{
+    std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
+    // Once an event has been seen it is authoritative: this HTTP handler may
+    // run before the Wi-Fi owner's handler updates its status snapshot.
+    if (!s_network_event_seen) {
+        s_network_has_ip = observed_has_ip;
+    }
+    if (commit_infrastructure) {
+        s_infrastructure_ready = true;
+        s_initialized.store(true, std::memory_order_release);
+    }
+    if (!s_infrastructure_ready ||
+        !s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = ESP_ERR_INVALID_STATE;
+        reportLifecycle(error);
+        ESP_LOGE(kTag, "HTTP reconciliation requested before infrastructure commit");
+        return error;
+    }
+    return reconcileServerLocked(
+        s_enabled.load(std::memory_order_acquire) && s_network_has_ip
+    );
 }
 
 // Bind server lifetime to acquisition and loss of a usable station IP.
@@ -444,14 +717,50 @@ void networkEventHandler(void *argument, esp_event_base_t event_base, int32_t ev
 {
     (void)argument;
     (void)event_data;
-    if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
-        (void)startServer();
+    const bool got_ip =
+        event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP;
+    const bool lost_ip =
+        event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP;
+    const bool station_unavailable =
+        event_base == WIFI_EVENT &&
+        (event_id == WIFI_EVENT_STA_DISCONNECTED ||
+         event_id == WIFI_EVENT_STA_STOP);
+    if (!got_ip && !lost_ip && !station_unavailable) {
         return;
     }
-    if ((event_base == IP_EVENT && event_id == IP_EVENT_STA_LOST_IP) ||
-        (event_base == WIFI_EVENT &&
-         (event_id == WIFI_EVENT_STA_DISCONNECTED || event_id == WIFI_EVENT_STA_STOP))) {
-        (void)stopServer();
+    const bool has_ip = got_ip;
+
+    esp_err_t error = ESP_OK;
+    bool deferred = false;
+    {
+        std::lock_guard<std::mutex> lifecycle_lock(s_lifecycle_mutex);
+        s_network_event_seen = true;
+        s_network_has_ip = has_ip;
+        deferred =
+            !s_infrastructure_ready ||
+            !s_initialized.load(std::memory_order_acquire);
+        if (!deferred) {
+            error = reconcileServerLocked(
+                s_enabled.load(std::memory_order_acquire) && s_network_has_ip
+            );
+        }
+    }
+    if (deferred) {
+        ESP_LOGD(
+            kTag,
+            "HTTP network event %ld recorded before infrastructure commit",
+            static_cast<long>(event_id)
+        );
+        return;
+    }
+    if (error != ESP_OK) {
+        recordEventLifecycleFailure();
+        ESP_LOGE(
+            kTag,
+            "HTTP reconcile failed for network event %ld (%s)",
+            static_cast<long>(event_id),
+            esp_err_to_name(error)
+        );
     }
 }
 
@@ -459,10 +768,14 @@ void networkEventHandler(void *argument, esp_event_base_t event_base, int32_t ev
 
 namespace LUNASHELL {
 
-esp_err_t httpServerInit()
+namespace {
+
+esp_err_t httpServerInitLocked()
 {
-    if (s_initialized) {
-        return ESP_OK;
+    if (s_initialized.load(std::memory_order_acquire)) {
+        LUNASHELL_wifi_status_t wifi = {};
+        LUNASHELL_wifi_get_status(&wifi);
+        return reconcileObservedNetworkState(wifi.ip_acquired, false);
     }
 
     UserSettingsService &settings = UserSettingsService::instance();
@@ -499,55 +812,112 @@ esp_err_t httpServerInit()
         return error;
     }
 
-    error = esp_event_handler_instance_register(
-        IP_EVENT,
-        ESP_EVENT_ANY_ID,
-        networkEventHandler,
-        nullptr,
-        &s_ip_event_instance
-    );
-    if (error != ESP_OK) {
-        return error;
-    }
-    error = esp_event_handler_instance_register(
-        WIFI_EVENT,
-        ESP_EVENT_ANY_ID,
-        networkEventHandler,
-        nullptr,
-        &s_wifi_event_instance
-    );
-    if (error != ESP_OK) {
-        (void)esp_event_handler_instance_unregister(IP_EVENT, ESP_EVENT_ANY_ID, s_ip_event_instance);
-        s_ip_event_instance = nullptr;
-        return error;
+    if (enabled) {
+        const esp_err_t wifi_error = LUNASHELL_wifi_init();
+        if (wifi_error != ESP_OK) {
+            reportLifecycle(wifi_error);
+            ESP_LOGW(
+                kTag,
+                "HTTP API requires Wi-Fi initialization: %s",
+                esp_err_to_name(wifi_error)
+            );
+            return wifi_error;
+        }
     }
 
-    s_initialized = true;
-    reportLifecycle();
-    if (!enabled) {
-        ESP_LOGI(kTag, "HTTP API disabled by saved preference");
-        return ESP_OK;
+    bool ip_handler_registered_now = false;
+    if (s_ip_event_instance == nullptr) {
+        error = esp_event_handler_instance_register(
+            IP_EVENT,
+            ESP_EVENT_ANY_ID,
+            networkEventHandler,
+            nullptr,
+            &s_ip_event_instance
+        );
+        if (error != ESP_OK) {
+            reportLifecycle(error);
+            ESP_LOGE(
+                kTag,
+                "HTTP IP event handler registration failed (%s)",
+                esp_err_to_name(error)
+            );
+            return error;
+        }
+        ip_handler_registered_now = true;
     }
-
-    const esp_err_t wifi_error = LUNASHELL_wifi_init();
-    if (wifi_error != ESP_OK) {
-        reportLifecycle(wifi_error);
-        ESP_LOGW(kTag, "HTTP API requires Wi-Fi initialization: %s", esp_err_to_name(wifi_error));
-        return wifi_error;
+    if (s_wifi_event_instance == nullptr) {
+        error = esp_event_handler_instance_register(
+            WIFI_EVENT,
+            ESP_EVENT_ANY_ID,
+            networkEventHandler,
+            nullptr,
+            &s_wifi_event_instance
+        );
+        if (error != ESP_OK) {
+            reportLifecycle(error);
+            ESP_LOGE(
+                kTag,
+                "HTTP Wi-Fi event handler registration failed (%s)",
+                esp_err_to_name(error)
+            );
+            if (ip_handler_registered_now) {
+                const esp_err_t rollback_error =
+                    esp_event_handler_instance_unregister(
+                        IP_EVENT,
+                        ESP_EVENT_ANY_ID,
+                        s_ip_event_instance
+                    );
+                if (rollback_error == ESP_OK) {
+                    s_ip_event_instance = nullptr;
+                } else {
+                    reportLifecycle(rollback_error);
+                    ESP_LOGE(
+                        kTag,
+                        "HTTP IP event handler rollback failed (%s); "
+                        "instance retained",
+                        esp_err_to_name(rollback_error)
+                    );
+                }
+            }
+            return error;
+        }
     }
 
     LUNASHELL_wifi_status_t wifi = {};
     LUNASHELL_wifi_get_status(&wifi);
-    if (wifi.ip_acquired) {
-        (void)startServer();
+    error = reconcileObservedNetworkState(wifi.ip_acquired, true);
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            kTag,
+            "HTTP API initialization reconciliation failed (%s)",
+            esp_err_to_name(error)
+        );
+        return error;
     }
-    ESP_LOGI(kTag, "HTTP API initialized; health probe is public and data routes require API key");
+    if (!enabled) {
+        ESP_LOGI(kTag, "HTTP API disabled by saved preference");
+    } else {
+        ESP_LOGI(
+            kTag,
+            "HTTP API initialized; health probe is public and data routes "
+            "require API key"
+        );
+    }
     return ESP_OK;
+}
+
+}  // namespace
+
+esp_err_t httpServerInit()
+{
+    std::lock_guard<std::mutex> initialization_lock(s_initialization_mutex);
+    return httpServerInitLocked();
 }
 
 // Persist one user choice, then apply only the matching server transition.
 esp_err_t httpServerSetEnabled(bool enabled)
 {
+    std::lock_guard<std::mutex> initialization_lock(s_initialization_mutex);
     UserSettingsService &settings = UserSettingsService::instance();
     esp_err_t error = settings.initialize();
     if (error != ESP_OK) {
@@ -559,11 +929,11 @@ esp_err_t httpServerSetEnabled(bool enabled)
     }
 
     s_enabled.store(enabled);
-    if (!s_initialized) {
-        return httpServerInit();
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        return httpServerInitLocked();
     }
     if (!enabled) {
-        return stopServer();
+        return reconcileServer(false);
     }
 
     error = LUNASHELL_wifi_init();
@@ -573,11 +943,11 @@ esp_err_t httpServerSetEnabled(bool enabled)
     }
     LUNASHELL_wifi_status_t wifi = {};
     LUNASHELL_wifi_get_status(&wifi);
-    if (wifi.ip_acquired) {
-        return startServer();
+    error = reconcileObservedNetworkState(wifi.ip_acquired, false);
+    if (error != ESP_OK) {
+        return error;
     }
-    reportLifecycle();
-    ESP_LOGI(kTag, "HTTP API enabled; waiting for a Wi-Fi address");
+    ESP_LOGI(kTag, "HTTP API enabled; lifecycle reconciled with Wi-Fi state");
     return ESP_OK;
 }
 
@@ -589,6 +959,7 @@ esp_err_t httpServerSetApiKey(const char *api_key)
         return validation_error;
     }
 
+    std::lock_guard<std::mutex> initialization_lock(s_initialization_mutex);
     UserSettingsService &settings = UserSettingsService::instance();
     esp_err_t error = settings.initialize();
     if (error != ESP_OK) {

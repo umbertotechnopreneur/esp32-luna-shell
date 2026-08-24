@@ -145,6 +145,12 @@
 
 ## Power and performance profiles
 
+- [ ] Validate repeated Performance Mode enable/disable and 0/90/180/270-degree
+  display transitions on hardware under serial capture. Confirm that sampler,
+  logger, voice, panel, and touch state remain coherent after every transition
+  and that a rejected transition keeps its real error visible, blocks terminal
+  retries, and applies only the documented one-second backoff to recoverable
+  failures.
 - [ ] Stop and deinitialize Wi-Fi, BLE provisioning, and BLE telemetry on PWR
   Device Standby; leave them stopped after wake until the user explicitly
   restarts them from Settings. Retain PWR wake and throttle, rather than
