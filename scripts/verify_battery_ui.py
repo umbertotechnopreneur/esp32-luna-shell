@@ -324,6 +324,10 @@ def verify_documents() -> None:
 
 def verify_firmware_contract() -> None:
     app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
+    app_documents = read(
+        "components/LUNASHELL_app/LUNASHELL_app_documents.cpp"
+    )
     navigation = read(
         "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
@@ -336,7 +340,7 @@ def verify_firmware_contract() -> None:
         "navigation Route enum",
     )
     require_regex(
-        app,
+        app_documents,
         r"case\s+Screen::Battery\s*:\s*"
         r"return\s+LazyScreenDescriptor\s*\{\s*"
         r'\.document_path\s*=\s*"res/screen_battery\.json"\s*,\s*'
@@ -396,6 +400,82 @@ def verify_firmware_contract() -> None:
         "std::expected<void, std::string> App::refresh_battery(",
         "LUNASHELL_app.cpp",
     )
+    cache_factory = function_text(
+        app,
+        "LUNASHELL::app_detail::BatteryBindingCache "
+        "make_battery_binding_cache()",
+        "LUNASHELL_app.cpp",
+    )
+    metric_factory = function_text(
+        app,
+        "void append_battery_metric_bindings(",
+        "LUNASHELL_app.cpp",
+    )
+    assign_values = function_text(
+        app,
+        "std::expected<void, std::string> assign_battery_binding_values(",
+        "LUNASHELL_app.cpp",
+    )
+    root_match = require_regex(
+        app,
+        r'constexpr\s+char\s+kBatteryBindingRoot\[\]\s*=\s*"([^"]+)"\s*;',
+        "Battery binding root",
+    )
+    binding_root = root_match.group(1)
+    metric_ids = re.findall(
+        r'BatteryMetricBindingSpec\{"([^"]+)",\s*\d+,\s*\d+\}',
+        app,
+    )
+    require(
+        len(metric_ids) == 10 and len(set(metric_ids)) == 10,
+        f"Battery binding cache must define 10 unique metric groups; "
+        f"found {metric_ids}",
+    )
+    hero_bindings = re.findall(
+        r'\{\s*"(/[^"]+)",\s*"([^"]+)",\s*\d+\s*\}',
+        cache_factory,
+    )
+    require(
+        len(hero_bindings) == 13,
+        f"Battery hero group must define 13 bindings; found {len(hero_bindings)}",
+    )
+    metric_binding_specs = (
+        ("/accent", "color"),
+        ("/value", "text"),
+        ("/value", "color"),
+        ("/detail", "text"),
+    )
+    for suffix, key in metric_binding_specs:
+        require_contains(
+            metric_factory,
+            f'add_binding("{suffix}", "{key}"',
+            "Battery metric binding factory",
+        )
+    binding_keys = [
+        (binding_root + suffix, key) for suffix, key in hero_bindings
+    ]
+    binding_keys.extend(
+        (f"{binding_root}/{metric_id}{suffix}", key)
+        for metric_id in metric_ids
+        for suffix, key in metric_binding_specs
+    )
+    require(
+        len(binding_keys) == 53 and len(set(binding_keys)) == 53,
+        "Battery cache must define exactly 53 unique path/key bindings",
+    )
+    for fragment in (
+        "constexpr std::size_t kBatteryHeroBindingCount = 13;",
+        "constexpr std::size_t kBatteryMetricBindingCount = 4;",
+        "kBatteryHeroBindingCount +",
+        "kBatteryMetricBindingSpecs.size() * kBatteryMetricBindingCount;",
+        "cache.updates.reserve(kBatteryBindingCount);",
+    ):
+        require_contains(app, fragment, "Battery cache exact sizing")
+    require_contains(
+        app,
+        "struct BatteryBindingCache {",
+        "Battery cache storage",
+    )
     require_contains(
         refresh,
         "const BatterySnapshot &battery = snapshot.battery;",
@@ -434,11 +514,121 @@ def verify_firmware_contract() -> None:
     )
     require_contains(
         refresh,
-        "std::to_string(battery.level_percent)",
+        "level_valid ? battery.level_percent : 0",
         "PMIC progress source",
     )
     require_contains(
         refresh,
+        "std::snprintf(",
+        "allocation-free PMIC progress formatting",
+    )
+    forbid_contains(
+        refresh,
+        "std::to_string(battery.level_percent)",
+        "Battery refresh allocation hot path",
+    )
+    for fragment in (
+        "namespace app_detail {\nstruct BatteryBindingCache;",
+        "~App() override;",
+        "std::unique_ptr<app_detail::BatteryBindingCache> "
+        "battery_binding_cache_;",
+    ):
+        require_contains(app_header, fragment, "App-owned Battery cache")
+    for fragment in (
+        "App::~App() = default;",
+        "battery_binding_cache_.reset();",
+    ):
+        require_contains(app, fragment, "Battery cache lifecycle")
+    require_regex(
+        refresh,
+        r"if\s*\(\s*battery_binding_cache_\s*==\s*nullptr\s*\)\s*\{\s*"
+        r"try\s*\{\s*battery_binding_cache_\s*=\s*"
+        r"std::make_unique<app_detail::BatteryBindingCache>\(\s*"
+        r"make_battery_binding_cache\(\)\s*\)\s*;\s*\}\s*"
+        r"catch\s*\(\s*const\s+std::bad_alloc\s*&\s*\)\s*\{[^}]*"
+        r"return\s+std::unexpected\([^}]*\)\s*;\s*\}\s*\}\s*"
+        r"app_detail::BatteryBindingCache\s*&\s*binding_cache\s*=\s*"
+        r"\*battery_binding_cache_\s*;",
+        "Battery cache guarded initialization",
+    )
+    forbid_contains(app, "static BatteryBindingCache", "Battery cache lifecycle")
+    forbid_contains(app, "group.pending", "Battery binding retry semantics")
+    require_regex(
+        assign_values,
+        r"values\.size\(\)\s*!=\s*expected_count\s*\|\|\s*"
+        r"offset\s*>\s*cache\.updates\.size\(\)\s*\|\|\s*"
+        r"expected_count\s*>\s*cache\.updates\.size\(\)\s*-\s*offset",
+        "Battery binding cache bounds",
+    )
+    for fragment in (
+        "auto update = cache.updates.begin() + offset;",
+        "for (const std::string_view value : values)",
+        "update->value.clear();",
+        "update->value.assign(value.data(), value.size());",
+        "++update;",
+    ):
+        require_contains(assign_values, fragment, "Battery value population")
+    hero_values = (
+        "level_color",
+        "level_color",
+        "state_text.data()",
+        "level_color",
+        "percent_text.data()",
+        "level_color",
+        'charging ? "false" : "true"',
+        "palette::kStatusCharge",
+        'level_valid ? "false" : "true"',
+        "level_value.data()",
+        "level_color",
+        "health_text.data()",
+        "level_color",
+    )
+    hero_pattern = r"\s*,\s*".join(re.escape(value) for value in hero_values)
+    require_regex(
+        refresh,
+        r"assign_battery_binding_values\(\s*binding_cache\s*,\s*0\s*,\s*"
+        r"kBatteryHeroBindingCount\s*,\s*\{\s*" + hero_pattern +
+        r"\s*,?\s*\}\s*\)",
+        "Battery hero value order",
+    )
+    require_regex(
+        refresh,
+        r"assign_battery_binding_values\(\s*binding_cache\s*,\s*"
+        r"kBatteryHeroBindingCount\s*\+\s*"
+        r"index\s*\*\s*kBatteryMetricBindingCount\s*,\s*"
+        r"kBatteryMetricBindingCount\s*,\s*\{\s*"
+        r"metric\.color\s*,\s*metric\.value\s*,\s*metric\.color\s*,\s*"
+        r"metric\.detail\s*\}\s*\)",
+        "Battery metric value order",
+    )
+    require_contains(
+        refresh,
+        "set_binding_values(context, binding_cache.updates)",
+        "Battery full binding update",
+    )
+    require(
+        refresh.count("set_binding_values(context, binding_cache.updates)") == 1,
+        "Battery refresh must dispatch its complete cached vector exactly once",
+    )
+    hero_assign_at = refresh.index("assign_battery_binding_values(")
+    metric_assign_at = refresh.index(
+        "assign_battery_binding_values(",
+        hero_assign_at + 1,
+    )
+    dispatch_at = refresh.index(
+        "set_binding_values(context, binding_cache.updates)"
+    )
+    require(
+        hero_assign_at < metric_assign_at < dispatch_at,
+        "Battery values must be fully populated before the cached batch dispatch",
+    )
+    require_contains(
+        refresh,
+        "Failed to refresh Battery telemetry: ",
+        "Battery update error propagation",
+    )
+    require_contains(
+        app,
         '"/LUNASHELL_battery/surface/battery_scroller"',
         "Battery binding root",
     )

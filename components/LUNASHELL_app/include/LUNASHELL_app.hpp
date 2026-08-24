@@ -36,9 +36,14 @@ namespace LUNASHELL {
 inline constexpr std::string_view kAppManifestId = "ai.LUNASHELL.device-console";
 
 struct DeviceSnapshot;
+namespace app_detail {
+struct BatteryBindingCache;
+}
 
 class App final : public esp_brookesia::system::core::IApp {
 public:
+    ~App() override;
+
     esp_brookesia::system::core::AppManifest get_manifest() const override;
     esp_brookesia::system::core::AppGuiDescriptor get_gui_descriptor() const override;
 
@@ -543,6 +548,7 @@ private:
     ImuUiCache imu_ui_cache_;
     GpsUiCache gps_ui_cache_;
     StorageUiCache storage_ui_cache_;
+    std::unique_ptr<app_detail::BatteryBindingCache> battery_binding_cache_;
     bool storage_format_request_pending_ = false;
     uint32_t storage_format_request_attempt_ = 0;
     bool pairing_qr_registered_ = false;

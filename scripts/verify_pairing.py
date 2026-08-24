@@ -165,6 +165,10 @@ def main() -> None:
     platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
     app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
     app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    app_documents = read(
+        "components/LUNASHELL_app/LUNASHELL_app_documents.cpp"
+    )
+    app_sources = f"{app}\n{app_documents}"
     simulator = read("simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("simulator/windows/run-simulator.ps1")
     edge_navigation = read("components/LUNASHELL_app/LUNASHELL_edge_navigation.cpp")
@@ -344,9 +348,12 @@ def main() -> None:
     )
     require(app, "LUNASHELL.next", "pairing wizard forward action")
     require(app, "LUNASHELL_provisioning_start()", "pairing wizard provisioning start")
-    descriptor_start = app.index("App::lazy_screen_descriptor")
-    descriptor_end = app.index("bool App::shares_lazy_document", descriptor_start)
-    descriptor_source = app[descriptor_start:descriptor_end]
+    descriptor_start = app_documents.index("App::lazy_screen_descriptor")
+    descriptor_end = app_documents.index(
+        "bool App::shares_lazy_document",
+        descriptor_start,
+    )
+    descriptor_source = app_documents[descriptor_start:descriptor_end]
     for route in PAIRING_WIZARD_ROUTES:
         require(
             navigation_header,
@@ -363,7 +370,7 @@ def main() -> None:
             "all pairing wizard routes must share one screen_pairing.json descriptor"
         )
     require(
-        app,
+        app_documents,
         "shares_lazy_document(screen_, screen)",
         "pairing in-document navigation",
     )
@@ -494,12 +501,12 @@ def main() -> None:
                 f"{sorted(document_screen_ids)}"
             )
         require(
-            app,
+            app_documents,
             f'"res/{document_name}"',
             f"lazy route registration for {screen_id}",
         )
         require(
-            app,
+            app_documents,
             f'"/{screen_id}"',
             f"lazy route screen path for {screen_id}",
         )
@@ -642,7 +649,7 @@ def main() -> None:
             "obsolete System Core Settings actions still exposed: "
             f"{sorted(obsolete_actions)}"
         )
-    unhandled_actions = {action for action in actions if action not in app}
+    unhandled_actions = {action for action in actions if action not in app_sources}
     if unhandled_actions:
         raise AssertionError(
             f"System Core UI actions not subscribed by the native app: "
@@ -671,9 +678,13 @@ def main() -> None:
         )
 
     require(app, "LUNASHELL.tof.calibration.start", "TOF calibration command")
-    require(app, '"res/screen_tof.json"', "lazy TOF screen descriptor")
     require(
-        app,
+        app_documents,
+        '"res/screen_tof.json"',
+        "lazy TOF screen descriptor",
+    )
+    require(
+        app_documents,
         '"res/screen_tof_settings.json"',
         "lazy TOF settings screen descriptor",
     )
@@ -863,11 +874,15 @@ def main() -> None:
         "active_screen_document_id_",
         "single active lazy-document cache",
     )
-    require(app, "context.gui().load_file(", "lazy GUI document load")
-    require(app, "context.gui().mount_screen(", "lazy GUI screen mount")
-    require(app, "unload_active_screen_document(", "lazy GUI document release")
+    require(app_documents, "context.gui().load_file(", "lazy GUI document load")
+    require(app_documents, "context.gui().mount_screen(", "lazy GUI screen mount")
     require(
-        app,
+        app_documents,
+        "unload_active_screen_document(",
+        "lazy GUI document release",
+    )
+    require(
+        app_documents,
         "loaded_page_documents(%u)",
         "lazy GUI measured cache telemetry",
     )

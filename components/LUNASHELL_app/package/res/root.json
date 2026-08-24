@@ -6,7 +6,6 @@
             "data": {
                 "typography": {
                     "available": [
-                        "8sp",
                         "10sp",
                         "12sp",
                         "16sp",
@@ -153,7 +152,7 @@
                                         "text": "INTERNAL RAM"
                                     },
                                     "style": {
-                                        "fontSize": "13sp"
+                                        "fontSize": "12sp"
                                     }
                                 },
                                 "value": {

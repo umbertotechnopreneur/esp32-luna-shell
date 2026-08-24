@@ -6454,6 +6454,17 @@ esp_err_t DeviceSnapshotService::refresh(
     return aggregate;
 }
 
+TouchActivityObservation
+DeviceSnapshotService::touchActivityObservation() const noexcept
+{
+    TouchActivityObservation observation;
+    observation.sequence =
+        s_touch_activity_sequence.load(std::memory_order_acquire);
+    observation.last_activity_at_us =
+        s_touch_last_activity_at_us.load(std::memory_order_relaxed);
+    return observation;
+}
+
 DeviceSnapshot DeviceSnapshotService::snapshot() const
 {
     DeviceSnapshot copy;
@@ -6479,10 +6490,10 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
         std::abort();
     }
     apply_measured_sample_aging(copy, esp_timer_get_time());
-    copy.ui.touch_activity_sequence =
-        s_touch_activity_sequence.load(std::memory_order_acquire);
-    copy.ui.touch_last_activity_at_us =
-        s_touch_last_activity_at_us.load(std::memory_order_relaxed);
+    const TouchActivityObservation touch_activity =
+        touchActivityObservation();
+    copy.ui.touch_activity_sequence = touch_activity.sequence;
+    copy.ui.touch_last_activity_at_us = touch_activity.last_activity_at_us;
     return copy;
 }
 

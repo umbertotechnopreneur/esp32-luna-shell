@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "LUNASHELL_alert_service.cpp"
         "LUNASHELL_app.cpp"
+        "LUNASHELL_app_documents.cpp"
         "LUNASHELL_adaptive_chrome.cpp"
         "LUNASHELL_adaptive_command_bar.cpp"
         "LUNASHELL_background_asset.cpp"
@@ -12,14 +13,17 @@ idf_component_register(
     INCLUDE_DIRS "include"
     REQUIRES
         brookesia_system_core
-        esp_hw_support
-        LUNASHELL_logger
         LUNASHELL_platform
+    PRIV_REQUIRES
+        esp_hw_support
+        esp_timer
+        LUNASHELL_logger
         qrcode
-    WHOLE_ARCHIVE
 )
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)
+# Keep the Brookesia provider registrar reachable without forcing every archive
+# member into the firmware image.
 target_link_libraries(
     ${COMPONENT_LIB}
     PUBLIC "-u LUNASHELL_app_provider_symbol"

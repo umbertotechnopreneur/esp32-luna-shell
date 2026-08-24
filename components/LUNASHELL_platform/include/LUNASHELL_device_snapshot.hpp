@@ -498,6 +498,11 @@ struct DeviceSnapshot {
     ProcessorSnapshot processor;
 };
 
+struct TouchActivityObservation {
+    uint32_t sequence = 0;
+    int64_t last_activity_at_us = 0;
+};
+
 /**
  * Canonical point-in-time hardware state.
  *
@@ -521,6 +526,8 @@ public:
         const char *reason = "manual",
         uint32_t diagnostic_reuse_limit_ms = 0
     );
+    [[nodiscard]]
+    TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
     /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
