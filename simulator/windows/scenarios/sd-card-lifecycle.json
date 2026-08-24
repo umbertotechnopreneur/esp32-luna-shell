@@ -1,0 +1,58 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "sd-card-lifecycle",
+  "title": "SD REMOVE AND INSERT",
+  "description": "A mounted card disappears and a different verified card returns requiring explicit formatting.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-sd-mounted"
+  },
+  "timeline": [
+    {
+      "at_ms": 1500,
+      "reason": "synthetic-sd-removed",
+      "patch": {
+        "storage.health": "missing",
+        "storage.last_error": "ESP_ERR_NOT_FOUND",
+        "storage.data_valid": false,
+        "storage.data_stale": true,
+        "storage.mount_outcome": "card-or-transport-failed",
+        "storage.mount_stage": "runtime-status",
+        "storage.mounted": false,
+        "storage.card_response_verified": false,
+        "storage.formatted": false,
+        "storage.capacity_bytes": 0,
+        "storage.filesystem_total_bytes": 0,
+        "storage.free_bytes": 0,
+        "storage.logger_mirror.health": "degraded",
+        "storage.logger_mirror.last_error": "ESP_ERR_NOT_FOUND",
+        "storage.logger_mirror.data_valid": false,
+        "storage.logger_mirror.data_stale": true,
+        "storage.logger_mirror_enabled": false,
+        "storage.logger_mirror_errno": 19,
+        "storage.logger_mirror_failure_count": 1
+      },
+      "touch_components": ["storage", "storage.logger_mirror"]
+    },
+    {
+      "at_ms": 3000,
+      "reason": "synthetic-sd-new-card",
+      "patch": {
+        "storage.health": "degraded",
+        "storage.last_error": "ESP_ERR_INVALID_RESPONSE",
+        "storage.data_stale": false,
+        "storage.last_success_at_us": 0,
+        "storage.mount_outcome": "format-required",
+        "storage.mount_stage": "fat-mount",
+        "storage.card_response_verified": true,
+        "storage.format_required": true,
+        "storage.mount_attempt_count": 2,
+        "storage.logger_mirror.last_error": "ESP_ERR_INVALID_STATE",
+        "storage.logger_mirror.data_stale": false,
+        "storage.logger_mirror.last_success_at_us": 0,
+        "storage.logger_mirror_errno": 0
+      },
+      "touch_components": ["storage", "storage.logger_mirror"]
+    }
+  ]
+}

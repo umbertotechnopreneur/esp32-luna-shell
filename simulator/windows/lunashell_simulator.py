@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import json
 import math
 import queue
 import sys
@@ -20,6 +21,14 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageTk
+
+from device_model import (
+    ScenarioEngine,
+    ScenarioValidationError,
+    SemanticActionError,
+    load_scenario,
+    scenario_names,
+)
 
 
 DISPLAY_SIZE = 466
@@ -207,12 +216,14 @@ def resource_path(relative: str) -> Path:
 
 
 class CanonicalLogger:
-    def __init__(self) -> None:
+    def __init__(self, now_ms=None) -> None:
         self.lines: deque[str] = deque(maxlen=32)
         self.events: queue.SimpleQueue[str] = queue.SimpleQueue()
+        self._now_ms = now_ms or (lambda: 0)
 
-    def info(self, tag: str, message: str) -> None:
-        line = f"I ({int(time.monotonic() * 1000):06d}) {tag}: {message}"
+    def info(self, tag: str, message: str, *, at_ms: int | None = None) -> None:
+        timestamp_ms = int(self._now_ms() if at_ms is None else at_ms)
+        line = f"I ({timestamp_ms:06d}) {tag}: {message}"
         self.lines.append(line)
         self.events.put(line)
         print(line, flush=True)
@@ -224,96 +235,178 @@ class CanonicalLogger:
         return "\n".join(lines)
 
 
-@dataclass(frozen=True)
-class Scenario:
-    name: str
-    sd_message: str
-    gps_message: str
-    final_message: str
-    battery_percent: int | None = 83
-    battery_mv: int | None = 4021
-    usb_present: bool | None = False
-    usb_mv: int | None = 0
-    system_mv: int | None = 3708
-    die_temperature_c: float | None = 31.6
-    battery_present: bool | None = True
-    battery_state: str = "DISCHARGING"
-    battery_health: str = "READY"
-    battery_error: str = "ESP_OK"
-    battery_sample_age_s: float | None = 0.4
-    charger_phase: str | None = "STOPPED"
-    batfet_enabled: bool | None = True
-    battery_active_mode: bool | None = False
-    thermal_regulation_active: bool | None = False
-    input_current_limit_active: bool | None = False
+def component_current(component: dict) -> bool:
+    return (
+        component.get("health") == "ready"
+        and component.get("last_error") == "ESP_OK"
+        and component.get("data_valid") is True
+        and component.get("data_stale") is False
+    )
 
 
-SCENARIOS = {
-    "healthy": Scenario(
-        "HEALTHY",
-        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
-        "GPS LC76G: synthetic fix 10.7769, 106.7009",
-        "Synthetic hardware ready",
-    ),
-    "sd-unformatted": Scenario(
-        "SD UNFORMATTED",
-        "SD: mount failed; synthetic card requires FAT32 formatting",
-        "GPS LC76G: synthetic fix 10.7769, 106.7009",
-        "Ready with SD degraded",
-    ),
-    "gps-searching": Scenario(
-        "GPS SEARCHING",
-        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
-        "GPS LC76G: transport ready, waiting for synthetic fix",
-        "Ready; GPS still searching",
-    ),
-    "battery-low": Scenario(
-        "BATTERY LOW",
-        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
-        "GPS LC76G: synthetic fix 10.7769, 106.7009",
-        "Ready with synthetic low-battery warning",
-        battery_percent=8,
-        battery_mv=3475,
-        system_mv=3628,
-        die_temperature_c=32.4,
-    ),
-    "battery-charging": Scenario(
-        "BATTERY CHARGING",
-        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
-        "GPS LC76G: synthetic fix 10.7769, 106.7009",
-        "Synthetic hardware ready; USB charging",
-        battery_percent=54,
-        battery_mv=3860,
-        usb_present=True,
-        usb_mv=5052,
-        system_mv=4215,
-        die_temperature_c=33.1,
-        battery_state="CHARGING",
-        charger_phase="CC CHARGE",
-    ),
-    "battery-unavailable": Scenario(
-        "BATTERY UNAVAILABLE",
-        "SD: synthetic FAT32 card mounted, capacity=8192 MB",
-        "GPS LC76G: synthetic fix 10.7769, 106.7009",
-        "Ready with synthetic PMIC telemetry unavailable",
-        battery_percent=None,
-        battery_mv=None,
-        usb_present=None,
-        usb_mv=None,
-        system_mv=None,
-        die_temperature_c=None,
-        battery_present=None,
-        battery_state="UNAVAILABLE",
-        battery_health="ERROR",
-        battery_error="ESP_ERR_TIMEOUT",
-        battery_sample_age_s=None,
-        charger_phase=None,
-        batfet_enabled=None,
-        battery_active_mode=None,
-        thermal_regulation_active=None,
-        input_current_limit_active=None,
-    ),
-}
+def component_status(component: dict) -> tuple[str, str]:
+    if component_current(component):
+        return "READY", STATUS_READY
+    if component.get("health") == "missing":
+        return "MISSING", STATUS_MISSING
+    if component.get("data_stale"):
+        return "STALE", STATUS_WARNING
+    error = str(component.get("last_error", "ESP_ERR_INVALID_STATE"))
+    if error != "ESP_OK":
+        return error, STATUS_FAULT
+    return str(component.get("health", "unknown")).upper(), STATUS_WARNING
+
+
+def seconds_label(seconds: int) -> str:
+    if seconds > 0 and seconds % 60 == 0:
+        minutes = seconds // 60
+        return f"{minutes} minute" if minutes == 1 else f"{minutes} minutes"
+    return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"
+
+
+class ScenarioView:
+    """Compatibility view whose values always come from the live snapshot."""
+
+    def __init__(self, engine: ScenarioEngine) -> None:
+        self.engine = engine
+
+    @property
+    def snapshot(self) -> dict:
+        return self.engine.snapshot()
+
+    @property
+    def name(self) -> str:
+        return self.engine.scenario.title.upper()
+
+    @property
+    def battery(self) -> dict:
+        return self.snapshot["battery"]
+
+    @property
+    def battery_percent(self) -> int | None:
+        battery = self.battery
+        if not (
+            component_current(battery)
+            and battery["battery_present"]
+            and battery["level_percent_valid"]
+        ):
+            return None
+        return int(battery["level_percent"])
+
+    @property
+    def battery_mv(self) -> int | None:
+        battery = self.battery
+        if not (
+            component_current(battery)
+            and battery["battery_present"]
+            and battery["battery_mv_valid"]
+        ):
+            return None
+        return int(battery["battery_mv"])
+
+    @property
+    def usb_present(self) -> bool | None:
+        return self.battery["usb_present"] if component_current(self.battery) else None
+
+    @property
+    def usb_mv(self) -> int | None:
+        return int(self.battery["usb_mv"]) if component_current(self.battery) else None
+
+    @property
+    def system_mv(self) -> int | None:
+        return int(self.battery["system_mv"]) if component_current(self.battery) else None
+
+    @property
+    def die_temperature_c(self) -> float | None:
+        return float(self.battery["die_temperature_c"]) if component_current(self.battery) else None
+
+    @property
+    def battery_present(self) -> bool | None:
+        return self.battery["battery_present"] if component_current(self.battery) else None
+
+    @property
+    def battery_state(self) -> str:
+        return str(self.battery["power_state"]).upper() if component_current(self.battery) else "UNAVAILABLE"
+
+    @property
+    def battery_health(self) -> str:
+        return str(self.battery["health"]).upper()
+
+    @property
+    def battery_error(self) -> str:
+        return str(self.battery["last_error"])
+
+    @property
+    def battery_sample_age_s(self) -> float | None:
+        success = int(self.battery["last_success_at_us"])
+        if not component_current(self.battery) or success <= 0:
+            return None
+        return max(0.0, (self.engine.clock.now_us - success) / 1_000_000.0)
+
+    @property
+    def charger_phase(self) -> str | None:
+        return str(self.battery["charger_phase"]).upper() if component_current(self.battery) else None
+
+    @property
+    def batfet_enabled(self) -> bool | None:
+        return self.battery["batfet_enabled"] if component_current(self.battery) else None
+
+    @property
+    def battery_active_mode(self) -> bool | None:
+        return self.battery["battery_active_mode"] if component_current(self.battery) else None
+
+    @property
+    def thermal_regulation_active(self) -> bool | None:
+        return self.battery["thermal_regulation_active"] if component_current(self.battery) else None
+
+    @property
+    def input_current_limit_active(self) -> bool | None:
+        return self.battery["input_current_limit_active"] if component_current(self.battery) else None
+
+    @property
+    def sd_message(self) -> str:
+        storage = self.snapshot["storage"]
+        if storage["mounted"] and component_current(storage):
+            return f"SD: synthetic FAT mounted, capacity={storage['capacity_bytes'] // 1_048_576} MB"
+        if storage["format_required"]:
+            return "SD: verified synthetic card requires explicit FAT formatting"
+        state, _ = component_status(storage)
+        return f"SD: synthetic storage {state}"
+
+    @property
+    def gps_message(self) -> str:
+        gps = self.snapshot["gps"]
+        if component_current(gps) and gps["has_fix"]:
+            return f"GPS LC76G: synthetic fix {gps['latitude_degrees']:.4f}, {gps['longitude_degrees']:.4f}"
+        if component_current(gps):
+            return "GPS LC76G: receiver ready, waiting for synthetic fix"
+        state, _ = component_status(gps)
+        return f"GPS LC76G: synthetic receiver {state}"
+
+    @property
+    def final_message(self) -> str:
+        snapshot = self.snapshot
+        if not snapshot["last_update_complete"]:
+            return (
+                "Synthetic snapshot incomplete: "
+                f"{snapshot['last_update_error']}"
+            )
+        degraded = [
+            name
+            for name, component in (
+                ("battery", snapshot["battery"]),
+                ("imu", snapshot["imu"]),
+                ("gps", snapshot["gps"]),
+                ("storage", snapshot["storage"]),
+                ("distance", snapshot["distance"]),
+                ("memory", snapshot["memory"]),
+            )
+            if not component_current(component)
+        ]
+        return (
+            f"Synthetic snapshot {snapshot['sequence']} ready"
+            + (f"; unavailable: {', '.join(degraded)}" if degraded else "")
+        )
 
 
 @dataclass(frozen=True)
@@ -384,8 +477,8 @@ PAIRING_PREVIEWS = {
     "pairing-success": PairingPreview(
         "WI-FI READY",
         "CONNECTED",
-        "Network: LUNASHELL-SYNTHETIC\nIP: 192.0.2.24",
-        "Setup complete. Next returns to Settings.",
+        "Wireless state comes from the canonical synthetic snapshot.",
+        "Connection details are shown only after a current model fix.",
         5,
         result="success",
     ),
@@ -404,7 +497,7 @@ class LUNASHELLSimulator:
     def __init__(
         self,
         root: tk.Tk,
-        scenario: Scenario,
+        engine: ScenarioEngine,
         play_sound: bool = True,
         idle_state: str = "active",
     ) -> None:
@@ -412,9 +505,14 @@ class LUNASHELLSimulator:
         # The simulator uses pixel-based firmware geometry, so keep Tk font
         # sizing deterministic instead of inheriting Windows display scaling.
         self.root.tk.call("tk", "scaling", 1.0)
-        self.scenario = scenario
+        self.engine = engine
+        self.scenario = ScenarioView(engine)
         self.idle_state = idle_state
-        self.logger = CanonicalLogger()
+        self.logger = CanonicalLogger(lambda: self.engine.elapsed_ms)
+        if idle_state == "standby" and self.engine.snapshot()["power"]["state"] == "active":
+            self.engine.action("press:pwr")
+        elif idle_state == "fullscreen" and not self.engine.snapshot()["power"]["fullscreen_active"]:
+            self.engine.action("press:boot")
         self.canvas = tk.Canvas(
             root,
             width=DISPLAY_SIZE,
@@ -437,10 +535,11 @@ class LUNASHELLSimulator:
         self.audio_phase = 0
         self.audio_timer: str | None = None
         self.performance_mode = False
-        self.wireless_running = False
         self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
-        self.tof_calibration_complete = False
+        self.pending_action: str | None = None
+        self.confirmation_return_screen = "home"
+        self.result_message = "Confirmed"
         self.ready = False
         self.safe_guide = False
         self.timeline_index = 0
@@ -462,6 +561,43 @@ class LUNASHELLSimulator:
         self.show_boot()
         self.root.after(150, self._advance_timeline)
         self.root.after(120, self._refresh_log)
+
+    def _snapshot(self) -> dict:
+        return self.engine.snapshot()
+
+    def _wireless_running(self) -> bool:
+        snapshot = self._snapshot()
+        wifi = snapshot["radios"]["wifi"]
+        ble = snapshot["radios"]["ble"]
+        return bool(wifi["started"] or component_current(ble))
+
+    def _storage_format_allowed(self) -> bool:
+        storage = self._snapshot()["storage"]
+        return bool(
+            storage["format_required"]
+            and storage["mount_outcome"] == "format-required"
+            and storage["card_response_verified"]
+            and storage["cleanup_complete"]
+            and storage["cleanup_error"] == "ESP_OK"
+            and not storage["poisoned"]
+            and not storage["mounted"]
+            and not storage["authorization_consumed"]
+        )
+
+    def _apply_action(self, name: str, **params) -> bool:
+        try:
+            self.engine.action(name, **params)
+        except SemanticActionError as error:
+            self.logger.info(
+                "LUNASHELL_simulator",
+                f"Synthetic action {name} rejected: {error}",
+            )
+            return False
+        self.logger.info(
+            "LUNASHELL_simulator",
+            f"Synthetic action {name} applied; generation={self.engine.generation.sequence}",
+        )
+        return True
 
     def _load_assets(self, play_sound: bool) -> None:
         image_path = resource_path("assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png")
@@ -931,41 +1067,52 @@ class LUNASHELLSimulator:
         self.canvas.create_image(x, y, image=photo, tags="ui")
 
     def _status_colors(self) -> list[str]:
-        if self.screen == "pairing-success":
-            return [STATUS_READY] * 6
-        if self.scenario.name == "SD UNFORMATTED":
-            return [
-                STATUS_READY,
-                STATUS_READY,
-                STATUS_READY,
-                STATUS_WARNING,
-                STATUS_READY,
-                STATUS_WARNING,
-            ]
-        if self.scenario.name == "GPS SEARCHING":
-            return [
-                STATUS_READY,
-                STATUS_READY,
-                STATUS_READY,
-                STATUS_WARNING,
-                STATUS_WARNING,
-                STATUS_READY,
-            ]
-        colors = [
-            STATUS_READY,
-            STATUS_READY,
-            STATUS_READY,
-            STATUS_WARNING,
-            STATUS_READY,
-            STATUS_READY,
+        snapshot = self._snapshot()
+        battery = snapshot["battery"]
+        wifi = snapshot["radios"]["wifi"]
+        ble = snapshot["radios"]["ble"]
+        gps = snapshot["gps"]
+        storage = snapshot["storage"]
+
+        if component_current(battery):
+            usb_color = STATUS_READY if battery["usb_present"] else STATUS_WARNING
+            level = self.scenario.battery_percent
+            battery_color = (
+                STATUS_FAULT
+                if level is None or level <= 12
+                else STATUS_WARNING if level <= 30 else STATUS_READY
+            )
+        else:
+            _, usb_color = component_status(battery)
+            battery_color = usb_color
+
+        def radio_color(component: dict, running: bool) -> str:
+            if component_current(component):
+                return STATUS_READY
+            if not running and component.get("last_error") == "ESP_ERR_INVALID_STATE":
+                return STATUS_WARNING
+            return component_status(component)[1]
+
+        if component_current(gps):
+            gps_color = STATUS_READY if gps["has_fix"] else STATUS_WARNING
+        else:
+            gps_color = component_status(gps)[1]
+
+        if self._storage_format_allowed():
+            storage_color = STATUS_WARNING
+        elif component_current(storage) and storage["mounted"]:
+            storage_color = STATUS_READY
+        else:
+            storage_color = component_status(storage)[1]
+
+        return [
+            usb_color,
+            battery_color,
+            radio_color(ble, component_current(ble)),
+            radio_color(wifi, wifi["started"]),
+            gps_color,
+            storage_color,
         ]
-        if self.scenario.battery_percent is None:
-            colors[1] = STATUS_FAULT
-        elif self.scenario.battery_percent <= 12:
-            colors[1] = STATUS_FAULT
-        elif self.scenario.battery_percent <= 30:
-            colors[1] = STATUS_WARNING
-        return colors
 
     def _draw_status_icon(self, kind: str, x: int, y: int, color: str) -> None:
         if kind == "usb":
@@ -1384,18 +1531,66 @@ class LUNASHELLSimulator:
             f"{self.scenario.battery_mv}mV, {source}"
         )
 
-    # Replay deterministic hardware events without emulating device drivers.
+    # Present deterministic, snapshot-backed startup events without drivers.
     def _advance_timeline(self) -> None:
+        snapshot = self._snapshot()
+        touch = snapshot["ui"]["touch"]
+        imu = snapshot["imu"]
+        wifi = snapshot["radios"]["wifi"]
+        ble = snapshot["radios"]["ble"]
+
+        if component_current(touch):
+            touch_message = "Touch CST9217: synthetic input ready"
+        else:
+            touch_state, _ = component_status(touch)
+            touch_message = f"Touch CST9217: synthetic input {touch_state}"
+
+        if component_current(imu):
+            acceleration = imu["acceleration_mps2"]
+            imu_message = (
+                "IMU QMI8658: synthetic acceleration "
+                f"x={acceleration[0]:+.2f} y={acceleration[1]:+.2f} "
+                f"z={acceleration[2]:+.2f}m/s2"
+            )
+        else:
+            imu_state, _ = component_status(imu)
+            imu_message = f"IMU QMI8658: synthetic sample {imu_state}"
+
+        if component_current(wifi):
+            wifi_state = "connected" if wifi["connected"] else "started"
+            wifi_message = f"Wi-Fi: synthetic STA {wifi_state}"
+        elif not wifi["started"] and wifi["last_error"] == "ESP_ERR_INVALID_STATE":
+            credentials = "configured" if wifi["credentials_configured"] else "missing"
+            wifi_message = f"Wi-Fi: synthetic STA stopped, credentials {credentials}"
+        else:
+            wifi_state, _ = component_status(wifi)
+            wifi_message = f"Wi-Fi: synthetic STA {wifi_state}"
+
+        if component_current(ble):
+            ble_state = (
+                "connected"
+                if ble["connected"]
+                else "advertising"
+                if ble["advertising"]
+                else "ready"
+            )
+            ble_message = f"BLE: synthetic radio {ble_state} as {ble['device_name']}"
+        elif ble["last_error"] == "ESP_ERR_INVALID_STATE":
+            ble_message = "BLE: synthetic radio stopped"
+        else:
+            ble_state, _ = component_status(ble)
+            ble_message = f"BLE: synthetic radio {ble_state}"
+
         events = [
             ("LUNASHELL_logger", "Canonical logger online: console + RAM ring"),
             ("LUNASHELL_main", self.scenario.sd_message),
             ("LUNASHELL_boot", "Boot screen online: LUNASHELL.ai + canonical live log"),
-            ("LUNASHELL_main", "Touch CST9217: synthetic input ready"),
+            ("LUNASHELL_main", touch_message),
             ("LUNASHELL_hw", self._battery_timeline_message()),
-            ("LUNASHELL_hw", "IMU QMI8658: synthetic orientation x=12 y=-18 z=998mg"),
+            ("LUNASHELL_hw", imu_message),
             ("LUNASHELL_hw", self.scenario.gps_message),
-            ("LUNASHELL_radios", "Wi-Fi: synthetic STA ready, credentials not configured"),
-            ("LUNASHELL_radios", "BLE: synthetic advertising as LUNASHELL-SIM1"),
+            ("LUNASHELL_radios", wifi_message),
+            ("LUNASHELL_radios", ble_message),
             ("LUNASHELL_main", self.scenario.final_message),
         ]
         if self.timeline_index < len(events):
@@ -1406,14 +1601,24 @@ class LUNASHELLSimulator:
             return
 
         self.ready = True
-        self.logger.info("LUNASHELL_boot", "Startup complete; touch to continue")
-        self.canvas.itemconfigure("continue", text="TOUCH TO CONTINUE")
+        if snapshot["last_update_complete"]:
+            completion = "Snapshot ready; touch to continue"
+            prompt = "TOUCH TO CONTINUE"
+        else:
+            completion = (
+                "Snapshot incomplete; touch to inspect: "
+                f"{snapshot['last_update_error']}"
+            )
+            prompt = "TOUCH TO INSPECT"
+        self.logger.info("LUNASHELL_boot", completion)
+        self.canvas.itemconfigure("continue", text=prompt)
 
     def _on_click(self, event: tk.Event) -> None:
         if self.screen == "boot":
             if self.ready:
-                self.logger.info("LUNASHELL_boot", "Synthetic touch confirmed; opening LUNASHELL.ai")
-                self.show_home()
+                if self._apply_action("touch"):
+                    self.logger.info("LUNASHELL_boot", "Synthetic touch confirmed; opening LUNASHELL.ai")
+                    self.show_home()
             else:
                 self.logger.info("LUNASHELL_boot", "Synthetic touch received; startup still in progress")
             return
@@ -1424,6 +1629,7 @@ class LUNASHELLSimulator:
                 "Synthetic touch ignored in standby; use PWR or IMU wake",
             )
             return
+        self._apply_action("touch")
         if self.idle_state not in {"active", "fullscreen"}:
             self.idle_state = "active"
             self.logger.info("LUNASHELL_ui", "Synthetic touch restored Adaptive Chrome")
@@ -1541,11 +1747,7 @@ class LUNASHELLSimulator:
         elif self.screen == "tof-settings" and command_arc_visible:
             x, y, diameter = command_geometry(1, 0)
             if x <= event.x <= x + diameter and y <= event.y <= y + diameter:
-                self.tof_calibration_complete = True
-                self.logger.info(
-                    "LUNASHELL_tof",
-                    "Synthetic calibration completed; no hardware accessed",
-                )
+                self._apply_action("calibrate:tof")
                 self.show_tof_settings_demo()
         elif self.screen == "settings":
             settings_layout = self._settings_layout()
@@ -1574,17 +1776,7 @@ class LUNASHELLSimulator:
                         elif index == 1:
                             self.show_pairing_demo("pairing-intro")
                         elif index == 2:
-                            self.wireless_running = not self.wireless_running
-                            self.logger.info(
-                                "LUNASHELL_radios",
-                                "Synthetic wireless services "
-                                + (
-                                    "started"
-                                    if self.wireless_running
-                                    else "stopped"
-                                )
-                                + "; no hardware accessed",
-                            )
+                            self._apply_action("toggle:wireless")
                             self.show_settings_demo()
                         elif index == 3:
                             self.logger.info(
@@ -1604,12 +1796,12 @@ class LUNASHELLSimulator:
             and 128 <= event.x <= 338
             and 358 <= event.y <= 402
         ):
-            if self.scenario.name == "SD UNFORMATTED":
+            if self._storage_format_allowed():
                 self.logger.info(
                     "LUNASHELL_storage",
                     "Synthetic explicit format confirmation requested",
                 )
-                self.show_confirmation()
+                self.show_confirmation("confirm:format-sd")
             else:
                 self.logger.info(
                     "LUNASHELL_storage",
@@ -1835,13 +2027,51 @@ class LUNASHELLSimulator:
         self._draw_safe_guide()
 
     def _draw_home_telemetry(self) -> None:
-        telemetry = (
-            ("INTERNAL RAM", "246/320K L62K F74", 0.77, STATUS_READY),
-            ("PSRAM", "3350/4160K L2560K F42", 0.80, STATUS_READY),
-            ("FLASH APP", "5901/14476 KB · 40%", 0.40, BLUE),
-            ("CORE 0", "18%", 0.18, STATUS_READY),
-            ("CORE 1", "34%", 0.34, BLUE),
-        )
+        snapshot = self._snapshot()
+        memory = snapshot["memory"]
+        processor = snapshot["processor"]
+
+        def ratio(used: int, total: int) -> float:
+            return min(1.0, max(0.0, used / total)) if total > 0 else 0.0
+
+        internal_total = int(memory["internal_heap_total_bytes"])
+        internal_free = int(memory["internal_free_bytes"])
+        internal_used = internal_total - internal_free
+        psram_total = int(memory["psram_heap_total_bytes"])
+        psram_used = int(memory["psram_used_bytes"])
+        app_total = int(memory["app_partition_bytes"])
+        app_used = int(memory["firmware_image_bytes"])
+        telemetry: list[tuple[str, str, float, str]] = [
+            (
+                "INTERNAL RAM",
+                f"{internal_used // 1024}/{internal_total // 1024}K F{internal_free // 1024}",
+                ratio(internal_used, internal_total),
+                STATUS_WARNING if memory["internal_memory_pressure"] else STATUS_READY,
+            ),
+            (
+                "PSRAM",
+                f"{psram_used // 1024}/{psram_total // 1024}K F{memory['psram_free_bytes'] // 1024}",
+                ratio(psram_used, psram_total),
+                STATUS_READY,
+            ),
+            (
+                "FLASH APP",
+                f"{app_used // 1024}/{app_total // 1024} KB · {round(ratio(app_used, app_total) * 100)}%",
+                ratio(app_used, app_total),
+                BLUE,
+            ),
+        ]
+        for index, core in enumerate(processor["cores"]):
+            available = bool(core["available"] and core["utilization_available"])
+            utilization = int(core["utilization_percent"]) if available else 0
+            telemetry.append(
+                (
+                    f"CORE {index}",
+                    f"{utilization}%" if available else "UNAVAILABLE",
+                    utilization / 100.0 if available else 0.0,
+                    STATUS_READY if available else STATUS_WARNING,
+                )
+            )
         self.canvas.create_text(
             116,
             193,
@@ -1894,13 +2124,28 @@ class LUNASHELLSimulator:
             )
             y += 25
 
-        wifi_color = STATUS_WARNING
-        gps_color = STATUS_WARNING if self.scenario.name == "GPS SEARCHING" else STATUS_READY
+        wifi = snapshot["radios"]["wifi"]
+        gps = snapshot["gps"]
+        if component_current(wifi):
+            wifi_text = "WIFI  CONNECTED" if wifi["connected"] else "WIFI  READY"
+            wifi_color = STATUS_READY
+        elif not wifi["started"] and wifi["last_error"] == "ESP_ERR_INVALID_STATE":
+            wifi_text = "WIFI  OFF"
+            wifi_color = STATUS_WARNING
+        else:
+            wifi_text, wifi_color = component_status(wifi)
+            wifi_text = f"WIFI  {wifi_text}"
+        if component_current(gps):
+            gps_text = "GPS  3D FIX" if gps["has_fix"] else "GPS  SEARCHING"
+            gps_color = STATUS_READY if gps["has_fix"] else STATUS_WARNING
+        else:
+            gps_text, gps_color = component_status(gps)
+            gps_text = f"GPS  {gps_text}"
         self.canvas.create_text(
             116,
             337,
             anchor="w",
-            text="WIFI  OFF",
+            text=wifi_text,
             fill=wifi_color,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
@@ -1909,11 +2154,7 @@ class LUNASHELLSimulator:
             350,
             337,
             anchor="e",
-            text=(
-                "GPS  SEARCHING"
-                if self.scenario.name == "GPS SEARCHING"
-                else "GPS  3D FIX"
-            ),
+            text=gps_text,
             fill=gps_color,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
@@ -2250,14 +2491,52 @@ class LUNASHELLSimulator:
             if self.scenario.battery_percent is not None
             else f"SYN PMIC {self.scenario.battery_error}"
         )
+        snapshot = self._snapshot()
+        gps = snapshot["gps"]
+        wifi = snapshot["radios"]["wifi"]
+        touch = snapshot["ui"]["touch"]
+        imu = snapshot["imu"]
+        gps_log = (
+            f"SYN LC76G FIX Q{gps['fix_quality']} SAT {gps['satellites']}"
+            if component_current(gps) and gps["has_fix"]
+            else "SYN LC76G SEARCHING"
+            if component_current(gps)
+            else f"SYN LC76G {gps['last_error']}"
+        )
+        wifi_log = (
+            f"SYN WIFI {'CONNECTED' if wifi['connected'] else 'STARTED'}"
+            if component_current(wifi)
+            else "SYN WIFI OFF"
+            if not wifi["started"]
+            else f"SYN WIFI {wifi['last_error']}"
+        )
+        touch_log = (
+            "SYN CST9217 READY"
+            if component_current(touch)
+            else f"SYN CST9217 {component_status(touch)[0]}"
+        )
+        imu_log = (
+            "SYN QMI8658 "
+            f"ACC {imu['acceleration_mps2'][0]:+.2f}/"
+            f"{imu['acceleration_mps2'][1]:+.2f}/"
+            f"{imu['acceleration_mps2'][2]:+.2f}"
+            if component_current(imu)
+            else f"SYN QMI8658 {component_status(imu)[0]}"
+        )
+        snapshot_log = (
+            f"SYN SNAPSHOT {snapshot['sequence']} {snapshot['reason']}"
+            if snapshot["last_update_complete"]
+            else f"SYN SNAPSHOT INCOMPLETE {snapshot['last_update_error']}"
+        )
+        timestamp = f"{self.engine.elapsed_ms:06d}"
         lines = (
-            "001245 LOGGER SYN RING ONLINE",
-            f"001676 POWER  {battery_log}",
-            "001921 TOUCH  SYN CST9217 READY",
-            "002118 IMU    SYN QMI8658 READY",
-            "002406 GPS    SYN LC76G 3D FIX",
-            "002734 RADIO  SYN BLE ADVERTISING",
-            "003012 APP    SYN SNAPSHOT PUBLISHED",
+            f"{timestamp} LOGGER SYN RING ONLINE",
+            f"{timestamp} POWER  {battery_log}",
+            f"{timestamp} TOUCH  {touch_log}",
+            f"{timestamp} IMU    {imu_log}",
+            f"{timestamp} GPS    {gps_log}",
+            f"{timestamp} RADIO  {wifi_log}",
+            f"{timestamp} APP    {snapshot_log}",
         )
         for index, line in enumerate(lines):
             y = 181 + (index * 28)
@@ -2287,6 +2566,27 @@ class LUNASHELLSimulator:
         self._draw_atmosphere()
         self._draw_status_bar()
         layout = self._settings_layout()
+        snapshot = self._snapshot()
+        diagnostics = snapshot["diagnostics"]
+        cadence_component = diagnostics["full_snapshot_period"]
+        cadence_current = component_current(cadence_component)
+        cadence_state, cadence_color = component_status(cadence_component)
+        cadence_ms = int(diagnostics["full_snapshot_period_ms"])
+        cadence_value = f"{cadence_ms} ms" if cadence_current else cadence_state
+        cadence_detail = (
+            f"Synthetic updates every {cadence_ms} ms"
+            if cadence_current
+            else f"Full Snapshot {cadence_state}"
+        )
+        brightness = snapshot["ui"]["brightness"]
+        brightness_current = component_current(brightness)
+        brightness_value = (
+            f"Configured · {snapshot['ui']['configured_brightness_percent']}%"
+            if brightness_current
+            else component_status(brightness)[0]
+        )
+        orientation = snapshot["ui"]["orientation"]
+        orientation_current = component_current(orientation)
         self._draw_page_heading(
             "SETTINGS",
             "All controls · swipe to scroll",
@@ -2343,13 +2643,16 @@ class LUNASHELLSimulator:
             font=(FONT_DISPLAY, 12),
             tags="ui",
         )
-        self._draw_settings_control(int(layout["cadence_control"]), "1 Hz")
+        self._draw_settings_control(
+            int(layout["cadence_control"]),
+            cadence_value,
+        )
         self.canvas.create_text(
             94,
             int(layout["cadence_state"]),
             anchor="w",
-            text="1 Hz updates are active",
-            fill="#51c7f2",
+            text=cadence_detail,
+            fill="#51c7f2" if cadence_current else cadence_color,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
@@ -2375,47 +2678,74 @@ class LUNASHELLSimulator:
             )
             self._draw_settings_control(
                 int(layout["brightness_control"]),
-                "Balanced · 70%",
+                brightness_value,
             )
         rotation_y = layout["rotation"]
         if rotation_y is not None:
             self._draw_settings_switch(
                 rotation_y,
-                "Auto rotation",
-                None,
-                True,
+                (
+                    "Auto rotation"
+                    if orientation_current
+                    else f"Auto rotation · {component_status(orientation)[0]}"
+                ),
+                "Canonical snapshot" if orientation_current else None,
+                bool(
+                    orientation_current
+                    and orientation["auto_rotation_enabled"]
+                ),
             )
         gps_y = int(layout["gps"])
+        wireless_running = self._wireless_running()
+        wifi = snapshot["radios"]["wifi"]
+        ble = snapshot["radios"]["ble"]
+        wireless_current = component_current(wifi) or component_current(ble)
+        if wireless_running and wireless_current:
+            wireless_text = "WIRELESS ACTIVE"
+            wireless_color = STATUS_READY
+        elif wireless_running:
+            wireless_component = wifi if wifi["started"] else ble
+            wireless_state, wireless_color = component_status(wireless_component)
+            wireless_text = f"WIRELESS {wireless_state}"
+        else:
+            wireless_text = "WIRELESS OFF"
+            wireless_color = STATUS_WARNING
+        gps = snapshot["gps"]
+        storage = snapshot["storage"]
         self.canvas.create_text(
             94,
             gps_y - 14,
             anchor="w",
-            text=(
-                "WIRELESS ACTIVE"
-                if self.wireless_running
-                else "WIRELESS OFF"
-            ),
-            fill=(STATUS_READY if self.wireless_running else STATUS_WARNING),
+            text=wireless_text,
+            fill=wireless_color,
             font=(FONT_DISPLAY, 10),
             tags="ui",
         )
         if self._command_arc_visible():
             gps_role = (
-                "warning"
-                if self.scenario.name == "GPS SEARCHING"
-                else "success"
+                "success"
+                if component_current(gps) and gps["has_fix"]
+                else "warning"
+                if component_current(gps)
+                else "danger"
             )
             sd_role = (
                 "warning"
-                if self.scenario.name == "SD UNFORMATTED"
+                if self._storage_format_allowed()
                 else "success"
+                if component_current(storage) and storage["mounted"]
+                else "danger"
             )
             commands = (
                 ("≡", "primary"),
                 ("➤", "success"),
                 (
-                    "power" if self.wireless_running else "wifi",
-                    "success" if self.wireless_running else "warning",
+                    "power" if wireless_running else "wifi",
+                    "success"
+                    if wireless_running and wireless_current
+                    else "danger"
+                    if wireless_running
+                    else "warning",
                 ),
                 ("gps", gps_role),
                 ("sd", sd_role),
@@ -2474,7 +2804,38 @@ class LUNASHELLSimulator:
                     )
 
     def show_pairing_demo(self, screen: str) -> None:
+        if screen == "pairing-success" and not self._wireless_running():
+            self._apply_action("start:wireless")
         preview = PAIRING_PREVIEWS[screen]
+        if screen == "pairing-success":
+            wifi = self._snapshot()["radios"]["wifi"]
+            connected = bool(
+                component_current(wifi)
+                and wifi["connected"]
+                and wifi["ip_acquired"]
+                and wifi["ssid"]
+                and wifi["ip_address"]
+            )
+            if connected:
+                preview = PairingPreview(
+                    "WI-FI READY",
+                    "CONNECTED",
+                    f"Network: {wifi['ssid']}\nIP: {wifi['ip_address']}",
+                    "Canonical synthetic connection is current. Next returns to Settings.",
+                    5,
+                    result="success",
+                )
+            else:
+                wifi_state, _ = component_status(wifi)
+                lifecycle = "STARTED · NO LEASE" if wifi["started"] else wifi_state
+                preview = PairingPreview(
+                    "WI-FI NOT READY",
+                    "NOT CONNECTED",
+                    f"Canonical synthetic state: {lifecycle}",
+                    "No SSID or IP is shown until the model reports a current connection.",
+                    5,
+                    result="failed",
+                )
         self.screen = screen
         self._clear()
         self._draw_atmosphere()
@@ -2623,19 +2984,42 @@ class LUNASHELLSimulator:
             "Tap a row for device details",
             y_offset,
         )
-        rows = (
-            ("BATTERY", "AXP2101", "READY"),
-            ("RTC", "PCF85063", "READY"),
-            ("IMU", "QMI8658", "READY"),
-            ("GPS", "LC76G", "3D FIX"),
-            ("WIFI", "ESP32-S3", "NOT CONFIGURED"),
-            ("DISTANCE", "2 × TOF400F", "SYNTHETIC READY"),
+        snapshot = self._snapshot()
+        battery = snapshot["battery"]
+        rtc = snapshot["rtc"]
+        imu = snapshot["imu"]
+        gps = snapshot["gps"]
+        wifi = snapshot["radios"]["wifi"]
+        distance = snapshot["distance"]
+
+        def state_for(component: dict, ready_text: str = "READY") -> tuple[str, str]:
+            return (ready_text, STATUS_READY) if component_current(component) else component_status(component)
+
+        battery_state = state_for(
+            battery,
+            "CHARGING"
+            if battery["power_state"] == "charging"
+            else "LOW"
+            if self.scenario.battery_percent is not None and self.scenario.battery_percent <= 12
+            else "READY",
         )
-        for index, (name, code, state) in enumerate(rows):
+        gps_state = state_for(gps, "3D FIX" if gps["has_fix"] else "SEARCHING")
+        if component_current(wifi):
+            wifi_state = ("CONNECTED" if wifi["connected"] else "STARTED", STATUS_READY)
+        elif not wifi["started"] and wifi["last_error"] == "ESP_ERR_INVALID_STATE":
+            wifi_state = ("OFF", STATUS_WARNING)
+        else:
+            wifi_state = component_status(wifi)
+        rows = (
+            ("BATTERY", "AXP2101", *battery_state),
+            ("RTC", "PCF85063", *state_for(rtc)),
+            ("IMU", "QMI8658", *state_for(imu)),
+            ("GPS", "LC76G", *gps_state),
+            ("WIFI", "ESP32-S3", *wifi_state),
+            ("DISTANCE", "2 × TOF400F", *state_for(distance, "SYNTHETIC READY")),
+        )
+        for index, (name, code, state, state_color) in enumerate(rows):
             y = 173 + y_offset + index * 42
-            state_color = (
-                STATUS_WARNING if state == "NOT CONFIGURED" else STATUS_READY
-            )
             self.canvas.create_text(
                 94,
                 y,
@@ -2688,14 +3072,24 @@ class LUNASHELLSimulator:
             y_offset,
         )
 
-        format_required = self.scenario.name == "SD UNFORMATTED"
-        status = "FORMAT REQUIRED" if format_required else "READY"
-        status_color = STATUS_WARNING if format_required else STATUS_READY
-        detail = (
-            "Verified card needs FAT formatting."
-            if format_required
-            else "FAT filesystem mounted."
-        )
+        storage = self._snapshot()["storage"]
+        format_required = self._storage_format_allowed()
+        mounted = bool(component_current(storage) and storage["mounted"])
+        if format_required:
+            status = "FORMAT REQUIRED"
+            status_color = STATUS_WARNING
+            detail = "Verified card needs explicit FAT formatting."
+        elif mounted:
+            status = "READY"
+            status_color = STATUS_READY
+            detail = "FAT filesystem mounted."
+        else:
+            status, status_color = component_status(storage)
+            detail = (
+                "Storage state is poisoned; repair is required."
+                if storage["poisoned"]
+                else f"Mount outcome: {storage['mount_outcome']}."
+            )
         self.canvas.create_text(
             94,
             174 + y_offset,
@@ -2727,14 +3121,23 @@ class LUNASHELLSimulator:
             94,
             250 + y_offset,
             anchor="w",
-            text="NOT MOUNTED" if format_required else "MOUNTED | LOG MIRROR ON",
+            text=(
+                "NOT MOUNTED"
+                if not mounted
+                else "MOUNTED | LOG MIRROR ON"
+                if storage["logger_mirror_enabled"]
+                else "MOUNTED | LOG MIRROR OFF"
+            ),
             fill="#51c7f2",
             font=(FONT_TECH, 9, "bold"),
             tags="ui",
         )
 
-        total = "UNAVAILABLE" if format_required else "7812 MB"
-        free = "UNAVAILABLE" if format_required else "6420 MB"
+        total_bytes = int(storage["filesystem_total_bytes"]) if mounted else 0
+        free_bytes = int(storage["free_bytes"]) if mounted else 0
+        used_bytes = total_bytes - free_bytes
+        total = f"{total_bytes // 1_048_576} MB" if mounted else "UNAVAILABLE"
+        free = f"{free_bytes // 1_048_576} MB" if mounted else "UNAVAILABLE"
         for row_y, label, value in (
             (278, "TOTAL SPACE", total),
             (302, "FREE SPACE", free),
@@ -2758,7 +3161,7 @@ class LUNASHELLSimulator:
                 tags="ui",
             )
 
-        if not format_required:
+        if mounted:
             self.canvas.create_rectangle(
                 94,
                 320 + y_offset,
@@ -2771,7 +3174,7 @@ class LUNASHELLSimulator:
             self.canvas.create_rectangle(
                 94,
                 320 + y_offset,
-                144,
+                94 + round(278 * (used_bytes / total_bytes)) if total_bytes else 94,
                 330 + y_offset,
                 fill=STATUS_READY,
                 outline="",
@@ -2782,8 +3185,8 @@ class LUNASHELLSimulator:
             344 + y_offset,
             text=(
                 "Space unavailable until mounted"
-                if format_required
-                else "USED 1392 MB | 17%"
+                if not mounted
+                else f"USED {used_bytes // 1_048_576} MB | {round((used_bytes / total_bytes) * 100) if total_bytes else 0}%"
             ),
             fill=MUTED,
             font=(FONT_TECH, 9),
@@ -2818,17 +3221,12 @@ class LUNASHELLSimulator:
         max_height: int,
         color_start: str,
         color_end: str,
-        offset: int,
+        values: list[int],
+        available: bool,
     ) -> None:
-        profile = (
-            0.18, 0.24, 0.31, 0.39, 0.48, 0.61, 0.74, 0.88,
-            1.00, 0.94, 0.84, 0.70, 0.58, 0.46, 0.36, 0.27,
-        )
-        for index, base in enumerate(profile):
-            motion = 0.08 * math.sin(
-                (self.audio_phase + (index * 3) + offset) / 4.0
-            )
-            value = max(4, int(max_height * max(0.08, min(1.0, base + motion))))
+        normalized = [max(0, int(value)) for value in values[:16]]
+        peak = max(normalized, default=0)
+        for index in range(16):
             x = 102 + (index * 16)
             self.canvas.create_rectangle(
                 x,
@@ -2839,6 +3237,9 @@ class LUNASHELLSimulator:
                 outline="",
                 tags="audio",
             )
+            if not available or index >= len(normalized) or peak <= 0:
+                continue
+            value = max(1, round(max_height * normalized[index] / peak))
             self.canvas.create_rectangle(
                 x,
                 baseline - value,
@@ -2863,12 +3264,24 @@ class LUNASHELLSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        snapshot = self._snapshot()
+        audio = snapshot["audio"]
+        microphone = audio["microphone"]
+        spectrum = audio["spectrum"]
+        microphone_current = component_current(microphone)
+        spectrum_current = component_current(spectrum)
+        sample_rate_hz = int(audio["sample_rate_hz"])
+        sample_rate_label = (
+            f"{sample_rate_hz / 1000:g} kHz"
+            if microphone_current and sample_rate_hz > 0
+            else component_status(microphone)[0]
+        )
         content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO SCOPE",
             "Microphones · diagnostics"
             if self.performance_mode
-            else "Synthetic PCM16 · 22.05 kHz",
+            else f"Synthetic PCM16 · {sample_rate_label}",
             0,
         )
         if self.performance_mode:
@@ -2880,6 +3293,18 @@ class LUNASHELLSimulator:
                 y_offset,
             )
             return
+        channel_means = audio["channel_mean_level"]
+        channel_peaks = audio["channel_peak_level"]
+        channel_spectrum = audio["channel_spectrum"]
+        microphone_state = component_status(microphone)[0]
+        channel_values = [
+            (
+                f"MEAN {channel_means[index]} · PEAK {channel_peaks[index]}"
+                if microphone_current
+                else microphone_state
+            )
+            for index in range(2)
+        ]
         self.canvas.create_text(
             102,
             180,
@@ -2892,7 +3317,7 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             364,
             180,
-            text="-12.4 dBFS",
+            text=channel_values[0],
             anchor="e",
             fill=TEXT,
             font=(FONT_TECH, 10, "bold"),
@@ -2910,7 +3335,7 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             364,
             254,
-            text="-18.1 dBFS",
+            text=channel_values[1],
             anchor="e",
             fill=TEXT,
             font=(FONT_TECH, 10, "bold"),
@@ -2925,14 +3350,48 @@ class LUNASHELLSimulator:
             width=1,
             tags="ui",
         )
-        self._draw_audio_bars(239, 43, "#27bdf2", "#c168ff", 0)
-        self._draw_audio_bars(313, 43, "#ffad3d", "#77e37c", 9)
+        self._draw_audio_bars(
+            239,
+            43,
+            "#27bdf2",
+            "#c168ff",
+            channel_spectrum[0],
+            spectrum_current,
+        )
+        self._draw_audio_bars(
+            313,
+            43,
+            "#ffad3d",
+            "#77e37c",
+            channel_spectrum[1],
+            spectrum_current,
+        )
+
+        utilization = [
+            int(core["utilization_percent"])
+            for core in snapshot["processor"]["cores"]
+            if core["available"] and core["utilization_available"]
+        ]
+        cpu_state = (
+            f"CPU {round(sum(utilization) / len(utilization))}%"
+            if utilization
+            else "CPU UNAVAILABLE"
+        )
+        stream_state = (
+            f"PCM16 · {audio['channel_count']} CHANNELS · {cpu_state}"
+            if microphone_current and spectrum_current
+            else f"AUDIO {microphone_state} · SPECTRUM {component_status(spectrum)[0]}"
+        )
 
         self.canvas.create_text(
             233,
             347,
-            text="PCM16 · 2 CHANNELS     CPU UNAVAILABLE",
-            fill=STATUS_WARNING,
+            text=stream_state,
+            fill=(
+                STATUS_READY
+                if microphone_current and spectrum_current
+                else component_status(microphone)[1]
+            ),
             font=(FONT_TECH, 9, "bold"),
             tags="ui",
         )
@@ -2941,13 +3400,13 @@ class LUNASHELLSimulator:
             self._fixed_canvas_offset_y(),
         )
         if self._command_arc_visible():
-            commands = (("fft", "success"), ("dual", "success"))
+            role = "success" if spectrum_current else "warning"
+            commands = (("fft", role), ("dual", role))
             for index, (icon, role) in enumerate(commands):
                 x, y, diameter = command_geometry(len(commands), index)
                 self._draw_command_button(x, y, icon, role, diameter)
         self._draw_edge_back()
         self._draw_safe_guide()
-        self._animate_audio()
 
     def show_audio_fft_demo(self) -> None:
         if self.audio_timer is not None:
@@ -2957,12 +3416,29 @@ class LUNASHELLSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        audio = self._snapshot()["audio"]
+        spectrum = audio["spectrum"]
+        spectrum_current = component_current(spectrum)
+        spectrum_state, spectrum_color = component_status(spectrum)
+        bins = [
+            round((left + right) / 2)
+            for left, right in zip(
+                audio["channel_spectrum"][0],
+                audio["channel_spectrum"][1],
+            )
+        ]
+        peak_value = max(bins, default=0) if spectrum_current else 0
+        dominant_index = bins.index(peak_value) if spectrum_current and bins else -1
         content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO FFT",
             "Spectrum diagnostics"
             if self.performance_mode
-            else "Mic 1 or mean of Mic 1 + Mic 2 | 16 bands",
+            else (
+                "Canonical mean of Mic 1 + Mic 2 | 16 bins"
+                if spectrum_current
+                else f"Synthetic spectrum {spectrum_state}"
+            ),
             0,
         )
         if self.performance_mode:
@@ -2987,8 +3463,12 @@ class LUNASHELLSimulator:
             104,
             194,
             anchor="w",
-            text="1.72 kHz",
-            fill=STATUS_READY,
+            text=(
+                f"BIN {dominant_index + 1}"
+                if dominant_index >= 0
+                else "UNAVAILABLE"
+            ),
+            fill=STATUS_READY if spectrum_current else spectrum_color,
             font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
@@ -3005,12 +3485,12 @@ class LUNASHELLSimulator:
             362,
             194,
             anchor="e",
-            text="-8.4 dBFS",
-            fill="#f0b44d",
+            text=f"MAG {peak_value}" if spectrum_current else spectrum_state,
+            fill="#f0b44d" if spectrum_current else spectrum_color,
             font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
-        for y, label in ((218, "0"), (263, "-30"), (308, "-60")):
+        for y, label in ((218, "MAX"), (263, "MID"), (308, "0")):
             self.canvas.create_line(
                 108,
                 y,
@@ -3029,13 +3509,16 @@ class LUNASHELLSimulator:
                 font=(FONT_TECH, 8),
                 tags="ui",
             )
-        heights = (
-            12, 20, 31, 45, 62, 82, 102, 92,
-            75, 60, 49, 39, 31, 24, 18, 13,
-        )
-        for index, height in enumerate(heights):
+        for index, magnitude in enumerate(bins):
+            height = (
+                max(1, round(102 * max(0, magnitude) / peak_value))
+                if spectrum_current and peak_value > 0
+                else 0
+            )
             x = 108 + index * 15
             color = "#27bdf2" if index < 6 else "#2be7d0" if index < 11 else "#f0b44d"
+            if height <= 0:
+                continue
             self.canvas.create_rectangle(
                 x,
                 309 - height,
@@ -3058,7 +3541,7 @@ class LUNASHELLSimulator:
             108,
             325,
             anchor="w",
-            text="125 Hz",
+            text="BIN 1",
             fill=MUTED,
             font=(FONT_TECH, 8),
             tags="ui",
@@ -3066,7 +3549,7 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             234,
             325,
-            text="1 kHz",
+            text="BIN 8",
             fill=MUTED,
             font=(FONT_TECH, 8),
             tags="ui",
@@ -3075,7 +3558,7 @@ class LUNASHELLSimulator:
             360,
             325,
             anchor="e",
-            text="8 kHz",
+            text="BIN 16",
             fill=MUTED,
             font=(FONT_TECH, 8),
             tags="ui",
@@ -3157,24 +3640,40 @@ class LUNASHELLSimulator:
         self._draw_safe_guide()
 
     def show_chrome_settings_demo(self) -> None:
+        power = self._snapshot()["power"]
+        if component_current(power):
+            command_timeout = seconds_label(power["command_arc_timeout_seconds"])
+            status_timeout = seconds_label(power["status_arc_timeout_seconds"])
+        else:
+            unavailable = component_status(power)[0]
+            command_timeout = unavailable
+            status_timeout = unavailable
         self._show_timeout_settings(
             "chrome-settings",
             "ADAPTIVE CHROME",
             "Touch or motion wakes",
             (
-                ("Hide Command Arc after", "1 minute"),
-                ("Hide Status Arc after", "2 minutes"),
+                ("Hide Command Arc after", command_timeout),
+                ("Hide Status Arc after", status_timeout),
             ),
         )
 
     def show_power_settings_demo(self) -> None:
+        power = self._snapshot()["power"]
+        if component_current(power):
+            dim_timeout = seconds_label(power["display_dim_timeout_seconds"])
+            sleep_delay = seconds_label(power["screen_sleep_delay_seconds"])
+        else:
+            unavailable = component_status(power)[0]
+            dim_timeout = unavailable
+            sleep_delay = unavailable
         self._show_timeout_settings(
             "power-settings",
             "POWER",
             "Dim, then screen sleep",
             (
-                ("Dim display to 50% after", "5 minutes"),
-                ("Full sleep after display dim", "5 minutes"),
+                ("Dim display after", dim_timeout),
+                ("Full sleep after display dim", sleep_delay),
             ),
         )
 
@@ -3183,12 +3682,20 @@ class LUNASHELLSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        audio = self._snapshot()["audio"]
+        spectrum = audio["spectrum"]
+        spectrum_current = component_current(spectrum)
+        spectrum_state, spectrum_color = component_status(spectrum)
         content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "AUDIO DETAIL",
             "Two-channel spectrum"
             if self.performance_mode
-            else "Mic 1 + Mic 2 · 16 DFT bands",
+            else (
+                "Canonical Mic 1 + Mic 2 · 16 bins"
+                if spectrum_current
+                else f"Synthetic spectrum {spectrum_state}"
+            ),
             0,
         )
         if self.performance_mode:
@@ -3229,13 +3736,23 @@ class LUNASHELLSimulator:
             "#e6e45a", "#d4e660", "#bfe365", "#a8df6b",
             "#8fdb77", "#72d98b", "#4dd6a3", "#25d3bb",
         )
-        mic1_heights = (16, 28, 22, 39, 31, 48, 42, 27, 35, 43, 30, 52, 45, 34, 25, 38)
-        mic2_heights = (43, 34, 51, 28, 39, 47, 32, 55, 45, 37, 29, 41, 48, 35, 24, 31)
-        for baseline, colors, heights in (
-            (250, mic1_colors, mic1_heights),
-            (336, mic2_colors, mic2_heights),
+        channels = audio["channel_spectrum"]
+        peak = max(
+            (max(max(0, int(value)) for value in channel) for channel in channels),
+            default=0,
+        ) if spectrum_current else 0
+        for baseline, colors, magnitudes in (
+            (250, mic1_colors, channels[0]),
+            (336, mic2_colors, channels[1]),
         ):
-            for index, height in enumerate(heights):
+            for index, magnitude in enumerate(magnitudes):
+                height = (
+                    max(1, round(55 * max(0, int(magnitude)) / peak))
+                    if spectrum_current and peak > 0
+                    else 0
+                )
+                if height <= 0:
+                    continue
                 x = 108 + index * 15
                 self.canvas.create_rectangle(
                     x,
@@ -3258,8 +3775,12 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             233,
             370,
-            text="LIVE DETAIL · TWO MICS",
-            fill=MUTED_BRIGHT,
+            text=(
+                f"CANONICAL SEQUENCE {audio['spectrum_sequence']} · TWO MICS"
+                if spectrum_current
+                else f"SPECTRUM {spectrum_state}"
+            ),
+            fill=MUTED_BRIGHT if spectrum_current else spectrum_color,
             font=(FONT_TECH, 9),
             tags="ui",
         )
@@ -3275,12 +3796,39 @@ class LUNASHELLSimulator:
         self._clear()
         self._draw_atmosphere()
         self._draw_status_bar()
+        snapshot = self._snapshot()
+        imu = snapshot["imu"]
+        fusion = snapshot["sensor_fusion"]
+        imu_current = component_current(imu)
+        imu_state, imu_color = component_status(imu)
+        if imu_current:
+            acceleration = [float(value) for value in imu["acceleration_mps2"]]
+            angular_velocity = [float(value) for value in imu["angular_velocity_dps"]]
+            roll = math.degrees(math.atan2(acceleration[1], acceleration[2]))
+            pitch = math.degrees(
+                math.atan2(
+                    -acceleration[0],
+                    math.hypot(acceleration[1], acceleration[2]),
+                )
+            )
+            roll_text = f"{roll:+.1f}°"
+            pitch_text = f"{pitch:+.1f}°"
+        else:
+            acceleration = [0.0, 0.0, 0.0]
+            angular_velocity = [0.0, 0.0, 0.0]
+            roll = 0.0
+            roll_text = "UNAVAILABLE"
+            pitch_text = "UNAVAILABLE"
         content_start = self._next_canvas_item_id()
         self._draw_page_heading(
             "IMU LEVEL",
             "QMI8658 diagnostics"
             if self.performance_mode
-            else "QMI8658 · synthetic attitude",
+            else (
+                "QMI8658 · canonical synthetic sample"
+                if imu_current
+                else f"QMI8658 · {imu_state}"
+            ),
             0,
         )
         if self.performance_mode:
@@ -3304,8 +3852,8 @@ class LUNASHELLSimulator:
             126,
             195,
             anchor="w",
-            text="+0.1°",
-            fill="#61d8ff",
+            text=roll_text,
+            fill="#61d8ff" if imu_current else imu_color,
             font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
@@ -3322,8 +3870,8 @@ class LUNASHELLSimulator:
             340,
             195,
             anchor="e",
-            text="-0.3°",
-            fill="#ff9d5c",
+            text=pitch_text,
+            fill="#ff9d5c" if imu_current else imu_color,
             font=(FONT_TECH, 11, "bold"),
             tags="ui",
         )
@@ -3372,42 +3920,67 @@ class LUNASHELLSimulator:
             width=1,
             tags="ui",
         )
-        self.canvas.create_line(
-            center_x - 46,
-            center_y + 3,
-            center_x + 46,
-            center_y - 3,
-            fill=STATUS_READY,
-            width=2,
-            capstyle=tk.ROUND,
-            tags="ui",
-        )
-        self._draw_glow_disc(center_x + 5, center_y - 7, 15, "#5be4ff", 100)
-        self.canvas.create_oval(
-            center_x - 9,
-            center_y - 21,
-            center_x + 19,
-            center_y + 7,
-            fill="#5be4ff",
-            outline="#d8faff",
-            width=1,
-            tags="ui",
-        )
+        if imu_current:
+            line_delta = round(max(-30.0, min(30.0, roll)) / 30.0 * 15)
+            self.canvas.create_line(
+                center_x - 46,
+                center_y + line_delta,
+                center_x + 46,
+                center_y - line_delta,
+                fill=STATUS_READY,
+                width=2,
+                capstyle=tk.ROUND,
+                tags="ui",
+            )
+            dot_x = center_x + round(max(-1.0, min(1.0, acceleration[0] / 9.81)) * 38)
+            dot_y = center_y + round(max(-1.0, min(1.0, acceleration[1] / 9.81)) * 38)
+            self._draw_glow_disc(dot_x, dot_y, 15, "#5be4ff", 100)
+            self.canvas.create_oval(
+                dot_x - 14,
+                dot_y - 14,
+                dot_x + 14,
+                dot_y + 14,
+                fill="#5be4ff",
+                outline="#d8faff",
+                width=1,
+                tags="ui",
+            )
+        else:
+            self.canvas.create_text(
+                center_x,
+                center_y,
+                text=imu_state,
+                fill=imu_color,
+                font=(FONT_TECH, 9, "bold"),
+                tags="ui",
+            )
         self.canvas.create_text(
             72,
             319,
-            text="SYNTHETIC ACC   X +0.02   Y -0.04   Z +9.79 m/s²",
+            text=(
+                "SYNTHETIC ACC   "
+                f"X {acceleration[0]:+.2f}   Y {acceleration[1]:+.2f}   "
+                f"Z {acceleration[2]:+.2f} m/s²"
+                if imu_current
+                else f"SYNTHETIC ACC   {imu_state}"
+            ),
             anchor="w",
-            fill="#61d8ff",
+            fill="#61d8ff" if imu_current else imu_color,
             font=(FONT_TECH, 8),
             tags="ui",
         )
         self.canvas.create_text(
             72,
             337,
-            text="SYNTHETIC GYRO  X +0.10   Y -0.03   Z +0.02 dps",
+            text=(
+                "SYNTHETIC GYRO  "
+                f"X {angular_velocity[0]:+.2f}   Y {angular_velocity[1]:+.2f}   "
+                f"Z {angular_velocity[2]:+.2f} dps"
+                if imu_current
+                else f"SYNTHETIC GYRO  {imu_state}"
+            ),
             anchor="w",
-            fill="#ff9d5c",
+            fill="#ff9d5c" if imu_current else imu_color,
             font=(FONT_TECH, 8),
             tags="ui",
         )
@@ -3415,7 +3988,13 @@ class LUNASHELLSimulator:
             92,
             355,
             anchor="w",
-            text="SYNTHETIC CAL READY",
+            text=(
+                "SYNTHETIC CAL READY"
+                if imu_current
+                and component_current(imu["calibration"])
+                and imu["calibrated"]
+                else f"SYNTHETIC CAL {component_status(imu['calibration'])[0]}"
+            ),
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -3424,7 +4003,11 @@ class LUNASHELLSimulator:
             374,
             355,
             anchor="e",
-            text="COMPASS N/A",
+            text=(
+                ("STATIONARY" if fusion["stationary"] else "MOTION")
+                if component_current(fusion)
+                else f"FUSION {component_status(fusion)[0]}"
+            ),
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -3454,14 +4037,27 @@ class LUNASHELLSimulator:
             divider_y=150,
         )
 
-        searching = self.scenario.name == "GPS SEARCHING"
-        accent = STATUS_WARNING if searching else STATUS_READY
-        fix_state = "NO FIX" if searching else "FIX ACTIVE"
+        gps = self._snapshot()["gps"]
+        current = component_current(gps)
+        has_fix = bool(current and gps["has_fix"])
+        searching = bool(current and not has_fix)
+        if has_fix:
+            receiver_state = "LC76G READY | RECEIVER ONLINE"
+            fix_state = "FIX ACTIVE"
+            accent = STATUS_READY
+        elif searching:
+            receiver_state = "LC76G READY | RECEIVER ONLINE"
+            fix_state = "NO FIX"
+            accent = STATUS_WARNING
+        else:
+            component_state, accent = component_status(gps)
+            receiver_state = f"LC76G {component_state}"
+            fix_state = "STALE" if gps["data_stale"] else "UNAVAILABLE"
         self.canvas.create_text(
             84,
             166,
             anchor="w",
-            text="LC76G READY | RECEIVER ONLINE",
+            text=receiver_state,
             fill=accent,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
@@ -3487,11 +4083,16 @@ class LUNASHELLSimulator:
             glow_alpha=34,
             radius=12,
         )
-        position = (
-            ("NO FIX", "NO FIX")
-            if searching
-            else ("10.776900 N", "106.700900 E")
-        )
+        if has_fix:
+            latitude = float(gps["latitude_degrees"])
+            longitude = float(gps["longitude_degrees"])
+            position = (
+                f"{abs(latitude):.6f} {'N' if latitude >= 0 else 'S'}",
+                f"{abs(longitude):.6f} {'E' if longitude >= 0 else 'W'}",
+            )
+        else:
+            unavailable = "NO FIX" if searching else fix_state
+            position = (unavailable, unavailable)
         self.canvas.create_text(
             96,
             192,
@@ -3566,7 +4167,7 @@ class LUNASHELLSimulator:
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
         )
-        if not searching:
+        if has_fix:
             satellite_points = ((-18, -12), (15, -19), (22, 13), (-11, 21))
             for dx, dy in satellite_points:
                 self.canvas.create_oval(
@@ -3593,32 +4194,32 @@ class LUNASHELLSimulator:
             233,
             294,
             text=(
-                "SYNTHETIC | RECEIVER READY | NO FIX"
+                "SYNTHETIC | RECEIVER READY | FIX ACTIVE"
+                if has_fix
+                else "SYNTHETIC | RECEIVER READY | NO FIX"
                 if searching
-                else "SYNTHETIC | RECEIVER READY | FIX ACTIVE"
+                else f"SYNTHETIC | {fix_state} | {gps['last_error']}"
             ),
             fill=accent,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
+        unavailable = "NO FIX" if searching else fix_state
         metrics = (
-            (315, "SATELLITES", "3" if searching else "12", accent),
-            (333, "HDOP", "NO FIX" if searching else "0.8", "#51c7f2"),
-            (351, "ALTITUDE", "NO FIX" if searching else "12.4 m", STATUS_WARNING),
-            (369, "SPEED", "NO FIX" if searching else "0.12 m/s", "#c168ff"),
-            (387, "COURSE", "NO FIX" if searching else "185.4 deg", TEXT),
-            (
-                405,
-                "GNSS TIME",
-                "NO FIX" if searching else "09:42:18 UTC",
-                TEXT,
-            ),
+            (315, "SATELLITES", str(gps["satellites"]) if current else unavailable, accent),
+            (333, "HDOP", f"{gps['hdop']:.1f}" if has_fix else unavailable, "#51c7f2"),
+            (351, "ALTITUDE", f"{gps['altitude_m']:.1f} m" if has_fix else unavailable, STATUS_WARNING),
+            (369, "SPEED", f"{gps['speed_mps']:.2f} m/s" if has_fix else unavailable, "#c168ff"),
+            (387, "COURSE", f"{gps['course_degrees']:.1f} deg" if has_fix else unavailable, TEXT),
+            (405, "GNSS TIME", f"{gps['utc_time']} UTC" if has_fix and gps["utc_valid"] else unavailable, TEXT),
             (
                 423,
                 "SAMPLE",
-                "QUALITY 0 | SEARCHING"
+                f"QUALITY {gps['fix_quality']} | QUEUE {gps['pending_nmea_bytes']} B"
+                if has_fix
+                else "QUALITY 0 | SEARCHING"
                 if searching
-                else "QUALITY 1 | QUEUE 0 B",
+                else f"{fix_state} | {gps['last_error']}",
                 accent,
             ),
         )
@@ -3680,19 +4281,26 @@ class LUNASHELLSimulator:
             subtitle_baseline=142,
             divider_y=160,
         )
+        distance = self._snapshot()["distance"]
+        current = component_current(distance)
+        state_text, accent = (
+            ("LIVE SYNTHETIC SAMPLE", STATUS_READY)
+            if current
+            else component_status(distance)
+        )
         self.canvas.create_text(
             233,
             172,
-            text="LIVE SYNTHETIC SAMPLE",
-            fill=STATUS_READY,
+            text=state_text,
+            fill=accent,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
         )
         self.canvas.create_text(
             233,
             201,
-            text="1 024 mm",
-            fill=STATUS_READY,
+            text=f"{distance['vertical_distance_mm']:,} mm".replace(",", " ") if current else "UNAVAILABLE",
+            fill=accent,
             font=(FONT_TECH, 23, "bold"),
             tags="ui",
         )
@@ -3704,12 +4312,22 @@ class LUNASHELLSimulator:
             font=(FONT_DISPLAY, 7),
             tags="ui",
         )
-        self._draw_tof_sensor_panel(94, "TOF 1", "1 018 mm", "#51c7f2")
-        self._draw_tof_sensor_panel(240, "TOF 2", "1 030 mm", "#7d9cff")
+        sensor_values: list[tuple[str, str]] = []
+        for sensor in distance["sensors"]:
+            if component_current(sensor):
+                sensor_values.append((f"{sensor['filtered_distance_mm']:,} mm".replace(",", " "), STATUS_READY))
+            else:
+                sensor_values.append(component_status(sensor))
+        self._draw_tof_sensor_panel(94, "TOF 1", sensor_values[0][0], sensor_values[0][1])
+        self._draw_tof_sensor_panel(240, "TOF 2", sensor_values[1][0], sensor_values[1][1])
         self.canvas.create_text(
             233,
             310,
-            text="SYNTHETIC · Δ 12 mm · SLANT 1024 mm",
+            text=(
+                f"SYNTHETIC · Δ {distance['sensor_spread_mm']} mm · SLANT {distance['slant_distance_mm']} mm"
+                if current
+                else "SYNTHETIC · RESULT UNAVAILABLE"
+            ),
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -3717,7 +4335,11 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             233,
             330,
-            text="TILT +0.5° · COMPENSATED",
+            text=(
+                f"TILT {distance['tilt_degrees']:+.1f}° · {'COMPENSATED' if distance['tilt_compensated'] else 'RAW'}"
+                if current
+                else f"{distance['last_error']}"
+            ),
             fill=STATUS_WARNING,
             font=(FONT_TECH, 8, "bold"),
             tags="ui",
@@ -3725,7 +4347,11 @@ class LUNASHELLSimulator:
         self.canvas.create_text(
             233,
             349,
-            text="CONF 98% · CAL READY",
+            text=(
+                f"CONF {distance['confidence_percent']}% · CAL {distance['calibration']['state'].upper()}"
+                if current
+                else "CONF UNAVAILABLE"
+            ),
             fill=MUTED_BRIGHT,
             font=(FONT_TECH, 7, "bold"),
             tags="ui",
@@ -3759,10 +4385,13 @@ class LUNASHELLSimulator:
             subtitle_baseline=142,
             divider_y=160,
         )
+        distance = self._snapshot()["distance"]
+        calibration = distance["calibration"]
+        settings = distance["settings"]
         calibration_state = (
-            "SYNTHETIC CAL COMPLETE"
-            if self.tof_calibration_complete
-            else "SYNTHETIC CONFIG READY"
+            f"SYNTHETIC CAL {calibration['state'].upper()}"
+            if component_current(calibration)
+            else f"SYNTHETIC CAL {component_status(calibration)[0]}"
         )
         self.canvas.create_text(
             233,
@@ -3773,8 +4402,8 @@ class LUNASHELLSimulator:
             tags="ui",
         )
         controls = (
-            (94, "SAMPLES", "500"),
-            (240, "INTERVAL", "250 ms"),
+            (94, "SAMPLES", str(settings["sample_count"])),
+            (240, "INTERVAL", f"{settings['sample_interval_ms']} ms"),
         )
         for x, title, value in controls:
             self._draw_panel(
@@ -3826,7 +4455,7 @@ class LUNASHELLSimulator:
             372,
             268 + y_offset,
             anchor="e",
-            text="1 000 mm",
+            text=f"{settings['reference_distance_mm']:,} mm".replace(",", " "),
             fill=STATUS_READY,
             font=(FONT_TECH, 10, "bold"),
             tags="ui",
@@ -3841,10 +4470,13 @@ class LUNASHELLSimulator:
             capstyle=tk.ROUND,
             tags="ui",
         )
+        slider_x = 104 + round(
+            258 * (int(settings["reference_distance_mm"]) - 500) / 1000
+        )
         self.canvas.create_line(
             104,
             296 + y_offset,
-            233,
+            slider_x,
             296 + y_offset,
             fill=STATUS_READY,
             width=7,
@@ -3852,16 +4484,16 @@ class LUNASHELLSimulator:
             tags="ui",
         )
         self._draw_glow_disc(
-            233,
+            slider_x,
             296 + y_offset,
             12,
             STATUS_READY,
             80,
         )
         self.canvas.create_oval(
-            224,
+            slider_x - 9,
             287 + y_offset,
-            242,
+            slider_x + 9,
             305 + y_offset,
             fill="#eafffb",
             outline=STATUS_READY,
@@ -3911,7 +4543,8 @@ class LUNASHELLSimulator:
     def _animate_audio(self) -> None:
         if self.screen != "audio" or self.idle_state in {"off", "standby"}:
             return
-        self.audio_phase += 1
+        audio = self._snapshot()["audio"]
+        spectrum_current = component_current(audio["spectrum"])
         self.canvas.delete("audio")
         y_offset = self._fixed_canvas_offset_y()
         self._draw_audio_bars(
@@ -3919,25 +4552,34 @@ class LUNASHELLSimulator:
             43,
             "#27bdf2",
             "#c168ff",
-            0,
+            audio["channel_spectrum"][0],
+            spectrum_current,
         )
         self._draw_audio_bars(
             313 + y_offset,
             43,
             "#ffad3d",
             "#77e37c",
-            9,
+            audio["channel_spectrum"][1],
+            spectrum_current,
         )
-        self.audio_timer = self.root.after(70, self._animate_audio)
 
-    def show_confirmation(self) -> None:
+    def show_confirmation(self, action: str | None = None) -> None:
         if self.screen == "boot":
             return
+        if self.screen != "confirmation":
+            self.confirmation_return_screen = self.screen
+        if action is not None:
+            self.pending_action = action
         self.screen = "confirmation"
         self.logger.info("LUNASHELL_nav", "Synthetic confirmation screen presented")
         self._draw_shell(
             "Confirm action?",
-            "The side margins are reserved for deterministic Cancel and OK actions.",
+            (
+                "Format the verified synthetic SD card once."
+                if self.pending_action == "confirm:format-sd"
+                else "The side margins are reserved for deterministic Cancel and OK actions."
+            ),
             primary=False,
             actions=True,
         )
@@ -3946,14 +4588,30 @@ class LUNASHELLSimulator:
         if self.screen != "confirmation":
             return
         self.logger.info("LUNASHELL_nav", "Synthetic confirmation accepted")
+        action = self.pending_action
+        self.pending_action = None
+        if action is not None:
+            accepted = self._apply_action(action)
+            message = (
+                "Synthetic SD formatted and mounted"
+                if accepted and action == "confirm:format-sd"
+                else "Synthetic action rejected"
+            )
+        else:
+            message = "Confirmed"
+        self.result_message = message
         self.screen = "result"
-        self._draw_shell("LUNASHELL.ai", "Confirmed", primary=True, actions=False)
+        self._draw_shell("LUNASHELL.ai", message, primary=True, actions=False)
 
     def cancel(self) -> None:
         if self.screen != "confirmation":
             return
         self.logger.info("LUNASHELL_nav", "Synthetic confirmation cancelled")
-        self.show_home()
+        self.pending_action = None
+        if self.confirmation_return_screen == "storage":
+            self.show_storage_demo()
+        else:
+            self.show_home()
 
     def pairing_next(self) -> None:
         target = {
@@ -4049,13 +4707,18 @@ class LUNASHELLSimulator:
             self.show_home()
 
     def reboot(self) -> None:
+        source = self.engine.scenario.source
+        self.engine = ScenarioEngine.from_scenario(source)
+        self.scenario = ScenarioView(self.engine)
         self.idle_state = "active"
         self.ready = False
         self.timeline_index = 0
         self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
-        self.tof_calibration_complete = False
-        self.logger = CanonicalLogger()
+        self.pending_action = None
+        self.confirmation_return_screen = "home"
+        self.result_message = "Confirmed"
+        self.logger = CanonicalLogger(lambda: self.engine.elapsed_ms)
         self.show_boot()
         self.root.after(150, self._advance_timeline)
 
@@ -4069,13 +4732,17 @@ class LUNASHELLSimulator:
             )
             return
         if self.idle_state == "fullscreen":
-            self.idle_state = "active"
+            if not self._apply_action("press:boot"):
+                return
+            self.idle_state = "fullscreen" if self._snapshot()["power"]["fullscreen_active"] else "active"
             self.logger.info(
                 "LUNASHELL_power_manager",
                 "Synthetic BOOT exited Fullscreen; Adaptive Chrome visible",
             )
         elif self.idle_state == "active":
-            self.idle_state = "fullscreen"
+            if not self._apply_action("press:boot"):
+                return
+            self.idle_state = "fullscreen" if self._snapshot()["power"]["fullscreen_active"] else "active"
             self.logger.info(
                 "LUNASHELL_power_manager",
                 "Synthetic BOOT entered Fullscreen; Adaptive Chrome locked hidden",
@@ -4092,15 +4759,20 @@ class LUNASHELLSimulator:
     def toggle_standby(self) -> None:
         if self.screen == "boot":
             return
-        if self.idle_state == "standby":
-            self.idle_state = "active"
+        power = self._snapshot()["power"]
+        was_standby = power["state"] == "standby"
+        was_fullscreen = bool(power["fullscreen_active"])
+        if not self._apply_action("press:pwr"):
+            return
+        now_standby = self._snapshot()["power"]["state"] == "standby"
+        self.idle_state = "standby" if now_standby else "active"
+        if was_standby:
             self.logger.info(
                 "LUNASHELL_power_manager",
                 "Synthetic PWR wake completed",
             )
         else:
-            fullscreen_cancelled = self.idle_state == "fullscreen"
-            self.idle_state = "standby"
+            fullscreen_cancelled = was_fullscreen
             self.logger.info(
                 "LUNASHELL_power_manager",
                 "Synthetic PWR standby entered; audio suspended, IMU active"
@@ -4145,7 +4817,7 @@ class LUNASHELLSimulator:
         if redraw is not None:
             redraw()
         elif current_screen == "result":
-            self._draw_shell("LUNASHELL.ai", "Confirmed", primary=True, actions=False)
+            self._draw_shell("LUNASHELL.ai", self.result_message, primary=True, actions=False)
             self.screen = "result"
         else:
             self.show_home()
@@ -4176,8 +4848,32 @@ class LUNASHELLSimulator:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--scenario", choices=SCENARIOS, default="healthy")
+    available_scenarios = scenario_names()
+    parser = argparse.ArgumentParser(
+        description="LUNASHELL deterministic Windows device simulator",
+    )
+    parser.add_argument("--scenario", choices=available_scenarios, default="healthy")
+    parser.add_argument("--scenario-file", type=Path)
+    parser.add_argument("--at-ms", type=int, default=0)
+    parser.add_argument("--list-scenarios", action="store_true")
+    parser.add_argument("--validate-scenarios", action="store_true")
+    parser.add_argument("--dump-snapshot", action="store_true")
+    parser.add_argument(
+        "--dump-api",
+        choices=(
+            "/api/v1/health",
+            "/api/v1/capabilities",
+            "/api/v1/info",
+            "/api/v1/diagnostics",
+            "/api/v1/rtc",
+            "/api/v1/gps",
+            "/api/v1/status",
+        ),
+        metavar="PATH",
+    )
+    parser.add_argument("--action", action="append", default=[])
+    parser.add_argument("--advance-ms", type=int, default=0)
+    parser.add_argument("--output", type=Path)
     parser.add_argument(
         "--screen",
         choices=(
@@ -4220,48 +4916,140 @@ def main() -> None:
     parser.add_argument("--wireless-running", action="store_true")
     args = parser.parse_args()
 
+    if args.at_ms < 0:
+        parser.error("--at-ms must be non-negative")
+    if args.advance_ms < 0:
+        parser.error("--advance-ms must be non-negative")
+    if args.scenario_file is not None and "--scenario" in sys.argv[1:]:
+        parser.error("--scenario and --scenario-file are mutually exclusive")
+
+    if args.list_scenarios:
+        catalog = [
+            {
+                "name": definition.name,
+                "title": definition.title,
+                "description": definition.description,
+            }
+            for definition in (load_scenario(name) for name in available_scenarios)
+        ]
+        output_text = json.dumps(
+            {"synthetic": True, "scenarios": catalog},
+            indent=2,
+            sort_keys=True,
+        )
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(output_text + "\n", encoding="utf-8")
+        else:
+            print(output_text)
+        return
+
+    if args.validate_scenarios:
+        validated = []
+        for name in available_scenarios:
+            definition = load_scenario(name)
+            engine = ScenarioEngine.from_scenario(name)
+            if definition.timeline:
+                engine.advance_to_ms(definition.timeline[-1].at_ms)
+            validated.append(
+                {
+                    "name": name,
+                    "events": len(definition.timeline),
+                    "final_sequence": engine.generation.sequence,
+                }
+            )
+        output_text = json.dumps(
+            {"synthetic": True, "valid": True, "scenarios": validated},
+            indent=2,
+            sort_keys=True,
+        )
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(output_text + "\n", encoding="utf-8")
+        else:
+            print(output_text)
+        return
+
+    scenario_source: str | Path = args.scenario_file or args.scenario
+    try:
+        engine = ScenarioEngine.from_scenario(
+            scenario_source,
+            start_at_ms=args.at_ms,
+        )
+        if args.wireless_running and not engine.snapshot()["radios"]["wifi"]["started"]:
+            engine.action("start:wireless")
+        for action in args.action:
+            engine.action(action)
+        if args.advance_ms:
+            engine.advance_ms(args.advance_ms)
+    except (ScenarioValidationError, SemanticActionError) as error:
+        parser.error(str(error))
+
+    headless = bool(
+        args.dump_snapshot
+        or args.dump_api is not None
+        or args.action
+        or args.advance_ms
+        or args.output is not None
+    )
+    if headless:
+        try:
+            output_text = (
+                engine.dump_api(args.dump_api)
+                if args.dump_api is not None
+                else engine.dump_snapshot()
+            )
+        except ScenarioValidationError as error:
+            parser.error(str(error))
+        if args.output is not None:
+            args.output.parent.mkdir(parents=True, exist_ok=True)
+            args.output.write_text(output_text + "\n", encoding="utf-8")
+        else:
+            print(output_text)
+        return
+
     if sys.platform == "win32":
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
     root = tk.Tk()
-    root.title(f"LUNASHELL.ai Device Simulator · {SCENARIOS[args.scenario].name}")
+    root.title(f"LUNASHELL.ai Device Simulator · {engine.scenario.title.upper()}")
     root.resizable(False, False)
     root.configure(background="#101820")
     simulator = LUNASHELLSimulator(
         root,
-        SCENARIOS[args.scenario],
+        engine,
         play_sound=not args.no_sound and args.capture is None,
         idle_state=args.idle_state,
     )
     simulator.performance_mode = args.performance_mode
-    simulator.wireless_running = args.wireless_running
     simulator.safe_guide = args.safe_guide
+    screen_drawers = {
+        "home": simulator.show_home,
+        "battery": simulator.show_battery_demo,
+        "logs": simulator.show_logs_demo,
+        "settings": simulator.show_settings_demo,
+        "storage": simulator.show_storage_demo,
+        "chrome-settings": simulator.show_chrome_settings_demo,
+        "power-settings": simulator.show_power_settings_demo,
+        "hardware": simulator.show_hardware_demo,
+        "audio": simulator.show_audio_demo,
+        "fft": simulator.show_audio_fft_demo,
+        "fft-detail": simulator.show_audio_detail_demo,
+        "imu": simulator.show_imu_demo,
+        "gps": simulator.show_gps_demo,
+        "tof": simulator.show_tof_demo,
+        "tof-settings": simulator.show_tof_settings_demo,
+    }
+    simulator.ready = True
+    if args.screen in PAIRING_SCREENS:
+        simulator.show_pairing_demo(args.screen)
+    else:
+        screen_drawers[args.screen]()
+    simulator.apply_idle_overlay()
+
     if args.capture is not None:
         from PIL import ImageGrab
 
-        simulator.ready = True
-        screen_drawers = {
-            "home": simulator.show_home,
-            "battery": simulator.show_battery_demo,
-            "logs": simulator.show_logs_demo,
-            "settings": simulator.show_settings_demo,
-            "storage": simulator.show_storage_demo,
-            "chrome-settings": simulator.show_chrome_settings_demo,
-            "power-settings": simulator.show_power_settings_demo,
-            "hardware": simulator.show_hardware_demo,
-            "audio": simulator.show_audio_demo,
-            "fft": simulator.show_audio_fft_demo,
-            "fft-detail": simulator.show_audio_detail_demo,
-            "imu": simulator.show_imu_demo,
-            "gps": simulator.show_gps_demo,
-            "tof": simulator.show_tof_demo,
-            "tof-settings": simulator.show_tof_settings_demo,
-        }
-        if args.screen in PAIRING_SCREENS:
-            simulator.show_pairing_demo(args.screen)
-        else:
-            screen_drawers[args.screen]()
-        simulator.apply_idle_overlay()
         root.geometry("+100+100")
         root.deiconify()
         root.attributes("-topmost", True)

@@ -1,0 +1,20 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "battery-charging",
+  "title": "BATTERY CHARGING",
+  "description": "A current PMIC sample reports a cell charging from valid USB power.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-battery-charging",
+    "battery.level_percent": 54,
+    "battery.battery_mv": 3860,
+    "battery.usb_present": true,
+    "battery.vbus_good": true,
+    "battery.usb_mv": 5052,
+    "battery.system_mv": 4215,
+    "battery.die_temperature_c": 33.1,
+    "battery.power_state": "charging",
+    "battery.charger_phase": "cc-charge"
+  },
+  "timeline": []
+}

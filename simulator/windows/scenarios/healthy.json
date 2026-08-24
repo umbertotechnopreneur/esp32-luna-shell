@@ -1,0 +1,11 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "healthy",
+  "title": "HEALTHY",
+  "description": "All sampled core devices are current; user-controlled radios remain stopped by policy.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-healthy"
+  },
+  "timeline": []
+}

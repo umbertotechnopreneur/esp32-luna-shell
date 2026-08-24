@@ -1,0 +1,53 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "boot-partial",
+  "title": "BOOT PARTIALLY READY",
+  "description": "Display, input, and memory are available while PMIC and GPS startup are still incomplete.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "last_update_complete": false,
+    "last_update_error": "ESP_ERR_INVALID_STATE",
+    "reason": "synthetic-boot-partial",
+    "battery.health": "unknown",
+    "battery.last_error": "ESP_ERR_INVALID_STATE",
+    "battery.data_valid": false,
+    "battery.data_stale": false,
+    "battery.last_attempt_at_us": 0,
+    "battery.last_success_at_us": 0,
+    "gps.health": "unknown",
+    "gps.last_error": "ESP_ERR_INVALID_STATE",
+    "gps.data_valid": false,
+    "gps.data_stale": false,
+    "gps.last_attempt_at_us": 0,
+    "gps.last_success_at_us": 0,
+    "gps.has_fix": false,
+    "gps.utc_valid": false,
+    "gps.fix_quality": 0,
+    "gps.satellites": 0,
+    "gps.utc_time": "",
+    "gps.utc_date": ""
+  },
+  "timeline": [
+    {
+      "at_ms": 1500,
+      "reason": "synthetic-boot-ready",
+      "patch": {
+        "last_update_complete": true,
+        "last_update_error": "ESP_OK",
+        "battery.health": "ready",
+        "battery.last_error": "ESP_OK",
+        "battery.data_valid": true,
+        "gps.health": "ready",
+        "gps.last_error": "ESP_OK",
+        "gps.data_valid": true,
+        "gps.has_fix": true,
+        "gps.utc_valid": true,
+        "gps.fix_quality": 1,
+        "gps.satellites": 9,
+        "gps.utc_time": "03:30:02Z",
+        "gps.utc_date": "2026-08-24"
+      },
+      "touch_components": ["battery", "gps"]
+    }
+  ]
+}

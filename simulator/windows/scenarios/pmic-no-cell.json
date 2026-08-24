@@ -1,0 +1,24 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "pmic-no-cell",
+  "title": "PMIC READY, NO CELL",
+  "description": "The PMIC sample is current and USB-powered while no physical battery is detected.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-pmic-no-cell",
+    "battery.battery_present": false,
+    "battery.usb_present": true,
+    "battery.vbus_good": true,
+    "battery.batfet_enabled": false,
+    "battery.level_percent_valid": false,
+    "battery.battery_mv_valid": false,
+    "battery.level_percent": -1,
+    "battery.battery_mv": 0,
+    "battery.usb_mv": 5038,
+    "battery.system_mv": 4208,
+    "battery.die_temperature_c": 33.0,
+    "battery.power_state": "usb-only",
+    "battery.charger_phase": "stopped"
+  },
+  "timeline": []
+}

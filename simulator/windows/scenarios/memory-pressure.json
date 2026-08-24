@@ -1,0 +1,33 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "memory-pressure",
+  "title": "INTERNAL MEMORY PRESSURE",
+  "description": "Raw allocator observations cross the pressure thresholds while boot failure aggregates remain explicit.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-memory-pressure",
+    "memory.internal_free_bytes": 24576,
+    "memory.internal_largest_block_bytes": 8192,
+    "memory.internal_minimum_free_bytes": 20480,
+    "memory.internal_allocated_blocks": 460,
+    "memory.internal_free_blocks": 15,
+    "memory.internal_memory_pressure": true,
+    "memory.allocation_failure_count": 3,
+    "memory.largest_failed_allocation_bytes": 32768,
+    "memory.failed_allocation_caps_seen_mask": 8
+  },
+  "timeline": [
+    {
+      "at_ms": 5000,
+      "reason": "synthetic-memory-recovered",
+      "patch": {
+        "memory.internal_free_bytes": 65536,
+        "memory.internal_largest_block_bytes": 32768,
+        "memory.internal_allocated_blocks": 440,
+        "memory.internal_free_blocks": 35,
+        "memory.internal_memory_pressure": false
+      },
+      "touch_components": ["memory"]
+    }
+  ]
+}

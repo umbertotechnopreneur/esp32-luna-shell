@@ -32,6 +32,33 @@ Enable performance mode.
 .PARAMETER WirelessRunning
 Enable wireless-running mode.
 
+.PARAMETER ScenarioFile
+Load a scenario from an explicit JSON fixture path.
+
+.PARAMETER AtMs
+Start the deterministic scenario clock at this elapsed millisecond.
+
+.PARAMETER ListScenarios
+List the built-in scenario fixtures and exit.
+
+.PARAMETER ValidateScenarios
+Validate all built-in scenario fixtures and exit.
+
+.PARAMETER DumpSnapshot
+Write the current synthetic snapshot as JSON and exit.
+
+.PARAMETER DumpApi
+Write one synthetic HTTP API payload as JSON and exit.
+
+.PARAMETER Action
+Apply one or more semantic simulator actions before producing output.
+
+.PARAMETER AdvanceMs
+Advance the deterministic clock by this many milliseconds before producing output.
+
+.PARAMETER Output
+Write headless JSON output to this file instead of standard output.
+
 .PARAMETER Help
 Show full help and exit.
 
@@ -42,10 +69,18 @@ Show full help and exit.
 .EXAMPLE
 .\run-simulator.ps1 -Scenario battery-low -Screen battery -NoSound
 # Launches directly with explicit args.
+
+.EXAMPLE
+.\run-simulator.ps1 -Scenario wifi-lifecycle -AtMs 5000 -Action start:wireless -DumpSnapshot
+# Runs headlessly and writes a deterministic synthetic snapshot to standard output.
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('healthy','sd-unformatted','gps-searching','battery-low','battery-charging','battery-unavailable')]
+    [ValidateSet(
+        'battery-charging','battery-low','battery-unavailable','boot-partial','gps-searching','healthy',
+        'memory-pressure','pmic-no-cell','sd-card-lifecycle','sd-unformatted','stale-recovery',
+        'standby-rollback','tof-one-missing','wifi-lifecycle'
+    )]
     [string]$Scenario = 'healthy',
 
     [ValidateSet(
@@ -65,13 +100,27 @@ param(
     [switch]$NoSound,
     [switch]$PerformanceMode,
     [switch]$WirelessRunning,
+    [string]$ScenarioFile,
+    [long]$AtMs = 0,
+    [switch]$ListScenarios,
+    [switch]$ValidateScenarios,
+    [switch]$DumpSnapshot,
+    [ValidateSet(
+        '/api/v1/health','/api/v1/capabilities','/api/v1/info','/api/v1/diagnostics',
+        '/api/v1/rtc','/api/v1/gps','/api/v1/status'
+    )]
+    [string]$DumpApi,
+    [string[]]$Action = @(),
+    [long]$AdvanceMs = 0,
+    [string]$Output,
     [switch]$Help
 )
 
 $ErrorActionPreference = 'Stop'
+$script:LauncherBoundParameters = $PSBoundParameters
 
 $ModulesPath = 'E:\tools\scripts\modules'
-$Simulator = Join-Path $PSScriptRoot 'LUNASHELL_simulator.py'
+$Simulator = Join-Path $PSScriptRoot 'lunashell_simulator.py'
 
 $BrandName = 'LUNASHELL Simulator Console'
 $BrandTag = 'Windows simulator launcher'
@@ -92,6 +141,8 @@ function Copy-SimulatorState {
 
 $script:State = [ordered]@{
     Scenario = 'healthy'
+    ScenarioFile = $null
+    AtMs = 0
     Screen = 'home'
     IdleState = 'active'
     Capture = $null
@@ -104,12 +155,20 @@ $script:State = [ordered]@{
 $DefaultState = Copy-SimulatorState -Source $script:State
 
 $ScenarioCatalog = @(
-    [pscustomobject]@{ Name = 'healthy'; Description = 'Nominal startup with valid sensor values.' },
-    [pscustomobject]@{ Name = 'sd-unformatted'; Description = 'SD unformatted workflow and repair path.' },
-    [pscustomobject]@{ Name = 'gps-searching'; Description = 'Force GPS searching / no-fix behavior.' },
-    [pscustomobject]@{ Name = 'battery-low'; Description = 'Battery low warnings and alert bars.' },
     [pscustomobject]@{ Name = 'battery-charging'; Description = 'Simulate active charging with charging indicators.' },
-    [pscustomobject]@{ Name = 'battery-unavailable'; Description = 'Battery telemetry unavailable state.' }
+    [pscustomobject]@{ Name = 'battery-low'; Description = 'Battery low warnings and alert bars.' },
+    [pscustomobject]@{ Name = 'battery-unavailable'; Description = 'Battery telemetry unavailable state.' },
+    [pscustomobject]@{ Name = 'boot-partial'; Description = 'Optional boot stages fail with explicit degraded state.' },
+    [pscustomobject]@{ Name = 'gps-searching'; Description = 'GPS searching without a valid fix.' },
+    [pscustomobject]@{ Name = 'healthy'; Description = 'Nominal startup with valid sensor values.' },
+    [pscustomobject]@{ Name = 'memory-pressure'; Description = 'Low-memory diagnostics and recovery timeline.' },
+    [pscustomobject]@{ Name = 'pmic-no-cell'; Description = 'Healthy PMIC observation with no battery cell present.' },
+    [pscustomobject]@{ Name = 'sd-card-lifecycle'; Description = 'Verified SD format authorization and lifecycle actions.' },
+    [pscustomobject]@{ Name = 'sd-unformatted'; Description = 'SD unformatted workflow and repair path.' },
+    [pscustomobject]@{ Name = 'stale-recovery'; Description = 'Stale telemetry followed by deterministic recovery.' },
+    [pscustomobject]@{ Name = 'standby-rollback'; Description = 'Standby transition failure and rollback state.' },
+    [pscustomobject]@{ Name = 'tof-one-missing'; Description = 'One ToF sensor unavailable while peers remain valid.' },
+    [pscustomobject]@{ Name = 'wifi-lifecycle'; Description = 'Wireless start, stop and state-transition actions.' }
 )
 
 $ScreenCatalog = @(
@@ -273,13 +332,72 @@ function Read-IndexInput {
 function Build-LaunchArgs {
     param($state)
 
-    $args = @('--scenario', $state.Scenario, '--screen', $state.Screen, '--idle-state', $state.IdleState)
+    $args = @()
+    if (-not [string]::IsNullOrWhiteSpace($state.ScenarioFile)) {
+        $args += @('--scenario-file', $state.ScenarioFile)
+    }
+    else {
+        $args += @('--scenario', $state.Scenario)
+    }
+    if ([long]$state.AtMs -gt 0) { $args += @('--at-ms', [string]$state.AtMs) }
+    $args += @('--screen', $state.Screen, '--idle-state', $state.IdleState)
     if (-not [string]::IsNullOrWhiteSpace($state.Capture)) { $args += @('--capture', $state.Capture) }
     if ($state.SafeGuide) { $args += '--safe-guide' }
     if ($state.NoSound) { $args += '--no-sound' }
     if ($state.PerformanceMode) { $args += '--performance-mode' }
     if ($state.WirelessRunning) { $args += '--wireless-running' }
     return $args
+}
+
+function Build-HeadlessArgs {
+    param([System.Collections.IDictionary]$BoundParameters)
+
+    $args = @()
+    if ($BoundParameters.ContainsKey('ScenarioFile')) {
+        if ($BoundParameters.ContainsKey('Scenario')) {
+            throw 'Use either -Scenario or -ScenarioFile, not both.'
+        }
+        $args += @('--scenario-file', $ScenarioFile)
+    }
+    else {
+        $args += @('--scenario', $Scenario)
+    }
+
+    if ($BoundParameters.ContainsKey('AtMs')) { $args += @('--at-ms', [string]$AtMs) }
+    if ($ListScenarios) { $args += '--list-scenarios' }
+    if ($ValidateScenarios) { $args += '--validate-scenarios' }
+    if ($DumpSnapshot) { $args += '--dump-snapshot' }
+    if ($BoundParameters.ContainsKey('DumpApi')) { $args += @('--dump-api', $DumpApi) }
+    foreach ($semanticAction in $Action) {
+        if (-not [string]::IsNullOrWhiteSpace($semanticAction)) {
+            $args += @('--action', $semanticAction)
+        }
+    }
+    if ($BoundParameters.ContainsKey('AdvanceMs')) { $args += @('--advance-ms', [string]$AdvanceMs) }
+    if ($BoundParameters.ContainsKey('Output')) { $args += @('--output', $Output) }
+    return $args
+}
+
+function Resolve-PythonCommand {
+    foreach ($candidate in @('python', 'python3', 'py')) {
+        if (Get-Command $candidate -ErrorAction SilentlyContinue) { return $candidate }
+    }
+    throw 'Python is not available in PATH. Please install Python 3 and retry.'
+}
+
+function Invoke-HeadlessSimulator {
+    param([System.Collections.IDictionary]$BoundParameters)
+
+    if (-not (Test-Path -LiteralPath $Simulator -PathType Leaf)) {
+        throw "Missing simulator entrypoint: $Simulator"
+    }
+
+    $python = Resolve-PythonCommand
+    $args = Build-HeadlessArgs -BoundParameters $BoundParameters
+    & $python -B $Simulator @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Simulator headless command failed with exit code $LASTEXITCODE."
+    }
 }
 
 function Get-LaunchCommandString {
@@ -395,7 +513,16 @@ function Show-SwitchGuide {
         [pscustomobject]@{ Flag = '--safe-guide'; Desc = 'Enable safe guide overlay.' },
         [pscustomobject]@{ Flag = '--no-sound'; Desc = 'Disable simulator sounds.' },
         [pscustomobject]@{ Flag = '--performance-mode'; Desc = 'Enable performance-oriented simulation.' },
-        [pscustomobject]@{ Flag = '--wireless-running'; Desc = 'Enable wireless running state.' }
+        [pscustomobject]@{ Flag = '--wireless-running'; Desc = 'Enable wireless running state.' },
+        [pscustomobject]@{ Flag = '--scenario-file'; Desc = 'Load an explicit JSON scenario fixture.' },
+        [pscustomobject]@{ Flag = '--at-ms'; Desc = 'Start at a deterministic timeline offset.' },
+        [pscustomobject]@{ Flag = '--list-scenarios'; Desc = 'List built-in fixtures without opening the UI.' },
+        [pscustomobject]@{ Flag = '--validate-scenarios'; Desc = 'Validate all built-in fixtures headlessly.' },
+        [pscustomobject]@{ Flag = '--dump-snapshot'; Desc = 'Emit a synthetic snapshot without opening the UI.' },
+        [pscustomobject]@{ Flag = '--dump-api'; Desc = 'Emit fake-device API payloads without opening the UI.' },
+        [pscustomobject]@{ Flag = '--action'; Desc = 'Apply a repeatable semantic simulator action.' },
+        [pscustomobject]@{ Flag = '--advance-ms'; Desc = 'Advance the virtual clock before output.' },
+        [pscustomobject]@{ Flag = '--output'; Desc = 'Write headless JSON output to a file.' }
     )
 
     foreach ($r in $rows) {
@@ -462,14 +589,7 @@ function Run-Simulator {
         throw "Missing simulator entrypoint: $Simulator"
     }
 
-    $python = $null
-    foreach ($candidate in @('python', 'python3', 'py')) {
-        if (Get-Command $candidate -ErrorAction SilentlyContinue) { $python = $candidate; break }
-    }
-
-    if (-not $python) {
-        throw 'Python is not available in PATH. Please install Python 3 and retry.'
-    }
+    $python = Resolve-PythonCommand
 
     $args = Build-LaunchArgs -state $state
     Show-Brand
@@ -557,16 +677,30 @@ function Run-Interactive {
     }
 }
 
-Initialize-SimulatorUi | Out-Null
-
 if ($Help) {
+    Initialize-SimulatorUi | Out-Null
     if (Get-Command Show-RichHelp -ErrorAction SilentlyContinue) { Show-RichHelp -ScriptPath $PSCommandPath }
     else { Get-Help -Name $PSCommandPath -Full }
     return
 }
 
+$headlessMode = $false
+foreach ($p in @(
+    'ListScenarios','ValidateScenarios','DumpSnapshot','DumpApi',
+    'Action','AdvanceMs','Output'
+)) {
+    if ($script:LauncherBoundParameters.ContainsKey($p)) { $headlessMode = $true; break }
+}
+
+if ($headlessMode) {
+    Invoke-HeadlessSimulator -BoundParameters $script:LauncherBoundParameters
+    return
+}
+
+Initialize-SimulatorUi | Out-Null
+
 $directMode = $false
-foreach ($p in @('Scenario','Screen','IdleState','Capture','SafeGuide','NoSound','PerformanceMode','WirelessRunning')) {
+foreach ($p in @('Scenario','ScenarioFile','AtMs','Screen','IdleState','Capture','SafeGuide','NoSound','PerformanceMode','WirelessRunning')) {
     if ($PSBoundParameters.ContainsKey($p)) { $directMode = $true; break }
 }
 
@@ -576,7 +710,12 @@ if (-not $directMode) {
 }
 
 $direct = Copy-SimulatorState -Source $DefaultState
+if ($PSBoundParameters.ContainsKey('ScenarioFile') -and $PSBoundParameters.ContainsKey('Scenario')) {
+    throw 'Use either -Scenario or -ScenarioFile, not both.'
+}
 $direct.Scenario = $Scenario
+$direct.ScenarioFile = $ScenarioFile
+$direct.AtMs = $AtMs
 $direct.Screen = $Screen
 $direct.IdleState = $IdleState
 $direct.Capture = $Capture

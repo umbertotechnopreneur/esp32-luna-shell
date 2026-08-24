@@ -1,0 +1,90 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "wifi-lifecycle",
+  "title": "WI-FI LIFECYCLE",
+  "description": "Wireless starts, connects, loses its lease, and reconnects with deterministic counters.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-wifi-off"
+  },
+  "timeline": [
+    {
+      "at_ms": 1000,
+      "reason": "synthetic-wifi-started",
+      "patch": {
+        "radios.wifi.health": "ready",
+        "radios.wifi.last_error": "ESP_OK",
+        "radios.wifi.data_valid": true,
+        "radios.wifi.started": true,
+        "radios.wifi.event_sequence": 1,
+        "radios.wifi.mac_address": "02:00:00:00:00:42",
+        "radios.ble.health": "ready",
+        "radios.ble.last_error": "ESP_OK",
+        "radios.ble.data_valid": true
+      },
+      "touch_components": ["radios.wifi", "radios.ble"]
+    },
+    {
+      "at_ms": 2000,
+      "reason": "synthetic-wifi-connect",
+      "patch": {
+        "radios.wifi.connect_requested": true,
+        "radios.wifi.event_sequence": 2,
+        "radios.wifi.connect_attempt_count": 1
+      },
+      "touch_components": ["radios.wifi"]
+    },
+    {
+      "at_ms": 3000,
+      "reason": "synthetic-wifi-got-ip",
+      "patch": {
+        "radios.wifi.connected": true,
+        "radios.wifi.ip_acquired": true,
+        "radios.wifi.rssi": -47,
+        "radios.wifi.channel": 6,
+        "radios.wifi.event_sequence": 3,
+        "radios.wifi.ssid": "LUNASHELL-SYNTHETIC",
+        "radios.wifi.ip_address": "192.0.2.42"
+      },
+      "touch_components": ["radios.wifi"]
+    },
+    {
+      "at_ms": 5000,
+      "reason": "synthetic-wifi-lease-lost",
+      "patch": {
+        "radios.wifi.health": "degraded",
+        "radios.wifi.last_error": "ESP_ERR_TIMEOUT",
+        "radios.wifi.data_valid": false,
+        "radios.wifi.data_stale": true,
+        "radios.wifi.connected": false,
+        "radios.wifi.ip_acquired": false,
+        "radios.wifi.reconnect_pending": true,
+        "radios.wifi.rssi": 0,
+        "radios.wifi.channel": 0,
+        "radios.wifi.event_sequence": 4,
+        "radios.wifi.disconnect_count": 1,
+        "radios.wifi.ip_address": ""
+      },
+      "touch_components": ["radios.wifi"]
+    },
+    {
+      "at_ms": 7000,
+      "reason": "synthetic-wifi-recovered",
+      "patch": {
+        "radios.wifi.health": "ready",
+        "radios.wifi.last_error": "ESP_OK",
+        "radios.wifi.data_valid": true,
+        "radios.wifi.data_stale": false,
+        "radios.wifi.connected": true,
+        "radios.wifi.ip_acquired": true,
+        "radios.wifi.reconnect_pending": false,
+        "radios.wifi.rssi": -51,
+        "radios.wifi.channel": 6,
+        "radios.wifi.event_sequence": 5,
+        "radios.wifi.reconnect_attempt_count": 1,
+        "radios.wifi.ip_address": "192.0.2.43"
+      },
+      "touch_components": ["radios.wifi"]
+    }
+  ]
+}

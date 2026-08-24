@@ -1,5 +1,17 @@
 # TODO
 
+## Windows simulator device twin
+
+- [x] Replace screen-local synthetic values with one validated simulator-only
+  `DeviceSnapshot` generation shared by UI, logs, actions, and captures.
+- [x] Add deterministic JSON scenarios, a virtual clock, semantic actions, and
+  headless snapshot/API dumps without opening Tk or accessing hardware.
+- [x] Add a loopback-only fake HTTP device with the versioned read-only API,
+  visibly synthetic responses, deterministic authentication limits, and an
+  isolated simulator control plane.
+- [x] Add hardware-free scenario, payload, interaction, and visual-contract
+  validation plus an agent-friendly artifact bundle.
+
 ## Runtime liveness hardware validation
 
 - [ ] On a disposable development device, inject controlled stalls into GUI,

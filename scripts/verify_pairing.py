@@ -720,13 +720,13 @@ def main() -> None:
     )
     require(
         simulator,
-        '(94, "SAMPLES", "500")',
-        "Windows TOF default precision sample count",
+        'str(settings["sample_count"])',
+        "Windows TOF snapshot-backed sample count",
     )
     require(
         simulator,
-        '(240, "INTERVAL", "250 ms")',
-        "Windows TOF default precision sample interval",
+        'f"{settings[\'sample_interval_ms\']} ms"',
+        "Windows TOF snapshot-backed sample interval",
     )
 
     pairing_template = package_documents["templates/LUNASHELL_pairing_stage.json"]
@@ -836,8 +836,13 @@ def main() -> None:
     )
     require(
         simulator,
-        'if self.screen == "pairing-success":',
-        "pairing simulator connected status",
+        'if screen == "pairing-success" and not self._wireless_running():',
+        "pairing simulator snapshot-backed connected transition",
+    )
+    require(
+        simulator,
+        'self._apply_action("start:wireless")',
+        "pairing simulator semantic wireless action",
     )
     require(
         simulator,

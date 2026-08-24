@@ -1,0 +1,31 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "sd-unformatted",
+  "title": "SD UNFORMATTED",
+  "description": "A verified removable card requires an explicitly authorized FAT format.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-sd-format-required",
+    "storage.health": "degraded",
+    "storage.last_error": "ESP_ERR_INVALID_RESPONSE",
+    "storage.data_valid": false,
+    "storage.data_stale": false,
+    "storage.last_success_at_us": 0,
+    "storage.mount_outcome": "format-required",
+    "storage.mount_stage": "fat-mount",
+    "storage.fatfs_result": 13,
+    "storage.mounted": false,
+    "storage.format_required": true,
+    "storage.formatted": false,
+    "storage.capacity_bytes": 0,
+    "storage.filesystem_total_bytes": 0,
+    "storage.free_bytes": 0,
+    "storage.logger_mirror.health": "degraded",
+    "storage.logger_mirror.last_error": "ESP_ERR_INVALID_STATE",
+    "storage.logger_mirror.data_valid": false,
+    "storage.logger_mirror.data_stale": false,
+    "storage.logger_mirror.last_success_at_us": 0,
+    "storage.logger_mirror_enabled": false
+  },
+  "timeline": []
+}

@@ -1,0 +1,47 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "stale-recovery",
+  "title": "STALE THEN RECOVERED",
+  "description": "A successful PMIC sample ages, a retry times out, and a later real sample recovers.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-before-stale"
+  },
+  "timeline": [
+    {
+      "at_ms": 1000,
+      "reason": "synthetic-battery-stale",
+      "patch": {
+        "battery.data_valid": false,
+        "battery.data_stale": true
+      },
+      "touch_components": ["battery"]
+    },
+    {
+      "at_ms": 2000,
+      "reason": "synthetic-battery-timeout",
+      "patch": {
+        "last_update_complete": false,
+        "last_update_error": "ESP_ERR_TIMEOUT",
+        "battery.health": "degraded",
+        "battery.last_error": "ESP_ERR_TIMEOUT"
+      },
+      "touch_components": ["battery"]
+    },
+    {
+      "at_ms": 3500,
+      "reason": "synthetic-battery-recovered",
+      "patch": {
+        "last_update_complete": true,
+        "last_update_error": "ESP_OK",
+        "battery.health": "ready",
+        "battery.last_error": "ESP_OK",
+        "battery.data_valid": true,
+        "battery.data_stale": false,
+        "battery.level_percent": 82,
+        "battery.battery_mv": 4008
+      },
+      "touch_components": ["battery"]
+    }
+  ]
+}

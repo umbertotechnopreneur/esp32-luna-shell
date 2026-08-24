@@ -1,0 +1,25 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "gps-searching",
+  "title": "GPS SEARCHING",
+  "description": "The receiver transport is current but has no valid position fix.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-gps-searching",
+    "gps.pending_nmea_bytes": 64,
+    "gps.has_fix": false,
+    "gps.utc_valid": false,
+    "gps.fix_quality": 0,
+    "gps.satellites": 4,
+    "gps.latitude_degrees": 0.0,
+    "gps.longitude_degrees": 0.0,
+    "gps.altitude_m": 0.0,
+    "gps.speed_mps": 0.0,
+    "gps.course_degrees": 0.0,
+    "gps.hdop": 0.0,
+    "gps.utc_time": "",
+    "gps.utc_date": "",
+    "gps.first_sentence": "$GNGSA,A,1,,,,,,,,,,,,,99.9*00"
+  },
+  "timeline": []
+}

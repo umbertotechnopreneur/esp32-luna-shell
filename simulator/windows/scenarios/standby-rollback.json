@@ -1,0 +1,65 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "standby-rollback",
+  "title": "STANDBY WAKE ROLLBACK",
+  "description": "A coherent standby succeeds, then a failed wake rolls back to a dark standby with the real error retained.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-before-standby"
+  },
+  "timeline": [
+    {
+      "at_ms": 500,
+      "reason": "synthetic-enter-standby",
+      "patch": {
+        "power.state": "entering-standby",
+        "power.reason": "inactivity",
+        "power.transition_sequence": 1,
+        "power.changed_at_us": 1500000
+      },
+      "touch_components": ["power"]
+    },
+    {
+      "at_ms": 1000,
+      "reason": "synthetic-standby",
+      "patch": {
+        "power.state": "standby",
+        "power.audio_suspended": true,
+        "power.fullscreen_active": false,
+        "power.command_arc_visible": false,
+        "power.status_arc_visible": false,
+        "power.display_idle_stage": "display-off",
+        "power.changed_at_us": 2000000,
+        "ui.display_power_mode_state": "display-off",
+        "ui.brightness_percent": 0
+      },
+      "touch_components": ["power", "ui.display_power_mode", "ui.brightness"]
+    },
+    {
+      "at_ms": 1500,
+      "reason": "synthetic-wake-started",
+      "patch": {
+        "power.state": "waking",
+        "power.reason": "power-button",
+        "power.transition_sequence": 2,
+        "power.changed_at_us": 2500000
+      },
+      "touch_components": ["power"]
+    },
+    {
+      "at_ms": 2000,
+      "reason": "synthetic-wake-rollback",
+      "patch": {
+        "last_update_complete": false,
+        "last_update_error": "ESP_FAIL",
+        "power.health": "degraded",
+        "power.last_error": "ESP_FAIL",
+        "power.data_valid": false,
+        "power.data_stale": true,
+        "power.state": "standby",
+        "power.changed_at_us": 3000000
+      },
+      "touch_components": ["power"]
+    }
+  ]
+}

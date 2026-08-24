@@ -1,0 +1,15 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "battery-low",
+  "title": "BATTERY LOW",
+  "description": "A current PMIC sample reports a critically low discharging cell.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-battery-low",
+    "battery.level_percent": 8,
+    "battery.battery_mv": 3475,
+    "battery.system_mv": 3628,
+    "battery.die_temperature_c": 32.4
+  },
+  "timeline": []
+}

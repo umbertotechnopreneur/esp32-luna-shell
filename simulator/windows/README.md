@@ -2,6 +2,41 @@
 
 This desktop target mirrors the round 466 x 466 UI contract and application
 flow. It does not emulate the Waveshare electrical hardware or ESP-IDF drivers.
+All values originate in a deterministic device-twin snapshot and remain
+visibly labelled `SYNTHETIC`; simulator state never enters firmware snapshots.
+
+## Deterministic scenarios
+
+Scenario fixtures live in `simulator/windows/scenarios`. Each JSON file uses
+the `LUNASHELL.simulator.scenario.v1` schema, applies typed dotted-path patches
+to the canonical synthetic snapshot, and can add strictly ordered virtual-time
+events. Invalid field types, impossible component states, duplicate keys, and
+incoherent sensor validity fail fast when the fixture is loaded.
+
+The built-in catalog is:
+
+| Scenario | State exercised |
+| --- | --- |
+| `healthy` | Ready baseline with current telemetry and stopped radios |
+| `battery-low` | Valid low-battery warning |
+| `battery-charging` | USB-powered charging state |
+| `battery-unavailable` | Explicit PMIC read failure without numeric placeholders |
+| `pmic-no-cell` | Valid PMIC observation with no battery cell present |
+| `gps-searching` | Receiver active without a valid fix |
+| `boot-partial` | Partial startup followed by a deterministic ready transition |
+| `memory-pressure` | Low-memory state followed by recovery |
+| `sd-unformatted` | Verified card requiring one authorized format action |
+| `sd-card-lifecycle` | Mounted card removal and insertion timeline |
+| `stale-recovery` | Current, stale, failed, and recovered battery samples |
+| `standby-rollback` | Standby transition and failed-wake rollback |
+| `tof-one-missing` | One unavailable distance sensor followed by recovery |
+| `wifi-lifecycle` | Start, connect, lease loss, and reconnection timeline |
+
+The scenario clock advances only when requested. Replaying the same fixture,
+offsets, and actions produces the same immutable generations and JSON output.
+Semantic actions enforce device preconditions: for example, SD formatting
+requires a present verified format-required card and consumes its authorization
+once, while TOF calibration requires two current sensors.
 
 Run from the project root:
 
@@ -20,6 +55,36 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1 -Screen storage
 .\simulator\windows\run-simulator.ps1 -Screen pairing-intro
 ```
+
+### Headless device-twin CLI
+
+The Python entry point can validate or inspect the same model without creating
+a Tk window:
+
+```powershell
+python -B .\simulator\windows\lunashell_simulator.py --list-scenarios
+python -B .\simulator\windows\lunashell_simulator.py --validate-scenarios
+python -B .\simulator\windows\lunashell_simulator.py --scenario healthy --at-ms 2500 --dump-snapshot
+python -B .\simulator\windows\lunashell_simulator.py --scenario healthy --action start:wireless --advance-ms 1000 --dump-api /api/v1/status
+python -B .\simulator\windows\lunashell_simulator.py --scenario-file .\path\custom.json --dump-api /api/v1/info --output .\tmp\device-info.json
+```
+
+`--scenario-file` loads an explicit v1 JSON fixture; `--at-ms` chooses its
+initial virtual-clock offset. `--action` applies a semantic action and
+`--advance-ms` moves the clock before `--dump-snapshot` or `--dump-api` emits
+JSON. `--output` writes that JSON to a file instead of standard output. Use
+`--list-scenarios` for the live catalog and `--validate-scenarios` to validate
+every built-in fixture.
+
+Run the full hardware-free contract package from the repository root:
+
+```powershell
+python -B .\scripts\verify_simulator.py
+```
+
+It validates every fixture and timeline, deterministic clock replay, immutable
+generations, semantic wireless/SD/TOF actions, public-info redaction, and the
+loopback HTTP transport. It returns a nonzero exit code on any failure.
 
 Capture the current synthetic home screen without touching a device:
 
@@ -116,6 +181,47 @@ Build the standalone Windows executable:
 
 The build script creates an isolated `.venv-simulator` environment and writes
 the executable to `simulator/windows/dist/LUNASHELLDeviceSimulator.exe`.
+
+## Loopback fake HTTP device
+
+Start a deterministic HTTP device for client and agent integration tests:
+
+```powershell
+pwsh -NoProfile -File .\simulator\windows\serve-fake-device.ps1
+pwsh -NoProfile -File .\simulator\windows\serve-fake-device.ps1 -Scenario stale-recovery -StartAtMs 2000 -Port 18081
+```
+
+The server defaults to `http://127.0.0.1:18080` and rejects non-loopback bind
+addresses. It uses only Python's standard library, never opens a serial port,
+and adds `X-LUNASHELL-Synthetic: true` plus `Cache-Control: no-store` to every
+response. Its fixed test-only Bearer key is intentionally public:
+
+```text
+LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET
+```
+
+`GET /api/v1/health` is public. These read-only firmware-contract routes
+require `Authorization: Bearer LUNASHELL-SIMULATOR-ONLY-NOT-A-SECRET`:
+
+- `GET /api/v1/capabilities`
+- `GET /api/v1/info`
+- `GET /api/v1/diagnostics`
+- `GET /api/v1/rtc`
+- `GET /api/v1/gps`
+- `GET /api/v1/status`
+
+The separate loopback-only control plane is not part of the firmware API:
+
+- `GET /__simulator/list` lists fixtures and the active scenario.
+- `GET /__simulator/state` returns the current immutable generation.
+- `POST /__simulator/load` accepts `{"scenario":"healthy","start_at_ms":0}`.
+- `POST /__simulator/advance` accepts `{"milliseconds":25}`.
+- `POST /__simulator/action` accepts
+  `{"action":"start:wireless","params":{}}`.
+
+Data routes use exact Bearer matching and a deterministic-compatible limit of
+20 failed authentications in 60 seconds. The health route remains available
+while data access is rate-limited, matching its liveness purpose.
 
 ## Audio scope demo
 

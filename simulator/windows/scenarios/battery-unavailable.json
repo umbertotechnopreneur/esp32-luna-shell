@@ -1,0 +1,29 @@
+{
+  "schema": "LUNASHELL.simulator.scenario.v1",
+  "name": "battery-unavailable",
+  "title": "BATTERY UNAVAILABLE",
+  "description": "The PMIC read timed out and no current rail or cell telemetry is published.",
+  "initial_time_us": 1000000,
+  "initial": {
+    "reason": "synthetic-pmic-timeout",
+    "battery.health": "degraded",
+    "battery.last_error": "ESP_ERR_TIMEOUT",
+    "battery.data_valid": false,
+    "battery.data_stale": false,
+    "battery.last_success_at_us": 0,
+    "battery.battery_present": false,
+    "battery.usb_present": false,
+    "battery.vbus_good": false,
+    "battery.batfet_enabled": false,
+    "battery.level_percent_valid": false,
+    "battery.battery_mv_valid": false,
+    "battery.level_percent": -1,
+    "battery.battery_mv": 0,
+    "battery.usb_mv": 0,
+    "battery.system_mv": 0,
+    "battery.die_temperature_c": 0.0,
+    "battery.power_state": "unavailable",
+    "battery.charger_phase": "unavailable"
+  },
+  "timeline": []
+}
