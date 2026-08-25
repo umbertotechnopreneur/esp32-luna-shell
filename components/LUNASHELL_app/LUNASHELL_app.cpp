@@ -40,6 +40,14 @@
 
 namespace LUNASHELL::app_detail {
 
+struct AudioFftBindingCache {
+    std::vector<esp_brookesia::gui::BindingValueUpdate> fft_hidden_updates;
+    std::vector<esp_brookesia::gui::BindingValueUpdate> fft_visible_updates;
+    std::vector<esp_brookesia::gui::BindingValueUpdate> detail_hidden_updates;
+    std::vector<esp_brookesia::gui::BindingValueUpdate> detail_palette_updates;
+    std::vector<esp_brookesia::gui::BindingValueUpdate> detail_visible_updates;
+};
+
 struct BatteryBindingCache {
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
 };
@@ -102,6 +110,39 @@ constexpr double kAudioMeterFloorDbfs = -60.0;
 constexpr double kPcm16FullScale = 32768.0;
 // The logger contract keeps the bounded snapshot inside the persistent 4 KB buffer.
 constexpr size_t kLogSnapshotLines = LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES;
+
+constexpr char kAudioFftBandsPath[] =
+    "/LUNASHELL_audio_fft/surface/bands";
+constexpr char kAudioDetailMic0BandsPath[] =
+    "/LUNASHELL_audio_detail/surface/mic0_bands";
+constexpr char kAudioDetailMic1BandsPath[] =
+    "/LUNASHELL_audio_detail/surface/mic1_bands";
+constexpr std::size_t kAudioFftHeightValueCapacity = 7;
+constexpr std::size_t kAudioFftVisibleBindingCount =
+    LUNASHELL::kAudioSpectrumBandCount + 1U;
+constexpr std::size_t kAudioDetailBandBindingCount =
+    LUNASHELL::kAudioSpectrumBandCount * 2U;
+constexpr std::size_t kAudioDetailVisibleBindingCount =
+    kAudioDetailBandBindingCount + 2U;
+
+constexpr std::array<
+    std::string_view,
+    LUNASHELL::kAudioSpectrumBandCount
+> kAudioDetailMic0Colors = {
+    "#078dff", "#0b9dff", "#10afff", "#12c5ff",
+    "#16d9ff", "#28e4f2", "#45d9ee", "#5abcfb",
+    "#709dff", "#8780ff", "#a466ff", "#bd51ff",
+    "#d342ff", "#e834f8", "#f62de7", "#ff35cf",
+};
+constexpr std::array<
+    std::string_view,
+    LUNASHELL::kAudioSpectrumBandCount
+> kAudioDetailMic1Colors = {
+    "#ff8700", "#ff9500", "#ffa400", "#ffb300",
+    "#ffc000", "#ffcb19", "#ffd43b", "#f4dd4b",
+    "#e6e45a", "#d4e660", "#bfe365", "#a8df6b",
+    "#8fdb77", "#72d98b", "#4dd6a3", "#25d3bb",
+};
 
 class GuiTimerProgress final {
 public:
@@ -499,6 +540,165 @@ bool rtc_waiting_for_time_source(const LUNASHELL::RtcSnapshot &rtc)
            !rtc.data_valid;
 }
 
+std::string make_audio_fft_band_path(
+    std::string_view bands_path,
+    std::size_t band
+)
+{
+    std::string absolute_path;
+    absolute_path.reserve(bands_path.size() + std::size("/band00") - 1U);
+    absolute_path.append(bands_path.data(), bands_path.size());
+    absolute_path.append("/band");
+    absolute_path.push_back(
+        static_cast<char>('0' + (band / 10U) % 10U)
+    );
+    absolute_path.push_back(static_cast<char>('0' + band % 10U));
+    return absolute_path;
+}
+
+void append_audio_fft_binding(
+    std::vector<esp_brookesia::gui::BindingValueUpdate> &updates,
+    std::string absolute_path,
+    std::string_view key,
+    std::string_view value,
+    std::size_t value_capacity
+)
+{
+    esp_brookesia::gui::BindingValueUpdate update{
+        .absolute_path = std::move(absolute_path),
+        .key = std::string(key.data(), key.size()),
+        .value = value.empty()
+            ? std::string{}
+            : std::string(value.data(), value.size()),
+    };
+    update.value.reserve(value_capacity);
+    updates.push_back(std::move(update));
+}
+
+LUNASHELL::app_detail::AudioFftBindingCache make_audio_fft_binding_cache()
+{
+    LUNASHELL::app_detail::AudioFftBindingCache cache;
+
+    cache.fft_hidden_updates.reserve(1U);
+    append_audio_fft_binding(
+        cache.fft_hidden_updates,
+        std::string(kAudioFftBandsPath),
+        "hidden",
+        "true",
+        5U
+    );
+
+    cache.fft_visible_updates.reserve(kAudioFftVisibleBindingCount);
+    for (std::size_t band = 0;
+         band < LUNASHELL::kAudioSpectrumBandCount;
+         ++band) {
+        append_audio_fft_binding(
+            cache.fft_visible_updates,
+            make_audio_fft_band_path(kAudioFftBandsPath, band),
+            "height",
+            {},
+            kAudioFftHeightValueCapacity
+        );
+    }
+    append_audio_fft_binding(
+        cache.fft_visible_updates,
+        std::string(kAudioFftBandsPath),
+        "hidden",
+        "false",
+        5U
+    );
+
+    cache.detail_hidden_updates.reserve(2U);
+    append_audio_fft_binding(
+        cache.detail_hidden_updates,
+        std::string(kAudioDetailMic0BandsPath),
+        "hidden",
+        "true",
+        5U
+    );
+    append_audio_fft_binding(
+        cache.detail_hidden_updates,
+        std::string(kAudioDetailMic1BandsPath),
+        "hidden",
+        "true",
+        5U
+    );
+
+    cache.detail_palette_updates.reserve(kAudioDetailBandBindingCount);
+    cache.detail_visible_updates.reserve(kAudioDetailVisibleBindingCount);
+    for (std::size_t band = 0;
+         band < LUNASHELL::kAudioSpectrumBandCount;
+         ++band) {
+        const std::array<std::string_view, 2> band_paths = {
+            kAudioDetailMic0BandsPath,
+            kAudioDetailMic1BandsPath,
+        };
+        const std::array<std::string_view, 2> colors = {
+            kAudioDetailMic0Colors[band],
+            kAudioDetailMic1Colors[band],
+        };
+        for (std::size_t channel = 0; channel < band_paths.size(); ++channel) {
+            std::string palette_path =
+                make_audio_fft_band_path(band_paths[channel], band);
+            append_audio_fft_binding(
+                cache.detail_palette_updates,
+                palette_path,
+                "color",
+                colors[channel],
+                colors[channel].size()
+            );
+            append_audio_fft_binding(
+                cache.detail_visible_updates,
+                std::move(palette_path),
+                "height",
+                {},
+                kAudioFftHeightValueCapacity
+            );
+        }
+    }
+    append_audio_fft_binding(
+        cache.detail_visible_updates,
+        std::string(kAudioDetailMic0BandsPath),
+        "hidden",
+        "false",
+        5U
+    );
+    append_audio_fft_binding(
+        cache.detail_visible_updates,
+        std::string(kAudioDetailMic1BandsPath),
+        "hidden",
+        "false",
+        5U
+    );
+    return cache;
+}
+
+bool assign_audio_fft_height(
+    esp_brookesia::gui::BindingValueUpdate &update,
+    int16_t height
+)
+{
+    std::array<char, kAudioFftHeightValueCapacity + 1U> value{};
+    const int length = std::snprintf(
+        value.data(),
+        value.size(),
+        "%ddp",
+        static_cast<int>(height)
+    );
+    if (length <= 0 ||
+        static_cast<std::size_t>(length) >= value.size() ||
+        static_cast<std::size_t>(length) > update.value.capacity()) {
+        return false;
+    }
+    update.value.resize(static_cast<std::size_t>(length));
+    std::memcpy(
+        update.value.data(),
+        value.data(),
+        static_cast<std::size_t>(length)
+    );
+    return true;
+}
+
 constexpr char kBatteryBindingRoot[] =
     "/LUNASHELL_battery/surface/battery_scroller";
 
@@ -760,6 +960,18 @@ App::~App() = default;
 // Initialize a fresh active input generation for the mounted LUNASHELL app.
 std::expected<void, std::string> App::on_start(AppContext &context)
 {
+    if (audio_fft_binding_cache_ == nullptr) {
+        try {
+            audio_fft_binding_cache_ =
+                std::make_unique<app_detail::AudioFftBindingCache>(
+                    make_audio_fft_binding_cache()
+                );
+        } catch (const std::bad_alloc &) {
+            return std::unexpected(
+                "Failed to allocate Audio FFT binding cache"
+            );
+        }
+    }
     const esp_err_t liveness_result = LUNASHELL_liveness_watch_begin(
         LUNASHELL_LIVENESS_GUI
     );
@@ -1453,6 +1665,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         "GUI resource release"
     );
     background_asset_registered_ = false;
+    audio_fft_binding_cache_.reset();
     battery_binding_cache_.reset();
     release_log_buffers();
     if (gui_liveness_watch_active_) {
@@ -6382,6 +6595,20 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
     }
+    if (audio_fft_binding_cache_ == nullptr) {
+        return std::unexpected(
+            "Audio FFT binding cache is unavailable"
+        );
+    }
+    app_detail::AudioFftBindingCache &binding_cache =
+        *audio_fft_binding_cache_;
+    if (binding_cache.fft_hidden_updates.size() != 1U ||
+        binding_cache.fft_visible_updates.size() !=
+            kAudioFftVisibleBindingCount) {
+        return std::unexpected(
+            "Audio FFT binding cache descriptor mismatch"
+        );
+    }
 
     std::array<char, 160> status{};
     bool spectrum_valid = true;
@@ -6502,10 +6729,9 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
     }
     if (!spectrum_valid) {
         if (!audio_fft_hidden_known_ || !audio_fft_hidden_) {
-            if (auto result = set_hidden(
+            if (auto result = set_binding_values(
                     context,
-                    "/LUNASHELL_audio_fft/surface/bands",
-                    true
+                    binding_cache.fft_hidden_updates
                 ); !result) {
                 return result;
             }
@@ -6546,34 +6772,16 @@ std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
         return {};
     }
 
-    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
-    spectrum_updates.reserve(
-        height_change_count + (visibility_changed ? 1U : 0U)
-    );
+    auto &spectrum_updates = binding_cache.fft_visible_updates;
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
-        if (audio_fft_heights_valid_ &&
-            audio_fft_heights_[band] == next_heights[band]) {
-            continue;
+        if (!assign_audio_fft_height(
+                spectrum_updates[band],
+                next_heights[band]
+            )) {
+            return std::unexpected(
+                "Failed to format LUNASHELL FFT band height"
+            );
         }
-        std::array<char, 80> path{};
-        std::snprintf(
-            path.data(),
-            path.size(),
-            "/LUNASHELL_audio_fft/surface/bands/band%02u",
-            static_cast<unsigned>(band)
-        );
-        spectrum_updates.push_back({
-            .absolute_path = path.data(),
-            .key = "height",
-            .value = std::to_string(next_heights[band]) + "dp",
-        });
-    }
-    if (visibility_changed) {
-        spectrum_updates.push_back({
-            .absolute_path = "/LUNASHELL_audio_fft/surface/bands",
-            .key = "hidden",
-            .value = "false",
-        });
     }
     if (auto result = set_binding_values(context, spectrum_updates);
         !result) {
@@ -6600,6 +6808,22 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
+    }
+    if (audio_fft_binding_cache_ == nullptr) {
+        return std::unexpected(
+            "Audio detail FFT binding cache is unavailable"
+        );
+    }
+    app_detail::AudioFftBindingCache &binding_cache =
+        *audio_fft_binding_cache_;
+    if (binding_cache.detail_hidden_updates.size() != 2U ||
+        binding_cache.detail_palette_updates.size() !=
+            kAudioDetailBandBindingCount ||
+        binding_cache.detail_visible_updates.size() !=
+            kAudioDetailVisibleBindingCount) {
+        return std::unexpected(
+            "Audio detail FFT binding cache descriptor mismatch"
+        );
     }
 
     std::array<char, 160> status{};
@@ -6679,23 +6903,11 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
     }
     if (!spectrum_valid) {
         if (!audio_detail_hidden_known_ || !audio_detail_hidden_) {
-            const std::vector<esp_brookesia::gui::BindingValueUpdate>
-                visibility_updates = {
-                    {
-                        .absolute_path =
-                            "/LUNASHELL_audio_detail/surface/mic0_bands",
-                        .key = "hidden",
-                        .value = "true",
-                    },
-                    {
-                        .absolute_path =
-                            "/LUNASHELL_audio_detail/surface/mic1_bands",
-                        .key = "hidden",
-                        .value = "true",
-                    },
-                };
             if (auto result =
-                    set_binding_values(context, visibility_updates);
+                    set_binding_values(
+                        context,
+                        binding_cache.detail_hidden_updates
+                    );
                 !result) {
                 return std::unexpected(
                     "Failed to hide LUNASHELL detail FFT bands: " +
@@ -6708,39 +6920,11 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         return {};
     }
 
-    static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic0Colors = {
-        "#078dff", "#0b9dff", "#10afff", "#12c5ff", "#16d9ff", "#28e4f2", "#45d9ee", "#5abcfb",
-        "#709dff", "#8780ff", "#a466ff", "#bd51ff", "#d342ff", "#e834f8", "#f62de7", "#ff35cf",
-    };
-    static constexpr std::array<std::string_view, kAudioSpectrumBandCount> kMic1Colors = {
-        "#ff8700", "#ff9500", "#ffa400", "#ffb300", "#ffc000", "#ffcb19", "#ffd43b", "#f4dd4b",
-        "#e6e45a", "#d4e660", "#bfe365", "#a8df6b", "#8fdb77", "#72d98b", "#4dd6a3", "#25d3bb",
-    };
     if (!audio_detail_palette_applied_) {
-        std::vector<esp_brookesia::gui::BindingValueUpdate> palette_updates;
-        palette_updates.reserve(kAudioSpectrumBandCount * 2U);
-        for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
-            for (size_t channel = 0; channel < 2U; ++channel) {
-                std::array<char, 96> path{};
-                const char *row =
-                    channel == 0U ? "mic0_bands" : "mic1_bands";
-                std::snprintf(
-                    path.data(),
-                    path.size(),
-                    "/LUNASHELL_audio_detail/surface/%s/band%02u",
-                    row,
-                    static_cast<unsigned>(band)
-                );
-                const auto &colors =
-                    channel == 0U ? kMic0Colors : kMic1Colors;
-                palette_updates.push_back({
-                    .absolute_path = path.data(),
-                    .key = "color",
-                    .value = std::string(colors[band]),
-                });
-            }
-        }
-        if (auto result = set_binding_values(context, palette_updates);
+        if (auto result = set_binding_values(
+                context,
+                binding_cache.detail_palette_updates
+            );
             !result) {
             return std::unexpected(
                 "Failed to update LUNASHELL detail FFT palette: " +
@@ -6774,45 +6958,19 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
         return {};
     }
 
-    std::vector<esp_brookesia::gui::BindingValueUpdate> spectrum_updates;
-    spectrum_updates.reserve(
-        height_change_count + (visibility_changed ? 2U : 0U)
-    );
+    auto &spectrum_updates = binding_cache.detail_visible_updates;
     for (size_t band = 0; band < kAudioSpectrumBandCount; ++band) {
         for (size_t channel = 0; channel < 2U; ++channel) {
             const size_t index = band * 2U + channel;
-            if (audio_detail_heights_valid_ &&
-                audio_detail_heights_[index] == next_heights[index]) {
-                continue;
+            if (!assign_audio_fft_height(
+                    spectrum_updates[index],
+                    next_heights[index]
+                )) {
+                return std::unexpected(
+                    "Failed to format LUNASHELL detail FFT band height"
+                );
             }
-            std::array<char, 96> path{};
-            const char *row =
-                channel == 0U ? "mic0_bands" : "mic1_bands";
-            std::snprintf(
-                path.data(),
-                path.size(),
-                "/LUNASHELL_audio_detail/surface/%s/band%02u",
-                row,
-                static_cast<unsigned>(band)
-            );
-            spectrum_updates.push_back({
-                .absolute_path = path.data(),
-                .key = "height",
-                .value = std::to_string(next_heights[index]) + "dp",
-            });
         }
-    }
-    if (visibility_changed) {
-        spectrum_updates.push_back({
-            .absolute_path = "/LUNASHELL_audio_detail/surface/mic0_bands",
-            .key = "hidden",
-            .value = "false",
-        });
-        spectrum_updates.push_back({
-            .absolute_path = "/LUNASHELL_audio_detail/surface/mic1_bands",
-            .key = "hidden",
-            .value = "false",
-        });
     }
     if (auto result = set_binding_values(context, spectrum_updates);
         !result) {

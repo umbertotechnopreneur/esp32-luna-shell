@@ -528,7 +528,8 @@ def verify_firmware_contract() -> None:
         "Battery refresh allocation hot path",
     )
     for fragment in (
-        "namespace app_detail {\nstruct BatteryBindingCache;",
+        "namespace app_detail {",
+        "struct BatteryBindingCache;",
         "~App() override;",
         "std::unique_ptr<app_detail::BatteryBindingCache> "
         "battery_binding_cache_;",
