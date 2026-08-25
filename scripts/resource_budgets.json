@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "profile": "full",
+  "baseline_commit": "ad91f604639b786a38d7def21be17fc010ce76c5",
+  "expected": {
+    "project_name": "distanziamoci",
+    "target": "esp32s3"
+  },
+  "metrics": {
+    "app_bin_bytes": {
+      "baseline": 5697568,
+      "absolute_max": 6291456,
+      "warn_increase": 8192,
+      "max_increase": 32768
+    },
+    "linked_image_bytes": {
+      "baseline": 5697448,
+      "absolute_max": 6291456,
+      "warn_increase": 8192,
+      "max_increase": 32768
+    },
+    "diram_bytes": {
+      "baseline": 234060,
+      "absolute_max": 262144,
+      "warn_increase": 4096,
+      "max_increase": 8192
+    },
+    "translation_units": {
+      "baseline": 1804,
+      "absolute_max": 1957,
+      "warn_increase": 8,
+      "max_increase": 32
+    },
+    "managed_translation_units": {
+      "baseline": 702,
+      "absolute_max": 720,
+      "warn_increase": 2,
+      "max_increase": 8
+    }
+  }
+}
