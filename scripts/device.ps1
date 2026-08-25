@@ -2,14 +2,20 @@
 # Route the common build, flash, and monitor workflows through one project-aware entrypoint.
 param(
     [Parameter(Position = 0)]
-    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "size", "combo", "ports", "discovery", "port-status", "recover")]
+    [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "update-lock", "size", "combo", "ports", "discovery", "port-status", "recover")]
     [string]$Action = "build",
 
     [string]$Port = "COM8",
 
     [int]$Baud = 115200,
 
-    [string]$BuildDir = "build",
+    [string]$BuildDir,
+
+    [ValidateSet("full", "connected", "ui-minimal", "headless")]
+    [string]$Profile = "full",
+
+    [ValidateSet("none", "distance")]
+    [string]$Feature = "none",
 
     [int]$WaitSeconds = 30,
 
@@ -17,6 +23,11 @@ param(
     [int]$DurationSeconds = 30,
 
     [string]$OutputPath,
+
+    [ValidateSet("default", "text", "csv", "json2", "tree", "raw")]
+    [string]$SizeOutputFormat = "default",
+
+    [string]$SizeOutputFile,
 
     # Optional live tee for callers that cannot surface native process output
     # incrementally. Console output remains visible.
@@ -44,6 +55,12 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
 
+$ProfileBuildKey = if ($Feature -eq "none") {
+    $Profile
+} else {
+    "$Profile-$Feature"
+}
+
 # PowerShell transcripts do not reliably include native CMake/Ninja output.
 # Re-run the action once as a child process and tee its complete output stream
 # so the console and log file are both updated as each line arrives.
@@ -59,9 +76,13 @@ if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
         "Port",
         "Baud",
         "BuildDir",
+        "Profile",
+        "Feature",
         "WaitSeconds",
         "DurationSeconds",
         "OutputPath",
+        "SizeOutputFormat",
+        "SizeOutputFile",
         "ResetBeforeCapture",
         "IdfPath",
         "ToolsPath",
@@ -191,6 +212,101 @@ if ($Action -eq "discovery") {
 }
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
+
+$profileCatalogPath = Join-Path $ProjectRoot "config/sdkconfig/v1/catalog.json"
+try {
+    $profileCatalog = Get-Content -Raw -LiteralPath $profileCatalogPath |
+        ConvertFrom-Json -Depth 20
+} catch {
+    throw "Firmware profile catalog is invalid: $($_.Exception.Message)"
+}
+if ($profileCatalog.schema_version -ne 1) {
+    throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
+}
+$variantProperty = $profileCatalog.variants.PSObject.Properties[$ProfileBuildKey]
+if ($null -eq $variantProperty) {
+    throw "Unsupported firmware profile/feature variant: $ProfileBuildKey"
+}
+$SelectedProfileVariant = $variantProperty.Value
+if ($SelectedProfileVariant.profile -cne $Profile -or
+    $SelectedProfileVariant.feature -cne $Feature) {
+    throw "Firmware profile catalog identity mismatch for $ProfileBuildKey"
+}
+
+function Resolve-ProfileCatalogPath([string]$RelativePath) {
+    if ([string]::IsNullOrWhiteSpace($RelativePath) -or
+        [System.IO.Path]::IsPathRooted($RelativePath)) {
+        throw "Firmware profile catalog path must be repository-relative: $RelativePath"
+    }
+    $resolvedPath = [System.IO.Path]::GetFullPath(
+        (Join-Path $ProjectRoot $RelativePath)
+    )
+    $relativeToRoot = [System.IO.Path]::GetRelativePath(
+        $ProjectRoot,
+        $resolvedPath
+    )
+    if ($relativeToRoot -eq ".." -or
+        $relativeToRoot.StartsWith("..\", [StringComparison]::Ordinal) -or
+        [System.IO.Path]::IsPathRooted($relativeToRoot)) {
+        throw "Firmware profile catalog path escapes the repository: $RelativePath"
+    }
+    return $resolvedPath
+}
+
+$SelectedSdkconfigDefaults = @(
+    $SelectedProfileVariant.defaults |
+        ForEach-Object { Resolve-ProfileCatalogPath "$_" }
+)
+if ($SelectedSdkconfigDefaults.Count -eq 0) {
+    throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
+}
+foreach ($defaultPath in $SelectedSdkconfigDefaults) {
+    if (-not (Test-Path -LiteralPath $defaultPath -PathType Leaf)) {
+        throw "Profile SDKCONFIG defaults file not found: $defaultPath"
+    }
+}
+$env:SDKCONFIG_DEFAULTS = $SelectedSdkconfigDefaults -join ';'
+
+$ProfileComponentRoots = @($SelectedProfileVariant.component_roots)
+if ($ProfileComponentRoots.Count -eq 0 -or
+    $ProfileComponentRoots -notcontains "main") {
+    throw "Firmware profile variant must include the main component root: $ProfileBuildKey"
+}
+$env:LUNASHELL_PROFILE_COMPONENT_ROOTS = $ProfileComponentRoots -join ';'
+
+$ProfileComponentDirectories = @(
+    $SelectedProfileVariant.component_dirs |
+        ForEach-Object { Resolve-ProfileCatalogPath "$_" }
+)
+if ($ProfileComponentDirectories.Count -eq 0) {
+    throw "Firmware profile variant has no component directories: $ProfileBuildKey"
+}
+foreach ($componentDirectory in $ProfileComponentDirectories) {
+    if (-not (Test-Path -LiteralPath $componentDirectory -PathType Container) -or
+        -not (Test-Path -LiteralPath (Join-Path $componentDirectory "CMakeLists.txt") -PathType Leaf)) {
+        throw "Profile component directory is invalid: $componentDirectory"
+    }
+}
+$env:LUNASHELL_PROFILE_COMPONENT_DIRS = $ProfileComponentDirectories -join ';'
+
+$ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
+    "$($SelectedProfileVariant.dependency_lock)"
+)
+$ProfileSdkconfigPath = Resolve-ProfileCatalogPath(
+    "$($SelectedProfileVariant.generated_sdkconfig)"
+)
+$profileSdkconfigDirectory = Split-Path -Parent $ProfileSdkconfigPath
+if (-not (Test-Path -LiteralPath $profileSdkconfigDirectory -PathType Container)) {
+    $null = New-Item -ItemType Directory -Path $profileSdkconfigDirectory
+}
+if ([string]::IsNullOrWhiteSpace($BuildDir)) {
+    $BuildDir = "$($SelectedProfileVariant.default_build_dir)"
+}
+if ([string]::IsNullOrWhiteSpace($BuildDir)) {
+    throw "Firmware profile variant has no default build directory: $ProfileBuildKey"
+}
+Write-Host "Firmware profile: $ProfileBuildKey"
+Write-Host "Build directory: $BuildDir"
 
 if (-not $IdfPath) {
     $IdfPath = if ($env:LUNASHELL_IDF_PATH) {
@@ -792,19 +908,159 @@ function Invoke-SerialCapture([string]$RequestedPort, [int]$RequestedBaud, [int]
     }
 }
 
-function Get-SdkconfigDefaultsState {
-    $baseDefaults = if (
-        -not [string]::IsNullOrWhiteSpace($env:SDKCONFIG_DEFAULTS)
-    ) {
-        @($env:SDKCONFIG_DEFAULTS -split ';' | Where-Object {
-            -not [string]::IsNullOrWhiteSpace($_)
-        })
-    } else {
-        @("sdkconfig.defaults")
+function Get-BuildDirectoryPath([string]$RequestedBuildDir) {
+    if ([System.IO.Path]::IsPathRooted($RequestedBuildDir)) {
+        return [System.IO.Path]::GetFullPath($RequestedBuildDir)
+    }
+    return [System.IO.Path]::GetFullPath(
+        (Join-Path $ProjectRoot $RequestedBuildDir)
+    )
+}
+
+function Get-WorkingDependencyLockPath([string]$RequestedBuildDir) {
+    return Join-Path (Get-BuildDirectoryPath $RequestedBuildDir) "dependencies.lock"
+}
+
+function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
+    return (
+        "pwsh -NoProfile -File .\scripts\device.ps1 update-lock " +
+        "-Profile $Profile" +
+        $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" }) +
+        " -BuildDir $RequestedBuildDir"
+    )
+}
+
+function Initialize-WorkingDependencyLock(
+    [string]$RequestedBuildDir,
+    [bool]$AllowMissingCanonical,
+    [bool]$RefreshFromResolver = $false
+) {
+    $buildDirectory = Get-BuildDirectoryPath $RequestedBuildDir
+    if (-not (Test-Path -LiteralPath $buildDirectory -PathType Container)) {
+        $null = New-Item -ItemType Directory -Path $buildDirectory
+    }
+    $workingLock = Get-WorkingDependencyLockPath $RequestedBuildDir
+    if ($RefreshFromResolver) {
+        if (Test-Path -LiteralPath $workingLock -PathType Leaf) {
+            Remove-Item -LiteralPath $workingLock -Force
+        }
+        return
+    }
+    if (Test-Path -LiteralPath $ProfileCanonicalDependencyLockPath -PathType Leaf) {
+        Copy-Item -LiteralPath $ProfileCanonicalDependencyLockPath `
+            -Destination $workingLock -Force
+        return
+    }
+    if (-not $AllowMissingCanonical) {
+        throw (
+            "Canonical dependency lock not found: " +
+            "$ProfileCanonicalDependencyLockPath. Run '" +
+            (Get-DependencyLockUpdateCommand $RequestedBuildDir) + "'."
+        )
+    }
+    if (Test-Path -LiteralPath $workingLock -PathType Leaf) {
+        Remove-Item -LiteralPath $workingLock -Force
+    }
+}
+
+function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
+    $workingLock = Get-WorkingDependencyLockPath $RequestedBuildDir
+    foreach ($requiredLock in @(
+        $ProfileCanonicalDependencyLockPath,
+        $workingLock
+    )) {
+        if (-not (Test-Path -LiteralPath $requiredLock -PathType Leaf)) {
+            throw (
+                "Dependency lock is unverified: $requiredLock. Run '" +
+                (Get-DependencyLockUpdateCommand $RequestedBuildDir) + "'."
+            )
+        }
+    }
+    $canonicalHash = (
+        Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
+            -Algorithm SHA256
+    ).Hash
+    $workingHash = (
+        Get-FileHash -LiteralPath $workingLock -Algorithm SHA256
+    ).Hash
+    if (-not [string]::Equals(
+            $canonicalHash,
+            $workingHash,
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw (
+            "Resolved dependencies changed for profile $ProfileBuildKey. " +
+            "Review and run '" +
+            (Get-DependencyLockUpdateCommand $RequestedBuildDir) + "'."
+        )
+    }
+}
+
+function Publish-WorkingDependencyLock([string]$RequestedBuildDir) {
+    $workingLock = Get-WorkingDependencyLockPath $RequestedBuildDir
+    if (-not (Test-Path -LiteralPath $workingLock -PathType Leaf)) {
+        throw "ESP-IDF did not produce a dependency lock: $workingLock"
+    }
+    $canonicalDirectory = Split-Path -Parent $ProfileCanonicalDependencyLockPath
+    if (-not (Test-Path -LiteralPath $canonicalDirectory -PathType Container)) {
+        $null = New-Item -ItemType Directory -Path $canonicalDirectory
+    }
+    Copy-Item -LiteralPath $workingLock `
+        -Destination $ProfileCanonicalDependencyLockPath -Force
+    Assert-WorkingDependencyLock $RequestedBuildDir
+}
+
+function Invoke-ProfileConfiguration(
+    [string]$RequestedBuildDir,
+    [bool]$RefreshDependencyLock
+) {
+    # Keep the build directory empty while ESP-IDF validates/removes an old
+    # configuration. A dependency lock copied before fullclean makes a fresh
+    # directory look unsafe to delete.
+    $buildDirectory = Get-BuildDirectoryPath $RequestedBuildDir
+    if (Test-Path -LiteralPath $buildDirectory -PathType Container) {
+        $buildEntries = @(Get-ChildItem -LiteralPath $buildDirectory -Force)
+        if ($buildEntries.Count -gt 0) {
+            $cmakeCache = Join-Path $buildDirectory "CMakeCache.txt"
+            $ninjaFile = Join-Path $buildDirectory "build.ninja"
+            if (-not (Test-Path -LiteralPath $cmakeCache -PathType Leaf) -and
+                -not (Test-Path -LiteralPath $ninjaFile -PathType Leaf)) {
+                throw (
+                    "Refusing to clean non-CMake build directory: " +
+                    $buildDirectory
+                )
+            }
+            & $PythonExe $IdfPy -B $RequestedBuildDir fullclean
+            if ($LASTEXITCODE -ne 0) {
+                throw "Profile configuration clean failed"
+            }
+        }
     }
 
+    Initialize-WorkingDependencyLock `
+        $RequestedBuildDir `
+        $RefreshDependencyLock `
+        $RefreshDependencyLock
+
+    if (Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf) {
+        Move-Item -LiteralPath $ProfileSdkconfigPath `
+            -Destination "$ProfileSdkconfigPath.old" -Force
+    }
+
+    & $PythonExe $IdfPy `
+        -B $RequestedBuildDir `
+        "-DSDKCONFIG=$ProfileSdkconfigPath" `
+        "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
+        "-DIDF_TARGET=esp32s3" `
+        reconfigure
+    if ($LASTEXITCODE -ne 0) {
+        throw "Profile configuration failed"
+    }
+}
+
+function Get-SdkconfigDefaultsState {
     $activeDefaults = [System.Collections.Generic.List[string]]::new()
-    foreach ($baseDefault in $baseDefaults) {
+    foreach ($baseDefault in $SelectedSdkconfigDefaults) {
         $candidate = $baseDefault.Trim()
         if (-not [System.IO.Path]::IsPathRooted($candidate)) {
             $candidate = Join-Path $ProjectRoot $candidate
@@ -829,17 +1085,31 @@ function Get-SdkconfigDefaultsState {
         $hash = (Get-FileHash -LiteralPath $defaultPath -Algorithm SHA256).Hash
         "$normalizedPath|$($hash.ToLowerInvariant())"
     }
-    $generatedSdkconfig = Join-Path $ProjectRoot "sdkconfig"
+    $generatedSdkconfig = $ProfileSdkconfigPath
     if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf)) {
         throw "Generated sdkconfig not found: $generatedSdkconfig"
     }
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()
+    $catalogHash = (
+        Get-FileHash -LiteralPath $profileCatalogPath -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
+    $dependencyLockHash = (
+        Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
+            -Algorithm SHA256
+    ).Hash.ToLowerInvariant()
     return [pscustomobject]@{
         Files = @($activeDefaults)
         Signature = (
-            @("target=esp32s3") +
+            @(
+                "target=esp32s3"
+                "schema=1"
+                "profile=$Profile"
+                "feature=$Feature"
+                "catalog|$catalogHash"
+                "dependency_lock|$dependencyLockHash"
+            ) +
             $signatureEntries +
             "sdkconfig|$sdkconfigHash"
         ) -join "`n"
@@ -860,7 +1130,15 @@ function Get-SdkconfigDefaultsStatePath([string]$RequestedBuildDir) {
 }
 
 function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
-    return "pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir $RequestedBuildDir"
+    $featureArgument = if ($Feature -eq "none") {
+        ""
+    } else {
+        " -Feature $Feature"
+    }
+    return (
+        "pwsh -NoProfile -File .\scripts\device.ps1 set-target " +
+        "-Profile $Profile$featureArgument -BuildDir $RequestedBuildDir"
+    )
 }
 
 function Save-SdkconfigDefaultsState([string]$RequestedBuildDir) {
@@ -878,8 +1156,9 @@ function Save-SdkconfigDefaultsState([string]$RequestedBuildDir) {
 }
 
 function Assert-SdkconfigDefaultsApplied([string]$RequestedBuildDir) {
+    Assert-WorkingDependencyLock $RequestedBuildDir
     $recoveryCommand = Get-SetTargetRecoveryCommand $RequestedBuildDir
-    $generatedSdkconfig = Join-Path $ProjectRoot "sdkconfig"
+    $generatedSdkconfig = $ProfileSdkconfigPath
     $statePath = Get-SdkconfigDefaultsStatePath $RequestedBuildDir
     if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf) -or
         -not (Test-Path -LiteralPath $statePath -PathType Leaf)) {
@@ -905,37 +1184,21 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     $buildNinja = Join-Path $RequestedBuildDir "build.ninja"
     $reconfigure = -not (Test-Path $buildNinja)
 
-    if (-not $reconfigure) {
-        $trackedBuildInputs = @(
-            Get-ChildItem -Path $ProjectRoot -Recurse -File -ErrorAction SilentlyContinue |
-                Where-Object {
-                    $_.FullName -notlike "$(Join-Path $ProjectRoot $RequestedBuildDir)\*" -and
-                    ($_.Name -eq "CMakeLists.txt" -or
-                     $_.Name -eq "sdkconfig" -or
-                     $_.Name -like "sdkconfig*.defaults" -or
-                     $_.Name -like "sdkconfig.defaults.*" -or
-                     $_.Name -eq "idf_component.yml" -or
-                     $_.Name -eq "Kconfig" -or
-                     $_.Name -like "Kconfig.*" -or
-                     $_.Name -eq "dependencies.lock" -or
-                     $_.Name -eq "partitions.csv")
-                }
-        )
-        $latestInput = $trackedBuildInputs |
-            Sort-Object LastWriteTimeUtc -Descending |
-            Select-Object -First 1
-        $reconfigure = $null -ne $latestInput -and
-            $latestInput.LastWriteTimeUtc -gt (Get-Item $buildNinja).LastWriteTimeUtc
-    }
-
     if ($reconfigure) {
         Write-Host "Build configuration changed; running ESP-IDF reconfigure."
-        & $PythonExe $IdfPy -B $RequestedBuildDir reconfigure
+        & $PythonExe $IdfPy `
+            -B $RequestedBuildDir `
+            "-DSDKCONFIG=$ProfileSdkconfigPath" `
+            "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
+            reconfigure
         if ($LASTEXITCODE -ne 0) {
             throw "Reconfigure failed"
         }
     } else {
-        Write-Host "Using incremental build; skipping reconfigure."
+        Write-Host (
+            "Using incremental build; Ninja owns its generated CMake input " +
+            "dependencies and will reconfigure only when required."
+        )
     }
 
     $parallelJobs = if ($Jobs -gt 0) {
@@ -948,12 +1211,18 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     if ($LASTEXITCODE -ne 0) {
         throw "Build failed"
     }
+    Assert-WorkingDependencyLock $RequestedBuildDir
     Save-SdkconfigDefaultsState $RequestedBuildDir
 }
 
 Push-Location $ProjectRoot
 try {
-    $commonArgs = @("-B", $BuildDir)
+    $commonArgs = @(
+        "-B",
+        $BuildDir,
+        "-DSDKCONFIG=$ProfileSdkconfigPath",
+        "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $BuildDir)"
+    )
 
     switch ($Action) {
         "build" {
@@ -977,21 +1246,35 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "Reconfigure failed"
             }
+            Assert-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
         }
         "set-target" {
-            & $PythonExe $IdfPy @commonArgs set-target esp32s3
-            if ($LASTEXITCODE -ne 0) {
-                throw "Set target failed"
-            }
+            Invoke-ProfileConfiguration $BuildDir $false
+            Assert-WorkingDependencyLock $BuildDir
+            Save-SdkconfigDefaultsState $BuildDir
+        }
+        "update-lock" {
+            Invoke-ProfileConfiguration $BuildDir $true
+            Publish-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
         }
         "size" {
             Assert-SdkconfigDefaultsApplied $BuildDir
-            & $PythonExe $IdfPy @commonArgs size
+            $sizeArguments = @("size", "--format", $SizeOutputFormat)
+            if (-not [string]::IsNullOrWhiteSpace($SizeOutputFile)) {
+                $resolvedSizeOutputFile = [System.IO.Path]::GetFullPath($SizeOutputFile)
+                $sizeOutputDirectory = [System.IO.Path]::GetDirectoryName($resolvedSizeOutputFile)
+                if (-not (Test-Path -LiteralPath $sizeOutputDirectory -PathType Container)) {
+                    throw "Size output directory not found: $sizeOutputDirectory"
+                }
+                $sizeArguments += @("--output-file", $resolvedSizeOutputFile)
+            }
+            & $PythonExe $IdfPy @commonArgs @sizeArguments
             if ($LASTEXITCODE -ne 0) {
                 throw "Size report failed"
             }
+            Assert-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
         }
         "ports" {
@@ -1021,6 +1304,7 @@ try {
             if ($LASTEXITCODE -ne 0) {
                 throw "Flash failed"
             }
+            Assert-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
         }
         "reset" {
@@ -1063,6 +1347,8 @@ try {
                 "monitor",
                 "-Port", $Port,
                 "-BuildDir", $BuildDir,
+                "-Profile", $Profile,
+                "-Feature", $Feature,
                 "-IdfPath", "`"$IdfPath`"",
                 "-ToolsPath", "`"$ToolsPath`"",
                 "-PythonExe", "`"$PythonExe`""

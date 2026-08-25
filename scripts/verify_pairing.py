@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
@@ -211,7 +213,7 @@ def main() -> None:
     chrome = package_documents["templates/LUNASHELL_chrome.json"]
     status_bar_source = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
     main_source = read("main/main.cpp")
-    sdkconfig = read("sdkconfig.defaults")
+    sdkconfig = read_profile_defaults("connected")
 
     require(provisioning_header, "class ProvisioningService final", "provisioning header")
     require(provisioning, "network_prov_scheme_ble", "provisioning implementation")

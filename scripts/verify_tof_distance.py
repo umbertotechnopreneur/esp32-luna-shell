@@ -8,6 +8,8 @@ from math import cos, radians
 from statistics import median
 from typing import Any
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CALIBRATION_TRANSPORT_FAILURE_THRESHOLD = 3
@@ -277,7 +279,7 @@ def main() -> int:
     snapshot = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
     hardware = ROOT / "components/LUNASHELL_platform/LUNASHELL_hardware.cpp"
     wiring = ROOT / "docs/hardware/tof400f-dual-uart.md"
-    sdkconfig_defaults = ROOT / "sdkconfig.defaults"
+    sdkconfig_defaults = read_profile_defaults()
     gui_root = ROOT / "components/LUNASHELL_app/gui/root.json"
 
     for fragment in (
@@ -305,9 +307,10 @@ def main() -> int:
         '    bool "Include external precision distance support"\n'
         "    default n",
     )
-    require_contains(
-        sdkconfig_defaults,
-        "# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set",
+    require(
+        "# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set"
+        in sdkconfig_defaults,
+        "standard full profile must keep distance support disabled",
     )
 
     for fragment in (
@@ -478,9 +481,9 @@ def main() -> int:
     require_contains(wiring, "one 500 ms")
     require_contains(wiring, "version-1 record is not migrated")
     require_contains(wiring, "four 500-sample windows live in PSRAM")
-    require_contains(
-        sdkconfig_defaults,
-        "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y",
+    require(
+        "CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY=y" in sdkconfig_defaults,
+        "full profile must allow firmware BSS in external memory",
     )
     verify_tof_layout(gui_root)
 

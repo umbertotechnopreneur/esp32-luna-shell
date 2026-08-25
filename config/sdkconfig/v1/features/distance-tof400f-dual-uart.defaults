@@ -1,3 +1,3 @@
-# Product-specific overlay for the external dual-TOF distance feature.
+# Optional dual-TOF product feature.
 CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=y
 CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART=y

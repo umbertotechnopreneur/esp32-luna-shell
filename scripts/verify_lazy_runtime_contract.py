@@ -7,12 +7,14 @@ import re
 from pathlib import Path
 from typing import Any
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 BROOKESIA = ROOT / "third_party" / "esp-brookesia"
 APP_COMPONENT = ROOT / "components" / "LUNASHELL_app"
 RUNTIME_PACKAGE = APP_COMPONENT / "package"
-SDKCONFIG_DEFAULTS = ROOT / "sdkconfig.defaults"
+PROFILE_DEFAULTS_LABEL = "full profile defaults"
 
 EXPECTED_MONTSERRAT_SIZES = {"10", "12", "16", "20", "24", "32"}
 EXPECTED_TYPOGRAPHY_AVAILABLE = [
@@ -47,7 +49,7 @@ def require_config_value(defaults: str, name: str, expected: str) -> None:
     ]
     require(
         values == [expected],
-        f"sdkconfig.defaults must set {name}={expected} exactly once; "
+        f"{PROFILE_DEFAULTS_LABEL} must set {name}={expected} exactly once; "
         f"found {values or 'no assignment'}",
     )
 
@@ -263,7 +265,7 @@ def main() -> int:
     )
     app = read(APP_COMPONENT / "LUNASHELL_app.cpp")
     app_documents = read(APP_COMPONENT / "LUNASHELL_app_documents.cpp")
-    sdkconfig_defaults = read(SDKCONFIG_DEFAULTS)
+    sdkconfig_defaults = read_profile_defaults()
 
     stop_start = manager.index(
         "std::expected<void, std::string> System::stop_app(AppId app_id)"
@@ -854,7 +856,7 @@ def main() -> int:
     }
     require(
         not duplicate_montserrat,
-        "sdkconfig.defaults has duplicate Montserrat assignments: "
+        f"{PROFILE_DEFAULTS_LABEL} has duplicate Montserrat assignments: "
         f"{duplicate_montserrat}",
     )
     enabled_montserrat = {
@@ -862,7 +864,7 @@ def main() -> int:
     }
     require(
         enabled_montserrat == EXPECTED_MONTSERRAT_SIZES,
-        "sdkconfig.defaults must enable only Montserrat sizes "
+        f"{PROFILE_DEFAULTS_LABEL} must enable only Montserrat sizes "
         f"{sorted(EXPECTED_MONTSERRAT_SIZES, key=int)}; found "
         f"{sorted(enabled_montserrat)}",
     )
@@ -882,7 +884,7 @@ def main() -> int:
     }
     require(
         not duplicate_default_fonts,
-        "sdkconfig.defaults has duplicate default-font assignments: "
+        f"{PROFILE_DEFAULTS_LABEL} has duplicate default-font assignments: "
         f"{duplicate_default_fonts}",
     )
     enabled_default_fonts = {
@@ -892,7 +894,7 @@ def main() -> int:
     }
     require(
         enabled_default_fonts == {"MONTSERRAT_16"},
-        "sdkconfig.defaults must select only Montserrat 16 as the default font; "
+        f"{PROFILE_DEFAULTS_LABEL} must select only Montserrat 16 as the default font; "
         f"found {sorted(enabled_default_fonts)}",
     )
 

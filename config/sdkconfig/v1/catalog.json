@@ -1,0 +1,205 @@
+{
+  "schema_version": 1,
+  "board": "waveshare-esp32s3-touch-amoled-1.75",
+  "default_variant": "full",
+  "variants": {
+    "headless": {
+      "profile": "headless",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/headless.defaults"
+      ],
+      "component_roots": [
+        "main"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/headless.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/headless",
+      "default_build_dir": "build-headless"
+    },
+    "ui-minimal": {
+      "profile": "ui-minimal",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/ui-minimal.defaults",
+        "config/sdkconfig/v1/features/ui.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "LUNASHELL_app",
+        "LUNASHELL_boot",
+        "esp32_s3_touch_amoled_1_75",
+        "joltwallet__littlefs",
+        "espressif__brookesia_hal_adaptor",
+        "espressif__brookesia_gui_lvgl",
+        "espressif__brookesia_lib_utils",
+        "espressif__brookesia_system_core",
+        "espressif__esp_board_manager",
+        "espressif__esp_lvgl_adapter",
+        "lvgl__lvgl"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/LUNASHELL_app",
+        "components/LUNASHELL_boot",
+        "components/esp32_s3_touch_amoled_1_75"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/ui-minimal.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/ui-minimal",
+      "default_build_dir": "build-ui-minimal"
+    },
+    "connected": {
+      "profile": "connected",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/connected.defaults",
+        "config/sdkconfig/v1/features/ui.defaults",
+        "config/sdkconfig/v1/features/connectivity.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "LUNASHELL_app",
+        "LUNASHELL_boot",
+        "esp32_s3_touch_amoled_1_75",
+        "joltwallet__littlefs",
+        "espressif__brookesia_hal_adaptor",
+        "espressif__brookesia_gui_lvgl",
+        "espressif__brookesia_lib_utils",
+        "espressif__brookesia_system_core",
+        "espressif__esp_board_manager",
+        "espressif__esp_lvgl_adapter",
+        "lvgl__lvgl",
+        "esp_http_server",
+        "esp_netif",
+        "esp_wifi",
+        "bt",
+        "espressif__network_provisioning"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/LUNASHELL_app",
+        "components/LUNASHELL_boot",
+        "components/esp32_s3_touch_amoled_1_75"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/connected.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/connected",
+      "default_build_dir": "build-connected"
+    },
+    "full": {
+      "profile": "full",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/full.defaults",
+        "config/sdkconfig/v1/features/ui.defaults",
+        "config/sdkconfig/v1/features/connectivity.defaults",
+        "config/sdkconfig/v1/features/full-hardware.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "LUNASHELL_app",
+        "LUNASHELL_boot",
+        "esp32_s3_touch_amoled_1_75",
+        "joltwallet__littlefs",
+        "espressif__brookesia_hal_adaptor",
+        "espressif__brookesia_gui_lvgl",
+        "espressif__brookesia_lib_utils",
+        "espressif__brookesia_system_core",
+        "espressif__esp_board_manager",
+        "espressif__esp_lvgl_adapter",
+        "lvgl__lvgl",
+        "esp_http_server",
+        "esp_netif",
+        "esp_wifi",
+        "bt",
+        "fatfs",
+        "esp_pm",
+        "espressif__network_provisioning",
+        "espressif__esp_codec_dev",
+        "waveshare__qmi8658",
+        "cube32esp__xpowerslib"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/LUNASHELL_app",
+        "components/LUNASHELL_boot",
+        "components/esp32_s3_touch_amoled_1_75"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/full",
+      "default_build_dir": "build-full"
+    },
+    "full-distance": {
+      "profile": "full",
+      "feature": "distance",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/full.defaults",
+        "config/sdkconfig/v1/features/ui.defaults",
+        "config/sdkconfig/v1/features/connectivity.defaults",
+        "config/sdkconfig/v1/features/full-hardware.defaults",
+        "config/sdkconfig/v1/features/distance-tof400f-dual-uart.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "LUNASHELL_app",
+        "LUNASHELL_boot",
+        "LUNASHELL_tof400f",
+        "esp32_s3_touch_amoled_1_75",
+        "joltwallet__littlefs",
+        "espressif__brookesia_hal_adaptor",
+        "espressif__brookesia_gui_lvgl",
+        "espressif__brookesia_lib_utils",
+        "espressif__brookesia_system_core",
+        "espressif__esp_board_manager",
+        "espressif__esp_lvgl_adapter",
+        "lvgl__lvgl",
+        "esp_http_server",
+        "esp_netif",
+        "esp_wifi",
+        "bt",
+        "fatfs",
+        "esp_pm",
+        "espressif__network_provisioning",
+        "espressif__esp_codec_dev",
+        "waveshare__qmi8658",
+        "cube32esp__xpowerslib"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/LUNASHELL_app",
+        "components/LUNASHELL_boot",
+        "components/LUNASHELL_tof400f",
+        "components/esp32_s3_touch_amoled_1_75"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full-distance.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/full-distance",
+      "default_build_dir": "build-full-distance"
+    }
+  }
+}

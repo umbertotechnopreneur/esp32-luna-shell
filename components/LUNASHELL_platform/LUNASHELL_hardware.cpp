@@ -21,12 +21,17 @@
 #include <cstring>
 #include <mutex>
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_RTC || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_IMU || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 #include "bsp/esp-bsp.h"
+#endif
 #include "driver/i2c_master.h"
 #include "esp_attr.h"
 #include "esp_bit_defs.h"
 #include "esp_chip_info.h"
-#include "esp_codec_dev.h"
 #include "esp_cpu.h"
 #include "esp_heap_caps.h"
 #include "esp_image_format.h"
@@ -1485,6 +1490,7 @@ bool is_cardinal_rotation(uint32_t degrees)
 }
 
 // Convert only a previously validated cardinal degree value.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
 {
     switch (degrees) {
@@ -1505,6 +1511,7 @@ bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
         std::abort();
     }
 }
+#endif
 
 // Commit only a newly applied cardinal angle to avoid redundant NVS writes.
 esp_err_t persist_display_rotation(uint16_t rendering_degrees)
@@ -1541,6 +1548,10 @@ esp_err_t persist_display_rotation(uint16_t rendering_degrees)
 // Commit the desired panel angle while allowing touch activity to defer it.
 esp_err_t apply_pending_display_rotation()
 {
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    ESP_LOGE(TAG, "Display rotation rejected: UI disabled by build profile");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (s_orientation.desired_rendering_degrees ==
         s_orientation.applied_rendering_degrees) {
         if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
@@ -1647,6 +1658,7 @@ esp_err_t apply_pending_display_rotation()
         );
     }
     return result;
+#endif
 }
 
 esp_err_t add_i2c_device(
@@ -3569,7 +3581,7 @@ esp_err_t sample_imu(
         ESP_ERR_NOT_SUPPORTED,
         attempted_at_us
     );
-    const esp_err_t publication_error = update_snapshot(
+    const esp_err_t unavailable_publication_error = update_snapshot(
         [attempted_at_us, track_orientation](LUNASHELL::DeviceSnapshot &snapshot) {
             mark_sample_failure(
                 snapshot.imu,
@@ -3593,7 +3605,7 @@ esp_err_t sample_imu(
         "IMU QMI8658",
         phase,
         ESP_ERR_NOT_SUPPORTED,
-        publication_error
+        unavailable_publication_error
     );
 #endif
     if (!s_imu_smoothing_valid.load(std::memory_order_relaxed)) {
@@ -6149,6 +6161,10 @@ esp_err_t DeviceSnapshotService::initialize()
     publish_imu_smoothing(ESP_OK);
 
     i2c_master_bus_handle_t bus = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_RTC || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_IMU || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
     error = bsp_i2c_get_handle(&bus);
     if (error != ESP_OK) {
         ESP_LOGE(
@@ -6164,6 +6180,9 @@ esp_err_t DeviceSnapshotService::initialize()
     }
     s_i2c_bus = bus;
     ESP_LOGI(TAG, "Shared BSP I2C: SDA=%d SCL=%d", BSP_I2C_SDA, BSP_I2C_SCL);
+#else
+    ESP_LOGI(TAG, "Shared BSP I2C: not required by build profile");
+#endif
 
     s_initialization_attempted = true;
     esp_err_t aggregate = ESP_OK;
@@ -8022,6 +8041,13 @@ extern "C" bool LUNASHELL_display_get_auto_rotation_enabled(void)
 // Restore both saved values exactly; invalid persisted data requires an explicit reset.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
 {
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    ESP_LOGE(
+        TAG,
+        "Saved display rotation restore rejected: UI disabled by build profile"
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     const esp_err_t init_error = ensure_user_settings();
     if (init_error != ESP_OK) {
         return init_error;
@@ -8116,6 +8142,7 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
         static_cast<unsigned long>(saved_rendering_degrees)
     );
     return set_auto_rotation_runtime(enabled);
+#endif
 }
 
 extern "C" esp_err_t LUNASHELL_hardware_set_diagnostic_period_ms(uint32_t period_ms)

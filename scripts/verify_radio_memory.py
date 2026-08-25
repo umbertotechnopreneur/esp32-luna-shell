@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -19,7 +21,7 @@ def main() -> None:
     memory = read("components/LUNASHELL_platform/LUNASHELL_radio_memory.hpp")
     radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
     provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
-    sdkconfig = read("sdkconfig.defaults")
+    sdkconfig = read_profile_defaults("connected")
 
     require(
         memory,

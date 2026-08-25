@@ -15,6 +15,8 @@ from pathlib import Path
 import re
 from typing import Callable
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 POWER_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_power.cpp"
@@ -134,7 +136,6 @@ DISTANCE_STUB_SOURCE = (
 )
 STORAGE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_storage.cpp"
 PLATFORM_CMAKE = ROOT / "components" / "LUNASHELL_platform" / "CMakeLists.txt"
-SDKCONFIG_DEFAULTS = ROOT / "sdkconfig.defaults"
 
 PKEY_SHORT_IRQ = 1 << 0
 PKEY_LONG_IRQ = 1 << 1
@@ -996,7 +997,7 @@ def verify_source_contracts() -> None:
     distance_stub = read(DISTANCE_STUB_SOURCE)
     storage = read(STORAGE_SOURCE)
     platform_cmake = read(PLATFORM_CMAKE)
-    sdkconfig_defaults = read(SDKCONFIG_DEFAULTS)
+    sdkconfig_defaults = read_profile_defaults()
 
     for source, fragment, label in (
         (snapshot, "constexpr uint32_t kDefaultPeriodMs = 1000;", "Full Snapshot default cadence"),

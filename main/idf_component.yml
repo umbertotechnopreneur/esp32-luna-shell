@@ -1,18 +1,34 @@
 dependencies:
+  espressif/esp_board_manager:
+    version: "0.5.15"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   espressif/brookesia_hal_adaptor:
     version: "0.8.2"
     override_path: ../third_party/esp-brookesia/hal/brookesia_hal_adaptor
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   espressif/brookesia_service_device:
     version: "0.8.1"
     override_path: ../third_party/esp-brookesia/service/system/brookesia_service_device
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   espressif/brookesia_gui_lvgl:
     version: "0.8.1"
     override_path: ../third_party/esp-brookesia/gui/brookesia_gui_lvgl
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   espressif/brookesia_system_core:
     version: "0.8.1"
     override_path: ../third_party/esp-brookesia/system/brookesia_system_core
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   espressif/brookesia_lib_utils:
     version: "0.8.1"
     override_path: ../third_party/esp-brookesia/utils/brookesia_lib_utils
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
   joltwallet/littlefs:
     version: "1.20.4"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"

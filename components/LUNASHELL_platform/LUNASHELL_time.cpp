@@ -15,15 +15,19 @@
 #include <sys/time.h>
 
 #include "esp_log.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#endif
 #include "esp_timer.h"
 
 namespace {
 
 const char *TAG = "LUNASHELL_time";
 bool s_initialized;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 bool s_sntp_started;
+#endif
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 char s_timezone[40] = "UTC0";
 std::mutex s_sync_mutex;
@@ -218,6 +222,7 @@ void report_time(
     );
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 void report_time_failure_preserving_valid_clock(esp_err_t error)
 {
     struct timeval current_time = {};
@@ -237,6 +242,7 @@ void report_time_failure_preserving_valid_clock(esp_err_t error)
         error
     );
 }
+#endif
 
 void record_rtc_persistence_success(time_t persisted_epoch)
 {
@@ -284,6 +290,7 @@ esp_err_t persist_epoch_to_rtc(time_t epoch)
     return LUNASHELL_rtc_write(&calendar);
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 void sntp_sync_callback(struct timeval *time_value)
 {
     std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
@@ -333,6 +340,7 @@ void sntp_sync_callback(struct timeval *time_value)
     // separate component result and must not invalidate that real clock.
     report_time(true, true, "sntp", ESP_OK);
 }
+#endif
 
 esp_err_t validate_utc_calendar(
     uint16_t year,
@@ -436,6 +444,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
         restore_result = rtc_result;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
     const esp_err_t netif_result = esp_netif_init();
     if (netif_result != ESP_OK && netif_result != ESP_ERR_INVALID_STATE) {
         report_time(
@@ -462,6 +471,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
         );
         return sntp_result;
     }
+#endif
 
     s_initialized = true;
     s_initialization_result = restore_result;
@@ -484,6 +494,14 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
 extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
 {
     std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    ESP_LOGE(
+        TAG,
+        "SNTP start rejected: Wi-Fi networking is disabled by build profile (%s)",
+        esp_err_to_name(ESP_ERR_NOT_SUPPORTED)
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+#else
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -498,6 +516,7 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
         ESP_LOGW(TAG, "SNTP start failed: %s", esp_err_to_name(result));
     }
     return result;
+#endif
 }
 
 extern "C" esp_err_t LUNASHELL_time_sync_from_gps(

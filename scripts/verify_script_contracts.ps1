@@ -125,6 +125,10 @@ foreach ($entry in $paths.GetEnumerator()) {
 }
 
 $deviceParameters = @(Get-ParameterNames -Ast $asts.Device)
+foreach ($requiredSizeParameter in @('SizeOutputFormat', 'SizeOutputFile')) {
+    Assert-Contains -Values $deviceParameters -Expected $requiredSizeParameter `
+        -Message "device.ps1 no longer exposes $requiredSizeParameter."
+}
 $actionParameter = $asts.Device.ParamBlock.Parameters |
     Where-Object { $_.Name.VariablePath.UserPath -eq 'Action' } |
     Select-Object -First 1
@@ -146,6 +150,16 @@ $deviceActions = @(
 Assert-Contains -Values $deviceActions -Expected 'capture' `
     -Message 'device.ps1 no longer exposes the capture action.'
 
+$deviceScriptText = $asts.Device.Extent.Text
+foreach ($requiredSizeFragment in @(
+    '@("size", "--format", $SizeOutputFormat)',
+    '@("--output-file", $resolvedSizeOutputFile)'
+)) {
+    Assert-TextContains -Text $deviceScriptText `
+        -Expected $requiredSizeFragment `
+        -Message "device.ps1 size forwarding lost $requiredSizeFragment."
+}
+
 $projectBuildFunction = $asts.Device.Find(
     {
         param($node)
@@ -158,29 +172,18 @@ if ($null -eq $projectBuildFunction) {
     throw 'device.ps1 no longer defines Invoke-ProjectBuild.'
 }
 $projectBuildText = $projectBuildFunction.Extent.Text
-$projectBuildStringLiterals = @(
-    $projectBuildFunction.FindAll(
-        {
-            param($node)
-            $node -is [System.Management.Automation.Language.StringConstantExpressionAst]
-        },
-        $true
-    ) | ForEach-Object { $_.Value }
-)
-foreach ($requiredBuildInput in @(
-    'CMakeLists.txt',
-    'sdkconfig',
-    'sdkconfig*.defaults',
-    'sdkconfig.defaults.*',
-    'idf_component.yml',
-    'Kconfig',
-    'Kconfig.*',
-    'dependencies.lock',
-    'partitions.csv'
+foreach ($requiredBuildFragment in @(
+    '$reconfigure = -not (Test-Path $buildNinja)',
+    '"-DSDKCONFIG=$ProfileSdkconfigPath"',
+    '"-DLUNASHELL_DEPENDENCIES_LOCK=',
+    '& ninja -C $RequestedBuildDir -j $parallelJobs all'
 )) {
-    if ($projectBuildStringLiterals -cnotcontains $requiredBuildInput) {
-        throw "device.ps1 reconfigure tracking lost exact input $requiredBuildInput."
-    }
+    Assert-TextContains -Text $projectBuildText `
+        -Expected $requiredBuildFragment `
+        -Message "device.ps1 incremental build lost $requiredBuildFragment."
+}
+if ($projectBuildText.Contains('Get-ChildItem', [StringComparison]::Ordinal)) {
+    throw 'device.ps1 must not recursively rescan the repository before each Ninja build.'
 }
 
 $defaultsFunctions = @{}
@@ -207,14 +210,15 @@ foreach ($functionName in @(
 
 $defaultsStateText = $defaultsFunctions['Get-SdkconfigDefaultsState']
 foreach ($requiredDefaultsStateFragment in @(
-    '$env:SDKCONFIG_DEFAULTS',
-    "-split ';'",
-    'sdkconfig.defaults',
+    '$SelectedSdkconfigDefaults',
+    '$ProfileSdkconfigPath',
     '$resolvedDefault.esp32s3',
     'Get-FileHash -LiteralPath $defaultPath -Algorithm SHA256',
     'Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256',
     'sdkconfig|$sdkconfigHash',
-    'target=esp32s3'
+    'target=esp32s3',
+    'profile=$Profile',
+    'feature=$Feature'
 )) {
     Assert-TextContains -Text $defaultsStateText `
         -Expected $requiredDefaultsStateFragment `
@@ -242,6 +246,9 @@ Assert-TextOrder -Text $projectBuildText `
     -Earlier '& ninja -C $RequestedBuildDir -j $parallelJobs all' `
     -Later 'Save-SdkconfigDefaultsState $RequestedBuildDir' `
     -Message 'Successful project builds must attest the resulting sdkconfig.'
+Assert-TextContains -Text $projectBuildText `
+    -Expected '"-DSDKCONFIG=$ProfileSdkconfigPath"' `
+    -Message 'Incremental reconfigure lost the profile-scoped SDKCONFIG path.'
 
 $actionSwitch = $asts.Device.Find(
     {
@@ -274,7 +281,7 @@ foreach ($buildAction in @('build', 'combo', 'recover')) {
         -Message "device.ps1 $buildAction bypasses the guarded build path."
 }
 Assert-TextOrder -Text $actionBodies['set-target'] `
-    -Earlier '& $PythonExe $IdfPy @commonArgs set-target esp32s3' `
+    -Earlier 'Invoke-ProfileConfiguration $BuildDir $false' `
     -Later 'Save-SdkconfigDefaultsState $BuildDir' `
     -Message 'set-target must persist its defaults fingerprint after ESP-IDF succeeds.'
 

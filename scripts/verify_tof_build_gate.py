@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from firmware_profile import read_profile_defaults
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -74,20 +76,20 @@ def main() -> int:
         "TOF400F must be the selected driver when the feature is enabled",
     )
 
-    defaults = read("sdkconfig.defaults")
+    defaults = read_profile_defaults()
     require(
         re.search(
             r"(?m)^CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=y\s*$",
             defaults,
         )
         is None,
-        "sdkconfig.defaults must not enable distance support",
+        "standard full profile must not enable distance support",
     )
     require(
         "# CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE is not set" in defaults,
-        "sdkconfig.defaults must record the default-off distance profile",
+        "standard full profile must record distance support as default-off",
     )
-    distance_defaults = read("sdkconfig.distance.defaults")
+    distance_defaults = read_profile_defaults("full", "distance")
     require(
         "CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=y" in distance_defaults,
         "distance overlay must enable distance support",

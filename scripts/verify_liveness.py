@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from firmware_profile import read_profile_defaults
+
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -46,7 +48,7 @@ def require_order(text: str, first: str, second: str, source: str) -> None:
 
 
 def main() -> int:
-    defaults = read("sdkconfig.defaults")
+    defaults = read_profile_defaults()
     for setting in (
         "CONFIG_BOOTLOADER_WDT_ENABLE=y",
         "CONFIG_ESP_INT_WDT=y",
@@ -58,7 +60,7 @@ def main() -> int:
         "CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU0=y",
         "CONFIG_ESP_TASK_WDT_CHECK_IDLE_TASK_CPU1=y",
     ):
-        require_contains(defaults, setting, "sdkconfig.defaults")
+        require_contains(defaults, setting, "full profile defaults")
 
     liveness = read("components/LUNASHELL_platform/LUNASHELL_liveness.cpp")
     header = read(

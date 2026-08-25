@@ -3,24 +3,19 @@ set(LUNASHELL_platform_srcs
     "LUNASHELL_liveness.cpp"
     "LUNASHELL_snapshot_scheduler.cpp"
     "LUNASHELL_sensor_fusion.cpp"
-    "LUNASHELL_storage.cpp"
     "LUNASHELL_time.cpp"
     "LUNASHELL_settings.cpp"
-    "LUNASHELL_http_server.cpp"
-    "LUNASHELL_http_json.cpp"
     "LUNASHELL_performance.cpp"
 )
 
 set(LUNASHELL_platform_requires
-    esp32_s3_touch_amoled_1_75
     esp_event
-    esp_http_server
     esp_timer
     heap
     esp_driver_gpio
+    esp_driver_i2c
     esp_hw_support
     esp_system
-    fatfs
     app_update
     bootloader_support
     esp_psram
@@ -29,6 +24,33 @@ set(LUNASHELL_platform_requires
     nvs_flash
     LUNASHELL_logger
 )
+
+set(LUNASHELL_platform_uses_waveshare_bsp OFF)
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_IMU OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_RTC OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_GNSS OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+    set(LUNASHELL_platform_uses_waveshare_bsp ON)
+    list(APPEND LUNASHELL_platform_requires esp32_s3_touch_amoled_1_75)
+endif()
+
+if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+    list(APPEND LUNASHELL_platform_srcs "LUNASHELL_storage.cpp")
+    list(APPEND LUNASHELL_platform_requires fatfs)
+else()
+    list(APPEND LUNASHELL_platform_srcs "LUNASHELL_storage_stub.cpp")
+endif()
+
+if(CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API)
+    list(APPEND LUNASHELL_platform_srcs
+        "LUNASHELL_http_server.cpp"
+        "LUNASHELL_http_json.cpp"
+    )
+    list(APPEND LUNASHELL_platform_requires esp_http_server)
+endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_IMU AND CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658)
     list(APPEND LUNASHELL_platform_requires qmi8658)
@@ -99,6 +121,15 @@ idf_component_register(
 # Profile-specific dependencies are resolved after Kconfig becomes available;
 # the early component-discovery pass cannot reliably consume conditional
 # entries appended to REQUIRES.
+if(LUNASHELL_platform_uses_waveshare_bsp)
+    idf_component_optional_requires(PUBLIC esp32_s3_touch_amoled_1_75)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+    idf_component_optional_requires(PUBLIC fatfs)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API)
+    idf_component_optional_requires(PUBLIC esp_http_server)
+endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
     idf_component_optional_requires(PUBLIC esp_codec_dev)
 endif()

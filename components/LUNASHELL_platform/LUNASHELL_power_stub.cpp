@@ -15,6 +15,15 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
 {
 }
 
+extern "C" void LUNASHELL_power_manager_note_ui_standby_result(
+    uint32_t transition_sequence,
+    esp_err_t result
+)
+{
+    (void)transition_sequence;
+    (void)result;
+}
+
 extern "C" esp_err_t LUNASHELL_power_manager_set_timeout(
     LUNASHELL_power_timeout_t timeout,
     uint32_t seconds

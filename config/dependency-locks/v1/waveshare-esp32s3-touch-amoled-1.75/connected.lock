@@ -1,0 +1,660 @@
+dependencies:
+  espressif/brookesia_gui_interface:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: private
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/gui/brookesia_gui_interface
+      type: local
+    version: 0.8.1
+  espressif/brookesia_gui_lvgl:
+    dependencies:
+    - name: espressif/brookesia_gui_interface
+      override_path: ../brookesia_gui_interface
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_hal_interface
+      override_path: ../../hal/brookesia_hal_interface
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_display
+      override_path: ../../service/media/brookesia_service_display
+      require: private
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: private
+      version: 0.8.*
+    - name: espressif/esp_lvgl_adapter
+      require: private
+      version: 0.6.*
+    source:
+      path: ../third_party/esp-brookesia/gui/brookesia_gui_lvgl
+      type: local
+    version: 0.8.1
+  espressif/brookesia_hal_adaptor:
+    dependencies:
+    - name: espressif/brookesia_hal_interface
+      override_path: ../brookesia_hal_interface
+      require: public
+      version: 0.8.*
+    - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_SYSTEM_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_SYSTEM_ENABLE_BOARD_INFO_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_SYSTEM_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_SYSTEM_ENABLE_OTA_UPDATER_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_CAMERA_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_DISPLAY_DEVICE} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_SPIFFS} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_SDCARD} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_POWER_DEVICE} == True
+      name: espressif/esp_board_manager
+      version: 0.5.*
+    - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_AUDIO_ENABLE_PROCESSOR_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_ENCODER_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_DECODER_IMPL} == True
+      name: espressif/media_lib_sal
+      version: 0.9.3
+    - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_AUDIO_ENABLE_PROCESSOR_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_ENCODER_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_DECODER_IMPL} == True
+      name: jason-mao/av_processor
+      version: 0.6.*
+    - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_CAMERA_IMPL} == True
+      name: espressif/esp_video
+      version: 2.2.*
+    - matches:
+      - if: target in [esp32p4] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_WIFI_DEVICE} == True
+      name: espressif/esp_wifi_remote
+      require: no
+      version: '>=0.10,<2.0'
+    - matches:
+      - if: target in [esp32p4] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_WIFI_DEVICE} == True
+      name: espressif/esp_hosted
+      require: no
+      version: 2.12.3
+    - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_LITTLEFS} == True
+      name: joltwallet/littlefs
+      version: 1.*
+    source:
+      path: ../third_party/esp-brookesia/hal/brookesia_hal_adaptor
+      type: local
+    version: 0.8.2
+  espressif/brookesia_hal_interface:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/hal/brookesia_hal_interface
+      type: local
+    version: 0.8.1
+  espressif/brookesia_lib_utils:
+    dependencies:
+    - name: idf
+      version: '>=6.0,<=6.2'
+    - name: espressif/cmake_utilities
+      require: public
+      version: 0.*
+    - name: espressif/esp-boost
+      require: public
+      version: 0.6.*
+    source:
+      path: ../third_party/esp-brookesia/utils/brookesia_lib_utils
+      type: local
+    version: 0.8.1
+  espressif/brookesia_runtime_manager:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/runtime/brookesia_runtime_manager
+      type: local
+    version: 0.8.1
+  espressif/brookesia_service_device:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/service/system/brookesia_service_device
+      type: local
+    version: 0.8.1
+  espressif/brookesia_service_display:
+    dependencies:
+    - name: espressif/brookesia_service_storage
+      override_path: ../../system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/service/media/brookesia_service_display
+      type: local
+    version: 0.8.1
+  espressif/brookesia_service_helper:
+    dependencies:
+    - name: espressif/brookesia_service_manager
+      override_path: ../brookesia_service_manager
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_hal_interface
+      override_path: ../../../hal/brookesia_hal_interface
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/service/framework/brookesia_service_helper
+      type: local
+    version: 0.8.2
+  espressif/brookesia_service_manager:
+    dependencies:
+    - name: espressif/brookesia_lib_utils
+      override_path: ../../../utils/brookesia_lib_utils
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/service/framework/brookesia_service_manager
+      type: local
+    version: 0.8.1
+  espressif/brookesia_service_storage:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/service/system/brookesia_service_storage
+      type: local
+    version: 0.8.1
+  espressif/brookesia_system_core:
+    dependencies:
+    - name: espressif/zlib
+      require: private
+      version: ^1.3.0
+    - name: espressif/brookesia_service_helper
+      override_path: ../../service/framework/brookesia_service_helper
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_service_storage
+      override_path: ../../service/system/brookesia_service_storage
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_runtime_manager
+      override_path: ../../runtime/brookesia_runtime_manager
+      require: public
+      version: 0.8.*
+    - name: espressif/brookesia_gui_interface
+      override_path: ../../gui/brookesia_gui_interface
+      require: public
+      version: 0.8.*
+    source:
+      path: ../third_party/esp-brookesia/system/brookesia_system_core
+      type: local
+    version: 0.8.1
+  espressif/button:
+    component_hash: ad64de1d1b8aa139564810a8519b2f1ac275a560a512479ee94c1b6983469d4b
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 4.2.0
+  espressif/cjson:
+    component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.7.19~2
+  espressif/cmake_utilities:
+    component_hash: 351350613ceafba240b761b4ea991e0f231ac7a9f59a9ee901f751bddc0bb18f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 0.5.3
+  espressif/esp-boost:
+    component_hash: 332946a64356203e9443a3bae9cec93ef8aab6df37de2f61270c972f238f9b3f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.6.0
+  espressif/esp_board_manager:
+    component_hash: cd823baf12c50fb94703b5b2ee36aa7bd5a256f16744fcc63eaf3cf995e6fe3e
+    dependencies:
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_BUTTON_SUPPORT} == True
+      name: espressif/button
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^4.1.4
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_AUDIO_CODEC_SUPPORT} == True
+      name: espressif/esp_codec_dev
+      registry_url: https://components.espressif.com
+      require: private
+      version: ~1.5
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_GPIO_EXPANDER_SUPPORT} == True
+      name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.0.1
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_DISPLAY_LCD_SUB_RGB_3WIRE_SPI_SUPPORT} == True
+      name: espressif/esp_lcd_panel_io_additions
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.0.0
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_LCD_TOUCH_I2C_SUPPORT} == True
+      - if: $CONFIG{ESP_BOARD_DEV_LCD_TOUCH_SUPPORT} == True
+      name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_CAMERA_SUPPORT} == True
+      name: espressif/esp_video
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^2.0.0
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_LED_STRIP_SUPPORT} == True
+      name: espressif/led_strip
+      registry_url: https://components.espressif.com
+      require: private
+      version: '*'
+    - matches:
+      - if: $CONFIG{ESP_BOARD_DEV_LITTLEFS_SUPPORT} == True
+      name: joltwallet/littlefs
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.22.1
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.5.15
+  espressif/esp_codec_dev:
+    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.5.11
+  espressif/esp_io_expander:
+    component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.2.1
+  espressif/esp_io_expander_tca9554:
+    component_hash: ee94a439ade1c17129a491efe572c600899306a2ffadbde491852d95333e28b4
+    dependencies:
+    - name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.2.0
+    - name: idf
+      require: private
+      version: '>=5.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.0.3
+  espressif/esp_lcd_co5300:
+    component_hash: 21f84c5c825509ebacbddb379555b49092ae165b3e19f0edfbf6f8eff8aa036d
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.4'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.1.0
+  espressif/esp_lcd_panel_io_additions:
+    component_hash: 1856c8b2c11aaa8a9fd67481582162bcad25f7064661a995f35c2ee8dd10ebcc
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_io_expander
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.0.1~1
+  espressif/esp_lcd_touch:
+    component_hash: 3f85a7d95af876f1a6ecca8eb90a81614890d0f03a038390804e5a77e2caf862
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.2.1
+  espressif/esp_lv_decoder:
+    component_hash: 331d23c304cea5d1aed0ad3cea7774874dbaeebb2217e8db6bf3cc8485ac9f9f
+    dependencies:
+    - name: espressif/esp_new_jpeg
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: espressif/libpng
+      registry_url: https://components.espressif.com
+      require: private
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.3'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
+    version: 0.4.3
+  espressif/esp_lv_fs:
+    component_hash: 66896007884b817df34c964f9a114fff538ee2674e99fee7159162498b93f94b
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: espressif/esp_mmap_assets
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=1.2'
+    - name: idf
+      require: private
+      version: '>=4.4'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.0.1
+  espressif/esp_lvgl_adapter:
+    component_hash: eb3e4e753119b66b60aff2df65c4c3cdad4d33e0a8a7fdfa7cdef83915289bfb
+    dependencies:
+    - name: espressif/button
+      registry_url: https://components.espressif.com
+      require: public
+      version: 4.*
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/esp_lv_decoder
+      registry_url: https://components.espressif.com
+      require: public
+      version: 0.*
+    - name: espressif/esp_lv_fs
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: espressif/freetype
+      registry_url: https://components.espressif.com
+      require: public
+      version: 2.*
+    - name: espressif/knob
+      registry_url: https://components.espressif.com
+      require: public
+      version: 1.*
+    - name: idf
+      require: private
+      version: '>=5.5'
+    - name: lvgl/lvgl
+      registry_url: https://components.espressif.com
+      require: private
+      version: '>=8,<10'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.6.2
+  espressif/esp_mmap_assets:
+    component_hash: 42310c362596de2a37248c2937b1754bc29cd0356b9839e2a77cf791e6bcdde1
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 2.0.1
+  espressif/esp_new_jpeg:
+    component_hash: e1e7e6991193c41ed6c9fc386702aa7821433319e7aa9c3147cd3236310cd69c
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    targets:
+    - esp32
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32c2
+    - esp32c3
+    - esp32c5
+    - esp32c6
+    - esp32c61
+    - esp32h4
+    version: 1.0.2
+  espressif/freetype:
+    component_hash: aa9f7657a69b2b1c1f49044017fc424081d4e0fe6e97834cb43883548d44e3ca
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 2.14.3~1
+  espressif/knob:
+    component_hash: b56694054cd34a683ac2a6f3661963ba00b1dab741a4f3bb59ed6666cbc9f3fb
+    dependencies:
+    - name: espressif/cmake_utilities
+      registry_url: https://components.espressif.com
+      require: private
+      version: 0.*
+    - name: idf
+      require: private
+      version: '>=4.4.1'
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.1.0
+  espressif/libpng:
+    component_hash: b8c715f76b79a127d9b1b632e09acc23e7b29d2194af890a837adc2be5a2804b
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    - name: espressif/zlib
+      registry_url: https://components.espressif.com
+      require: private
+      version: ^1.2.13
+    source:
+      registry_url: https://components.espressif.com
+      type: service
+    version: 1.6.58~1
+  espressif/network_provisioning:
+    component_hash: 72d27784e3daf807418a34fb00be136ec50c6db49d989ce981d22e031fc0e7f8
+    dependencies:
+    - name: espressif/cjson
+      registry_url: https://components.espressif.com
+      require: private
+      rules:
+      - if: idf_version >= 6.0
+      version: ^1.7.19
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.2.4
+  espressif/qrcode:
+    component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 0.1.0~2
+  espressif/usb:
+    component_hash: 6c2cff118141dbbca181d0d27d71801fdddfc78f7ac03ae43f6e5a8cbd89cb99
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.5.3'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    targets:
+    - esp32s2
+    - esp32s3
+    - esp32s31
+    - esp32p4
+    - esp32h4
+    - linux
+    version: 1.5.0
+  espressif/zlib:
+    component_hash: 9083cada65f1c9d298ef92266232d071c6f2f335164e2799554b3eae73aedc55
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.1'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.3.2~1
+  idf:
+    source:
+      type: idf
+    version: 6.0.2
+  joltwallet/littlefs:
+    component_hash: dcea25bcef2de023f089f5f01e8d8c46ad1b8ffef75861ad5ffb4098555839df
+    dependencies:
+    - name: idf
+      require: private
+      version: '>=5.0'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 1.20.4
+  lvgl/lvgl:
+    component_hash: 184e532558c1c45fefed631f3e235423d22582aafb4630f3e8885c35281a49ae
+    dependencies: []
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 9.5.0
+  waveshare/esp_lcd_touch_cst9217:
+    component_hash: f755f8e3ae61df23413256a6a447e367a4b844538229c183ff0e89dbbdc15319
+    dependencies:
+    - name: espressif/esp_lcd_touch
+      registry_url: https://components.espressif.com
+      require: public
+      version: ^1.1.0
+    - name: idf
+      require: private
+      version: '>=4.4.2'
+    source:
+      registry_url: https://components.espressif.com/
+      type: service
+    version: 2.0.0
+direct_dependencies:
+- espressif/brookesia_gui_lvgl
+- espressif/brookesia_hal_adaptor
+- espressif/brookesia_lib_utils
+- espressif/brookesia_service_device
+- espressif/brookesia_system_core
+- espressif/esp_board_manager
+- espressif/esp_codec_dev
+- espressif/esp_io_expander_tca9554
+- espressif/esp_lcd_co5300
+- espressif/esp_lcd_panel_io_additions
+- espressif/esp_lvgl_adapter
+- espressif/network_provisioning
+- espressif/qrcode
+- espressif/usb
+- idf
+- joltwallet/littlefs
+- lvgl/lvgl
+- waveshare/esp_lcd_touch_cst9217
+manifest_hash: 01114832ae6507f715772341e6c8b39c3301fbd1d4b3f6e05eaadc8124bdc779
+target: esp32s3
+version: 3.0.0

@@ -4,8 +4,9 @@ build-*/
 managed_components/
 littlefs/
 runtime-logs/
-sdkconfig
-sdkconfig.old
+/sdkconfig
+/sdkconfig.old
+.sdkconfig/
 
 # Editor and local tooling
 .vscode/

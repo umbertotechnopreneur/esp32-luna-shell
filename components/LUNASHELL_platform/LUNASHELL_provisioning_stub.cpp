@@ -41,6 +41,12 @@ extern "C" LUNASHELL_provisioning_state_t LUNASHELL_provisioning_state(void)
     return LUNASHELL_PROVISIONING_STATE_UNAVAILABLE;
 }
 
+extern "C" LUNASHELL_provisioning_failure_reason_t
+LUNASHELL_provisioning_failure_reason(void)
+{
+    return LUNASHELL_PROVISIONING_FAILURE_UNKNOWN;
+}
+
 extern "C" esp_err_t LUNASHELL_provisioning_connection_summary(
     char *buffer,
     size_t buffer_size

@@ -1,0 +1,5 @@
+# Drivers and filesystem policy used only by the complete Waveshare image.
+CONFIG_BSP_SD_MOUNT_POINT="/sdcard"
+CONFIG_FATFS_LFN_HEAP=y
+CONFIG_XPOWERS_CHIP_AXP2101=y
+CONFIG_XPOWERS_ESP_IDF_NEW_API=y

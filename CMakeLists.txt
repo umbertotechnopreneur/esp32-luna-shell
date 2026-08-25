@@ -5,18 +5,89 @@ cmake_minimum_required(VERSION 3.16)
 # ESP-IDF component include graph otherwise exceeds CreateProcess limits.
 set(CMAKE_NINJA_FORCE_RESPONSE_FILE 1 CACHE INTERNAL "")
 
+# Keep generated runtime resources inside the active build tree. Sharing the
+# source-tree littlefs/ directory across profiles lets one configured variant
+# overwrite another variant's package without invalidating its Ninja stamps.
+set(
+    BROOKESIA_SYSTEM_CORE_ESP_RESOURCE_STAGE_ROOT
+    "${CMAKE_BINARY_DIR}/littlefs"
+    CACHE PATH
+    "Build-local Brookesia runtime resource staging root"
+    FORCE
+)
+
+# The versioned profile catalog supplies roots needed before Kconfig is
+# available. Conditional CMake dependencies can then link only components that
+# discovery has already admitted to this build graph.
+if(NOT DEFINED ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS} OR
+   "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}" STREQUAL "" OR
+   NOT DEFINED ENV{LUNASHELL_PROFILE_COMPONENT_DIRS} OR
+   "$ENV{LUNASHELL_PROFILE_COMPONENT_DIRS}" STREQUAL "")
+    message(FATAL_ERROR
+        "LUNASHELL profile component graph is missing; use scripts/device.ps1"
+    )
+endif()
+set(COMPONENTS "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}")
+set(
+    COMPONENT_DIRS
+    "$ENV{IDF_PATH}/components;$ENV{LUNASHELL_PROFILE_COMPONENT_DIRS}"
+)
+
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+if(NOT DEFINED LUNASHELL_DEPENDENCIES_LOCK OR
+   LUNASHELL_DEPENDENCIES_LOCK STREQUAL "")
+    message(FATAL_ERROR
+        "LUNASHELL profile dependency lock is missing; use scripts/device.ps1"
+    )
+endif()
+get_filename_component(
+    LUNASHELL_DEPENDENCIES_LOCK
+    "${LUNASHELL_DEPENDENCIES_LOCK}"
+    ABSOLUTE
+)
+idf_build_set_property(
+    DEPENDENCIES_LOCK
+    "${LUNASHELL_DEPENDENCIES_LOCK}"
+)
 project(distanziamoci)
 
-# `main` creates the LittleFS target before LUNASHELL_app can replace the raw
-# Brookesia staging target. Add the final cross-component dependency here,
-# after ESP-IDF has configured every UI component.
+if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE AND
+   (NOT CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR
+    NOT CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 OR
+    (NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL AND
+     NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO)))
+    message(FATAL_ERROR "Voice AFE requires the selected audio input/output path")
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING AND
+   (NOT CONFIG_LUNASHELL_BUILD_ENABLE_WIFI OR
+    NOT CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH))
+    message(FATAL_ERROR "Provisioning requires both Wi-Fi and Bluetooth")
+endif()
+
+# Create the filesystem image only after every UI component has published its
+# final package stamp. Both package preparation and image generation are then
+# normal timestamp-driven Ninja edges rather than unconditional commands.
 if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
-    if(NOT TARGET littlefs_littlefs_data_bin)
-        message(FATAL_ERROR "LittleFS image target was not created")
-    endif()
     if(NOT TARGET LUNASHELL_prepare_runtime_app_package)
         message(FATAL_ERROR "LUNASHELL runtime package preparation target was not created")
+    endif()
+    get_property(
+        LUNASHELL_runtime_app_prepare_stamp
+        GLOBAL PROPERTY LUNASHELL_RUNTIME_APP_PREPARE_STAMP
+    )
+    if(NOT LUNASHELL_runtime_app_prepare_stamp)
+        message(FATAL_ERROR "LUNASHELL runtime package stamp was not published")
+    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/cmake/LUNASHELLIncrementalLittleFS.cmake")
+    lunashell_create_incremental_littlefs_image(
+        littlefs_data
+        "${CMAKE_BINARY_DIR}/littlefs"
+        FLASH_IN_PROJECT
+        DEPENDS
+            "${LUNASHELL_runtime_app_prepare_stamp}"
+    )
+    if(NOT TARGET littlefs_littlefs_data_bin)
+        message(FATAL_ERROR "LUNASHELL incremental LittleFS target was not created")
     endif()
     add_dependencies(
         littlefs_littlefs_data_bin

@@ -24,8 +24,12 @@ struct PerformanceStep {
 };
 
 const PerformanceStep kEnableSteps[] = {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
     {"SD logger", LUNASHELL_storage_set_performance_suspended},
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     {"voice AFE", LUNASHELL_voice_afe_set_performance_suspended},
+#endif
     {
         "Full Snapshot",
         LUNASHELL_hardware_set_full_snapshot_performance_suspended,
@@ -39,8 +43,12 @@ const PerformanceStep kDisableSteps[] = {
         "Full Snapshot",
         LUNASHELL_hardware_set_full_snapshot_performance_suspended,
     },
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     {"voice AFE", LUNASHELL_voice_afe_set_performance_suspended},
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
     {"SD logger", LUNASHELL_storage_set_performance_suspended},
+#endif
 };
 
 void log_primary_failure(

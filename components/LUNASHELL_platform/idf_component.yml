@@ -5,6 +5,8 @@ dependencies:
       - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_VOICE_AFE} == True"
   espressif/network_provisioning:
     version: "1.2.4"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_PROVISIONING} == True"
   waveshare/qmi8658:
     version: "2.0.0"
     rules:
