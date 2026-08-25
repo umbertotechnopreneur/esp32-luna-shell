@@ -2,6 +2,24 @@
 
 Completed items moved out of `TODO.md` live here.
 
+## Build and resource efficiency
+
+- [x] Add versioned `headless`, `ui-minimal`, `connected`, `full`, and
+  `full-distance` compositions with isolated generated configurations,
+  build-local dependency resolution, and one reviewed canonical lock per
+  variant.
+- [x] Make runtime-package verification, staging, JSON minification, and
+  LittleFS image creation timestamp-driven; keep each profile's generated
+  resource tree inside its own build directory.
+- [x] Reuse pre-sized FFT/detail binding keys, paths, colors, strings, and
+  update vectors for the app lifetime, and skip dispatch for unchanged frames.
+- [x] Add CI resource budgets for image bytes, static DIRAM, and total/managed
+  translation-unit counts, with deterministic policy self-tests and reports.
+
+These entries record host-side implementation and validation. Device latency,
+heap behavior, and visual equivalence remain explicit hardware work in
+`TODO.md`.
+
 ## Runtime efficiency and transactional recovery
 
 - [x] Coalesce repeated trusted-GNSS clock updates by explicit system-drift and

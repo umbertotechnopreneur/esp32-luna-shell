@@ -232,6 +232,9 @@
 ## Audio scope visualization
 
 - [x] Add the "FFT scope" action to the Brookesia JSON/System Core audio page.
+- [ ] On hardware, compare FFT/detail refresh latency, heap stability, and
+  rendered output before and after the reusable binding cache; confirm an
+  unchanged frame produces no declarative update batch.
 - [ ] Redesign FFT bar layout: reduce margins, apply color gradients instead of flat colors for better visual appeal.
 - [ ] ? Investigate microphone gain/volume control: should we apply amplification via hardware (pre-processing) or in software (post-processing)?
 

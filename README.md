@@ -309,7 +309,9 @@ from physical audibility.
 
 This checkout is configured for ESP-IDF 6.0.2 on Windows. PowerShell 7, Python,
 FFmpeg, and `winget` are available locally. Canonical configuration belongs in
-`sdkconfig.defaults`; the generated `sdkconfig` is intentionally ignored.
+the versioned [`config/sdkconfig/v1/catalog.json`](config/sdkconfig/v1/catalog.json)
+composition and its defaults layers. Generated profile configurations live
+under ignored `.sdkconfig/v1/`; they are never a source-controlled API.
 See [the ESP-IDF 6 migration record](docs/esp-idf-6-migration.md) for the
 dependency changes, validation boundary, and known limits.
 
@@ -326,18 +328,19 @@ Do not bypass it.
 Select the target and generate a clean configuration:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile full
 ```
 
-Run `set-target` again after changing any `sdkconfig*.defaults` file. A normal
-`reconfigure` does not reapply defaults over an existing generated `sdkconfig`,
-so the build wrapper fails fast with the exact recovery command when it detects
-that stale state.
+Run `set-target` again after changing the catalog, any `*.defaults` layer, or
+the canonical lock for the selected variant. A normal `reconfigure` does not
+reapply defaults over an existing generated configuration, so the wrapper
+fingerprints the complete composition and fails with the exact recovery command
+when state is stale.
 
 Build:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full
 ```
 
 Add `-LogPath` to append the complete child-process output to a file while it
@@ -345,32 +348,67 @@ remains visible in the console. The file is updated as CMake and Ninja emit
 each line:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6 -LogPath .\runtime-logs\build.log
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full -LogPath .\runtime-logs\build.log
 ```
 
 Show the application and static memory size report:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full
+```
+
+Pull requests and pushes to `main` also build the `full` profile and enforce
+reviewed budgets for application bytes, linked image bytes, static DIRAM, total
+translation units, and managed-component translation units. The policy and its
+reviewed baseline live in `scripts/resource_budgets.json`; intentional baseline
+changes must update that file in the same reviewed change. The checker is
+hardware-free and consumes only the normal ESP-IDF build artifacts:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full `
+    -SizeOutputFormat json2 `
+    -SizeOutputFile .\build-full\esp-idf-size.json
+python .\scripts\check_resource_budgets.py --build-dir .\build-full --size-report .\build-full\esp-idf-size.json
 ```
 
 ## Build profiles and feature flags
 
 Build-time feature switches live in
-[`main/Kconfig.projbuild`](main/Kconfig.projbuild). They are exposed as
-`CONFIG_LUNASHELL_BUILD_*` options and are intended to remove whole runtime paths
-from the firmware image, not just hide them at runtime.
+[`main/Kconfig.projbuild`](main/Kconfig.projbuild), while the catalog is the
+single authority for legal profile/feature combinations, ordered defaults,
+pre-Kconfig component roots and discoverable local component directories,
+generated config, build directory, and dependency lock. `scripts/device.ps1`
+rejects combinations absent from that catalog.
 
-Persist a profile in [`sdkconfig.defaults`](sdkconfig.defaults), then run
-`set-target` again through `scripts/device.ps1` before building. Do not rely on
-the generated `sdkconfig` file as a source-controlled configuration surface.
+Each variant has an isolated build cache, generated `sdkconfig`, and canonical
+lock under `config/dependency-locks/v1/`. Normal configure/build operations copy
+the canonical lock into the build directory and fail if resolution changes it.
+After intentionally changing manifests, refresh one lock explicitly, review its
+diff, then run normal validation:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 update-lock -Profile full
+```
 
 The available profile selectors are:
 
 | Flag | Default | Effect |
 | --- | --- | --- |
 | `CONFIG_LUNASHELL_BUILD_PROFILE_FULL` | `y` | Full Waveshare device runtime with the normal UI-first experience |
-| `CONFIG_LUNASHELL_BUILD_PROFILE_HEADLESS` | `n` | Headless runtime that boots without the Brookesia UI stack and uses `main_headless.cpp` |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_CONNECTED` | `n` | Minimal UI plus Wi-Fi, BLE provisioning/telemetry, and HTTP diagnostics |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL` | `n` | Display/touch, boot UI, and the LittleFS app package without radios or board telemetry services |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_HEADLESS` | `n` | Portable runtime only: no BSP, UI, audio, radios, sensors, removable storage, or HTTP |
+
+Select them without editing configuration files:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile headless
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile headless
+```
+
+The default directories are `build-full`, `build-connected`,
+`build-ui-minimal`, and `build-headless`. An explicit `-BuildDir` overrides only
+the cache location; it does not change variant identity.
 
 The available subsystem flags are:
 
@@ -388,6 +426,8 @@ The available subsystem flags are:
 | `CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS` | `y` | Includes the button and power-management pipeline |
 | `CONFIG_LUNASHELL_BUILD_ENABLE_RTC` | `y` | Includes the RTC time pipeline |
 | `CONFIG_LUNASHELL_BUILD_ENABLE_GNSS` | `y` | Includes the GNSS position pipeline |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE` | `y` | Includes the SDMMC/FatFs owner and guarded format workflow |
+| `CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API` | `y` | Includes the opt-in read-only HTTP diagnostics server; depends on Wi-Fi |
 | `CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE` | `n` | Includes the dual-TOF precision-distance driver, acquisition/calibration service, and TOF device/settings screens |
 
 When a subsystem is disabled, the firmware now compiles the corresponding stub
@@ -413,15 +453,13 @@ showing synthetic data.
 | `LUNASHELL_BUILD_GNSS_DRIVER` | LC76G | `LUNASHELL_BUILD_GNSS_DRIVER_NONE` |
 | `LUNASHELL_BUILD_DISTANCE_DRIVER` | Two TOF400F modules on shared TX with independent RX lines | `LUNASHELL_BUILD_DISTANCE_DRIVER_NONE` |
 
-The distance feature is deliberately excluded from the default image. To build
-the driver, worker, calibration flow, Hardware card, and both TOF screens, use
-the checked-in `sdkconfig.distance.defaults` overlay together with the standard
-defaults, then configure and build through `scripts/device.ps1`:
+The distance feature is deliberately excluded from the default image. The
+catalog currently admits it with the full profile. To build the driver, worker,
+calibration flow, Hardware card, and both TOF screens:
 
 ```powershell
-$env:SDKCONFIG_DEFAULTS = "sdkconfig.defaults;sdkconfig.distance.defaults"
-pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-distance
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-distance
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile full -Feature distance
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full -Feature distance
 ```
 
 With `CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition
@@ -539,13 +577,13 @@ Boost fork or compatibility layer is required.
 Flash the currently dedicated device:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM12 -BuildDir build-idf6 -Baud 921600
+pwsh -NoProfile -File .\scripts\device.ps1 flash -Profile full -Port COM12 -Baud 921600
 ```
 
 Monitor it:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 monitor -Port COM12 -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 monitor -Profile full -Port COM12
 ```
 
 Capture a bounded diagnostic log:
@@ -567,7 +605,7 @@ Run every PowerShell command with `pwsh -NoProfile`. Prefer `-File` for
 repository scripts because it avoids an unnecessary parsing layer:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-brookesia
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full
 ```
 
 When `-Command` is required, enclose the complete inner PowerShell program in

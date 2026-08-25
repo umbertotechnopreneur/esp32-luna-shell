@@ -38,14 +38,18 @@ build, and inspect size with:
 
 ```powershell
 git submodule update --init --recursive
-pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildDir build-idf6
-pwsh -NoProfile -File .\scripts\device.ps1 reconfigure -BuildDir build-idf6
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildDir build-idf6
-pwsh -NoProfile -File .\scripts\device.ps1 size -BuildDir build-idf6
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile full
+pwsh -NoProfile -File .\scripts\device.ps1 reconfigure -Profile full
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full
+pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full
 ```
 
-Canonical configuration belongs in `sdkconfig.defaults`; generated
-configuration and build directories remain untracked.
+Canonical configuration is composed by
+`config/sdkconfig/v1/catalog.json` from versioned base, board, product, profile,
+and feature layers. Each legal variant has its own generated `sdkconfig`, build
+directory, pre-Kconfig component roots, and dependency lock. Generated
+configuration and build directories remain untracked. Refresh a canonical lock
+only through the explicit `device.ps1 update-lock` action, then review its diff.
 
 ## Official ESP-Brookesia source
 
@@ -77,8 +81,10 @@ route document unloaded before the next one is activated.
 
 ## Principal resolved dependencies
 
-`dependencies.lock` uses schema 3 and records the ESP-IDF 6.0.2 dependency
-graph.
+The canonical files under `config/dependency-locks/v1/` use schema 3 and record
+the ESP-IDF 6.0.2 dependency graph independently for each legal firmware
+variant. Normal builds use a build-local copy and fail if dependency resolution
+would change the reviewed lock.
 
 | Component | Resolved version |
 | --- | --- |
@@ -195,6 +201,9 @@ The host-side acceptance sequence is:
 7. syntax and hidden-window smoke checks for the Windows simulator;
 8. its existing executable packaging flow;
 9. `git diff --check` and a scan for stale framework references.
+
+CI additionally enforces quantitative `full`-profile budgets for application
+and linked-image bytes, static DIRAM, and total/managed translation units.
 
 Run all ESP-IDF items in that sequence through `scripts/device.ps1`. Exact
 artifact sizes and hashes belong in the final branch handoff because later

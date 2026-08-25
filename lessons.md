@@ -1,5 +1,35 @@
 # Lessons
 
+## Build profiles and generated-resource isolation
+
+- ESP-IDF discovers the component graph before project Kconfig values are
+  reliable. A modular profile therefore needs a versioned pre-Kconfig catalog
+  of admitted roots and discoverable local component directories; restricting
+  roots alone does not stop the Component Manager from reading unrelated local
+  manifests. Conditional `idf_component_optional_requires` can wire only
+  components already present in that discovery graph.
+- Keep one reviewed dependency lock per legal board/profile/feature variant.
+  Copy it into the build directory before configuration and fail if resolution
+  changes it; a shared tracked root lock makes parallel or alternating profiles
+  overwrite one another.
+- A fresh build directory must remain empty until ESP-IDF creates its CMake
+  state. Run `fullclean` only for a recognized, non-empty CMake build tree, and
+  stage the working dependency lock after that cleanup rather than before it.
+- Shared platform code must gate optional SDK headers and implementations at
+  compile time for reduced profiles. Keep C++ exceptions enabled while the
+  firmware deliberately catches allocation failures and maps them to
+  `ESP_ERR_NO_MEM`.
+- An `ALL` target can remain incremental when it is command-free and depends on
+  real `OUTPUT` stamps/byproducts. Package inputs, profile signatures, and the
+  final LittleFS image must be explicit Ninja edges.
+- Brookesia's default ESP staging root is source-tree global. Override it with a
+  build-local resource root or one profile can rewrite another profile's staged
+  app without invalidating the other build tree.
+- UI hot-path caches belong to the `App` lifecycle. Precompute invariant FFT
+  binding paths, keys, and palette values once, reuse capacity for value
+  strings and update vectors, and release the cache in `on_stop`; never retain
+  it in a process-lifetime static.
+
 ## Brookesia startup overlay
 
 - The `SuperOS` banner in the boot video came from Brookesia System Super's

@@ -29,9 +29,6 @@ priority. Promote an item to `TODO.md` when it becomes active.
   policy, make `add-source-banner.ps1 -Apply` a staged multi-file transaction
   with verified rollback so an I/O failure cannot leave a partially normalized
   tree.
-- [ ] Make the headless profile exclude `LUNASHELL_app` and split or condition
-  the BSP UI dependency closure so a clean headless build does not discover or
-  compile the Brookesia/LVGL application graph.
 - [ ] Replace the pinned ESP-LVGL adapter manifest with an upstreamed or
   versioned override that conditions decoder, filesystem, and FreeType
   dependencies on their Kconfig features; disabling the code paths alone does
