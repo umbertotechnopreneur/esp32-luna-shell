@@ -146,8 +146,9 @@ not substitutes for authorized device validation. Open work belongs in
   commands alone cannot enter true Backup. Keep truthful GPS validity. Its
   I2C bridge needs at least 10 ms between 0x54 read and 0x50 control; a
   coalesced PAIR001 response must scan past the in-progress line to the
-  terminal ACK. Retain the validated 80 MHz CPU floor until repeated PKEY
-  cycles pass after that fix.
+  terminal ACK. Repeated failed reads can monopolize the shared refresh lock:
+  retain the real invalid sample and defer periodic retries for 15 seconds.
+  Retain the validated 80 MHz CPU floor until repeated PKEY cycles pass.
 - `esp_codec_dev_close()` does not propagate every codec disable callback
   result. Verify I2S shutdown at the BSP and measure ES8311/ES7210 current
   physically. CPU-domain Light-sleep power-down costs at least 8.58 KB of

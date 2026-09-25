@@ -116,6 +116,9 @@ constexpr int64_t kMinimumMeasuredSampleTtlUs = 5LL * 1000LL * 1000LL;
 constexpr int64_t kFullSnapshotTtlNumerator = 6;
 constexpr int64_t kFullSnapshotTtlDenominator = 5;
 constexpr uint32_t kPeriodicSummaryIntervalMs = 30000U;
+// A failed LC76G exchange can hold the shared refresh lock for almost a second.
+// Keep its real error visible while giving high-rate diagnostics room to run.
+constexpr int64_t kGpsPeriodicRetryBackoffUs = 15LL * 1000LL * 1000LL;
 // Snapshot ownership is held only while copying or committing the canonical
 // value. Reaching this deadline is therefore an invariant failure, not a slow
 // hardware sample, and must never leave UI/HTTP/radio callers blocked forever.
@@ -183,6 +186,9 @@ std::atomic<uint32_t> s_imu_smoothing_percent{kImuSmoothingDefaultPercent};
 std::atomic_bool s_imu_smoothing_valid{false};
 bool s_gps_ready;
 bool s_gps_power_suspended;
+// After initialization, guarded by the shared refresh mutex.
+esp_err_t s_gps_periodic_error = ESP_OK;
+int64_t s_gps_periodic_retry_after_us = 0;
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 std::atomic<TaskHandle_t> s_diagnostic_monitor_task_handle{nullptr};
@@ -3905,6 +3911,8 @@ esp_err_t init_gps(i2c_master_bus_handle_t bus)
     }
     s_gps_ready = error == ESP_OK;
     s_gps_power_suspended = false;
+    s_gps_periodic_error = ESP_OK;
+    s_gps_periodic_retry_after_us = 0;
     update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.gps, error == ESP_OK, error);
     });
@@ -4780,6 +4788,18 @@ esp_err_t sample_gps(const char *phase)
             }
         );
         ESP_LOGW(TAG, "GPS LC76G: %s sample failed (%s)", phase, esp_err_to_name(error));
+        if (publication_error == ESP_OK &&
+            std::strcmp(phase, "periodic-full") == 0) {
+            s_gps_periodic_error = error;
+            s_gps_periodic_retry_after_us =
+                esp_timer_get_time() + kGpsPeriodicRetryBackoffUs;
+            ESP_LOGW(
+                TAG,
+                "GPS LC76G: periodic retry deferred 15 s after %s; "
+                "sample remains invalid",
+                esp_err_to_name(error)
+            );
+        }
         return sample_publication_result(
             "GPS LC76G",
             phase,
@@ -4799,6 +4819,10 @@ esp_err_t sample_gps(const char *phase)
         ESP_OK,
         publication_error
     );
+    if (publication_error == ESP_OK) {
+        s_gps_periodic_error = ESP_OK;
+        s_gps_periodic_retry_after_us = 0;
+    }
     if (high_frequency_sample_phase(phase)) {
         ESP_LOGD(
             TAG,
@@ -6392,7 +6416,15 @@ esp_err_t DeviceSnapshotService::refresh(
             }
         }
         if (s_gps_ready) {
-            record_first_error(sample_gps(phase), &aggregate);
+            if (std::strcmp(phase, "periodic-full") == 0 &&
+                s_gps_periodic_error != ESP_OK &&
+                esp_timer_get_time() < s_gps_periodic_retry_after_us) {
+                // The last real read failed and was already published. Do not
+                // pretend this skipped period is a successful GPS sample.
+                record_first_error(s_gps_periodic_error, &aggregate);
+            } else {
+                record_first_error(sample_gps(phase), &aggregate);
+            }
         }
         if (s_microphone_ready) {
             const int64_t committed_diagnostic_microphone_at_us =
@@ -7778,6 +7810,10 @@ extern "C" esp_err_t LUNASHELL_hardware_set_gps_power_suspended(bool suspended)
     );
     if (error == ESP_OK) {
         s_gps_power_suspended = suspended;
+        if (!suspended) {
+            s_gps_periodic_error = ESP_OK;
+            s_gps_periodic_retry_after_us = 0;
+        }
         const esp_err_t publication_error = update_snapshot(
             [attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
                 mark_sample_failure(

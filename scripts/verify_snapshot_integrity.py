@@ -333,6 +333,32 @@ def verify_source_contract() -> None:
         "processor completion timestamp",
     )
 
+    gps_sample = function_text(source, "esp_err_t sample_gps(", "sample_gps")
+    full_refresh = function_text(
+        source, "esp_err_t DeviceSnapshotService::refresh(", "Full refresh"
+    )
+    for fragment in (
+        "mark_sample_failure(snapshot.gps, error, attempted_at_us);",
+        "publication_error == ESP_OK",
+        "s_gps_periodic_error = error;",
+        "s_gps_periodic_retry_after_us =",
+        "s_gps_periodic_error = ESP_OK;",
+    ):
+        require_contains(gps_sample, fragment, "GPS failure and recovery")
+    for fragment in (
+        "s_gps_periodic_error != ESP_OK",
+        "esp_timer_get_time() < s_gps_periodic_retry_after_us",
+        "record_first_error(s_gps_periodic_error, &aggregate);",
+        "record_first_error(sample_gps(phase), &aggregate);",
+    ):
+        require_contains(full_refresh, fragment, "GPS retry under Full refresh")
+    require_order(
+        full_refresh,
+        "record_first_error(s_gps_periodic_error, &aggregate);",
+        "record_first_error(sample_gps(phase), &aggregate);",
+        "deferred GPS read must retain its real error",
+    )
+
     system_sample = function_text(
         source,
         "esp_err_t sample_system_state(",
