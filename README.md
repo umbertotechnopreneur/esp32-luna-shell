@@ -218,11 +218,12 @@ runs from an internal-RAM task stack, and it plus the IMU motion monitor remain
 alive at a one-second cadence in Device Standby. ESP-IDF Dynamic
 Frequency Scaling and tickless idle can therefore enter automatic Light-sleep
 during the idle intervals; each completed standby logs measured Light-sleep
-cycles, milliseconds, and residency. Because ESP32-S3 cannot retain its native
-USB Serial/JTAG link through Light-sleep, the official ESP-IDF connection
-monitor holds `ESP_PM_NO_LIGHT_SLEEP` while a USB host is attached. Disconnecting
-the host releases that lock automatically, so battery operation retains the
-sleep policy without making a USB-connected development device inaccessible.
+cycles, milliseconds, and residency. ESP32-S3 cannot retain its native
+USB Serial/JTAG link through Light-sleep. This board keeps
+`CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n` because the ESP-IDF USB host guard
+caused cache-error reboots during flash operations. The serial port may become
+unusable after idle/standby even while Windows still lists it; wake or reconnect
+the board and verify the port is exclusively openable before flash or capture.
 
 Panel power commands and rotation replay share the display lock, so rotation is
 deferred while output is disabled. The board still has no verified ESP32 wake
@@ -580,6 +581,11 @@ Flash the currently dedicated device:
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 flash -Profile full -Port COM12 -Baud 921600
 ```
+
+If the native USB port opens but flashing reports `No serial data received`,
+enter download mode as [Waveshare documents](https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75/Firmware-Flashing):
+hold BOOT while reconnecting USB, then release it and rerun the same
+`device.ps1 flash` command. This does not require erasing NVS or the SD card.
 
 Monitor it:
 

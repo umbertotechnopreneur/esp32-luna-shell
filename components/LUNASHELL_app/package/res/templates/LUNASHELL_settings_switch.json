@@ -59,9 +59,24 @@
                 "toggleProps": {
                     "checked": false
                 },
-                "styleRefs": [
-                    "app.switch"
-                ],
+                "style": {
+                    "bgColor": "#173544",
+                    "borderColor": "#2c6077",
+                    "borderWidth": "1dp",
+                    "radius": "22dp"
+                },
+                "partStyles": {
+                    "indicator": {
+                        "bgColor": "#20dfc1",
+                        "radius": "22dp"
+                    },
+                    "knob": {
+                        "bgColor": "#f3f7fa",
+                        "borderColor": "#2c6077",
+                        "borderWidth": "1dp",
+                        "radius": "22dp"
+                    }
+                },
                 "placement": {
                     "mode": "absolute",
                     "x": "226dp",

@@ -1041,6 +1041,13 @@ def verify_source_contracts() -> None:
         and switch_nodes[0]["toggleProps"]["checked"] is False,
         "Settings switch must render unchecked before saved state is bound",
     )
+    require(
+        "styleRefs" not in switch_nodes[0]
+        and switch_nodes[0]["style"]["bgColor"] == "#173544"
+        and switch_nodes[0]["partStyles"]["indicator"]["bgColor"] == "#20dfc1"
+        and switch_nodes[0]["partStyles"]["knob"]["bgColor"] == "#f3f7fa",
+        "Settings switches need self-contained styling without an unavailable theme ref",
+    )
     screens = [
         asset
         for asset in settings_screen["assets"]
@@ -1062,17 +1069,21 @@ def verify_source_contracts() -> None:
     switch_y = int(switch_placement["y"].removesuffix("dp"))
     switch_width = int(switch_placement["width"].removesuffix("dp"))
     switch_height = int(switch_placement["height"].removesuffix("dp"))
+    row_height = int(
+        rotation_overrides["."]["placement"]["height"].removesuffix("dp")
+    )
     label_widths = [
         int(rotation_overrides[label]["placement"]["width"].removesuffix("dp"))
         for label in ("title", "subtitle")
     ]
     require(
-        switch_width >= 64
-        and switch_height >= 44
-        and switch_x + switch_width <= 282
-        and switch_y + switch_height <= 52
-        and all(width + 8 <= switch_x for width in label_widths),
-        "Automatic rotation switch must have a larger touch target without clipping labels",
+        switch_width >= 108
+        and switch_height >= 56
+        and switch_x * 2 + switch_width == 282
+        and switch_y >= 51
+        and switch_y + switch_height <= row_height
+        and all(width <= 282 for width in label_widths),
+        "Automatic rotation switch must be prominent below unclipped labels",
     )
     require_contains(
         app,
