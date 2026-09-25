@@ -143,6 +143,14 @@ def main() -> None:
             variant.get("generated_sdkconfig"), f"{variant_name}.sdkconfig"
         )
         build_dir = variant.get("default_build_dir")
+        if not isinstance(build_dir, str) or not (
+            build_dir == "artifacts"
+            or build_dir.startswith("artifacts/")
+            or build_dir.startswith("artifacts\\")
+        ):
+            raise AssertionError(
+                f"variant {variant_name} build output must remain under artifacts/"
+            )
         if lock in locks or sdkconfig in sdkconfigs or build_dir in build_dirs:
             raise AssertionError(f"variant {variant_name} reuses mutable build state")
         locks.add(lock)

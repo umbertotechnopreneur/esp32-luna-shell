@@ -9,8 +9,9 @@ $Simulator = Join-Path $PSScriptRoot "lunashell_simulator.py"
 $Scenarios = Join-Path $PSScriptRoot "scenarios"
 $BootImage = Join-Path $ProjectRoot "assets\branding\LUNASHELL\generated\LUNASHELL-boot-466x466.png"
 $BootSound = Join-Path $ProjectRoot "assets\sfx\generated\lunashell-boot.wav"
-$Dist = Join-Path $PSScriptRoot "dist"
-$Work = Join-Path $PSScriptRoot "build"
+$SimulatorArtifacts = Join-Path $ProjectRoot "artifacts\simulator\windows"
+$Dist = Join-Path $SimulatorArtifacts "dist"
+$Work = Join-Path $SimulatorArtifacts "build"
 $Executable = Join-Path $Dist "ESP32LunaShellDeviceSimulator.exe"
 
 foreach ($requiredPath in @($Simulator, $Scenarios, $BootImage, $BootSound)) {

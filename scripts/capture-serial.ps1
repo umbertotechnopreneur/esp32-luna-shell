@@ -14,7 +14,7 @@ param(
     [ValidateRange(1, 86400)]
     [int]$DurationSeconds = 30,
     [string]$OutputPath,
-    [string]$BuildDir = 'build',
+    [string]$BuildDir = 'artifacts/build-full',
     [int]$WaitSeconds = 30,
     [switch]$ResetBeforeCapture,
     [string]$IdfPath,

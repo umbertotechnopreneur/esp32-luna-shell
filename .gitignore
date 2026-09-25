@@ -1,4 +1,5 @@
 # ESP-IDF build output
+/artifacts/
 build/
 build-*/
 managed_components/

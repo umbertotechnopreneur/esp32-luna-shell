@@ -22,7 +22,7 @@
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/headless.lock",
       "generated_sdkconfig": ".sdkconfig/v1/headless",
-      "default_build_dir": "build-headless"
+      "default_build_dir": "artifacts/build-headless"
     },
     "ui-minimal": {
       "profile": "ui-minimal",
@@ -58,7 +58,7 @@
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/ui-minimal.lock",
       "generated_sdkconfig": ".sdkconfig/v1/ui-minimal",
-      "default_build_dir": "build-ui-minimal"
+      "default_build_dir": "artifacts/build-ui-minimal"
     },
     "connected": {
       "profile": "connected",
@@ -100,7 +100,7 @@
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/connected.lock",
       "generated_sdkconfig": ".sdkconfig/v1/connected",
-      "default_build_dir": "build-connected"
+      "default_build_dir": "artifacts/build-connected"
     },
     "full": {
       "profile": "full",
@@ -148,7 +148,7 @@
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full.lock",
       "generated_sdkconfig": ".sdkconfig/v1/full",
-      "default_build_dir": "build-full"
+      "default_build_dir": "artifacts/build-full"
     },
     "full-distance": {
       "profile": "full",
@@ -199,7 +199,7 @@
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full-distance.lock",
       "generated_sdkconfig": ".sdkconfig/v1/full-distance",
-      "default_build_dir": "build-full-distance"
+      "default_build_dir": "artifacts/build-full-distance"
     }
   }
 }

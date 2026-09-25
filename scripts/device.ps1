@@ -305,6 +305,24 @@ if ([string]::IsNullOrWhiteSpace($BuildDir)) {
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
     throw "Firmware profile variant has no default build directory: $ProfileBuildKey"
 }
+$ArtifactsRoot = [System.IO.Path]::GetFullPath(
+    (Join-Path $ProjectRoot "artifacts")
+)
+$ResolvedBuildDir = if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+    [System.IO.Path]::GetFullPath($BuildDir)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot $BuildDir))
+}
+$RelativeBuildDir = [System.IO.Path]::GetRelativePath(
+    $ArtifactsRoot,
+    $ResolvedBuildDir
+)
+if ($RelativeBuildDir -eq "." -or
+    $RelativeBuildDir -eq ".." -or
+    $RelativeBuildDir.StartsWith("..\", [StringComparison]::Ordinal) -or
+    [System.IO.Path]::IsPathRooted($RelativeBuildDir)) {
+    throw "Build directory must remain under the repository artifacts root: $ArtifactsRoot"
+}
 Write-Host "Firmware profile: $ProfileBuildKey"
 Write-Host "Build directory: $BuildDir"
 

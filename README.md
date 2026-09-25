@@ -367,8 +367,8 @@ hardware-free and consumes only the normal ESP-IDF build artifacts:
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full `
     -SizeOutputFormat json2 `
-    -SizeOutputFile .\build-full\esp-idf-size.json
-python .\scripts\check_resource_budgets.py --build-dir .\build-full --size-report .\build-full\esp-idf-size.json
+    -SizeOutputFile .\artifacts\build-full\esp-idf-size.json
+python .\scripts\check_resource_budgets.py --build-dir .\artifacts\build-full --size-report .\artifacts\build-full\esp-idf-size.json
 ```
 
 ## Build profiles and feature flags
@@ -406,9 +406,10 @@ pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile headless
 pwsh -NoProfile -File .\scripts\device.ps1 build -Profile headless
 ```
 
-The default directories are `build-full`, `build-connected`,
-`build-ui-minimal`, and `build-headless`. An explicit `-BuildDir` overrides only
-the cache location; it does not change variant identity.
+The default directories are `artifacts/build-full`, `artifacts/build-connected`,
+`artifacts/build-ui-minimal`, and `artifacts/build-headless`. All firmware build
+trees belong below `artifacts/`; an explicit `-BuildDir` may select a different
+cache location only when it remains under that root.
 
 The available subsystem flags are:
 

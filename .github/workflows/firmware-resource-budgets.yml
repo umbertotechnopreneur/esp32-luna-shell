@@ -19,7 +19,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      LUNASHELL_CI_BUILD_DIR: build-ci-resource-budgets
+      LUNASHELL_CI_BUILD_DIR: artifacts/build-ci-resource-budgets
       LUNASHELL_CI_IDF_PATH: ${{ github.workspace }}/.ci/esp-idf
       LUNASHELL_CI_TOOLS_PATH: ${{ runner.temp }}/esp-idf-tools
 
@@ -128,5 +128,5 @@ jobs:
           name: firmware-resource-budget-report
           if-no-files-found: warn
           path: |
-            build-ci-resource-budgets/esp-idf-size.json
-            build-ci-resource-budgets/resource-budget-report.json
+            artifacts/build-ci-resource-budgets/esp-idf-size.json
+            artifacts/build-ci-resource-budgets/resource-budget-report.json

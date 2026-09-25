@@ -81,6 +81,10 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Work Tracking
 
+- Keep `AGENTS.md` as the single repository instruction file. Do not add
+  parallel Copilot instruction files or duplicate agent contracts.
+- Keep generated firmware and simulator build output under `artifacts/`; do not
+  create profile build trees in the repository root.
 - Treat `TODO.md` as the active backlog for open work.
 - Treat `planned-todo.md` as the deferred, non-priority backlog, grouped by
   macro activity. Move an item to `TODO.md` when it becomes active work.
