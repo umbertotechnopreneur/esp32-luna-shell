@@ -54,6 +54,7 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONUTF8", "1", "Process")
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
+[System.Environment]::SetEnvironmentVariable("PYTHONFAULTHANDLER", "1", "Process")
 
 $ProfileBuildKey = if ($Feature -eq "none") {
     $Profile
@@ -447,8 +448,8 @@ $PythonVersion = (& $PythonExe --version 2>&1 | ForEach-Object { $_.ToString().T
 if ($IdfVersion -notmatch '^ESP-IDF v6\.0\.2(?:\s|$)') {
     throw "Versione ESP-IDF non supportata: '$IdfVersion'. Il repository richiede ESP-IDF v6.0.2."
 }
-if ($PythonVersion -ne "Python 3.13.7") {
-    throw "Versione Python non supportata: '$PythonVersion'. Il repository richiede Python 3.13.7."
+if ($PythonVersion -notmatch '^Python 3\.13\.\d+$') {
+    throw "Versione Python non supportata: '$PythonVersion'. Il repository richiede Python 3.13.x."
 }
 $CMakeVersion = (& $CMakeCommand.Source --version | Select-Object -First 1)
 $NinjaVersion = (& $NinjaCommand.Source --version | Select-Object -First 1)
@@ -1048,7 +1049,7 @@ function Invoke-ProfileConfiguration(
                     $buildDirectory
                 )
             }
-            & $PythonExe $IdfPy -B $RequestedBuildDir fullclean
+            & $PythonExe $IdfPy --no-hints -B $RequestedBuildDir fullclean
             if ($LASTEXITCODE -ne 0) {
                 throw "Profile configuration clean failed"
             }
@@ -1065,14 +1066,15 @@ function Invoke-ProfileConfiguration(
             -Destination "$ProfileSdkconfigPath.old" -Force
     }
 
-    & $PythonExe $IdfPy `
+    Write-Host "Configuring profile '$ProfileBuildKey' with ESP-IDF"
+    & $PythonExe $IdfPy --no-hints `
         -B $RequestedBuildDir `
         "-DSDKCONFIG=$ProfileSdkconfigPath" `
         "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
         "-DIDF_TARGET=esp32s3" `
-        reconfigure
+        reconfigure 2>&1 | ForEach-Object { Write-Host "$_" }
     if ($LASTEXITCODE -ne 0) {
-        throw "Profile configuration failed"
+        throw "Profile configuration failed (ESP-IDF exit code $LASTEXITCODE)"
     }
 }
 
@@ -1204,7 +1206,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
 
     if ($reconfigure) {
         Write-Host "Build configuration changed; running ESP-IDF reconfigure."
-        & $PythonExe $IdfPy `
+        & $PythonExe $IdfPy --no-hints `
             -B $RequestedBuildDir `
             "-DSDKCONFIG=$ProfileSdkconfigPath" `
             "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
@@ -1236,6 +1238,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
 Push-Location $ProjectRoot
 try {
     $commonArgs = @(
+        "--no-hints",
         "-B",
         $BuildDir,
         "-DSDKCONFIG=$ProfileSdkconfigPath",

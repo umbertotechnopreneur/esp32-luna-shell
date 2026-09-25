@@ -23,7 +23,7 @@ RUNTIME_SOURCE = (
     / "gui"
     / "brookesia_gui_interface"
     / "src"
-    / "runtime.cpp"
+    / "runtime_binding.cpp"
 )
 
 MIC0_COLORS = (
@@ -389,21 +389,21 @@ def verify_refresh_contracts(source: str) -> None:
 def verify_runtime_coalescing(runtime: str) -> None:
     batch = braced_text(
         runtime,
-        "void set_binding_values(DocumentId document_id,",
-        "Brookesia runtime.cpp",
+        "void Runtime::Impl::set_binding_values(DocumentId document_id,",
+        "Brookesia runtime_binding.cpp",
     )
     for fragment in (
         "const auto previous = store->get_string(",
         "previous.has_value() && *previous == update.value",
         "continue;",
-        "store->set_string(",
-        "has_changed_updates = true;",
-        "if (!has_changed_updates)",
+        "store->set_string_silent(",
+        "any_changed = true;",
+        "if (!any_changed)",
     ):
         require_contains(batch, fragment, "Brookesia unchanged-binding filter")
     require(
         batch.find("previous.has_value() && *previous == update.value")
-        < batch.find("store->set_string("),
+        < batch.find("store->set_string_silent("),
         "Brookesia must filter unchanged values before mutating the store",
     )
 

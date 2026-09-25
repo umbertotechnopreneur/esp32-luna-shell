@@ -596,6 +596,9 @@ function Run-Simulator {
     Write-Colored '  Launching simulator...' -Color Green
     Write-Colored ('  python -B ' + $Simulator + ' ' + ($args -join ' ')) -Color Gray
     & $python -B $Simulator @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Simulator failed with exit code $LASTEXITCODE."
+    }
 }
 
 function Run-Interactive {

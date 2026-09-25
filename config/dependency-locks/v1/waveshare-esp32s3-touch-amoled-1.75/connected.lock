@@ -10,9 +10,9 @@ dependencies:
       require: private
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/gui/brookesia_gui_interface
+      path: ../../third_party/esp-brookesia/gui/brookesia_gui_interface
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_gui_lvgl:
     dependencies:
     - name: espressif/brookesia_gui_interface
@@ -38,10 +38,13 @@ dependencies:
     - name: espressif/esp_lvgl_adapter
       require: private
       version: 0.6.*
+    - name: lvgl/lvgl
+      require: public
+      version: 9.5.0
     source:
-      path: ../third_party/esp-brookesia/gui/brookesia_gui_lvgl
+      path: ../../third_party/esp-brookesia/gui/brookesia_gui_lvgl
       type: local
-    version: 0.8.1
+    version: 0.8.5
   espressif/brookesia_hal_adaptor:
     dependencies:
     - name: espressif/brookesia_hal_interface
@@ -49,16 +52,33 @@ dependencies:
       require: public
       version: 0.8.*
     - matches:
+      - if: target in [esp32, esp32s31] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_BT_DEVICE} == True && $CONFIG{BT_CONTROLLER_ENABLED} == True && $CONFIG{BT_CLASSIC_ENABLED} == True && $CONFIG{BT_BLUEDROID_ENABLED} == True && $CONFIG{BT_A2DP_ENABLE} == True
+      name: espressif/esp_bt_audio
+      require: private
+      version: ^0.8
+    - matches:
+      - if: target in [esp32, esp32s31] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_BT_DEVICE} == True && $CONFIG{BT_CONTROLLER_ENABLED} == True && $CONFIG{BT_CLASSIC_ENABLED} == True && $CONFIG{BT_BLUEDROID_ENABLED} == True && $CONFIG{BT_A2DP_ENABLE} == True
+      name: espressif/gmf_audio
+      require: private
+      version: ^0.8
+    - matches:
+      - if: target in [esp32, esp32s31] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_BT_DEVICE} == True && $CONFIG{BT_CONTROLLER_ENABLED} == True && $CONFIG{BT_CLASSIC_ENABLED} == True && $CONFIG{BT_BLUEDROID_ENABLED} == True && $CONFIG{BT_A2DP_ENABLE} == True
+      name: espressif/gmf_io
+      require: private
+      version: ^0.8
+    - matches:
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_SYSTEM_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_SYSTEM_ENABLE_BOARD_INFO_IMPL} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_SYSTEM_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_SYSTEM_ENABLE_OTA_UPDATER_IMPL} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_BT_DEVICE} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_CAMERA_IMPL} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_DISPLAY_DEVICE} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_SPIFFS} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_FATFS_NAND} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_STORAGE_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_ENABLE_FILE_SYSTEM_IMPL} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_STORAGE_FILE_SYSTEM_ENABLE_SDCARD} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_POWER_DEVICE} == True
       name: espressif/esp_board_manager
-      version: 0.5.*
+      version: '>=0.5.15,<0.6'
     - matches:
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_AUDIO_ENABLE_PROCESSOR_IMPL} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_ENCODER_IMPL} == True
@@ -72,9 +92,14 @@ dependencies:
       name: jason-mao/av_processor
       version: 0.6.*
     - matches:
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_AUDIO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_AUDIO_ENABLE_PROCESSOR_IMPL} == True
       - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_CAMERA_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_ENCODER_IMPL} == True
+      - if: $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_VIDEO_DEVICE} == True && $CONFIG{BROOKESIA_HAL_ADAPTOR_VIDEO_ENABLE_DECODER_IMPL} == True
       name: espressif/esp_video
-      version: 2.2.*
+      rules:
+      - if: target in [esp32p4, esp32s3, esp32c3, esp32c5, esp32c6, esp32c61, esp32s31]
+      version: 2.4.*
     - matches:
       - if: target in [esp32p4] && $CONFIG{BROOKESIA_HAL_ADAPTOR_ENABLE_WIFI_DEVICE} == True
       name: espressif/esp_wifi_remote
@@ -90,9 +115,9 @@ dependencies:
       name: joltwallet/littlefs
       version: 1.*
     source:
-      path: ../third_party/esp-brookesia/hal/brookesia_hal_adaptor
+      path: ../../third_party/esp-brookesia/hal/brookesia_hal_adaptor
       type: local
-    version: 0.8.2
+    version: 0.8.4
   espressif/brookesia_hal_interface:
     dependencies:
     - name: espressif/brookesia_lib_utils
@@ -100,9 +125,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/hal/brookesia_hal_interface
+      path: ../../third_party/esp-brookesia/hal/brookesia_hal_interface
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_lib_utils:
     dependencies:
     - name: idf
@@ -114,9 +139,9 @@ dependencies:
       require: public
       version: 0.6.*
     source:
-      path: ../third_party/esp-brookesia/utils/brookesia_lib_utils
+      path: ../../third_party/esp-brookesia/utils/brookesia_lib_utils
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_runtime_manager:
     dependencies:
     - name: espressif/brookesia_lib_utils
@@ -124,9 +149,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/runtime/brookesia_runtime_manager
+      path: ../../third_party/esp-brookesia/runtime/brookesia_runtime_manager
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_service_device:
     dependencies:
     - name: espressif/brookesia_service_helper
@@ -134,9 +159,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/service/system/brookesia_service_device
+      path: ../../third_party/esp-brookesia/service/system/brookesia_service_device
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_service_display:
     dependencies:
     - name: espressif/brookesia_service_storage
@@ -148,9 +173,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/service/media/brookesia_service_display
+      path: ../../third_party/esp-brookesia/service/media/brookesia_service_display
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_service_helper:
     dependencies:
     - name: espressif/brookesia_service_manager
@@ -162,9 +187,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/service/framework/brookesia_service_helper
+      path: ../../third_party/esp-brookesia/service/framework/brookesia_service_helper
       type: local
-    version: 0.8.2
+    version: 0.8.5
   espressif/brookesia_service_manager:
     dependencies:
     - name: espressif/brookesia_lib_utils
@@ -172,9 +197,9 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/service/framework/brookesia_service_manager
+      path: ../../third_party/esp-brookesia/service/framework/brookesia_service_manager
       type: local
-    version: 0.8.1
+    version: 0.8.2
   espressif/brookesia_service_storage:
     dependencies:
     - name: espressif/brookesia_service_helper
@@ -182,7 +207,17 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/service/system/brookesia_service_storage
+      path: ../../third_party/esp-brookesia/service/system/brookesia_service_storage
+      type: local
+    version: 0.8.3
+  espressif/brookesia_service_usb:
+    dependencies:
+    - name: espressif/brookesia_service_helper
+      override_path: ../../framework/brookesia_service_helper
+      require: public
+      version: '>=0.8.5'
+    source:
+      path: ../../third_party/esp-brookesia/service/system/brookesia_service_usb
       type: local
     version: 0.8.1
   espressif/brookesia_system_core:
@@ -198,6 +233,10 @@ dependencies:
       override_path: ../../service/system/brookesia_service_storage
       require: public
       version: 0.8.*
+    - name: espressif/brookesia_service_usb
+      override_path: ../../service/system/brookesia_service_usb
+      require: private
+      version: 0.8.*
     - name: espressif/brookesia_runtime_manager
       override_path: ../../runtime/brookesia_runtime_manager
       require: public
@@ -207,11 +246,11 @@ dependencies:
       require: public
       version: 0.8.*
     source:
-      path: ../third_party/esp-brookesia/system/brookesia_system_core
+      path: ../../third_party/esp-brookesia/system/brookesia_system_core
       type: local
-    version: 0.8.1
+    version: 0.8.4
   espressif/button:
-    component_hash: ad64de1d1b8aa139564810a8519b2f1ac275a560a512479ee94c1b6983469d4b
+    component_hash: a1f34e8ed2e61ffef1a230fd9477005c2db335c7e1f6a239f43e5f119dcbe1b0
     dependencies:
     - name: espressif/cmake_utilities
       registry_url: https://components.espressif.com
@@ -223,7 +262,7 @@ dependencies:
     source:
       registry_url: https://components.espressif.com
       type: service
-    version: 4.2.0
+    version: 4.2.1
   espressif/cjson:
     component_hash: e788323270d90738662d66fffa910bfe1fba019bba087f01557e70c40485b469
     dependencies:
@@ -655,6 +694,6 @@ direct_dependencies:
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
-manifest_hash: 01114832ae6507f715772341e6c8b39c3301fbd1d4b3f6e05eaadc8124bdc779
+manifest_hash: 734f03c2013c742bb3bd7b6b681862e7c306471e3070ac16bfa8dede23a550b9
 target: esp32s3
 version: 3.0.0
