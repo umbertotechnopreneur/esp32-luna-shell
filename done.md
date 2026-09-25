@@ -1,5 +1,25 @@
 # Done
 
+## Archived from the active backlog (2026-09-25)
+
+- [x] Build the Windows simulator device twin: validated synthetic snapshots,
+  deterministic scenarios and clock, semantic actions, loopback fake HTTP API,
+  and hardware-free visual/interaction checks.
+- [x] Implement BLE-only, user-started Wi-Fi provisioning with the System Core
+  wizard, dynamic QR flow, and hardware-free checks.
+- [x] Move hardware status, freshness, CPU utilization, and full-refresh
+  transaction reporting onto `DeviceSnapshotService` with deterministic tests.
+- [x] Use System Core as the sole app runtime, split the declarative GUI into a
+  resident bootstrap and lazy route documents, and stage only product assets.
+- [x] Separate internal LittleFS from removable SD and add guarded,
+  CID-bound, one-shot format authorization plus Settings status/progress.
+- [x] Add backend sensor state and non-blocking stationary calibration;
+  orientation remains unavailable without a validated reference frame.
+- [x] Implement transactional Device Standby, dim/off display modes, qualified
+  IMU wake, app/GUI quiescence, and event-driven idle workers.
+- [x] Add opt-in HTTP API settings persistence, the Audio FFT scope route, and
+  non-UI open-source branding checks and release checklist.
+
 Completed items moved out of `TODO.md` live here.
 
 ## Build and resource efficiency

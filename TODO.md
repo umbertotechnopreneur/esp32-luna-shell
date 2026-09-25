@@ -1,250 +1,66 @@
 # TODO
 
-## Windows simulator device twin
+Only open, actionable work belongs here. Deferred ideas live in `planned-todo.md`;
+completed work lives in `done.md`. Hardware checks below require explicit device
+authorization.
 
-- [x] Replace screen-local synthetic values with one validated simulator-only
-  `DeviceSnapshot` generation shared by UI, logs, actions, and captures.
-- [x] Add deterministic JSON scenarios, a virtual clock, semantic actions, and
-  headless snapshot/API dumps without opening Tk or accessing hardware.
-- [x] Add a loopback-only fake HTTP device with the versioned read-only API,
-  visibly synthetic responses, deterministic authentication limits, and an
-  isolated simulator control plane.
-- [x] Add hardware-free scenario, payload, interaction, and visual-contract
-  validation plus an agent-friendly artifact bundle.
+## Current integration
 
-## Runtime liveness hardware validation
+- [ ] Finish the ESP-Brookesia 0.8 upstream merge, refresh versioned dependency
+  locks, and run the repository's final validation package. Verify actual UI and
+  power behavior on a device only after authorization.
 
-- [ ] On a disposable development device, inject controlled stalls into GUI,
-  LVGL display, Full Snapshot, settings NVS, provisioning teardown, boot audio,
-  radio/Wi-Fi operations, asynchronous Wi-Fi scan completion, and Wi-Fi event
-  handling. Confirm the Task-WDT panic and reboot occur within the configured
-  12-second bound and that the retained timeout breadcrumb names the active
-  domain after reboot.
-- [ ] Measure the settings, provisioning, and boot-audio worker stack
-  high-watermarks on hardware under worst-case operations; increase the static
-  stack only from measured evidence.
+## Hardware validation
 
-## BLE Wi-Fi pairing task
+- [ ] Inject controlled GUI, display, snapshot, NVS, provisioning, audio, and
+  Wi-Fi stalls on a disposable device. Verify the 12-second Task-WDT bound and
+  retained liveness breadcrumb after reboot.
+- [ ] Measure settings, provisioning, and boot-audio worker stack high-watermarks
+  under worst-case operations before changing static stack sizes.
+- [ ] Verify BLE credential setup with the Espressif mobile app, reboot
+  persistence, repeated pairing, timeout, shutdown, and responsive Settings UI
+  during Wi-Fi/BLE operation under serial capture.
+- [ ] Measure Brookesia bootstrap and repeated cross-route navigation; confirm
+  one active lazy route document and stable memory after unload.
+- [ ] Validate LUNASHELL-owned Bluetooth, GPS, and CPU status on the device.
+- [ ] Validate SD cancel/format/progress/failure/recovery on a disposable card;
+  investigate intermittent card detection and surface diagnostics in the UI.
+- [ ] Verify both TOF400F modules, R15/R16 isolation, shared-TX/dual-RX wiring,
+  UART pins, calibration, persistence, timeout/recovery, memory, tilt correction,
+  and Settings controls before enabling distance in a release image.
+- [ ] Repeatedly exercise Performance Mode and 0/90/180/270-degree rotations
+  under serial capture, including rejected transitions and rollback.
+- [ ] Validate Device Standby with auto-rotation and diagnostics enabled. Repeat
+  at least five PWR standby/wake cycles and check arc timeouts, 50% dimming,
+  panel-off, fresh-orientation replay, and restoration of requested streams.
+- [ ] Measure active/standby electrical current with radios on and off; verify
+  physical ES8311/ES7210 current, qualified IMU wake, and automatic dim-to-
+  standby PWR/motion recovery. Logs alone do not establish current draw.
+- [ ] Validate LC76G I2C standby ACK/recovery, TTFF, accuracy, and electrical
+  impact. True Backup mode needs a separately switched VCC rail absent here.
+- [ ] Keep the validated 80 MHz ESP32-S3 CPU floor until repeated baseline PWR
+  cycles pass after the LC76G fix; only then re-evaluate 40 MHz.
+- [ ] Compare on-device FFT/detail latency, heap stability, and rendering after
+  binding-cache changes; confirm unchanged frames cause no update batch.
 
-- [x] BLE-only Espressif provisioning flow; no SoftAP and no PIN/PoP.
-- [x] Provisioning lifecycle bridge for the hardware foundation.
-- [x] Defer Wi-Fi/BLE allocation until the explicit Settings action.
-- [x] Hardware-free backend and System Core UI verification:
-  `scripts/verify_pairing.py`.
-- [x] Restore the on-device Espressif provisioning wizard, dynamic QR route,
-  and shared singleton Back/Next edge navigation under System Core.
-- [ ] Validate the BLE credential flow with the physical radio and the
-  Espressif mobile app.
-- [ ] Verify reboot persistence, repeated pairing, timeout and BLE shutdown on hardware.
-- [ ] Re-run Settings -> Start Wireless under serial capture and confirm that
-  the adaptive DMA path keeps the UI responsive while Wi-Fi and BLE remain
-  ready.
+## Product and UI
 
-## Hardware status: immediate UI improvements
+- [ ] Define shared JSON design tokens for the 466 × 466 circular display and
+  320 × 320 safe area.
+- [ ] Implement LUNASHELL-owned keyboard and confirmation dialogs before exposing
+  log search or destructive actions without System Super.
+- [ ] Evaluate native Brookesia components as replacements for app-specific
+  label, button, progress, text, and log wrappers when those APIs exist.
+- [ ] Add the Settings action for existing non-blocking IMU calibration.
+- [ ] On PWR Device Standby, stop Wi-Fi, BLE provisioning, and BLE telemetry;
+  leave them off after wake until the user restarts them. Preserve PWR and
+  qualified, throttled IMU wake.
+- [ ] Add an explicit System Core Settings action for the opt-in read-only HTTP
+  API; do not auto-start it at boot.
+- [ ] Improve FFT bar layout and gradients; decide hardware versus software
+  microphone gain using measured signal and performance evidence.
 
-- [x] In the existing Hardware page, render a clear boot-state label for RTC,
-  GPS, Wi-Fi, and BLE from `DeviceSnapshotService`: `READY`, `NO FIX`,
-  `OFF BY POLICY`, or the real initialization error. Do not use an ambiguous
-  generic "unavailable" state.
-- [x] Show the distinction between a completed boot check and live use: RTC
-  time restored versus unavailable; GPS receiver initialized versus current
-  fix; Wi-Fi/BLE deliberately deferred until the user asks for them versus
-  failed startup.
-- [x] Add a single `Refresh hardware status` action that re-renders the latest
-  snapshot without initializing radios, polling sensors directly from the UI,
-  or changing device state.
-- [x] On the Settings radios row, state the current policy explicitly: Wi-Fi
-  and BLE stay off after boot and are started only by the existing user-driven
-  actions. Surface the real startup error if either action fails.
-- [x] Keep the legacy inventory names and ordering where useful, but derive all
-  displayed status and timestamps from the current snapshot rather than a
-  parallel inventory/probe path.
+## Publication
 
-## ESP-Brookesia integration
-
-- [x] Run the application as the only native `IApp` on System Core, without
-  installing or starting the optional System Super shell.
-- [x] Keep one editable GUI source and generate a resident
-  background/chrome/Welcome bootstrap plus one independently loadable JSON
-  document for every other content screen.
-- [ ] Measure bootstrap and repeated cross-route navigation on hardware; confirm
-  that no more than one lazy route document is active and that unloading
-  returns its document memory without fragmentation growth.
-- [x] Expose product Settings for diagnostic cadence, IMU smoothing, SD log
-  mirroring, deferred radio startup, and persisted brightness.
-- [x] Stage only the LUNASHELL application resources in the internal LittleFS
-  image; do not ship the unused System Super shell resources.
-- [ ] Define shared JSON design tokens for the circular 466 x 466 display and
-  320 x 320 safe area.
-- [ ] Complete hardware validation of the LUNASHELL-owned Bluetooth, GPS, and CPU
-  status bar under the single-app System Core runtime.
-- [ ] Replace the removed Shell keyboard and message-dialog services with
-  LUNASHELL-owned declarative components before exposing log search or destructive
-  confirmation actions on the System Core-only build.
-- [ ] Contribute or replace app-specific wrappers when ESP-Brookesia exposes native label, button, progress, text and log components.
-- [ ] Remove proprietary branding markers (including branded identifiers and
-  logo mentions) before GitHub open-source publication.
-
-## SD formatting
-
-- [x] Keep internal LittleFS resources independent from the removable SD
-  volume.
-- [x] Represent card/transport unconfirmed, ready, and format-required states
-  through `DeviceSnapshotService`; the board has no card-detect pin, so a
-  failed SDMMC probe is never reported as physical absence.
-- [x] Make only an exact FatFs `FR_NO_FILESYSTEM` result eligible for format.
-- [x] Arm `LUNASHELL_storage_request_format()` only after an explicit destructive
-  confirmation is accepted, bind that one-shot permission to the
-  observed CID fields and capacity, and consume it on the immediate attempt.
-- [x] Poll a mounted card and invalidate/unmount it when status reports removal
-  or a transport failure.
-- [ ] Validate cancel, confirmed format, progress, failure, and recovery with a
-  disposable card on hardware.
-- [ ] Address SD-card detection regressions (card not detected in some boots) so detection and diagnostics are surfaced clearly in UI.
-- [x] Add a dedicated Storage section in Settings to surface card presence/state,
-  total/free space, mount status, and a guarded format action with explicit
-  confirmation and request progress.
-
-## Device metrics
-
-- [x] Add real per-core CPU utilization samples to `DeviceSnapshotService` using
-  ESP-IDF/FreeRTOS idle runtime deltas and explicit availability flags.
-- [x] Keep both CPU bars in a visible `MEASURING...` state until the first valid
-  previous-sample delta exists; never invent a utilization value.
-- [x] Keep hardware refresh non-blocking and outside the UI thread.
-
-## Snapshot integrity
-
-- [x] Commit a full hardware refresh as one snapshot generation and advance the
-  generation for asynchronous subsystem reports.
-- [x] Apply component freshness TTLs and hide expired numeric telemetry as
-  `STALE`.
-- [x] Add deterministic tests for transaction visibility, TTL expiry, and
-  recovery after a later successful sample via `scripts/verify_snapshot_integrity.py`.
-
-## Sensor fusion
-
-- [x] Add a canonical backend sensor-fusion service behind
-  `DeviceSnapshotService` for gravity-dominant and stationary motion state;
-  keep orientation output unavailable until a validated reference frame exists.
-- The Settings route persists the QMI8658 input low-pass smoothing value and
-  enables only the guarded cardinal gravity classifier used for display
-  rotation; this is not a general orientation-fusion service.
-- [x] Keep stationary calibration on a non-blocking platform worker.
-- [ ] Wire a Settings calibration action on top of the worker when the UI work
-  lands.
-
-## Dual ToF distance
-
-- [ ] Verify R15/R16 isolation, shared-TX/dual-RX wiring, both TOF400F modules,
-  and the documented UART pins on the physical device before enabling the
-  feature in a release image.
-- [ ] Validate physical calibration, NVS persistence, timeout/recovery paths,
-  stack watermarks, PSRAM windows, tilt correction, and every TOF/Settings
-  touch action with two real sensors.
-
-## Power and performance profiles
-
-- [ ] Validate repeated Performance Mode enable/disable and 0/90/180/270-degree
-  display transitions on hardware under serial capture. Confirm that sampler,
-  logger, voice, panel, and touch state remain coherent after every transition
-  and that a rejected transition keeps its real error visible, blocks terminal
-  retries, and applies only the documented one-second backoff to recoverable
-  failures.
-- [ ] Stop and deinitialize Wi-Fi, BLE provisioning, and BLE telemetry on PWR
-  Device Standby; leave them stopped after wake until the user explicitly
-  restarts them from Settings. Retain PWR wake and throttle, rather than
-  disable, qualified IMU motion wake while standby is active.
-- [x] Quiesce requested diagnostic IMU/microphone streams and auto-rotation
-  during Device Standby while retaining 1 Hz qualified UI motion wake. Preserve
-  the user's requested streams/orientation and require a fresh active IMU
-  sample before replaying a pending display rotation.
-- [ ] Validate Device Standby with auto-rotation and both diagnostic streams
-  enabled: no diagnostic or panel-rotation work while off; PWR/motion wake must
-  restore the requested settings and apply orientation only after a fresh sample.
-- [ ] Revalidate the AXP2101 PKEY standby/wake cycle after the AppInput/GUI
-  quiescence fix, including at least five repeated PWR standby/wake cycles,
-  independent arc timeouts,
-  exact 50% dim stage, and real AMOLED panel-off transition on the physical
-  device.
-- [x] Coordinate Device Standby across Full Snapshot, dual-TOF UART ownership,
-  SD polling/mirroring, QMI8658 sampling rate, voice/audio/I2S, AMOLED output,
-  and the LVGL worker with a gated AppInput-to-GUI drain, transactional adapter
-  pause/resume, and rollback.
-- [x] Enable the supported ESP-IDF 6.0.2 DFS, tickless-idle automatic
-  Light-sleep, BLE modem sleep, and PHY MAC/baseband power-down paths, with
-  measured standby Light-sleep residency in runtime logs.
-- [x] Replace the seven idle Brookesia scheduler polls at 2--5 ms, the disabled
-  SD logger poll, and the suspended Voice AFE poll with event/deadline-driven
-  waits so those workers no longer prevent useful automatic Light-sleep.
-- [x] Enable the ESP-IDF USB Serial/JTAG host-connection guard so an attached
-  host holds `ESP_PM_NO_LIGHT_SLEEP` without disabling battery-mode sleep.
-- [ ] Measure active and Device Standby current on the physical board with an
-  inline power instrument, including Wi-Fi/BLE connected and disconnected
-  cases; serial logs prove lifecycle/residency but not electrical current.
-- [ ] Verify physical ES8311/ES7210 low-power current after codec stream close;
-  the managed codec API does not propagate its internal chip-disable result,
-  although I2S TX/RX shutdown is independently verified.
-- [ ] Validate qualified IMU wake from full standby on the physical device.
-- [ ] Validate the LC76G I2C GNSS-subsystem standby policy on the physical board:
-  PAIR003/PAIR002 ACK, recovery after wake, TTFF/accuracy, and its electrical
-  impact. Firmware now publishes GPS unavailable during standby; true Quectel
-  Backup mode still requires independently switching the module VCC rail, which
-  the current board does not expose.
-- [x] Add the backend display-power API with transient `Active`, `Dimmed`, and
-  `DisplayOff` transitions, preserving the user's configured brightness and
-  publishing both configured and applied values in `DeviceSnapshotService`.
-- [x] Add an explicit UI/display power mode flow with `Active`, `Dimmed`, and
-  `DisplayOff` states tied to real inactivity/sleep transitions.
-- [x] Treat the configured `Screen sleep after display dim` timeout as a full
-  transactional Device Standby entry, not panel-off alone; retain PKEY and
-  qualified IMU wake while radio, GPS, storage, audio, snapshot, and UI work
-  are suspended.
-- [x] Keep the Power-to-App synchronization timer at 200 ms through the
-  quiescence/wake handshake, then slow it to 1 Hz only after confirmed Device
-  Standby and app quiescence.
-- [ ] Validate automatic Device Standby on hardware at the configured dim plus
-  sleep delay: confirm PKEY/motion wake, no immediate motion bounce, and a
-  maximum one-second App/UI restoration delay.
-- [ ] Keep the ESP32-S3 CPU floor at the validated 80 MHz while Device Standby
-  uses automatic Light-sleep. The first physical 40 MHz trial was inconclusive:
-  LC76G I2C phase timing first blocked standby and a later PKEY wake did not
-  return. Re-establish repeated baseline PKEY cycles after the LC76G fix before
-  attempting that reversible optimization again.
-- [x] When the main sleep flow dims the display, reduce AMOLED brightness to 50% of
-  the user's configured value rather than a fixed percentage.
-- [x] While dimmed, slow non-critical UI refresh work from the normal 1 second
-  cadence to about 5 seconds where the current screen allows it.
-- [x] When the display is fully off, stop GUI refresh timers entirely and resume
-  them only after wake.
-- [x] Keep event-driven platform state, critical logs, and fail-fast errors
-  truthful; do not keep periodic UI timers alive just to manufacture stale or
-  placeholder values.
-
-## Deferred HTTP API activation
-
-- [x] Persist and validate `ApiKey` and `http_enabled` through the non-UI
-  backend; keep the server opt-in and prevent key updates from changing its
-  lifecycle implicitly.
-- [ ] Add an explicit System Core Settings action for the read-only HTTP API;
-  do not start the server automatically during boot or invent missing settings.
-
-## Audio scope visualization
-
-- [x] Add the "FFT scope" action to the Brookesia JSON/System Core audio page.
-- [ ] On hardware, compare FFT/detail refresh latency, heap stability, and
-  rendered output before and after the reusable binding cache; confirm an
-  unchanged frame produces no declarative update batch.
-- [ ] Redesign FFT bar layout: reduce margins, apply color gradients instead of flat colors for better visual appeal.
-- [ ] ? Investigate microphone gain/volume control: should we apply amplification via hardware (pre-processing) or in software (post-processing)?
-
-## Open-source publication prep
-
-- [x] Scan the non-UI release surface for proprietary identifiers and internal
-  contact/footer signatures with `scripts/verify_public_branding.py`.
-- [x] Remove or generalize internal/legal notice text from non-UI scripts and
-  architecture/release docs.
-- [ ] Complete the branding and legal sweep for UI files and startup assets
-  when UI work is authorized.
-- [x] Add a pre-release checklist that includes branding sweep, placeholder
-  replacements, and export-safe defaults via `docs/release/open-source-pre-release-checklist.md`.
+- [ ] Complete the UI/startup-asset branding and legal sweep before GitHub
+  publication, including proprietary identifiers and logo mentions.
