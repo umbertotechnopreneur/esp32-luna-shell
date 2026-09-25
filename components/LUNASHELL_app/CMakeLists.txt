@@ -108,7 +108,7 @@ endif()
 
 include("${brookesia_system_core_dir}/cmake/runtime_app_stage.cmake")
 brookesia_system_core_get_esp_runtime_app_stage_root(LUNASHELL_app_stage_root)
-set(LUNASHELL_app_package_id "ai.LUNASHELL.device-console")
+set(LUNASHELL_app_package_id "io.esp32.lunashell")
 get_property(
     LUNASHELL_previous_runtime_stage_targets
     GLOBAL PROPERTY BROOKESIA_RUNTIME_APP_STAGE_TARGETS

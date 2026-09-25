@@ -3,7 +3,7 @@
   "profile": "full",
   "baseline_commit": "ad91f604639b786a38d7def21be17fc010ce76c5",
   "expected": {
-    "project_name": "distanziamoci",
+    "project_name": "esp32_luna_shell",
     "target": "esp32s3"
   },
   "metrics": {

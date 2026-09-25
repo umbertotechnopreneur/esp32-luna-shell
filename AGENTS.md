@@ -1,6 +1,6 @@
 # Repository engineering rules
 
-These rules apply to the entire Distanziamoci firmware repository.
+These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Supported platform
 

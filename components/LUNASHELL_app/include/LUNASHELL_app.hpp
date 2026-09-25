@@ -33,7 +33,7 @@
 
 namespace LUNASHELL {
 
-inline constexpr std::string_view kAppManifestId = "ai.LUNASHELL.device-console";
+inline constexpr std::string_view kAppManifestId = "io.esp32.lunashell";
 
 struct DeviceSnapshot;
 namespace app_detail {

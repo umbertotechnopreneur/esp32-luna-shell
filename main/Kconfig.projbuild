@@ -1,4 +1,4 @@
-menu "LUNASHELL build profiles"
+menu "ESP32 Luna Shell build profiles"
 
 config LUNASHELL_BUILD_PROFILE_SCHEMA_VERSION
     int
@@ -6,7 +6,7 @@ config LUNASHELL_BUILD_PROFILE_SCHEMA_VERSION
     default 1
 
 choice LUNASHELL_BUILD_BOARD_PROFILE
-    prompt "LUNASHELL board profile"
+    prompt "ESP32 Luna Shell board profile"
     default LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75
 
 config LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75
@@ -15,7 +15,7 @@ config LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75
 endchoice
 
 choice LUNASHELL_BUILD_PROFILE
-    prompt "LUNASHELL firmware profile"
+    prompt "ESP32 Luna Shell firmware profile"
     default LUNASHELL_BUILD_PROFILE_FULL
     help
         Select one cumulative product image. Headless keeps only the portable
@@ -37,7 +37,7 @@ config LUNASHELL_BUILD_PROFILE_CONNECTED
 
 endchoice
 
-menu "LUNASHELL board hardware drivers"
+menu "ESP32 Luna Shell board hardware drivers"
 
 choice LUNASHELL_BUILD_DISPLAY_DRIVER
     prompt "Display and touch board driver"

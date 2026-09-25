@@ -37,14 +37,14 @@ class ResourceBudgetFixture:
             source.parent.mkdir(parents=True, exist_ok=True)
             source.write_text("/* fixture */\n", encoding="utf-8")
         self.build.mkdir(parents=True)
-        (self.build / "distanziamoci.bin").write_bytes(bytes(120))
+        (self.build / "esp32_luna_shell.bin").write_bytes(bytes(120))
         self._write_json(
             self.build / "project_description.json",
             {
                 "version": "1.3",
-                "project_name": "distanziamoci",
+                "project_name": "esp32_luna_shell",
                 "project_path": str(self.project),
-                "app_bin": "distanziamoci.bin",
+                "app_bin": "esp32_luna_shell.bin",
                 "target": "esp32s3",
             },
         )
@@ -86,7 +86,7 @@ class ResourceBudgetFixture:
             "profile": "test",
             "baseline_commit": "0123456789abcdef",
             "expected": {
-                "project_name": "distanziamoci",
+                "project_name": "esp32_luna_shell",
                 "target": "esp32s3",
             },
             "metrics": {

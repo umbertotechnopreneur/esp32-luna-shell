@@ -49,7 +49,7 @@ idf_build_set_property(
     DEPENDENCIES_LOCK
     "${LUNASHELL_DEPENDENCIES_LOCK}"
 )
-project(distanziamoci)
+project(esp32_luna_shell)
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE AND
    (NOT CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR

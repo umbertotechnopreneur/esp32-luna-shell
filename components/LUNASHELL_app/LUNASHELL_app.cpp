@@ -9554,7 +9554,7 @@ public:
 
 BROOKESIA_SYSTEM_CORE_APP_PROVIDER_REGISTER_WITH_SYMBOL(
     AppProvider,
-    "ai.LUNASHELL.device-console",
+    "io.esp32.lunashell",
     LUNASHELL_app_provider_symbol
 );
 
