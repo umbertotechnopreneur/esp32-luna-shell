@@ -23,7 +23,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#include "../components/LUNASHELL_app/include/LUNASHELL_app.hpp"
+#include "LUNASHELL_app_identity.hpp"
 #include "../components/LUNASHELL_boot/include/LUNASHELL_boot.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
@@ -317,6 +317,7 @@ void brookesia_task()
         return;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
     const esp_err_t rotation_result =
         LUNASHELL_display_apply_saved_auto_rotation();
     if (rotation_result != ESP_OK) {
@@ -332,6 +333,9 @@ void brookesia_task()
         }
         return;
     }
+#else
+    ESP_LOGI(kTag, "Automatic rotation unavailable: IMU not compiled into this image");
+#endif
 
     // Publish readiness only after every startup-critical UI stage succeeds.
     s_brookesia_ready.store(true, std::memory_order_release);
@@ -456,6 +460,7 @@ extern "C" void app_main(void)
 
     report_optional_startup_failure("time", LUNASHELL_time_init("UTC0"));
     startup_watch.progress("time service");
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
     const esp_err_t power_manager_result = LUNASHELL_power_manager_init();
     if (power_manager_result != ESP_OK) {
         ESP_LOGE(
@@ -465,6 +470,9 @@ extern "C" void app_main(void)
         );
         return;
     }
+#else
+    ESP_LOGI(kTag, "Power input service disabled by build profile");
+#endif
     startup_watch.progress("power-management service");
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO
     report_optional_startup_failure("boot audio", LUNASHELL_boot_audio_play());

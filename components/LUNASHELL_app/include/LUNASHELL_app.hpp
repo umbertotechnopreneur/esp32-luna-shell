@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "brookesia/system_core.hpp"
+#include "LUNASHELL_app_identity.hpp"
 #include "LUNASHELL_adaptive_chrome.hpp"
 #include "LUNASHELL_alert_service.hpp"
 #include "LUNASHELL_background_asset.hpp"
@@ -32,8 +33,6 @@
 #include "LUNASHELL_status_bar.hpp"
 
 namespace LUNASHELL {
-
-inline constexpr std::string_view kAppManifestId = "io.esp32.lunashell";
 
 struct DeviceSnapshot;
 namespace app_detail {

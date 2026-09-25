@@ -580,13 +580,6 @@ dependencies:
       registry_url: https://components.espressif.com
       type: service
     version: 1.6.58~1
-  espressif/qrcode:
-    component_hash: 3b493771bc5d6ad30cbf87c25bf784aada8a08c941504355b55d6b75518ed7bc
-    dependencies: []
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 0.1.0~2
   espressif/usb:
     component_hash: 6c2cff118141dbbca181d0d27d71801fdddfc78f7ac03ae43f6e5a8cbd89cb99
     dependencies:
@@ -661,12 +654,11 @@ direct_dependencies:
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
 - espressif/esp_lvgl_adapter
-- espressif/qrcode
 - espressif/usb
 - idf
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
-manifest_hash: 734f03c2013c742bb3bd7b6b681862e7c306471e3070ac16bfa8dede23a550b9
+manifest_hash: edbd9be6523201ef1f27958e2837c0b35f3767238cc0a73c5d8b6bc1c1162684
 target: esp32s3
 version: 3.0.0

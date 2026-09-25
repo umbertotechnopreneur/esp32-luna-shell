@@ -1,0 +1,24 @@
+# First board build contract: a visible shell with working touch, no device pages.
+# This selects the ui-minimal compiler profile. Driver-level BSP separation is
+# tracked separately; the current Waveshare BSP still compiles as one component.
+schema_version: 1
+name: ui-bootstrap
+board: waveshare-esp32s3-touch-amoled-1.75
+variant: ui-minimal
+modules:
+  display: {driver: co5300, mode: ui}
+  touch: {driver: cst9217, mode: service}
+  i2c: {driver: esp-idf-master, mode: service}
+  internal_storage: {driver: littlefs-nvs, mode: service}
+  pmu: {driver: axp2101, mode: "off"}
+  rtc: {driver: pcf85063, mode: "off"}
+  imu: {driver: qmi8658, mode: "off"}
+  gnss: {driver: lc76g, mode: "off"}
+  audio: {driver: es8311-es7210, mode: "off"}
+  sd: {driver: sdmmc, mode: "off"}
+  wifi: {driver: esp32s3, mode: "off"}
+  bluetooth: {driver: esp32s3-ble, mode: "off"}
+  distance: {driver: tof400f-dual-uart, mode: "off"}
+ui:
+  app: shell
+  screens: []

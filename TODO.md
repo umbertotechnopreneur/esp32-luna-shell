@@ -6,6 +6,10 @@ authorization.
 
 ## Current integration
 
+- [ ] Split the monolithic Waveshare BSP into shared bus, display/touch, audio,
+  SD, and I/O-expander units. Make the board YAML's `off` state remove each
+  device's driver sources and dependencies, then add reviewed board adapters
+  and dependency locks for other hardware and service-only combinations.
 - [ ] Finish the ESP-Brookesia 0.8 upstream merge, refresh versioned dependency
   locks, and run the repository's final validation package. Verify actual UI and
   power behavior on a device only after authorization.

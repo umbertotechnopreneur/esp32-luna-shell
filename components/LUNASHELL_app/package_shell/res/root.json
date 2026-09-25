@@ -1,0 +1,62 @@
+{
+  "version": "0.2.0",
+  "assets": [
+    {
+      "type": "viewScreen",
+      "id": "LUNASHELL_shell",
+      "mountMode": "dynamic",
+      "commonProps": { "clickable": false, "scrollable": false },
+      "style": { "bgColor": "#010205", "padding": 0 },
+      "children": [
+        {
+          "type": "container",
+          "id": "touch_surface",
+          "commonProps": { "clickable": true, "scrollable": false },
+          "events": [
+            { "type": "clicked", "action": "LUNASHELL.shell.touch" }
+          ],
+          "style": { "bgColor": "#010205", "padding": 0 },
+          "placement": {
+            "mode": "absolute", "x": "73dp", "y": "73dp",
+            "width": "320dp", "height": "320dp"
+          },
+          "children": [
+            {
+              "type": "label",
+              "id": "title",
+              "labelProps": { "text": "LUNA SHELL" },
+              "style": {
+                "textColor": "#ffffff", "fontSize": "32sp",
+                "textAlign": "center"
+              },
+              "placement": {
+                "mode": "absolute", "x": "0dp", "y": "104dp",
+                "width": "320dp", "height": "42dp"
+              }
+            },
+            {
+              "type": "label",
+              "id": "touch_count",
+              "labelProps": { "text": "TAP TO TEST TOUCH" },
+              "style": {
+                "textColor": "#20dfc1", "fontSize": "16sp",
+                "textAlign": "center"
+              },
+              "placement": {
+                "mode": "absolute", "x": "0dp", "y": "170dp",
+                "width": "320dp", "height": "28dp"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "type": "screenFlow",
+      "id": "LUNASHELL_shell_flow",
+      "screens": [ "LUNASHELL_shell" ],
+      "initial": "LUNASHELL_shell",
+      "transitions": []
+    }
+  ]
+}

@@ -30,7 +30,7 @@ config LUNASHELL_BUILD_PROFILE_HEADLESS
     bool "Headless runtime"
 
 config LUNASHELL_BUILD_PROFILE_UI_MINIMAL
-    bool "Minimal local UI runtime"
+    bool "Display and touch shell only"
 
 config LUNASHELL_BUILD_PROFILE_CONNECTED
     bool "Connected UI runtime"
@@ -197,6 +197,7 @@ config LUNASHELL_BUILD_ENABLE_UI
 config LUNASHELL_BUILD_ENABLE_BOOT_UI
     bool "Enable boot splash screen"
     depends on LUNASHELL_BUILD_ENABLE_UI
+    default n if LUNASHELL_BUILD_PROFILE_UI_MINIMAL
     default y
 
 config LUNASHELL_BUILD_ENABLE_AUDIO

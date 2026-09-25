@@ -1,3 +1,12 @@
+if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" STREQUAL "ui-minimal")
+    if(NOT CMAKE_BUILD_EARLY_EXPANSION AND
+       NOT CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL)
+        message(FATAL_ERROR "UI shell profile and Kconfig selection disagree")
+    endif()
+    include("${CMAKE_CURRENT_LIST_DIR}/LUNASHELL_app_shell.cmake")
+    return()
+endif()
+
 idf_component_register(
     SRCS
         "LUNASHELL_alert_service.cpp"

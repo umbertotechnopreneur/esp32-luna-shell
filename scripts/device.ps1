@@ -17,6 +17,9 @@ param(
     [ValidateSet("none", "distance")]
     [string]$Feature = "none",
 
+    # A reviewed board YAML selects its compiler profile before ESP-IDF runs.
+    [string]$BoardConfig,
+
     [int]$WaitSeconds = 30,
 
     [ValidateRange(1, 86400)]
@@ -79,6 +82,7 @@ if (-not [string]::IsNullOrWhiteSpace($LogPath)) {
         "BuildDir",
         "Profile",
         "Feature",
+        "BoardConfig",
         "WaitSeconds",
         "DurationSeconds",
         "OutputPath",
@@ -214,6 +218,54 @@ if ($Action -eq "discovery") {
 
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
+$BoardConfigPath = $null
+if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
+    if ($PSBoundParameters.ContainsKey("Profile") -or
+        $PSBoundParameters.ContainsKey("Feature")) {
+        throw "-BoardConfig selects the profile and cannot be combined with -Profile or -Feature"
+    }
+    $BoardConfigPath = [System.IO.Path]::GetFullPath(
+        $(if ([System.IO.Path]::IsPathRooted($BoardConfig)) {
+            $BoardConfig
+        } else {
+            Join-Path $ProjectRoot $BoardConfig
+        })
+    )
+    if (-not (Test-Path -LiteralPath $BoardConfigPath -PathType Leaf)) {
+        throw "Board configuration not found: $BoardConfigPath"
+    }
+    $boardPython = if ($PythonExe) {
+        $PythonExe
+    } elseif ($env:LUNASHELL_IDF_PYTHON) {
+        $env:LUNASHELL_IDF_PYTHON
+    } else {
+        $earlyIdfPath = if ($IdfPath) { $IdfPath } elseif ($env:LUNASHELL_IDF_PATH) {
+            $env:LUNASHELL_IDF_PATH
+        } else { "E:\Espressif\.espressif\v6.0.2\esp-idf" }
+        $earlyToolsPath = if ($ToolsPath) { $ToolsPath } elseif ($env:LUNASHELL_IDF_TOOLS_PATH) {
+            $env:LUNASHELL_IDF_TOOLS_PATH
+        } else { "E:\Espressif" }
+        $idfInstallName = Split-Path -Leaf (Split-Path -Parent $earlyIdfPath)
+        Join-Path $earlyToolsPath "tools\python\$idfInstallName\venv\Scripts\python.exe"
+    }
+    if (-not (Test-Path -LiteralPath $boardPython -PathType Leaf)) {
+        throw "ESP-IDF Python required for board YAML not found: $boardPython"
+    }
+    $boardSelectionOutput = @(& $boardPython `
+        (Join-Path $PSScriptRoot "board_config.py") $BoardConfigPath 2>&1)
+    if ($LASTEXITCODE -ne 0) {
+        throw "Board configuration rejected: $($boardSelectionOutput -join ' | ')"
+    }
+    try {
+        $boardSelection = ($boardSelectionOutput -join "`n") | ConvertFrom-Json
+    } catch {
+        throw "Board configuration selector returned invalid JSON: $($_.Exception.Message)"
+    }
+    $Profile = [string]$boardSelection.profile
+    $Feature = [string]$boardSelection.feature
+    $ProfileBuildKey = if ($Feature -eq "none") { $Profile } else { "$Profile-$Feature" }
+}
+
 $profileCatalogPath = Join-Path $ProjectRoot "config/sdkconfig/v1/catalog.json"
 try {
     $profileCatalog = Get-Content -Raw -LiteralPath $profileCatalogPath |
@@ -223,6 +275,9 @@ try {
 }
 if ($profileCatalog.schema_version -ne 1) {
     throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
+}
+if ($null -ne $BoardConfigPath -and $profileCatalog.board -cne $boardSelection.board) {
+    throw "Board YAML and firmware profile catalog select different boards"
 }
 $variantProperty = $profileCatalog.variants.PSObject.Properties[$ProfileBuildKey]
 if ($null -eq $variantProperty) {
@@ -274,6 +329,7 @@ if ($ProfileComponentRoots.Count -eq 0 -or
     throw "Firmware profile variant must include the main component root: $ProfileBuildKey"
 }
 $env:LUNASHELL_PROFILE_COMPONENT_ROOTS = $ProfileComponentRoots -join ';'
+$env:LUNASHELL_PROFILE_BUILD_KEY = $ProfileBuildKey
 
 $ProfileComponentDirectories = @(
     $SelectedProfileVariant.component_dirs |
@@ -941,10 +997,15 @@ function Get-WorkingDependencyLockPath([string]$RequestedBuildDir) {
 }
 
 function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
+    $selector = if ($null -ne $BoardConfigPath) {
+        "-BoardConfig '$BoardConfig'"
+    } else {
+        "-Profile $Profile" +
+        $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" })
+    }
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 update-lock " +
-        "-Profile $Profile" +
-        $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" }) +
+        $selector +
         " -BuildDir $RequestedBuildDir"
     )
 }
@@ -1115,6 +1176,14 @@ function Get-SdkconfigDefaultsState {
     $catalogHash = (
         Get-FileHash -LiteralPath $profileCatalogPath -Algorithm SHA256
     ).Hash.ToLowerInvariant()
+    $boardConfigEntry = if ($null -ne $BoardConfigPath) {
+        $boardConfigHash = (
+            Get-FileHash -LiteralPath $BoardConfigPath -Algorithm SHA256
+        ).Hash.ToLowerInvariant()
+        "board_config|$boardConfigHash"
+    } else {
+        "board_config|none"
+    }
     $dependencyLockHash = (
         Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
             -Algorithm SHA256
@@ -1128,6 +1197,7 @@ function Get-SdkconfigDefaultsState {
                 "profile=$Profile"
                 "feature=$Feature"
                 "catalog|$catalogHash"
+                $boardConfigEntry
                 "dependency_lock|$dependencyLockHash"
             ) +
             $signatureEntries +
@@ -1150,14 +1220,15 @@ function Get-SdkconfigDefaultsStatePath([string]$RequestedBuildDir) {
 }
 
 function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
-    $featureArgument = if ($Feature -eq "none") {
-        ""
+    $selector = if ($null -ne $BoardConfigPath) {
+        "-BoardConfig '$BoardConfig'"
     } else {
-        " -Feature $Feature"
+        "-Profile $Profile" +
+        $(if ($Feature -eq "none") { "" } else { " -Feature $Feature" })
     }
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 set-target " +
-        "-Profile $Profile$featureArgument -BuildDir $RequestedBuildDir"
+        "$selector -BuildDir $RequestedBuildDir"
     )
 }
 
@@ -1368,12 +1439,16 @@ try {
                 "monitor",
                 "-Port", $Port,
                 "-BuildDir", $BuildDir,
-                "-Profile", $Profile,
-                "-Feature", $Feature,
                 "-IdfPath", "`"$IdfPath`"",
                 "-ToolsPath", "`"$ToolsPath`"",
                 "-PythonExe", "`"$PythonExe`""
             )
+
+            if ($null -ne $BoardConfigPath) {
+                $monitorArgs += @("-BoardConfig", "`"$BoardConfigPath`"")
+            } else {
+                $monitorArgs += @("-Profile", $Profile, "-Feature", $Feature)
+            }
 
             Start-Process -FilePath "pwsh.exe" -ArgumentList $monitorArgs -WorkingDirectory $ProjectRoot
         }

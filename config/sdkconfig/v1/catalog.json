@@ -37,7 +37,6 @@
       "component_roots": [
         "main",
         "LUNASHELL_app",
-        "LUNASHELL_boot",
         "esp32_s3_touch_amoled_1_75",
         "joltwallet__littlefs",
         "espressif__brookesia_hal_adaptor",
@@ -53,12 +52,11 @@
         "components/LUNASHELL_logger",
         "components/LUNASHELL_platform",
         "components/LUNASHELL_app",
-        "components/LUNASHELL_boot",
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/ui-minimal.lock",
       "generated_sdkconfig": ".sdkconfig/v1/ui-minimal",
-      "default_build_dir": "artifacts/build-ui-minimal"
+      "default_build_dir": "artifacts/build-ui-bootstrap"
     },
     "connected": {
       "profile": "connected",

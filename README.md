@@ -397,7 +397,7 @@ The available profile selectors are:
 | --- | --- | --- |
 | `CONFIG_LUNASHELL_BUILD_PROFILE_FULL` | `y` | Full Waveshare device runtime with the normal UI-first experience |
 | `CONFIG_LUNASHELL_BUILD_PROFILE_CONNECTED` | `n` | Minimal UI plus Wi-Fi, BLE provisioning/telemetry, and HTTP diagnostics |
-| `CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL` | `n` | Display/touch, boot UI, and the LittleFS app package without radios or board telemetry services |
+| `CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL` | `n` | Display/touch and a one-screen Brookesia shell, without the boot splash, radios, or board telemetry services |
 | `CONFIG_LUNASHELL_BUILD_PROFILE_HEADLESS` | `n` | Portable runtime only: no BSP, UI, audio, radios, sensors, removable storage, or HTTP |
 
 Select them without editing configuration files:
@@ -407,8 +407,12 @@ pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile headless
 pwsh -NoProfile -File .\scripts\device.ps1 build -Profile headless
 ```
 
+The first YAML board build describes the display/touch baseline and selects
+`ui-minimal`. See [board build configuration](docs/architecture/board-build-configuration.md)
+for its hardware set, commands, and current compile boundary.
+
 The default directories are `artifacts/build-full`, `artifacts/build-connected`,
-`artifacts/build-ui-minimal`, and `artifacts/build-headless`. All firmware build
+`artifacts/build-ui-bootstrap`, and `artifacts/build-headless`. All firmware build
 trees belong below `artifacts/`; an explicit `-BuildDir` may select a different
 cache location only when it remains under that root.
 
