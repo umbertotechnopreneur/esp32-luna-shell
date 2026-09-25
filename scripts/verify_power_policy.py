@@ -9,6 +9,7 @@ those specifications to the ESP-IDF implementation without requiring a build.
 from __future__ import annotations
 
 import argparse
+import json
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
@@ -61,6 +62,18 @@ ADAPTER_PAUSE_PATCH = (
 )
 APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp"
 APP_HEADER = ROOT / "components" / "LUNASHELL_app" / "include" / "LUNASHELL_app.hpp"
+SETTINGS_SCREEN = (
+    ROOT / "components" / "LUNASHELL_app" / "package" / "res" / "screen_settings.json"
+)
+SETTINGS_SWITCH = (
+    ROOT
+    / "components"
+    / "LUNASHELL_app"
+    / "package"
+    / "res"
+    / "templates"
+    / "LUNASHELL_settings_switch.json"
+)
 ADAPTIVE_CHROME_SOURCE = (
     ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_adaptive_chrome.cpp"
 )
@@ -982,6 +995,8 @@ def verify_source_contracts() -> None:
     adapter_pause_patch_new = patch_new_side(adapter_pause_patch)
     app = read(APP_SOURCE)
     app_header = read(APP_HEADER)
+    settings_screen = json.loads(read(SETTINGS_SCREEN))
+    settings_switch = json.loads(read(SETTINGS_SWITCH))
     adaptive_chrome = read(ADAPTIVE_CHROME_SOURCE)
     adaptive_command = read(ADAPTIVE_COMMAND_SOURCE)
     brookesia_gui = read(BROOKESIA_GUI_SOURCE)
@@ -998,6 +1013,82 @@ def verify_source_contracts() -> None:
     storage = read(STORAGE_SOURCE)
     platform_cmake = read(PLATFORM_CMAKE)
     sdkconfig_defaults = read_profile_defaults()
+
+    rotation_restore = function_text(
+        hardware,
+        'extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(',
+        "saved auto-rotation restore",
+    )
+    require_regex(
+        rotation_restore,
+        r'load_or_create_bool_setting\(\s*settings,\s*kAutoRotationSetting,\s*'
+        r'"Cardinal display auto-rotation",\s*false,\s*&enabled',
+        "auto-rotation first-boot default off",
+    )
+    require_contains(
+        rotation_restore,
+        "return set_auto_rotation_runtime(enabled);",
+        "saved auto-rotation applied without overriding existing preference",
+    )
+    switch_nodes = [
+        child
+        for child in settings_switch["node"]["children"]
+        if child.get("id") == "toggle"
+    ]
+    require(
+        len(switch_nodes) == 1
+        and switch_nodes[0]["type"] == "switch"
+        and switch_nodes[0]["toggleProps"]["checked"] is False,
+        "Settings switch must render unchecked before saved state is bound",
+    )
+    screens = [
+        asset
+        for asset in settings_screen["assets"]
+        if isinstance(asset, dict) and asset.get("id") == "LUNASHELL_settings"
+    ]
+    require(len(screens) == 1, "Settings screen must exist exactly once")
+    settings_rows = screens[0]["children"][0]["children"][0]["children"]
+    rotation_rows = [row for row in settings_rows if row.get("id") == "auto_rotation"]
+    require(
+        len(rotation_rows) == 1
+        and rotation_rows[0]["templateId"] == "LUNASHELL_settings_switch"
+        and rotation_rows[0]["overrides"]["toggle"]["events"][0]["action"]
+        == "LUNASHELL.settings.display.rotation.changed",
+        "Automatic rotation Settings row must use the persisted switch event",
+    )
+    rotation_overrides = rotation_rows[0]["overrides"]
+    switch_placement = rotation_overrides["toggle"]["placement"]
+    switch_x = int(switch_placement["x"].removesuffix("dp"))
+    switch_y = int(switch_placement["y"].removesuffix("dp"))
+    switch_width = int(switch_placement["width"].removesuffix("dp"))
+    switch_height = int(switch_placement["height"].removesuffix("dp"))
+    label_widths = [
+        int(rotation_overrides[label]["placement"]["width"].removesuffix("dp"))
+        for label in ("title", "subtitle")
+    ]
+    require(
+        switch_width >= 64
+        and switch_height >= 44
+        and switch_x + switch_width <= 282
+        and switch_y + switch_height <= 52
+        and all(width + 8 <= switch_x for width in label_widths),
+        "Automatic rotation switch must have a larger touch target without clipping labels",
+    )
+    require_contains(
+        app,
+        "next_controls.rotation_checked = orientation.auto_rotation_enabled;",
+        "Automatic rotation switch reflects saved runtime state",
+    )
+    rotation_handler = function_text(
+        app,
+        "void App::handle_auto_rotation_event(",
+        "Automatic rotation switch handler",
+    )
+    require_contains(
+        rotation_handler,
+        "LUNASHELL_display_set_auto_rotation_enabled(*checked)",
+        "Automatic rotation switch persists its selected state",
+    )
 
     for source, fragment, label in (
         (snapshot, "constexpr uint32_t kDefaultPeriodMs = 1000;", "Full Snapshot default cadence"),

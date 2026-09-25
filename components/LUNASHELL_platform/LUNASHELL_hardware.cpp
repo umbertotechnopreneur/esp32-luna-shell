@@ -8095,7 +8095,7 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
         settings,
         kAutoRotationSetting,
         "Cardinal display auto-rotation",
-        true,
+        false,
         &enabled
     );
     if (error != ESP_OK) {

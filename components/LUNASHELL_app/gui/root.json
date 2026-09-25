@@ -5011,14 +5011,26 @@
                                         "title": {
                                             "labelProps": {
                                                 "text": "Automatic rotation"
+                                            },
+                                            "placement": {
+                                                "width": "200dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
                                                 "text": "Follow the device orientation"
+                                            },
+                                            "placement": {
+                                                "width": "200dp"
                                             }
                                         },
                                         "toggle": {
+                                            "placement": {
+                                                "x": "210dp",
+                                                "y": "4dp",
+                                                "width": "68dp",
+                                                "height": "44dp"
+                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
