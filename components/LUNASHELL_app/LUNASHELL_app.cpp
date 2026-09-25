@@ -1,13 +1,13 @@
 /*
- * LUNASHELL.AI
+ * ESP32 Luna Shell
  * Clear signals. Confident decisions.
  *
- * Copyright (c) 2026 LUNASHELL.ai. All rights reserved.
+ * Copyright (c) 2026 ESP32 Luna Shell. All rights reserved.
  *
  * Author: Umberto Giacobbi
- * LUNASHELL.ai: https://LUNASHELL.ai
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
  * Author website: https://umbertogiacobbi.biz
- * Contact: hello@LUNASHELL.ai
+ *
  */
 
 #include "LUNASHELL_app.hpp"
@@ -1187,7 +1187,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         std::abort();
     }
     watch_rollback.release();
-    ESP_LOGI(kTag, "LUNASHELL.ai native app started on Brookesia System 0.8");
+    ESP_LOGI(kTag, "ESP32 Luna Shell native app started on Brookesia System 0.8");
     return {};
 }
 
@@ -1686,7 +1686,7 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
         }
     }
     context_ = nullptr;
-    ESP_LOGI(kTag, "LUNASHELL.ai native app stopped");
+    ESP_LOGI(kTag, "ESP32 Luna Shell native app stopped");
     if (!stop_error.empty()) {
         return std::unexpected(std::move(stop_error));
     }

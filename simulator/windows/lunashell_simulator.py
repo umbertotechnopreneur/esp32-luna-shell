@@ -1,4 +1,4 @@
-"""LUNASHELL.ai round-device UI simulator for Windows.
+"""ESP32 Luna Shell round-device UI simulator for Windows.
 
 The simulator mirrors the firmware flow without pretending to emulate physical
 drivers. Mouse clicks stand in for touch and deterministic scenarios provide
@@ -1485,7 +1485,7 @@ class LUNASHELLSimulator:
         if self.boot_image is not None:
             self.canvas.create_image(233, 233, image=self.boot_image, tags="ui")
         else:
-            self.canvas.create_text(233, 135, text="LUNASHELL.ai", fill=BLUE, font=(FONT_DISPLAY, 34), tags="ui")
+            self.canvas.create_text(233, 135, text="ESP32 Luna Shell", fill=BLUE, font=(FONT_DISPLAY, 34), tags="ui")
         self._draw_scenario_label()
         self.canvas.create_rectangle(73, 222, 393, 374, fill=NAVY, outline=BLUE, width=1, tags="ui")
         self.canvas.create_text(
@@ -1584,7 +1584,7 @@ class LUNASHELLSimulator:
         events = [
             ("LUNASHELL_logger", "Canonical logger online: console + RAM ring"),
             ("LUNASHELL_main", self.scenario.sd_message),
-            ("LUNASHELL_boot", "Boot screen online: LUNASHELL.ai + canonical live log"),
+            ("LUNASHELL_boot", "Boot screen online: ESP32 Luna Shell + canonical live log"),
             ("LUNASHELL_main", touch_message),
             ("LUNASHELL_hw", self._battery_timeline_message()),
             ("LUNASHELL_hw", imu_message),
@@ -1617,7 +1617,7 @@ class LUNASHELLSimulator:
         if self.screen == "boot":
             if self.ready:
                 if self._apply_action("touch"):
-                    self.logger.info("LUNASHELL_boot", "Synthetic touch confirmed; opening LUNASHELL.ai")
+                    self.logger.info("LUNASHELL_boot", "Synthetic touch confirmed; opening ESP32 Luna Shell")
                     self.show_home()
             else:
                 self.logger.info("LUNASHELL_boot", "Synthetic touch received; startup still in progress")
@@ -4601,7 +4601,7 @@ class LUNASHELLSimulator:
             message = "Confirmed"
         self.result_message = message
         self.screen = "result"
-        self._draw_shell("LUNASHELL.ai", message, primary=True, actions=False)
+        self._draw_shell("ESP32 Luna Shell", message, primary=True, actions=False)
 
     def cancel(self) -> None:
         if self.screen != "confirmation":
@@ -4817,7 +4817,7 @@ class LUNASHELLSimulator:
         if redraw is not None:
             redraw()
         elif current_screen == "result":
-            self._draw_shell("LUNASHELL.ai", self.result_message, primary=True, actions=False)
+            self._draw_shell("ESP32 Luna Shell", self.result_message, primary=True, actions=False)
             self.screen = "result"
         else:
             self.show_home()
@@ -5012,7 +5012,7 @@ def main() -> None:
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
 
     root = tk.Tk()
-    root.title(f"LUNASHELL.ai Device Simulator · {engine.scenario.title.upper()}")
+    root.title(f"ESP32 Luna Shell Device Simulator · {engine.scenario.title.upper()}")
     root.resizable(False, False)
     root.configure(background="#101820")
     simulator = LUNASHELLSimulator(

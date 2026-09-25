@@ -1,13 +1,13 @@
 /*
- * LUNASHELL.AI
+ * ESP32 Luna Shell
  * Clear signals. Confident decisions.
  *
- * Copyright (c) 2026 LUNASHELL.ai. All rights reserved.
+ * Copyright (c) 2026 ESP32 Luna Shell. All rights reserved.
  *
  * Author: Umberto Giacobbi
- * LUNASHELL.ai: https://LUNASHELL.ai
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
  * Author website: https://umbertogiacobbi.biz
- * Contact: hello@LUNASHELL.ai
+ *
  */
 
 #include "LUNASHELL_app.hpp"
@@ -971,10 +971,10 @@ esp_brookesia::system::core::AppManifest App::get_manifest() const
 {
     return {
         .id = std::string(kAppManifestId),
-        .name = "LUNASHELL.ai",
+        .name = "ESP32 Luna Shell",
         .localized_names = {
-            {"en", "LUNASHELL.ai"},
-            {"it", "LUNASHELL.ai"},
+            {"en", "ESP32 Luna Shell"},
+            {"it", "ESP32 Luna Shell"},
         },
         .version = "0.8.0",
         .kind = esp_brookesia::system::core::AppKind::Native,

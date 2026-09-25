@@ -1,4 +1,4 @@
-# LUNASHELL.ai Windows device simulator
+# ESP32 Luna Shell Windows device simulator
 
 This desktop target mirrors the round 466 x 466 UI contract and application
 flow. It does not emulate the Waveshare electrical hardware or ESP-IDF drivers.

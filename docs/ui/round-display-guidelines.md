@@ -1,4 +1,4 @@
-# LUNASHELL.ai round display guidelines
+# ESP32 Luna Shell round display guidelines
 
 ## Device profile
 
@@ -6,7 +6,7 @@ The target is a circular 466 x 466 pixel AMOLED display. Its center is
 `(233, 233)` and its nominal radius is 233 pixels.
 
 The largest mathematical square inside that circle is about 329.5 pixels per
-side. LUNASHELL.ai uses a deliberately smaller 320 x 320 pixel safe-content square,
+side. ESP32 Luna Shell uses a deliberately smaller 320 x 320 pixel safe-content square,
 positioned at `(73, 73)`. This leaves about 6.7 pixels of radial clearance at
 each corner.
 
@@ -94,8 +94,8 @@ Navigation must remain consistent across flows:
 
 ## Boot screen
 
-The LUNASHELL.ai boot screen is the first device-visible frame. It uses the supplied
-LUNASHELL.ai artwork without reinterpreting the logo, keeps the complete mark inside
+The ESP32 Luna Shell boot screen is the first device-visible frame. It uses the supplied
+ESP32 Luna Shell artwork without reinterpreting the logo, keeps the complete mark inside
 the safe square, and plays one short boot SFX.
 
 Production files:
@@ -120,7 +120,7 @@ strip survives around the application surface.
 ## ESP-Brookesia integration boundary
 
 System Super is the device shell and service layer. System Core owns the
-LUNASHELL.ai native application lifecycle, while GUI LVGL loads and renders
+ESP32 Luna Shell native application lifecycle, while GUI LVGL loads and renders
 `components/LUNASHELL_app/package/res/root.json` as the resident background, chrome,
 Welcome, and empty content target. Non-Welcome content is loaded from one
 generated `res/screen_*.json` document at a time and unloaded when navigation

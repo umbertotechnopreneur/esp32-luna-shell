@@ -75,11 +75,11 @@
                             "type": "label",
                             "id": "brand",
                             "labelProps": {
-                                "text": "LUNASHELL.AI"
+                                "text": "ESP32 LUNA SHELL"
                             },
                             "style": {
                                 "textColor": "#009c9d",
-                                "fontSize": "${constant.typography.title}",
+                                "fontSize": "${constant.typography.heading}",
                                 "textAlign": "center"
                             },
                             "placement": {
@@ -107,7 +107,7 @@
                             "type": "label",
                             "id": "details",
                             "labelProps": {
-                                "text": "Device console on ESP-Brookesia 0.8\nLUNASHELL.ai\nhello@LUNASHELL.ai\n\nCopyright (c) 2026 LUNASHELL.ai"
+                                "text": "ESP32 device shell on ESP-Brookesia 0.8\n\nCopyright (c) 2026 ESP32 Luna Shell"
                             },
                             "style": {
                                 "textColor": "#9fb1c1",

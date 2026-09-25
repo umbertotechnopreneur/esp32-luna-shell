@@ -35,9 +35,7 @@ EXCLUDED_SEGMENTS = {
     "esp32_s3_touch_amoled_1_75",
 }
 
-# UI branding removal is deliberately tracked as separate authorized work in
-# TODO.md. Keep those exclusions explicit so PASS never implies whole-tree UI
-# neutrality.
+# Generated app resources remain excluded from this source-focused release scan.
 DEFERRED_UI_PATHS = (
     Path("components/LUNASHELL_app"),
     Path("components/LUNASHELL_boot/LUNASHELL_boot_ui.c"),
@@ -45,7 +43,7 @@ DEFERRED_UI_PATHS = (
 )
 PERSONAL_TERMS = (
     "Author:" + " Umberto Giacobbi",
-    "hello@" + "LUNASHELL.ai",
+    "hello@" + "LUNA" + "SHELL.ai",
     "umbertogiacobbi" + ".biz",
 )
 

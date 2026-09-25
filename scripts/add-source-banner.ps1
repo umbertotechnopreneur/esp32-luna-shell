@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-Preview or apply the canonical banner to LUNASHELL-owned source files.
+Preview or apply the canonical banner to ESP32 Luna Shell source files.
 
 .DESCRIPTION
 Without -Apply this command is read-only and prints the planned changes. It
@@ -31,14 +31,14 @@ $ErrorActionPreference = 'Stop'
 
 $bannerTemplate = @'
 /*
- * LUNASHELL firmware
+ * ESP32 Luna Shell firmware
  *
  * Copyright (c) 2026
  */
 '@
-$bannerMarker = "LUNASHELL firmware`n *`n * Copyright (c) 2026"
+$bannerMarker = "ESP32 Luna Shell firmware`n *`n * Copyright (c) 2026"
 $legacyAuthorMarker = 'Author:' + ' Umberto Giacobbi'
-$legacyContactMarker = 'Contact: hello@' + 'LUNASHELL.ai'
+$legacyContactMarker = 'Contact: hello@' + 'LUNA' + 'SHELL.ai'
 $legacyWebsiteMarker = 'Author website: https://umbertogiacobbi' + '.biz'
 $extensions = @('.c', '.cpp', '.h', '.hpp')
 $allowedSourceRoots = @(
@@ -311,7 +311,7 @@ try {
                 [Math]::Floor(($fileIndex / $files.Count) * 100)
             }
             Write-Progress -Id 30 `
-                -Activity "LUNASHELL source banners: $operation ($mode)" `
+                -Activity "ESP32 Luna Shell source banners: $operation ($mode)" `
                 -Status "$fileIndex of $($files.Count): $relativePath" `
                 -PercentComplete $percent
         }
@@ -422,7 +422,7 @@ try {
 }
 finally {
     if (-not $NoProgress) {
-        Write-Progress -Id 30 -Activity 'LUNASHELL source banners' -Completed
+        Write-Progress -Id 30 -Activity 'ESP32 Luna Shell source banners' -Completed
     }
 }
 

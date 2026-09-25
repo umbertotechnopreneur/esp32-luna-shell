@@ -1,13 +1,13 @@
 /*
- * LUNASHELL.AI
+ * ESP32 Luna Shell
  * Clear signals. Confident decisions.
  *
- * Copyright (c) 2026 LUNASHELL.ai. All rights reserved.
+ * Copyright (c) 2026 ESP32 Luna Shell. All rights reserved.
  *
  * Author: Umberto Giacobbi
- * LUNASHELL.ai: https://LUNASHELL.ai
+ * Repository: https://github.com/umbertotechnopreneur/esp32-luna-shell
  * Author website: https://umbertogiacobbi.biz
- * Contact: hello@LUNASHELL.ai
+ *
  */
 
 #include "LUNASHELL_adaptive_command_bar.hpp"
