@@ -1064,26 +1064,14 @@ def verify_source_contracts() -> None:
         "Automatic rotation Settings row must use the persisted switch event",
     )
     rotation_overrides = rotation_rows[0]["overrides"]
-    switch_placement = rotation_overrides["toggle"]["placement"]
-    switch_x = int(switch_placement["x"].removesuffix("dp"))
-    switch_y = int(switch_placement["y"].removesuffix("dp"))
-    switch_width = int(switch_placement["width"].removesuffix("dp"))
-    switch_height = int(switch_placement["height"].removesuffix("dp"))
-    row_height = int(
-        rotation_overrides["."]["placement"]["height"].removesuffix("dp")
-    )
-    label_widths = [
-        int(rotation_overrides[label]["placement"]["width"].removesuffix("dp"))
-        for label in ("title", "subtitle")
-    ]
+    template_placement = settings_switch["node"]["placement"]
+    switch_placement = switch_nodes[0]["placement"]
     require(
-        switch_width >= 108
-        and switch_height >= 56
-        and switch_x * 2 + switch_width == 282
-        and switch_y >= 51
-        and switch_y + switch_height <= row_height
-        and all(width <= 282 for width in label_widths),
-        "Automatic rotation switch must be prominent below unclipped labels",
+        template_placement["height"] == "52dp"
+        and switch_placement["width"] == "52dp"
+        and switch_placement["height"] == "30dp"
+        and all("placement" not in value for value in rotation_overrides.values()),
+        "Automatic rotation must match the size and row layout of other Settings switches",
     )
     require_contains(
         app,

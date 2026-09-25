@@ -636,34 +636,17 @@
                                     "id": "auto_rotation",
                                     "templateId": "LUNASHELL_settings_switch",
                                     "overrides": {
-                                        ".": {
-                                            "placement": {
-                                                "height": "112dp"
-                                            }
-                                        },
                                         "title": {
                                             "labelProps": {
                                                 "text": "Automatic rotation"
-                                            },
-                                            "placement": {
-                                                "width": "282dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
                                                 "text": "Follow the device orientation"
-                                            },
-                                            "placement": {
-                                                "width": "282dp"
                                             }
                                         },
                                         "toggle": {
-                                            "placement": {
-                                                "x": "87dp",
-                                                "y": "51dp",
-                                                "width": "108dp",
-                                                "height": "56dp"
-                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
