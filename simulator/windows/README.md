@@ -180,7 +180,7 @@ Build the standalone Windows executable:
 ```
 
 The build script creates an isolated `.venv-simulator` environment and writes
-the executable to `simulator/windows/dist/LUNASHELLDeviceSimulator.exe`.
+the executable to `simulator/windows/dist/ESP32LunaShellDeviceSimulator.exe`.
 
 ## Loopback fake HTTP device
 

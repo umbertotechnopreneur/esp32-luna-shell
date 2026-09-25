@@ -1,7 +1,7 @@
-# Round-device firmware
+# ESP32 Luna Shell
 
-Firmware and Windows simulator for the device-console application on the GPS
-variant of the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp32-s3-touch-amoled-1.75.html) and its [wiki page](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75).
+Firmware and Windows simulator for ESP32 Luna Shell, currently configured for
+the GPS variant of the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp32-s3-touch-amoled-1.75.html) and its [wiki page](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75).
 
 The device application uses the official Espressif ESP-Brookesia 0.8 stack:
 System Super owns the system shell and services, System Core owns the native

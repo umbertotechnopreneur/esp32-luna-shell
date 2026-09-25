@@ -11,7 +11,7 @@ $BootImage = Join-Path $ProjectRoot "assets\branding\LUNASHELL\generated\LUNASHE
 $BootSound = Join-Path $ProjectRoot "assets\sfx\generated\lunashell-boot.wav"
 $Dist = Join-Path $PSScriptRoot "dist"
 $Work = Join-Path $PSScriptRoot "build"
-$Executable = Join-Path $Dist "LUNASHELLDeviceSimulator.exe"
+$Executable = Join-Path $Dist "ESP32LunaShellDeviceSimulator.exe"
 
 foreach ($requiredPath in @($Simulator, $Scenarios, $BootImage, $BootSound)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -38,7 +38,7 @@ if ($LASTEXITCODE -ne 0) {
     --clean `
     --windowed `
     --onefile `
-    --name "LUNASHELLDeviceSimulator" `
+    --name "ESP32LunaShellDeviceSimulator" `
     --distpath $Dist `
     --workpath $Work `
     --specpath $Work `
