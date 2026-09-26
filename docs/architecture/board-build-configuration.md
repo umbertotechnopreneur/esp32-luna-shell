@@ -50,9 +50,12 @@ require reviewed component graphs and dependency locks. A future board must
 supply an explicit adapter and pinout; changing the YAML board name alone is
 rejected.
 
-The Windows simulator currently models the full synthetic device and has no
-`ui-bootstrap` shell mode. Its passing contract checks do not validate this
-firmware screen or touch behavior.
+The Windows simulator can preview this exact YAML and the shell's packaged
+`root.json` with `run-simulator.ps1 -BoardConfig`. It shows the 466 × 466
+screen, one 320 × 320 touch area, and the tap counter. A visible `SYNTHETIC`
+label distinguishes the preview from firmware. Its contract checks verify
+the YAML, screen document, and touch bounds; they cannot prove Brookesia,
+LVGL, panel, or CST9217 behavior on hardware.
 
 No flash or on-device behavior is implied by a successful host build. Device
 access needs explicit authorization for the requested operation.

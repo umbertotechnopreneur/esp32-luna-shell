@@ -11,6 +11,15 @@ If arguments are passed, it starts directly using them.
 .PARAMETER Scenario
 Simulation scenario to start.
 
+.PARAMETER BoardConfig
+Preview the reviewed ui-bootstrap YAML and minimal firmware shell.
+
+.PARAMETER DumpBoardShell
+Print the synthetic ui-bootstrap shell contract and exit.
+
+.PARAMETER ShellTaps
+Synthetic shell taps for headless contract checks.
+
 .PARAMETER Screen
 Initial simulator screen.
 
@@ -76,6 +85,9 @@ Show full help and exit.
 #>
 [CmdletBinding()]
 param(
+    [switch]$BoardConfig,
+    [switch]$DumpBoardShell,
+    [int]$ShellTaps = 0,
     [ValidateSet(
         'battery-charging','battery-low','battery-unavailable','boot-partial','gps-searching','healthy',
         'memory-pressure','pmic-no-cell','sd-card-lifecycle','sd-unformatted','stale-recovery',
@@ -140,6 +152,7 @@ function Copy-SimulatorState {
 }
 
 $script:State = [ordered]@{
+    BoardConfig = $false
     Scenario = 'healthy'
     ScenarioFile = $null
     AtMs = 0
@@ -208,7 +221,7 @@ $IdleStateCatalog = @(
     [pscustomobject]@{ Name = 'standby'; Description = 'Standby visual profile.' }
 )
 
-$MenuKeys = @('1','2','3','4','5','6','7','8','9','c','C','r','R','h','H','g','G','0','x','X')
+$MenuKeys = @('1','2','3','4','5','6','7','8','9','u','U','c','C','r','R','h','H','g','G','0','x','X')
 
 function Get-ConsoleWidth {
     if (Get-Command Resolve-MenuConsoleWidth -ErrorAction SilentlyContinue) {
@@ -333,6 +346,11 @@ function Build-LaunchArgs {
     param($state)
 
     $args = @()
+    if ($state.BoardConfig) {
+        $args += '--board-config'
+        if (-not [string]::IsNullOrWhiteSpace($state.Capture)) { $args += @('--capture', $state.Capture) }
+        return $args
+    }
     if (-not [string]::IsNullOrWhiteSpace($state.ScenarioFile)) {
         $args += @('--scenario-file', $state.ScenarioFile)
     }
@@ -353,6 +371,24 @@ function Build-HeadlessArgs {
     param([System.Collections.IDictionary]$BoundParameters)
 
     $args = @()
+    if ($BoardConfig) {
+        foreach ($setting in @('Scenario','ScenarioFile','AtMs','Screen','IdleState','SafeGuide',
+                               'PerformanceMode','WirelessRunning','ListScenarios',
+                               'ValidateScenarios','DumpSnapshot','DumpApi','Action','AdvanceMs',
+                               'Capture','NoSound')) {
+            if ($BoundParameters.ContainsKey($setting)) {
+                throw "-BoardConfig cannot be combined with -$setting. The minimal shell has no device pages or scenarios."
+            }
+        }
+        if ($DumpBoardShell) { $args += '--dump-board-shell' }
+        $args += '--board-config'
+        if ($BoundParameters.ContainsKey('ShellTaps')) { $args += @('--shell-taps', [string]$ShellTaps) }
+        if ($BoundParameters.ContainsKey('Output')) { $args += @('--output', $Output) }
+        return $args
+    }
+    if ($DumpBoardShell -or $BoundParameters.ContainsKey('ShellTaps')) {
+        throw '-DumpBoardShell and -ShellTaps require -BoardConfig.'
+    }
     if ($BoundParameters.ContainsKey('ScenarioFile')) {
         if ($BoundParameters.ContainsKey('Scenario')) {
             throw 'Use either -Scenario or -ScenarioFile, not both.'
@@ -379,6 +415,11 @@ function Build-HeadlessArgs {
 }
 
 function Resolve-PythonCommand {
+    $venvPython = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) '.venv-simulator\Scripts\python.exe'
+    if (Test-Path -LiteralPath $venvPython -PathType Leaf) {
+        & $venvPython -c 'import PIL' 2>$null
+        if ($LASTEXITCODE -eq 0) { return $venvPython }
+    }
     foreach ($candidate in @('python', 'python3', 'py')) {
         if (Get-Command $candidate -ErrorAction SilentlyContinue) { return $candidate }
     }
@@ -393,6 +434,10 @@ function Invoke-HeadlessSimulator {
     }
 
     $python = Resolve-PythonCommand
+    if ($BoardConfig) {
+        & $python -c 'import yaml' 2>$null
+        if ($LASTEXITCODE -ne 0) { throw 'UI bootstrap requires PyYAML. Install it in .venv-simulator.' }
+    }
     $args = Build-HeadlessArgs -BoundParameters $BoundParameters
     & $python -B $Simulator @args
     if ($LASTEXITCODE -ne 0) {
@@ -575,6 +620,7 @@ function Show-MainMenu {
     }
 
     Write-Colored ''
+    Write-Colored ('  [ U ] UI bootstrap: ' + $(if ($script:State.BoardConfig) { 'ON · minimal firmware shell' } else { 'OFF · full synthetic device' })) -Color Cyan
     Write-Colored '  [ C ] Copy command' -Color DarkGray
     Write-Colored '  [ R ] Reset defaults' -Color DarkGray
     Write-Colored '  [ G ] Switch guide' -Color DarkGray
@@ -590,6 +636,10 @@ function Run-Simulator {
     }
 
     $python = Resolve-PythonCommand
+    if ($state.BoardConfig) {
+        & $python -c 'import yaml' 2>$null
+        if ($LASTEXITCODE -ne 0) { throw 'UI bootstrap requires PyYAML. Install it in .venv-simulator.' }
+    }
 
     $args = Build-LaunchArgs -state $state
     Show-Brand
@@ -609,6 +659,8 @@ function Run-Interactive {
         $choice = Read-MenuInput -Prompt 'Select' -AllowedChoices $MenuKeys
 
         switch ($choice) {
+            'u' { $script:State.BoardConfig = -not $script:State.BoardConfig }
+            'U' { $script:State.BoardConfig = -not $script:State.BoardConfig }
             '1' { $script:State.Scenario = Select-CatalogValue -Title 'SCENARIO' -Catalog $ScenarioCatalog -Current $script:State.Scenario }
             '2' { $script:State.Screen = Select-CatalogValue -Title 'SCREEN' -Catalog $ScreenCatalog -Current $script:State.Screen }
             '3' { $script:State.IdleState = Select-CatalogValue -Title 'IDLE STATE' -Catalog $IdleStateCatalog -Current $script:State.IdleState }
@@ -690,7 +742,7 @@ if ($Help) {
 $headlessMode = $false
 foreach ($p in @(
     'ListScenarios','ValidateScenarios','DumpSnapshot','DumpApi',
-    'Action','AdvanceMs','Output'
+    'Action','AdvanceMs','Output','DumpBoardShell','ShellTaps'
 )) {
     if ($script:LauncherBoundParameters.ContainsKey($p)) { $headlessMode = $true; break }
 }
@@ -703,7 +755,7 @@ if ($headlessMode) {
 Initialize-SimulatorUi | Out-Null
 
 $directMode = $false
-foreach ($p in @('Scenario','ScenarioFile','AtMs','Screen','IdleState','Capture','SafeGuide','NoSound','PerformanceMode','WirelessRunning')) {
+foreach ($p in @('BoardConfig','Scenario','ScenarioFile','AtMs','Screen','IdleState','Capture','SafeGuide','NoSound','PerformanceMode','WirelessRunning')) {
     if ($PSBoundParameters.ContainsKey($p)) { $directMode = $true; break }
 }
 
@@ -713,6 +765,14 @@ if (-not $directMode) {
 }
 
 $direct = Copy-SimulatorState -Source $DefaultState
+if ($BoardConfig) {
+    foreach ($setting in @('Scenario','ScenarioFile','AtMs','Screen','IdleState','SafeGuide','NoSound','PerformanceMode','WirelessRunning')) {
+        if ($PSBoundParameters.ContainsKey($setting)) {
+            throw "-BoardConfig cannot be combined with -$setting. The minimal shell has no device pages or scenarios."
+        }
+    }
+}
+$direct.BoardConfig = [bool]$BoardConfig
 if ($PSBoundParameters.ContainsKey('ScenarioFile') -and $PSBoundParameters.ContainsKey('Scenario')) {
     throw 'Use either -Scenario or -ScenarioFile, not both.'
 }

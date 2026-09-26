@@ -4914,7 +4914,77 @@ def main() -> None:
     parser.add_argument("--no-sound", action="store_true")
     parser.add_argument("--performance-mode", action="store_true")
     parser.add_argument("--wireless-running", action="store_true")
+    parser.add_argument("--board-config", action="store_true",
+                        help="Preview the reviewed ui-bootstrap YAML and firmware shell")
+    parser.add_argument("--dump-board-shell", action="store_true",
+                        help="Print the synthetic ui-bootstrap shell contract as JSON")
+    parser.add_argument("--shell-taps", type=int, default=0,
+                        help="Set synthetic ui-bootstrap touch count for headless checks")
     args = parser.parse_args()
+
+    if args.board_config:
+        import yaml
+        from board_shell import ShellContract, ShellPreview
+
+        incompatible = {
+            "--scenario", "--scenario-file", "--at-ms", "--list-scenarios",
+            "--validate-scenarios", "--dump-snapshot", "--dump-api", "--action",
+            "--advance-ms", "--screen", "--idle-state", "--safe-guide",
+            "--no-sound", "--performance-mode", "--wireless-running",
+        }
+        supplied_options = {argument.split("=", 1)[0] for argument in sys.argv[1:]}
+        if incompatible.intersection(supplied_options):
+            parser.error("ui-bootstrap supports only the shell; device scenarios and pages are unavailable")
+        if args.capture is not None and (
+            args.dump_board_shell or args.output is not None or "--shell-taps" in supplied_options
+        ):
+            parser.error("--capture cannot be combined with headless shell output")
+        if args.shell_taps < 0:
+            parser.error("--shell-taps must be non-negative")
+        try:
+            contract = ShellContract.load()
+            status = contract.status(args.shell_taps)
+        except (OSError, ValueError, KeyError, TypeError, yaml.YAMLError) as error:
+            parser.error(f"ui-bootstrap contract failed: {error}")
+        if args.dump_board_shell or args.output is not None or "--shell-taps" in supplied_options:
+            output_text = json.dumps(status, indent=2, sort_keys=True)
+            if args.output is not None:
+                args.output.parent.mkdir(parents=True, exist_ok=True)
+                args.output.write_text(output_text + "\n", encoding="utf-8")
+            else:
+                print(output_text)
+            return
+        if sys.platform == "win32":
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        root = tk.Tk()
+        root.title("ESP32 Luna Shell Simulator · UI BOOTSTRAP · SYNTHETIC")
+        root.resizable(False, False)
+        root.configure(background="#101820")
+        preview = ShellPreview(root, contract)
+        if args.capture is not None:
+            from PIL import ImageGrab
+
+            root.geometry("+100+100")
+            root.deiconify()
+            root.attributes("-topmost", True)
+            root.lift()
+            root.focus_force()
+            root.update_idletasks()
+            root.update()
+            time.sleep(0.25)
+            root.update()
+            args.capture.parent.mkdir(parents=True, exist_ok=True)
+            captured = ImageGrab.grab(window=preview.canvas.winfo_id(),
+                                      include_layered_windows=True)
+            captured.save(args.capture)
+            root.destroy()
+            return
+        root.mainloop()
+        return
+    if args.dump_board_shell or "--shell-taps" in {
+        argument.split("=", 1)[0] for argument in sys.argv[1:]
+    }:
+        parser.error("--dump-board-shell and --shell-taps require --board-config")
 
     if args.at_ms < 0:
         parser.error("--at-ms must be non-negative")

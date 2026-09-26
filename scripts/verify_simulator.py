@@ -32,6 +32,9 @@ from device_model import (  # noqa: E402
     scenario_names,
     validate_snapshot,
 )
+from board_shell import ShellContract  # noqa: E402
+from board_config import validate_board_config_data  # noqa: E402
+import yaml  # noqa: E402
 
 
 Check = Callable[[], str]
@@ -299,6 +302,31 @@ def check_fake_http_transport() -> str:
     return f"{test_count} loopback/auth/control-plane tests"
 
 
+def check_ui_bootstrap_shell() -> str:
+    contract = ShellContract.load()
+    initial = contract.status()
+    require(initial["synthetic"] is True, "ui-bootstrap preview lost its synthetic label")
+    require(initial["profile"] == "ui-minimal", "ui-bootstrap selected the wrong compiler profile")
+    require(initial["screens"] == ["LUNASHELL_shell"], "ui-bootstrap gained device pages")
+    require(initial["surface"] == {"x": 73, "y": 73, "width": 320, "height": 320},
+            "ui-bootstrap touch region differs from the firmware package")
+    require(initial["touch_label"] == "TAP TO TEST TOUCH", "shell initial prompt differs")
+    require(contract.status(2)["touch_label"] == "TOUCH 2", "shell tap status differs")
+    require(contract.contains_touch(73, 73) and contract.contains_touch(392, 392),
+            "shell rejects points inside the touch surface")
+    require(not contract.contains_touch(72, 73) and not contract.contains_touch(393, 392),
+            "shell accepts points outside the touch surface")
+
+    board_path = REPOSITORY_ROOT / "config" / "boards" / contract.board / "ui-bootstrap.yaml"
+    source = yaml.safe_load(board_path.read_text(encoding="utf-8"))
+    for module in ("touch", "audio", "sd"):
+        changed = json.loads(json.dumps(source))
+        changed["modules"][module]["mode"] = "ui" if module != "touch" else "off"
+        require_raises(ValueError, lambda changed=changed: validate_board_config_data(changed),
+                       f"unsupported {module} mode was accepted")
+    return "source YAML, shell JSON, touch bounds, and excluded module rejection"
+
+
 def main() -> int:
     checks: tuple[tuple[str, Check], ...] = (
         ("scenario fixtures", check_all_scenario_fixtures),
@@ -307,6 +335,7 @@ def main() -> int:
         ("semantic actions", check_semantic_actions),
         ("info redaction", check_info_redaction),
         ("fake HTTP transport", check_fake_http_transport),
+        ("ui-bootstrap shell", check_ui_bootstrap_shell),
     )
 
     failures = 0

@@ -644,6 +644,7 @@ boot status, and failure paths can be debugged without the physical device.
 
 ```powershell
 pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1
+pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -BoardConfig
 pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
 pwsh -NoProfile -File .\simulator\windows\build-exe.ps1
 ```

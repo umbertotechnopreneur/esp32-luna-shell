@@ -55,6 +55,11 @@ def load_board_config(path: Path) -> dict[str, str]:
     if not resolved.is_relative_to(ROOT / "config" / "boards"):
         raise ValueError("board YAML must be under config/boards/")
     data = yaml.load(resolved.read_text(encoding="utf-8"), Loader=UniqueKeyLoader)
+    return validate_board_config_data(data)
+
+
+def validate_board_config_data(data: object) -> dict[str, str]:
+    """Validate the reviewed build contract, including bundled simulator input."""
     if not isinstance(data, dict) or set(data) != {
         "schema_version", "name", "board", "variant", "modules", "ui"
     }:
