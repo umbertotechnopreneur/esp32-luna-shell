@@ -310,8 +310,10 @@ def check_ui_bootstrap_shell() -> str:
     require(initial["screens"] == ["LUNASHELL_shell"], "ui-bootstrap gained device pages")
     require(initial["surface"] == {"x": 73, "y": 73, "width": 320, "height": 320},
             "ui-bootstrap touch region differs from the firmware package")
-    require(initial["touch_label"] == "TAP TO TEST TOUCH", "shell initial prompt differs")
-    require(contract.status(2)["touch_label"] == "TOUCH 2", "shell tap status differs")
+    require(initial["mascot"]["pose"] == "front_idle", "shell idle pose differs")
+    require(initial["mascot"]["face"] == "rigged", "shell face rig is missing")
+    require(initial["mascot"]["breathing"] is True, "shell idle breathing is missing")
+    require(contract.status(2)["touch_count"] == 2, "shell touch count differs")
     require(contract.contains_touch(73, 73) and contract.contains_touch(392, 392),
             "shell rejects points inside the touch surface")
     require(not contract.contains_touch(72, 73) and not contract.contains_touch(393, 392),

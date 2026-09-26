@@ -1,13 +1,19 @@
 # The UI baseline compiles a single visual app and stages only its one screen.
 idf_component_register(
-    SRCS "LUNASHELL_app_shell.cpp"
+    SRCS "LUNASHELL_app_shell.cpp" "LUNASHELL_mascot_asset.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES brookesia_system_core
+    REQUIRES brookesia_system_core LUNASHELL_platform lvgl
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)
 target_link_libraries(
     ${COMPONENT_LIB}
     PUBLIC "-u LUNASHELL_app_provider_symbol"
+)
+target_add_binary_data(
+    ${COMPONENT_LIB}
+    "${PROJECT_DIR}/assets/mascot/generated/luna-idle-head-170x198.bgra8888.bin"
+    BINARY
+    RENAME_TO LUNASHELL_mascot_idle
 )
 
 if(DEFINED BROOKESIA_SYSTEM_CORE_COMPONENT_DIR AND

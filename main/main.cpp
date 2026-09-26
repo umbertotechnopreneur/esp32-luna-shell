@@ -548,6 +548,20 @@ extern "C" void app_main(void)
         ESP_LOGE(kTag, "Brookesia task reported application startup failure");
         return;
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL && \
+    (CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY || \
+     CONFIG_LUNASHELL_BUILD_ENABLE_GNSS || \
+     CONFIG_LUNASHELL_BUILD_ENABLE_IMU || \
+     (CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE))
+    // Board services outlive the shell's GUI lifecycle. Start their sampling
+    // here, after hardware and application readiness, even with no device pages.
+    const esp_err_t sampling_result = LUNASHELL_hardware_start_full_snapshot_monitor();
+    if (sampling_result != ESP_OK) {
+        ESP_LOGE(kTag, "Board service sampling failed: %s", esp_err_to_name(sampling_result));
+        return;
+    }
+    startup_watch.progress("board service sampling");
+#endif
     startup_watch.complete();
     ESP_LOGI(kTag, "Firmware startup completed with application ready");
 }

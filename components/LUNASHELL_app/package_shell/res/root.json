@@ -6,7 +6,12 @@
       "id": "LUNASHELL_shell",
       "mountMode": "dynamic",
       "commonProps": { "clickable": false, "scrollable": false },
-      "style": { "bgColor": "#010205", "padding": 0 },
+      "style": {
+        "bgColor": "#172334",
+        "bgGradientColor": "#03060d",
+        "bgGradientDirection": "vertical",
+        "padding": 0
+      },
       "children": [
         {
           "type": "container",
@@ -15,37 +20,110 @@
           "events": [
             { "type": "clicked", "action": "LUNASHELL.shell.touch" }
           ],
-          "style": { "bgColor": "#010205", "padding": 0 },
+          "style": { "bgOpacity": 0, "padding": 0 },
           "placement": {
             "mode": "absolute", "x": "73dp", "y": "73dp",
             "width": "320dp", "height": "320dp"
           },
           "children": [
             {
-              "type": "label",
-              "id": "title",
-              "labelProps": { "text": "LUNA SHELL" },
-              "style": {
-                "textColor": "#ffffff", "fontSize": "32sp",
-                "textAlign": "center"
-              },
+              "type": "container",
+              "id": "mascot",
+              "commonProps": { "clickable": false, "scrollable": false },
+              "style": { "bgOpacity": 0, "padding": 0 },
               "placement": {
-                "mode": "absolute", "x": "0dp", "y": "104dp",
-                "width": "320dp", "height": "42dp"
-              }
-            },
-            {
-              "type": "label",
-              "id": "touch_count",
-              "labelProps": { "text": "TAP TO TEST TOUCH" },
-              "style": {
-                "textColor": "#20dfc1", "fontSize": "16sp",
-                "textAlign": "center"
+                "mode": "absolute", "x": "44dp", "y": "25dp",
+                "width": "232dp", "height": "250dp"
               },
-              "placement": {
-                "mode": "absolute", "x": "0dp", "y": "170dp",
-                "width": "320dp", "height": "28dp"
-              }
+              "children": [
+                {
+                  "type": "image",
+                  "id": "body",
+                  "commonProps": { "clickable": false, "scrollable": false },
+                  "bindings": { "imageProps.src": "src" },
+                  "imageProps": { "src": "" },
+                  "placement": {
+                    "mode": "absolute", "x": "0dp", "y": "0dp",
+                    "width": "232dp", "height": "250dp"
+                  }
+                },
+                {
+                  "type": "container",
+                  "id": "face",
+                  "commonProps": { "clickable": false, "scrollable": false },
+                  "style": { "bgOpacity": 0, "padding": 0 },
+                  "placement": {
+                    "mode": "absolute", "x": "0dp", "y": "0dp",
+                    "width": "232dp", "height": "250dp"
+                  },
+                  "children": [
+                    {
+                      "type": "container",
+                      "id": "left_eye",
+                      "commonProps": { "clickable": false },
+                      "bindings": {
+                        "placement.x": "x", "placement.y": "y",
+                        "placement.width": "width", "placement.height": "height"
+                      },
+                      "style": { "bgColor": "#071423", "padding": 0 },
+                      "placement": {
+                        "mode": "absolute", "x": "88dp", "y": "107dp",
+                        "width": "6dp", "height": "13dp"
+                      }
+                    },
+                    {
+                      "type": "container",
+                      "id": "right_eye",
+                      "commonProps": { "clickable": false },
+                      "bindings": {
+                        "placement.x": "x", "placement.y": "y",
+                        "placement.width": "width", "placement.height": "height"
+                      },
+                      "style": { "bgColor": "#071423", "padding": 0 },
+                      "placement": {
+                        "mode": "absolute", "x": "139dp", "y": "107dp",
+                        "width": "6dp", "height": "13dp"
+                      }
+                    },
+                    {
+                      "type": "container",
+                      "id": "mouth",
+                      "commonProps": { "clickable": false },
+                      "bindings": {
+                        "placement.x": "x", "placement.y": "y",
+                        "placement.width": "width", "placement.height": "height"
+                      },
+                      "style": { "bgColor": "#071423", "padding": 0 },
+                      "placement": {
+                        "mode": "absolute", "x": "111dp", "y": "132dp",
+                        "width": "12dp", "height": "4dp"
+                      }
+                    },
+                    {
+                      "type": "container",
+                      "id": "left_cheek",
+                      "commonProps": { "clickable": false },
+                      "bindings": { "commonProps.hidden": "hidden" },
+                      "style": { "bgColor": "#ff8ca4", "radius": "5dp", "padding": 0 },
+                      "placement": {
+                        "mode": "absolute", "x": "73dp", "y": "129dp",
+                        "width": "10dp", "height": "9dp"
+                      }
+                    },
+                    {
+                      "type": "container",
+                      "id": "right_cheek",
+                      "commonProps": { "clickable": false },
+                      "bindings": { "commonProps.hidden": "hidden" },
+                      "style": { "bgColor": "#ff8ca4", "radius": "5dp", "padding": 0 },
+                      "placement": {
+                        "mode": "absolute", "x": "151dp", "y": "129dp",
+                        "width": "10dp", "height": "9dp"
+                      }
+                    }
+                  ]
+                }
+              ]
             }
           ]
         }

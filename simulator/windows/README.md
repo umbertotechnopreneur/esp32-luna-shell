@@ -10,8 +10,9 @@ visibly labelled `SYNTHETIC`; simulator state never enters firmware snapshots.
 The reviewed `ui-bootstrap` board profile has a separate preview that reads
 `config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-bootstrap.yaml` through
 the build validator and renders the shell's `package_shell/res/root.json`.
-It has one touch surface and no device pages or sensor scenarios. Mouse clicks
-inside the 320 × 320 surface increment `TOUCH N`; the preview always displays
+It shows the front-facing idle mascot on a dark gradient with a face assembled
+from separate features. Mouse clicks inside the 320 × 320 surface increment the
+synthetic touch counter in the console; the preview remains visibly labelled
 `SYNTHETIC`.
 
 ```powershell
@@ -24,7 +25,7 @@ The interactive launcher offers `U` to switch between the full device twin and
 this minimal board shell. `-BoardConfig` cannot be combined with full-device
 scenarios, pages, or radio options. The simulator environment needs Pillow
 and PyYAML; `build-exe.ps1` installs both in `.venv-simulator` and packages the
-YAML, shell JSON, and validator into the executable. This is a host preview of
+YAML, shell JSON, mascot preview, and validator into the executable. This is a host preview of
 the UI contract, not ESP-IDF or physical display/touch emulation.
 
 ## Deterministic scenarios

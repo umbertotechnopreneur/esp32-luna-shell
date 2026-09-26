@@ -11,13 +11,14 @@ $BoardYaml = Join-Path $ProjectRoot "config\boards\waveshare-esp32s3-touch-amole
 $ShellView = Join-Path $ProjectRoot "components\LUNASHELL_app\package_shell\res\root.json"
 $BoardValidator = Join-Path $ProjectRoot "scripts\board_config.py"
 $BootImage = Join-Path $ProjectRoot "assets\branding\LUNASHELL\generated\LUNASHELL-boot-466x466.png"
+$MascotImage = Join-Path $ProjectRoot "assets\mascot\generated\luna-idle-head-170x198.png"
 $BootSound = Join-Path $ProjectRoot "assets\sfx\generated\lunashell-boot.wav"
 $SimulatorArtifacts = Join-Path $ProjectRoot "artifacts\simulator\windows"
 $Dist = Join-Path $SimulatorArtifacts "dist"
 $Work = Join-Path $SimulatorArtifacts "build"
 $Executable = Join-Path $Dist "ESP32LunaShellDeviceSimulator.exe"
 
-foreach ($requiredPath in @($Simulator, $Scenarios, $BootImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
+foreach ($requiredPath in @($Simulator, $Scenarios, $BootImage, $MascotImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required simulator input is missing: $requiredPath"
     }
@@ -48,6 +49,7 @@ if ($LASTEXITCODE -ne 0) {
     --specpath $Work `
     --paths (Join-Path $ProjectRoot "scripts") `
     --add-data "$BootImage;assets/branding/LUNASHELL/generated" `
+    --add-data "$MascotImage;assets/mascot/generated" `
     --add-data "$BootSound;assets/sfx/generated" `
     --add-data "$Scenarios;scenarios" `
     --add-data "$BoardYaml;config/boards/waveshare-esp32s3-touch-amoled-1.75" `
