@@ -5,6 +5,8 @@ ESP32-S3 device.
 
 - `branding/LUNASHELL/source/` contains preserved source artwork.
 - `branding/LUNASHELL/generated/` contains device-ready boot assets and previews.
+- `mascot/source/` preserves the original character concept and the head layer.
+- `mascot/generated/` contains the 170 x 198 head preview and BGRA8888 firmware sprite.
 - `display/` contains the machine-readable round-display profile.
 - `sfx/source/` contains only the selected, preserved source sounds.
 - `sfx/generated/` contains normalized device-ready derivatives.
@@ -16,6 +18,9 @@ pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
 ```
 
 For SFX only, run `pwsh -NoProfile -File .\scripts\generate-sfx.ps1`.
+For the idle mascot head, run `python .\scripts\generate_mascot_asset.py`
+(requires Pillow). The face and articulated limbs are assembled from independent
+GUI nodes; the head sprite deliberately has a blank display.
 Both commands operate only on repository assets; neither initializes ESP-IDF,
 builds firmware, or accesses a connected device. Generators reject source and
 output paths that escape their canonical `source` and `generated` trees. Add

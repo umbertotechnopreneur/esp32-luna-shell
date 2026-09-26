@@ -32,6 +32,31 @@ enum class BackendType { Unknown };
 }
 namespace esp_brookesia::gui {
 using SubscriptionId = uint32_t;
+struct RuntimeImageResource {
+    std::string id;
+    std::string primary_src;
+    uintptr_t native_src;
+    uint16_t width, height;
+    bool preload;
+};
+enum class AnimationTrigger { Manual };
+enum class AnimationProperty { Scale };
+enum class AnimationValueMode { Absolute };
+enum class AnimationEasing { EaseInOut };
+struct Animation {
+    std::string id;
+    AnimationTrigger trigger;
+    AnimationProperty property;
+    AnimationValueMode from_mode;
+    int from;
+    AnimationValueMode to_mode;
+    int to;
+    int duration, delay;
+    AnimationEasing easing;
+    int repeat;
+    bool playback;
+};
+struct RuntimeAnimationStartResult { SubscriptionId subscription_id; };
 }
 namespace esp_brookesia::system::core {
 using TimerId = uint32_t;
@@ -60,6 +85,12 @@ struct AppGuiDescriptor {
     std::vector<ScreenFlow> screen_flows;
 };
 struct Gui {
+    shell_test::Result register_image(const gui::RuntimeImageResource&) { return {}; }
+    bool unregister_image(std::string_view) { return true; }
+    shell_test::Result set_binding_value(std::string_view, std::string_view, std::string_view) { return {}; }
+    std::expected<gui::RuntimeAnimationStartResult, std::string> start_view_animation_with_result(
+        std::string_view, const gui::Animation&) { return gui::RuntimeAnimationStartResult{1}; }
+    shell_test::Result stop_animation(gui::SubscriptionId) { return {}; }
     shell_test::Result subscribe_actions(const std::vector<std::string>&) {
         if (shell_test::fixture.fail_subscribe) return std::unexpected("subscribe failure");
         return {};

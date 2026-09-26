@@ -6,6 +6,13 @@ using namespace shell_test;
 using namespace LUNASHELL;
 using esp_brookesia::system::core::AppContext;
 
+namespace LUNASHELL {
+const lv_image_dsc_t *MascotAsset::idle_head_image() {
+    static const lv_image_dsc_t image{};
+    return &image;
+}
+}
+
 int main() {
     AppContext context;
     ShellApp app;

@@ -46,8 +46,8 @@ lock verification remain enabled for configuration and compilation.
 The build retains the logger, liveness monitor, snapshot publication, LVGL,
 Brookesia GUI LVGL, and System Core needed to launch a native app. It compiles
 `LUNASHELL_app_shell.cpp` instead of the full app sources and stages only
-`package_shell/res/root.json`. The shell displays the minimal touch surface and
-logs a touch counter, so display and input can be checked without sensor pages.
+`package_shell/res/root.json`. The shell displays the idle mascot and logs a
+touch counter, so display and input can be checked without sensor pages.
 The default YAML leaves optional services off. Boot splash, radios, RTC,
 distance, provisioning, and HTTP remain off for every shell configuration.
 Their runtime snapshot states stay explicitly unavailable where applicable.
@@ -92,7 +92,8 @@ is rejected.
 
 The Windows simulator can preview this exact YAML and the shell's packaged
 `root.json` with `run-simulator.ps1 -BoardConfig`. It shows the 466 × 466
-screen, one 320 × 320 touch area, and the tap counter. A visible `SYNTHETIC`
+screen, one 320 × 320 touch area, and the mascot. Taps increment the synthetic
+console counter. A visible `SYNTHETIC`
 label distinguishes the preview from firmware. Its contract checks verify
 the YAML, screen document, and touch bounds; they cannot prove Brookesia,
 LVGL, panel, or CST9217 behavior on hardware.
