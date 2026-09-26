@@ -9,7 +9,8 @@ Display, touch, shared I2C, and internal LittleFS/NVS remain required. Set any
 of `pmu`, `battery`, `imu`, `gnss`, `audio_output`, `microphones`, or `sd` to
 `service` to compile and start that device without adding a UI page. `off`
 excludes its driver path and service from the firmware. Battery service needs
-PMU service; PMU can run PWR button events while battery telemetry is off.
+PMU service; PMU keeps PWR button events, the board's charging policy, and
+unused TS-pin measurement disabled while battery telemetry is off.
 ES8311 audio output and ES7210 microphones are independent. Only this BSP is
 accepted by the YAML validator.
 
@@ -28,6 +29,10 @@ IMU, and PMU select their managed dependency graph. If a graph's canonical
 lock is absent, run `device.ps1 update-lock -BoardConfig <path>`, review and
 commit the resulting lock, then build. The YAML hash is part of the build
 state, so edited settings cannot silently reuse an old configuration.
+Reconfiguration cleans only the selected build directory. The component-manager
+extension is disabled temporarily for `fullclean` so it cannot delete the shared
+managed components and their reviewed local patches. Dependency resolution and
+lock verification remain enabled for configuration and compilation.
 
 ## Minimum physical set
 
@@ -41,28 +46,46 @@ state, so edited settings cannot silently reuse an old configuration.
 The build retains the logger, liveness monitor, snapshot publication, LVGL,
 Brookesia GUI LVGL, and System Core needed to launch a native app. It compiles
 `LUNASHELL_app_shell.cpp` instead of the full app sources and stages only
-`package_shell/res/root.json`. The shell shows `LUNA SHELL` and increments a
-counter on touch, so display and input can be checked without sensor pages.
+`package_shell/res/root.json`. The shell displays the minimal touch surface and
+logs a touch counter, so display and input can be checked without sensor pages.
 The default YAML leaves optional services off. Boot splash, radios, RTC,
 distance, provisioning, and HTTP remain off for every shell configuration.
 Their runtime snapshot states stay explicitly unavailable where applicable.
+
+## Service lifecycle
+
+For the shell profile, boot starts the periodic snapshot monitor after hardware
+initialization and application readiness whenever battery, GNSS, IMU, or
+microphones are selected. Sampling therefore does not depend on a device UI page.
+The existing power manager suspends and resumes this monitor around standby.
+Monitor startup errors stop the startup stage and remain visible in diagnostics.
+
+With PMU selected, the shell polls power state and acknowledges standby only
+after Brookesia has quiesced input and drained pending GUI work. It reopens input
+after the power manager reports Active. Failed drains propagate an error; stale
+callbacks from cancelled transitions or stopped app instances cannot acknowledge
+a newer transition. This does not add any device UI page.
 
 ## Current compile boundary
 
 The Waveshare BSP remains one C component, with preprocessor gates for audio
 and removable SD. The individual audio codec routes are also gated, so an
 input-only build does not construct ES8311 and an output-only build does not
-construct ES7210. When both are off, `esp_codec_dev` leaves the managed graph.
+construct ES7210. The generated SDK configuration also disables that codec's
+source files and the codec component's unrelated default drivers. When both are
+off, `esp_codec_dev` leaves the managed graph.
 QMI8658 and XPowers leave the graph when IMU and PMU are off, respectively.
 Battery readings and the battery snapshot sampling path compile only when
-`battery: service`; the PMU retains only the PWR button IRQ path when battery
-telemetry is off. Battery detector, ADC, and charger policy setup are included
-with the battery module.
+`battery: service`; battery detector and ADC setup belong to that module. The
+PMU retains PWR IRQ handling, TS disablement, and the same 50/400/25 mA charge
+policy with a 4.20 V target even when battery telemetry is off.
 `esp_board_manager` remains required by ESP-IDF component Kconfig integration;
 it pulls FatFS and SDMMC into the component graph even though this BSP does not
 compile its SD mount, format, or status functions when `sd: off`. A later
-checkpoint must separate the BSP into bus, display/touch, audio, SD, and
+checkpoint can separate the BSP into bus, display/touch, audio, SD, and
 I/O-expander units and remove remaining indirect dependencies where possible.
+SD dependency removal is explicitly deferred in `planned-todo.md`; this
+correction does not change SD implementation or dependencies.
 Device UI pages are not yet selectable in this shell profile. A future board
 must supply an explicit adapter and pinout; changing the YAML board name alone
 is rejected.
@@ -76,3 +99,9 @@ LVGL, panel, or CST9217 behavior on hardware.
 
 No flash or on-device behavior is implied by a successful host build. Device
 access needs explicit authorization for the requested operation.
+
+The lifecycle, charging, codec, and build-clean corrections above are pending the
+final validation package recorded in `TODO.md`. Regression cases for the actual
+shell lifecycle and build-clean helper are prepared in
+`scripts/verify_board_services.ps1`; tests and firmware builds will run only on
+explicit user request.

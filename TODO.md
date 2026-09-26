@@ -6,12 +6,18 @@ authorization.
 
 ## Current integration
 
-- [ ] Split the monolithic Waveshare BSP into shared bus, display/touch, audio,
-  SD, and I/O-expander units. The `ui-bootstrap` profile now excludes the BSP's
-  audio/SD implementation and audio codec, but `esp_board_manager` still pulls
-  FatFS/SDMMC into the graph. Remove indirect device dependencies where
-  possible, then add reviewed board adapters and dependency locks for other
-  hardware and service-only combinations.
+- [ ] Only on explicit user request, validate the board-service corrections:
+  shell-owned PWR quiescence/wake, boot-owned periodic sampling, battery-off PMU
+  charging policy, directional codec source selection, and build-directory-only
+  cleanup. Tests are deferred until requested. The final package includes
+  `verify_board_services.ps1`, a clean/incremental build and size report,
+  simulator and repository checks;
+  inspect source lists/symbols for all-off, all-services, output-only, input-only,
+  and PMU-on/battery-off configurations. Hardware checks need separate explicit
+  authorization. SD dependency work remains deferred in `planned-todo.md`.
+  Recheck the clean helper's restoration of an absent environment variable:
+  the initial host check exposed an empty/null mismatch, corrected after tests
+  were stopped; the correction has not been rerun.
 - [ ] Finish the ESP-Brookesia 0.8 upstream merge, refresh versioned dependency
   locks, and run the repository's final validation package. Verify actual UI and
   power behavior on a device only after authorization.

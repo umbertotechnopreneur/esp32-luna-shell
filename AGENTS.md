@@ -64,19 +64,24 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Validation
 
+- Run tests and validation workflows only when the user explicitly requests
+  them. Do not automatically run configure/build/size passes, simulator checks,
+  test suites, or validation scans during implementation or before delivery.
+  Static code review is allowed; report deferred validation clearly.
 - Treat compiler and linker errors as evidence; fix their root cause rather
   than suppressing warnings globally.
 - Firmware compilation can take up to 240 seconds; allow at least a 240-second
   timeout for build invocations before treating them as stalled.
 - Do not run intermediate configure, build, or size passes while implementation
   and integration work is still in progress. Finish the code changes, static
-  review, and cross-component integration first; run one final validation
-  package only after the task is complete. Limit compiler parallelism to at
+  review, and cross-component integration first; run a final validation
+  package only on explicit user request after the task is complete. Limit compiler parallelism to at
   most 8 jobs, and after cancelling a build confirm that no Ninja or Xtensa
   compiler process remains before starting any later validation.
-- Before delivery, run a clean build, an incremental build, the size report,
-  simulator checks, `git diff --check`, dependency/legacy scans, and a
-  changed-files secret scan.
+- When the user requests the complete final validation package, run a clean
+  build, an incremental build, the size report, simulator checks,
+  `git diff --check`, dependency/legacy scans, and a changed-files secret scan.
+  A narrower request authorizes only the requested checks.
 - Do not claim hardware behavior from host-only validation.
 
 ## Work Tracking

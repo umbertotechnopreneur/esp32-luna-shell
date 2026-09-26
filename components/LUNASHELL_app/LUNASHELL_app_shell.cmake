@@ -2,14 +2,13 @@
 idf_component_register(
     SRCS "LUNASHELL_app_shell.cpp"
     INCLUDE_DIRS "include"
-    REQUIRES brookesia_system_core
+    REQUIRES brookesia_system_core LUNASHELL_platform
 )
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)
 target_link_libraries(
     ${COMPONENT_LIB}
     PUBLIC "-u LUNASHELL_app_provider_symbol"
 )
-
 if(DEFINED BROOKESIA_SYSTEM_CORE_COMPONENT_DIR AND
    NOT "${BROOKESIA_SYSTEM_CORE_COMPONENT_DIR}" STREQUAL "")
     set(brookesia_system_core_dir "${BROOKESIA_SYSTEM_CORE_COMPONENT_DIR}")

@@ -2090,7 +2090,6 @@ esp_err_t collect_pmu_irq_events()
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 esp_err_t verify_pmu_precharge_current(xpowers_prechg_t expected)
 {
     const xpowers_prechg_t observed = s_power.getPrechargeCurr();
@@ -2135,7 +2134,6 @@ esp_err_t verify_pmu_termination_current(
     );
     return error;
 }
-#endif
 #endif
 
 uint8_t bcd_to_decimal(uint8_t value)
@@ -2727,6 +2725,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         ))) {
         error = ESP_FAIL;
     }
+#endif
     // The board has no battery NTC on TS; leaving TS measurement enabled can inhibit charging.
     if (error == ESP_OK &&
         !require_pmu_write(
@@ -2735,7 +2734,6 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         )) {
         error = ESP_FAIL;
     }
-#endif
 
     if (error == ESP_OK &&
         !require_pmu_write(
@@ -2764,7 +2762,6 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
     if (error == ESP_OK) {
         error = verify_pmu_irq_enable_mask(kPmuRuntimeIrqMask);
     }
-#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     if (error == ESP_OK) {
         s_power.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
         error = verify_pmu_precharge_current(
@@ -2797,7 +2794,6 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         )) {
         error = ESP_FAIL;
     }
-#endif
     if (error != ESP_OK) {
         record_first_error(remove_pmu_device(), &error);
         update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
@@ -2823,7 +2819,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
     const esp_err_t publication_error = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.battery, false, ESP_ERR_NOT_SUPPORTED);
     });
-    ESP_LOGI(TAG, "PMU AXP2101: PKEY enabled; battery telemetry disabled");
+    ESP_LOGI(TAG, "PMU AXP2101: PKEY enabled, TS disabled, charge policy=50/400/25mA target=4.20V; battery telemetry disabled");
 #endif
     if (publication_error != ESP_OK) {
         s_pmu_ready = false;

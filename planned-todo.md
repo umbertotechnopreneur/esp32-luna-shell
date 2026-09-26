@@ -3,6 +3,16 @@
 This file tracks deferred work that is worth retaining but is not a current
 priority. Promote an item to `TODO.md` when it becomes active.
 
+## Board compilation and BSP
+
+- [ ] Remove the indirect FatFS/SDMMC dependencies pulled by `esp_board_manager`
+  when `sd: off`. The BSP already excludes its SD implementation, but the
+  dependency graph still contains these components. Explicitly deferred by the
+  user: record the limitation without changing SD code or dependencies now.
+- [ ] Split the monolithic Waveshare BSP into shared bus, display/touch, audio,
+  SD, and I/O-expander units, then add reviewed adapters and dependency locks for
+  other boards. The current YAML supports only the Waveshare BSP.
+
 ## Power management
 
 - [ ] Evaluate `WIFI_PS_MAX_MODEM` against the current `WIFI_PS_MIN_MODEM`

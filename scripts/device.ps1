@@ -374,6 +374,15 @@ if ($null -ne $BoardModules -and $moduleBits -ne "0000000") {
         $overlay += $(if ($BoardModules.microphones -eq "service") {
             "CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL=y"
         } else { "CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE=y" })
+        # The codec component defaults many unrelated devices to enabled.
+        # Gate its source lists as well as our BSP routes.
+        $overlay += "CONFIG_CODEC_ES8311_SUPPORT=$(if ($BoardModules.audio_output -eq 'service') { 'y' } else { 'n' })"
+        $overlay += "CONFIG_CODEC_ES7210_SUPPORT=$(if ($BoardModules.microphones -eq 'service') { 'y' } else { 'n' })"
+        foreach ($codec in @('ES7243', 'ES7243E', 'ES8156', 'AW88298', 'ES8389',
+                             'ES8374', 'ES8388', 'TAS5805M', 'ZL38063', 'CJC8910', 'DUMMY')) {
+            $overlay += "CONFIG_CODEC_${codec}_SUPPORT=n"
+        }
+        $overlay += 'CONFIG_CODEC_DATA_ADC_SUPPORT=n'
     }
     [System.IO.File]::WriteAllLines($overlayPath, $overlay)
     $SelectedSdkconfigDefaults += $overlayPath
@@ -442,6 +451,13 @@ function Assert-BoardSdkconfig {
             $BoardModules.audio_output -eq "off"
         $expected.LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE =
             $BoardModules.microphones -eq "off"
+        $expected.CODEC_ES8311_SUPPORT = $BoardModules.audio_output -eq "service"
+        $expected.CODEC_ES7210_SUPPORT = $BoardModules.microphones -eq "service"
+        foreach ($codec in @('ES7243', 'ES7243E', 'ES8156', 'AW88298', 'ES8389',
+                             'ES8374', 'ES8388', 'TAS5805M', 'ZL38063', 'CJC8910', 'DUMMY')) {
+            $expected["CODEC_${codec}_SUPPORT"] = $false
+        }
+        $expected.CODEC_DATA_ADC_SUPPORT = $false
     }
     foreach ($symbol in $expected.Keys) {
         $actual = [regex]::IsMatch($sdkconfigText, "(?m)^CONFIG_$symbol=y`r?$")
@@ -1188,6 +1204,34 @@ function Publish-WorkingDependencyLock([string]$RequestedBuildDir) {
     Assert-WorkingDependencyLock $RequestedBuildDir
 }
 
+function Invoke-BuildDirectoryClean([string]$RequestedBuildDir) {
+    $buildDirectory = [System.IO.Path]::GetFullPath(
+        (Get-BuildDirectoryPath $RequestedBuildDir)
+    )
+    if (-not $buildDirectory.StartsWith(
+            ($ArtifactsRoot + [System.IO.Path]::DirectorySeparatorChar),
+            [StringComparison]::OrdinalIgnoreCase
+        )) {
+        throw "Refusing to clean outside the artifacts directory: $buildDirectory"
+    }
+    # IDF 6.0.2's component-manager extension appends removal of the shared
+    # managed_components tree to fullclean. Disable that extension only for
+    # the build-directory clean; dependency resolution/checks remain enabled
+    # during the following configure and build, with all local patches intact.
+    $managerSetting = [Environment]::GetEnvironmentVariable('IDF_COMPONENT_MANAGER', 'Process')
+    try {
+        $env:IDF_COMPONENT_MANAGER = '0'
+        & $PythonExe $IdfPy --no-hints -B $buildDirectory fullclean
+        if ($LASTEXITCODE -ne 0) {
+            throw "Build directory clean failed (ESP-IDF exit code $LASTEXITCODE)"
+        }
+    } finally {
+        # PowerShell preserves an absent variable when restoring $null; passing
+        # it to the .NET string overload can instead create an empty variable.
+        $env:IDF_COMPONENT_MANAGER = $managerSetting
+    }
+}
+
 function Invoke-ProfileConfiguration(
     [string]$RequestedBuildDir,
     [bool]$RefreshDependencyLock
@@ -1208,10 +1252,7 @@ function Invoke-ProfileConfiguration(
                     $buildDirectory
                 )
             }
-            & $PythonExe $IdfPy --no-hints -B $RequestedBuildDir fullclean
-            if ($LASTEXITCODE -ne 0) {
-                throw "Profile configuration clean failed"
-            }
+            Invoke-BuildDirectoryClean $RequestedBuildDir
         }
     }
 
@@ -1427,10 +1468,7 @@ try {
             }
         }
         "fullclean" {
-            & $PythonExe $IdfPy @commonArgs fullclean
-            if ($LASTEXITCODE -ne 0) {
-                throw "Full clean failed"
-            }
+            Invoke-BuildDirectoryClean $BuildDir
         }
         "reconfigure" {
             Assert-SdkconfigDefaultsApplied $BuildDir
