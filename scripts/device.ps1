@@ -219,6 +219,7 @@ if ($Action -eq "discovery") {
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 
 $BoardConfigPath = $null
+$BoardModules = $null
 if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     if ($PSBoundParameters.ContainsKey("Profile") -or
         $PSBoundParameters.ContainsKey("Feature")) {
@@ -263,6 +264,7 @@ if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     }
     $Profile = [string]$boardSelection.profile
     $Feature = [string]$boardSelection.feature
+    $BoardModules = $boardSelection.modules
     $ProfileBuildKey = if ($Feature -eq "none") { $Profile } else { "$Profile-$Feature" }
 }
 
@@ -289,6 +291,40 @@ if ($SelectedProfileVariant.profile -cne $Profile -or
     throw "Firmware profile catalog identity mismatch for $ProfileBuildKey"
 }
 
+if ($null -ne $BoardModules) {
+    # Only the seven reviewed service switches vary. The bit string isolates
+    # sdkconfig/build state; the three dependency bits select a canonical lock.
+    $moduleOrder = @("pmu", "battery", "imu", "gnss", "audio_output", "microphones", "sd")
+    $moduleBits = ($moduleOrder | ForEach-Object {
+        if ($BoardModules.PSObject.Properties[$_].Value -eq "service") { "1" } else { "0" }
+    }) -join ""
+    $audioEnabled = $BoardModules.audio_output -eq "service" -or
+        $BoardModules.microphones -eq "service"
+    if ($moduleBits -ne "0000000") {
+        $graphKey = "a$([int]$audioEnabled)i$([int]($BoardModules.imu -eq 'service'))p$([int]($BoardModules.pmu -eq 'service'))"
+        $ProfileBuildKey = "ui-minimal-board-$moduleBits"
+        $SelectedProfileVariant = $SelectedProfileVariant |
+            ConvertTo-Json -Depth 20 | ConvertFrom-Json -Depth 20
+        if ($graphKey -ne "a0i0p0") {
+            $SelectedProfileVariant.dependency_lock =
+                "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/ui-board-$graphKey.lock"
+        }
+        $SelectedProfileVariant.generated_sdkconfig = ".sdkconfig/v1/$ProfileBuildKey"
+        $SelectedProfileVariant.default_build_dir = "artifacts/build-$ProfileBuildKey"
+        $extraRoots = @()
+        if ($audioEnabled) { $extraRoots += "espressif__esp_codec_dev" }
+        if ($BoardModules.imu -eq "service") { $extraRoots += "waveshare__qmi8658" }
+        if ($BoardModules.pmu -eq "service") { $extraRoots += "cube32esp__xpowerslib"; $extraRoots += "esp_pm" }
+        if ($BoardModules.sd -eq "service") { $extraRoots += "fatfs" }
+        $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + $extraRoots
+    }
+    $env:LUNASHELL_BOARD_ENABLE_AUDIO = if ($audioEnabled) { "1" } else { "0" }
+    $env:LUNASHELL_BOARD_ENABLE_SD = if ($BoardModules.sd -eq "service") { "1" } else { "0" }
+} else {
+    Remove-Item Env:LUNASHELL_BOARD_ENABLE_AUDIO -ErrorAction SilentlyContinue
+    Remove-Item Env:LUNASHELL_BOARD_ENABLE_SD -ErrorAction SilentlyContinue
+}
+
 function Resolve-ProfileCatalogPath([string]$RelativePath) {
     if ([string]::IsNullOrWhiteSpace($RelativePath) -or
         [System.IO.Path]::IsPathRooted($RelativePath)) {
@@ -313,6 +349,35 @@ $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
         ForEach-Object { Resolve-ProfileCatalogPath "$_" }
 )
+if ($null -ne $BoardModules -and $moduleBits -ne "0000000") {
+    function Get-BoardSdkconfigFlag([string]$Name, [bool]$Enabled) {
+        if ($Enabled) { return "CONFIG_$Name=y" }
+        return ""
+    }
+    $overlayDirectory = Join-Path $ProjectRoot "artifacts/board-config"
+    $null = New-Item -ItemType Directory -Path $overlayDirectory -Force
+    $overlayPath = Join-Path $overlayDirectory "$ProfileBuildKey.defaults"
+    $overlay = @(
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_POWER_INPUTS" ($BoardModules.pmu -eq "service"))
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_BATTERY" ($BoardModules.battery -eq "service"))
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_IMU" ($BoardModules.imu -eq "service"))
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_GNSS" ($BoardModules.gnss -eq "service"))
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE" ($BoardModules.sd -eq "service"))
+        (Get-BoardSdkconfigFlag "LUNASHELL_BUILD_ENABLE_AUDIO" $audioEnabled)
+    )
+    $overlay = @($overlay | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($audioEnabled) {
+        $overlay += "CONFIG_LUNASHELL_BUILD_AUDIO_DRIVER_WAVESHARE_ES8311_ES7210=y"
+        $overlay += $(if ($BoardModules.audio_output -eq "service") {
+            "CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311=y"
+        } else { "CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_NONE=y" })
+        $overlay += $(if ($BoardModules.microphones -eq "service") {
+            "CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL=y"
+        } else { "CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE=y" })
+    }
+    [System.IO.File]::WriteAllLines($overlayPath, $overlay)
+    $SelectedSdkconfigDefaults += $overlayPath
+}
 if ($SelectedSdkconfigDefaults.Count -eq 0) {
     throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
 }
@@ -352,6 +417,39 @@ $ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
 $ProfileSdkconfigPath = Resolve-ProfileCatalogPath(
     "$($SelectedProfileVariant.generated_sdkconfig)"
 )
+function Assert-BoardSdkconfig {
+    if ($null -eq $BoardModules) { return }
+    if (-not (Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf)) {
+        throw "Board sdkconfig not found: $ProfileSdkconfigPath"
+    }
+    $sdkconfigText = Get-Content -Raw -LiteralPath $ProfileSdkconfigPath
+    $audioSelected = $BoardModules.audio_output -eq "service" -or
+        $BoardModules.microphones -eq "service"
+    $expected = @{
+        LUNASHELL_BUILD_ENABLE_POWER_INPUTS = $BoardModules.pmu -eq "service"
+        LUNASHELL_BUILD_ENABLE_BATTERY = $BoardModules.battery -eq "service"
+        LUNASHELL_BUILD_ENABLE_IMU = $BoardModules.imu -eq "service"
+        LUNASHELL_BUILD_ENABLE_GNSS = $BoardModules.gnss -eq "service"
+        LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE = $BoardModules.sd -eq "service"
+        LUNASHELL_BUILD_ENABLE_AUDIO = $audioSelected
+    }
+    if ($audioSelected) {
+        $expected.LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 =
+            $BoardModules.audio_output -eq "service"
+        $expected.LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL =
+            $BoardModules.microphones -eq "service"
+        $expected.LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_NONE =
+            $BoardModules.audio_output -eq "off"
+        $expected.LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE =
+            $BoardModules.microphones -eq "off"
+    }
+    foreach ($symbol in $expected.Keys) {
+        $actual = [regex]::IsMatch($sdkconfigText, "(?m)^CONFIG_$symbol=y`r?$")
+        if ($actual -ne $expected[$symbol]) {
+            throw "Board sdkconfig disagrees with YAML: $symbol expected=$($expected[$symbol]) actual=$actual"
+        }
+    }
+}
 $profileSdkconfigDirectory = Split-Path -Parent $ProfileSdkconfigPath
 if (-not (Test-Path -LiteralPath $profileSdkconfigDirectory -PathType Container)) {
     $null = New-Item -ItemType Directory -Path $profileSdkconfigDirectory
@@ -1137,6 +1235,7 @@ function Invoke-ProfileConfiguration(
     if ($LASTEXITCODE -ne 0) {
         throw "Profile configuration failed (ESP-IDF exit code $LASTEXITCODE)"
     }
+    Assert-BoardSdkconfig
 }
 
 function Get-SdkconfigDefaultsState {
@@ -1268,6 +1367,7 @@ function Assert-SdkconfigDefaultsApplied([string]$RequestedBuildDir) {
             "'$recoveryCommand'."
         )
     }
+    Assert-BoardSdkconfig
 }
 
 function Invoke-ProjectBuild([string]$RequestedBuildDir) {

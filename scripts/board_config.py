@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the first board YAML before selecting its compiler profile."""
+"""Validate the Waveshare board YAML before selecting its compiler profile."""
 
 from __future__ import annotations
 
@@ -17,15 +17,20 @@ EXPECTED_MODULES = {
     "i2c": ("esp-idf-master", "service"),
     "internal_storage": ("littlefs-nvs", "service"),
     "pmu": ("axp2101", "off"),
+    "battery": ("axp2101-battery", "off"),
     "rtc": ("pcf85063", "off"),
     "imu": ("qmi8658", "off"),
     "gnss": ("lc76g", "off"),
-    "audio": ("es8311-es7210", "off"),
+    "audio_output": ("es8311", "off"),
+    "microphones": ("es7210-dual", "off"),
     "sd": ("sdmmc", "off"),
     "wifi": ("esp32s3", "off"),
     "bluetooth": ("esp32s3-ble", "off"),
     "distance": ("tof400f-dual-uart", "off"),
 }
+OPTIONAL_MODULES = frozenset({
+    "pmu", "battery", "imu", "gnss", "audio_output", "microphones", "sd"
+})
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -64,7 +69,7 @@ def validate_board_config_data(data: object) -> dict[str, str]:
         "schema_version", "name", "board", "variant", "modules", "ui"
     }:
         raise ValueError("board YAML has missing or unknown top-level fields")
-    if data["schema_version"] != 1 or type(data["schema_version"]) is not int:
+    if data["schema_version"] != 2 or type(data["schema_version"]) is not int:
         raise ValueError("unsupported board YAML schema_version")
     if data["name"] != "ui-bootstrap":
         raise ValueError("unsupported board build name")
@@ -79,14 +84,23 @@ def validate_board_config_data(data: object) -> dict[str, str]:
         module = modules[name]
         if not isinstance(module, dict) or set(module) != {"driver", "mode"}:
             raise ValueError(f"{name} must declare exactly driver and mode")
-        actual = (module["driver"], module["mode"])
-        if actual != expected:
+        driver, mode = module["driver"], module["mode"]
+        allowed_modes = {"off", "service"} if name in OPTIONAL_MODULES else {expected[1]}
+        if driver != expected[0] or mode not in allowed_modes:
             raise ValueError(
-                f"{name} configuration {actual!r} has no reviewed compiler variant"
+                f"{name} configuration {(driver, mode)!r} has no reviewed compiler variant"
             )
+    if modules["battery"]["mode"] == "service" and modules["pmu"]["mode"] != "service":
+        raise ValueError("battery service requires pmu service")
     if data["ui"] != {"app": "shell", "screens": []}:
         raise ValueError("ui-bootstrap must compile the empty shell app")
-    return {"board": data["board"], "profile": "ui-minimal", "feature": "none"}
+    modes = {name: modules[name]["mode"] for name in sorted(OPTIONAL_MODULES)}
+    return {
+        "board": data["board"],
+        "profile": "ui-minimal",
+        "feature": "none",
+        "modules": modes,
+    }
 
 
 def main() -> None:

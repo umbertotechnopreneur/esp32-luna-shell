@@ -1,0 +1,25 @@
+# One Waveshare BSP with every supported headless hardware service enabled.
+# Each optional module can independently be changed to "off"; battery needs PMU.
+schema_version: 2
+name: ui-bootstrap
+board: waveshare-esp32s3-touch-amoled-1.75
+variant: ui-minimal
+modules:
+  display: {driver: co5300, mode: ui}
+  touch: {driver: cst9217, mode: service}
+  i2c: {driver: esp-idf-master, mode: service}
+  internal_storage: {driver: littlefs-nvs, mode: service}
+  pmu: {driver: axp2101, mode: service}
+  battery: {driver: axp2101-battery, mode: service}
+  rtc: {driver: pcf85063, mode: "off"}
+  imu: {driver: qmi8658, mode: service}
+  gnss: {driver: lc76g, mode: service}
+  audio_output: {driver: es8311, mode: service}
+  microphones: {driver: es7210-dual, mode: service}
+  sd: {driver: sdmmc, mode: service}
+  wifi: {driver: esp32s3, mode: "off"}
+  bluetooth: {driver: esp32s3-ble, mode: "off"}
+  distance: {driver: tof400f-dual-uart, mode: "off"}
+ui:
+  app: shell
+  screens: []

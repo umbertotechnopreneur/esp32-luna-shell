@@ -319,12 +319,30 @@ def check_ui_bootstrap_shell() -> str:
 
     board_path = REPOSITORY_ROOT / "config" / "boards" / contract.board / "ui-bootstrap.yaml"
     source = yaml.safe_load(board_path.read_text(encoding="utf-8"))
-    for module in ("touch", "audio", "sd"):
+    for module in ("touch", "audio_output", "sd"):
         changed = json.loads(json.dumps(source))
         changed["modules"][module]["mode"] = "ui" if module != "touch" else "off"
         require_raises(ValueError, lambda changed=changed: validate_board_config_data(changed),
                        f"unsupported {module} mode was accepted")
-    return "source YAML, shell JSON, touch bounds, and excluded module rejection"
+    for module in ("pmu", "imu", "gnss", "audio_output", "microphones", "sd"):
+        changed = json.loads(json.dumps(source))
+        changed["modules"][module]["mode"] = "service"
+        result = validate_board_config_data(changed)
+        require(result["modules"][module] == "service", f"{module} service was rejected")
+    changed = json.loads(json.dumps(source))
+    changed["modules"]["battery"]["mode"] = "service"
+    require_raises(ValueError, lambda: validate_board_config_data(changed),
+                   "battery service was accepted without PMU")
+    changed["modules"]["pmu"]["mode"] = "service"
+    require(validate_board_config_data(changed)["modules"]["battery"] == "service",
+            "battery service with PMU was rejected")
+    services_path = board_path.with_name("ui-services.yaml")
+    all_services = yaml.safe_load(services_path.read_text(encoding="utf-8"))
+    selected = validate_board_config_data(all_services)["modules"]
+    require(all(selected[name] == "service" for name in (
+        "pmu", "battery", "imu", "gnss", "audio_output", "microphones", "sd"
+    )), "all-services example does not enable every selectable module")
+    return "source YAML, shell JSON, touch bounds, and independent service switches"
 
 
 def main() -> int:

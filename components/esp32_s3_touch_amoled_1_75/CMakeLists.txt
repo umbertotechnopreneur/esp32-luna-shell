@@ -3,6 +3,12 @@ set(PRIV_REQ esp_driver_ledc heap)
 if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^full(-distance)?$")
     list(APPEND REQ esp_driver_i2s esp_driver_sdmmc fatfs)
 endif()
+if("$ENV{LUNASHELL_BOARD_ENABLE_AUDIO}" STREQUAL "1")
+    list(APPEND REQ esp_driver_i2s)
+endif()
+if("$ENV{LUNASHELL_BOARD_ENABLE_SD}" STREQUAL "1")
+    list(APPEND REQ esp_driver_sdmmc fatfs)
+endif()
 
 # Patch the pinned adapter for the board's synchronous multi-strip flush and
 # for transactional worker pause/resume with real tick-timer error recovery.

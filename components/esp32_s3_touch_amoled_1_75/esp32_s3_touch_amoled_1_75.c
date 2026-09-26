@@ -177,6 +177,16 @@ static esp_lcd_panel_io_handle_t io_handle = NULL;
 static bool display_spi_bus_initialized = false;
 uint8_t brightness;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#define BSP_AUDIO_HAS_OUTPUT 1
+#else
+#define BSP_AUDIO_HAS_OUTPUT 0
+#endif
+#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+#define BSP_AUDIO_HAS_INPUT 0
+#else
+#define BSP_AUDIO_HAS_INPUT 1
+#endif
 static i2s_chan_handle_t i2s_tx_chan = NULL;
 static i2s_chan_handle_t i2s_rx_chan = NULL;
 static const audio_codec_data_if_t *i2s_data_if = NULL; /* Codec data interface */
@@ -1312,8 +1322,11 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
         ESP_LOGE(TAG, "Audio initialization rejected: resource state is poisoned");
         return ESP_ERR_INVALID_STATE;
     }
-    if (i2s_tx_chan != NULL && i2s_rx_chan != NULL &&
-        i2s_data_if != NULL && i2s_tx_enabled && i2s_rx_enabled) {
+    if ((!BSP_AUDIO_HAS_OUTPUT ||
+         (i2s_tx_chan != NULL && i2s_tx_enabled)) &&
+        (!BSP_AUDIO_HAS_INPUT ||
+         (i2s_rx_chan != NULL && i2s_rx_enabled)) &&
+        i2s_data_if != NULL) {
         return ESP_OK;
     }
     if (i2s_tx_chan != NULL || i2s_rx_chan != NULL ||
@@ -1327,8 +1340,11 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
 
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true; // Clear stale samples in the DMA buffer.
-    esp_err_t primary_error =
-        i2s_new_channel(&chan_cfg, &i2s_tx_chan, &i2s_rx_chan);
+    esp_err_t primary_error = i2s_new_channel(
+        &chan_cfg,
+        BSP_AUDIO_HAS_OUTPUT ? &i2s_tx_chan : NULL,
+        BSP_AUDIO_HAS_INPUT ? &i2s_rx_chan : NULL
+    );
     if (primary_error != ESP_OK) {
         ESP_LOGE(
             TAG,
@@ -1361,11 +1377,14 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
         p_i2s_cfg = i2s_config;
     }
 
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     primary_error = i2s_channel_init_std_mode(i2s_tx_chan, p_i2s_cfg);
     if (primary_error == ESP_OK) {
         primary_error = i2s_channel_enable(i2s_tx_chan);
         i2s_tx_enabled = primary_error == ESP_OK;
     }
+#endif
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
     if (primary_error == ESP_OK) {
         primary_error = i2s_channel_init_std_mode(i2s_rx_chan, p_i2s_cfg);
     }
@@ -1373,6 +1392,7 @@ esp_err_t bsp_audio_init(const i2s_std_config_t *i2s_config)
         primary_error = i2s_channel_enable(i2s_rx_chan);
         i2s_rx_enabled = primary_error == ESP_OK;
     }
+#endif
     if (primary_error != ESP_OK) {
         ESP_LOGE(
             TAG,
@@ -1427,22 +1447,26 @@ esp_err_t bsp_audio_set_transport_standby(
     if (standby == audio_transport_standby) {
         return ESP_OK;
     }
-    if (i2s_data_if == NULL || i2s_tx_chan == NULL || i2s_rx_chan == NULL) {
+    if (i2s_data_if == NULL ||
+        (BSP_AUDIO_HAS_OUTPUT && i2s_tx_chan == NULL) ||
+        (BSP_AUDIO_HAS_INPUT && i2s_rx_chan == NULL)) {
         ESP_LOGE(TAG, "Audio transport transition rejected: route is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
 
     if (standby) {
-        const esp_err_t rx_error =
-            bsp_audio_disable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
-        if (rx_error != ESP_OK) {
-            return rx_error;
+        esp_err_t rx_error = ESP_OK;
+        if (i2s_rx_chan != NULL) {
+            rx_error = bsp_audio_disable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
+            if (rx_error != ESP_OK) {
+                return rx_error;
+            }
         }
-        const esp_err_t tx_error =
-            bsp_audio_disable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX");
+        const esp_err_t tx_error = i2s_tx_chan != NULL ?
+            bsp_audio_disable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX") : ESP_OK;
         if (tx_error != ESP_OK) {
-            const esp_err_t rollback_error =
-                bsp_audio_enable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX rollback");
+            const esp_err_t rollback_error = i2s_rx_chan != NULL ?
+                bsp_audio_enable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX rollback") : ESP_OK;
             if (rollback_error != ESP_OK) {
                 audio_resources_poisoned = true;
                 ESP_LOGE(
@@ -1459,7 +1483,7 @@ esp_err_t bsp_audio_set_transport_standby(
     }
 
     bool tx_resumed = false;
-    if (resume_tx) {
+    if (resume_tx && i2s_tx_chan != NULL) {
         const esp_err_t tx_error =
             bsp_audio_enable_channel(i2s_tx_chan, &i2s_tx_enabled, "TX");
         if (tx_error != ESP_OK) {
@@ -1467,7 +1491,7 @@ esp_err_t bsp_audio_set_transport_standby(
         }
         tx_resumed = true;
     }
-    if (resume_rx) {
+    if (resume_rx && i2s_rx_chan != NULL) {
         const esp_err_t rx_error =
             bsp_audio_enable_channel(i2s_rx_chan, &i2s_rx_enabled, "RX");
         if (rx_error != ESP_OK) {
@@ -1515,18 +1539,15 @@ esp_err_t bsp_audio_codec_init(
         return ESP_ERR_INVALID_STATE;
     }
     const bool route_complete =
-        speaker_codec_device != NULL &&
-        microphone_codec_device != NULL &&
-        speaker_gpio_interface != NULL &&
-        speaker_control_interface != NULL &&
-        speaker_codec_interface != NULL &&
-        microphone_control_interface != NULL &&
-        microphone_codec_interface != NULL &&
-        i2s_data_if != NULL &&
-        i2s_tx_chan != NULL &&
-        i2s_rx_chan != NULL &&
-        i2s_tx_enabled &&
-        i2s_rx_enabled;
+        (!BSP_AUDIO_HAS_OUTPUT ||
+         (speaker_codec_device != NULL && speaker_gpio_interface != NULL &&
+          speaker_control_interface != NULL && speaker_codec_interface != NULL &&
+          i2s_tx_chan != NULL && i2s_tx_enabled)) &&
+        (!BSP_AUDIO_HAS_INPUT ||
+         (microphone_codec_device != NULL && microphone_control_interface != NULL &&
+          microphone_codec_interface != NULL && i2s_rx_chan != NULL &&
+          i2s_rx_enabled)) &&
+        i2s_data_if != NULL;
     if (route_complete) {
         *out_speaker = speaker_codec_device;
         *out_microphone = microphone_codec_device;
@@ -1551,6 +1572,7 @@ esp_err_t bsp_audio_codec_init(
         return primary_error;
     }
 
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     speaker_gpio_interface = audio_codec_new_gpio();
     if (speaker_gpio_interface == NULL) {
         primary_error = ESP_ERR_NO_MEM;
@@ -1602,7 +1624,9 @@ esp_err_t bsp_audio_codec_init(
         primary_error = ESP_ERR_NO_MEM;
         goto fail;
     }
+#endif
 
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
     audio_codec_i2c_cfg_t microphone_i2c_cfg = {
         .port = BSP_I2C_NUM,
         .addr = BSP_ES7210_CODEC_ADDR,
@@ -1635,6 +1659,7 @@ esp_err_t bsp_audio_codec_init(
         primary_error = ESP_ERR_NO_MEM;
         goto fail;
     }
+#endif
 
     *out_speaker = speaker_codec_device;
     *out_microphone = microphone_codec_device;

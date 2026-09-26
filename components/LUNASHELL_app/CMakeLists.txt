@@ -1,4 +1,4 @@
-if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" STREQUAL "ui-minimal")
+if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^ui-minimal(-board-[01]+)?$")
     if(NOT CMAKE_BUILD_EARLY_EXPANSION AND
        NOT CONFIG_LUNASHELL_BUILD_PROFILE_UI_MINIMAL)
         message(FATAL_ERROR "UI shell profile and Kconfig selection disagree")

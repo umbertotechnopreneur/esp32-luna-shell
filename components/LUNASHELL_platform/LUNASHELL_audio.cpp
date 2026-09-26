@@ -17,6 +17,12 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+#define LUNASHELL_AUDIO_HAS_OUTPUT 1
+#else
+#define LUNASHELL_AUDIO_HAS_OUTPUT 0
+#endif
+
 namespace {
 
 const char *TAG = "LUNASHELL_audio";
@@ -101,6 +107,7 @@ esp_err_t close_streams()
 }
 
 // Configure speaker transport only while the base audio route is active.
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
 {
 #if !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
@@ -148,8 +155,10 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
     return ESP_OK;
 #endif
 }
+#endif
 
 // Configure microphone transport only while the base audio route is active.
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
 esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_count)
 {
 #if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
@@ -206,6 +215,7 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
     return ESP_OK;
 #endif
 }
+#endif
 
 // Capture the active codec policy before a reversible standby transition.
 esp_err_t capture_stream_state(AudioStreamState *state)
@@ -333,7 +343,7 @@ esp_err_t prepare_voice_route_locked()
     esp_err_t error = ESP_OK;
     const uint8_t microphone_channels = LUNASHELL_audio_input_channel_count();
     const bool route_ready =
-        (!CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 ||
+        (!LUNASHELL_AUDIO_HAS_OUTPUT ||
          (s_speaker_open &&
           s_speaker_sample_rate_hz == VOICE_SAMPLE_RATE_HZ)) &&
         (microphone_channels == 0 ||
@@ -473,7 +483,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
         std::abort();
     }
     if (error == ESP_OK &&
-        ((CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 && s_speaker == nullptr) ||
+        ((LUNASHELL_AUDIO_HAS_OUTPUT && s_speaker == nullptr) ||
          (LUNASHELL_audio_input_channel_count() > 0 && s_microphone == nullptr))) {
         ESP_LOGE(TAG, "BSP audio initialization returned incomplete handles");
         error = ESP_ERR_INVALID_STATE;
@@ -543,7 +553,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
         ESP_LOGI(
             TAG,
             "Audio route ready: speaker=%s microphone-channels=%u",
-            CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 ? "ES8311" : "disabled",
+            LUNASHELL_AUDIO_HAS_OUTPUT ? "ES8311" : "disabled",
             static_cast<unsigned>(LUNASHELL_audio_input_channel_count())
         );
     } else {
@@ -931,7 +941,7 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 
     const bool voice_route_requested = LUNASHELL_voice_afe_running();
     const bool resume_speaker = voice_route_requested
-        ? CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+        ? LUNASHELL_AUDIO_HAS_OUTPUT
         : s_pre_standby_stream_state_valid &&
               s_pre_standby_stream_state.speaker_open;
     const bool resume_microphone = voice_route_requested

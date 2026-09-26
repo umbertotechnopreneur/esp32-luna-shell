@@ -129,22 +129,34 @@ constexpr uint64_t kPmuIrqReadFailure = 0xFFFFFFULL;
 constexpr uint64_t kPmuIrqMask = 0xFFFFFFULL;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
 constexpr uint64_t kPmuRuntimeIrqMask =
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     XPOWERS_AXP2101_BAT_INSERT_IRQ |
     XPOWERS_AXP2101_BAT_REMOVE_IRQ |
     XPOWERS_AXP2101_VBUS_INSERT_IRQ |
     XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
+#endif
     XPOWERS_AXP2101_PKEY_SHORT_IRQ |
-    XPOWERS_AXP2101_PKEY_LONG_IRQ |
+    XPOWERS_AXP2101_PKEY_LONG_IRQ
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
+    |
     XPOWERS_AXP2101_BAT_CHG_DONE_IRQ |
-    XPOWERS_AXP2101_BAT_CHG_START_IRQ;
+    XPOWERS_AXP2101_BAT_CHG_START_IRQ
+#endif
+    ;
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 i2c_master_bus_handle_t s_i2c_bus;
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
 i2c_master_dev_handle_t s_pmu_device;
+#endif
 i2c_master_dev_handle_t s_rtc;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 i2c_master_dev_handle_t s_gps_control;
 i2c_master_dev_handle_t s_gps_read;
 i2c_master_dev_handle_t s_gps_write;
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
 qmi8658_dev_t s_imu;
 #endif
@@ -155,10 +167,14 @@ XPowersPMU s_power;
 bool s_initialized;
 bool s_initialization_attempted;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
 bool s_pmu_ready;
+#endif
 std::atomic<uint32_t> s_pkey_short_press_pending{0};
 std::atomic<uint32_t> s_pkey_long_press_pending{0};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
 uint64_t s_pmu_queued_pkey_status;
+#endif
 bool s_rtc_ready;
 std::atomic_bool s_rtc_oscillator_stop_latched{false};
 std::atomic_bool s_rtc_recovery_readback_required{false};
@@ -184,11 +200,13 @@ float s_gyro_filtered[3];
 bool s_imu_filter_ready;
 std::atomic<uint32_t> s_imu_smoothing_percent{kImuSmoothingDefaultPercent};
 std::atomic_bool s_imu_smoothing_valid{false};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 bool s_gps_ready;
 bool s_gps_power_suspended;
 // After initialization, guarded by the shared refresh mutex.
 esp_err_t s_gps_periodic_error = ESP_OK;
 int64_t s_gps_periodic_retry_after_us = 0;
+#endif
 bool s_microphone_ready;
 bool s_diagnostic_monitor_started;
 std::atomic<TaskHandle_t> s_diagnostic_monitor_task_handle{nullptr};
@@ -366,8 +384,12 @@ StaticTask_t s_imu_calibration_task_control;
 StackType_t s_imu_calibration_task_stack[3072];
 // The synchronous I2C read copies GNSS bytes into this parser buffer, so the
 // application payload can live in PSRAM.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 EXT_RAM_BSS_ATTR char s_gps_payload[GPS_MAX_PAYLOAD + 1];
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
 int16_t s_microphone_samples[1024];
+#endif
 
 struct AudioSpectrumBands {
     uint8_t value[2][LUNASHELL::kAudioSpectrumBandCount] = {};
@@ -1667,6 +1689,10 @@ esp_err_t apply_pending_display_rotation()
 #endif
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_RTC || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_IMU || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 esp_err_t add_i2c_device(
     i2c_master_bus_handle_t bus,
     uint8_t address,
@@ -1683,6 +1709,7 @@ esp_err_t add_i2c_device(
     };
     return i2c_master_bus_add_device(bus, &config, device);
 }
+#endif
 
 esp_err_t read_register(
     i2c_master_dev_handle_t device,
@@ -1694,11 +1721,13 @@ esp_err_t read_register(
     return i2c_master_transmit_receive(device, &reg, 1, data, length, I2C_TIMEOUT_MS);
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS || CONFIG_LUNASHELL_BUILD_ENABLE_RTC
 esp_err_t write_register(i2c_master_dev_handle_t device, uint8_t reg, uint8_t value)
 {
     const uint8_t payload[] = {reg, value};
     return i2c_master_transmit(device, payload, sizeof(payload), I2C_TIMEOUT_MS);
 }
+#endif
 
 esp_err_t write_registers(
     i2c_master_dev_handle_t device,
@@ -1797,6 +1826,7 @@ esp_err_t read_pmu_registers(
     return read_register(s_pmu_device, reg, data, length);
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 esp_err_t enable_and_verify_pmu_battery_detection()
 {
     uint8_t value = 0;
@@ -1858,6 +1888,7 @@ esp_err_t enable_and_verify_pmu_battery_detection()
     }
     return ESP_OK;
 }
+#endif
 
 esp_err_t read_pmu_irq_status(const char *operation, uint64_t *status)
 {
@@ -2059,6 +2090,7 @@ esp_err_t collect_pmu_irq_events()
     return ESP_OK;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 esp_err_t verify_pmu_precharge_current(xpowers_prechg_t expected)
 {
     const xpowers_prechg_t observed = s_power.getPrechargeCurr();
@@ -2103,6 +2135,7 @@ esp_err_t verify_pmu_termination_current(
     );
     return error;
 }
+#endif
 #endif
 
 uint8_t bcd_to_decimal(uint8_t value)
@@ -2304,9 +2337,10 @@ bool finite_imu_sample(const ImuRawSample &data)
            std::isfinite(data.temperature);
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
 esp_err_t sample_pmu_locked(const char *phase)
 {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
     LUNASHELL::BatterySnapshot sample;
     const int64_t attempted_at_us = esp_timer_get_time();
     esp_err_t error =
@@ -2594,7 +2628,7 @@ esp_err_t publish_pmu_lock_failure(
 
 esp_err_t sample_pmu(const char *phase)
 {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
     SemaphoreHandle_t pmu_mutex = ensure_pmu_mutex();
     if (pmu_mutex == nullptr) {
         return publish_pmu_lock_failure(phase, ESP_ERR_NO_MEM);
@@ -2612,6 +2646,7 @@ esp_err_t sample_pmu(const char *phase)
     return sample_pmu_locked(phase);
 #endif
 }
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
 esp_err_t remove_pmu_device()
@@ -2669,6 +2704,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         }
         return applied;
     };
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     if (error == ESP_OK) {
         error = enable_and_verify_pmu_battery_detection();
     }
@@ -2699,6 +2735,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         )) {
         error = ESP_FAIL;
     }
+#endif
 
     if (error == ESP_OK &&
         !require_pmu_write(
@@ -2727,6 +2764,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
     if (error == ESP_OK) {
         error = verify_pmu_irq_enable_mask(kPmuRuntimeIrqMask);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     if (error == ESP_OK) {
         s_power.setPrechargeCurr(XPOWERS_AXP2101_PRECHARGE_50MA);
         error = verify_pmu_precharge_current(
@@ -2759,6 +2797,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         )) {
         error = ESP_FAIL;
     }
+#endif
     if (error != ESP_OK) {
         record_first_error(remove_pmu_device(), &error);
         update_snapshot([error](LUNASHELL::DeviceSnapshot &snapshot) {
@@ -2766,17 +2805,32 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
         });
         return error;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     // ADC channels need one conversion interval before their first coherent sample.
     vTaskDelay(pdMS_TO_TICKS(50));
+#endif
 
     s_pmu_ready = true;
-    update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
+    const esp_err_t publication_error = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
         set_component(snapshot.battery, true, ESP_OK);
     });
     ESP_LOGI(
         TAG,
         "PMU AXP2101: battery detector verified, ADCs enabled, TS disabled, charge policy=50/400/25mA target=4.20V, events enabled"
     );
+#else
+    const esp_err_t publication_error = update_snapshot([](LUNASHELL::DeviceSnapshot &snapshot) {
+        set_component(snapshot.battery, false, ESP_ERR_NOT_SUPPORTED);
+    });
+    ESP_LOGI(TAG, "PMU AXP2101: PKEY enabled; battery telemetry disabled");
+#endif
+    if (publication_error != ESP_OK) {
+        s_pmu_ready = false;
+        ESP_LOGE(TAG, "PMU AXP2101: battery state publication failed (%s)",
+                 esp_err_to_name(publication_error));
+        return publication_error;
+    }
     return ESP_OK;
 #else
     (void)bus;
@@ -2789,6 +2843,7 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
 #endif
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_RTC
 esp_err_t init_rtc(i2c_master_bus_handle_t bus)
 {
     esp_err_t error = add_i2c_device(bus, PCF85063_ADDRESS, 400000, &s_rtc);
@@ -2857,6 +2912,7 @@ esp_err_t init_rtc(i2c_master_bus_handle_t bus)
     ESP_LOGI(TAG, "RTC PCF85063: detected, 24-hour mode configured");
     return ESP_OK;
 }
+#endif
 
 esp_err_t read_rtc_calendar(LUNASHELL_calendar_time_t *time)
 {
@@ -3884,6 +3940,7 @@ TaskHandle_t ensure_imu_calibration_task()
     return task;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
 esp_err_t init_gps(i2c_master_bus_handle_t bus)
 {
     esp_err_t error = add_i2c_device(bus, LC76G_WRITE_ADDRESS, 100000, &s_gps_control);
@@ -4888,7 +4945,9 @@ esp_err_t sample_gps(const char *phase)
     }
     return aggregate;
 }
+#endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
 // Project the measured microphone channels onto the compact DFT bank.
 void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
 {
@@ -5161,6 +5220,8 @@ esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
 }
 
 // Share one PSRAM-backed sampler between diagnostics and faster orientation updates.
+#endif
+
 void diagnostic_monitor_task(void *arg)
 {
     (void)arg;
@@ -5175,10 +5236,12 @@ void diagnostic_monitor_task(void *arg)
             s_diagnostic_imu_active.load(std::memory_order_relaxed);
         const bool diagnostic_microphone_requested =
             s_diagnostic_microphone_active.load(std::memory_order_relaxed);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
         const bool diagnostic_microphone_spectrum_requested =
             s_diagnostic_microphone_spectrum_active.load(
                 std::memory_order_relaxed
             );
+#endif
         const bool diagnostic_imu_active =
             !ui_sampling_power_suspended && diagnostic_imu_requested;
         const bool diagnostic_microphone_active =
@@ -5237,9 +5300,11 @@ void diagnostic_monitor_task(void *arg)
         bool effective_diagnostic_imu_due = diagnostic_imu_due;
         bool effective_diagnostic_microphone_due =
             diagnostic_microphone_due;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
         bool effective_diagnostic_microphone_spectrum_due =
             diagnostic_microphone_due &&
             diagnostic_microphone_spectrum_requested;
+#endif
         bool effective_imu_sample_due = imu_sample_due;
 
         if (sampling_due) {
@@ -5287,11 +5352,13 @@ void diagnostic_monitor_task(void *arg)
                     s_diagnostic_microphone_active.load(
                         std::memory_order_acquire
                     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
                 effective_diagnostic_microphone_spectrum_due =
                     effective_diagnostic_microphone_due &&
                     s_diagnostic_microphone_spectrum_active.load(
                         std::memory_order_acquire
                     );
+#endif
                 effective_diagnostic_due =
                     effective_diagnostic_imu_due ||
                     effective_diagnostic_microphone_due;
@@ -5349,6 +5416,7 @@ void diagnostic_monitor_task(void *arg)
                             );
                         }
                         if (effective_diagnostic_due) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
                             if (effective_diagnostic_microphone_due) {
                                 microphone_sample_error =
                                     sample_microphone(
@@ -5360,6 +5428,7 @@ void diagnostic_monitor_task(void *arg)
                                     &aggregate
                                 );
                             }
+#endif
                             record_first_error(
                                 publish_update_result(
                                     "diagnostic-ui",
@@ -6202,7 +6271,9 @@ esp_err_t DeviceSnapshotService::initialize()
         ESP_LOGE(TAG, "Shared BSP I2C returned a null handle");
         return ESP_ERR_INVALID_RESPONSE;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     s_i2c_bus = bus;
+#endif
     ESP_LOGI(TAG, "Shared BSP I2C: SDA=%d SCL=%d", BSP_I2C_SDA, BSP_I2C_SCL);
 #else
     ESP_LOGI(TAG, "Shared BSP I2C: not required by build profile");
@@ -6293,8 +6364,10 @@ esp_err_t DeviceSnapshotService::initialize()
     } else {
         s_microphone_ready = LUNASHELL_audio_input_channel_count() > 0;
         if (s_microphone_ready) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
             error = sample_microphone("initial", false);
             record_optional_chip("microphones", error);
+#endif
         } else {
             update_snapshot([](DeviceSnapshot &snapshot) {
                 set_component(snapshot.audio.microphone, false, ESP_ERR_NOT_SUPPORTED);
@@ -6386,9 +6459,11 @@ esp_err_t DeviceSnapshotService::refresh(
     );
     record_first_error(snapshot_lock_error, &aggregate);
     if (snapshot_lock_error == ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
         if (s_pmu_ready) {
             record_first_error(sample_pmu(phase), &aggregate);
         }
+#endif
         if (s_rtc_ready) {
             record_first_error(
                 sample_rtc(phase, &rtc_latch_observation),
@@ -6415,6 +6490,7 @@ esp_err_t DeviceSnapshotService::refresh(
                 record_first_error(sample_imu(phase), &aggregate);
             }
         }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_GNSS
         if (s_gps_ready) {
             if (std::strcmp(phase, "periodic-full") == 0 &&
                 s_gps_periodic_error != ESP_OK &&
@@ -6426,6 +6502,8 @@ esp_err_t DeviceSnapshotService::refresh(
                 record_first_error(sample_gps(phase), &aggregate);
             }
         }
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
         if (s_microphone_ready) {
             const int64_t committed_diagnostic_microphone_at_us =
                 s_last_committed_diagnostic_microphone_us;
@@ -6451,6 +6529,7 @@ esp_err_t DeviceSnapshotService::refresh(
                 );
             }
         }
+#endif
         record_first_error(sample_system_state(), &aggregate);
         record_first_error(publish_update_result(phase, aggregate), &aggregate);
         const esp_err_t commit_error = commit_snapshot_stage(
