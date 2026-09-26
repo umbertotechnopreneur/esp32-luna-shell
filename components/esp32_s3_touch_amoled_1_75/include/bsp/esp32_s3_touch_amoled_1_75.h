@@ -6,15 +6,19 @@
 #include "sdkconfig.h"
 #include "driver/gpio.h"
 #include "driver/i2c_master.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #include "driver/sdmmc_host.h"
+#include "ff.h"
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #include "driver/i2s_std.h"
+#include "esp_codec_dev.h"
+#endif
 #include "bsp/config.h"
 #include "bsp/display.h"
-#include "esp_codec_dev.h"
 
 #include "esp_io_expander_tca9554.h"
 
-#include "ff.h"
 #include "lvgl.h"
 #include "esp_lv_adapter.h"
 
@@ -26,10 +30,20 @@
 #define BSP_CAPS_DISPLAY        1
 #define BSP_CAPS_TOUCH          1
 #define BSP_CAPS_BUTTONS        1
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #define BSP_CAPS_AUDIO          1
 #define BSP_CAPS_AUDIO_SPEAKER  1
 #define BSP_CAPS_AUDIO_MIC      1
+#else
+#define BSP_CAPS_AUDIO          0
+#define BSP_CAPS_AUDIO_SPEAKER  0
+#define BSP_CAPS_AUDIO_MIC      0
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #define BSP_CAPS_SDCARD         1
+#else
+#define BSP_CAPS_SDCARD         0
+#endif
 #define BSP_CAPS_IMU            1
 
 /**************************************************************************************************
@@ -114,6 +128,7 @@ esp_err_t bsp_i2c_deinit(void);
 esp_err_t bsp_i2c_get_handle(i2c_master_bus_handle_t *out_handle);
 
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 /**************************************************************************************************
  *
  * I2S audio interface
@@ -187,6 +202,7 @@ esp_err_t bsp_audio_codec_init(
  *         audio route and is returned explicitly.
  */
 esp_err_t bsp_audio_codec_deinit(void);
+#endif
 
 /**************************************************************************************************
  *
@@ -222,6 +238,7 @@ esp_err_t bsp_spiffs_mount(void);
  */
 esp_err_t bsp_spiffs_unmount(void);
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 /**************************************************************************************************
  *
  * uSD card
@@ -367,6 +384,7 @@ esp_err_t bsp_sdcard_unmount(bsp_sdcard_unmount_result_t *out_result);
  *         error, or ESP_ERR_INVALID_STATE when no usable mount exists.
  */
 esp_err_t bsp_sdcard_get_status(void);
+#endif
 
 /**
  * @brief Initialize or get the IO expander chip TCA9554

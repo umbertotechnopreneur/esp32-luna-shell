@@ -23,6 +23,8 @@ dependencies:
   espressif/esp_codec_dev:
     version: "1.5.11"
     public: true
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_AUDIO} == True"
 
   espressif/esp_lcd_panel_io_additions: "1.0.1~1"
   espressif/esp_io_expander_tca9554:

@@ -13,11 +13,13 @@
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"
 #include "esp_timer.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #include "esp_vfs_fat.h"
-#include "esp_spiffs.h"
 #include "diskio_impl.h"
 #include "diskio_sdmmc.h"
 #include "sdmmc_cmd.h"
+#endif
+#include "esp_spiffs.h"
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
@@ -26,7 +28,9 @@
 #include "esp_lcd_co5300.h"
 #include "esp_lcd_touch_cst9217.h"
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #include "esp_codec_dev_defaults.h"
+#endif
 #include "bsp/esp32_s3_touch_amoled_1_75.h"
 #include "bsp/display.h"
 #include "bsp/touch.h"
@@ -57,7 +61,9 @@ typedef enum {
 } bsp_display_lvgl_state_t;
 static bsp_display_lvgl_state_t display_lvgl_state = BSP_DISPLAY_LVGL_ACTIVE;
 static portMUX_TYPE display_lvgl_state_lock = portMUX_INITIALIZER_UNLOCKED;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
+#endif
 
 static void bsp_touch_activity_event_cb(lv_event_t *event)
 {
@@ -68,9 +74,11 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
     }
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #define BSP_SDCARD_MAX_FILES               5
 #define BSP_SDCARD_ALLOCATION_UNIT_SIZE    (16U * 1024U)
 #define BSP_SDCARD_FORMAT_WORK_BUFFER_SIZE 4096U
+#endif
 #define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
 #define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
 #define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
@@ -133,6 +141,7 @@ static uint32_t display_dma_emergency_count;
 static uint32_t display_dma_transfer_failure_count;
 static bool display_dma_emergency_in_use;
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 typedef struct {
     bool host_initialized;
     bool slot_initialized;
@@ -159,6 +168,7 @@ typedef struct {
 static bsp_sdcard_context_t sdcard_context = {
     .pdrv = FF_DRV_NOT_USED,
 };
+#endif
 
 static esp_lcd_touch_handle_t tp = NULL;
 static esp_lcd_panel_io_handle_t touch_io_handle = NULL;
@@ -166,6 +176,7 @@ static esp_lcd_panel_handle_t panel_handle = NULL; // LCD panel handle
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static bool display_spi_bus_initialized = false;
 uint8_t brightness;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 static i2s_chan_handle_t i2s_tx_chan = NULL;
 static i2s_chan_handle_t i2s_rx_chan = NULL;
 static const audio_codec_data_if_t *i2s_data_if = NULL; /* Codec data interface */
@@ -180,7 +191,9 @@ static const audio_codec_ctrl_if_t *speaker_control_interface;
 static const audio_codec_if_t *speaker_codec_interface;
 static const audio_codec_ctrl_if_t *microphone_control_interface;
 static const audio_codec_if_t *microphone_codec_interface;
+#endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #define BSP_ES7210_CODEC_ADDR ES7210_CODEC_DEFAULT_ADDR
 #define BSP_I2S_GPIO_CFG       \
     {                          \
@@ -195,6 +208,7 @@ static const audio_codec_if_t *microphone_codec_interface;
             .ws_inv = false,   \
         },                     \
     }
+#endif
 
 static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xFE, (uint8_t[]){0x20}, 1, 0},
@@ -214,12 +228,14 @@ static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x29, NULL, 0, 0},
 };
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #define BSP_I2S_DUPLEX_STEREO_CFG(_sample_rate)                                                         \
     {                                                                                                   \
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(_sample_rate),                                            \
         .slot_cfg = I2S_STD_PHILIP_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO), \
         .gpio_cfg = BSP_I2S_GPIO_CFG,                                                                   \
     }
+#endif
 
 /**************************************************************************************************
  *
@@ -327,6 +343,7 @@ esp_err_t bsp_spiffs_unmount(void)
     return esp_vfs_spiffs_unregister(CONFIG_BSP_SPIFFS_PARTITION_LABEL);
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 static void bsp_sdcard_reset_context(void)
 {
     memset(&sdcard_context, 0, sizeof(sdcard_context));
@@ -1060,12 +1077,14 @@ esp_err_t bsp_sdcard_get_status(void)
     }
     return result;
 }
+#endif
 
 /**************************************************************************************************
  *
  * I2S Audio Function
  *
  **************************************************************************************************/
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 static void record_audio_cleanup_error(
     const char *operation,
     int result,
@@ -1663,6 +1682,7 @@ esp_err_t bsp_audio_codec_deinit(void)
     }
     return bsp_audio_codec_cleanup();
 }
+#endif
 
 #define LCD_CMD_BITS (8)
 #define LCD_PARAM_BITS (8)

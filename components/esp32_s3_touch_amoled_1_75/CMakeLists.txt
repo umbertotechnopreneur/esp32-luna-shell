@@ -1,5 +1,8 @@
-set(REQ esp_driver_gpio esp_driver_i2c esp_driver_i2s esp_driver_sdmmc fatfs)
+set(REQ esp_driver_gpio esp_driver_i2c)
 set(PRIV_REQ esp_driver_ledc heap)
+if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^full(-distance)?$")
+    list(APPEND REQ esp_driver_i2s esp_driver_sdmmc fatfs)
+endif()
 
 # Patch the pinned adapter for the board's synchronous multi-strip flush and
 # for transactional worker pause/resume with real tick-timer error recovery.

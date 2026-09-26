@@ -27,8 +27,13 @@ idf_component_register(
         esp_hw_support
         esp_timer
         LUNASHELL_logger
-        qrcode
 )
+
+# The managed manifest resolves qrcode after Kconfig selects the full app.
+# Declaring it during the early component pass would reject a fresh full build.
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    idf_component_optional_requires(PRIVATE qrcode)
+endif()
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)
 # Keep the Brookesia provider registrar reachable without forcing every archive

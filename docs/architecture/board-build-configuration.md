@@ -37,14 +37,22 @@ snapshot states stay explicitly unavailable where applicable.
 
 ## Current compile boundary
 
-The Waveshare BSP is still one C component containing display, touch, I2C,
-audio, SD, and an I/O expander. Selecting this build does **not** yet prove that
-all disabled BSP code and dependencies are absent from the binary or dependency
-graph. The next checkpoint separates the BSP's bus, display/touch, audio, and SD
-units so `off` removes the corresponding driver sources and dependencies. Only
-then can additional board adapters and arbitrary `off`/`service`/`ui` module
-combinations be accepted. A future board must supply an explicit adapter and
-pinout; changing the YAML board name alone is rejected.
+The Waveshare BSP remains one C component, but its audio and removable-SD
+implementation blocks are now excluded by the profile's Kconfig switches.
+The minimal dependency lock also excludes `espressif/esp_codec_dev`.
+`esp_board_manager` remains required by ESP-IDF component Kconfig integration;
+it pulls FatFS and SDMMC into the component graph even though this BSP does not
+compile its SD mount, format, or status functions in `ui-bootstrap`. A later
+checkpoint must separate the BSP into bus, display/touch, audio, SD, and
+I/O-expander units and remove remaining indirect dependencies where possible.
+Additional board adapters and arbitrary `off`/`service`/`ui` module combinations
+require reviewed component graphs and dependency locks. A future board must
+supply an explicit adapter and pinout; changing the YAML board name alone is
+rejected.
+
+The Windows simulator currently models the full synthetic device and has no
+`ui-bootstrap` shell mode. Its passing contract checks do not validate this
+firmware screen or touch behavior.
 
 No flash or on-device behavior is implied by a successful host build. Device
 access needs explicit authorization for the requested operation.

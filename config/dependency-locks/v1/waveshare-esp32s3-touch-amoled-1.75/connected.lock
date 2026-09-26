@@ -349,16 +349,6 @@ dependencies:
       registry_url: https://components.espressif.com/
       type: service
     version: 0.5.15
-  espressif/esp_codec_dev:
-    component_hash: df70f10af8d7b922add7b9d07372c9c97ab356e58d72b7a892050227c2d44348
-    dependencies:
-    - name: idf
-      require: private
-      version: '>=4.0'
-    source:
-      registry_url: https://components.espressif.com/
-      type: service
-    version: 1.5.11
   espressif/esp_io_expander:
     component_hash: 7b7f91270172e46ca4597e3874f48d8412e280e8c295559f5922ec38656e3e5f
     dependencies:
@@ -682,7 +672,6 @@ direct_dependencies:
 - espressif/brookesia_service_device
 - espressif/brookesia_system_core
 - espressif/esp_board_manager
-- espressif/esp_codec_dev
 - espressif/esp_io_expander_tca9554
 - espressif/esp_lcd_co5300
 - espressif/esp_lcd_panel_io_additions
@@ -694,6 +683,6 @@ direct_dependencies:
 - joltwallet/littlefs
 - lvgl/lvgl
 - waveshare/esp_lcd_touch_cst9217
-manifest_hash: 734f03c2013c742bb3bd7b6b681862e7c306471e3070ac16bfa8dede23a550b9
+manifest_hash: 088615d8482d7f777dd42b922f4ca26f6ae7d9adffc355069053bab7d1bb419c
 target: esp32s3
 version: 3.0.0
