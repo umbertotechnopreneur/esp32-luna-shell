@@ -1,6 +1,6 @@
 set(REQ esp_driver_gpio esp_driver_i2c)
 set(PRIV_REQ esp_driver_ledc heap)
-if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^full(-distance)?$")
+if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^(full(-distance)?|leg-edition)$")
     list(APPEND REQ esp_driver_i2s esp_driver_sdmmc fatfs)
 endif()
 if("$ENV{LUNASHELL_BOARD_ENABLE_AUDIO}" STREQUAL "1")

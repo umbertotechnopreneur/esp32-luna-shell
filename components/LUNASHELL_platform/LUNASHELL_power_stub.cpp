@@ -15,6 +15,22 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
 {
 }
 
+extern "C" esp_err_t LUNASHELL_power_manager_set_leg_mode(
+    bool active,
+    bool wake_on_motion
+)
+{
+    (void)active;
+    (void)wake_on_motion;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled)
+{
+    (void)enabled;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" void LUNASHELL_power_manager_note_ui_standby_result(
     uint32_t transition_sequence,
     esp_err_t result

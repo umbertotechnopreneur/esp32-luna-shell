@@ -26,6 +26,7 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "LUNASHELL_platform.h"
 
 namespace {
 
@@ -88,6 +89,11 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
         return LazyScreenDescriptor{
             .document_path = "res/screen_imu.json",
             .screen_path = "/LUNASHELL_imu",
+        };
+    case Screen::Leg:
+        return LazyScreenDescriptor{
+            .document_path = "res/screen_leg.json",
+            .screen_path = "/LUNASHELL_leg",
         };
     case Screen::Gps:
         return LazyScreenDescriptor{
@@ -218,6 +224,10 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     static constexpr std::array<std::string_view, 1> kGpsActions = {
         "LUNASHELL.chrome.activity.gps",
     };
+    static constexpr std::array<std::string_view, 2> kLegActions = {
+        "LUNASHELL.leg.previous",
+        "LUNASHELL.leg.next",
+    };
     static constexpr std::array<std::string_view, 1> kLogActions = {
         "LUNASHELL.chrome.activity.logs",
     };
@@ -272,6 +282,9 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
     case Screen::Gps:
         forwarded_actions = kGpsActions;
         break;
+    case Screen::Leg:
+        forwarded_actions = kLegActions;
+        break;
     case Screen::Logs:
         forwarded_actions = kLogActions;
         break;
@@ -313,6 +326,34 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
             connections.clear();
             return result;
         }
+    }
+
+    if (screen == Screen::Leg) {
+        static constexpr std::array<std::string_view, 4> kLegSettingsActions = {
+            "LUNASHELL.leg.rotation.changed",
+            "LUNASHELL.leg.flip.changed",
+            "LUNASHELL.leg.sounds.changed",
+            "LUNASHELL.leg.wake.changed",
+        };
+        for (const std::string_view action : kLegSettingsActions) {
+            auto result = add_connection(
+                action,
+                [this, document_id, generation,
+                 action = std::string(action)](
+                    const esp_brookesia::gui::Event &event
+                ) {
+                    if (!is_current_screen_document(document_id, generation)) {
+                        return;
+                    }
+                    handle_leg_setting_event(action, event);
+                }
+            );
+            if (!result) {
+                connections.clear();
+                return result;
+            }
+        }
+        return {};
     }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -524,6 +565,9 @@ void App::invalidate_screen_document_state(Screen screen)
     }
     if (screen == Screen::Imu) {
         invalidate_imu_screen_cache();
+    }
+    if (screen == Screen::Leg) {
+        invalidate_leg_screen_cache();
     }
     if (screen == Screen::Gps) {
         invalidate_gps_screen_cache();
@@ -774,6 +818,16 @@ std::expected<void, std::string> App::restore_welcome_document(
     }
 
     screen_ = Screen::Welcome;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION && CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    const esp_err_t leg_policy_result =
+        LUNASHELL_power_manager_set_leg_mode(false, leg_wake_enabled_);
+    if (leg_policy_result != ESP_OK) {
+        remember_failure(
+            "Leg power policy rollback",
+            esp_err_to_name(leg_policy_result)
+        );
+    }
+#endif
     navigation_.reset(Screen::Welcome);
     pairing_visual_state_.reset();
     content_viewport_state_.reset();
@@ -784,6 +838,7 @@ std::expected<void, std::string> App::restore_welcome_document(
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_leg_screen_cache();
     invalidate_storage_screen_cache();
 
     if (auto result = apply_diagnostic_monitor(context, Screen::Welcome);

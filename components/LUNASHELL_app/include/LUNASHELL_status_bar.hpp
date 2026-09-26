@@ -23,9 +23,6 @@ private:
     struct VisualState {
         std::string_view usb_color;
         std::string_view battery_color;
-        std::string_view ble_color;
-        std::string_view wifi_color;
-        std::string_view gps_color;
         std::string_view sd_color;
         std::string_view battery_icon;
         bool battery_charging;

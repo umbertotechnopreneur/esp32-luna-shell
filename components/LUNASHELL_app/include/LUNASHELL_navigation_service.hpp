@@ -15,6 +15,7 @@ enum class Route {
     AudioFft,
     AudioDetail,
     Imu,
+    Leg,
     Gps,
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
     Tof,

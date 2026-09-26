@@ -178,6 +178,11 @@ esp_err_t LUNASHELL_power_manager_init(void);
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
 
+/** Apply Leg Edition's 25-second display-off policy while its view is active. */
+esp_err_t LUNASHELL_power_manager_set_leg_mode(bool active, bool wake_on_motion);
+/** Enable or silence the movement cues without changing the screen policy. */
+esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled);
+
 /** Publish the exact UI quiescence result for one standby generation. */
 void LUNASHELL_power_manager_note_ui_standby_result(
     uint32_t transition_sequence,
@@ -231,6 +236,10 @@ esp_err_t LUNASHELL_display_set_auto_rotation_enabled(bool enabled);
 
 /** Return the active automatic cardinal-rotation preference. */
 bool LUNASHELL_display_get_auto_rotation_enabled(void);
+
+/** Add a true 180-degree panel/touch rotation after automatic orientation. */
+esp_err_t LUNASHELL_display_set_leg_flip_enabled(bool enabled);
+bool LUNASHELL_display_get_leg_flip_enabled(void);
 
 /** Restore the persisted preference and last successfully applied rotation. */
 esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void);

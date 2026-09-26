@@ -428,6 +428,9 @@
                                 {
                                     "type": "label",
                                     "id": "connectivity_title",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "CONNECTIVITY"
                                     },
@@ -444,6 +447,9 @@
                                 {
                                     "type": "label",
                                     "id": "connectivity_description",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "Wi-Fi, Bluetooth and GPS state"
                                     },
@@ -460,6 +466,9 @@
                                 {
                                     "type": "label",
                                     "id": "radio_value",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "Checking wireless services..."
                                     },
@@ -476,6 +485,9 @@
                                 {
                                     "type": "label",
                                     "id": "radio_policy",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "Use the lower Wireless control to start or stop services."
                                     },
@@ -492,6 +504,9 @@
                                 {
                                     "type": "label",
                                     "id": "wifi_detail",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "WI-FI | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },
@@ -508,6 +523,9 @@
                                 {
                                     "type": "label",
                                     "id": "ble_detail",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "BLUETOOTH | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },
@@ -524,6 +542,9 @@
                                 {
                                     "type": "label",
                                     "id": "gps_detail",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
                                     "labelProps": {
                                         "text": "GPS | UNAVAILABLE (SNAPSHOT NOT READY)"
                                     },

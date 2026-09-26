@@ -258,6 +258,9 @@
                                     "templateId": "LUNASHELL_hardware_card",
                                     "overrides": {
                                         ".": {
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden"
+                                            },
                                             "events": [
                                                 {
                                                     "type": "clicked",
@@ -287,6 +290,9 @@
                                     "templateId": "LUNASHELL_hardware_card",
                                     "overrides": {
                                         ".": {
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden"
+                                            },
                                             "events": [
                                                 {
                                                     "type": "clicked",
@@ -316,6 +322,9 @@
                                     "templateId": "LUNASHELL_hardware_card",
                                     "overrides": {
                                         ".": {
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden"
+                                            },
                                             "events": [
                                                 {
                                                     "type": "clicked",
@@ -432,6 +441,9 @@
                                     "templateId": "LUNASHELL_hardware_card",
                                     "overrides": {
                                         ".": {
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden"
+                                            },
                                             "events": [
                                                 {
                                                     "type": "clicked",

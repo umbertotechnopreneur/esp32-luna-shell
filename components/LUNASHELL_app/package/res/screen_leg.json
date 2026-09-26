@@ -1,0 +1,715 @@
+{
+    "version": "0.2.0",
+    "assets": [
+        {
+            "type": "constant",
+            "data": {
+                "typography": {
+                    "available": [
+                        "10sp",
+                        "12sp",
+                        "16sp",
+                        "20sp",
+                        "24sp",
+                        "32sp"
+                    ],
+                    "micro": "10sp",
+                    "caption": "12sp",
+                    "detail": "16sp",
+                    "body": "20sp",
+                    "heading": "24sp",
+                    "control": "24sp",
+                    "title": "32sp"
+                }
+            }
+        },
+        "templates/LUNASHELL_settings_switch.json",
+        {
+            "type": "viewScreen",
+            "id": "LUNASHELL_leg",
+            "mountMode": "dynamic",
+            "commonProps": {
+                "scrollable": false
+            },
+            "style": {
+                "padding": 0
+            },
+            "layout": {
+                "type": "flex",
+                "mainAlign": "center",
+                "crossAlign": "center"
+            },
+            "children": [
+                {
+                    "type": "container",
+                    "id": "surface",
+                    "bindings": {
+                        "placement.y": "viewport_y",
+                        "placement.height": "viewport_height",
+                        "style.paddingTop": "viewport_padding_top",
+                        "style.paddingBottom": "viewport_padding_bottom",
+                        "style.bgColor": "motion_bg"
+                    },
+                    "commonProps": {
+                        "scrollable": false
+                    },
+                    "style": {
+                        "padding": 0,
+                        "bgColor": "#06111f"
+                    },
+                    "placement": {
+                        "mode": "absolute",
+                        "align": "topMid",
+                        "x": "73dp",
+                        "y": "73dp",
+                        "width": "320dp",
+                        "height": "320dp"
+                    },
+                    "children": [
+                        {
+                            "type": "label",
+                            "id": "edition",
+                            "labelProps": {
+                                "text": "LEG EDITION · NON MISURA IL CARICO"
+                            },
+                            "style": {
+                                "textColor": "#62cfff",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "20dp",
+                                "y": "18dp",
+                                "width": "280dp",
+                                "height": "18dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "title",
+                            "labelProps": {
+                                "text": "ACCELEROMETRO"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.heading}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "12dp",
+                                "y": "40dp",
+                                "width": "296dp",
+                                "height": "32dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "health",
+                            "labelProps": {
+                                "text": "IMU UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#8aa7b6",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "10dp",
+                                "y": "72dp",
+                                "width": "300dp",
+                                "height": "24dp"
+                            }
+                        },
+                        {
+                            "type": "container",
+                            "id": "single_panel",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": false,
+                                "scrollable": false
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "24dp",
+                                "y": "103dp",
+                                "width": "272dp",
+                                "height": "153dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "axis_x",
+                                    "labelProps": {
+                                        "text": "X  --"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "24dp",
+                                        "y": "3dp",
+                                        "width": "225dp",
+                                        "height": "32dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "axis_y",
+                                    "labelProps": {
+                                        "text": "Y  --"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "24dp",
+                                        "y": "49dp",
+                                        "width": "225dp",
+                                        "height": "32dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "axis_z",
+                                    "labelProps": {
+                                        "text": "Z  --"
+                                    },
+                                    "style": {
+                                        "textColor": "#f0b44d",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "24dp",
+                                        "y": "95dp",
+                                        "width": "225dp",
+                                        "height": "32dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "units",
+                                    "labelProps": {
+                                        "text": "m/s²"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "right"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "205dp",
+                                        "y": "131dp",
+                                        "width": "48dp",
+                                        "height": "18dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "container",
+                            "id": "combo_panel",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": true,
+                                "scrollable": false
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "19dp",
+                                "y": "107dp",
+                                "width": "282dp",
+                                "height": "150dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "accel_head",
+                                    "labelProps": {
+                                        "text": "ACCEL  m/s²"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.caption}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "8dp",
+                                        "y": "0dp",
+                                        "width": "130dp",
+                                        "height": "19dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "gyro_head",
+                                    "labelProps": {
+                                        "text": "GIRO  °/s"
+                                    },
+                                    "style": {
+                                        "textColor": "#51c7f2",
+                                        "fontSize": "${constant.typography.caption}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "151dp",
+                                        "y": "0dp",
+                                        "width": "128dp",
+                                        "height": "19dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "accel_values",
+                                    "labelProps": {
+                                        "text": "X --\nY --\nZ --"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.body}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "8dp",
+                                        "y": "28dp",
+                                        "width": "128dp",
+                                        "height": "112dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "gyro_values",
+                                    "labelProps": {
+                                        "text": "X --\nY --\nZ --"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.body}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "151dp",
+                                        "y": "28dp",
+                                        "width": "128dp",
+                                        "height": "112dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "container",
+                            "id": "graph_panel",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": true,
+                                "scrollable": false
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "15dp",
+                                "y": "103dp",
+                                "width": "290dp",
+                                "height": "156dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "graph_y",
+                                    "labelProps": {
+                                        "text": "INTENSITÀ"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "0dp",
+                                        "width": "90dp",
+                                        "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "warning_line",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 260,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#efb84b",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "18dp",
+                                        "y": "53dp",
+                                        "width": "260dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "movement_trace",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden",
+                                        "lineProps.points": "points",
+                                        "style.lineColor": "line_color"
+                                    },
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 112
+                                            },
+                                            {
+                                                "x": 260,
+                                                "y": 112
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#20dfc1",
+                                        "lineWidth": "3dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "18dp",
+                                        "y": "22dp",
+                                        "width": "260dp",
+                                        "height": "114dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "graph_x",
+                                    "labelProps": {
+                                        "text": "CAMPIONI RECENTI               ORA"
+                                    },
+                                    "style": {
+                                        "textColor": "#8aa7b6",
+                                        "fontSize": "${constant.typography.caption}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "16dp",
+                                        "y": "136dp",
+                                        "width": "264dp",
+                                        "height": "18dp"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "container",
+                            "id": "settings_panel",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": true,
+                                "scrollable": false
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "19dp",
+                                "y": "85dp",
+                                "width": "282dp",
+                                "height": "184dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "templateRef",
+                                    "id": "auto_rotation",
+                                    "templateId": "LUNASHELL_settings_switch",
+                                    "overrides": {
+                                        ".": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "282dp",
+                                                "height": "46dp"
+                                            }
+                                        },
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Rotazione automatica"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Segue il sensore"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "LUNASHELL.leg.rotation.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "flip",
+                                    "templateId": "LUNASHELL_settings_switch",
+                                    "overrides": {
+                                        ".": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "46dp",
+                                                "width": "282dp",
+                                                "height": "46dp"
+                                            }
+                                        },
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Flip schermo 180°"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Non specchia il testo"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "LUNASHELL.leg.flip.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "sounds",
+                                    "templateId": "LUNASHELL_settings_switch",
+                                    "overrides": {
+                                        ".": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "92dp",
+                                                "width": "282dp",
+                                                "height": "46dp"
+                                            }
+                                        },
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Suoni"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Avvisi movimento"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "LUNASHELL.leg.sounds.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                },
+                                {
+                                    "type": "templateRef",
+                                    "id": "wake",
+                                    "templateId": "LUNASHELL_settings_switch",
+                                    "overrides": {
+                                        ".": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "138dp",
+                                                "width": "282dp",
+                                                "height": "46dp"
+                                            }
+                                        },
+                                        "title": {
+                                            "labelProps": {
+                                                "text": "Risveglio movimento"
+                                            }
+                                        },
+                                        "subtitle": {
+                                            "labelProps": {
+                                                "text": "Schermo acceso per 25 s"
+                                            }
+                                        },
+                                        "toggle": {
+                                            "events": [
+                                                {
+                                                    "type": "valueChanged",
+                                                    "action": "LUNASHELL.leg.wake.changed"
+                                                }
+                                            ]
+                                        }
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "orientation",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "labelProps": {
+                                "text": "ORIENTAMENTO NON DISPONIBILE"
+                            },
+                            "style": {
+                                "textColor": "#51c7f2",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "24dp",
+                                "y": "258dp",
+                                "width": "272dp",
+                                "height": "20dp"
+                            }
+                        },
+                        {
+                            "type": "button",
+                            "id": "previous",
+                            "events": [
+                                {
+                                    "type": "clicked",
+                                    "action": "LUNASHELL.leg.previous"
+                                }
+                            ],
+                            "style": {
+                                "bgColor": "#11354d",
+                                "radius": "18dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "29dp",
+                                "y": "282dp",
+                                "width": "53dp",
+                                "height": "35dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "label",
+                                    "commonProps": {
+                                        "clickable": false
+                                    },
+                                    "labelProps": {
+                                        "text": "<"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "relative",
+                                        "align": "center"
+                                    }
+                                }
+                            ]
+                        },
+                        {
+                            "type": "label",
+                            "id": "page",
+                            "labelProps": {
+                                "text": "1 / 5"
+                            },
+                            "style": {
+                                "textColor": "#f3f7fa",
+                                "fontSize": "${constant.typography.detail}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "122dp",
+                                "y": "287dp",
+                                "width": "76dp",
+                                "height": "22dp"
+                            }
+                        },
+                        {
+                            "type": "button",
+                            "id": "next",
+                            "events": [
+                                {
+                                    "type": "clicked",
+                                    "action": "LUNASHELL.leg.next"
+                                }
+                            ],
+                            "style": {
+                                "bgColor": "#11354d",
+                                "radius": "18dp",
+                                "padding": 0
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "238dp",
+                                "y": "282dp",
+                                "width": "53dp",
+                                "height": "35dp"
+                            },
+                            "children": [
+                                {
+                                    "type": "label",
+                                    "id": "label",
+                                    "commonProps": {
+                                        "clickable": false
+                                    },
+                                    "labelProps": {
+                                        "text": ">"
+                                    },
+                                    "style": {
+                                        "textColor": "#20dfc1",
+                                        "fontSize": "${constant.typography.heading}",
+                                        "textAlign": "center"
+                                    },
+                                    "placement": {
+                                        "mode": "relative",
+                                        "align": "center"
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}

@@ -11,7 +11,7 @@ param(
 
     [string]$BuildDir,
 
-    [ValidateSet("full", "connected", "ui-minimal", "headless")]
+    [ValidateSet("full", "connected", "ui-minimal", "headless", "leg-edition")]
     [string]$Profile = "full",
 
     [ValidateSet("none", "distance")]
@@ -300,7 +300,7 @@ if ($null -ne $BoardModules) {
     }) -join ""
     $audioEnabled = $BoardModules.audio_output -eq "service" -or
         $BoardModules.microphones -eq "service"
-    if ($moduleBits -ne "0000000") {
+    if ($Profile -eq "ui-minimal" -and $moduleBits -ne "0000000") {
         $graphKey = "a$([int]$audioEnabled)i$([int]($BoardModules.imu -eq 'service'))p$([int]($BoardModules.pmu -eq 'service'))"
         $ProfileBuildKey = "ui-minimal-board-$moduleBits"
         $SelectedProfileVariant = $SelectedProfileVariant |
@@ -349,7 +349,8 @@ $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
         ForEach-Object { Resolve-ProfileCatalogPath "$_" }
 )
-if ($null -ne $BoardModules -and $moduleBits -ne "0000000") {
+if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
+    $moduleBits -ne "0000000") {
     function Get-BoardSdkconfigFlag([string]$Name, [bool]$Enabled) {
         if ($Enabled) { return "CONFIG_$Name=y" }
         return ""

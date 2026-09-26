@@ -81,6 +81,7 @@ const char *TAG = "LUNASHELL_snapshot";
 constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
 constexpr char kImuSmoothingSetting[] = "imu_smooth";
 constexpr char kAutoRotationSetting[] = "auto_rotate";
+constexpr char kLegFlipSetting[] = "leg_flip";
 constexpr char kDisplayRotationSetting[] = "display_rot";
 constexpr uint32_t kDiagnosticPeriodDefaultMs = 300;
 constexpr uint32_t kDiagnosticPeriodMinMs = 100;
@@ -223,6 +224,7 @@ std::atomic_bool s_diagnostic_stack_report_pending{false};
 std::atomic<uint32_t> s_diagnostic_period_ms{kDiagnosticPeriodDefaultMs};
 std::atomic_bool s_diagnostic_period_valid{false};
 std::atomic_bool s_auto_rotation_enabled{false};
+std::atomic_bool s_leg_flip_enabled{false};
 std::atomic_bool s_rotation_retry_blocked{false};
 std::atomic_bool s_rotation_failure_latched{false};
 std::atomic<int64_t> s_rotation_retry_after_us{0};
@@ -1216,6 +1218,15 @@ uint16_t rendering_rotation_for_physical(uint16_t physical_degrees)
     }
 }
 
+uint16_t leg_rendering_rotation_for_physical(uint16_t physical_degrees)
+{
+    const unsigned base = rendering_rotation_for_physical(physical_degrees);
+    return static_cast<uint16_t>(
+        (base + (s_leg_flip_enabled.load(std::memory_order_relaxed)
+                     ? 180U : 0U)) % 360U
+    );
+}
+
 // Keep an integrated gyro angle within one physical revolution.
 float normalize_orientation_degrees(float degrees)
 {
@@ -1279,7 +1290,7 @@ void commit_cardinal_orientation(
     s_orientation.candidate_valid = false;
     s_orientation.physical_degrees = physical_degrees % 360U;
     s_orientation.desired_rendering_degrees =
-        rendering_rotation_for_physical(s_orientation.physical_degrees);
+        leg_rendering_rotation_for_physical(s_orientation.physical_degrees);
     ++s_orientation.change_sequence;
     s_orientation.changed_at_us = sampled_at_us;
     ESP_LOGI(
@@ -1364,7 +1375,8 @@ bool observe_auto_rotation_state(bool enabled)
     s_orientation.gyro_sampled_at_us = 0;
     const int64_t changed_at_us = esp_timer_get_time();
     if (!enabled) {
-        s_orientation.desired_rendering_degrees = 0;
+        s_orientation.desired_rendering_degrees =
+            s_leg_flip_enabled.load(std::memory_order_relaxed) ? 180 : 0;
         s_orientation.sampled_at_us = changed_at_us;
         if (!s_rotation_retry_blocked.load(std::memory_order_acquire) &&
             s_rotation_retry_after_us.load(std::memory_order_acquire) != 0 &&
@@ -1483,7 +1495,7 @@ void process_orientation_sample(
 
     if (physical_degrees == s_orientation.physical_degrees &&
         s_orientation.desired_rendering_degrees ==
-            rendering_rotation_for_physical(physical_degrees)) {
+            leg_rendering_rotation_for_physical(physical_degrees)) {
         s_orientation.candidate_valid = false;
         return;
     }
@@ -8149,6 +8161,64 @@ extern "C" bool LUNASHELL_display_get_auto_rotation_enabled(void)
     return s_auto_rotation_enabled.load(std::memory_order_relaxed);
 }
 
+extern "C" bool LUNASHELL_display_get_leg_flip_enabled(void)
+{
+    return s_leg_flip_enabled.load(std::memory_order_relaxed);
+}
+
+extern "C" esp_err_t LUNASHELL_display_set_leg_flip_enabled(bool enabled)
+{
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        ESP_LOGE(TAG, "Leg flip settings unavailable (%s)",
+                 esp_err_to_name(init_error));
+        return init_error;
+    }
+    if (!s_initialized || !s_imu_ready) {
+        ESP_LOGE(TAG, "Leg flip rejected: display/IMU not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Leg flip rejected: sampler mutex timeout");
+        return ESP_ERR_TIMEOUT;
+    }
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    const esp_err_t save_error = settings.setBool(kLegFlipSetting, enabled);
+    if (save_error != ESP_OK) {
+        ESP_LOGE(TAG, "Leg flip persistence failed (%s)",
+                 esp_err_to_name(save_error));
+        const esp_err_t release_error = give_refresh_mutex(
+            refresh_mutex, "Leg flip setting failure"
+        );
+        return release_error != ESP_OK ? release_error : save_error;
+    }
+    s_leg_flip_enabled.store(enabled, std::memory_order_relaxed);
+    const uint16_t desired =
+        s_auto_rotation_enabled.load(std::memory_order_relaxed)
+            ? leg_rendering_rotation_for_physical(s_orientation.physical_degrees)
+            : static_cast<uint16_t>(enabled ? 180U : 0U);
+    if (s_orientation.desired_rendering_degrees != desired) {
+        s_orientation.desired_rendering_degrees = desired;
+        s_orientation.changed_at_us = esp_timer_get_time();
+        ++s_orientation.change_sequence;
+    }
+    const esp_err_t publication_error = publish_orientation_state();
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex, "Leg flip setting"
+    );
+    notify_hardware_monitor();
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Leg flip publication failed (%s)",
+                 esp_err_to_name(publication_error));
+        return publication_error;
+    }
+    return release_error;
+}
+
 // Restore both saved values exactly; invalid persisted data requires an explicit reset.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
 {
@@ -8176,6 +8246,18 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
     if (error != ESP_OK) {
         return error;
     }
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    bool leg_flip_enabled = false;
+    error = load_or_create_bool_setting(
+        settings, kLegFlipSetting, "Leg display flip", false,
+        &leg_flip_enabled
+    );
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_leg_flip_enabled.store(leg_flip_enabled, std::memory_order_relaxed);
+#endif
 
     uint32_t saved_rendering_degrees = 0;
     error = load_or_create_uint32_setting(
@@ -8218,7 +8300,10 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
     s_rotation_retry_after_us.store(0, std::memory_order_release);
     s_orientation.applied_rendering_degrees = applied_degrees;
     s_orientation.physical_degrees = rendering_rotation_for_physical(
-        static_cast<uint16_t>(saved_rendering_degrees)
+        static_cast<uint16_t>(
+            (saved_rendering_degrees +
+             (s_leg_flip_enabled.load(std::memory_order_relaxed) ? 180U : 0U)) % 360U
+        )
     );
     s_orientation.desired_rendering_degrees =
         static_cast<uint16_t>(saved_rendering_degrees);

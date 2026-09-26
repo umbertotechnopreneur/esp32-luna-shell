@@ -37,6 +37,7 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_snapshot_semantics.hpp"
 #include "LUNASHELL_snapshot_cadence.hpp"
+#include "LUNASHELL_settings.hpp"
 
 namespace LUNASHELL::app_detail {
 
@@ -65,6 +66,31 @@ using LUNASHELL::snapshot_semantics::storage_format_required;
 using LUNASHELL::snapshot_semantics::storage_mounted_ready;
 
 constexpr char kRefreshTimer[] = "LUNASHELL.refresh";
+constexpr char kLegSoundsSetting[] = "leg_sounds";
+constexpr char kLegWakeSetting[] = "leg_wake";
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+esp_err_t load_leg_bool_setting(
+    LUNASHELL::UserSettingsService &settings,
+    const char *key,
+    bool *value
+)
+{
+    esp_err_t result = settings.getBool(key, value);
+    if (result == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "Leg first boot: key '%s' absent; persisting true", key);
+        result = settings.setBool(key, true);
+        if (result == ESP_OK) {
+            *value = true;
+        }
+    }
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Leg setting '%s' load failed (%s)",
+                 key, esp_err_to_name(result));
+    }
+    return result;
+}
+#endif
 constexpr char kPowerStateSyncTimer[] = "LUNASHELL.power.state_sync";
 constexpr uint32_t kActiveRefreshPeriodMs = 1000;
 constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
@@ -212,6 +238,40 @@ private:
     bool &active_;
     bool armed_;
 };
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION && CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+class LegPolicyRollback final {
+public:
+    explicit LegPolicyRollback(bool wake_on_motion)
+        : wake_on_motion_(wake_on_motion)
+    {
+    }
+
+    ~LegPolicyRollback()
+    {
+        if (!armed_) {
+            return;
+        }
+        const esp_err_t result = LUNASHELL_power_manager_set_leg_mode(
+            false, wake_on_motion_
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Leg startup policy rollback failed (%s)",
+                     esp_err_to_name(result));
+            std::abort();
+        }
+    }
+
+    void release() { armed_ = false; }
+
+    LegPolicyRollback(const LegPolicyRollback &) = delete;
+    LegPolicyRollback &operator=(const LegPolicyRollback &) = delete;
+
+private:
+    bool wake_on_motion_;
+    bool armed_ = true;
+};
+#endif
 
 void require_gui_watch_progress(bool active, const char *stage)
 {
@@ -495,6 +555,7 @@ bool dual_audio_spectrum_available(const LUNASHELL::DeviceSnapshot &snapshot)
            snapshot.audio.channel_count == 2U;
 }
 
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
 bool wifi_stopped_by_user(const LUNASHELL::WifiSnapshot &wifi)
 {
     return !wifi.started &&
@@ -514,6 +575,7 @@ bool ble_stopped_by_user(const LUNASHELL::BleSnapshot &ble)
            !ble.data_stale &&
            ble.last_attempt_at_us > 0;
 }
+#endif
 
 bool rtc_reading_valid(const LUNASHELL::RtcSnapshot &rtc)
 {
@@ -990,6 +1052,53 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     status_bar_.invalidate();
     screen_ = Screen::Welcome;
     navigation_.reset(Screen::Welcome);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    auto &leg_settings = UserSettingsService::instance();
+    esp_err_t leg_settings_error = leg_settings.isInitialized()
+        ? ESP_OK : leg_settings.initialize();
+    if (leg_settings_error == ESP_OK) {
+        leg_settings_error = load_leg_bool_setting(
+            leg_settings, kLegSoundsSetting, &leg_sounds_enabled_
+        );
+    }
+    if (leg_settings_error == ESP_OK) {
+        leg_settings_error = load_leg_bool_setting(
+            leg_settings, kLegWakeSetting, &leg_wake_enabled_
+        );
+    }
+    if (leg_settings_error != ESP_OK) {
+        context_ = nullptr;
+        return std::unexpected(
+            "Leg settings initialization failed: " +
+            std::string(esp_err_to_name(leg_settings_error))
+        );
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    const esp_err_t leg_sounds_error =
+        LUNASHELL_power_manager_set_leg_sounds_enabled(
+            leg_sounds_enabled_
+        );
+    if (leg_sounds_error != ESP_OK) {
+        context_ = nullptr;
+        return std::unexpected(
+            "Leg sound policy initialization failed: " +
+            std::string(esp_err_to_name(leg_sounds_error))
+        );
+    }
+#endif
+    const esp_err_t leg_policy_error =
+        LUNASHELL_power_manager_set_leg_mode(true, leg_wake_enabled_);
+    if (leg_policy_error != ESP_OK) {
+        context_ = nullptr;
+        return std::unexpected(
+            "Leg power policy initialization failed: " +
+            std::string(esp_err_to_name(leg_policy_error))
+        );
+    }
+    LegPolicyRollback leg_policy_rollback(leg_wake_enabled_);
+#endif
+#endif
     logs_paused_ = false;
     logs_follow_latest_ = true;
     LUNASHELL_performance_mode_status_t performance_status = {};
@@ -1034,6 +1143,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     invalidate_audio_screen_cache(Screen::AudioDetail);
     invalidate_hardware_screen_cache();
     invalidate_imu_screen_cache();
+    invalidate_leg_screen_cache();
     invalidate_storage_screen_cache();
     storage_format_request_pending_ = false;
     storage_format_request_attempt_ = 0;
@@ -1187,6 +1297,9 @@ std::expected<void, std::string> App::on_start(AppContext &context)
         std::abort();
     }
     watch_rollback.release();
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION && CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    leg_policy_rollback.release();
+#endif
     ESP_LOGI(kTag, "ESP32 Luna Shell native app started on Brookesia System 0.8");
     return {};
 }
@@ -1685,6 +1798,19 @@ std::expected<void, std::string> App::on_stop(AppContext &context)
             }
         }
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION && CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    const esp_err_t leg_policy_result =
+        LUNASHELL_power_manager_set_leg_mode(false, leg_wake_enabled_);
+    if (leg_policy_result != ESP_OK) {
+        const std::string error =
+            "Leg power policy shutdown failed: " +
+            std::string(esp_err_to_name(leg_policy_result));
+        ESP_LOGE(kTag, "%s", error.c_str());
+        if (stop_error.empty()) {
+            stop_error = error;
+        }
+    }
+#endif
     context_ = nullptr;
     ESP_LOGI(kTag, "ESP32 Luna Shell native app stopped");
     if (!stop_error.empty()) {
@@ -1708,7 +1834,8 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
         diagnostics_allowed &&
         (screen == Screen::AudioFft || screen == Screen::AudioDetail);
     const bool imu_enabled =
-        diagnostics_allowed && screen == Screen::Imu;
+        (diagnostics_allowed && screen == Screen::Imu) ||
+        screen == Screen::Leg;
     const bool enabled = audio_enabled || imu_enabled;
     const bool entering_audio =
         audio_enabled && !audio_diagnostic_capture_active_;
@@ -1841,11 +1968,23 @@ std::expected<void, std::string> App::configure_chrome(
 {
     using palette::ActionRole;
     static constexpr std::array<CommandSpec, 0> kNoCommands{};
-    static constexpr std::array<CommandSpec, 5> kWelcomeCommands = {{
+    static constexpr std::array<CommandSpec,
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        4
+#else
+        5
+#endif
+    > kWelcomeCommands = {{
         {"\xef\x89\x82", "LUNASHELL.open.battery", ActionRole::Success, false},
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
         {"\xef\x80\x81", "LUNASHELL.open.audio", ActionRole::Primary, false},
+#endif
         {"\xef\x80\x9c", "LUNASHELL.open.hardware", ActionRole::Success, true},
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        {"\xef\x80\xa1", "LUNASHELL.open.leg", ActionRole::Success, true},
+#else
         {"\xef\x80\xa1", "LUNASHELL.open.imu", ActionRole::Success, false},
+#endif
         {"\xef\x80\x93", "LUNASHELL.open.settings", ActionRole::Primary, false},
     }};
     const std::array<CommandSpec, 5> log_commands = {{
@@ -1895,8 +2034,18 @@ std::expected<void, std::string> App::configure_chrome(
         {"\xef\x81\x8b", "LUNASHELL.tof.calibration.start", ActionRole::Success, true},
     }};
 #endif
-    static constexpr std::array<CommandSpec, 5> kSettingsCommandLayout = {{
+    static constexpr std::array<CommandSpec,
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        4
+#else
+        5
+#endif
+    > kSettingsCommandLayout = {{
         {"\xef\x80\x8b", "LUNASHELL.open.logs", ActionRole::Primary, false},
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        {"\xef\x89\x82", "LUNASHELL.open.battery", ActionRole::Success, true},
+        {"\xef\x80\xa1", "LUNASHELL.open.leg", ActionRole::Success, true},
+#else
         {"\xef\x8a\x93", "LUNASHELL.open.pairing", ActionRole::Success, false},
         {
             "\xef\x87\xab",
@@ -1905,6 +2054,7 @@ std::expected<void, std::string> App::configure_chrome(
             true,
         },
         {"\xef\x84\xa4", "LUNASHELL.open.gps", ActionRole::Neutral, false},
+#endif
         {"\xef\x83\x87", "LUNASHELL.open.storage", ActionRole::Neutral, false},
     }};
     const DeviceSnapshot chrome_snapshot =
@@ -1926,6 +2076,7 @@ std::expected<void, std::string> App::configure_chrome(
             ? ActionRole::Success
             : audio_spectrum_fault ? ActionRole::Danger : ActionRole::Neutral;
     audio_dual_commands[0].role = audio_single_command[0].role;
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
     const bool wireless_active =
         (component_ready(chrome_snapshot.radios.wifi) &&
          chrome_snapshot.radios.wifi.started) ||
@@ -1940,7 +2091,9 @@ std::expected<void, std::string> App::configure_chrome(
         (!radio_deferred_by_policy(chrome_snapshot.radios.ble) &&
          !ble_stopped_by_user(chrome_snapshot.radios.ble) &&
          !component_ready(chrome_snapshot.radios.ble));
-    std::array<CommandSpec, 5> settings_commands = kSettingsCommandLayout;
+#endif
+    auto settings_commands = kSettingsCommandLayout;
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
     settings_commands[2] = {
         wireless_active ? "\xef\x80\x91" : "\xef\x87\xab",
         wireless_active
@@ -1961,7 +2114,14 @@ std::expected<void, std::string> App::configure_chrome(
                 : chrome_snapshot.gps.last_error == ESP_ERR_INVALID_STATE
                     ? ActionRole::Neutral
                     : ActionRole::Danger;
-    settings_commands[4].role =
+#endif
+    settings_commands[
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        3
+#else
+        4
+#endif
+    ].role =
         storage_cleanup_failed(chrome_snapshot.storage)
             ? ActionRole::Danger
             : storage_format_required(chrome_snapshot.storage)
@@ -2035,6 +2195,7 @@ std::expected<void, std::string> App::configure_chrome(
         case Screen::HardwareDetail:
         case Screen::AudioDetail:
         case Screen::Imu:
+        case Screen::Leg:
         case Screen::Gps:
         case Screen::Storage:
         case Screen::About:
@@ -2501,8 +2662,29 @@ std::expected<void, std::string> App::on_action(
                 "Rejected hardware detail action with out-of-range index"
             );
         }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        if (component_index == 3U || component_index == 4U ||
+            component_index == 5U || component_index == 9U) {
+            ESP_LOGE(kTag, "Leg Edition rejected disabled hardware detail %u",
+                     static_cast<unsigned>(component_index));
+            return std::unexpected("Hardware component disabled in Leg Edition");
+        }
+#endif
         return show_hardware_details(context, component_index);
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    if (action == "LUNASHELL.open.audio" ||
+        action == "LUNASHELL.open.audio_fft" ||
+        action == "LUNASHELL.open.audio_detail" ||
+        action == "LUNASHELL.open.gps" ||
+        action == "LUNASHELL.open.pairing" ||
+        action == "LUNASHELL.settings.radios.start" ||
+        action == "LUNASHELL.settings.radios.stop") {
+        ESP_LOGE(kTag, "Leg Edition rejected disabled action: %.*s",
+                 static_cast<int>(action.size()), action.data());
+        return std::unexpected("Action disabled in Leg Edition");
+    }
+#endif
     if (action == "LUNASHELL.open.audio") {
         return open_screen(context, Screen::Audio, action);
     }
@@ -2514,6 +2696,20 @@ std::expected<void, std::string> App::on_action(
     }
     if (action == "LUNASHELL.open.imu") {
         return open_screen(context, Screen::Imu, action);
+    }
+    if (action == "LUNASHELL.open.leg") {
+        leg_page_ = 0;
+        return open_screen(context, Screen::Leg, action);
+    }
+    if (action == "LUNASHELL.leg.next" || action == "LUNASHELL.leg.previous") {
+        if (screen_ != Screen::Leg) {
+            ESP_LOGE(kTag, "Leg page navigation rejected outside Leg Edition");
+            return std::unexpected("Leg page navigation is unavailable");
+        }
+        leg_page_ = static_cast<uint8_t>(
+            (leg_page_ + (action == "LUNASHELL.leg.next" ? 1U : 4U)) % 5U
+        );
+        return refresh_leg(context);
     }
     if (action == "LUNASHELL.open.gps") {
         return open_screen(context, Screen::Gps, action);
@@ -3321,6 +3517,73 @@ void App::handle_auto_rotation_event(
     );
 }
 
+void App::handle_leg_setting_event(
+    std::string_view action,
+    const esp_brookesia::gui::Event &event
+)
+{
+    if (context_ == nullptr || screen_ != Screen::Leg) {
+        ESP_LOGE(kTag, "Leg setting event rejected without active Leg view");
+        return;
+    }
+    if (auto activity_result = note_activity(*context_); !activity_result) {
+        ESP_LOGE(kTag, "Leg setting activity failed: %s",
+                 activity_result.error().c_str());
+        return;
+    }
+    const auto checked = event.get_bool("checked");
+    if (!checked.has_value()) {
+        ESP_LOGE(kTag, "Leg setting '%.*s' omitted checked state",
+                 static_cast<int>(action.size()), action.data());
+        return;
+    }
+    esp_err_t result = ESP_ERR_INVALID_ARG;
+    std::string_view operation;
+    if (action == "LUNASHELL.leg.rotation.changed") {
+        operation = "Leg automatic rotation";
+        result = LUNASHELL_display_set_auto_rotation_enabled(*checked);
+    } else if (action == "LUNASHELL.leg.flip.changed") {
+        operation = "Leg 180 degree flip";
+        result = LUNASHELL_display_set_leg_flip_enabled(*checked);
+    } else if (action == "LUNASHELL.leg.sounds.changed") {
+        operation = "Leg sound alerts";
+        result = UserSettingsService::instance().setBool(
+            kLegSoundsSetting, *checked
+        );
+        if (result == ESP_OK) {
+            leg_sounds_enabled_ = *checked;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+            result = LUNASHELL_power_manager_set_leg_sounds_enabled(
+                leg_sounds_enabled_
+            );
+#endif
+        }
+    } else if (action == "LUNASHELL.leg.wake.changed") {
+        operation = "Leg motion wake";
+        result = UserSettingsService::instance().setBool(
+            kLegWakeSetting, *checked
+        );
+        if (result == ESP_OK) {
+            leg_wake_enabled_ = *checked;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+            result = LUNASHELL_power_manager_set_leg_mode(
+                true, leg_wake_enabled_
+            );
+#endif
+        }
+    } else {
+        ESP_LOGE(kTag, "Unknown Leg setting action '%.*s'",
+                 static_cast<int>(action.size()), action.data());
+        return;
+    }
+    leg_ui_cache_.displayed_settings.reset();
+    finish_settings_event(result, operation);
+    if (auto refresh_result = refresh_leg(*context_); !refresh_result) {
+        ESP_LOGE(kTag, "Leg settings refresh failed: %s",
+                 refresh_result.error().c_str());
+    }
+}
+
 // Close every UI producer before acknowledging a renderer pause request.
 std::expected<void, std::string> App::on_timer(
     AppContext &context,
@@ -3612,7 +3875,8 @@ std::expected<void, std::string> App::sync_refresh_timer(
         screen_ == Screen::Audio ||
         screen_ == Screen::AudioFft ||
         screen_ == Screen::AudioDetail ||
-        screen_ == Screen::Imu
+        screen_ == Screen::Imu ||
+        screen_ == Screen::Leg
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
         ||
         screen_ == Screen::Tof ||
@@ -3621,7 +3885,7 @@ std::expected<void, std::string> App::sync_refresh_timer(
         ;
     const uint32_t desired_period_ms =
         stage == DisplayIdleStage::Active
-            ? performance_mode_enabled_
+            ? performance_mode_enabled_ && screen_ != Screen::Leg
                 ? kPerformanceRefreshPeriodMs
                 : live_diagnostic_screen
                     ? kLiveDiagnosticRefreshPeriodMs
@@ -3784,8 +4048,11 @@ std::expected<void, std::string> App::sync_content_viewport(
                 0,
             };
         case Screen::Imu:
+        case Screen::Leg:
             return {
-                "/LUNASHELL_imu/surface",
+                screen_ == Screen::Leg
+                    ? "/LUNASHELL_leg/surface"
+                    : "/LUNASHELL_imu/surface",
                 ViewportLayout::FixedCanvas,
                 0,
                 0,
@@ -3957,6 +4224,8 @@ std::expected<void, std::string> App::refresh(AppContext &context)
         return refresh_audio_detail(context);
     case Screen::Imu:
         return refresh_imu(context);
+    case Screen::Leg:
+        return refresh_leg(context);
     case Screen::Gps:
         return refresh_gps(context);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -5190,12 +5459,29 @@ std::expected<void, std::string> App::refresh_hardware(AppContext &context)
         kHardwareComponents.size() == kHardwareUiComponentCount,
         "Hardware UI cache must match the descriptor table"
     );
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    if (!hardware_ui_cache_.summary.valid) {
+        for (const std::string_view id : {"gps", "wifi", "ble", "microphone"}) {
+            const std::string path =
+                "/LUNASHELL_hardware/surface/hardware_scroller/" +
+                std::string(id);
+            if (auto result = set_hidden(context, path, true); !result) {
+                return result;
+            }
+        }
+    }
+#endif
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
     if (auto result = refresh_chrome(context, snapshot); !result) {
         return result;
     }
 
     for (size_t index = 0; index < kHardwareComponents.size(); ++index) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        if (index == 3U || index == 4U || index == 5U || index == 9U) {
+            continue;
+        }
+#endif
         std::array<char, 64> status{};
         format_hardware_status(status, snapshot, index);
         std::array<char, 128> status_path{};
@@ -5654,6 +5940,28 @@ void App::invalidate_imu_screen_cache()
     }
     imu_ui_cache_.arc_hidden_known.fill(false);
     imu_ui_cache_.temperature.valid = false;
+}
+
+void App::invalidate_leg_screen_cache()
+{
+    leg_ui_cache_.title.valid = false;
+    leg_ui_cache_.health.valid = false;
+    leg_ui_cache_.orientation.valid = false;
+    leg_ui_cache_.page.valid = false;
+    leg_ui_cache_.acceleration.valid = false;
+    leg_ui_cache_.angular_velocity.valid = false;
+    leg_ui_cache_.graph_points.valid = false;
+    leg_ui_cache_.background.valid = false;
+    leg_ui_cache_.graph_color.valid = false;
+    leg_ui_cache_.displayed_page.reset();
+    leg_ui_cache_.displayed_settings.reset();
+    leg_ui_cache_.history_next = 0;
+    leg_ui_cache_.history_count = 0;
+    leg_ui_cache_.previous_sample_at_us = 0;
+    leg_ui_cache_.previous_acceleration_valid = false;
+    for (auto &axis : leg_ui_cache_.axes) {
+        axis.valid = false;
+    }
 }
 
 void App::invalidate_gps_screen_cache()
@@ -6242,6 +6550,8 @@ std::string_view App::screen_action(Screen screen)
         return "LUNASHELL.open.audio_detail";
     case Screen::Imu:
         return "LUNASHELL.open.imu";
+    case Screen::Leg:
+        return "LUNASHELL.open.leg";
     case Screen::Gps:
         return "LUNASHELL.open.gps";
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
@@ -6983,6 +7293,326 @@ std::expected<void, std::string> App::refresh_audio_detail(AppContext &context)
     if (visibility_changed) {
         audio_detail_hidden_ = false;
         audio_detail_hidden_known_ = true;
+    }
+    return {};
+}
+
+// The five Leg views reuse one lazy document; only the active panel is visible.
+// This is a movement indicator, not a measurement of force borne by the femur.
+std::expected<void, std::string> App::refresh_leg(AppContext &context)
+{
+    constexpr std::string_view root = "/LUNASHELL_leg/surface";
+    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
+    if (auto result = refresh_chrome(context, snapshot); !result) {
+        return result;
+    }
+
+    static constexpr std::array<std::string_view, 5> titles = {
+        "ACCELEROMETRO", "GIROSCOPIO", "ACCEL + GIRO",
+        "MOVIMENTO", "IMPOSTAZIONI",
+    };
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.title,
+            "/LUNASHELL_leg/surface/title", titles[leg_page_]
+        ); !result) {
+        return result;
+    }
+    const std::string page = std::to_string(leg_page_ + 1U) + " / 5";
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.page,
+            "/LUNASHELL_leg/surface/page", page
+        ); !result) {
+        return result;
+    }
+    if (!leg_ui_cache_.displayed_page.has_value() ||
+        *leg_ui_cache_.displayed_page != leg_page_) {
+        static constexpr std::array<std::string_view, 4> panels = {
+            "single_panel", "combo_panel", "graph_panel", "settings_panel",
+        };
+        for (std::size_t index = 0; index < panels.size(); ++index) {
+            const bool visible =
+                (index == 0U && leg_page_ < 2U) ||
+                (index == 1U && leg_page_ == 2U) ||
+                (index == 2U && leg_page_ == 3U) ||
+                (index == 3U && leg_page_ == 4U);
+            if (auto result = set_hidden(
+                    context, std::string(root) + "/" +
+                        std::string(panels[index]), !visible
+                ); !result) {
+                return result;
+            }
+        }
+        if (auto result = set_hidden(
+                context, "/LUNASHELL_leg/surface/orientation",
+                leg_page_ == 4U
+            ); !result) {
+            return result;
+        }
+        leg_ui_cache_.displayed_page = leg_page_;
+    }
+    if (leg_page_ == 4U) {
+        const std::array<bool, 4> controls = {
+            LUNASHELL_display_get_auto_rotation_enabled(),
+            LUNASHELL_display_get_leg_flip_enabled(),
+            leg_sounds_enabled_,
+            leg_wake_enabled_,
+        };
+        if (!leg_ui_cache_.displayed_settings.has_value() ||
+            *leg_ui_cache_.displayed_settings != controls) {
+            static constexpr std::array<std::string_view, 4> ids = {
+                "auto_rotation", "flip", "sounds", "wake",
+            };
+            std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+            updates.reserve(ids.size());
+            for (std::size_t index = 0; index < ids.size(); ++index) {
+                updates.push_back({
+                    .absolute_path = std::string(root) +
+                        "/settings_panel/" + std::string(ids[index]) +
+                        "/toggle",
+                    .key = "checked",
+                    .value = controls[index] ? "true" : "false",
+                });
+            }
+            if (auto result = set_binding_values(context, updates); !result) {
+                return result;
+            }
+            leg_ui_cache_.displayed_settings = controls;
+        }
+    }
+
+    const int64_t now_us = esp_timer_get_time();
+    const bool fresh = snapshot_available(snapshot) &&
+        component_ready(snapshot.imu) &&
+        snapshot.imu.last_success_at_us > diagnostic_activation_sample_at_us_ &&
+        snapshot.imu.last_success_at_us > 0 &&
+        now_us >= snapshot.imu.last_success_at_us &&
+        now_us - snapshot.imu.last_success_at_us <= 2000000LL &&
+        std::all_of(
+            std::begin(snapshot.imu.acceleration_mps2),
+            std::end(snapshot.imu.acceleration_mps2),
+            [](float value) { return std::isfinite(value); }
+        ) &&
+        std::all_of(
+            std::begin(snapshot.imu.angular_velocity_dps),
+            std::end(snapshot.imu.angular_velocity_dps),
+            [](float value) { return std::isfinite(value); }
+        );
+
+    const char *health = "IMU NON DISPONIBILE";
+    const char *orientation = "DISPOSITIVO: ORIENTAMENTO NON DISPONIBILE";
+    const char *background = "#030407";
+    const char *trace_color = "#20dfc1";
+    float intensity = 0.0F;
+    if (fresh) {
+        health = "QMI8658 · CAMPIONE VALIDO";
+        const float ax = snapshot.imu.acceleration_mps2[0];
+        const float ay = snapshot.imu.acceleration_mps2[1];
+        const float az = snapshot.imu.acceleration_mps2[2];
+        const float norm = std::sqrt(ax * ax + ay * ay + az * az);
+        if (norm > 1.0F) {
+            const float normal_ratio = std::fabs(az) / norm;
+            orientation = normal_ratio < 0.35F
+                ? "DISPOSITIVO VERTICALE"
+                : normal_ratio > 0.80F
+                    ? "DISPOSITIVO ORIZZONTALE"
+                    : "DISPOSITIVO INCLINATO";
+        }
+        if (snapshot.imu.last_success_at_us !=
+            leg_ui_cache_.previous_sample_at_us) {
+            float maximum_axis_step = 0.0F;
+            if (leg_ui_cache_.previous_acceleration_valid) {
+                for (std::size_t axis = 0; axis < 3U; ++axis) {
+                    maximum_axis_step = std::max(
+                        maximum_axis_step,
+                        std::fabs(snapshot.imu.acceleration_mps2[axis] -
+                                  leg_ui_cache_.previous_acceleration[axis])
+                    );
+                }
+            }
+            const float gyro_peak = std::max({
+                std::fabs(snapshot.imu.angular_velocity_dps[0]),
+                std::fabs(snapshot.imu.angular_velocity_dps[1]),
+                std::fabs(snapshot.imu.angular_velocity_dps[2]),
+            });
+            intensity = std::max(maximum_axis_step, gyro_peak * 0.04F);
+            leg_ui_cache_.movement_history[leg_ui_cache_.history_next] =
+                intensity;
+            leg_ui_cache_.history_next =
+                (leg_ui_cache_.history_next + 1U) %
+                leg_ui_cache_.movement_history.size();
+            leg_ui_cache_.history_count = std::min(
+                leg_ui_cache_.history_count + 1U,
+                leg_ui_cache_.movement_history.size()
+            );
+            for (std::size_t axis = 0; axis < 3U; ++axis) {
+                leg_ui_cache_.previous_acceleration[axis] =
+                    snapshot.imu.acceleration_mps2[axis];
+            }
+            leg_ui_cache_.previous_acceleration_valid = true;
+            leg_ui_cache_.previous_sample_at_us =
+                snapshot.imu.last_success_at_us;
+        } else if (leg_ui_cache_.history_count > 0U) {
+            const std::size_t last =
+                (leg_ui_cache_.history_next +
+                 leg_ui_cache_.movement_history.size() - 1U) %
+                leg_ui_cache_.movement_history.size();
+            intensity = leg_ui_cache_.movement_history[last];
+        }
+        if (intensity >= 3.0F) {
+            health = "SCOSSONE RILEVATO · NON CARICARE";
+            background = "#49210a";
+            trace_color = "#ff6b4a";
+        } else if (intensity >= 1.2F) {
+            health = "MOVIMENTO ELEVATO";
+            background = "#594310";
+            trace_color = "#f0c251";
+        } else if (intensity >= 0.25F) {
+            health = "MOVIMENTO LIEVE";
+            background = "#0b321f";
+        } else {
+            health = "FERMO";
+        }
+    } else {
+        leg_ui_cache_.previous_acceleration_valid = false;
+        leg_ui_cache_.previous_sample_at_us = 0;
+        if (snapshot_available(snapshot) &&
+            snapshot.imu.last_error != ESP_OK) {
+            health = esp_err_to_name(snapshot.imu.last_error);
+        } else if (snapshot_available(snapshot) && snapshot.imu.data_stale) {
+            health = "IMU STALE";
+        }
+    }
+
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.health,
+            "/LUNASHELL_leg/surface/health", health
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.orientation,
+            "/LUNASHELL_leg/surface/orientation", orientation
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_binding_text(
+            context, leg_ui_cache_.background,
+            root, "motion_bg", background
+        ); !result) {
+        return result;
+    }
+    if (auto result = set_cached_binding_text(
+            context, leg_ui_cache_.graph_color,
+            "/LUNASHELL_leg/surface/graph_panel/movement_trace",
+            "line_color", trace_color
+        ); !result) {
+        return result;
+    }
+
+    static constexpr std::array<std::string_view, 3> axis_paths = {
+        "/LUNASHELL_leg/surface/single_panel/axis_x",
+        "/LUNASHELL_leg/surface/single_panel/axis_y",
+        "/LUNASHELL_leg/surface/single_panel/axis_z",
+    };
+    for (std::size_t axis = 0; axis < 3U; ++axis) {
+        std::array<char, 32> value{};
+        if (fresh) {
+            std::snprintf(
+                value.data(), value.size(), "%c  %+.2f",
+                static_cast<int>('X' + axis),
+                leg_page_ == 1U
+                    ? snapshot.imu.angular_velocity_dps[axis]
+                    : snapshot.imu.acceleration_mps2[axis]
+            );
+        } else {
+            std::snprintf(
+                value.data(), value.size(), "%c  --",
+                static_cast<int>('X' + axis)
+            );
+        }
+        if (auto result = set_cached_text(
+                context, leg_ui_cache_.axes[axis], axis_paths[axis],
+                value.data()
+            ); !result) {
+            return result;
+        }
+    }
+    if (auto result = set_text(
+            context, "/LUNASHELL_leg/surface/single_panel/units",
+            leg_page_ == 1U ? "°/s" : "m/s²"
+        ); !result) {
+        return result;
+    }
+    std::array<char, 96> values{};
+    if (fresh) {
+        std::snprintf(
+            values.data(), values.size(), "X %+.2f\nY %+.2f\nZ %+.2f",
+            snapshot.imu.acceleration_mps2[0],
+            snapshot.imu.acceleration_mps2[1],
+            snapshot.imu.acceleration_mps2[2]
+        );
+    } else {
+        std::snprintf(values.data(), values.size(), "X --\nY --\nZ --");
+    }
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.acceleration,
+            "/LUNASHELL_leg/surface/combo_panel/accel_values",
+            values.data()
+        ); !result) {
+        return result;
+    }
+    if (fresh) {
+        std::snprintf(
+            values.data(), values.size(), "X %+.2f\nY %+.2f\nZ %+.2f",
+            snapshot.imu.angular_velocity_dps[0],
+            snapshot.imu.angular_velocity_dps[1],
+            snapshot.imu.angular_velocity_dps[2]
+        );
+    } else {
+        std::snprintf(values.data(), values.size(), "X --\nY --\nZ --");
+    }
+    if (auto result = set_cached_text(
+            context, leg_ui_cache_.angular_velocity,
+            "/LUNASHELL_leg/surface/combo_panel/gyro_values",
+            values.data()
+        ); !result) {
+        return result;
+    }
+
+    const std::string_view graph_path =
+        "/LUNASHELL_leg/surface/graph_panel/movement_trace";
+    if (auto result = set_hidden(
+            context, graph_path,
+            !fresh || leg_ui_cache_.history_count < 2U
+        ); !result) {
+        return result;
+    }
+    if (fresh && leg_page_ == 3U && leg_ui_cache_.history_count >= 2U) {
+        std::string points = "[";
+        const std::size_t count = leg_ui_cache_.history_count;
+        const std::size_t capacity = leg_ui_cache_.movement_history.size();
+        const std::size_t first =
+            (leg_ui_cache_.history_next + capacity - count) % capacity;
+        for (std::size_t index = 0; index < count; ++index) {
+            const float sample =
+                leg_ui_cache_.movement_history[(first + index) % capacity];
+            const int32_t x = static_cast<int32_t>(
+                index * 260U / (count - 1U)
+            );
+            const int32_t y = 112 - static_cast<int32_t>(
+                std::lround(std::clamp(sample / 4.0F, 0.0F, 1.0F) * 108.0F)
+            );
+            points += (index == 0U ? "" : ",") +
+                std::string("{\"x\":") + std::to_string(x) +
+                ",\"y\":" + std::to_string(y) + "}";
+        }
+        points += "]";
+        if (auto result = set_cached_binding_text(
+                context, leg_ui_cache_.graph_points,
+                graph_path, "points", points
+            ); !result) {
+            return result;
+        }
     }
     return {};
 }
@@ -8421,6 +9051,21 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
     if (auto result = configure_chrome(context); !result) {
         return result;
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    if (!settings_text_cache_valid_) {
+        for (const std::string_view id : {
+                 "connectivity_title", "connectivity_description",
+                 "radio_value", "radio_policy", "wifi_detail",
+                 "ble_detail", "gps_detail"}) {
+            const std::string path =
+                "/LUNASHELL_settings/surface/settings_scroller/" +
+                std::string(id);
+            if (auto result = set_hidden(context, path, true); !result) {
+                return result;
+            }
+        }
+    }
+#endif
     std::array<char, 256> text{};
     const auto update_performance_status = [&]()
         -> std::expected<void, std::string> {
@@ -8632,6 +9277,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         return result;
     }
 
+#if !CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
     std::array<char, 64> wifi_state{};
     std::array<char, 64> ble_state{};
     if (radio_deferred_by_policy(snapshot.radios.wifi) ||
@@ -8811,6 +9457,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         ); !result) {
         return result;
     }
+#endif
 
     if (!component_ready(snapshot.ui.brightness)) {
         std::snprintf(

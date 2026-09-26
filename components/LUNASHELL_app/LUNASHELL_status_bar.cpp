@@ -15,7 +15,6 @@ namespace {
 constexpr std::string_view kStatusRoot =
     "/LUNASHELL_chrome_screen/chrome/status";
 using LUNASHELL::snapshot_semantics::component_ready;
-using LUNASHELL::snapshot_semantics::gps_fix_valid;
 using LUNASHELL::snapshot_semantics::storage_cleanup_failed;
 using LUNASHELL::snapshot_semantics::storage_format_required;
 using LUNASHELL::snapshot_semantics::storage_mounted_ready;
@@ -28,11 +27,6 @@ bool component_standby(const LUNASHELL::ComponentSnapshot &component)
            !component.data_stale &&
            component.last_attempt_at_us == 0 &&
            component.last_success_at_us == 0;
-}
-
-bool radio_deferred_by_policy(const LUNASHELL::ComponentSnapshot &radio)
-{
-    return component_standby(radio);
 }
 
 std::string_view component_color(const LUNASHELL::ComponentSnapshot &component)
@@ -153,35 +147,6 @@ std::expected<void, std::string> LUNASHELLStatusBar::update(
         }
     }
 
-    std::string_view ble_color = component_color(snapshot.radios.ble);
-    if (radio_deferred_by_policy(snapshot.radios.ble)) {
-        ble_color = palette::kStatusMuted;
-    } else if (component_ready(snapshot.radios.ble)) {
-        ble_color = snapshot.radios.ble.connected ||
-                    snapshot.radios.ble.provisioning ||
-                    snapshot.radios.ble.advertising
-            ? palette::kStatusReady
-            : palette::kStatusWarning;
-    }
-
-    std::string_view wifi_color = component_color(snapshot.radios.wifi);
-    if (radio_deferred_by_policy(snapshot.radios.wifi)) {
-        wifi_color = palette::kStatusMuted;
-    } else if (component_ready(snapshot.radios.wifi)) {
-        wifi_color = snapshot.radios.wifi.connected
-            ? palette::kStatusReady
-            : palette::kStatusWarning;
-    }
-
-    std::string_view gps_color = component_color(snapshot.gps);
-    if (component_ready(snapshot.gps)) {
-        gps_color = gps_fix_valid(snapshot.gps)
-            ? palette::kStatusReady
-            : snapshot.gps.has_fix
-                ? palette::kStatusFault
-                : palette::kStatusWarning;
-    }
-
     std::string_view sd_color = component_color(snapshot.storage);
     if (storage_cleanup_failed(snapshot.storage)) {
         sd_color = palette::kStatusFault;
@@ -196,9 +161,6 @@ std::expected<void, std::string> LUNASHELLStatusBar::update(
     const VisualState next_state{
         .usb_color = usb_color,
         .battery_color = battery_color,
-        .ble_color = ble_color,
-        .wifi_color = wifi_color,
-        .gps_color = gps_color,
         .sd_color = sd_color,
         .battery_icon = battery_icon(snapshot.battery),
         .battery_charging = battery_charging(snapshot.battery),
@@ -212,9 +174,6 @@ std::expected<void, std::string> LUNASHELLStatusBar::update(
 
     add_indicator(updates, "usb", next_state.usb_color);
     add_indicator(updates, "battery", next_state.battery_color);
-    add_indicator(updates, "ble", next_state.ble_color);
-    add_indicator(updates, "wifi", next_state.wifi_color);
-    add_indicator(updates, "gps", next_state.gps_color);
     add_indicator(updates, "sd", next_state.sd_color);
 
     add_binding(

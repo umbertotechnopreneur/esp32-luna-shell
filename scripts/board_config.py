@@ -71,10 +71,42 @@ def validate_board_config_data(data: object) -> dict[str, str]:
         raise ValueError("board YAML has missing or unknown top-level fields")
     if data["schema_version"] != 2 or type(data["schema_version"]) is not int:
         raise ValueError("unsupported board YAML schema_version")
-    if data["name"] != "ui-bootstrap":
-        raise ValueError("unsupported board build name")
     if data["board"] != "waveshare-esp32s3-touch-amoled-1.75":
         raise ValueError("this board has no registered build adapter")
+    if data["name"] == "leg-edition":
+        if data["variant"] != "leg-edition":
+            raise ValueError("Leg Edition requires its dedicated compiler profile")
+        modules = data["modules"]
+        if not isinstance(modules, dict) or set(modules) != set(EXPECTED_MODULES):
+            raise ValueError("Leg Edition board YAML has missing or unknown modules")
+        enabled = {"pmu", "battery", "imu", "audio_output", "sd"}
+        for name, (driver, default_mode) in EXPECTED_MODULES.items():
+            expected_mode = (
+                "service" if name in enabled else default_mode
+            )
+            if name in {"rtc", "gnss", "microphones"}:
+                expected_mode = "off"
+            module = modules[name]
+            if (not isinstance(module, dict) or
+                    module != {"driver": driver, "mode": expected_mode}):
+                raise ValueError(
+                    f"Leg Edition {name} must be {driver}/{expected_mode}"
+                )
+        if data["ui"] != {
+            "app": "leg-edition",
+            "screens": [
+                "accelerometer", "gyroscope", "combo", "movement", "settings"
+            ],
+        }:
+            raise ValueError("Leg Edition UI must declare its five views")
+        return {
+            "board": data["board"],
+            "profile": "leg-edition",
+            "feature": "none",
+            "modules": {name: modules[name]["mode"] for name in modules},
+        }
+    if data["name"] != "ui-bootstrap":
+        raise ValueError("unsupported board build name")
     if data["variant"] != "ui-minimal":
         raise ValueError("board build variant has no compiled contract")
     modules = data["modules"]

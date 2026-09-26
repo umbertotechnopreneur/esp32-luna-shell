@@ -40,8 +40,8 @@
                 "overrides": {
                     ".": {
                         "placement": {
-                            "x": "3dp",
-                            "y": "36dp"
+                            "x": "53dp",
+                            "y": "26dp"
                         }
                     },
                     "icon": {
@@ -58,8 +58,8 @@
                 "overrides": {
                     ".": {
                         "placement": {
-                            "x": "53dp",
-                            "y": "16dp"
+                            "x": "128dp",
+                            "y": "8dp"
                         }
                     },
                     "icon": {
@@ -71,67 +71,13 @@
             },
             {
                 "type": "templateRef",
-                "id": "ble",
-                "templateId": "LUNASHELL_status_indicator",
-                "overrides": {
-                    ".": {
-                        "placement": {
-                            "x": "103dp",
-                            "y": "5dp"
-                        }
-                    },
-                    "icon": {
-                        "labelProps": {
-                            "text": "\uf293"
-                        }
-                    }
-                }
-            },
-            {
-                "type": "templateRef",
-                "id": "wifi",
-                "templateId": "LUNASHELL_status_indicator",
-                "overrides": {
-                    ".": {
-                        "placement": {
-                            "x": "153dp",
-                            "y": "5dp"
-                        }
-                    },
-                    "icon": {
-                        "labelProps": {
-                            "text": "\uf1eb"
-                        }
-                    }
-                }
-            },
-            {
-                "type": "templateRef",
-                "id": "gps",
-                "templateId": "LUNASHELL_status_indicator",
-                "overrides": {
-                    ".": {
-                        "placement": {
-                            "x": "203dp",
-                            "y": "16dp"
-                        }
-                    },
-                    "icon": {
-                        "labelProps": {
-                            "text": "\uf124"
-                        }
-                    }
-                }
-            },
-            {
-                "type": "templateRef",
                 "id": "sd",
                 "templateId": "LUNASHELL_status_indicator",
                 "overrides": {
                     ".": {
                         "placement": {
-                            "x": "253dp",
-                            "y": "36dp"
+                            "x": "203dp",
+                            "y": "26dp"
                         }
                     },
                     "icon": {

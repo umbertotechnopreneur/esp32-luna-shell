@@ -142,6 +142,27 @@ private:
         FixedTextCache<32> temperature;
     };
 
+    struct LegUiCache {
+        FixedTextCache<40> title;
+        FixedTextCache<96> health;
+        FixedTextCache<64> orientation;
+        FixedTextCache<12> page;
+        std::array<FixedTextCache<32>, 3> axes{};
+        FixedTextCache<96> acceleration;
+        FixedTextCache<96> angular_velocity;
+        FixedTextCache<1536> graph_points;
+        FixedTextCache<12> background;
+        FixedTextCache<12> graph_color;
+        std::array<float, 32> movement_history{};
+        std::array<float, 3> previous_acceleration{};
+        int64_t previous_sample_at_us = 0;
+        std::size_t history_next = 0;
+        std::size_t history_count = 0;
+        bool previous_acceleration_valid = false;
+        std::optional<uint8_t> displayed_page;
+        std::optional<std::array<bool, 4>> displayed_settings;
+    };
+
     struct GpsUiCache {
         FixedTextCache<160> device_state;
         FixedTextCache<64> fix_state;
@@ -364,9 +385,13 @@ private:
     void invalidate_audio_screen_cache(Screen screen);
     void invalidate_hardware_screen_cache();
     void invalidate_imu_screen_cache();
+    void invalidate_leg_screen_cache();
     void invalidate_gps_screen_cache();
     void invalidate_storage_screen_cache();
     std::expected<void, std::string> refresh_imu(
+        esp_brookesia::system::core::AppContext &context
+    );
+    std::expected<void, std::string> refresh_leg(
         esp_brookesia::system::core::AppContext &context
     );
     std::expected<void, std::string> refresh_gps(
@@ -488,6 +513,10 @@ private:
     void handle_auto_rotation_event(
         const esp_brookesia::gui::Event &event
     );
+    void handle_leg_setting_event(
+        std::string_view action,
+        const esp_brookesia::gui::Event &event
+    );
     void finish_settings_event(
         esp_err_t result,
         std::string_view operation
@@ -546,6 +575,10 @@ private:
     bool audio_detail_hidden_known_ = false;
     HardwareUiCache hardware_ui_cache_;
     ImuUiCache imu_ui_cache_;
+    uint8_t leg_page_ = 0;
+    LegUiCache leg_ui_cache_;
+    bool leg_sounds_enabled_ = true;
+    bool leg_wake_enabled_ = true;
     GpsUiCache gps_ui_cache_;
     StorageUiCache storage_ui_cache_;
     std::unique_ptr<app_detail::AudioFftBindingCache>

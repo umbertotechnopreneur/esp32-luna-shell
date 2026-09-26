@@ -43,6 +43,12 @@ constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
 constexpr uint32_t kTaskStackBytes = 8192;
 constexpr uint32_t kDisplayFadeDurationMs = 360;
+constexpr int64_t kLegScreenOnUs = 25LL * 1000LL * 1000LL;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+constexpr int64_t kLegAlertRepeatUs = 3000000LL;
+constexpr uint32_t kLegAudioSampleRate = 16000;
+constexpr size_t kLegAudioCapacity = 12480;
+#endif
 constexpr float kMotionAccelerationEnterMps2 = 0.80F;
 constexpr float kMotionAccelerationQuietMps2 = 0.40F;
 constexpr float kMotionAngularVelocityEnterDps = 4.0F;
@@ -69,6 +75,14 @@ std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
 std::atomic<uint32_t> s_activity_sequence{0};
+std::atomic_bool s_leg_mode_enabled{false};
+std::atomic_bool s_leg_wake_enabled{true};
+std::atomic_bool s_leg_sounds_enabled{true};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+std::atomic<uint8_t> s_leg_pending_sound{0};
+TaskHandle_t s_leg_audio_task;
+int16_t *s_leg_audio_buffer;
+#endif
 std::atomic<int64_t> s_activity_at_us{0};
 std::atomic<LUNASHELL::DeviceStateReason> s_activity_reason{
     LUNASHELL::DeviceStateReason::Touch
@@ -100,6 +114,14 @@ uint32_t s_transition_sequence;
 uint32_t s_consumed_activity_sequence;
 int64_t s_last_activity_at_us;
 int64_t s_last_imu_sample_us;
+int64_t s_leg_last_imu_sample_us;
+float s_leg_previous_acceleration_mps2[3] = {};
+bool s_leg_previous_valid;
+bool s_leg_mode_observed;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+int64_t s_leg_last_alert_at_us;
+uint8_t s_leg_last_alert_level;
+#endif
 float s_motion_baseline_acceleration_mps2[3] = {};
 float s_motion_previous_acceleration_mps2[3] = {};
 bool s_motion_baseline_ready;
@@ -113,6 +135,7 @@ esp_err_t s_last_pkey_error = ESP_OK;
 uint32_t s_initial_pkey_short_presses;
 uint32_t s_initial_pkey_long_presses;
 bool s_motion_monitor_started;
+esp_err_t s_motion_monitor_error = ESP_ERR_INVALID_STATE;
 bool s_boot_armed;
 bool s_boot_release_tracking;
 bool s_standby_poll_observed;
@@ -1712,6 +1735,171 @@ bool qualified_motion_detected(const LUNASHELL::ImuSnapshot &imu)
     return true;
 }
 
+// The Leg policy measures change on every axis, never force or weight bearing.
+uint8_t leg_motion_level(const LUNASHELL::ImuSnapshot &imu)
+{
+    if (imu.health != LUNASHELL::DeviceHealth::Ready ||
+        imu.last_error != ESP_OK || !imu.data_valid || imu.data_stale ||
+        imu.last_success_at_us <= 0) {
+        s_leg_previous_valid = false;
+        return 0;
+    }
+    if (imu.last_success_at_us == s_leg_last_imu_sample_us) {
+        return 0;
+    }
+    s_leg_last_imu_sample_us = imu.last_success_at_us;
+    float peak_step = 0.0F;
+    float peak_gyro = 0.0F;
+    for (size_t axis = 0; axis < 3U; ++axis) {
+        const float acceleration = imu.acceleration_mps2[axis];
+        const float gyro = imu.angular_velocity_dps[axis];
+        if (!std::isfinite(acceleration) || !std::isfinite(gyro)) {
+            s_leg_previous_valid = false;
+            ESP_LOGE(kTag, "Leg motion rejected non-finite IMU axis %u",
+                     static_cast<unsigned>(axis));
+            return 0;
+        }
+        if (s_leg_previous_valid) {
+            peak_step = std::max(
+                peak_step,
+                std::fabs(acceleration - s_leg_previous_acceleration_mps2[axis])
+            );
+        }
+        peak_gyro = std::max(peak_gyro, std::fabs(gyro));
+        s_leg_previous_acceleration_mps2[axis] = acceleration;
+    }
+    s_leg_previous_valid = true;
+    const float intensity = std::max(peak_step, peak_gyro * 0.04F);
+    if (intensity >= 3.0F) {
+        return 3;
+    }
+    if (intensity >= 1.2F) {
+        return 2;
+    }
+    return intensity >= 0.25F ? 1 : 0;
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+size_t synthesize_leg_cue(uint8_t level, int16_t *samples)
+{
+    const uint32_t frequencies[5] = {
+        level == 1U ? 659U : level == 2U ? 784U : 988U,
+        0U,
+        level == 1U ? 0U : level == 2U ? 659U : 988U,
+        0U,
+        level == 3U ? 740U : 0U,
+    };
+    const uint32_t durations_ms[5] = {
+        level == 3U ? 180U : 160U,
+        level >= 2U ? 80U : 0U,
+        level == 3U ? 180U : level == 2U ? 160U : 0U,
+        level == 3U ? 80U : 0U,
+        level == 3U ? 260U : 0U,
+    };
+    size_t offset = 0;
+    for (size_t segment = 0; segment < 5U; ++segment) {
+        const size_t length =
+            static_cast<size_t>(durations_ms[segment]) *
+            kLegAudioSampleRate / 1000U;
+        for (size_t index = 0; index < length; ++index) {
+            const uint32_t frequency = frequencies[segment];
+            float value = 0.0F;
+            if (frequency != 0U) {
+                const float envelope = std::min({
+                    1.0F,
+                    static_cast<float>(index) / 192.0F,
+                    static_cast<float>(length - index) / 640.0F,
+                });
+                value = 6000.0F * envelope * std::sin(
+                    6.2831853F * static_cast<float>(frequency) *
+                    static_cast<float>(index) /
+                    static_cast<float>(kLegAudioSampleRate)
+                );
+            }
+            samples[offset++] = static_cast<int16_t>(std::lround(value));
+        }
+    }
+    return offset;
+}
+
+void leg_audio_task(void *)
+{
+    while (true) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        const uint8_t level = s_leg_pending_sound.exchange(
+            0, std::memory_order_acq_rel
+        );
+        if (level == 0U ||
+            !s_leg_mode_enabled.load(std::memory_order_acquire) ||
+            !s_leg_sounds_enabled.load(std::memory_order_acquire)) {
+            continue;
+        }
+        const size_t count = synthesize_leg_cue(
+            level, s_leg_audio_buffer
+        );
+        if (count == 0U || count > kLegAudioCapacity) {
+            ESP_LOGE(kTag, "Leg sound level %u exceeded cue buffer",
+                     static_cast<unsigned>(level));
+            continue;
+        }
+        const esp_err_t result = LUNASHELL_audio_play_pcm16(
+            s_leg_audio_buffer, count, kLegAudioSampleRate, 35
+        );
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Leg sound level %u playback failed (%s)",
+                     static_cast<unsigned>(level), esp_err_to_name(result));
+        }
+    }
+}
+
+esp_err_t ensure_leg_audio_task()
+{
+    if (s_leg_audio_task != nullptr) {
+        return ESP_OK;
+    }
+    s_leg_audio_buffer = static_cast<int16_t *>(heap_caps_malloc(
+        kLegAudioCapacity * sizeof(int16_t),
+        MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    ));
+    if (s_leg_audio_buffer == nullptr) {
+        ESP_LOGE(kTag, "Leg audio PSRAM buffer allocation failed");
+        return ESP_ERR_NO_MEM;
+    }
+    if (xTaskCreate(
+            leg_audio_task, "leg_audio", 4096, nullptr,
+            tskIDLE_PRIORITY + 2, &s_leg_audio_task
+        ) != pdPASS) {
+        heap_caps_free(s_leg_audio_buffer);
+        s_leg_audio_buffer = nullptr;
+        ESP_LOGE(kTag, "Leg audio worker creation failed");
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+void queue_leg_sound(uint8_t level, int64_t now_us)
+{
+    if (level == 0U || s_leg_audio_task == nullptr ||
+        !s_leg_sounds_enabled.load(std::memory_order_acquire)) {
+        return;
+    }
+    if (s_leg_last_alert_at_us != 0 &&
+        now_us - s_leg_last_alert_at_us < kLegAlertRepeatUs &&
+        level <= s_leg_last_alert_level) {
+        return;
+    }
+    s_leg_last_alert_at_us = now_us;
+    s_leg_last_alert_level = level;
+    uint8_t pending = s_leg_pending_sound.load(std::memory_order_relaxed);
+    while (pending < level && !s_leg_pending_sound.compare_exchange_weak(
+        pending, level, std::memory_order_release,
+        std::memory_order_relaxed
+    )) {
+    }
+    xTaskNotifyGive(s_leg_audio_task);
+}
+#endif
+
 esp_err_t handle_power_key_events(
     uint32_t short_presses,
     uint32_t long_presses
@@ -1772,6 +1960,31 @@ esp_err_t apply_idle_policy()
         return seconds > 0U &&
                elapsed_us >= static_cast<int64_t>(seconds) * 1000000LL;
     };
+
+    if (s_leg_mode_enabled.load(std::memory_order_acquire)) {
+        const auto target = elapsed_us >= kLegScreenOnUs
+            ? LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
+            : LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
+        if (target != s_display_stage) {
+            const esp_err_t display_error =
+                LUNASHELL_display_fade_to_power_mode(
+                    target == LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
+                        ? LUNASHELL_DISPLAY_POWER_OFF
+                        : LUNASHELL_DISPLAY_POWER_ACTIVE,
+                    kDisplayFadeDurationMs
+                );
+            if (display_error != ESP_OK) {
+                ESP_LOGE(kTag, "Leg display fade failed (%s)",
+                         esp_err_to_name(display_error));
+                publish_power(display_error);
+                return display_error;
+            }
+            s_display_stage = target;
+            ++s_transition_sequence;
+            publish_power(ESP_OK);
+        }
+        return ESP_OK;
+    }
 
     const bool command_visible =
         !s_fullscreen_active &&
@@ -1969,8 +2182,30 @@ void power_task(void *argument)
 
         const LUNASHELL::DeviceSnapshot snapshot =
             LUNASHELL::DeviceSnapshotService::instance().snapshot();
-        if (s_motion_monitor_started &&
-            qualified_motion_detected(snapshot.imu)) {
+        const bool leg_mode =
+            s_leg_mode_enabled.load(std::memory_order_acquire);
+        if (leg_mode != s_leg_mode_observed) {
+            s_leg_mode_observed = leg_mode;
+            s_leg_previous_valid = false;
+            s_leg_last_imu_sample_us = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+            s_leg_last_alert_at_us = 0;
+            s_leg_last_alert_level = 0;
+#endif
+        }
+        const uint8_t leg_level = s_motion_monitor_started && leg_mode
+            ? leg_motion_level(snapshot.imu) : 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+        if (leg_mode && leg_level > 0U) {
+            queue_leg_sound(leg_level, esp_timer_get_time());
+        }
+#endif
+        const bool qualified_motion = s_motion_monitor_started &&
+            qualified_motion_detected(snapshot.imu);
+        const bool wake_on_leg_motion =
+            s_leg_wake_enabled.load(std::memory_order_acquire);
+        if ((leg_mode && wake_on_leg_motion && leg_level > 0) ||
+            (!leg_mode && qualified_motion)) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -2158,6 +2393,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 
     const esp_err_t motion_monitor_error =
         LUNASHELL_hardware_set_ui_motion_monitor(true);
+    s_motion_monitor_error = motion_monitor_error;
     s_motion_monitor_started = motion_monitor_error == ESP_OK;
     if (!s_motion_monitor_started) {
         ESP_LOGW(
@@ -2345,6 +2581,65 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
         std::memory_order_relaxed
     );
     s_activity_sequence.fetch_add(1, std::memory_order_release);
+}
+
+extern "C" esp_err_t LUNASHELL_power_manager_set_leg_mode(
+    bool active,
+    bool wake_on_motion
+)
+{
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Leg display policy rejected before power init");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (active && !s_motion_monitor_started) {
+        ESP_LOGE(kTag, "Leg motion policy rejected: IMU monitor unavailable (%s)",
+                 esp_err_to_name(s_motion_monitor_error));
+        return s_motion_monitor_error;
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (active && s_leg_sounds_enabled.load(std::memory_order_acquire)) {
+        const esp_err_t audio_error = ensure_leg_audio_task();
+        if (audio_error != ESP_OK) {
+            return audio_error;
+        }
+    }
+    if (!active) {
+        s_leg_pending_sound.store(0, std::memory_order_release);
+    }
+#endif
+    s_leg_wake_enabled.store(wake_on_motion, std::memory_order_release);
+    s_leg_mode_enabled.store(active, std::memory_order_release);
+    LUNASHELL_power_manager_note_activity();
+    ESP_LOGI(kTag, "Leg display policy: active=%s wake=%s timeout=25 s",
+             active ? "yes" : "no", wake_on_motion ? "yes" : "no");
+    return ESP_OK;
+}
+
+extern "C" esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled)
+{
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Leg sound policy rejected before power init");
+        return ESP_ERR_INVALID_STATE;
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (enabled && s_leg_mode_enabled.load(std::memory_order_acquire)) {
+        const esp_err_t audio_error = ensure_leg_audio_task();
+        if (audio_error != ESP_OK) {
+            return audio_error;
+        }
+    }
+    if (!enabled) {
+        s_leg_pending_sound.store(0, std::memory_order_release);
+    }
+#else
+    if (enabled) {
+        ESP_LOGE(kTag, "Leg sounds unavailable: no selected speaker");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    s_leg_sounds_enabled.store(enabled, std::memory_order_release);
+    return ESP_OK;
 }
 
 // Accept only the UI result for the currently published standby generation.
