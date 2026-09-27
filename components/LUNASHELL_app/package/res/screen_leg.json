@@ -47,44 +47,23 @@
                         "placement.y": "viewport_y",
                         "placement.height": "viewport_height",
                         "style.paddingTop": "viewport_padding_top",
-                        "style.paddingBottom": "viewport_padding_bottom",
-                        "style.bgColor": "motion_bg"
+                        "style.paddingBottom": "viewport_padding_bottom"
                     },
                     "commonProps": {
                         "scrollable": false
                     },
                     "style": {
-                        "padding": 0,
-                        "bgColor": "#06111f"
+                        "padding": 0
                     },
                     "placement": {
                         "mode": "absolute",
                         "align": "topMid",
-                        "x": "73dp",
+                        "x": "53dp",
                         "y": "73dp",
-                        "width": "320dp",
+                        "width": "360dp",
                         "height": "320dp"
                     },
                     "children": [
-                        {
-                            "type": "label",
-                            "id": "edition",
-                            "labelProps": {
-                                "text": "LEG EDITION · NON MISURA IL CARICO"
-                            },
-                            "style": {
-                                "textColor": "#62cfff",
-                                "fontSize": "${constant.typography.caption}",
-                                "textAlign": "center"
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "20dp",
-                                "y": "18dp",
-                                "width": "280dp",
-                                "height": "18dp"
-                            }
-                        },
                         {
                             "type": "label",
                             "id": "title",
@@ -93,34 +72,38 @@
                             },
                             "style": {
                                 "textColor": "#f3f7fa",
-                                "fontSize": "${constant.typography.heading}",
-                                "textAlign": "center"
-                            },
-                            "placement": {
-                                "mode": "absolute",
-                                "x": "12dp",
-                                "y": "40dp",
-                                "width": "296dp",
-                                "height": "32dp"
-                            }
-                        },
-                        {
-                            "type": "label",
-                            "id": "health",
-                            "labelProps": {
-                                "text": "IMU UNAVAILABLE"
-                            },
-                            "style": {
-                                "textColor": "#8aa7b6",
-                                "fontSize": "${constant.typography.caption}",
+                                "fontSize": "${constant.typography.title}",
                                 "textAlign": "center"
                             },
                             "placement": {
                                 "mode": "absolute",
                                 "x": "10dp",
-                                "y": "72dp",
-                                "width": "300dp",
-                                "height": "24dp"
+                                "y": "14dp",
+                                "width": "340dp",
+                                "height": "40dp"
+                            }
+                        },
+                        {
+                            "type": "label",
+                            "id": "health",
+                            "bindings": {
+                                "commonProps.hidden": "hidden",
+                                "style.textColor": "status_color"
+                            },
+                            "labelProps": {
+                                "text": "IMU UNAVAILABLE"
+                            },
+                            "style": {
+                                "textColor": "#67bbec",
+                                "fontSize": "${constant.typography.caption}",
+                                "textAlign": "center"
+                            },
+                            "placement": {
+                                "mode": "absolute",
+                                "x": "20dp",
+                                "y": "61dp",
+                                "width": "320dp",
+                                "height": "20dp"
                             }
                         },
                         {
@@ -136,81 +119,352 @@
                             "placement": {
                                 "mode": "absolute",
                                 "x": "24dp",
-                                "y": "103dp",
-                                "width": "272dp",
-                                "height": "153dp"
+                                "y": "91dp",
+                                "width": "312dp",
+                                "height": "158dp"
                             },
                             "children": [
                                 {
-                                    "type": "label",
-                                    "id": "axis_x",
-                                    "labelProps": {
-                                        "text": "X  --"
+                                    "type": "container",
+                                    "id": "axis_visual",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
+                                    "commonProps": {
+                                        "hidden": false
                                     },
                                     "style": {
-                                        "textColor": "#20dfc1",
+                                        "borderColor": "#174c83",
+                                        "borderWidth": "1dp",
+                                        "radius": "60dp",
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "17dp",
+                                        "width": "122dp",
+                                        "height": "122dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "line",
+                                            "id": "x_vector",
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden",
+                                                "lineProps.points": "points"
+                                            },
+                                            "commonProps": {
+                                                "hidden": true
+                                            },
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 65,
+                                                        "y": 55
+                                                    },
+                                                    {
+                                                        "x": 19,
+                                                        "y": 92
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#23d7f7",
+                                                "lineWidth": "5dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "122dp",
+                                                "height": "122dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "line",
+                                            "id": "y_vector",
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden",
+                                                "lineProps.points": "points"
+                                            },
+                                            "commonProps": {
+                                                "hidden": true
+                                            },
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 65,
+                                                        "y": 55
+                                                    },
+                                                    {
+                                                        "x": 107,
+                                                        "y": 82
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#8af055",
+                                                "lineWidth": "5dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "122dp",
+                                                "height": "122dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "line",
+                                            "id": "z_vector",
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden",
+                                                "lineProps.points": "points"
+                                            },
+                                            "commonProps": {
+                                                "hidden": true
+                                            },
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 65,
+                                                        "y": 55
+                                                    },
+                                                    {
+                                                        "x": 65,
+                                                        "y": 11
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#fcbf48",
+                                                "lineWidth": "5dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "122dp",
+                                                "height": "122dp"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "gyro_visual",
+                                    "bindings": {
+                                        "commonProps.hidden": "hidden"
+                                    },
+                                    "commonProps": {
+                                        "hidden": true
+                                    },
+                                    "style": {
+                                        "borderColor": "#254ca0",
+                                        "borderWidth": "2dp",
+                                        "radius": "60dp",
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "17dp",
+                                        "width": "122dp",
+                                        "height": "122dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "container",
+                                            "id": "ring",
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden",
+                                                "placement.x": "x",
+                                                "placement.y": "y",
+                                                "placement.width": "width",
+                                                "placement.height": "height"
+                                            },
+                                            "commonProps": {
+                                                "hidden": true
+                                            },
+                                            "style": {
+                                                "borderColor": "#7659d9",
+                                                "borderWidth": "4dp",
+                                                "radius": "40dp",
+                                                "padding": 0
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "20dp",
+                                                "y": "20dp",
+                                                "width": "82dp",
+                                                "height": "82dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "container",
+                                            "id": "core",
+                                            "bindings": {
+                                                "commonProps.hidden": "hidden",
+                                                "placement.x": "x",
+                                                "placement.y": "y"
+                                            },
+                                            "commonProps": {
+                                                "hidden": true
+                                            },
+                                            "style": {
+                                                "bgColor": "#20d7f5",
+                                                "radius": "8dp",
+                                                "padding": 0
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "53dp",
+                                                "y": "53dp",
+                                                "width": "16dp",
+                                                "height": "16dp"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "readout",
+                                    "style": {
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "145dp",
+                                        "y": "2dp",
+                                        "width": "160dp",
+                                        "height": "150dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "x_tag",
+                                    "labelProps": {
+                                        "text": "X"
+                                    },
+                                    "style": {
+                                        "textColor": "#35d8f7",
                                         "fontSize": "${constant.typography.heading}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "24dp",
-                                        "y": "3dp",
-                                        "width": "225dp",
-                                        "height": "32dp"
+                                        "x": "157dp",
+                                        "y": "13dp",
+                                        "width": "25dp",
+                                        "height": "31dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "y_tag",
+                                    "labelProps": {
+                                        "text": "Y"
+                                    },
+                                    "style": {
+                                        "textColor": "#8af055",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "157dp",
+                                        "y": "60dp",
+                                        "width": "25dp",
+                                        "height": "31dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "z_tag",
+                                    "labelProps": {
+                                        "text": "Z"
+                                    },
+                                    "style": {
+                                        "textColor": "#fcbf48",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "157dp",
+                                        "y": "107dp",
+                                        "width": "25dp",
+                                        "height": "31dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "axis_x",
+                                    "labelProps": {
+                                        "text": "--"
+                                    },
+                                    "style": {
+                                        "textColor": "#f3f7fa",
+                                        "fontSize": "${constant.typography.heading}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "187dp",
+                                        "y": "13dp",
+                                        "width": "112dp",
+                                        "height": "31dp"
                                     }
                                 },
                                 {
                                     "type": "label",
                                     "id": "axis_y",
                                     "labelProps": {
-                                        "text": "Y  --"
+                                        "text": "--"
                                     },
                                     "style": {
-                                        "textColor": "#51c7f2",
+                                        "textColor": "#f3f7fa",
                                         "fontSize": "${constant.typography.heading}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "24dp",
-                                        "y": "49dp",
-                                        "width": "225dp",
-                                        "height": "32dp"
+                                        "x": "187dp",
+                                        "y": "60dp",
+                                        "width": "112dp",
+                                        "height": "31dp"
                                     }
                                 },
                                 {
                                     "type": "label",
                                     "id": "axis_z",
                                     "labelProps": {
-                                        "text": "Z  --"
+                                        "text": "--"
                                     },
                                     "style": {
-                                        "textColor": "#f0b44d",
+                                        "textColor": "#f3f7fa",
                                         "fontSize": "${constant.typography.heading}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "24dp",
-                                        "y": "95dp",
-                                        "width": "225dp",
-                                        "height": "32dp"
+                                        "x": "187dp",
+                                        "y": "107dp",
+                                        "width": "112dp",
+                                        "height": "31dp"
                                     }
                                 },
                                 {
                                     "type": "label",
                                     "id": "units",
                                     "labelProps": {
-                                        "text": "m/s²"
+                                        "text": "m/s2"
                                     },
                                     "style": {
-                                        "textColor": "#8aa7b6",
+                                        "textColor": "#a9bce7",
                                         "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "right"
+                                        "textAlign": "center"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "205dp",
-                                        "y": "131dp",
-                                        "width": "48dp",
+                                        "x": "31dp",
+                                        "y": "139dp",
+                                        "width": "72dp",
                                         "height": "18dp"
                                     }
                                 }
@@ -228,27 +482,55 @@
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "19dp",
-                                "y": "107dp",
-                                "width": "282dp",
-                                "height": "150dp"
+                                "x": "22dp",
+                                "y": "93dp",
+                                "width": "316dp",
+                                "height": "156dp"
                             },
                             "children": [
+                                {
+                                    "type": "container",
+                                    "id": "accel_card",
+                                    "style": {
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "0dp",
+                                        "width": "153dp",
+                                        "height": "153dp"
+                                    }
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "gyro_card",
+                                    "style": {
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "163dp",
+                                        "y": "0dp",
+                                        "width": "153dp",
+                                        "height": "153dp"
+                                    }
+                                },
                                 {
                                     "type": "label",
                                     "id": "accel_head",
                                     "labelProps": {
-                                        "text": "ACCEL  m/s²"
+                                        "text": "ACCEL  m/s2"
                                     },
                                     "style": {
-                                        "textColor": "#20dfc1",
+                                        "textColor": "#35d8f7",
                                         "fontSize": "${constant.typography.caption}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "8dp",
-                                        "y": "0dp",
-                                        "width": "130dp",
+                                        "x": "12dp",
+                                        "y": "10dp",
+                                        "width": "137dp",
                                         "height": "19dp"
                                     }
                                 },
@@ -256,54 +538,96 @@
                                     "type": "label",
                                     "id": "gyro_head",
                                     "labelProps": {
-                                        "text": "GIRO  °/s"
+                                        "text": "GIRO  deg/s"
                                     },
                                     "style": {
-                                        "textColor": "#51c7f2",
+                                        "textColor": "#b18bff",
                                         "fontSize": "${constant.typography.caption}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "151dp",
-                                        "y": "0dp",
-                                        "width": "128dp",
+                                        "x": "175dp",
+                                        "y": "10dp",
+                                        "width": "137dp",
                                         "height": "19dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "accel_axes",
+                                    "labelProps": {
+                                        "text": "X\n\nY\n\nZ"
+                                    },
+                                    "style": {
+                                        "textColor": "#35d8f7",
+                                        "font": "${font.leg_mono}",
+                                        "fontSize": "${constant.typography.detail}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "12dp",
+                                        "y": "50dp",
+                                        "width": "20dp",
+                                        "height": "96dp"
                                     }
                                 },
                                 {
                                     "type": "label",
                                     "id": "accel_values",
                                     "labelProps": {
-                                        "text": "X --\nY --\nZ --"
+                                        "text": "--\n\n--\n\n--"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "${constant.typography.body}"
+                                        "font": "${font.leg_mono}",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "right"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "8dp",
-                                        "y": "28dp",
-                                        "width": "128dp",
-                                        "height": "112dp"
+                                        "x": "36dp",
+                                        "y": "50dp",
+                                        "width": "113dp",
+                                        "height": "96dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "gyro_axes",
+                                    "labelProps": {
+                                        "text": "X\n\nY\n\nZ"
+                                    },
+                                    "style": {
+                                        "textColor": "#b18bff",
+                                        "font": "${font.leg_mono}",
+                                        "fontSize": "${constant.typography.detail}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "175dp",
+                                        "y": "50dp",
+                                        "width": "20dp",
+                                        "height": "96dp"
                                     }
                                 },
                                 {
                                     "type": "label",
                                     "id": "gyro_values",
                                     "labelProps": {
-                                        "text": "X --\nY --\nZ --"
+                                        "text": "--\n\n--\n\n--"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
-                                        "fontSize": "${constant.typography.body}"
+                                        "font": "${font.leg_mono}",
+                                        "fontSize": "${constant.typography.detail}",
+                                        "textAlign": "right"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "151dp",
-                                        "y": "28dp",
-                                        "width": "128dp",
-                                        "height": "112dp"
+                                        "x": "199dp",
+                                        "y": "50dp",
+                                        "width": "113dp",
+                                        "height": "96dp"
                                     }
                                 }
                             ]
@@ -320,28 +644,223 @@
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "15dp",
-                                "y": "103dp",
-                                "width": "290dp",
-                                "height": "156dp"
+                                "x": "20dp",
+                                "y": "86dp",
+                                "width": "320dp",
+                                "height": "190dp"
                             },
                             "children": [
+                                {
+                                    "type": "container",
+                                    "id": "plot",
+                                    "style": {
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "24dp",
+                                        "width": "320dp",
+                                        "height": "131dp"
+                                    }
+                                },
                                 {
                                     "type": "label",
                                     "id": "graph_y",
                                     "labelProps": {
-                                        "text": "INTENSITÀ"
+                                        "text": "INTENSITA"
                                     },
                                     "style": {
-                                        "textColor": "#8aa7b6",
+                                        "textColor": "#9bb3db",
                                         "fontSize": "${constant.typography.caption}"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "4dp",
+                                        "x": "8dp",
                                         "y": "0dp",
-                                        "width": "90dp",
+                                        "width": "112dp",
                                         "height": "18dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "graph_x",
+                                    "labelProps": {
+                                        "text": "CAMPIONI | NON MISURA IL CARICO"
+                                    },
+                                    "style": {
+                                        "textColor": "#9bb3db",
+                                        "fontSize": "${constant.typography.micro}",
+                                        "textAlign": "right"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "122dp",
+                                        "y": "2dp",
+                                        "width": "192dp",
+                                        "height": "16dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "strong",
+                                    "labelProps": {
+                                        "text": "FORTE"
+                                    },
+                                    "style": {
+                                        "textColor": "#ff6b67",
+                                        "fontSize": "${constant.typography.micro}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "56dp",
+                                        "width": "46dp",
+                                        "height": "15dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "mild",
+                                    "labelProps": {
+                                        "text": "ELEVATO"
+                                    },
+                                    "style": {
+                                        "textColor": "#efb84b",
+                                        "fontSize": "${constant.typography.micro}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "105dp",
+                                        "width": "46dp",
+                                        "height": "15dp"
+                                    }
+                                },
+                                {
+                                    "type": "label",
+                                    "id": "still",
+                                    "labelProps": {
+                                        "text": "FERMO"
+                                    },
+                                    "style": {
+                                        "textColor": "#57d8ef",
+                                        "fontSize": "${constant.typography.micro}"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "4dp",
+                                        "y": "136dp",
+                                        "width": "46dp",
+                                        "height": "15dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "grid_y_axis",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 0,
+                                                "y": 114
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#2f5687",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "50dp",
+                                        "y": "31dp",
+                                        "width": "1dp",
+                                        "height": "114dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "grid_time_1",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 0,
+                                                "y": 114
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#20375a",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "138dp",
+                                        "y": "31dp",
+                                        "width": "1dp",
+                                        "height": "114dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "grid_time_2",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 0,
+                                                "y": 114
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#20375a",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "226dp",
+                                        "y": "31dp",
+                                        "width": "1dp",
+                                        "height": "114dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "strong_line",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 264,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#a93c5c",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "50dp",
+                                        "y": "64dp",
+                                        "width": "264dp",
+                                        "height": "1dp"
                                     }
                                 },
                                 {
@@ -354,20 +873,47 @@
                                                 "y": 0
                                             },
                                             {
-                                                "x": 260,
+                                                "x": 264,
                                                 "y": 0
                                             }
                                         ]
                                     },
                                     "style": {
-                                        "lineColor": "#efb84b",
+                                        "lineColor": "#b98635",
                                         "lineWidth": "1dp"
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "18dp",
-                                        "y": "53dp",
-                                        "width": "260dp",
+                                        "x": "50dp",
+                                        "y": "113dp",
+                                        "width": "264dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "grid_baseline",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 264,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#2f5687",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "50dp",
+                                        "y": "145dp",
+                                        "width": "264dp",
                                         "height": "1dp"
                                     }
                                 },
@@ -386,7 +932,7 @@
                                                 "y": 112
                                             },
                                             {
-                                                "x": 260,
+                                                "x": 264,
                                                 "y": 112
                                             }
                                         ]
@@ -397,30 +943,272 @@
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "18dp",
-                                        "y": "22dp",
-                                        "width": "260dp",
-                                        "height": "114dp"
+                                        "x": "50dp",
+                                        "y": "33dp",
+                                        "width": "264dp",
+                                        "height": "120dp"
                                     }
                                 },
                                 {
-                                    "type": "label",
-                                    "id": "graph_x",
-                                    "labelProps": {
-                                        "text": "CAMPIONI RECENTI               ORA"
+                                    "type": "container",
+                                    "id": "acc_indicator",
+                                    "bindings": {
+                                        "style.opacity": "activity_opacity"
+                                    },
+                                    "commonProps": {
+                                        "scrollable": false
                                     },
                                     "style": {
-                                        "textColor": "#8aa7b6",
-                                        "fontSize": "${constant.typography.caption}",
-                                        "textAlign": "center"
+                                        "opacity": 0,
+                                        "padding": 0
                                     },
                                     "placement": {
                                         "mode": "absolute",
-                                        "x": "16dp",
-                                        "y": "136dp",
-                                        "width": "264dp",
-                                        "height": "18dp"
-                                    }
+                                        "x": "4dp",
+                                        "y": "164dp",
+                                        "width": "64dp",
+                                        "height": "19dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "line",
+                                            "id": "acc_icon_stem",
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 8,
+                                                        "y": 15
+                                                    },
+                                                    {
+                                                        "x": 8,
+                                                        "y": 2
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#ffad45",
+                                                "lineWidth": "2dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "1dp",
+                                                "y": "0dp",
+                                                "width": "18dp",
+                                                "height": "19dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "line",
+                                            "id": "acc_icon_head",
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 2,
+                                                        "y": 8
+                                                    },
+                                                    {
+                                                        "x": 8,
+                                                        "y": 2
+                                                    },
+                                                    {
+                                                        "x": 14,
+                                                        "y": 8
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#ffad45",
+                                                "lineWidth": "2dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "1dp",
+                                                "y": "0dp",
+                                                "width": "18dp",
+                                                "height": "19dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "labelProps": {
+                                                "text": "ACC"
+                                            },
+                                            "style": {
+                                                "textColor": "#ffad45",
+                                                "fontSize": "${constant.typography.detail}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "23dp",
+                                                "y": "0dp",
+                                                "width": "41dp",
+                                                "height": "19dp"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "alert_pill",
+                                    "bindings": {
+                                        "style.bgColor": "alert_bg",
+                                        "style.opacity": "alert_opacity"
+                                    },
+                                    "commonProps": {
+                                        "scrollable": false
+                                    },
+                                    "style": {
+                                        "bgColor": "#ff9b9b",
+                                        "opacity": 0,
+                                        "borderWidth": "0dp",
+                                        "radius": "14dp",
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "74dp",
+                                        "y": "160dp",
+                                        "width": "172dp",
+                                        "height": "27dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "label",
+                                            "id": "alert_text",
+                                            "labelProps": {
+                                                "text": "ATTENZIONE"
+                                            },
+                                            "style": {
+                                                "textColor": "#11151c",
+                                                "fontSize": "${constant.typography.body}",
+                                                "textAlign": "center"
+                                            },
+                                            "placement": {
+                                                "mode": "relative",
+                                                "align": "center"
+                                            }
+                                        }
+                                    ]
+                                },
+                                {
+                                    "type": "container",
+                                    "id": "rot_indicator",
+                                    "bindings": {
+                                        "style.opacity": "activity_opacity"
+                                    },
+                                    "commonProps": {
+                                        "scrollable": false
+                                    },
+                                    "style": {
+                                        "opacity": 0,
+                                        "padding": 0
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "252dp",
+                                        "y": "164dp",
+                                        "width": "64dp",
+                                        "height": "19dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "line",
+                                            "id": "rot_icon_arc",
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 4,
+                                                        "y": 4
+                                                    },
+                                                    {
+                                                        "x": 8,
+                                                        "y": 1
+                                                    },
+                                                    {
+                                                        "x": 14,
+                                                        "y": 2
+                                                    },
+                                                    {
+                                                        "x": 17,
+                                                        "y": 7
+                                                    },
+                                                    {
+                                                        "x": 16,
+                                                        "y": 12
+                                                    },
+                                                    {
+                                                        "x": 11,
+                                                        "y": 16
+                                                    },
+                                                    {
+                                                        "x": 6,
+                                                        "y": 14
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#ffad45",
+                                                "lineWidth": "2dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "19dp",
+                                                "height": "19dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "line",
+                                            "id": "rot_icon_head",
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 7,
+                                                        "y": 9
+                                                    },
+                                                    {
+                                                        "x": 6,
+                                                        "y": 14
+                                                    },
+                                                    {
+                                                        "x": 2,
+                                                        "y": 12
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#ffad45",
+                                                "lineWidth": "2dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "19dp",
+                                                "height": "19dp"
+                                            }
+                                        },
+                                        {
+                                            "type": "label",
+                                            "id": "label",
+                                            "labelProps": {
+                                                "text": "ROT"
+                                            },
+                                            "style": {
+                                                "textColor": "#ffad45",
+                                                "fontSize": "${constant.typography.detail}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "23dp",
+                                                "y": "0dp",
+                                                "width": "41dp",
+                                                "height": "19dp"
+                                            }
+                                        }
+                                    ]
                                 }
                             ]
                         },
@@ -436,9 +1224,9 @@
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "19dp",
-                                "y": "85dp",
-                                "width": "282dp",
+                                "x": "25dp",
+                                "y": "84dp",
+                                "width": "310dp",
                                 "height": "184dp"
                             },
                             "children": [
@@ -452,21 +1240,43 @@
                                                 "mode": "absolute",
                                                 "x": "0dp",
                                                 "y": "0dp",
-                                                "width": "282dp",
+                                                "width": "310dp",
                                                 "height": "46dp"
                                             }
                                         },
                                         "title": {
                                             "labelProps": {
                                                 "text": "Rotazione automatica"
+                                            },
+                                            "style": {
+                                                "fontSize": "${constant.typography.body}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "10dp",
+                                                "width": "240dp",
+                                                "height": "26dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
-                                                "text": "Segue il sensore"
+                                                "text": ""
                                             }
                                         },
                                         "toggle": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "254dp",
+                                                "y": "9dp",
+                                                "width": "52dp",
+                                                "height": "30dp"
+                                            },
+                                            "partStyles": {
+                                                "indicator": {
+                                                    "bgColor": "#00c9f4"
+                                                }
+                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
@@ -486,21 +1296,43 @@
                                                 "mode": "absolute",
                                                 "x": "0dp",
                                                 "y": "46dp",
-                                                "width": "282dp",
+                                                "width": "310dp",
                                                 "height": "46dp"
                                             }
                                         },
                                         "title": {
                                             "labelProps": {
-                                                "text": "Flip schermo 180°"
+                                                "text": "Flip 180 gradi"
+                                            },
+                                            "style": {
+                                                "fontSize": "${constant.typography.body}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "10dp",
+                                                "width": "240dp",
+                                                "height": "26dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
-                                                "text": "Non specchia il testo"
+                                                "text": ""
                                             }
                                         },
                                         "toggle": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "254dp",
+                                                "y": "9dp",
+                                                "width": "52dp",
+                                                "height": "30dp"
+                                            },
+                                            "partStyles": {
+                                                "indicator": {
+                                                    "bgColor": "#00c9f4"
+                                                }
+                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
@@ -520,21 +1352,43 @@
                                                 "mode": "absolute",
                                                 "x": "0dp",
                                                 "y": "92dp",
-                                                "width": "282dp",
+                                                "width": "310dp",
                                                 "height": "46dp"
                                             }
                                         },
                                         "title": {
                                             "labelProps": {
                                                 "text": "Suoni"
+                                            },
+                                            "style": {
+                                                "fontSize": "${constant.typography.body}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "10dp",
+                                                "width": "240dp",
+                                                "height": "26dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
-                                                "text": "Avvisi movimento"
+                                                "text": ""
                                             }
                                         },
                                         "toggle": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "254dp",
+                                                "y": "9dp",
+                                                "width": "52dp",
+                                                "height": "30dp"
+                                            },
+                                            "partStyles": {
+                                                "indicator": {
+                                                    "bgColor": "#00c9f4"
+                                                }
+                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
@@ -554,21 +1408,43 @@
                                                 "mode": "absolute",
                                                 "x": "0dp",
                                                 "y": "138dp",
-                                                "width": "282dp",
+                                                "width": "310dp",
                                                 "height": "46dp"
                                             }
                                         },
                                         "title": {
                                             "labelProps": {
                                                 "text": "Risveglio movimento"
+                                            },
+                                            "style": {
+                                                "fontSize": "${constant.typography.body}"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "10dp",
+                                                "width": "240dp",
+                                                "height": "26dp"
                                             }
                                         },
                                         "subtitle": {
                                             "labelProps": {
-                                                "text": "Schermo acceso per 25 s"
+                                                "text": ""
                                             }
                                         },
                                         "toggle": {
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "254dp",
+                                                "y": "9dp",
+                                                "width": "52dp",
+                                                "height": "30dp"
+                                            },
+                                            "partStyles": {
+                                                "indicator": {
+                                                    "bgColor": "#00c9f4"
+                                                }
+                                            },
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
@@ -576,6 +1452,87 @@
                                                 }
                                             ]
                                         }
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "divider_1",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 310,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#1d3c67",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "45dp",
+                                        "width": "310dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "divider_2",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 310,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#1d3c67",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "91dp",
+                                        "width": "310dp",
+                                        "height": "1dp"
+                                    }
+                                },
+                                {
+                                    "type": "line",
+                                    "id": "divider_3",
+                                    "lineProps": {
+                                        "points": [
+                                            {
+                                                "x": 0,
+                                                "y": 0
+                                            },
+                                            {
+                                                "x": 310,
+                                                "y": 0
+                                            }
+                                        ]
+                                    },
+                                    "style": {
+                                        "lineColor": "#1d3c67",
+                                        "lineWidth": "1dp"
+                                    },
+                                    "placement": {
+                                        "mode": "absolute",
+                                        "x": "0dp",
+                                        "y": "137dp",
+                                        "width": "310dp",
+                                        "height": "1dp"
                                     }
                                 }
                             ]
@@ -590,21 +1547,27 @@
                                 "text": "ORIENTAMENTO NON DISPONIBILE"
                             },
                             "style": {
-                                "textColor": "#51c7f2",
+                                "textColor": "#57caff",
                                 "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "24dp",
-                                "y": "258dp",
+                                "x": "44dp",
+                                "y": "259dp",
                                 "width": "272dp",
-                                "height": "20dp"
+                                "height": "19dp"
                             }
                         },
                         {
                             "type": "button",
                             "id": "previous",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": false
+                            },
                             "events": [
                                 {
                                     "type": "clicked",
@@ -612,61 +1575,113 @@
                                 }
                             ],
                             "style": {
-                                "bgColor": "#11354d",
-                                "radius": "18dp",
+                                "bgOpacity": 0,
+                                "borderWidth": "0dp",
                                 "padding": 0
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "29dp",
-                                "y": "282dp",
-                                "width": "53dp",
-                                "height": "35dp"
+                                "x": "59dp",
+                                "y": "286dp",
+                                "width": "54dp",
+                                "height": "38dp"
                             },
                             "children": [
                                 {
-                                    "type": "label",
-                                    "id": "label",
+                                    "type": "container",
+                                    "id": "circle",
                                     "commonProps": {
-                                        "clickable": false
-                                    },
-                                    "labelProps": {
-                                        "text": "<"
+                                        "clickable": false,
+                                        "scrollable": false
                                     },
                                     "style": {
-                                        "textColor": "#20dfc1",
-                                        "fontSize": "${constant.typography.heading}",
-                                        "textAlign": "center"
+                                        "bgColor": "#278f80",
+                                        "bgOpacity": 255,
+                                        "borderColor": "#52ac9f",
+                                        "borderWidth": "1dp",
+                                        "radius": "16dp",
+                                        "padding": 0
                                     },
                                     "placement": {
-                                        "mode": "relative",
-                                        "align": "center"
-                                    }
+                                        "mode": "absolute",
+                                        "x": "11dp",
+                                        "y": "3dp",
+                                        "width": "32dp",
+                                        "height": "32dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "line",
+                                            "id": "chevron",
+                                            "commonProps": {
+                                                "clickable": false
+                                            },
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 20,
+                                                        "y": 10
+                                                    },
+                                                    {
+                                                        "x": 14,
+                                                        "y": 16
+                                                    },
+                                                    {
+                                                        "x": 20,
+                                                        "y": 22
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#f0fbf8",
+                                                "lineWidth": "4dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "32dp",
+                                                "height": "32dp"
+                                            }
+                                        }
+                                    ]
                                 }
                             ]
                         },
                         {
                             "type": "label",
-                            "id": "page",
+                            "id": "peak_readout",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": true
+                            },
                             "labelProps": {
-                                "text": "1 / 5"
+                                "text": "PICCO REL. --"
                             },
                             "style": {
-                                "textColor": "#f3f7fa",
-                                "fontSize": "${constant.typography.detail}",
+                                "textColor": "#b7dfff",
+                                "fontSize": "${constant.typography.caption}",
                                 "textAlign": "center"
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "122dp",
-                                "y": "287dp",
-                                "width": "76dp",
+                                "x": "118dp",
+                                "y": "292dp",
+                                "width": "124dp",
                                 "height": "22dp"
                             }
                         },
                         {
                             "type": "button",
                             "id": "next",
+                            "bindings": {
+                                "commonProps.hidden": "hidden"
+                            },
+                            "commonProps": {
+                                "hidden": false
+                            },
                             "events": [
                                 {
                                     "type": "clicked",
@@ -674,36 +1689,76 @@
                                 }
                             ],
                             "style": {
-                                "bgColor": "#11354d",
-                                "radius": "18dp",
+                                "bgOpacity": 0,
+                                "borderWidth": "0dp",
                                 "padding": 0
                             },
                             "placement": {
                                 "mode": "absolute",
-                                "x": "238dp",
-                                "y": "282dp",
-                                "width": "53dp",
-                                "height": "35dp"
+                                "x": "247dp",
+                                "y": "286dp",
+                                "width": "54dp",
+                                "height": "38dp"
                             },
                             "children": [
                                 {
-                                    "type": "label",
-                                    "id": "label",
+                                    "type": "container",
+                                    "id": "circle",
                                     "commonProps": {
-                                        "clickable": false
-                                    },
-                                    "labelProps": {
-                                        "text": ">"
+                                        "clickable": false,
+                                        "scrollable": false
                                     },
                                     "style": {
-                                        "textColor": "#20dfc1",
-                                        "fontSize": "${constant.typography.heading}",
-                                        "textAlign": "center"
+                                        "bgColor": "#278f80",
+                                        "bgOpacity": 255,
+                                        "borderColor": "#52ac9f",
+                                        "borderWidth": "1dp",
+                                        "radius": "16dp",
+                                        "padding": 0
                                     },
                                     "placement": {
-                                        "mode": "relative",
-                                        "align": "center"
-                                    }
+                                        "mode": "absolute",
+                                        "x": "11dp",
+                                        "y": "3dp",
+                                        "width": "32dp",
+                                        "height": "32dp"
+                                    },
+                                    "children": [
+                                        {
+                                            "type": "line",
+                                            "id": "chevron",
+                                            "commonProps": {
+                                                "clickable": false
+                                            },
+                                            "lineProps": {
+                                                "points": [
+                                                    {
+                                                        "x": 14,
+                                                        "y": 10
+                                                    },
+                                                    {
+                                                        "x": 20,
+                                                        "y": 16
+                                                    },
+                                                    {
+                                                        "x": 14,
+                                                        "y": 22
+                                                    }
+                                                ]
+                                            },
+                                            "style": {
+                                                "lineColor": "#f0fbf8",
+                                                "lineWidth": "4dp"
+                                            },
+                                            "placement": {
+                                                "mode": "absolute",
+                                                "x": "0dp",
+                                                "y": "0dp",
+                                                "width": "32dp",
+                                                "height": "32dp"
+                                            }
+                                        }
+                                    ]
                                 }
                             ]
                         }

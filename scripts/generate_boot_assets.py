@@ -177,6 +177,20 @@ def render_pdf(source_pdf: Path, pdftoppm: Path) -> Image.Image:
 
 
 def crop_artwork(rendered: Image.Image) -> Image.Image:
+    # Full-bleed boot artwork already contains the round-display background.
+    # Keep it intact instead of reducing it to the legacy white-logo band.
+    corner_points = (
+        (0, 0),
+        (rendered.width - 1, 0),
+        (0, rendered.height - 1),
+        (rendered.width - 1, rendered.height - 1),
+    )
+    if all(
+        max(rendered.getpixel(point)) < 200
+        for point in corner_points
+    ):
+        return rendered
+
     difference = ImageChops.difference(
         rendered, Image.new("RGB", rendered.size, WHITE)
     ).convert("L")
@@ -259,6 +273,18 @@ def centered_text(
 
 
 def make_boot_screen(artwork: Image.Image) -> Image.Image:
+    corner_points = (
+        (0, 0),
+        (artwork.width - 1, 0),
+        (0, artwork.height - 1),
+        (artwork.width - 1, artwork.height - 1),
+    )
+    if all(
+        max(artwork.getpixel(point)) < 200
+        for point in corner_points
+    ):
+        return artwork.resize((CANVAS, CANVAS), Image.Resampling.LANCZOS)
+
     image = Image.new("RGB", (CANVAS, CANVAS), BLACK)
     draw = ImageDraw.Draw(image)
     draw.ellipse((0, 0, CANVAS - 1, CANVAS - 1), fill=WHITE)

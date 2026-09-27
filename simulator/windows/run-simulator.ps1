@@ -97,7 +97,7 @@ param(
 
     [ValidateSet(
         'home','battery','logs','settings','storage','chrome-settings','power-settings','hardware',
-        'audio','fft','fft-detail','imu','gps','tof','tof-settings',
+        'audio','fft','fft-detail','imu','leg-accel','leg-gyro','leg-combo','leg-motion','leg-settings','gps','tof','tof-settings',
         'pairing-intro','pairing-bluetooth','pairing-app','pairing-app-qr',
         'pairing-device-qr','pairing-credentials','pairing-connecting',
         'pairing-success','pairing-failed'

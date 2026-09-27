@@ -624,9 +624,25 @@ def main() -> int:
         )
     require(
         len(re.findall(r"\.resources\s*=", descriptor_body)) == 1
-        and re.search(r"\.resources\s*=\s*\{\s*\}\s*,", descriptor_body)
+        and re.search(r"\.resources\s*=\s*make_gui_resources\(\)\s*,", descriptor_body)
         is not None,
-        "App GUI descriptor resources must be assigned one empty initializer",
+        "App GUI descriptor resources must come from the scoped resource factory",
+    )
+    for fragment in (
+        "AppGuiResources make_gui_resources()",
+        "#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION",
+        'resources.fonts.push_back({',
+        '.id = "leg_mono"',
+        '&lv_font_unscii_16',
+        '.native_size = 16',
+    ):
+        require_contains(app_documents, fragment, "Leg native monospace font")
+    leg_defaults = read(
+        ROOT / "config/sdkconfig/v1/profiles/leg-edition.defaults"
+    )
+    require(
+        "CONFIG_LV_FONT_UNSCII_16=y" in leg_defaults.splitlines(),
+        "Leg profile must compile the native Unscii 16 monospace font",
     )
 
     application_sources = {

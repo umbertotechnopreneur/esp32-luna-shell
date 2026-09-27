@@ -146,19 +146,34 @@ private:
         FixedTextCache<40> title;
         FixedTextCache<96> health;
         FixedTextCache<64> orientation;
-        FixedTextCache<12> page;
+        FixedTextCache<64> peak_readout;
         std::array<FixedTextCache<32>, 3> axes{};
         FixedTextCache<96> acceleration;
         FixedTextCache<96> angular_velocity;
         FixedTextCache<1536> graph_points;
-        FixedTextCache<12> background;
+        FixedTextCache<12> status_color;
         FixedTextCache<12> graph_color;
+        std::array<FixedTextCache<4>, 2> motion_indicator_opacity{};
+        FixedTextCache<4> motion_alert_opacity;
+        FixedTextCache<12> motion_alert_bg;
         std::array<float, 32> movement_history{};
         std::array<float, 3> previous_acceleration{};
+        std::array<float, 3> previous_angular_velocity{};
         int64_t previous_sample_at_us = 0;
         std::size_t history_next = 0;
         std::size_t history_count = 0;
         bool previous_acceleration_valid = false;
+        int64_t visual_sample_at_us = 0;
+        bool visual_valid = false;
+        int64_t nav_still_since_us = 0;
+        int64_t nav_last_sample_at_us = 0;
+        int64_t nav_last_touch_at_us = 0;
+        bool nav_hidden = false;
+        bool nav_hidden_known = false;
+        uint8_t motion_alert_current_opacity = 0;
+        int64_t motion_alert_updated_at_us = 0;
+        std::array<int64_t, 2> motion_indicator_started_at_us{};
+        std::array<int64_t, 2> motion_indicator_until_us{};
         std::optional<uint8_t> displayed_page;
         std::optional<std::array<bool, 4>> displayed_settings;
     };
@@ -542,6 +557,9 @@ private:
         esp_brookesia::system::core::INVALID_TIMER_ID;
     uint32_t refresh_period_ms_ = 0;
     uint32_t power_state_sync_period_ms_ = 0;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    int64_t leg_auto_open_deadline_us_ = 0;
+#endif
     StandbyUiState standby_ui_state_ = StandbyUiState::Active;
     uint32_t standby_ui_generation_ = 0;
     uint32_t standby_ui_transition_sequence_ = 0;

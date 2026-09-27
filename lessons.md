@@ -17,6 +17,10 @@ not substitutes for authorized device validation. Open work belongs in
 - Gate optional SDK headers and implementations at compile time for reduced
   profiles. Keep C++ exceptions enabled where allocation errors are caught and
   mapped to `ESP_ERR_NO_MEM`.
+- Leg Edition selects the ES8311 output but does not inherit the full profile's
+  boot-audio default. Enable `CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO` explicitly
+  in its profile to embed and play the startup WAV; codec initialization alone
+  does not start playback.
 - Generated packages and LittleFS images need explicit Ninja inputs, outputs,
   stamps, and a build-local staging root. A source-tree-global Brookesia stage
   lets one profile silently rewrite another's app resources.
@@ -40,6 +44,10 @@ not substitutes for authorized device validation. Open work belongs in
   ownership checks alone cannot.
 - Intern only static styles. Binding-driven opacity and transform variants
   belong to their node, not a document-lifetime intern pool.
+- The current Brookesia style schema does not support `bgOpacity`; remove
+  `bgColor` to make a declarative node transparent. An LVGL dropdown opens
+  its options in a separate screen child, so its popup background needs an
+  explicit backend style without changing option text or geometry.
 - Declarative binding batches write changed final values silently, apply
   coalesced backend masks, then notify subscribers after backend state is
   coherent. Skip no-op values, use an inline changed-index bitmap, and keep

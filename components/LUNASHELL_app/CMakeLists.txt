@@ -32,7 +32,7 @@ idf_component_register(
 # The managed manifest resolves qrcode after Kconfig selects the full app.
 # Declaring it during the early component pass would reject a fresh full build.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
-    idf_component_optional_requires(PRIVATE qrcode)
+    idf_component_optional_requires(PRIVATE qrcode lvgl__lvgl)
 endif()
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_23)

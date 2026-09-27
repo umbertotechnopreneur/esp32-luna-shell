@@ -1,10 +1,20 @@
 {
   "schema_version": 1,
+  "generator": {
+    "powershell": "7.6.5",
+    "ffmpeg": "ffmpeg version 9.0.2-full_build-www.gyan.dev Copyright (c) 2000-2026 the FFmpeg developers",
+    "ffprobe": "ffprobe version 9.0.2-full_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers"
+  },
   "target": {
     "container": "wav",
     "codec": "pcm_s16le",
     "sample_rate_hz": 22050,
     "channels": 1
+  },
+  "normalization": {
+    "integrated_lufs": -13,
+    "true_peak_db": -2,
+    "loudness_range": 5
   },
   "generated_assets": [
     {
@@ -13,7 +23,7 @@
       "source": "source/boot/soft-chime.original.wav",
       "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
       "output": "generated/lunashell-boot.wav",
-      "output_sha256": "ace673452b90140543d825715992dd11d9bf17c076f20bfc05fe6256f45a1a53",
+      "output_sha256": "c2aec9621fc563e2988c3ee030f923e9a5465e38ae7f3ea7af58f4538b541866",
       "codec": "pcm_s16le",
       "sample_rate_hz": 22050,
       "channels": 1,

@@ -1,8 +1,17 @@
 {
   "schema_version": 1,
+  "generator": {
+    "python": "3.13.15 (tags/v3.13.15:4061bc4, Aug  5 2026, 13:05:39) [MSC v.1944 64 bit (AMD64)]",
+    "pillow": "12.3.0",
+    "pdftoppm": "pdftoppm version 26.07.0",
+    "font": {
+      "name": "segoeui.ttf",
+      "sha256": "704eada12961a27fd271f7d3b09e2066520e758390c1776744eff430fee30f6e"
+    }
+  },
   "source": {
     "path": "assets/branding/LUNASHELL/source/LUNASHELL-ai-logo.pdf",
-    "sha256": "0117b6040c19798026a0177a3336fd86c124c02c9ab71e14c55e16329c6bb677"
+    "sha256": "97da98de7c6109f80259a938a29473b725b0e48ca5a63a15353809a1c356b33d"
   },
   "outputs": [
     {
@@ -10,7 +19,7 @@
       "format": "PNG RGB888",
       "width_px": 466,
       "height_px": 466,
-      "sha256": "c18f2385d6d9ece8a8dd749351afdbf82e9bdad9fd168799185bc7a2b14cd04f"
+      "sha256": "cef9c346d7bc4bf2bda9bdc29477be1bf381558a5bbebf89c2cc5b5da29b76ce"
     },
     {
       "path": "assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin",
@@ -18,7 +27,7 @@
       "width_px": 466,
       "height_px": 466,
       "bytes": 434312,
-      "sha256": "e1a9da853de4fef25fcbe2eb1618d323b81fefbfd6c2a7a1b7782fcb26365081"
+      "sha256": "0100168deba6004195734ee64ba76ada8f07bd29a58d2ecb99e7b43509460968"
     },
     {
       "path": "assets/branding/LUNASHELL/generated/round-466-safe-area-guide.png",

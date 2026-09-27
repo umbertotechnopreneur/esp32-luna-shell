@@ -32,6 +32,9 @@ from device_model import (
 
 
 DISPLAY_SIZE = 466
+LEG_FADE_IN_SECONDS = 0.25
+LEG_FADE_OUT_SECONDS = 1.5
+LEG_PULSE_SECONDS = LEG_FADE_IN_SECONDS + LEG_FADE_OUT_SECONDS
 SAFE_ORIGIN = 73
 SAFE_SIZE = 320
 CIRCULAR_CONTENT_INSET = 55
@@ -49,6 +52,18 @@ STATUS_READY = "#20dfc1"
 STATUS_WARNING = "#f0b44d"
 STATUS_MISSING = "#eb4d5c"
 STATUS_FAULT = "#ff3859"
+
+
+def blend_hex_color(base: str, accent: str, opacity: float) -> str:
+    """Blend a Canvas color toward its active state for short UI fades."""
+    amount = max(0.0, min(1.0, opacity))
+    base_rgb = ImageColor.getrgb(base)
+    accent_rgb = ImageColor.getrgb(accent)
+    channels = (round(start + (end - start) * amount)
+                for start, end in zip(base_rgb, accent_rgb))
+    return "#" + "".join(f"{channel:02x}" for channel in channels)
+
+
 PRIMARY_TOP = "#247fd6"
 PRIMARY_BOTTOM = "#0a346b"
 PRIMARY_BORDER = "#65c8ff"
@@ -105,7 +120,7 @@ WIDE_PAGE_SCREENS = frozenset(
     }
 )
 FIXED_CANVAS_SCREENS = frozenset(
-    {"audio", "fft", "fft-detail", "imu", "gps", "tof"}
+    {"audio", "fft", "fft-detail", "imu", "leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings", "gps", "tof"}
 )
 PAIRING_SCREENS = frozenset(
     {
@@ -534,6 +549,23 @@ class LUNASHELLSimulator:
         self.screen = "boot"
         self.audio_phase = 0
         self.audio_timer: str | None = None
+        self.leg_display_acceleration = [0.0, 0.0, 0.0]
+        self.leg_display_angular_velocity = [0.0, 0.0, 0.0]
+        self.leg_previous_imu_sample_at_us = 0
+        self.leg_previous_imu_values: tuple[tuple[float, ...], tuple[float, ...]] | None = None
+        self.leg_movement_history: deque[float] = deque(maxlen=32)
+        self.leg_current_intensity = 0.0
+        self.leg_acc_pulse_at: float | None = None
+        self.leg_rot_pulse_at: float | None = None
+        self.leg_indicator_cycle_started_at: dict[str, float | None] = {
+            "acc": None, "rot": None,
+        }
+        self.leg_indicator_levels = {"acc": 0.0, "rot": 0.0}
+        self.leg_alert_level = 0.0
+        self.leg_alert_color = "#ffd291"
+        self.leg_animation_last_at = time.monotonic()
+        self.leg_navigation_visible = True
+        self.leg_navigation_last_activity_at = time.monotonic()
         self.performance_mode = False
         self.battery_return_screen = "home"
         self.tof_settings_return_screen = "tof"
@@ -1511,6 +1543,9 @@ class LUNASHELLSimulator:
     def _refresh_log(self) -> None:
         if self.screen == "boot":
             self.canvas.itemconfigure("boot_log", text=self.logger.snapshot(count=5, max_chars=58))
+        elif self.screen in {"leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings"}:
+            self._refresh_leg_visuals()
+            self._refresh_leg_navigation()
         self.root.after(120, self._refresh_log)
 
     def _battery_timeline_message(self) -> str:
@@ -1630,6 +1665,12 @@ class LUNASHELLSimulator:
             )
             return
         self._apply_action("touch")
+        leg_arrows_were_hidden = (
+            self.screen in {"leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings"}
+            and not self.leg_navigation_visible
+        )
+        if self.screen in {"leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings"}:
+            self._reveal_leg_navigation()
         if self.idle_state not in {"active", "fullscreen"}:
             self.idle_state = "active"
             self.logger.info("LUNASHELL_ui", "Synthetic touch restored Adaptive Chrome")
@@ -1667,6 +1708,7 @@ class LUNASHELLSimulator:
                 "fft",
                 "fft-detail",
                 "imu",
+                "leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings",
                 "gps",
                 "tof",
                 "tof-settings",
@@ -1680,6 +1722,15 @@ class LUNASHELLSimulator:
             }
         ):
             self.back()
+        elif self.screen in {"leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings"}:
+            if leg_arrows_were_hidden:
+                return
+            pages = ("leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings")
+            nav_top = 352.5 + self._fixed_canvas_offset_y()
+            if 112 <= event.x <= 166 and nav_top <= event.y <= nav_top + 49:
+                self.show_leg_demo(pages[(pages.index(self.screen) - 1) % 5])
+            elif 300 <= event.x <= 354 and nav_top <= event.y <= nav_top + 49:
+                self.show_leg_demo(pages[(pages.index(self.screen) + 1) % 5])
         elif command_arc_visible and self.screen == "home":
             for index in range(5):
                 x, y, diameter = command_geometry(5, index)
@@ -4022,6 +4073,409 @@ class LUNASHELLSimulator:
         self._draw_edge_back()
         self._draw_safe_guide()
 
+    def show_leg_demo(self, screen: str | None = None) -> None:
+        if screen is not None:
+            self.screen = screen
+        self.leg_navigation_visible = True
+        self.leg_navigation_last_activity_at = time.monotonic()
+        pages = ("leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings")
+        page = pages.index(self.screen)
+        self._clear()
+        self._draw_atmosphere()
+        if self._status_arc_visible():
+            for kind, x, color in (("usb", 153, "#35d8f7"),
+                                   ("battery", 233, "#f3f7fa"),
+                                   ("sd", 313, "#35d8f7")):
+                self._draw_status_icon(kind, x, 43, color)
+                self.canvas.create_oval(x - 3, 69, x + 3, 75,
+                                        fill=color, outline="", tags="ui")
+        imu = self._snapshot()["imu"]
+        current = component_current(imu)
+        acceleration = [float(value) for value in imu["acceleration_mps2"]] if current else None
+        angular_velocity = [float(value) for value in imu["angular_velocity_dps"]] if current else None
+        titles = ("ACCELEROMETRO", "GIROSCOPIO", "ACCEL + GIRO", "MOVIMENTO", "IMPOSTAZIONI")
+        offset = self._fixed_canvas_offset_y()
+        first_item = self._next_canvas_item_id()
+        self.canvas.create_text(233, 107, text=titles[page], fill=TEXT,
+                                font=(FONT_DISPLAY, 25, "bold"), tags="ui")
+        if page != 4:
+            self.canvas.create_text(233, 143,
+                                    text="FERMO" if current else "IMU NON DISPONIBILE",
+                                    fill="#57caff" if current else MUTED,
+                                    font=(FONT_DISPLAY, 9), tags=("ui", "leg-health"))
+        if page in (0, 1):
+            self.canvas.create_oval(94, 182, 216, 304, outline="#1d4776",
+                                    width=1, tags="ui")
+            if page == 0:
+                for index, (dx, dy, color, x, y, label) in enumerate((
+                    (-0.72, 0.68, "#23d7f7", 108, 284, "X"),
+                    (0.86, 0.50, "#8af055", 200, 276, "Y"),
+                    (0.0, -1.0, "#fcbf48", 155, 187, "Z"),
+                )):
+                    self.canvas.create_line(155, 243, 155 + dx * 48, 243 + dy * 48,
+                                            fill="#1b3e69", width=2, tags="ui")
+                    self.canvas.create_line(155, 243, 155, 243, fill=color, width=5,
+                                            capstyle=tk.ROUND, tags=("ui", f"leg-accel-spoke-{index}"))
+                    self.canvas.create_text(x, y, text=label, fill=color,
+                                            font=(FONT_TECH, 10, "bold"), tags="ui")
+                self.canvas.create_oval(150, 238, 160, 248, fill="#d4ebff", outline="", tags="ui")
+            else:
+                self.canvas.create_oval(111, 199, 199, 287, outline="#263b72",
+                                        width=3, tags="ui")
+                self.canvas.create_arc(111, 199, 199, 287, start=90, extent=0,
+                                       style=tk.ARC, outline="#7863ed", width=5,
+                                       tags=("ui", "leg-gyro-arc"))
+                self.canvas.create_oval(130, 218, 180, 268, outline="#1b527b",
+                                        width=2, tags="ui")
+                self.canvas.create_oval(150, 238, 160, 248, fill="#d4ebff",
+                                        outline="", tags=("ui", "leg-gyro-dot"))
+            self.canvas.create_line(226, 175, 226, 309, fill="#1a4474",
+                                    width=1, tags="ui")
+            source = acceleration if page == 0 else angular_velocity
+            colors = ("#35d8f7", "#8af055", "#fcbf48")
+            for index, axis in enumerate("XYZ"):
+                value = f"{source[index]:+.2f}" if source is not None else "--"
+                self.canvas.create_text(240, 190 + index * 47, anchor="w",
+                                        text=axis, fill=colors[index],
+                                        font=(FONT_TECH, 18, "bold"), tags="ui")
+                self.canvas.create_text(271, 190 + index * 47, anchor="w",
+                                        text=value, fill=TEXT,
+                                        font=(FONT_TECH, 17, "bold"),
+                                        tags=("ui", f"leg-single-value-{index}"))
+            self.canvas.create_text(301, 315, text="m/s2" if page == 0 else "deg/s",
+                                    fill="#a9bce7", font=(FONT_TECH, 9), tags="ui")
+        elif page == 2:
+            self.canvas.create_line(233, 178, 233, 310, fill="#1a4474",
+                                    width=1, tags="ui")
+            for x, heading, unit, values, tag in (
+                (99, "ACCEL", "m/s2", acceleration, "accel"),
+                (248, "GIRO", "deg/s", angular_velocity, "gyro"),
+            ):
+                self.canvas.create_text(x, 186, anchor="w", text=heading,
+                                        fill="#35d8f7" if heading == "ACCEL" else "#b18bff",
+                                        font=(FONT_DISPLAY, 15, "bold"), tags="ui")
+                self.canvas.create_text(x, 208, anchor="w", text=unit,
+                                        fill="#a9bce7", font=(FONT_TECH, 9), tags="ui")
+                for index, axis in enumerate("XYZ"):
+                    value = f"{values[index]:+.2f}" if values is not None else "--"
+                    self.canvas.create_text(x, 242 + index * 29, anchor="w",
+                                            text=axis, fill=TEXT,
+                                            font=(FONT_TECH, 15, "bold"), tags="ui")
+                    value_x = 222 if tag == "accel" else 387
+                    self.canvas.create_text(value_x, 242 + index * 29, anchor="e",
+                                            text=value, fill=TEXT,
+                                            font=(FONT_TECH, 15, "bold"),
+                                            tags=("ui", f"leg-{tag}-value-{index}"))
+        elif page == 3:
+            self.canvas.create_text(81, 168, anchor="w", text="INTENSITA",
+                                    fill="#9bb3db", font=(FONT_DISPLAY, 9), tags="ui")
+            self.canvas.create_text(387, 169, anchor="e",
+                                    text="SYNTHETIC · CAMPIONI | NON MISURA IL CARICO",
+                                    fill="#9bb3db", font=(FONT_TECH, 7),
+                                    tags=("ui", "leg-motion-note"))
+            self.canvas.create_text(77, 223, anchor="w", text="FORTE", fill="#ff6b67",
+                                    font=(FONT_DISPLAY, 8), tags="ui")
+            self.canvas.create_text(77, 272, anchor="w", text="ELEVATO", fill="#efb84b",
+                                    font=(FONT_DISPLAY, 8), tags="ui")
+            self.canvas.create_text(77, 303, anchor="w", text="FERMO", fill="#57d8ef",
+                                    font=(FONT_DISPLAY, 8), tags="ui")
+            for x in (211, 299):
+                self.canvas.create_line(x, 190, x, 304, fill="#20375a", width=1,
+                                        tags="ui")
+            self.canvas.create_line(123, 190, 123, 304, fill="#2f5687", width=1,
+                                    tags="ui")
+            self.canvas.create_line(123, 304, 387, 304, fill="#2f5687", width=1,
+                                    tags="ui")
+            self.canvas.create_line(123, 223, 387, 223, fill="#a93c5c", width=1,
+                                    tags="ui")
+            self.canvas.create_line(123, 272, 387, 272, fill="#b98635", width=1,
+                                    tags="ui")
+            self.canvas.create_line(123, 304, 387, 304, fill="#35d8f7", width=3,
+                                    smooth=True, tags=("ui", "leg-motion-trace"))
+            self.canvas.create_line(89, 341, 89, 330,
+                                    fill="#855024", width=3,
+                                    tags=("ui", "leg-motion-acc-color"))
+            self.canvas.create_polygon(82, 331, 89, 322, 96, 331,
+                                       fill="#855024", outline="",
+                                       tags=("ui", "leg-motion-acc-color"))
+            self.canvas.create_line(81, 342, 97, 342, fill="#855024", width=2,
+                                    tags=("ui", "leg-motion-acc-color"))
+            self.canvas.create_text(120, 332, text="ACC", fill="#855024",
+                                    font=(FONT_TECH, 10, "bold"),
+                                    tags=("ui", "leg-motion-acc-color"))
+            self.canvas.create_arc(327, 323, 348, 344, start=35, extent=290,
+                                   style=tk.ARC, outline="#855024", width=2,
+                                   tags=("ui", "leg-motion-rot-arc"))
+            self.canvas.create_line(343, 325, 348, 325, 347, 330,
+                                    fill="#855024", width=2,
+                                    tags=("ui", "leg-motion-rot-color"))
+            self.canvas.create_text(369, 332, text="ROT", fill="#855024",
+                                    font=(FONT_TECH, 10, "bold"),
+                                    tags=("ui", "leg-motion-rot-color"))
+            for bounds in ((147, 319, 174, 346), (292, 319, 319, 346)):
+                self.canvas.create_oval(*bounds, fill="#091c31", outline="",
+                                        state=tk.HIDDEN,
+                                        tags=("ui", "leg-motion-alert",
+                                              "leg-motion-alert-fill"))
+            self.canvas.create_rectangle(160, 319, 306, 346,
+                                         fill="#091c31", outline="",
+                                         state=tk.HIDDEN,
+                                         tags=("ui", "leg-motion-alert",
+                                               "leg-motion-alert-fill"))
+            self.canvas.create_text(233, 332, text="ATTENZIONE", fill="#11151c",
+                                    font=(FONT_DISPLAY, 16, "bold"), state=tk.HIDDEN,
+                                    tags=("ui", "leg-motion-alert"))
+        else:
+            labels = ("Rotazione automatica", "Flip 180 gradi", "Suoni", "Risveglio movimento")
+            for index, label in enumerate(labels):
+                y = 180 + index * 46
+                self.canvas.create_text(78, y, anchor="w", text=label, fill=TEXT,
+                                        font=(FONT_DISPLAY, 15), tags="ui")
+                self.canvas.create_rectangle(332, y - 14, 384, y + 16,
+                                             fill="#00c9f4" if index != 1 else "#263744",
+                                             outline="#256ab7", width=1, tags="ui")
+                knob_x = 369 if index != 1 else 347
+                self.canvas.create_oval(knob_x - 11, y - 11, knob_x + 11, y + 11,
+                                        fill=TEXT, outline="", tags="ui")
+                if index < 3:
+                    self.canvas.create_line(78, y + 23, 384, y + 23,
+                                            fill="#174274", width=1, tags="ui")
+        if page < 4 and page != 3:
+            self.canvas.create_text(233, 341,
+                                    text="SYNTHETIC · DISPOSITIVO ORIZZONTALE" if current
+                                    else "SYNTHETIC · ORIENTAMENTO NON DISPONIBILE",
+                                    fill="#57caff", font=(FONT_DISPLAY, 8),
+                                    tags=("ui", "leg-orientation"))
+        elif page == 4:
+            self.canvas.create_text(233, 143, text="SYNTHETIC · IMPOSTAZIONI DEMO",
+                                    fill="#57caff", font=(FONT_DISPLAY, 8), tags="ui")
+        for x, direction, tag in ((139, -1, "leg-previous"),
+                                  (327, 1, "leg-next")):
+            self.canvas.create_oval(x - 20.5, 356.5, x + 20.5, 397.5,
+                                    fill="#278f80", outline="#52ac9f",
+                                    width=1, tags=("ui", tag))
+            self.canvas.create_line(x - direction * 4, 369,
+                                    x + direction * 4, 377,
+                                    x - direction * 4, 385,
+                                    fill="#f0fbf8", width=4,
+                                    capstyle=tk.ROUND, joinstyle=tk.ROUND,
+                                    tags=("ui", tag))
+        if page == 3:
+            self.canvas.create_text(233, 376, text="PICCO REL. --", fill=TEXT,
+                                    font=(FONT_TECH, 10, "bold"),
+                                    tags=("ui", "leg-motion-peak"))
+        self._move_canvas_items_from(first_item, offset)
+        self._draw_edge_back()
+        self._draw_safe_guide()
+        self._refresh_leg_visuals()
+
+    def _set_leg_navigation_visible(self, visible: bool) -> None:
+        if self.leg_navigation_visible == visible:
+            return
+        self.leg_navigation_visible = visible
+        state = tk.NORMAL if visible else tk.HIDDEN
+        self.canvas.itemconfigure("leg-previous", state=state)
+        self.canvas.itemconfigure("leg-next", state=state)
+
+    def _reveal_leg_navigation(self) -> None:
+        self.leg_navigation_last_activity_at = time.monotonic()
+        self._set_leg_navigation_visible(True)
+
+    def _refresh_leg_navigation(self) -> None:
+        snapshot = self._snapshot()
+        imu = snapshot["imu"]
+        fusion = snapshot["sensor_fusion"]
+        stationary = (
+            component_current(imu)
+            and component_current(fusion)
+            and fusion["stationary"] is True
+        )
+        if not stationary:
+            self._reveal_leg_navigation()
+        elif time.monotonic() - self.leg_navigation_last_activity_at >= 5.0:
+            self._set_leg_navigation_visible(False)
+
+    def _refresh_leg_visuals(self) -> None:
+        imu = self._snapshot()["imu"]
+        now = time.monotonic()
+        animation_step = min(max(now - self.leg_animation_last_at, 0.0), 0.5)
+        self.leg_animation_last_at = now
+        current = component_current(imu)
+        if current:
+            acceleration = tuple(float(value) for value in imu["acceleration_mps2"])
+            angular_velocity = tuple(float(value) for value in imu["angular_velocity_dps"])
+            current = all(math.isfinite(value) for value in (*acceleration, *angular_velocity))
+        if current:
+            sample_at_us = int(imu["last_success_at_us"])
+            if sample_at_us != self.leg_previous_imu_sample_at_us:
+                previous = self.leg_previous_imu_values
+                if previous is None:
+                    self.leg_current_intensity = 0.0
+                else:
+                    accel_step = max(abs(a - b) for a, b in zip(acceleration, previous[0]))
+                    gyro_step = max(abs(a - b) for a, b in zip(angular_velocity, previous[1]))
+                    self.leg_current_intensity = max(accel_step, gyro_step * 0.04)
+                    if accel_step >= 0.25:
+                        cycle_start = self.leg_indicator_cycle_started_at["acc"]
+                        if cycle_start is None or now - cycle_start >= LEG_PULSE_SECONDS:
+                            self.leg_indicator_cycle_started_at["acc"] = now
+                        self.leg_acc_pulse_at = now
+                    if gyro_step * 0.04 >= 0.25:
+                        cycle_start = self.leg_indicator_cycle_started_at["rot"]
+                        if cycle_start is None or now - cycle_start >= LEG_PULSE_SECONDS:
+                            self.leg_indicator_cycle_started_at["rot"] = now
+                        self.leg_rot_pulse_at = now
+                self.leg_movement_history.append(self.leg_current_intensity)
+                self.leg_previous_imu_values = (acceleration, angular_velocity)
+                self.leg_previous_imu_sample_at_us = sample_at_us
+                if self.leg_current_intensity >= 0.25:
+                    self._reveal_leg_navigation()
+            for index in range(3):
+                self.leg_display_acceleration[index] += (
+                    acceleration[index] - self.leg_display_acceleration[index]
+                ) * 0.34
+                self.leg_display_angular_velocity[index] += (
+                    angular_velocity[index] - self.leg_display_angular_velocity[index]
+                ) * 0.34
+            intensity = self.leg_current_intensity
+            if intensity >= 3.0:
+                health, health_color = "SCOSSONE - NON CARICARE", "#ffad45"
+            elif intensity >= 1.2:
+                health, health_color = "MOVIMENTO ELEVATO", "#f0c251"
+            elif intensity >= 0.25:
+                health, health_color = "MOVIMENTO LIEVE", "#57d8ef"
+            else:
+                health, health_color = "FERMO", "#57caff"
+            norm = math.sqrt(sum(value * value for value in acceleration))
+            if norm <= 1.0:
+                orientation = "ORIENTAMENTO NON DISPONIBILE"
+            else:
+                vertical_ratio = abs(acceleration[2]) / norm
+                orientation = (
+                    "DISPOSITIVO VERTICALE" if vertical_ratio < 0.35
+                    else "DISPOSITIVO ORIZZONTALE" if vertical_ratio > 0.80
+                    else "DISPOSITIVO INCLINATO"
+                )
+        else:
+            acceleration = angular_velocity = None
+            self.leg_display_acceleration[:] = [0.0, 0.0, 0.0]
+            self.leg_display_angular_velocity[:] = [0.0, 0.0, 0.0]
+            self.leg_previous_imu_values = None
+            self.leg_previous_imu_sample_at_us = 0
+            self.leg_movement_history.clear()
+            self.leg_current_intensity = 0.0
+            self.leg_acc_pulse_at = None
+            self.leg_rot_pulse_at = None
+            self.leg_indicator_cycle_started_at = {"acc": None, "rot": None}
+            self.leg_indicator_levels = {"acc": 0.0, "rot": 0.0}
+            self.leg_alert_level = 0.0
+            health, health_color = "IMU NON DISPONIBILE", MUTED
+            orientation = "ORIENTAMENTO NON DISPONIBILE"
+
+        self.canvas.itemconfigure("leg-health", text=health, fill=health_color)
+        self.canvas.itemconfigure("leg-orientation", text=f"SYNTHETIC · {orientation}")
+        for index in range(3):
+            single = angular_velocity if self.screen == "leg-gyro" else acceleration
+            value = f"{single[index]:+.2f}" if single is not None else "--"
+            self.canvas.itemconfigure(f"leg-single-value-{index}", text=value)
+            accel_value = f"{acceleration[index]:+.2f}" if acceleration is not None else "--"
+            gyro_value = f"{angular_velocity[index]:+.2f}" if angular_velocity is not None else "--"
+            self.canvas.itemconfigure(f"leg-accel-value-{index}",
+                                      text=accel_value)
+            self.canvas.itemconfigure(f"leg-gyro-value-{index}",
+                                      text=gyro_value)
+
+        state = tk.NORMAL if current else tk.HIDDEN
+        offset = self._fixed_canvas_offset_y()
+        for index, (dx, dy) in enumerate(((-0.72, 0.68), (0.86, 0.50), (0.0, -1.0))):
+            value = self.leg_display_acceleration[index]
+            distance = 8 + min(abs(value) / 9.81, 1.0) * 43
+            direction = -1 if value < 0 else 1
+            self.canvas.coords(f"leg-accel-spoke-{index}",
+                               155, 243 + offset, 155 + dx * distance * direction,
+                               243 + offset + dy * distance * direction)
+            self.canvas.itemconfigure(f"leg-accel-spoke-{index}", state=state)
+
+        gx, gy, gz = self.leg_display_angular_velocity
+        angular_speed = math.sqrt(gx * gx + gy * gy + gz * gz)
+        radius = 44 + min(angular_speed / 30.0, 1.0) * 7
+        self.canvas.coords("leg-gyro-arc", 155 - radius, 243 + offset - radius,
+                           155 + radius, 243 + offset + radius)
+        self.canvas.itemconfigure(
+            "leg-gyro-arc", start=90 - math.degrees(math.atan2(gy, gx)),
+            extent=(1 if gz >= 0 else -1) * min(300, 16 + angular_speed * 5),
+            outline="#7863ed" if gz >= 0 else "#35d8f7", state=state,
+        )
+        dot_x = 155 + max(-24.0, min(24.0, gx * 1.2))
+        dot_y = 243 + offset - max(-24.0, min(24.0, gy * 1.2))
+        self.canvas.coords("leg-gyro-dot", dot_x - 5, dot_y - 5,
+                           dot_x + 5, dot_y + 5)
+        self.canvas.itemconfigure("leg-gyro-dot", state=state)
+
+        if self.screen == "leg-motion":
+            for signal, pulse_at in (("acc", self.leg_acc_pulse_at),
+                                     ("rot", self.leg_rot_pulse_at)):
+                cycle_start = self.leg_indicator_cycle_started_at[signal]
+                age = now - cycle_start if cycle_start is not None else LEG_PULSE_SECONDS
+                if (current and pulse_at is not None and cycle_start is not None
+                        and pulse_at >= cycle_start and 0 <= age < LEG_PULSE_SECONDS):
+                    # Each sensor event starts its own 250 ms rise and 1.5 s
+                    # fall. Repeated events start a new pulse after this one.
+                    level = (age / LEG_FADE_IN_SECONDS if age < LEG_FADE_IN_SECONDS
+                             else (LEG_PULSE_SECONDS - age) / LEG_FADE_OUT_SECONDS)
+                else:
+                    level = 0.0
+                    self.leg_indicator_cycle_started_at[signal] = None
+                self.leg_indicator_levels[signal] = level
+                color = ("#677383" if not current else
+                         blend_hex_color("#855024", "#ffad45", level))
+                self.canvas.itemconfigure(f"leg-motion-{signal}-color", fill=color)
+                if signal == "rot":
+                    self.canvas.itemconfigure("leg-motion-rot-arc", outline=color)
+            if current and len(self.leg_movement_history) >= 2:
+                history = list(self.leg_movement_history)
+                self.canvas.itemconfigure("leg-motion-peak",
+                                          text=f"PICCO REL. {max(history):.1f}")
+                points: list[float] = []
+                for index, value in enumerate(history):
+                    y = 304 - min(value / 4.0, 1.0) * 108
+                    points.extend((123 + index * 264 / (len(history) - 1), y + offset))
+                self.canvas.coords("leg-motion-trace", *points)
+                color = ("#ff6b4a" if self.leg_current_intensity >= 3.0
+                         else "#f0c251" if self.leg_current_intensity >= 1.2
+                         else "#35d8f7")
+                self.canvas.itemconfigure("leg-motion-trace", fill=color,
+                                          state=tk.NORMAL)
+            else:
+                self.canvas.itemconfigure("leg-motion-trace", state=tk.HIDDEN)
+                self.canvas.itemconfigure("leg-motion-peak", text="PICCO REL. --")
+            alert_target = 1.0 if current and self.leg_current_intensity >= 1.2 else 0.0
+            if alert_target:
+                self.leg_alert_color = ("#ff9b9b" if self.leg_current_intensity >= 3.0
+                                        else "#ffd291")
+            if alert_target > self.leg_alert_level:
+                self.leg_alert_level = min(alert_target,
+                                           self.leg_alert_level
+                                           + animation_step / LEG_FADE_IN_SECONDS)
+            else:
+                self.leg_alert_level = max(alert_target,
+                                           self.leg_alert_level
+                                           - animation_step / LEG_FADE_OUT_SECONDS)
+            if current and self.leg_alert_level > 0.0:
+                self.canvas.itemconfigure(
+                    "leg-motion-alert-fill",
+                    fill=blend_hex_color("#091c31", self.leg_alert_color,
+                                         self.leg_alert_level),
+                )
+                self.canvas.itemconfigure("leg-motion-alert", state=tk.NORMAL)
+            else:
+                self.canvas.itemconfigure("leg-motion-alert", state=tk.HIDDEN)
+            self.canvas.itemconfigure(
+                "leg-motion-note",
+                text=("SYNTHETIC · CAMPIONI | NON MISURA IL CARICO" if current
+                      else "SYNTHETIC · IMU NON DISPONIBILE"),
+            )
+
     def show_gps_demo(self) -> None:
         self.screen = "gps"
         self._clear()
@@ -4718,6 +5172,21 @@ class LUNASHELLSimulator:
         self.pending_action = None
         self.confirmation_return_screen = "home"
         self.result_message = "Confirmed"
+        self.leg_display_acceleration[:] = [0.0, 0.0, 0.0]
+        self.leg_display_angular_velocity[:] = [0.0, 0.0, 0.0]
+        self.leg_previous_imu_sample_at_us = 0
+        self.leg_previous_imu_values = None
+        self.leg_movement_history.clear()
+        self.leg_current_intensity = 0.0
+        self.leg_acc_pulse_at = None
+        self.leg_rot_pulse_at = None
+        self.leg_indicator_cycle_started_at = {"acc": None, "rot": None}
+        self.leg_indicator_levels = {"acc": 0.0, "rot": 0.0}
+        self.leg_alert_level = 0.0
+        self.leg_alert_color = "#ffd291"
+        self.leg_animation_last_at = time.monotonic()
+        self.leg_navigation_visible = True
+        self.leg_navigation_last_activity_at = time.monotonic()
         self.logger = CanonicalLogger(lambda: self.engine.elapsed_ms)
         self.show_boot()
         self.root.after(150, self._advance_timeline)
@@ -4809,6 +5278,11 @@ class LUNASHELLSimulator:
             "fft": self.show_audio_fft_demo,
             "fft-detail": self.show_audio_detail_demo,
             "imu": self.show_imu_demo,
+            "leg-accel": self.show_leg_demo,
+            "leg-gyro": self.show_leg_demo,
+            "leg-combo": self.show_leg_demo,
+            "leg-motion": self.show_leg_demo,
+            "leg-settings": self.show_leg_demo,
             "gps": self.show_gps_demo,
             "tof": self.show_tof_demo,
             "tof-settings": self.show_tof_settings_demo,
@@ -4845,6 +5319,16 @@ class LUNASHELLSimulator:
                 outline="",
                 tags="idle_overlay",
             )
+
+
+def _pump_capture_events(root: tk.Tk, delay_ms: int) -> None:
+    deadline = time.monotonic() + delay_ms / 1000.0
+    while True:
+        root.update()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return
+        time.sleep(min(0.01, remaining))
 
 
 def main() -> None:
@@ -4889,6 +5373,7 @@ def main() -> None:
             "fft",
             "fft-detail",
             "imu",
+            "leg-accel", "leg-gyro", "leg-combo", "leg-motion", "leg-settings",
             "gps",
             "tof",
             "tof-settings",
@@ -4910,6 +5395,8 @@ def main() -> None:
         default="active",
     )
     parser.add_argument("--capture", type=Path)
+    parser.add_argument("--capture-after-ms", type=int, default=250,
+                        help="Pump simulator events for this many real milliseconds before capture")
     parser.add_argument("--safe-guide", action="store_true")
     parser.add_argument("--no-sound", action="store_true")
     parser.add_argument("--performance-mode", action="store_true")
@@ -4921,6 +5408,8 @@ def main() -> None:
     parser.add_argument("--shell-taps", type=int, default=0,
                         help="Set synthetic ui-bootstrap touch count for headless checks")
     args = parser.parse_args()
+    if args.capture_after_ms < 0:
+        parser.error("--capture-after-ms must be non-negative")
 
     if args.board_config:
         import yaml
@@ -4970,9 +5459,7 @@ def main() -> None:
             root.lift()
             root.focus_force()
             root.update_idletasks()
-            root.update()
-            time.sleep(0.25)
-            root.update()
+            _pump_capture_events(root, args.capture_after_ms)
             args.capture.parent.mkdir(parents=True, exist_ok=True)
             captured = ImageGrab.grab(window=preview.canvas.winfo_id(),
                                       include_layered_windows=True)
@@ -5106,6 +5593,11 @@ def main() -> None:
         "fft": simulator.show_audio_fft_demo,
         "fft-detail": simulator.show_audio_detail_demo,
         "imu": simulator.show_imu_demo,
+        "leg-accel": lambda: simulator.show_leg_demo("leg-accel"),
+        "leg-gyro": lambda: simulator.show_leg_demo("leg-gyro"),
+        "leg-combo": lambda: simulator.show_leg_demo("leg-combo"),
+        "leg-motion": lambda: simulator.show_leg_demo("leg-motion"),
+        "leg-settings": lambda: simulator.show_leg_demo("leg-settings"),
         "gps": simulator.show_gps_demo,
         "tof": simulator.show_tof_demo,
         "tof-settings": simulator.show_tof_settings_demo,
@@ -5126,9 +5618,7 @@ def main() -> None:
         root.lift()
         root.focus_force()
         root.update_idletasks()
-        root.update()
-        time.sleep(0.25)
-        root.update()
+        _pump_capture_events(root, args.capture_after_ms)
         args.capture.parent.mkdir(parents=True, exist_ok=True)
         x = simulator.canvas.winfo_rootx()
         y = simulator.canvas.winfo_rooty()

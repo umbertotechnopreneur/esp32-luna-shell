@@ -7,7 +7,7 @@
     "channels": 1
   },
   "normalization": {
-    "integrated_lufs": -18,
+    "integrated_lufs": -13,
     "true_peak_db": -2,
     "loudness_range": 5
   },

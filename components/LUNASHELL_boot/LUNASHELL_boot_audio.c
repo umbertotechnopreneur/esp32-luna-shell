@@ -30,6 +30,7 @@ extern const uint8_t LUNASHELL_boot_wav_end[] asm("_binary_LUNASHELL_boot_wav_en
 static const char *TAG = "LUNASHELL_audio";
 static const size_t BOOT_WAV_HEADER_BYTES = 44U;
 static const uint32_t BOOT_AUDIO_SAMPLE_RATE_HZ = 22050U;
+static const int BOOT_AUDIO_VOLUME_PERCENT = 100;
 // Includes the audio layer's 5-second mutex deadline, codec settle delays, and
 // scheduling margin in addition to the asset's exact playback duration.
 static const uint32_t BOOT_AUDIO_COMPLETION_GRACE_MS = 8000U;
@@ -107,12 +108,12 @@ static void audio_task(void *arg)
         (const int16_t *)(LUNASHELL_boot_wav_start + BOOT_WAV_HEADER_BYTES),
         (wav_size - BOOT_WAV_HEADER_BYTES) / sizeof(int16_t),
         BOOT_AUDIO_SAMPLE_RATE_HZ,
-        90
+        BOOT_AUDIO_VOLUME_PERCENT
     );
 
     if (result == ESP_OK) {
         LUNASHELL_hardware_report_speaker(true, ESP_OK);
-        ESP_LOGI(TAG, "Boot SFX audible route completed: 22.05kHz mono PCM16 at volume 90");
+        ESP_LOGI(TAG, "Boot SFX audible route completed: 22.05kHz mono PCM16 at volume %d", BOOT_AUDIO_VOLUME_PERCENT);
     } else {
         LUNASHELL_hardware_report_speaker(false, result);
         ESP_LOGW(TAG, "Boot SFX playback failed (%s)", esp_err_to_name(result));

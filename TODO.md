@@ -24,6 +24,86 @@ authorization.
 
 ## Hardware validation
 
+- [ ] Validate the Leg Edition image on the attached board: confirm the five
+  IMU/movement/settings views show only fresh measurements, the three movement
+  sound levels play through ES8311, the display turns off after 25 seconds and
+  wakes on qualified motion or PWR, and rotation/180-degree flip and saved
+  sound/wake settings survive reboot. Confirm Wi-Fi, BLE, GNSS, microphones,
+  and distance stay disabled in this profile. Record firmware image hash and
+  serial evidence; do not infer weight bearing from IMU movement.
+  On 2026-09-27, the motion-policy image SHA-256
+  `AE130B0AD2745BD7776AAE2BE33860963896AD23C45E7E12251D0E1A544AD478`
+  was flashed to COM8. Serial captures in `artifacts/leg-edition-motion-20260927.log`
+  and `artifacts/leg-edition-deliberate-motion-20260927.log` show no repeated
+  cue on the vibrating table, two level-3 cues on deliberate motion, motion
+  wake, and display-off after roughly 25 seconds. Levels 1/2, the five views,
+  PWR wake, saved settings, and full rotation behavior remain to be checked.
+  The later UI revision, SHA-256
+  `14EAC41A6B4AD4853BE9E302F4FBDE0C860F75246A0A4148B5CF893A91F39937`,
+  was flashed to COM8 after three simulator capture rounds under `artifacts/`.
+  Device serial capture `artifacts/leg-ui-device-20260927.log` showed no GUI
+  error while idle; visual checks on the real display are still pending.
+  The latest UI image, SHA-256
+  `5F4CCE9482DE381D044B0ABDBFD55B28643C0801B7151ADB36B64AB2DCFD53AE`,
+  was flashed to COM8 on 2026-09-27. Simulator captures under `artifacts/leg-ui-v6-*.png`
+  cover all five pages, moving synthetic IMU indicators, a graph alert, and
+  navigation hidden after five seconds at rest. The serial capture
+  `artifacts/leg-ui-final-20260927.log` confirms the delayed Leg screen load
+  and contains no GUI failure. The new visual layout and navigation timing
+  still need confirmation on the physical display.
+  The subsequent five-page revision, SHA-256
+  `5BA7EAC01F597C5BA3746E9447794898AA95DEA682E4B130176795DBAD8DC9FE`,
+  removes page counters and card frames, adds a relative peak and independent
+  ACC/ROT activity indicators, and was flashed to COM8 on 2026-09-27. The
+  simulator previews are `artifacts/leg-ui-v8-*.png`; serial capture
+  `artifacts/leg-ui-acc-rot-final-20260927.log` confirms the new lazy GUI loads
+  after the startup delay without a GUI error in the capture window. Visual
+  behavior and blinking on the real panel remain to be checked.
+  The latest UI revision, SHA-256
+  `E590030873EE1C66DFB92CFEE1724BF3D4310D9D5D44C69A44002470910B9F1A`,
+  uses native line icons for ACC/ROT, 500 ms fade phases, a pale alert pill
+  with dark text, and an opaque dropdown popup background. It was flashed to
+  COM8 on 2026-09-27. The capture
+  `artifacts/leg-ui-fade-popup-final-20260927.log` confirms the Leg document loads
+  and the 100 ms animation refresh starts, but does not verify the physical
+  popup or sensor animations; obtain the promised device photo/video later.
+  The subsequent UI image, SHA-256
+  `6041536FD203FB795DC9BF6AC828FC7AD67E52DB8AA08B57C71ED9454CFA20E9`,
+  was flashed to COM8 on 2026-09-27 with LittleFS image SHA-256
+  `BA57C4160CA34E0857980D8F7476DB6A5F4B4C8F7BFC5F59969CFCA3E5FA22D8`.
+  It uses a 250 ms fade-in and 1.5 s fade-out, circular lower navigation
+  buttons enlarged by 3 px and lowered by 5 px, a lower relative-peak label,
+  and right-aligned two-decimal monospace values on ACCEL + GIRO. Serial
+  capture `artifacts/leg-ui-fast-slow-fade-20260927.log` confirms the Leg
+  document mounts after the startup delay with a 100 ms refresh and no GUI
+  error in the capture window. The physical layout, popup, and animations
+  still need a visual check on the device.
+  The boot-chime image, SHA-256
+  `5F30C225196B543C1557F8DD9769D7EE59214EA5B2CE0EC0D694251ECD2765E5`,
+  enabled the embedded 1.8 s WAV for Leg Edition and was flashed to COM8 on
+  2026-09-27. `artifacts/leg-boot-audio-serial-20260927.log` records ES8311
+  ready and `Playback complete` with `ESP_OK` at 22.05 kHz and volume 90.
+  Confirm that the chime is audible on the physical device; serial success
+  alone does not verify acoustic output.
+  The louder audio image, SHA-256
+  `FD9D8FB0A503B538C06886DBFC3C853A1B4ACBBB4E2725F2E099BA830916F1D9`,
+  was flashed and verified on COM8 on 2026-09-27. The boot WAV was raised
+  5 dB and plays at codec volume 100; the three synthesized movement cues
+  use twice the PCM amplitude and codec volume 95. Serial capture
+  `artifacts/leg-audio-louder-serial-20260927.log` records boot playback
+  `ESP_OK` and the Leg screen loading; it contains no deliberate movement
+  cue, so check the alert loudness on the physical speaker.
+  The lower previous/next controls now use smaller filled, muted-green circles
+  with the original touch targets. The simulator preview is
+  `artifacts/leg-motion-nav-preview.png`. Firmware image SHA-256
+  `69C47732DAC8CD712F71767F16994B52AC2CCCFD0D37A174E66BD7032E7AD492`
+  and LittleFS image SHA-256
+  `8282F023B283A4792C22C17B35287C0B96CE6B9701C3BC2A6C85A6BD0996FCC5`
+  were flashed and verified on COM8 on 2026-09-27. Confirm the new controls'
+  color, size, and touch behavior on the physical display.
+- [ ] Investigate why the Leg Edition periodic snapshot reports `RTC=error`
+  although RTC is disabled by the build profile. Preserve the actual hardware
+  and time-service error states while correcting the summary or publication.
 - [ ] Inject controlled GUI, display, snapshot, NVS, provisioning, audio, and
   Wi-Fi stalls on a disposable device. Verify the 12-second Task-WDT bound and
   retained liveness breadcrumb after reboot.

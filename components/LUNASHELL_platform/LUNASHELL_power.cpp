@@ -48,6 +48,8 @@ constexpr int64_t kLegScreenOnUs = 25LL * 1000LL * 1000LL;
 constexpr int64_t kLegAlertRepeatUs = 3000000LL;
 constexpr uint32_t kLegAudioSampleRate = 16000;
 constexpr size_t kLegAudioCapacity = 12480;
+constexpr float kLegCuePcmAmplitude = 12000.0F;
+constexpr int kLegCueVolumePercent = 95;
 #endif
 constexpr float kMotionAccelerationEnterMps2 = 0.80F;
 constexpr float kMotionAccelerationQuietMps2 = 0.40F;
@@ -116,6 +118,7 @@ int64_t s_last_activity_at_us;
 int64_t s_last_imu_sample_us;
 int64_t s_leg_last_imu_sample_us;
 float s_leg_previous_acceleration_mps2[3] = {};
+float s_leg_previous_angular_velocity_dps[3] = {};
 bool s_leg_previous_valid;
 bool s_leg_mode_observed;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
@@ -1735,21 +1738,28 @@ bool qualified_motion_detected(const LUNASHELL::ImuSnapshot &imu)
     return true;
 }
 
-// The Leg policy measures change on every axis, never force or weight bearing.
-uint8_t leg_motion_level(const LUNASHELL::ImuSnapshot &imu)
+struct LegMotionReading {
+    uint8_t level = 0;
+    float acceleration_step_mps2 = 0.0F;
+    float angular_velocity_step_dps = 0.0F;
+};
+
+// Compare valid samples so a stationary gyro offset cannot become movement.
+// This measures motion only, never force or weight bearing.
+LegMotionReading leg_motion_level(const LUNASHELL::ImuSnapshot &imu)
 {
     if (imu.health != LUNASHELL::DeviceHealth::Ready ||
         imu.last_error != ESP_OK || !imu.data_valid || imu.data_stale ||
         imu.last_success_at_us <= 0) {
         s_leg_previous_valid = false;
-        return 0;
+        return {};
     }
     if (imu.last_success_at_us == s_leg_last_imu_sample_us) {
-        return 0;
+        return {};
     }
     s_leg_last_imu_sample_us = imu.last_success_at_us;
     float peak_step = 0.0F;
-    float peak_gyro = 0.0F;
+    float peak_gyro_step = 0.0F;
     for (size_t axis = 0; axis < 3U; ++axis) {
         const float acceleration = imu.acceleration_mps2[axis];
         const float gyro = imu.angular_velocity_dps[axis];
@@ -1757,26 +1767,39 @@ uint8_t leg_motion_level(const LUNASHELL::ImuSnapshot &imu)
             s_leg_previous_valid = false;
             ESP_LOGE(kTag, "Leg motion rejected non-finite IMU axis %u",
                      static_cast<unsigned>(axis));
-            return 0;
+            return {};
         }
-        if (s_leg_previous_valid) {
+    }
+    const bool previous_valid = s_leg_previous_valid;
+    for (size_t axis = 0; axis < 3U; ++axis) {
+        const float acceleration = imu.acceleration_mps2[axis];
+        const float gyro = imu.angular_velocity_dps[axis];
+        if (previous_valid) {
             peak_step = std::max(
                 peak_step,
                 std::fabs(acceleration - s_leg_previous_acceleration_mps2[axis])
             );
+            peak_gyro_step = std::max(
+                peak_gyro_step,
+                std::fabs(gyro - s_leg_previous_angular_velocity_dps[axis])
+            );
         }
-        peak_gyro = std::max(peak_gyro, std::fabs(gyro));
         s_leg_previous_acceleration_mps2[axis] = acceleration;
+        s_leg_previous_angular_velocity_dps[axis] = gyro;
     }
     s_leg_previous_valid = true;
-    const float intensity = std::max(peak_step, peak_gyro * 0.04F);
+    if (!previous_valid) {
+        return {};
+    }
+    const float intensity = std::max(peak_step, peak_gyro_step * 0.04F);
     if (intensity >= 3.0F) {
-        return 3;
+        return {3, peak_step, peak_gyro_step};
     }
     if (intensity >= 1.2F) {
-        return 2;
+        return {2, peak_step, peak_gyro_step};
     }
-    return intensity >= 0.25F ? 1 : 0;
+    return {static_cast<uint8_t>(intensity >= 0.25F ? 1 : 0),
+            peak_step, peak_gyro_step};
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
@@ -1810,7 +1833,7 @@ size_t synthesize_leg_cue(uint8_t level, int16_t *samples)
                     static_cast<float>(index) / 192.0F,
                     static_cast<float>(length - index) / 640.0F,
                 });
-                value = 6000.0F * envelope * std::sin(
+                value = kLegCuePcmAmplitude * envelope * std::sin(
                     6.2831853F * static_cast<float>(frequency) *
                     static_cast<float>(index) /
                     static_cast<float>(kLegAudioSampleRate)
@@ -1843,7 +1866,8 @@ void leg_audio_task(void *)
             continue;
         }
         const esp_err_t result = LUNASHELL_audio_play_pcm16(
-            s_leg_audio_buffer, count, kLegAudioSampleRate, 35
+            s_leg_audio_buffer, count, kLegAudioSampleRate,
+            kLegCueVolumePercent
         );
         if (result != ESP_OK) {
             ESP_LOGE(kTag, "Leg sound level %u playback failed (%s)",
@@ -1877,8 +1901,9 @@ esp_err_t ensure_leg_audio_task()
     return ESP_OK;
 }
 
-void queue_leg_sound(uint8_t level, int64_t now_us)
+void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 {
+    const uint8_t level = motion.level;
     if (level == 0U || s_leg_audio_task == nullptr ||
         !s_leg_sounds_enabled.load(std::memory_order_acquire)) {
         return;
@@ -1890,6 +1915,11 @@ void queue_leg_sound(uint8_t level, int64_t now_us)
     }
     s_leg_last_alert_at_us = now_us;
     s_leg_last_alert_level = level;
+    ESP_LOGI(kTag,
+             "Leg movement cue level %u: accel-step=%.2f m/s2 gyro-step=%.2f dps",
+             static_cast<unsigned>(level),
+             static_cast<double>(motion.acceleration_step_mps2),
+             static_cast<double>(motion.angular_velocity_step_dps));
     uint8_t pending = s_leg_pending_sound.load(std::memory_order_relaxed);
     while (pending < level && !s_leg_pending_sound.compare_exchange_weak(
         pending, level, std::memory_order_release,
@@ -2193,18 +2223,18 @@ void power_task(void *argument)
             s_leg_last_alert_level = 0;
 #endif
         }
-        const uint8_t leg_level = s_motion_monitor_started && leg_mode
-            ? leg_motion_level(snapshot.imu) : 0;
+        const LegMotionReading leg_motion = s_motion_monitor_started && leg_mode
+            ? leg_motion_level(snapshot.imu) : LegMotionReading{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-        if (leg_mode && leg_level > 0U) {
-            queue_leg_sound(leg_level, esp_timer_get_time());
+        if (leg_mode && leg_motion.level > 0U) {
+            queue_leg_sound(leg_motion, esp_timer_get_time());
         }
 #endif
         const bool qualified_motion = s_motion_monitor_started &&
             qualified_motion_detected(snapshot.imu);
         const bool wake_on_leg_motion =
             s_leg_wake_enabled.load(std::memory_order_acquire);
-        if ((leg_mode && wake_on_leg_motion && leg_level > 0) ||
+        if ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
             (!leg_mode && qualified_motion)) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(

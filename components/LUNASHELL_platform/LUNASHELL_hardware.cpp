@@ -490,6 +490,9 @@ LUNASHELL::DeviceHealth health_for(bool ready, esp_err_t error)
     if (ready) {
         return LUNASHELL::DeviceHealth::Ready;
     }
+    if (error == ESP_ERR_NOT_SUPPORTED) {
+        return LUNASHELL::DeviceHealth::Unknown;
+    }
     return error == ESP_ERR_NOT_FOUND ? LUNASHELL::DeviceHealth::Missing : LUNASHELL::DeviceHealth::Degraded;
 }
 
@@ -930,6 +933,9 @@ const char *component_summary_state(
     }
     if (component.health == LUNASHELL::DeviceHealth::Missing) {
         return "missing";
+    }
+    if (component.last_error == ESP_ERR_NOT_SUPPORTED) {
+        return "unavailable";
     }
     if (component.health == LUNASHELL::DeviceHealth::Unknown &&
         component.last_error == ESP_ERR_INVALID_STATE &&

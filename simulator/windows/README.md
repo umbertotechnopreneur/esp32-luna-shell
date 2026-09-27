@@ -77,7 +77,14 @@ Run from the project root:
 .\simulator\windows\run-simulator.ps1 -Scenario gps-searching -Screen gps
 .\simulator\windows\run-simulator.ps1 -Screen storage
 .\simulator\windows\run-simulator.ps1 -Screen pairing-intro
+.\simulator\windows\run-simulator.ps1 -Screen leg-accel
+.\simulator\windows\run-simulator.ps1 -Screen leg-motion -Capture .\artifacts\leg-motion-preview.png
 ```
+
+The Leg Edition preview has `leg-accel`, `leg-gyro`, `leg-combo`,
+`leg-motion`, and `leg-settings` screens. Its IMU values and graph are
+visibly labelled synthetic; it previews the layout and navigation geometry,
+not the firmware renderer or sensor behavior.
 
 ### Headless device-twin CLI
 

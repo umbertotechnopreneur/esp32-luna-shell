@@ -70,6 +70,8 @@ constexpr char kLegSoundsSetting[] = "leg_sounds";
 constexpr char kLegWakeSetting[] = "leg_wake";
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+constexpr int64_t kLegAutoOpenDelayUs = 10'000'000;
+
 esp_err_t load_leg_bool_setting(
     LUNASHELL::UserSettingsService &settings,
     const char *key,
@@ -94,6 +96,7 @@ esp_err_t load_leg_bool_setting(
 constexpr char kPowerStateSyncTimer[] = "LUNASHELL.power.state_sync";
 constexpr uint32_t kActiveRefreshPeriodMs = 1000;
 constexpr uint32_t kLiveDiagnosticRefreshPeriodMs = 300;
+constexpr uint32_t kLegAnimationRefreshPeriodMs = 100;
 constexpr uint32_t kDimmedRefreshPeriodMs = 5000;
 constexpr uint32_t kPerformanceRefreshPeriodMs = 5000;
 constexpr uint32_t kActivePowerStateSyncPeriodMs =
@@ -1053,6 +1056,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     screen_ = Screen::Welcome;
     navigation_.reset(Screen::Welcome);
 #if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    leg_auto_open_deadline_us_ = 0;
     auto &leg_settings = UserSettingsService::instance();
     esp_err_t leg_settings_error = leg_settings.isInitialized()
         ? ESP_OK : leg_settings.initialize();
@@ -1300,6 +1304,11 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 #if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION && CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
     leg_policy_rollback.release();
 #endif
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    leg_auto_open_deadline_us_ =
+        esp_timer_get_time() + kLegAutoOpenDelayUs;
+    ESP_LOGI(kTag, "Leg Edition will open its IMU screen after 10 seconds");
+#endif
     ESP_LOGI(kTag, "ESP32 Luna Shell native app started on Brookesia System 0.8");
     return {};
 }
@@ -1307,6 +1316,9 @@ std::expected<void, std::string> App::on_start(AppContext &context)
 // Invalidate pending standby callbacks before pausing app-owned producers.
 std::expected<void, std::string> App::on_pause(AppContext &context)
 {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    leg_auto_open_deadline_us_ = 0;
+#endif
     if (!gui_liveness_watch_active_) {
         ESP_LOGE(kTag, "GUI pause rejected: watchdog is already inactive");
         return std::unexpected(
@@ -1607,6 +1619,9 @@ std::expected<void, std::string> App::on_resume(AppContext &context)
 // Block late input callbacks while the LUNASHELL app tears down its GUI ownership.
 std::expected<void, std::string> App::on_stop(AppContext &context)
 {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    leg_auto_open_deadline_us_ = 0;
+#endif
     // Brookesia may stop an app directly from Paused, where on_pause() has
     // intentionally closed the GUI watch. Teardown must establish fresh
     // coverage in that lifecycle path instead of silently running unwatched.
@@ -2593,6 +2608,12 @@ std::expected<void, std::string> App::on_action(
     if (standby_ui_state_ != StandbyUiState::Active) {
         return {};
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    if (leg_auto_open_deadline_us_ != 0) {
+        leg_auto_open_deadline_us_ = 0;
+        ESP_LOGI(kTag, "Leg auto-open cancelled by user action");
+    }
+#endif
     if (auto result = note_activity(context); !result) {
         return result;
     }
@@ -3600,6 +3621,12 @@ std::expected<void, std::string> App::on_timer(
         const DeviceSnapshot snapshot =
             DeviceSnapshotService::instance().snapshot();
         if (snapshot.power.state != DeviceOperatingState::Active) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+            if (leg_auto_open_deadline_us_ != 0) {
+                leg_auto_open_deadline_us_ = 0;
+                ESP_LOGI(kTag, "Leg auto-open cancelled by standby transition");
+            }
+#endif
             if (standby_ui_state_ == StandbyUiState::Active) {
                 standby_ui_state_ = StandbyUiState::Quiescing;
                 const uint32_t generation = ++standby_ui_generation_;
@@ -3778,6 +3805,36 @@ std::expected<void, std::string> App::on_timer(
             ESP_LOGI(kTag, "UI input reopened after renderer wake");
             return {};
         }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+        if (leg_auto_open_deadline_us_ != 0) {
+            if (screen_ != Screen::Welcome ||
+                current_stage == DisplayIdleStage::Off) {
+                leg_auto_open_deadline_us_ = 0;
+                ESP_LOGI(kTag, "Leg auto-open cancelled by screen or display state");
+            } else if (esp_timer_get_time() >= leg_auto_open_deadline_us_) {
+                const TouchActivityObservation touch_activity =
+                    DeviceSnapshotService::instance()
+                        .touchActivityObservation();
+                const int64_t armed_at_us =
+                    leg_auto_open_deadline_us_ - kLegAutoOpenDelayUs;
+                leg_auto_open_deadline_us_ = 0;
+                if (touch_activity.last_activity_at_us >= armed_at_us) {
+                    ESP_LOGI(kTag, "Leg auto-open cancelled by touch activity");
+                } else {
+                    leg_page_ = 0;
+                    ESP_LOGI(kTag, "Opening Leg IMU screen after startup delay");
+                    if (auto result = open_screen(
+                            context, Screen::Leg, "LUNASHELL.auto.leg"
+                        ); !result) {
+                        ESP_LOGE(kTag, "Leg startup auto-open failed: %s",
+                                 result.error().c_str());
+                        return result;
+                    }
+                    return {};
+                }
+            }
+        }
+#endif
         if (previous_stage == DisplayIdleStage::Off &&
             current_stage == DisplayIdleStage::Active) {
             return refresh(context);
@@ -3887,7 +3944,9 @@ std::expected<void, std::string> App::sync_refresh_timer(
         stage == DisplayIdleStage::Active
             ? performance_mode_enabled_ && screen_ != Screen::Leg
                 ? kPerformanceRefreshPeriodMs
-                : live_diagnostic_screen
+                : screen_ == Screen::Leg
+                    ? kLegAnimationRefreshPeriodMs
+                    : live_diagnostic_screen
                     ? kLiveDiagnosticRefreshPeriodMs
                     : kActiveRefreshPeriodMs
             : stage == DisplayIdleStage::Dimmed
@@ -5947,18 +6006,34 @@ void App::invalidate_leg_screen_cache()
     leg_ui_cache_.title.valid = false;
     leg_ui_cache_.health.valid = false;
     leg_ui_cache_.orientation.valid = false;
-    leg_ui_cache_.page.valid = false;
+    leg_ui_cache_.peak_readout.valid = false;
     leg_ui_cache_.acceleration.valid = false;
     leg_ui_cache_.angular_velocity.valid = false;
     leg_ui_cache_.graph_points.valid = false;
-    leg_ui_cache_.background.valid = false;
+    leg_ui_cache_.status_color.valid = false;
     leg_ui_cache_.graph_color.valid = false;
+    for (auto &opacity : leg_ui_cache_.motion_indicator_opacity) {
+        opacity.valid = false;
+    }
+    leg_ui_cache_.motion_alert_opacity.valid = false;
+    leg_ui_cache_.motion_alert_bg.valid = false;
     leg_ui_cache_.displayed_page.reset();
     leg_ui_cache_.displayed_settings.reset();
     leg_ui_cache_.history_next = 0;
     leg_ui_cache_.history_count = 0;
     leg_ui_cache_.previous_sample_at_us = 0;
     leg_ui_cache_.previous_acceleration_valid = false;
+    leg_ui_cache_.visual_sample_at_us = 0;
+    leg_ui_cache_.visual_valid = false;
+    leg_ui_cache_.nav_still_since_us = 0;
+    leg_ui_cache_.nav_last_sample_at_us = 0;
+    leg_ui_cache_.nav_last_touch_at_us = 0;
+    leg_ui_cache_.nav_hidden = false;
+    leg_ui_cache_.nav_hidden_known = false;
+    leg_ui_cache_.motion_alert_current_opacity = 0;
+    leg_ui_cache_.motion_alert_updated_at_us = 0;
+    leg_ui_cache_.motion_indicator_started_at_us.fill(0);
+    leg_ui_cache_.motion_indicator_until_us.fill(0);
     for (auto &axis : leg_ui_cache_.axes) {
         axis.valid = false;
     }
@@ -7317,15 +7392,10 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         ); !result) {
         return result;
     }
-    const std::string page = std::to_string(leg_page_ + 1U) + " / 5";
-    if (auto result = set_cached_text(
-            context, leg_ui_cache_.page,
-            "/LUNASHELL_leg/surface/page", page
-        ); !result) {
-        return result;
-    }
-    if (!leg_ui_cache_.displayed_page.has_value() ||
-        *leg_ui_cache_.displayed_page != leg_page_) {
+    const bool page_changed =
+        !leg_ui_cache_.displayed_page.has_value() ||
+        *leg_ui_cache_.displayed_page != leg_page_;
+    if (page_changed) {
         static constexpr std::array<std::string_view, 4> panels = {
             "single_panel", "combo_panel", "graph_panel", "settings_panel",
         };
@@ -7343,8 +7413,32 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
             }
         }
         if (auto result = set_hidden(
+                context, std::string(root) + "/single_panel/axis_visual",
+                leg_page_ == 1U
+            ); !result) {
+            return result;
+        }
+        if (auto result = set_hidden(
+                context, std::string(root) + "/single_panel/gyro_visual",
+                leg_page_ != 1U
+            ); !result) {
+            return result;
+        }
+        if (auto result = set_hidden(
                 context, "/LUNASHELL_leg/surface/orientation",
+                leg_page_ == 3U || leg_page_ == 4U
+            ); !result) {
+            return result;
+        }
+        if (auto result = set_hidden(
+                context, "/LUNASHELL_leg/surface/health",
                 leg_page_ == 4U
+            ); !result) {
+            return result;
+        }
+        if (auto result = set_hidden(
+                context, "/LUNASHELL_leg/surface/peak_readout",
+                leg_page_ != 3U
             ); !result) {
             return result;
         }
@@ -7380,13 +7474,17 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         }
     }
 
+    constexpr int64_t kLegFreshSampleMaxAgeUs = 2'000'000;
+    constexpr int64_t kLegNavStillnessDelayUs = 5'000'000;
+    constexpr float kLegMeaningfulMotion = 0.25F;
     const int64_t now_us = esp_timer_get_time();
     const bool fresh = snapshot_available(snapshot) &&
         component_ready(snapshot.imu) &&
         snapshot.imu.last_success_at_us > diagnostic_activation_sample_at_us_ &&
         snapshot.imu.last_success_at_us > 0 &&
         now_us >= snapshot.imu.last_success_at_us &&
-        now_us - snapshot.imu.last_success_at_us <= 2000000LL &&
+        now_us - snapshot.imu.last_success_at_us <=
+            kLegFreshSampleMaxAgeUs &&
         std::all_of(
             std::begin(snapshot.imu.acceleration_mps2),
             std::end(snapshot.imu.acceleration_mps2),
@@ -7400,11 +7498,14 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
 
     const char *health = "IMU NON DISPONIBILE";
     const char *orientation = "DISPOSITIVO: ORIENTAMENTO NON DISPONIBILE";
-    const char *background = "#030407";
+    const char *status_color = "#7d9ab8";
     const char *trace_color = "#20dfc1";
     float intensity = 0.0F;
+    bool intensity_valid = false;
+    std::array<bool, 2> motion_detected{};
     if (fresh) {
-        health = "QMI8658 · CAMPIONE VALIDO";
+        health = "CAMPIONE IMU VALIDO";
+        status_color = "#57caff";
         const float ax = snapshot.imu.acceleration_mps2[0];
         const float ay = snapshot.imu.acceleration_mps2[1];
         const float az = snapshot.imu.acceleration_mps2[2];
@@ -7419,7 +7520,19 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         }
         if (snapshot.imu.last_success_at_us !=
             leg_ui_cache_.previous_sample_at_us) {
+            if (leg_ui_cache_.previous_sample_at_us > 0 &&
+                (snapshot.imu.last_success_at_us <=
+                    leg_ui_cache_.previous_sample_at_us ||
+                 snapshot.imu.last_success_at_us -
+                    leg_ui_cache_.previous_sample_at_us >
+                        kLegFreshSampleMaxAgeUs)) {
+                leg_ui_cache_.history_next = 0;
+                leg_ui_cache_.history_count = 0;
+                leg_ui_cache_.graph_points.valid = false;
+                leg_ui_cache_.previous_acceleration_valid = false;
+            }
             float maximum_axis_step = 0.0F;
+            float maximum_gyro_step = 0.0F;
             if (leg_ui_cache_.previous_acceleration_valid) {
                 for (std::size_t axis = 0; axis < 3U; ++axis) {
                     maximum_axis_step = std::max(
@@ -7427,26 +7540,37 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
                         std::fabs(snapshot.imu.acceleration_mps2[axis] -
                                   leg_ui_cache_.previous_acceleration[axis])
                     );
+                    maximum_gyro_step = std::max(
+                        maximum_gyro_step,
+                        std::fabs(snapshot.imu.angular_velocity_dps[axis] -
+                                  leg_ui_cache_.previous_angular_velocity[axis])
+                    );
                 }
             }
-            const float gyro_peak = std::max({
-                std::fabs(snapshot.imu.angular_velocity_dps[0]),
-                std::fabs(snapshot.imu.angular_velocity_dps[1]),
-                std::fabs(snapshot.imu.angular_velocity_dps[2]),
-            });
-            intensity = std::max(maximum_axis_step, gyro_peak * 0.04F);
-            leg_ui_cache_.movement_history[leg_ui_cache_.history_next] =
-                intensity;
-            leg_ui_cache_.history_next =
-                (leg_ui_cache_.history_next + 1U) %
-                leg_ui_cache_.movement_history.size();
-            leg_ui_cache_.history_count = std::min(
-                leg_ui_cache_.history_count + 1U,
-                leg_ui_cache_.movement_history.size()
-            );
+            if (leg_ui_cache_.previous_acceleration_valid) {
+                intensity = std::max(
+                    maximum_axis_step, maximum_gyro_step * 0.04F
+                );
+                motion_detected = {
+                    maximum_axis_step >= kLegMeaningfulMotion,
+                    maximum_gyro_step * 0.04F >= kLegMeaningfulMotion,
+                };
+                leg_ui_cache_.movement_history[leg_ui_cache_.history_next] =
+                    intensity;
+                leg_ui_cache_.history_next =
+                    (leg_ui_cache_.history_next + 1U) %
+                    leg_ui_cache_.movement_history.size();
+                leg_ui_cache_.history_count = std::min(
+                    leg_ui_cache_.history_count + 1U,
+                    leg_ui_cache_.movement_history.size()
+                );
+                intensity_valid = true;
+            }
             for (std::size_t axis = 0; axis < 3U; ++axis) {
                 leg_ui_cache_.previous_acceleration[axis] =
                     snapshot.imu.acceleration_mps2[axis];
+                leg_ui_cache_.previous_angular_velocity[axis] =
+                    snapshot.imu.angular_velocity_dps[axis];
             }
             leg_ui_cache_.previous_acceleration_valid = true;
             leg_ui_cache_.previous_sample_at_us =
@@ -7457,30 +7581,216 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
                  leg_ui_cache_.movement_history.size() - 1U) %
                 leg_ui_cache_.movement_history.size();
             intensity = leg_ui_cache_.movement_history[last];
+            intensity_valid = true;
         }
-        if (intensity >= 3.0F) {
-            health = "SCOSSONE RILEVATO · NON CARICARE";
-            background = "#49210a";
+        if (intensity_valid && intensity >= 3.0F) {
+            health = "SCOSSONE - NON CARICARE";
+            status_color = "#ffad45";
             trace_color = "#ff6b4a";
-        } else if (intensity >= 1.2F) {
+        } else if (intensity_valid && intensity >= 1.2F) {
             health = "MOVIMENTO ELEVATO";
-            background = "#594310";
+            status_color = "#f0c251";
             trace_color = "#f0c251";
-        } else if (intensity >= 0.25F) {
+        } else if (intensity_valid && intensity >= 0.25F) {
             health = "MOVIMENTO LIEVE";
-            background = "#0b321f";
-        } else {
+            status_color = "#57d8ef";
+        } else if (intensity_valid) {
             health = "FERMO";
         }
     } else {
         leg_ui_cache_.previous_acceleration_valid = false;
         leg_ui_cache_.previous_sample_at_us = 0;
+        leg_ui_cache_.history_next = 0;
+        leg_ui_cache_.history_count = 0;
+        leg_ui_cache_.graph_points.valid = false;
         if (snapshot_available(snapshot) &&
             snapshot.imu.last_error != ESP_OK) {
             health = esp_err_to_name(snapshot.imu.last_error);
         } else if (snapshot_available(snapshot) && snapshot.imu.data_stale) {
             health = "IMU STALE";
         }
+    }
+
+    // Each sensor pulse rises in 250 ms and decays over 1.5 s. New valid
+    // motion extends it to the end of the current cycle.
+    constexpr int64_t kLegFadeInUs = 250'000;
+    constexpr int64_t kLegFadeOutUs = 1'500'000;
+    constexpr int64_t kLegIndicatorCycleUs =
+        kLegFadeInUs + kLegFadeOutUs;
+    constexpr uint32_t kLegIndicatorIdleOpacity = 120;
+    static constexpr std::array<std::string_view, 2> indicator_paths = {
+        "/LUNASHELL_leg/surface/graph_panel/acc_indicator",
+        "/LUNASHELL_leg/surface/graph_panel/rot_indicator",
+    };
+    for (std::size_t indicator = 0; indicator < indicator_paths.size();
+         ++indicator) {
+        int64_t &started_at_us =
+            leg_ui_cache_.motion_indicator_started_at_us[indicator];
+        int64_t &until_us =
+            leg_ui_cache_.motion_indicator_until_us[indicator];
+        if (!fresh) {
+            started_at_us = 0;
+            until_us = 0;
+        } else if (motion_detected[indicator]) {
+            if (started_at_us == 0 || now_us >= until_us) {
+                started_at_us = now_us;
+            }
+            const int64_t elapsed_us = now_us - started_at_us;
+            until_us = started_at_us +
+                (elapsed_us / kLegIndicatorCycleUs + 1) *
+                    kLegIndicatorCycleUs;
+        } else if (now_us >= until_us) {
+            started_at_us = 0;
+            until_us = 0;
+        }
+        uint32_t opacity = fresh ? kLegIndicatorIdleOpacity : 0;
+        if (fresh && started_at_us > 0 && now_us < until_us) {
+            const int64_t phase_us =
+                (now_us - started_at_us) % kLegIndicatorCycleUs;
+            const int64_t visible_us = phase_us <= kLegFadeInUs
+                ? phase_us : kLegIndicatorCycleUs - phase_us;
+            const int64_t phase_duration_us = phase_us <= kLegFadeInUs
+                ? kLegFadeInUs : kLegFadeOutUs;
+            opacity = kLegIndicatorIdleOpacity +
+                static_cast<uint32_t>(
+                    visible_us * (255 - kLegIndicatorIdleOpacity) /
+                    phase_duration_us
+                );
+        }
+        std::array<char, 4> opacity_text{};
+        std::snprintf(
+            opacity_text.data(), opacity_text.size(), "%lu",
+            static_cast<unsigned long>(opacity)
+        );
+        if (auto result = set_cached_binding_text(
+                context, leg_ui_cache_.motion_indicator_opacity[indicator],
+                indicator_paths[indicator], "activity_opacity",
+                opacity_text.data()
+            ); !result) {
+            return result;
+        }
+    }
+
+    // Page controls disappear only after five seconds backed by consecutive
+    // fresh, quiet IMU samples. A new touch or meaningful motion shows them;
+    // an unavailable sample leaves navigation available to the user.
+    const TouchActivityObservation touch_activity =
+        DeviceSnapshotService::instance().touchActivityObservation();
+    if (page_changed) {
+        leg_ui_cache_.nav_still_since_us = 0;
+        leg_ui_cache_.nav_last_sample_at_us =
+            fresh ? snapshot.imu.last_success_at_us : 0;
+        leg_ui_cache_.nav_last_touch_at_us =
+            touch_activity.last_activity_at_us;
+    }
+    const bool touched =
+        touch_activity.last_activity_at_us >
+            leg_ui_cache_.nav_last_touch_at_us &&
+        now_us >= touch_activity.last_activity_at_us;
+    if (touched) {
+        leg_ui_cache_.nav_last_touch_at_us =
+            touch_activity.last_activity_at_us;
+    }
+    if (!fresh) {
+        leg_ui_cache_.nav_still_since_us = 0;
+        leg_ui_cache_.nav_last_sample_at_us = 0;
+    } else if (page_changed || touched) {
+        leg_ui_cache_.nav_still_since_us = 0;
+        leg_ui_cache_.nav_last_sample_at_us =
+            snapshot.imu.last_success_at_us;
+    } else if (snapshot.imu.last_success_at_us !=
+               leg_ui_cache_.nav_last_sample_at_us) {
+        const int64_t previous_sample_at_us =
+            leg_ui_cache_.nav_last_sample_at_us;
+        leg_ui_cache_.nav_last_sample_at_us =
+            snapshot.imu.last_success_at_us;
+        if (previous_sample_at_us <= 0 ||
+            snapshot.imu.last_success_at_us <= previous_sample_at_us ||
+            snapshot.imu.last_success_at_us - previous_sample_at_us >
+                kLegFreshSampleMaxAgeUs ||
+            !intensity_valid ||
+            intensity >= kLegMeaningfulMotion) {
+            leg_ui_cache_.nav_still_since_us = 0;
+        } else if (leg_ui_cache_.nav_still_since_us == 0) {
+            leg_ui_cache_.nav_still_since_us = now_us;
+        }
+    }
+    const bool nav_hidden =
+        fresh && !page_changed && !touched &&
+        leg_ui_cache_.nav_still_since_us > 0 &&
+        now_us - leg_ui_cache_.nav_still_since_us >=
+            kLegNavStillnessDelayUs;
+    if (!leg_ui_cache_.nav_hidden_known ||
+        leg_ui_cache_.nav_hidden != nav_hidden) {
+        static constexpr std::array<std::string_view, 2> nav_paths = {
+            "/LUNASHELL_leg/surface/previous",
+            "/LUNASHELL_leg/surface/next",
+        };
+        std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+        updates.reserve(nav_paths.size());
+        for (const std::string_view path : nav_paths) {
+            updates.push_back({
+                .absolute_path = std::string(path),
+                .key = "hidden",
+                .value = nav_hidden ? "true" : "false",
+            });
+        }
+        if (auto result = set_binding_values(context, updates); !result) {
+            return std::unexpected(
+                "Failed to update Leg page controls: " + result.error()
+            );
+        }
+        leg_ui_cache_.nav_hidden = nav_hidden;
+        leg_ui_cache_.nav_hidden_known = true;
+    }
+
+    const bool alert_active =
+        fresh && intensity_valid && intensity >= 1.2F;
+    const int64_t alert_elapsed_us =
+        leg_ui_cache_.motion_alert_updated_at_us > 0 &&
+        now_us >= leg_ui_cache_.motion_alert_updated_at_us
+            ? now_us - leg_ui_cache_.motion_alert_updated_at_us
+            : 0;
+    leg_ui_cache_.motion_alert_updated_at_us = now_us;
+    const int64_t alert_fade_duration_us =
+        alert_active ? kLegFadeInUs : kLegFadeOutUs;
+    const uint32_t alert_step = static_cast<uint32_t>(
+        std::min<int64_t>(
+            255, alert_elapsed_us * 255 / alert_fade_duration_us
+        )
+    );
+    uint32_t alert_opacity =
+        leg_ui_cache_.motion_alert_current_opacity;
+    alert_opacity = alert_active
+        ? std::min<uint32_t>(255, alert_opacity + alert_step)
+        : alert_opacity > alert_step
+            ? alert_opacity - alert_step : 0;
+    leg_ui_cache_.motion_alert_current_opacity =
+        static_cast<uint8_t>(alert_opacity);
+    std::array<char, 4> alert_opacity_text{};
+    std::snprintf(
+        alert_opacity_text.data(), alert_opacity_text.size(), "%lu",
+        static_cast<unsigned long>(alert_opacity)
+    );
+    constexpr std::string_view kLegAlertPath =
+        "/LUNASHELL_leg/surface/graph_panel/alert_pill";
+    if (auto result = set_cached_binding_text(
+            context, leg_ui_cache_.motion_alert_opacity,
+            kLegAlertPath, "alert_opacity", alert_opacity_text.data()
+        ); !result) {
+        return std::unexpected(
+            "Failed to update Leg motion alert opacity: " + result.error()
+        );
+    }
+    if (auto result = set_cached_binding_text(
+            context, leg_ui_cache_.motion_alert_bg,
+            kLegAlertPath, "alert_bg",
+            intensity_valid && intensity >= 3.0F
+                ? "#ff9b9b" : "#ffd291"
+        ); !result) {
+        return std::unexpected(
+            "Failed to update Leg motion alert color: " + result.error()
+        );
     }
 
     if (auto result = set_cached_text(
@@ -7496,8 +7806,8 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         return result;
     }
     if (auto result = set_cached_binding_text(
-            context, leg_ui_cache_.background,
-            root, "motion_bg", background
+            context, leg_ui_cache_.status_color,
+            "/LUNASHELL_leg/surface/health", "status_color", status_color
         ); !result) {
         return result;
     }
@@ -7509,6 +7819,102 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         return result;
     }
 
+    static constexpr std::array<std::string_view, 5> visual_paths = {
+        "/LUNASHELL_leg/surface/single_panel/axis_visual/x_vector",
+        "/LUNASHELL_leg/surface/single_panel/axis_visual/y_vector",
+        "/LUNASHELL_leg/surface/single_panel/axis_visual/z_vector",
+        "/LUNASHELL_leg/surface/single_panel/gyro_visual/ring",
+        "/LUNASHELL_leg/surface/single_panel/gyro_visual/core",
+    };
+    if (!fresh && leg_ui_cache_.visual_valid) {
+        std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+        updates.reserve(visual_paths.size());
+        for (const std::string_view path : visual_paths) {
+            updates.push_back({
+                .absolute_path = std::string(path),
+                .key = "hidden",
+                .value = "true",
+            });
+        }
+        if (auto result = set_binding_values(context, updates); !result) {
+            return result;
+        }
+        leg_ui_cache_.visual_valid = false;
+        leg_ui_cache_.visual_sample_at_us = 0;
+    } else if (fresh &&
+               (!leg_ui_cache_.visual_valid ||
+                leg_ui_cache_.visual_sample_at_us !=
+                    snapshot.imu.last_success_at_us)) {
+        // The three spokes encode signed acceleration along fixed device axes.
+        // Gyro dot position encodes X/Y rate, while ring size encodes total
+        // angular speed. Angular velocity does not give an absolute angle.
+        static constexpr std::array<int32_t, 3> dx = {-46, 42, 0};
+        static constexpr std::array<int32_t, 3> dy = {37, 27, -44};
+        std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
+        updates.reserve(14U);
+        for (std::size_t axis = 0; axis < 3U; ++axis) {
+            const float signed_scale = std::clamp(
+                snapshot.imu.acceleration_mps2[axis] / 9.81F,
+                -1.0F, 1.0F
+            );
+            const int32_t tip_x = 65 + static_cast<int32_t>(
+                std::lround(static_cast<float>(dx[axis]) * signed_scale)
+            );
+            const int32_t tip_y = 55 + static_cast<int32_t>(
+                std::lround(static_cast<float>(dy[axis]) * signed_scale)
+            );
+            updates.push_back({
+                .absolute_path = std::string(visual_paths[axis]),
+                .key = "points",
+                .value = "[{\"x\":65,\"y\":55},{\"x\":" +
+                    std::to_string(tip_x) + ",\"y\":" +
+                    std::to_string(tip_y) + "}]",
+            });
+        }
+
+        const float gx = snapshot.imu.angular_velocity_dps[0];
+        const float gy = snapshot.imu.angular_velocity_dps[1];
+        const float gz = snapshot.imu.angular_velocity_dps[2];
+        const float rate_magnitude = std::sqrt(gx * gx + gy * gy + gz * gz);
+        const int32_t ring_size = 28 + static_cast<int32_t>(std::lround(
+            std::clamp(rate_magnitude / 90.0F, 0.0F, 1.0F) * 54.0F
+        ));
+        const int32_t ring_position = (122 - ring_size) / 2;
+        const int32_t dot_x = 53 + static_cast<int32_t>(std::lround(
+            std::clamp(gx / 90.0F, -1.0F, 1.0F) * 37.0F
+        ));
+        const int32_t dot_y = 53 - static_cast<int32_t>(std::lround(
+            std::clamp(gy / 90.0F, -1.0F, 1.0F) * 37.0F
+        ));
+        const auto bind_placement = [&updates](
+            std::string_view path, std::string_view key, int32_t value
+        ) {
+            updates.push_back({
+                .absolute_path = std::string(path),
+                .key = std::string(key),
+                .value = std::to_string(value) + "dp",
+            });
+        };
+        bind_placement(visual_paths[3], "x", ring_position);
+        bind_placement(visual_paths[3], "y", ring_position);
+        bind_placement(visual_paths[3], "width", ring_size);
+        bind_placement(visual_paths[3], "height", ring_size);
+        bind_placement(visual_paths[4], "x", dot_x);
+        bind_placement(visual_paths[4], "y", dot_y);
+        for (const std::string_view path : visual_paths) {
+            updates.push_back({
+                .absolute_path = std::string(path),
+                .key = "hidden",
+                .value = "false",
+            });
+        }
+        if (auto result = set_binding_values(context, updates); !result) {
+            return result;
+        }
+        leg_ui_cache_.visual_valid = true;
+        leg_ui_cache_.visual_sample_at_us = snapshot.imu.last_success_at_us;
+    }
+
     static constexpr std::array<std::string_view, 3> axis_paths = {
         "/LUNASHELL_leg/surface/single_panel/axis_x",
         "/LUNASHELL_leg/surface/single_panel/axis_y",
@@ -7518,17 +7924,13 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
         std::array<char, 32> value{};
         if (fresh) {
             std::snprintf(
-                value.data(), value.size(), "%c  %+.2f",
-                static_cast<int>('X' + axis),
+                value.data(), value.size(), "%+.2f",
                 leg_page_ == 1U
                     ? snapshot.imu.angular_velocity_dps[axis]
                     : snapshot.imu.acceleration_mps2[axis]
             );
         } else {
-            std::snprintf(
-                value.data(), value.size(), "%c  --",
-                static_cast<int>('X' + axis)
-            );
+            std::snprintf(value.data(), value.size(), "--");
         }
         if (auto result = set_cached_text(
                 context, leg_ui_cache_.axes[axis], axis_paths[axis],
@@ -7539,20 +7941,20 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
     }
     if (auto result = set_text(
             context, "/LUNASHELL_leg/surface/single_panel/units",
-            leg_page_ == 1U ? "°/s" : "m/s²"
+            leg_page_ == 1U ? "deg/s" : "m/s2"
         ); !result) {
         return result;
     }
     std::array<char, 96> values{};
     if (fresh) {
         std::snprintf(
-            values.data(), values.size(), "X %+.2f\nY %+.2f\nZ %+.2f",
+            values.data(), values.size(), "%+.2f\n\n%+.2f\n\n%+.2f",
             snapshot.imu.acceleration_mps2[0],
             snapshot.imu.acceleration_mps2[1],
             snapshot.imu.acceleration_mps2[2]
         );
     } else {
-        std::snprintf(values.data(), values.size(), "X --\nY --\nZ --");
+        std::snprintf(values.data(), values.size(), "--\n\n--\n\n--");
     }
     if (auto result = set_cached_text(
             context, leg_ui_cache_.acceleration,
@@ -7563,13 +7965,13 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
     }
     if (fresh) {
         std::snprintf(
-            values.data(), values.size(), "X %+.2f\nY %+.2f\nZ %+.2f",
+            values.data(), values.size(), "%+.2f\n\n%+.2f\n\n%+.2f",
             snapshot.imu.angular_velocity_dps[0],
             snapshot.imu.angular_velocity_dps[1],
             snapshot.imu.angular_velocity_dps[2]
         );
     } else {
-        std::snprintf(values.data(), values.size(), "X --\nY --\nZ --");
+        std::snprintf(values.data(), values.size(), "--\n\n--\n\n--");
     }
     if (auto result = set_cached_text(
             context, leg_ui_cache_.angular_velocity,
@@ -7577,6 +7979,33 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
             values.data()
         ); !result) {
         return result;
+    }
+
+    if (leg_page_ == 3U) {
+        std::array<char, 64> peak_text{};
+        if (fresh && leg_ui_cache_.history_count >= 2U) {
+            const auto last =
+                leg_ui_cache_.movement_history.begin() +
+                leg_ui_cache_.history_count;
+            const float peak = *std::max_element(
+                leg_ui_cache_.movement_history.begin(), last
+            );
+            std::snprintf(
+                peak_text.data(), peak_text.size(),
+                "PICCO REL. %.1f", static_cast<double>(peak)
+            );
+        } else {
+            std::snprintf(
+                peak_text.data(), peak_text.size(), "PICCO REL. --"
+            );
+        }
+        if (auto result = set_cached_text(
+                context, leg_ui_cache_.peak_readout,
+                "/LUNASHELL_leg/surface/peak_readout",
+                peak_text.data()
+            ); !result) {
+            return result;
+        }
     }
 
     const std::string_view graph_path =
@@ -7597,7 +8026,7 @@ std::expected<void, std::string> App::refresh_leg(AppContext &context)
             const float sample =
                 leg_ui_cache_.movement_history[(first + index) % capacity];
             const int32_t x = static_cast<int32_t>(
-                index * 260U / (count - 1U)
+                index * 264U / (count - 1U)
             );
             const int32_t y = 112 - static_cast<int32_t>(
                 std::lround(std::clamp(sample / 4.0F, 0.0F, 1.0F) * 108.0F)

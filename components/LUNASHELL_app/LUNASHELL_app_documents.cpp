@@ -27,6 +27,9 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+#include "lvgl.h"
+#endif
 
 namespace {
 
@@ -38,6 +41,26 @@ constexpr char kBackgroundFlow[] = "LUNASHELL_background_flow";
 constexpr char kScreenFlow[] = "LUNASHELL_content";
 constexpr char kReleaseContentAction[] = "LUNASHELL.content.release";
 constexpr char kChromeFlow[] = "LUNASHELL_chrome_flow";
+
+esp_brookesia::system::core::AppGuiResources make_gui_resources()
+{
+    esp_brookesia::system::core::AppGuiResources resources{};
+#if CONFIG_LUNASHELL_BUILD_PROFILE_LEG_EDITION
+    // Unscii-16 is a public-domain, fixed-width LVGL built-in font. Register
+    // it through Brookesia so the declarative Leg document can request it.
+    resources.fonts.push_back({
+        .id = "leg_mono",
+        .kind = "file",
+        .primary_src = {},
+        .languages = {"en", "it"},
+        .native_fonts = {{
+            .native_src = reinterpret_cast<uintptr_t>(&lv_font_unscii_16),
+            .native_size = 16,
+        }},
+    });
+#endif
+    return resources;
+}
 
 }  // namespace
 
@@ -1051,7 +1074,7 @@ esp_brookesia::system::core::AppGuiDescriptor App::get_gui_descriptor() const
     return {
         .root_kind = esp_brookesia::system::core::GuiRootKind::File,
         .root = kGuiRoot,
-        .resources = {},
+        .resources = make_gui_resources(),
         .screen_flows = {
             {
                 .screen_flow = kBackgroundFlow,
