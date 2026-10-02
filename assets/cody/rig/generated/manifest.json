@@ -1,0 +1,10 @@
+{
+  "schema": "cody.rig.generated.v1",
+  "points": 145,
+  "curves": 44,
+  "paths": 11,
+  "subdivisions": 12,
+  "palette_slots": 256,
+  "source_sha256": "46435bde71b47b3bc46a56f6d45ef191b7a7e3dd5c98114373886782f9c7eb89",
+  "palette_sha256": "31669270115a8eb9a5af445de80537b4674c2882029ae6435d1a506cdd13ffdf"
+}

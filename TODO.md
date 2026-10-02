@@ -6,6 +6,11 @@ authorization.
 
 ## Current integration
 
+- [ ] Implement the local Cody cloud-rig PoC: stable normalized anchors and
+  cubic handles, shared geometry for drawing/debug, Windows simulator mode,
+  and the three existing real boot checkpoints. Keep firmware/device and
+  simulator validation deferred until explicitly requested.
+
 - [ ] On explicit request, resolve/review the `cody-companion` dependency lock,
   then validate the finished no-LVGL source/dependency closure, clean/incremental
   build and size. Physical boot, mandatory display/touch, 0/90/180/270 rotation,

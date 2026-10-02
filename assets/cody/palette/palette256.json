@@ -1,0 +1,3432 @@
+{
+  "name": "Cody shared OOBE palette v2",
+  "purpose": "Shared palette for the Cody rig PoC and its host preview; original boot images retain their independent indexed palettes.",
+  "schema_version": 1,
+  "slot_count": 256,
+  "native_word_format": "RGB565",
+  "binary_format": "256 RGB565 uint16 words, little endian, in ascending slot order",
+  "binary_size_bytes": 512,
+  "preview_color_space": "sRGB byte channels",
+  "gradient_interpolation": "Piecewise linear interpolation in sRGB byte channels; nearest integer with midpoint away from zero.",
+  "rgb565_conversion": "((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)",
+  "rgb565_policy": "Bit truncation, matching scripts/package_cody_boot.py; distinct preview slots may collapse to the same RGB565 value.",
+  "font_style": "JetBrains Mono Nerd Font",
+  "groups": [
+    {
+      "name": "fixed",
+      "first": 0,
+      "last": 3,
+      "count": 4,
+      "availability": "current"
+    },
+    {
+      "name": "neutral",
+      "first": 4,
+      "last": 19,
+      "count": 16,
+      "availability": "current"
+    },
+    {
+      "name": "blue",
+      "first": 20,
+      "last": 83,
+      "count": 64,
+      "availability": "current",
+      "anchors": [
+        {
+          "index": 20,
+          "rgb888": "#75CBF3",
+          "role": "top"
+        },
+        {
+          "index": 52,
+          "rgb888": "#56B8EE",
+          "role": "middle"
+        },
+        {
+          "index": 83,
+          "rgb888": "#359FE7",
+          "role": "bottom"
+        }
+      ]
+    },
+    {
+      "name": "mint",
+      "first": 84,
+      "last": 131,
+      "count": 48,
+      "availability": "future",
+      "top": "#9EF0D8",
+      "bottom": "#35D4B2"
+    },
+    {
+      "name": "coral",
+      "first": 132,
+      "last": 155,
+      "count": 24,
+      "availability": "current",
+      "light": "#FF9385",
+      "dark": "#F05D57"
+    },
+    {
+      "name": "gold",
+      "first": 156,
+      "last": 171,
+      "count": 16,
+      "availability": "optional",
+      "light": "#F8D989",
+      "dark": "#DFA74C"
+    },
+    {
+      "name": "reserved",
+      "first": 172,
+      "last": 255,
+      "count": 84,
+      "availability": "reserved",
+      "deterministic_color": "#000000",
+      "usage": "Unallocated; must not be referenced by current artwork, typography, or controls."
+    }
+  ],
+  "existing_boot_packaging": {
+    "generator": "E:\\ESP32 Cody Companion\\scripts\\package_cody_boot.py",
+    "manifest": "E:\\ESP32 Cody Companion\\assets\\cody\\boot\\generated\\manifest.json",
+    "policy": "Independent per-asset palettes capped at 64 colors, with black at index 0.",
+    "observed_manifest_counts": {
+      "sleeping_blue": 33,
+      "waking_blue": 37,
+      "ready_blue": 34
+    },
+    "source_png_policy": "Source PNG files remain unchanged full-color image assets; they are not indexed with this shared palette.",
+    "integration_status": "Design only: no palette replacement, shared-palette re-encoding, consumer changes, or firmware validation."
+  },
+  "entries": [
+    {
+      "index": 0,
+      "group": "fixed",
+      "role": "pure_black_background",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 1,
+      "group": "fixed",
+      "role": "pure_white_eye_highlights",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FFFFFF",
+      "rgb565": "0xFFFF",
+      "rgb565_little_endian": [
+        255,
+        255
+      ]
+    },
+    {
+      "index": 2,
+      "group": "fixed",
+      "role": "near_white_primary_text",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F4F6FA",
+      "rgb565": "0xF7BF",
+      "rgb565_little_endian": [
+        191,
+        247
+      ]
+    },
+    {
+      "index": 3,
+      "group": "fixed",
+      "role": "near_black_cody_ink_and_filled_button_text",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#04101A",
+      "rgb565": "0x0083",
+      "rgb565_little_endian": [
+        131,
+        0
+      ]
+    },
+    {
+      "index": 4,
+      "group": "neutral",
+      "role": "surface_deep",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#0B1118",
+      "rgb565": "0x0883",
+      "rgb565_little_endian": [
+        131,
+        8
+      ]
+    },
+    {
+      "index": 5,
+      "group": "neutral",
+      "role": "surface_default",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#111A24",
+      "rgb565": "0x10C4",
+      "rgb565_little_endian": [
+        196,
+        16
+      ]
+    },
+    {
+      "index": 6,
+      "group": "neutral",
+      "role": "surface_elevated",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#182330",
+      "rgb565": "0x1906",
+      "rgb565_little_endian": [
+        6,
+        25
+      ]
+    },
+    {
+      "index": 7,
+      "group": "neutral",
+      "role": "surface_selected",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#203040",
+      "rgb565": "0x2188",
+      "rgb565_little_endian": [
+        136,
+        33
+      ]
+    },
+    {
+      "index": 8,
+      "group": "neutral",
+      "role": "border_quiet",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#2A3C4D",
+      "rgb565": "0x29E9",
+      "rgb565_little_endian": [
+        233,
+        41
+      ]
+    },
+    {
+      "index": 9,
+      "group": "neutral",
+      "role": "border_default",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#35495B",
+      "rgb565": "0x324B",
+      "rgb565_little_endian": [
+        75,
+        50
+      ]
+    },
+    {
+      "index": 10,
+      "group": "neutral",
+      "role": "border_emphasis",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#40576A",
+      "rgb565": "0x42AD",
+      "rgb565_little_endian": [
+        173,
+        66
+      ]
+    },
+    {
+      "index": 11,
+      "group": "neutral",
+      "role": "disabled_fill",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4D6477",
+      "rgb565": "0x4B2E",
+      "rgb565_little_endian": [
+        46,
+        75
+      ]
+    },
+    {
+      "index": 12,
+      "group": "neutral",
+      "role": "disabled_icon",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5B7184",
+      "rgb565": "0x5B90",
+      "rgb565_little_endian": [
+        144,
+        91
+      ]
+    },
+    {
+      "index": 13,
+      "group": "neutral",
+      "role": "disabled_text",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6B8092",
+      "rgb565": "0x6C12",
+      "rgb565_little_endian": [
+        18,
+        108
+      ]
+    },
+    {
+      "index": 14,
+      "group": "neutral",
+      "role": "tertiary_text_dim",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#7D91A2",
+      "rgb565": "0x7C94",
+      "rgb565_little_endian": [
+        148,
+        124
+      ]
+    },
+    {
+      "index": 15,
+      "group": "neutral",
+      "role": "tertiary_text",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#92A3B2",
+      "rgb565": "0x9516",
+      "rgb565_little_endian": [
+        22,
+        149
+      ]
+    },
+    {
+      "index": 16,
+      "group": "neutral",
+      "role": "secondary_text_dim",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#A5B4C1",
+      "rgb565": "0xA5B8",
+      "rgb565_little_endian": [
+        184,
+        165
+      ]
+    },
+    {
+      "index": 17,
+      "group": "neutral",
+      "role": "secondary_text",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#B9C6D1",
+      "rgb565": "0xBE3A",
+      "rgb565_little_endian": [
+        58,
+        190
+      ]
+    },
+    {
+      "index": 18,
+      "group": "neutral",
+      "role": "neutral_highlight_dim",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CBD6DF",
+      "rgb565": "0xCEBB",
+      "rgb565_little_endian": [
+        187,
+        206
+      ]
+    },
+    {
+      "index": 19,
+      "group": "neutral",
+      "role": "neutral_highlight",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DCE4EA",
+      "rgb565": "0xDF3D",
+      "rgb565_little_endian": [
+        61,
+        223
+      ]
+    },
+    {
+      "index": 20,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_00",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#75CBF3",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 21,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_01",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#74CAF3",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 22,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_02",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#73CAF3",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 23,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_03",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#72C9F3",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 24,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_04",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#71C9F2",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 25,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_05",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#70C8F2",
+      "rgb565": "0x765E",
+      "rgb565_little_endian": [
+        94,
+        118
+      ]
+    },
+    {
+      "index": 26,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_06",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6FC7F2",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 27,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_07",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6EC7F2",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 28,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_08",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6DC6F2",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 29,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_09",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6CC6F2",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 30,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_10",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6BC5F1",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 31,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_11",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#6AC4F1",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 32,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_12",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#69C4F1",
+      "rgb565": "0x6E3E",
+      "rgb565_little_endian": [
+        62,
+        110
+      ]
+    },
+    {
+      "index": 33,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_13",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#68C3F1",
+      "rgb565": "0x6E1E",
+      "rgb565_little_endian": [
+        30,
+        110
+      ]
+    },
+    {
+      "index": 34,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_14",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#67C3F1",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 35,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_15",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#66C2F1",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 36,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_16",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#66C2F1",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 37,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_17",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#65C1F0",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 38,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_18",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#64C0F0",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 39,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_19",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#63C0F0",
+      "rgb565": "0x661E",
+      "rgb565_little_endian": [
+        30,
+        102
+      ]
+    },
+    {
+      "index": 40,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_20",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#62BFF0",
+      "rgb565": "0x65FE",
+      "rgb565_little_endian": [
+        254,
+        101
+      ]
+    },
+    {
+      "index": 41,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_21",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#61BFF0",
+      "rgb565": "0x65FE",
+      "rgb565_little_endian": [
+        254,
+        101
+      ]
+    },
+    {
+      "index": 42,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_22",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#60BEF0",
+      "rgb565": "0x65FE",
+      "rgb565_little_endian": [
+        254,
+        101
+      ]
+    },
+    {
+      "index": 43,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_23",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5FBDEF",
+      "rgb565": "0x5DFD",
+      "rgb565_little_endian": [
+        253,
+        93
+      ]
+    },
+    {
+      "index": 44,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_24",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5EBDEF",
+      "rgb565": "0x5DFD",
+      "rgb565_little_endian": [
+        253,
+        93
+      ]
+    },
+    {
+      "index": 45,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_25",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5DBCEF",
+      "rgb565": "0x5DFD",
+      "rgb565_little_endian": [
+        253,
+        93
+      ]
+    },
+    {
+      "index": 46,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_26",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5CBCEF",
+      "rgb565": "0x5DFD",
+      "rgb565_little_endian": [
+        253,
+        93
+      ]
+    },
+    {
+      "index": 47,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_27",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5BBBEF",
+      "rgb565": "0x5DDD",
+      "rgb565_little_endian": [
+        221,
+        93
+      ]
+    },
+    {
+      "index": 48,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_28",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#5ABAEF",
+      "rgb565": "0x5DDD",
+      "rgb565_little_endian": [
+        221,
+        93
+      ]
+    },
+    {
+      "index": 49,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_29",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#59BAEE",
+      "rgb565": "0x5DDD",
+      "rgb565_little_endian": [
+        221,
+        93
+      ]
+    },
+    {
+      "index": 50,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_30",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#58B9EE",
+      "rgb565": "0x5DDD",
+      "rgb565_little_endian": [
+        221,
+        93
+      ]
+    },
+    {
+      "index": 51,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_31",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#57B9EE",
+      "rgb565": "0x55DD",
+      "rgb565_little_endian": [
+        221,
+        85
+      ]
+    },
+    {
+      "index": 52,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_32",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#56B8EE",
+      "rgb565": "0x55DD",
+      "rgb565_little_endian": [
+        221,
+        85
+      ]
+    },
+    {
+      "index": 53,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_33",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#55B7EE",
+      "rgb565": "0x55BD",
+      "rgb565_little_endian": [
+        189,
+        85
+      ]
+    },
+    {
+      "index": 54,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_34",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#54B6EE",
+      "rgb565": "0x55BD",
+      "rgb565_little_endian": [
+        189,
+        85
+      ]
+    },
+    {
+      "index": 55,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_35",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#53B6ED",
+      "rgb565": "0x55BD",
+      "rgb565_little_endian": [
+        189,
+        85
+      ]
+    },
+    {
+      "index": 56,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_36",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#52B5ED",
+      "rgb565": "0x55BD",
+      "rgb565_little_endian": [
+        189,
+        85
+      ]
+    },
+    {
+      "index": 57,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_37",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#51B4ED",
+      "rgb565": "0x55BD",
+      "rgb565_little_endian": [
+        189,
+        85
+      ]
+    },
+    {
+      "index": 58,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_38",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#50B3ED",
+      "rgb565": "0x559D",
+      "rgb565_little_endian": [
+        157,
+        85
+      ]
+    },
+    {
+      "index": 59,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_39",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4FB2EC",
+      "rgb565": "0x4D9D",
+      "rgb565_little_endian": [
+        157,
+        77
+      ]
+    },
+    {
+      "index": 60,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_40",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4DB2EC",
+      "rgb565": "0x4D9D",
+      "rgb565_little_endian": [
+        157,
+        77
+      ]
+    },
+    {
+      "index": 61,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_41",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4CB1EC",
+      "rgb565": "0x4D9D",
+      "rgb565_little_endian": [
+        157,
+        77
+      ]
+    },
+    {
+      "index": 62,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_42",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4BB0EC",
+      "rgb565": "0x4D9D",
+      "rgb565_little_endian": [
+        157,
+        77
+      ]
+    },
+    {
+      "index": 63,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_43",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#4AAFEC",
+      "rgb565": "0x4D7D",
+      "rgb565_little_endian": [
+        125,
+        77
+      ]
+    },
+    {
+      "index": 64,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_44",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#49AEEB",
+      "rgb565": "0x4D7D",
+      "rgb565_little_endian": [
+        125,
+        77
+      ]
+    },
+    {
+      "index": 65,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_45",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#48AEEB",
+      "rgb565": "0x4D7D",
+      "rgb565_little_endian": [
+        125,
+        77
+      ]
+    },
+    {
+      "index": 66,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_46",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#47ADEB",
+      "rgb565": "0x457D",
+      "rgb565_little_endian": [
+        125,
+        69
+      ]
+    },
+    {
+      "index": 67,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_47",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#46ACEB",
+      "rgb565": "0x457D",
+      "rgb565_little_endian": [
+        125,
+        69
+      ]
+    },
+    {
+      "index": 68,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_48",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#45ABEA",
+      "rgb565": "0x455D",
+      "rgb565_little_endian": [
+        93,
+        69
+      ]
+    },
+    {
+      "index": 69,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_49",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#44AAEA",
+      "rgb565": "0x455D",
+      "rgb565_little_endian": [
+        93,
+        69
+      ]
+    },
+    {
+      "index": 70,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_50",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#43A9EA",
+      "rgb565": "0x455D",
+      "rgb565_little_endian": [
+        93,
+        69
+      ]
+    },
+    {
+      "index": 71,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_51",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#42A9EA",
+      "rgb565": "0x455D",
+      "rgb565_little_endian": [
+        93,
+        69
+      ]
+    },
+    {
+      "index": 72,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_52",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#41A8E9",
+      "rgb565": "0x455D",
+      "rgb565_little_endian": [
+        93,
+        69
+      ]
+    },
+    {
+      "index": 73,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_53",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#40A7E9",
+      "rgb565": "0x453D",
+      "rgb565_little_endian": [
+        61,
+        69
+      ]
+    },
+    {
+      "index": 74,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_54",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#3FA6E9",
+      "rgb565": "0x3D3D",
+      "rgb565_little_endian": [
+        61,
+        61
+      ]
+    },
+    {
+      "index": 75,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_55",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#3EA5E9",
+      "rgb565": "0x3D3D",
+      "rgb565_little_endian": [
+        61,
+        61
+      ]
+    },
+    {
+      "index": 76,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_56",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#3CA5E9",
+      "rgb565": "0x3D3D",
+      "rgb565_little_endian": [
+        61,
+        61
+      ]
+    },
+    {
+      "index": 77,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_57",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#3BA4E8",
+      "rgb565": "0x3D3D",
+      "rgb565_little_endian": [
+        61,
+        61
+      ]
+    },
+    {
+      "index": 78,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_58",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#3AA3E8",
+      "rgb565": "0x3D1D",
+      "rgb565_little_endian": [
+        29,
+        61
+      ]
+    },
+    {
+      "index": 79,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_59",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#39A2E8",
+      "rgb565": "0x3D1D",
+      "rgb565_little_endian": [
+        29,
+        61
+      ]
+    },
+    {
+      "index": 80,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_60",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#38A1E8",
+      "rgb565": "0x3D1D",
+      "rgb565_little_endian": [
+        29,
+        61
+      ]
+    },
+    {
+      "index": 81,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_61",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#37A1E7",
+      "rgb565": "0x351C",
+      "rgb565_little_endian": [
+        28,
+        53
+      ]
+    },
+    {
+      "index": 82,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_62",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#36A0E7",
+      "rgb565": "0x351C",
+      "rgb565_little_endian": [
+        28,
+        53
+      ]
+    },
+    {
+      "index": 83,
+      "group": "blue",
+      "role": "cody_and_cta_shared_blue_level_63",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#359FE7",
+      "rgb565": "0x34FC",
+      "rgb565_little_endian": [
+        252,
+        52
+      ]
+    },
+    {
+      "index": 84,
+      "group": "mint",
+      "role": "future_personalization_mint_level_00",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#9EF0D8",
+      "rgb565": "0x9F9B",
+      "rgb565_little_endian": [
+        155,
+        159
+      ]
+    },
+    {
+      "index": 85,
+      "group": "mint",
+      "role": "future_personalization_mint_level_01",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#9CEFD7",
+      "rgb565": "0x9F7A",
+      "rgb565_little_endian": [
+        122,
+        159
+      ]
+    },
+    {
+      "index": 86,
+      "group": "mint",
+      "role": "future_personalization_mint_level_02",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#9AEFD6",
+      "rgb565": "0x9F7A",
+      "rgb565_little_endian": [
+        122,
+        159
+      ]
+    },
+    {
+      "index": 87,
+      "group": "mint",
+      "role": "future_personalization_mint_level_03",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#97EED6",
+      "rgb565": "0x977A",
+      "rgb565_little_endian": [
+        122,
+        151
+      ]
+    },
+    {
+      "index": 88,
+      "group": "mint",
+      "role": "future_personalization_mint_level_04",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#95EED5",
+      "rgb565": "0x977A",
+      "rgb565_little_endian": [
+        122,
+        151
+      ]
+    },
+    {
+      "index": 89,
+      "group": "mint",
+      "role": "future_personalization_mint_level_05",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#93EDD4",
+      "rgb565": "0x977A",
+      "rgb565_little_endian": [
+        122,
+        151
+      ]
+    },
+    {
+      "index": 90,
+      "group": "mint",
+      "role": "future_personalization_mint_level_06",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#91ECD3",
+      "rgb565": "0x977A",
+      "rgb565_little_endian": [
+        122,
+        151
+      ]
+    },
+    {
+      "index": 91,
+      "group": "mint",
+      "role": "future_personalization_mint_level_07",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#8EECD2",
+      "rgb565": "0x8F7A",
+      "rgb565_little_endian": [
+        122,
+        143
+      ]
+    },
+    {
+      "index": 92,
+      "group": "mint",
+      "role": "future_personalization_mint_level_08",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#8CEBD2",
+      "rgb565": "0x8F5A",
+      "rgb565_little_endian": [
+        90,
+        143
+      ]
+    },
+    {
+      "index": 93,
+      "group": "mint",
+      "role": "future_personalization_mint_level_09",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#8AEBD1",
+      "rgb565": "0x8F5A",
+      "rgb565_little_endian": [
+        90,
+        143
+      ]
+    },
+    {
+      "index": 94,
+      "group": "mint",
+      "role": "future_personalization_mint_level_10",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#88EAD0",
+      "rgb565": "0x8F5A",
+      "rgb565_little_endian": [
+        90,
+        143
+      ]
+    },
+    {
+      "index": 95,
+      "group": "mint",
+      "role": "future_personalization_mint_level_11",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#85E9CF",
+      "rgb565": "0x8759",
+      "rgb565_little_endian": [
+        89,
+        135
+      ]
+    },
+    {
+      "index": 96,
+      "group": "mint",
+      "role": "future_personalization_mint_level_12",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#83E9CE",
+      "rgb565": "0x8759",
+      "rgb565_little_endian": [
+        89,
+        135
+      ]
+    },
+    {
+      "index": 97,
+      "group": "mint",
+      "role": "future_personalization_mint_level_13",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#81E8CD",
+      "rgb565": "0x8759",
+      "rgb565_little_endian": [
+        89,
+        135
+      ]
+    },
+    {
+      "index": 98,
+      "group": "mint",
+      "role": "future_personalization_mint_level_14",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#7FE8CD",
+      "rgb565": "0x7F59",
+      "rgb565_little_endian": [
+        89,
+        127
+      ]
+    },
+    {
+      "index": 99,
+      "group": "mint",
+      "role": "future_personalization_mint_level_15",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#7CE7CC",
+      "rgb565": "0x7F39",
+      "rgb565_little_endian": [
+        57,
+        127
+      ]
+    },
+    {
+      "index": 100,
+      "group": "mint",
+      "role": "future_personalization_mint_level_16",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#7AE6CB",
+      "rgb565": "0x7F39",
+      "rgb565_little_endian": [
+        57,
+        127
+      ]
+    },
+    {
+      "index": 101,
+      "group": "mint",
+      "role": "future_personalization_mint_level_17",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#78E6CA",
+      "rgb565": "0x7F39",
+      "rgb565_little_endian": [
+        57,
+        127
+      ]
+    },
+    {
+      "index": 102,
+      "group": "mint",
+      "role": "future_personalization_mint_level_18",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#76E5C9",
+      "rgb565": "0x7739",
+      "rgb565_little_endian": [
+        57,
+        119
+      ]
+    },
+    {
+      "index": 103,
+      "group": "mint",
+      "role": "future_personalization_mint_level_19",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#74E5C9",
+      "rgb565": "0x7739",
+      "rgb565_little_endian": [
+        57,
+        119
+      ]
+    },
+    {
+      "index": 104,
+      "group": "mint",
+      "role": "future_personalization_mint_level_20",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#71E4C8",
+      "rgb565": "0x7739",
+      "rgb565_little_endian": [
+        57,
+        119
+      ]
+    },
+    {
+      "index": 105,
+      "group": "mint",
+      "role": "future_personalization_mint_level_21",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#6FE3C7",
+      "rgb565": "0x6F18",
+      "rgb565_little_endian": [
+        24,
+        111
+      ]
+    },
+    {
+      "index": 106,
+      "group": "mint",
+      "role": "future_personalization_mint_level_22",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#6DE3C6",
+      "rgb565": "0x6F18",
+      "rgb565_little_endian": [
+        24,
+        111
+      ]
+    },
+    {
+      "index": 107,
+      "group": "mint",
+      "role": "future_personalization_mint_level_23",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#6BE2C5",
+      "rgb565": "0x6F18",
+      "rgb565_little_endian": [
+        24,
+        111
+      ]
+    },
+    {
+      "index": 108,
+      "group": "mint",
+      "role": "future_personalization_mint_level_24",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#68E2C5",
+      "rgb565": "0x6F18",
+      "rgb565_little_endian": [
+        24,
+        111
+      ]
+    },
+    {
+      "index": 109,
+      "group": "mint",
+      "role": "future_personalization_mint_level_25",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#66E1C4",
+      "rgb565": "0x6718",
+      "rgb565_little_endian": [
+        24,
+        103
+      ]
+    },
+    {
+      "index": 110,
+      "group": "mint",
+      "role": "future_personalization_mint_level_26",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#64E1C3",
+      "rgb565": "0x6718",
+      "rgb565_little_endian": [
+        24,
+        103
+      ]
+    },
+    {
+      "index": 111,
+      "group": "mint",
+      "role": "future_personalization_mint_level_27",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#62E0C2",
+      "rgb565": "0x6718",
+      "rgb565_little_endian": [
+        24,
+        103
+      ]
+    },
+    {
+      "index": 112,
+      "group": "mint",
+      "role": "future_personalization_mint_level_28",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#5FDFC1",
+      "rgb565": "0x5EF8",
+      "rgb565_little_endian": [
+        248,
+        94
+      ]
+    },
+    {
+      "index": 113,
+      "group": "mint",
+      "role": "future_personalization_mint_level_29",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#5DDFC1",
+      "rgb565": "0x5EF8",
+      "rgb565_little_endian": [
+        248,
+        94
+      ]
+    },
+    {
+      "index": 114,
+      "group": "mint",
+      "role": "future_personalization_mint_level_30",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#5BDEC0",
+      "rgb565": "0x5EF8",
+      "rgb565_little_endian": [
+        248,
+        94
+      ]
+    },
+    {
+      "index": 115,
+      "group": "mint",
+      "role": "future_personalization_mint_level_31",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#59DEBF",
+      "rgb565": "0x5EF7",
+      "rgb565_little_endian": [
+        247,
+        94
+      ]
+    },
+    {
+      "index": 116,
+      "group": "mint",
+      "role": "future_personalization_mint_level_32",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#57DDBE",
+      "rgb565": "0x56F7",
+      "rgb565_little_endian": [
+        247,
+        86
+      ]
+    },
+    {
+      "index": 117,
+      "group": "mint",
+      "role": "future_personalization_mint_level_33",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#54DCBD",
+      "rgb565": "0x56F7",
+      "rgb565_little_endian": [
+        247,
+        86
+      ]
+    },
+    {
+      "index": 118,
+      "group": "mint",
+      "role": "future_personalization_mint_level_34",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#52DCBD",
+      "rgb565": "0x56F7",
+      "rgb565_little_endian": [
+        247,
+        86
+      ]
+    },
+    {
+      "index": 119,
+      "group": "mint",
+      "role": "future_personalization_mint_level_35",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#50DBBC",
+      "rgb565": "0x56D7",
+      "rgb565_little_endian": [
+        215,
+        86
+      ]
+    },
+    {
+      "index": 120,
+      "group": "mint",
+      "role": "future_personalization_mint_level_36",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#4EDBBB",
+      "rgb565": "0x4ED7",
+      "rgb565_little_endian": [
+        215,
+        78
+      ]
+    },
+    {
+      "index": 121,
+      "group": "mint",
+      "role": "future_personalization_mint_level_37",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#4BDABA",
+      "rgb565": "0x4ED7",
+      "rgb565_little_endian": [
+        215,
+        78
+      ]
+    },
+    {
+      "index": 122,
+      "group": "mint",
+      "role": "future_personalization_mint_level_38",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#49D9B9",
+      "rgb565": "0x4ED7",
+      "rgb565_little_endian": [
+        215,
+        78
+      ]
+    },
+    {
+      "index": 123,
+      "group": "mint",
+      "role": "future_personalization_mint_level_39",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#47D9B8",
+      "rgb565": "0x46D7",
+      "rgb565_little_endian": [
+        215,
+        70
+      ]
+    },
+    {
+      "index": 124,
+      "group": "mint",
+      "role": "future_personalization_mint_level_40",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#45D8B8",
+      "rgb565": "0x46D7",
+      "rgb565_little_endian": [
+        215,
+        70
+      ]
+    },
+    {
+      "index": 125,
+      "group": "mint",
+      "role": "future_personalization_mint_level_41",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#42D8B7",
+      "rgb565": "0x46D6",
+      "rgb565_little_endian": [
+        214,
+        70
+      ]
+    },
+    {
+      "index": 126,
+      "group": "mint",
+      "role": "future_personalization_mint_level_42",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#40D7B6",
+      "rgb565": "0x46B6",
+      "rgb565_little_endian": [
+        182,
+        70
+      ]
+    },
+    {
+      "index": 127,
+      "group": "mint",
+      "role": "future_personalization_mint_level_43",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#3ED6B5",
+      "rgb565": "0x3EB6",
+      "rgb565_little_endian": [
+        182,
+        62
+      ]
+    },
+    {
+      "index": 128,
+      "group": "mint",
+      "role": "future_personalization_mint_level_44",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#3CD6B4",
+      "rgb565": "0x3EB6",
+      "rgb565_little_endian": [
+        182,
+        62
+      ]
+    },
+    {
+      "index": 129,
+      "group": "mint",
+      "role": "future_personalization_mint_level_45",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#39D5B4",
+      "rgb565": "0x3EB6",
+      "rgb565_little_endian": [
+        182,
+        62
+      ]
+    },
+    {
+      "index": 130,
+      "group": "mint",
+      "role": "future_personalization_mint_level_46",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#37D5B3",
+      "rgb565": "0x36B6",
+      "rgb565_little_endian": [
+        182,
+        54
+      ]
+    },
+    {
+      "index": 131,
+      "group": "mint",
+      "role": "future_personalization_mint_level_47",
+      "availability": "future",
+      "reserved": false,
+      "rgb888": "#35D4B2",
+      "rgb565": "0x36B6",
+      "rgb565_little_endian": [
+        182,
+        54
+      ]
+    },
+    {
+      "index": 132,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_00",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FF9385",
+      "rgb565": "0xFC90",
+      "rgb565_little_endian": [
+        144,
+        252
+      ]
+    },
+    {
+      "index": 133,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_01",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FE9183",
+      "rgb565": "0xFC90",
+      "rgb565_little_endian": [
+        144,
+        252
+      ]
+    },
+    {
+      "index": 134,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_02",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FE8E81",
+      "rgb565": "0xFC70",
+      "rgb565_little_endian": [
+        112,
+        252
+      ]
+    },
+    {
+      "index": 135,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_03",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FD8C7F",
+      "rgb565": "0xFC6F",
+      "rgb565_little_endian": [
+        111,
+        252
+      ]
+    },
+    {
+      "index": 136,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_04",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FC8A7D",
+      "rgb565": "0xFC4F",
+      "rgb565_little_endian": [
+        79,
+        252
+      ]
+    },
+    {
+      "index": 137,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_05",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FC877B",
+      "rgb565": "0xFC2F",
+      "rgb565_little_endian": [
+        47,
+        252
+      ]
+    },
+    {
+      "index": 138,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_06",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FB8579",
+      "rgb565": "0xFC2F",
+      "rgb565_little_endian": [
+        47,
+        252
+      ]
+    },
+    {
+      "index": 139,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_07",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FA8377",
+      "rgb565": "0xFC0E",
+      "rgb565_little_endian": [
+        14,
+        252
+      ]
+    },
+    {
+      "index": 140,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_08",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FA8075",
+      "rgb565": "0xFC0E",
+      "rgb565_little_endian": [
+        14,
+        252
+      ]
+    },
+    {
+      "index": 141,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_09",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F97E73",
+      "rgb565": "0xFBEE",
+      "rgb565_little_endian": [
+        238,
+        251
+      ]
+    },
+    {
+      "index": 142,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_10",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F87C71",
+      "rgb565": "0xFBEE",
+      "rgb565_little_endian": [
+        238,
+        251
+      ]
+    },
+    {
+      "index": 143,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_11",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F8796F",
+      "rgb565": "0xFBCD",
+      "rgb565_little_endian": [
+        205,
+        251
+      ]
+    },
+    {
+      "index": 144,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_12",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F7776D",
+      "rgb565": "0xF3AD",
+      "rgb565_little_endian": [
+        173,
+        243
+      ]
+    },
+    {
+      "index": 145,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_13",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F7746B",
+      "rgb565": "0xF3AD",
+      "rgb565_little_endian": [
+        173,
+        243
+      ]
+    },
+    {
+      "index": 146,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_14",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F67269",
+      "rgb565": "0xF38D",
+      "rgb565_little_endian": [
+        141,
+        243
+      ]
+    },
+    {
+      "index": 147,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_15",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F57067",
+      "rgb565": "0xF38C",
+      "rgb565_little_endian": [
+        140,
+        243
+      ]
+    },
+    {
+      "index": 148,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_16",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F56D65",
+      "rgb565": "0xF36C",
+      "rgb565_little_endian": [
+        108,
+        243
+      ]
+    },
+    {
+      "index": 149,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_17",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F46B63",
+      "rgb565": "0xF34C",
+      "rgb565_little_endian": [
+        76,
+        243
+      ]
+    },
+    {
+      "index": 150,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_18",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F36961",
+      "rgb565": "0xF34C",
+      "rgb565_little_endian": [
+        76,
+        243
+      ]
+    },
+    {
+      "index": 151,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_19",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F3665F",
+      "rgb565": "0xF32B",
+      "rgb565_little_endian": [
+        43,
+        243
+      ]
+    },
+    {
+      "index": 152,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_20",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F2645D",
+      "rgb565": "0xF32B",
+      "rgb565_little_endian": [
+        43,
+        243
+      ]
+    },
+    {
+      "index": 153,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_21",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F1625B",
+      "rgb565": "0xF30B",
+      "rgb565_little_endian": [
+        11,
+        243
+      ]
+    },
+    {
+      "index": 154,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_22",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F15F59",
+      "rgb565": "0xF2EB",
+      "rgb565_little_endian": [
+        235,
+        242
+      ]
+    },
+    {
+      "index": 155,
+      "group": "coral",
+      "role": "cody_cheeks_and_error_coral_level_23",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F05D57",
+      "rgb565": "0xF2EA",
+      "rgb565_little_endian": [
+        234,
+        242
+      ]
+    },
+    {
+      "index": 156,
+      "group": "gold",
+      "role": "optional_status_gold_level_00",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F8D989",
+      "rgb565": "0xFED1",
+      "rgb565_little_endian": [
+        209,
+        254
+      ]
+    },
+    {
+      "index": 157,
+      "group": "gold",
+      "role": "optional_status_gold_level_01",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F6D685",
+      "rgb565": "0xF6B0",
+      "rgb565_little_endian": [
+        176,
+        246
+      ]
+    },
+    {
+      "index": 158,
+      "group": "gold",
+      "role": "optional_status_gold_level_02",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F5D281",
+      "rgb565": "0xF690",
+      "rgb565_little_endian": [
+        144,
+        246
+      ]
+    },
+    {
+      "index": 159,
+      "group": "gold",
+      "role": "optional_status_gold_level_03",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F3CF7D",
+      "rgb565": "0xF66F",
+      "rgb565_little_endian": [
+        111,
+        246
+      ]
+    },
+    {
+      "index": 160,
+      "group": "gold",
+      "role": "optional_status_gold_level_04",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F1CC79",
+      "rgb565": "0xF66F",
+      "rgb565_little_endian": [
+        111,
+        246
+      ]
+    },
+    {
+      "index": 161,
+      "group": "gold",
+      "role": "optional_status_gold_level_05",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#F0C875",
+      "rgb565": "0xF64E",
+      "rgb565_little_endian": [
+        78,
+        246
+      ]
+    },
+    {
+      "index": 162,
+      "group": "gold",
+      "role": "optional_status_gold_level_06",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#EEC571",
+      "rgb565": "0xEE2E",
+      "rgb565_little_endian": [
+        46,
+        238
+      ]
+    },
+    {
+      "index": 163,
+      "group": "gold",
+      "role": "optional_status_gold_level_07",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#ECC26D",
+      "rgb565": "0xEE0D",
+      "rgb565_little_endian": [
+        13,
+        238
+      ]
+    },
+    {
+      "index": 164,
+      "group": "gold",
+      "role": "optional_status_gold_level_08",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#EBBE68",
+      "rgb565": "0xEDED",
+      "rgb565_little_endian": [
+        237,
+        237
+      ]
+    },
+    {
+      "index": 165,
+      "group": "gold",
+      "role": "optional_status_gold_level_09",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E9BB64",
+      "rgb565": "0xEDCC",
+      "rgb565_little_endian": [
+        204,
+        237
+      ]
+    },
+    {
+      "index": 166,
+      "group": "gold",
+      "role": "optional_status_gold_level_10",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E7B860",
+      "rgb565": "0xE5CC",
+      "rgb565_little_endian": [
+        204,
+        229
+      ]
+    },
+    {
+      "index": 167,
+      "group": "gold",
+      "role": "optional_status_gold_level_11",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E6B45C",
+      "rgb565": "0xE5AB",
+      "rgb565_little_endian": [
+        171,
+        229
+      ]
+    },
+    {
+      "index": 168,
+      "group": "gold",
+      "role": "optional_status_gold_level_12",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E4B158",
+      "rgb565": "0xE58B",
+      "rgb565_little_endian": [
+        139,
+        229
+      ]
+    },
+    {
+      "index": 169,
+      "group": "gold",
+      "role": "optional_status_gold_level_13",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E2AE54",
+      "rgb565": "0xE56A",
+      "rgb565_little_endian": [
+        106,
+        229
+      ]
+    },
+    {
+      "index": 170,
+      "group": "gold",
+      "role": "optional_status_gold_level_14",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#E1AA50",
+      "rgb565": "0xE54A",
+      "rgb565_little_endian": [
+        74,
+        229
+      ]
+    },
+    {
+      "index": 171,
+      "group": "gold",
+      "role": "optional_status_gold_level_15",
+      "availability": "optional",
+      "reserved": false,
+      "rgb888": "#DFA74C",
+      "rgb565": "0xDD29",
+      "rgb565_little_endian": [
+        41,
+        221
+      ]
+    },
+    {
+      "index": 172,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_172",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 173,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_173",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 174,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_174",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 175,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_175",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 176,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_176",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 177,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_177",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 178,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_178",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 179,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_179",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 180,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_180",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 181,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_181",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 182,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_182",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 183,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_183",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 184,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_184",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 185,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_185",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 186,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_186",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 187,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_187",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 188,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_188",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 189,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_189",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 190,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_190",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 191,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_191",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 192,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_192",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 193,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_193",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 194,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_194",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 195,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_195",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 196,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_196",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 197,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_197",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 198,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_198",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 199,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_199",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 200,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_200",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 201,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_201",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 202,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_202",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 203,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_203",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 204,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_204",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 205,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_205",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 206,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_206",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 207,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_207",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 208,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_208",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 209,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_209",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 210,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_210",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 211,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_211",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 212,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_212",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 213,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_213",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 214,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_214",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 215,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_215",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 216,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_216",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 217,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_217",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 218,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_218",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 219,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_219",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 220,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_220",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 221,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_221",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 222,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_222",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 223,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_223",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 224,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_224",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 225,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_225",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 226,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_226",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 227,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_227",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 228,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_228",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 229,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_229",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 230,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_230",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 231,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_231",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 232,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_232",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 233,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_233",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 234,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_234",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 235,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_235",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 236,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_236",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 237,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_237",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 238,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_238",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 239,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_239",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 240,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_240",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 241,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_241",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 242,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_242",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 243,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_243",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 244,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_244",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 245,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_245",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 246,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_246",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 247,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_247",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 248,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_248",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 249,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_249",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 250,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_250",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 251,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_251",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 252,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_252",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 253,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_253",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 254,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_254",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    },
+    {
+      "index": 255,
+      "group": "reserved",
+      "role": "reserved_do_not_use_slot_255",
+      "availability": "reserved",
+      "reserved": true,
+      "rgb888": "#000000",
+      "rgb565": "0x0000",
+      "rgb565_little_endian": [
+        0,
+        0
+      ]
+    }
+  ]
+}
