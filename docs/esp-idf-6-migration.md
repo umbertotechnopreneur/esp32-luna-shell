@@ -108,7 +108,7 @@ would change the reviewed lock.
   provider and started by System Super.
 - Screen structure, layout, styling, action names, and transitions are edited
   in `components/LUNASHELL_app/gui/root.json`.
-  `scripts/generate_LUNASHELL_gui_documents.py` produces the staged bootstrap and
+  `scripts/generators/generate_LUNASHELL_gui_documents.py` produces the staged bootstrap and
   one lazy runtime document for each non-Welcome content screen.
 - The current package contains Welcome, Logs, Hardware and Hardware Detail,
   Audio Scope, Audio FFT and Audio Detail, IMU, Settings, About, and Pairing.

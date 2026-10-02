@@ -67,8 +67,8 @@ set(
     ${LUNASHELL_active_sdkconfig_defaults}
     "${PROJECT_DIR}/components/LUNASHELL_platform/CMakeLists.txt"
     "${PROJECT_DIR}/components/LUNASHELL_platform/LUNASHELL_hardware.cpp"
-    "${PROJECT_DIR}/scripts/generate_LUNASHELL_gui_documents.py"
-    "${PROJECT_DIR}/scripts/verify_tof_build_gate.py"
+    "${PROJECT_DIR}/scripts/generators/generate_LUNASHELL_gui_documents.py"
+    "${PROJECT_DIR}/scripts/checks/verify_tof_build_gate.py"
     "${LUNASHELL_gui_document_source}"
     "${CMAKE_CURRENT_LIST_FILE}"
     ${LUNASHELL_app_package_inputs}
@@ -81,11 +81,11 @@ add_custom_command(
     OUTPUT "${LUNASHELL_gui_verification_stamp}"
     COMMAND
         "${PYTHON}"
-        "${PROJECT_DIR}/scripts/generate_LUNASHELL_gui_documents.py"
+        "${PROJECT_DIR}/scripts/generators/generate_LUNASHELL_gui_documents.py"
         --check
     COMMAND
         "${PYTHON}"
-        "${PROJECT_DIR}/scripts/verify_tof_build_gate.py"
+        "${PROJECT_DIR}/scripts/checks/verify_tof_build_gate.py"
     COMMAND
         ${CMAKE_COMMAND} -E touch
         "${LUNASHELL_gui_verification_stamp}"
@@ -312,7 +312,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND
             "${LUNASHELL_app_staged_package_dir}/res/.variants"
         COMMAND
             "${PYTHON}"
-            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
             "${LUNASHELL_app_staged_package_dir}/res"
         COMMAND
             ${CMAKE_COMMAND} -E touch
@@ -322,7 +322,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND
             LUNASHELL_verify_lazy_gui_documents
             "${LUNASHELL_app_raw_stage_stamp}"
             "${LUNASHELL_app_package_profile_signature}"
-            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
         COMMENT "Preparing LUNASHELL runtime package with distance UI"
         VERBATIM
     )
@@ -379,7 +379,7 @@ else()
             "${LUNASHELL_app_staged_package_dir}/res/.variants"
         COMMAND
             "${PYTHON}"
-            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
             "${LUNASHELL_app_staged_package_dir}/res"
         COMMAND
             ${CMAKE_COMMAND} -E touch
@@ -389,7 +389,7 @@ else()
             LUNASHELL_verify_lazy_gui_documents
             "${LUNASHELL_app_raw_stage_stamp}"
             "${LUNASHELL_app_package_profile_signature}"
-            "${PROJECT_DIR}/scripts/minify_json_tree.py"
+            "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
         COMMENT "Preparing LUNASHELL runtime package without distance UI"
         VERBATIM
     )

@@ -1,0 +1,148 @@
+# The same owned MenuManager used by the Luna launcher, bundled in this checkout.
+
+# Title labels the current menu page.
+# Choices maps short selection keys to English descriptions and literal command values.
+# Throws when the console cannot read input; choosing zero or Escape returns no selection.
+function Select-DeviceMenuItem([string]$Title, [System.Collections.IDictionary]$Choices) {
+    $items = foreach ($key in $Choices.Keys) {
+        [pscustomobject]@{ Number = $key; Emoji = ''; Label = $Choices[$key].Label; Desc = $Choices[$key].Description }
+    }
+    Write-MenuPage -Title $Title -Items $items -ShowBack
+    while ($true) {
+        $choice = Read-MenuChoice -Prompt 'Select' -AllowedChoices (@($Choices.Keys) + @('0')) -IgnoreEmptyInput
+        if ($null -eq $choice -or $choice -eq '0') { return $null }
+        if ($Choices.Contains($choice)) { return $Choices[$choice].Value }
+        Write-Host "Unknown selection '$choice'. Choose one of the displayed numbers." -ForegroundColor Yellow
+    }
+}
+
+# Settings contains the current session's explicit connection/preview options.
+# Throws for an invalid edited value; the caller keeps the previous setting.
+function Edit-DeviceMenuSettings([hashtable]$Settings) {
+    $options = [ordered]@{
+        '1' = @{ Label = 'Serial port'; Description = $Settings.Port; Value = 'Port' }
+        '2' = @{ Label = 'Screen rotation'; Description = [string]$Settings.Rotation; Value = 'Rotation' }
+        '3' = @{ Label = 'Host Python executable'; Description = $Settings.PythonExecutable; Value = 'PythonExecutable' }
+        '4' = @{ Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
+        '5' = @{ Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
+    }
+    $key = Select-DeviceMenuItem 'SESSION SETTINGS' $options
+    if (-not $key) { return }
+    $value = Read-Host "  $key (blank keeps the current value)"
+    if ([string]::IsNullOrWhiteSpace($value)) { return }
+    switch ($key) {
+        Port { if ($value -notmatch '^COM\d+$') { throw 'Use a COM port name, for example COM8.' } }
+        Rotation { if ($value -notin @('0','90','180','270')) { throw 'Rotation must be 0, 90, 180 or 270.' }; $value = [int]$value }
+        Profile {
+            if ($value -notin @('full','connected','ui-minimal','display-touch','headless','leg-edition','cody-companion')) { throw 'Unknown firmware profile.' }
+            $Settings.Remove('BoardConfig')
+        }
+        BoardConfig {
+            $board = if ([IO.Path]::IsPathRooted($value)) { $value } else { Join-Path $ProjectRoot $value }
+            if (-not (Test-Path -LiteralPath $board -PathType Leaf)) { throw "Board YAML not found: $board" }
+            $Settings.Remove('Profile'); $Settings.Remove('Feature')
+        }
+        PythonExecutable { $value = Resolve-HostPython $value }
+    }
+    $Settings[$key] = $value
+}
+
+# InitialSettings contains explicitly supplied startup preferences for this menu session.
+# Throws for a missing shared menu module; individual command failures stay visible in the menu.
+function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
+    if ([Console]::IsInputRedirected) { throw 'The interactive menu requires a terminal. Use device.ps1 help or an explicit CLI action.' }
+    Import-Module (Join-Path $ProjectRoot 'scripts/common/MenuManager/MenuManager.psd1') -Force -ErrorAction Stop
+    $settings = @{ Port = 'COM8'; Rotation = 0; Jobs = 8 }
+    foreach ($key in $InitialSettings.Keys) {
+        if ($key -notin @('Action')) { $settings[$key] = $InitialSettings[$key] }
+    }
+    $actions = Get-DeviceActionParameters
+    while ($true) {
+        $selector = if ($settings.BoardConfig) { $settings.BoardConfig } elseif ($settings.Profile) { $settings.Profile } else { 'cody-companion' }
+        Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
+        Write-Host "  Firmware: $selector    Port: $($settings.Port)    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
+        $main = [ordered]@{
+            '1' = @{ Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }
+            '2' = @{ Label = 'Boot previews'; Description = 'Sleep, waking, ready or PNG captures'; Value = 'boot' }
+            '3' = @{ Label = 'Firmware and device'; Description = 'Configure, build, flash, serial and size'; Value = 'firmware' }
+            '4' = @{ Label = 'Checks'; Description = 'Run one explicitly selected check'; Value = 'check' }
+            '5' = @{ Label = 'Asset generators'; Description = 'Regenerate canonical source assets'; Value = 'generate' }
+            '6' = @{ Label = 'Clean artifacts'; Description = 'Remove transient output; keep build/config/Python caches'; Value = 'clean-artifacts' }
+            '7' = @{ Label = 'Session settings'; Description = 'Port, rotation, Python and board/profile'; Value = 'settings' }
+            '8' = @{ Label = 'Luna reference simulator'; Description = 'Existing reference UI'; Value = 'simulator-luna' }
+            '9' = @{ Label = 'Command help'; Description = 'Complete CLI and tool catalog'; Value = 'help' }
+            'm' = @{ Label = 'Maintenance'; Description = 'Package the Luna EXE or preview source banners'; Value = 'maintenance' }
+        }
+        $selected = Select-DeviceMenuItem 'MAIN MENU' $main
+        if (-not $selected) { return }
+        try {
+            if ($selected -eq 'settings') { Edit-DeviceMenuSettings $settings; continue }
+            $extra = @{}
+            if ($selected -eq 'maintenance') {
+                $maintenance = [ordered]@{
+                    '1' = @{ Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }
+                    '2' = @{ Label = 'Preview source banners'; Description = 'Read-only banner maintenance preview'; Value = 'banner' }
+                }
+                $selected = Select-DeviceMenuItem 'MAINTENANCE' $maintenance
+                if (-not $selected) { continue }
+            }
+            if ($selected -eq 'boot') {
+                $boot = [ordered]@{
+                    '1' = @{ Label = 'Sleeping'; Description = 'Start of boot'; Value = 'boot-sleep' }
+                    '2' = @{ Label = 'Waking'; Description = 'Intermediate boot stage'; Value = 'boot-waking' }
+                    '3' = @{ Label = 'Ready'; Description = 'Boot complete'; Value = 'boot-ready' }
+                    '4' = @{ Label = 'Capture all three'; Description = 'artifacts/simulator/*.png'; Value = 'boot-screens' }
+                }
+                $screenChoice = Select-DeviceMenuItem 'BOOT PREVIEWS' $boot
+                if (-not $screenChoice) { continue }
+                if ($screenChoice -eq 'boot-screens') { $selected = 'boot-screens' }
+                else { $selected = 'simulator'; $extra.Screen = $screenChoice }
+            }
+            if ($selected -eq 'firmware') {
+                $firmware = [ordered]@{}; $index = 0
+                foreach ($name in (Get-FirmwareActions)) {
+                    $index++
+                    $physical = $name -in @('flash','reset','monitor','capture','erase','combo','recover','ports','discovery','port-status')
+                    $description = if ($physical) { "DEVICE / $($settings.Port)" } else { 'FIRMWARE / selected profile' }
+                    $firmware[[string]$index] = @{ Label = $name; Description = $description; Value = $name }
+                }
+                $selected = Select-DeviceMenuItem 'FIRMWARE AND DEVICE' $firmware
+                if (-not $selected) { continue }
+            }
+            if ($selected -in @('check','generate')) {
+                $group = if ($selected -eq 'check') { 'checks' } else { 'generators' }
+                $catalog = [ordered]@{}; $index = 0
+                foreach ($tool in (Get-DeviceTools $group)) {
+                    $index++
+                    $catalog[[string]$index] = @{ Label = $tool.Name; Description = $tool.Extension; Value = $tool.Name }
+                }
+                $toolName = Select-DeviceMenuItem ($group.ToUpperInvariant()) $catalog
+                if (-not $toolName) { continue }
+                $key = if ($selected -eq 'check') { 'Check' } else { 'Generator' }
+                $extra[$key] = $toolName
+                # A JSON token array supports spaces and switches without Invoke-Expression.
+                $rawArguments = Read-Host '  Extra arguments as JSON array, or Enter for defaults'
+                if ($rawArguments) {
+                    $tokens = ConvertFrom-Json -InputObject $rawArguments -NoEnumerate
+                    if ($tokens -isnot [array] -or @($tokens | Where-Object { $_ -isnot [string] }).Count) {
+                        throw 'Expected an array of strings, for example ["--help"].'
+                    }
+                    $extra.ToolArguments = [string[]]$tokens
+                }
+            }
+            $parameters = @{ Action = $selected }
+            foreach ($key in $settings.Keys) {
+                if ($key -eq 'PythonExecutable' -and $selected -in @('check','generate') -and
+                    (Find-DeviceTool $group $toolName).Extension -ne '.py') { continue }
+                if ($key -in $actions[$selected]) { $parameters[$key] = $settings[$key] }
+            }
+            foreach ($key in $extra.Keys) { $parameters[$key] = $extra[$key] }
+            Write-Host "  Running: device.ps1 $selected" -ForegroundColor Cyan
+            & (Join-Path $ProjectRoot 'scripts/device.ps1') @parameters
+        } catch {
+            Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
+        }
+        Wait-ForEnter
+    }
+}

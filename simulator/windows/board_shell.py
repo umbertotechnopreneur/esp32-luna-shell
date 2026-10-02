@@ -14,8 +14,8 @@ def resource_path(relative: str) -> Path:
     return Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parents[2])) / relative
 
 
-sys.path.insert(0, str(resource_path("scripts")))
-from board_config import UniqueKeyLoader, validate_board_config_data  # noqa: E402
+sys.path.insert(0, str(resource_path("")))
+from scripts.common.board_config import UniqueKeyLoader, validate_board_config_data  # noqa: E402
 
 
 DEFAULT_BOARD_CONFIG = "config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-bootstrap.yaml"

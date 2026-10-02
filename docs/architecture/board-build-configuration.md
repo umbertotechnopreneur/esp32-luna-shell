@@ -95,7 +95,7 @@ must supply an explicit adapter and pinout; changing the YAML board name alone
 is rejected.
 
 The Windows simulator can preview this exact YAML and the shell's packaged
-`root.json` with `run-simulator.ps1 -BoardConfig`. It shows the 466 × 466
+`root.json` with `device.ps1 simulator-luna -ToolArguments '--board-config'`. It shows the 466 × 466
 screen, one 320 × 320 touch area, and the mascot. Taps increment the synthetic
 console counter. A visible `SYNTHETIC`
 label distinguishes the preview from firmware. Its contract checks verify
@@ -108,5 +108,5 @@ access needs explicit authorization for the requested operation.
 The lifecycle, charging, codec, and build-clean corrections above are pending the
 final validation package recorded in `TODO.md`. Regression cases for the actual
 shell lifecycle and build-clean helper are prepared in
-`scripts/verify_board_services.ps1`; tests and firmware builds will run only on
+`scripts/checks/verify_board_services.ps1`; tests and firmware builds will run only on
 explicit user request.

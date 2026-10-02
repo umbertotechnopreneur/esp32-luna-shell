@@ -7,7 +7,7 @@ visibly labelled `SYNTHETIC`; simulator state never enters firmware snapshots.
 
 ## Cody cloud-rig PoC
 
-The `esp32-cody-companion` worktree adds `-Cody` to this same launcher. It opens
+The unified `scripts/device.ps1 simulator` action opens
 `cody_simulator.py`: a local cloud with named normalized points, cubic handles,
 independent facial sliders, elapsed-time breathing/blinking, rotation and point
 inspection. Independent contour controls change cloud fullness, wave amplitude,
@@ -20,13 +20,14 @@ The Embarrassed example makes the cheeks more prominent using the same controls.
 the shared palette has 256 slots. No fake-device HTTP server is started.
 
 ```powershell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Cody -PythonExecutable 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe'
+pwsh -NoProfile -File .\scripts\device.ps1 simulator -PythonExecutable 'E:\ESP32 Cody Companion\artifacts\python\simulator\Scripts\python.exe'
 ```
 
-Use `-CodyScreen boot-sleep|boot-waking|boot-ready|rig`, `-CodyRotation 180`,
-`-SafeGuide`, or `-Capture .\artifacts\cody-poc\preview.png`. The explicit Python
-path reuses the existing Luna environment; a local `.venv-simulator` with Pillow
-and PyYAML also works. Cody options cannot be mixed with device-twin scenarios.
+Use `-Screen boot-sleep|boot-waking|boot-ready|rig`, `-Rotation 180`,
+`-SafeGuide`, or `-OutputPath .\artifacts\simulator\preview.png`. Select a Python
+interpreter with Pillow and PyYAML using `-PythonExecutable`, or prepare the
+local `artifacts/python/simulator` environment with the packaging action.
+Cody options cannot be mixed with device-twin scenarios.
 The legacy packaged EXE remains a Luna target; Cody currently launches from source.
 See `docs/architecture/cody-rig-poc.md` for controls, limits and validation scope.
 
@@ -62,15 +63,15 @@ synthetic touch counter in the console; the preview remains visibly labelled
 `SYNTHETIC`.
 
 ```powershell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -BoardConfig
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -BoardConfig -DumpBoardShell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -BoardConfig -ShellTaps 2
+.\scripts\device.ps1 simulator-luna -ToolArguments '--board-config'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--board-config','--dump-board-shell'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--board-config','--shell-taps','2'
 ```
 
-The interactive launcher offers `U` to switch between the full device twin and
-this minimal board shell. `-BoardConfig` cannot be combined with full-device
-scenarios, pages, or radio options. The simulator environment needs Pillow
-and PyYAML; `build-exe.ps1` installs both in `.venv-simulator` and packages the
+The unified menu exposes Cody and Luna simulator actions. Pass `--board-config`
+through `-ToolArguments` to select this minimal board shell; it cannot be mixed
+with full-device scenarios, pages, or radio options. The simulator needs Pillow
+and PyYAML; `device.ps1 package-simulator` prepares the environment and packages the
 YAML, shell JSON, mascot preview, and validator into the executable. This is a host preview of
 the UI contract, not ESP-IDF or physical display/touch emulation.
 
@@ -110,21 +111,21 @@ once, while TOF calibration requires two current sensors.
 Run from the project root:
 
 ```powershell
-.\simulator\windows\run-simulator.ps1
-.\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
-.\simulator\windows\run-simulator.ps1 -Scenario gps-searching
-.\simulator\windows\run-simulator.ps1 -Scenario battery-low -Screen battery
-.\simulator\windows\run-simulator.ps1 -Scenario battery-charging -Screen battery
-.\simulator\windows\run-simulator.ps1 -Scenario battery-unavailable -Screen battery
-.\simulator\windows\run-simulator.ps1 -Screen battery
-.\simulator\windows\run-simulator.ps1 -Screen logs
-.\simulator\windows\run-simulator.ps1 -Screen settings
-.\simulator\windows\run-simulator.ps1 -Screen gps
-.\simulator\windows\run-simulator.ps1 -Scenario gps-searching -Screen gps
-.\simulator\windows\run-simulator.ps1 -Screen storage
-.\simulator\windows\run-simulator.ps1 -Screen pairing-intro
-.\simulator\windows\run-simulator.ps1 -Screen leg-accel
-.\simulator\windows\run-simulator.ps1 -Screen leg-motion -Capture .\artifacts\leg-motion-preview.png
+.\scripts\device.ps1 simulator-luna
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','sd-unformatted'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','gps-searching'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-low','--screen','battery'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-charging','--screen','battery'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-unavailable','--screen','battery'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','battery'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','logs'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','settings'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','gps'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','gps-searching','--screen','gps'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','storage'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','pairing-intro'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','leg-accel'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','leg-motion','--capture','.\artifacts\leg-motion-preview.png'
 ```
 
 The Leg Edition preview has `leg-accel`, `leg-gyro`, `leg-combo`,
@@ -138,11 +139,11 @@ The Python entry point can validate or inspect the same model without creating
 a Tk window:
 
 ```powershell
-python -B .\simulator\windows\lunashell_simulator.py --list-scenarios
-python -B .\simulator\windows\lunashell_simulator.py --validate-scenarios
-python -B .\simulator\windows\lunashell_simulator.py --scenario healthy --at-ms 2500 --dump-snapshot
-python -B .\simulator\windows\lunashell_simulator.py --scenario healthy --action start:wireless --advance-ms 1000 --dump-api /api/v1/status
-python -B .\simulator\windows\lunashell_simulator.py --scenario-file .\path\custom.json --dump-api /api/v1/info --output .\tmp\device-info.json
+.\scripts\device.ps1 simulator-luna -ToolArguments '--list-scenarios'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--validate-scenarios'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--at-ms','2500','--dump-snapshot'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--action','start:wireless','--advance-ms','1000','--dump-api','/api/v1/status'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario-file','.\path\custom.json','--dump-api','/api/v1/info','--output','artifacts/simulator/device-info.json'
 ```
 
 `--scenario-file` loads an explicit v1 JSON fixture; `--at-ms` chooses its
@@ -155,7 +156,7 @@ every built-in fixture.
 Run the full hardware-free contract package from the repository root:
 
 ```powershell
-python -B .\scripts\verify_simulator.py
+.\scripts\device.ps1 check -Check simulator
 ```
 
 It validates every fixture and timeline, deterministic clock replay, immutable
@@ -165,29 +166,29 @@ loopback HTTP transport. It returns a nonzero exit code on any failure.
 Capture the current synthetic home screen without touching a device:
 
 ```powershell
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Capture .\simulator\windows\healthy.png
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen battery -Capture .\simulator\windows\battery-healthy.png
-.\simulator\windows\run-simulator.ps1 -Scenario battery-low -Screen battery -Capture .\simulator\windows\battery-low.png
-.\simulator\windows\run-simulator.ps1 -Scenario battery-charging -Screen battery -Capture .\simulator\windows\battery-charging.png
-.\simulator\windows\run-simulator.ps1 -Scenario battery-unavailable -Screen battery -Capture .\simulator\windows\battery-unavailable.png
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen logs -Capture .\simulator\windows\logs.png
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen settings -Capture .\simulator\windows\settings.png
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen gps -Capture .\simulator\windows\gps-fix.png
-.\simulator\windows\run-simulator.ps1 -Scenario gps-searching -Screen gps -Capture .\simulator\windows\gps-searching.png
-.\simulator\windows\run-simulator.ps1 -Scenario healthy -Screen storage -Capture .\simulator\windows\storage.png
-.\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted -Screen storage -Capture .\simulator\windows\storage-format-required.png
-.\simulator\windows\run-simulator.ps1 -Screen pairing-app-qr -Capture .\simulator\windows\pairing-app-qr.png
-.\simulator\windows\run-simulator.ps1 -Screen pairing-device-qr -Capture .\simulator\windows\pairing-device-qr.png
-.\simulator\windows\run-simulator.ps1 -Screen pairing-success -Capture .\simulator\windows\pairing-success.png
-.\simulator\windows\run-simulator.ps1 -Screen pairing-failed -Capture .\simulator\windows\pairing-failed.png
-.\simulator\windows\run-simulator.ps1 -IdleState command-hidden -Capture .\simulator\windows\command-hidden.png
-.\simulator\windows\run-simulator.ps1 -Screen settings -IdleState fullscreen -SafeGuide -Capture .\simulator\windows\settings-fullscreen.png
-.\simulator\windows\run-simulator.ps1 -IdleState dimmed -Capture .\simulator\windows\dimmed.png
-.\simulator\windows\run-simulator.ps1 -Screen chrome-settings -Capture .\simulator\windows\chrome-settings.png
-.\simulator\windows\run-simulator.ps1 -Screen power-settings -Capture .\simulator\windows\power-settings.png
-.\simulator\windows\run-simulator.ps1 -Screen hardware -Capture .\simulator\windows\hardware.png
-.\simulator\windows\run-simulator.ps1 -Screen tof -Capture .\simulator\windows\tof.png
-.\simulator\windows\run-simulator.ps1 -Screen tof-settings -Capture .\simulator\windows\tof-settings.png
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--capture','artifacts/simulator/healthy.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--screen','battery','--capture','artifacts/simulator/battery-healthy.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-low','--screen','battery','--capture','artifacts/simulator/battery-low.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-charging','--screen','battery','--capture','artifacts/simulator/battery-charging.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','battery-unavailable','--screen','battery','--capture','artifacts/simulator/battery-unavailable.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--screen','logs','--capture','artifacts/simulator/logs.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--screen','settings','--capture','artifacts/simulator/settings.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--screen','gps','--capture','artifacts/simulator/gps-fix.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','gps-searching','--screen','gps','--capture','artifacts/simulator/gps-searching.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','healthy','--screen','storage','--capture','artifacts/simulator/storage.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','sd-unformatted','--screen','storage','--capture','artifacts/simulator/storage-format-required.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','pairing-app-qr','--capture','artifacts/simulator/pairing-app-qr.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','pairing-device-qr','--capture','artifacts/simulator/pairing-device-qr.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','pairing-success','--capture','artifacts/simulator/pairing-success.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','pairing-failed','--capture','artifacts/simulator/pairing-failed.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--idle-state','command-hidden','--capture','artifacts/simulator/command-hidden.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','settings','--idle-state','fullscreen','--safe-guide','--capture','artifacts/simulator/settings-fullscreen.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--idle-state','dimmed','--capture','artifacts/simulator/dimmed.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','chrome-settings','--capture','artifacts/simulator/chrome-settings.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','power-settings','--capture','artifacts/simulator/power-settings.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','hardware','--capture','artifacts/simulator/hardware.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','tof','--capture','artifacts/simulator/tof.png'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--screen','tof-settings','--capture','artifacts/simulator/tof-settings.png'
 ```
 
 Controls:
@@ -242,7 +243,7 @@ arc, leaving the scrolling body for status and configuration data. GPS is green 
 amber while searching, neutral when unavailable, and red on an explicit
 failure. Wireless is amber while stopped and green while running; selecting
 its central command switches between synthetic Start and Stop states. Use
-`-WirelessRunning` with `run-simulator.ps1` to capture the active state
+`--wireless-running` through `device.ps1 simulator-luna -ToolArguments` to capture the active state
 directly. The GPS page mirrors
 the firmware layout with receiver state, fix validity, coordinates, satellite
 count, HDOP, altitude, speed, course, GNSS UTC, fix quality, and NMEA queue
@@ -252,10 +253,10 @@ state. Every simulator value is visibly marked `SYNTHETIC`; the
 Build the standalone Windows executable:
 
 ```powershell
-.\simulator\windows\build-exe.ps1
+.\scripts\commands\package-simulator.ps1
 ```
 
-The build script creates an isolated `.venv-simulator` environment and writes
+The packaging action creates `artifacts/python/simulator` and writes
 its generated build files and executable below
 `artifacts/simulator/windows/`, including
 `artifacts/simulator/windows/dist/ESP32LunaShellDeviceSimulator.exe`.

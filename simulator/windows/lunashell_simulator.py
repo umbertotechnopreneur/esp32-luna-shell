@@ -29,6 +29,7 @@ from device_model import (
     load_scenario,
     scenario_names,
 )
+from runtime_paths import resolve_runtime_output
 
 
 DISPLAY_SIZE = 466
@@ -5331,6 +5332,7 @@ def _pump_capture_events(root: tk.Tk, delay_ms: int) -> None:
         time.sleep(min(0.01, remaining))
 
 
+# No parameters: parse explicit CLI options and run the requested source or packaged simulator route.
 def main() -> None:
     available_scenarios = scenario_names()
     parser = argparse.ArgumentParser(
@@ -5357,7 +5359,8 @@ def main() -> None:
     )
     parser.add_argument("--action", action="append", default=[])
     parser.add_argument("--advance-ms", type=int, default=0)
-    parser.add_argument("--output", type=Path)
+    parser.add_argument("--output", type=Path,
+                        help="Output file; relative names use artifacts/simulator, explicit paths must stay under artifacts")
     parser.add_argument(
         "--screen",
         choices=(
@@ -5394,7 +5397,8 @@ def main() -> None:
         ),
         default="active",
     )
-    parser.add_argument("--capture", type=Path)
+    parser.add_argument("--capture", type=Path,
+                        help="Capture PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts")
     parser.add_argument("--capture-after-ms", type=int, default=250,
                         help="Pump simulator events for this many real milliseconds before capture")
     parser.add_argument("--safe-guide", action="store_true")
@@ -5410,6 +5414,13 @@ def main() -> None:
     args = parser.parse_args()
     if args.capture_after_ms < 0:
         parser.error("--capture-after-ms must be non-negative")
+    try:
+        if args.capture is not None:
+            args.capture = resolve_runtime_output(args.capture)
+        if args.output is not None:
+            args.output = resolve_runtime_output(args.output)
+    except (OSError, RuntimeError, ValueError) as error:
+        parser.error(str(error))
 
     if args.board_config:
         import yaml

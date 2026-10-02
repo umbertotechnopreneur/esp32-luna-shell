@@ -14,11 +14,11 @@ ESP32-S3 device.
 Do not edit generated files manually. Run:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
+.\scripts\device.ps1 generate -Generator device-assets
 ```
 
-For SFX only, run `pwsh -NoProfile -File .\scripts\generate-sfx.ps1`.
-For the idle mascot head, run `python .\scripts\generate_mascot_asset.py`
+For SFX only, run `pwsh -NoProfile -File .\scripts\generators\generate-sfx.ps1`.
+For the idle mascot head, run `python .\scripts\generators\generate_mascot_asset.py`
 (requires Pillow). The face and articulated limbs are assembled from independent
 GUI nodes; the head sprite deliberately has a blank display.
 Both commands operate only on repository assets; neither initializes ESP-IDF,

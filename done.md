@@ -1,5 +1,16 @@
 # Done
 
+- Consolidated the Cody tooling behind `scripts/device.ps1`: local shared menu,
+  host/firmware routing, grouped generators/checks/contracts, three boot captures,
+  failure logs and artifact containment. Removed the duplicate simulator menu and
+  serial-capture alias. Transient artifacts are cleaned before build/flash while
+  firmware/config/Python caches survive; compiler jobs are bounded to eight for
+  both build and flash targets. Console regressions were prepared but not run;
+  simulator, packaging, firmware and hardware validation remain deferred.
+  Executed only the requested `clean-artifacts` operation: previous PoC runtime
+  output was removed and the cleanup log saved under `artifacts/logs/`.
+  Removed the obsolete `scripts/__pycache__` output as well.
+
 ## Cody responsive inspector and facial controls (2026-10-02)
 
 - [x] Fit the desktop preview to its viewport with one shared image/label/touch

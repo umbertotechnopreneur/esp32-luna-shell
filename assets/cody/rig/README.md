@@ -53,7 +53,7 @@ its existing bounded scene and strip rendering path without a text overlay.
 Convert authored geometry and the shared 256-slot palette with:
 
 ```powershell
-python -B .\scripts\generate_cody_rig.py
+.\scripts\device.ps1 generate -Generator cody-rig
 ```
 
 This asset conversion writes immutable flash tables and a source-hash manifest

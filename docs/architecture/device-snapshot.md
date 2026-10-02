@@ -151,17 +151,17 @@ remain usable.
 
 ## Verification
 
-`scripts/verify_snapshot_integrity.py` runs deterministic, hardware-free checks
+`scripts/checks/verify_snapshot_integrity.py` runs deterministic, hardware-free checks
 for transaction visibility, TTL expiry, recovery after a later successful
 sample, one-shot Diagnostic-to-Full reuse, unchanged acquisition timestamps,
 failed-commit behavior, and the restricted failed-allocation callback.
 
-`scripts/verify_power_policy.py` verifies the inactivity boundaries, exact
+`scripts/checks/verify_power_policy.py` verifies the inactivity boundaries, exact
 50-percent dim readback, qualified-motion hysteresis/dwell/cooldown, PKEY
 queue-before-clear ordering, dedicated IRQ ownership, and real panel off/on
 transitions without requiring hardware.
 
-`scripts/verify_fullscreen_layout.py` checks the Fullscreen snapshot contract,
+`scripts/checks/verify_fullscreen_layout.py` checks the Fullscreen snapshot contract,
 BOOT release guard, canonical viewport matrix, centered route surfaces,
 circular-safe padding bindings, and expanding scroll containers without
 requiring hardware.

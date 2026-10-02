@@ -64,14 +64,14 @@ of elapsed boot time. No timer delays startup to display an image. The ready
 face reports boot completion, not a Wi-Fi association or Codex handshake.
 Each phase survives later orientation and panel-wake redraws.
 
-`scripts/package_cody_boot.py` converts that source to 466 x 466 indexed RGB565
+`scripts/generators/package_cody_boot.py` converts that source to 466 x 466 indexed RGB565
 rows with a dedicated black index, no dithering and at most 64 palette entries.
 It writes checked-in immutable C++ arrays plus encoding metadata under
 `assets/cody/boot/generated/`. It is an asset conversion tool, not an IDF
 configure/build/test workflow. Run it explicitly after replacing the source:
 
 ```powershell
-python .\scripts\package_cody_boot.py
+.\scripts\device.ps1 generate -Generator package-cody-boot
 ```
 
 The three resources contain 91,264 bytes of array data in total, excluding

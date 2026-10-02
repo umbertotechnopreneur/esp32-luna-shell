@@ -13,13 +13,14 @@ from tkinter import font as tkfont, ttk
 from PIL import Image, ImageDraw, ImageFont, ImageTk
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "scripts"))
-from cody_rig_contract import (  # noqa: E402
+sys.path.insert(0, str(ROOT))
+from scripts.common.cody_rig_contract import (  # noqa: E402
     advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract, make_contour_state,
 )
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
+from runtime_paths import resolve_runtime_output  # noqa: E402
 
 SCREEN_NAMES = ("rig", "boot-sleep", "boot-waking", "boot-ready")
 BOOT_NAMES = {"boot-sleep": "cody-sleep-blue.png", "boot-waking": "cody-waking-blue.png", "boot-ready": "cody-ready-blue.png"}
@@ -654,16 +655,20 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--screen',choices=SCREEN_NAMES,default='rig')
     parser.add_argument('--rotation',type=int,choices=(0,90,180,270),default=0)
-    parser.add_argument('--capture',type=Path)
+    parser.add_argument('--capture',type=Path,
+                        help='Output PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts')
     parser.add_argument('--safe-guide',action='store_true')
     parser.add_argument('--at-ms',type=int,default=1000)
     args=parser.parse_args(argv)
     if args.at_ms<0: parser.error('--at-ms must be non-negative')
+    if args.capture is not None:
+        try:
+            args.capture=resolve_runtime_output(args.capture)
+        except (OSError, RuntimeError, ValueError) as error:
+            parser.error(str(error))
     renderer=CodyRenderer()
     if args.capture:
-        destination=args.capture.resolve()
-        artifacts=(ROOT/'artifacts').resolve()
-        if not destination.is_relative_to(artifacts): parser.error('Cody captures must be under this checkout/artifacts')
+        destination=args.capture
         values=animate(renderer.rig['boot_channels']['ready'],args.at_ms)
         contour=advance_contour(renderer.rig,make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
         image,_=renderer.render(args.screen,values,tuple(renderer.rig['default_transform'][key] for key in ('x','y','scale')),

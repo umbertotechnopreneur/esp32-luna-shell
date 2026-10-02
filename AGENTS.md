@@ -118,6 +118,15 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
   parallel Copilot instruction files or duplicate agent contracts.
 - Keep generated firmware and simulator build output under `artifacts/`; do not
   create profile build trees in the repository root.
+- Use `scripts/device.ps1` as the sole public CLI/menu for firmware, simulators,
+  generators and checks. Keep implementation in `commands/`, reusable helpers
+  in `common/`, generators in `generators/`, and checks in `checks/`.
+- Before every firmware build/flash (including combo/recover), clean transient
+  artifacts through the shared artifact helper. Preserve active firmware,
+  dependency locks, generated configuration and Python caches; `fullclean`
+  explicitly cleans the selected build. Keep logs, captures, reports, temporary
+  files and local simulator environments under `artifacts/`. Never delete
+  versioned source assets as runtime-output cleanup.
 - Treat `TODO.md` as the active backlog for open work.
 - Treat `planned-todo.md` as the deferred, non-priority backlog, grouped by
   macro activity. Move an item to `TODO.md` when it becomes active work.

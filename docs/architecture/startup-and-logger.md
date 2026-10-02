@@ -76,7 +76,7 @@ System Core loads and mounts the requested route document, then unloads it
 before mounting another; at most one lazy route document is active.
 
 The editable declarative source is `components/LUNASHELL_app/gui/root.json`.
-`scripts/generate_LUNASHELL_gui_documents.py` emits the bootstrap and independently
+`scripts/generators/generate_LUNASHELL_gui_documents.py` emits the bootstrap and independently
 loadable route documents staged in LittleFS. The native app selects documents
 and binds values through the GUI interface. It reads hardware telemetry only
 from `DeviceSnapshotService`; the Logs screen reads only the canonical logger

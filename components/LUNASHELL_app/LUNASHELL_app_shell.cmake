@@ -53,12 +53,12 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${LUNASHELL_shell_source}"
         "${LUNASHELL_shell_stage_dir}/res/root.json"
-    COMMAND "${PYTHON}" "${PROJECT_DIR}/scripts/minify_json_tree.py"
+    COMMAND "${PYTHON}" "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
         "${LUNASHELL_shell_stage_dir}/res"
     COMMAND ${CMAKE_COMMAND} -E touch "${LUNASHELL_shell_stamp}"
     DEPENDS
         "${LUNASHELL_shell_source}"
-        "${PROJECT_DIR}/scripts/minify_json_tree.py"
+        "${PROJECT_DIR}/scripts/generators/minify_json_tree.py"
         "${CMAKE_CURRENT_LIST_FILE}"
     COMMENT "Preparing minimal display and touch app package"
     VERBATIM

@@ -8,6 +8,12 @@ Color selection is planned as an OOBE preference; OOBE and MCP are not implement
 in this checkpoint. The inherited Luna documentation below describes the other
 explicit firmware profiles.
 
+Open the development console with `pwsh -NoProfile -File .\scripts\device.ps1`.
+It groups the Cody simulator, boot previews, firmware/device actions, asset
+generators and explicit checks. Use `help` for the CLI. Runtime output goes to
+`artifacts/`; build/flash clears transient output while retaining firmware and
+configuration caches. See [the console guide](scripts/README.md).
+
 ## Inherited Luna Shell
 
 Firmware and Windows simulator for ESP32 Luna Shell, currently configured for
@@ -144,7 +150,7 @@ small Pairing document, so advancing through the wizard does not repeatedly
 parse or allocate new GUI trees; the document is unloaded when the wizard ends.
 
 The editable declarative source remains
-`components/LUNASHELL_app/gui/root.json`; `scripts/generate_LUNASHELL_gui_documents.py`
+`components/LUNASHELL_app/gui/root.json`; `scripts/generators/generate_LUNASHELL_gui_documents.py`
 produces the bootstrap and lazy runtime documents staged in LittleFS. Those JSON
 documents own view structure, layout, styles, and action names. C++ owns
 lifecycle, route-document selection, and data binding. App code does not
@@ -322,7 +328,7 @@ This checkout is configured for ESP-IDF 6.0.2 on Windows. PowerShell 7, Python,
 FFmpeg, and `winget` are available locally. Canonical configuration belongs in
 the versioned [`config/sdkconfig/v1/catalog.json`](config/sdkconfig/v1/catalog.json)
 composition and its defaults layers. Generated profile configurations live
-under ignored `.sdkconfig/v1/`; they are never a source-controlled API.
+under ignored `artifacts/sdkconfig/v1/`; they are never a source-controlled API.
 See [the ESP-IDF 6 migration record](docs/esp-idf-6-migration.md) for the
 dependency changes, validation boundary, and known limits.
 
@@ -359,7 +365,7 @@ remains visible in the console. The file is updated as CMake and Ninja emit
 each line:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full -LogPath .\runtime-logs\build.log
+pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full -LogPath .\artifacts\logs\build.log
 ```
 
 Show the application and static memory size report:
@@ -371,7 +377,7 @@ pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full
 Pull requests and pushes to `main` also build the `full` profile and enforce
 reviewed budgets for application bytes, linked image bytes, static DIRAM, total
 translation units, and managed-component translation units. The policy and its
-reviewed baseline live in `scripts/resource_budgets.json`; intentional baseline
+reviewed baseline live in `scripts/checks/resource_budgets.json`; intentional baseline
 changes must update that file in the same reviewed change. The checker is
 hardware-free and consumes only the normal ESP-IDF build artifacts:
 
@@ -379,7 +385,7 @@ hardware-free and consumes only the normal ESP-IDF build artifacts:
 pwsh -NoProfile -File .\scripts\device.ps1 size -Profile full `
     -SizeOutputFormat json2 `
     -SizeOutputFile .\artifacts\build-full\esp-idf-size.json
-python .\scripts\check_resource_budgets.py --build-dir .\artifacts\build-full --size-report .\artifacts\build-full\esp-idf-size.json
+.\scripts\device.ps1 check -Check check-resource-budgets -ToolArguments '--build-dir','.\artifacts\build-full','--size-report','.\artifacts\build-full\esp-idf-size.json'
 ```
 
 ## Build profiles and feature flags
@@ -610,15 +616,11 @@ pwsh -NoProfile -File .\scripts\device.ps1 monitor -Profile full -Port COM12
 Capture a bounded diagnostic log:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
+pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -DurationSeconds 30 -OutputPath .\artifacts\runtime-logs\device.log
 ```
 
-`capture-serial.ps1` is a thin alias for that same supported action; it never
-builds implicitly and still routes the operation through `device.ps1`:
-
-```powershell
-pwsh -NoProfile -File .\scripts\capture-serial.ps1 -Port COM12 -DurationSeconds 30 -OutputPath .\runtime-logs\device.log
-```
+The `capture` action owns bounded serial recording directly and does not build
+firmware implicitly. Use `-ResetBeforeCapture` only when a device reset is intended.
 
 ### PowerShell quoting on Windows
 
@@ -653,10 +655,10 @@ The Windows build uses deterministic synthetic hardware data, so navigation,
 boot status, and failure paths can be debugged without the physical device.
 
 ```powershell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -BoardConfig
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Scenario sd-unformatted
-pwsh -NoProfile -File .\simulator\windows\build-exe.ps1
+pwsh -NoProfile -File .\scripts\device.ps1 simulator-luna
+.\scripts\device.ps1 simulator-luna -ToolArguments '--board-config'
+.\scripts\device.ps1 simulator-luna -ToolArguments '--scenario','sd-unformatted'
+.\scripts\device.ps1 package-simulator
 ```
 
 See [simulator/windows/README.md](simulator/windows/README.md) for controls and
@@ -668,13 +670,13 @@ Brand, display, and original SFX inputs live under `assets/`. Regenerate all
 device derivatives with:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\generate-device-assets.ps1
+.\scripts\device.ps1 generate -Generator device-assets
 ```
 
 Regenerate only the configured sound effects with:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\generate-sfx.ps1
+.\scripts\device.ps1 generate -Generator sfx
 ```
 
 Generated outputs include the 466 x 466 PNG, a headerless little-endian RGB565
@@ -692,7 +694,7 @@ generators without deadlock; a stale lock remains visible for inspection instead
 of being guessed safe and removed. The SFX plan is parsed from one byte snapshot
 and bound to its SHA-256; a configuration change aborts the commit and restores
 the asset package without overwriting the externally changed configuration.
-Use `-ValidateOnly` for an end-to-end preflight with no canonical output writes;
+Use `-ToolArguments '-ValidateOnly'` for an end-to-end preflight with no canonical output writes;
 it acquires and releases the same transient coordination lock. New regenerations
 record the exact Python, Pillow, Poppler, PowerShell, FFmpeg, FFprobe, and font
 provenance used; older tracked schema-1 manifests may omit those additive fields
@@ -704,11 +706,11 @@ Owned C and C++ sources can be normalized to the canonical source banner.
 Preview or apply it with:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\add-source-banner.ps1
-pwsh -NoProfile -File .\scripts\add-source-banner.ps1 -Apply
+.\scripts\device.ps1 banner
+.\scripts\device.ps1 banner -ToolArguments '-Apply'
 ```
 
-The script is idempotent, supports `-Remove -Apply`, and intentionally excludes
+The script is idempotent, supports `-ToolArguments '-Remove','-Apply'`, and intentionally excludes
 the Waveshare BSP, ESP-Brookesia, managed components, build output, generated
 files, and other third-party code. It explicitly replaces the recognized legacy
 personal-contact banner and refuses an apply before writing when an unfamiliar
@@ -720,8 +722,8 @@ common secret literals without generating assets, building, or opening a
 serial port:
 
 ```powershell
-pwsh -NoProfile -File .\scripts\verify_script_contracts.ps1
-python -B .\scripts\verify_changed_secrets.py
+.\scripts\device.ps1 check -Check script-contracts
+.\scripts\device.ps1 check -Check changed-secrets
 ```
 
 ## Repository map

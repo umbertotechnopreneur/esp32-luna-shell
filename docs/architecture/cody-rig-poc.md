@@ -25,8 +25,8 @@ tables stay in internal flash. Original boot assets retain their own indexed
 palettes; this does not recolor those approved PNGs.
 
 ```powershell
-# Use the existing Luna simulator interpreter, or a local environment with Pillow/PyYAML.
-& 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe' -B .\scripts\generate_cody_rig.py
+# Select a Python interpreter with Pillow/PyYAML through -PythonExecutable if needed.
+.\scripts\device.ps1 generate -Generator cody-rig
 ```
 
 Conversion checks the authored contract and writes immutable C++ data under
@@ -116,7 +116,7 @@ choosing a quality/performance tradeoff.
 Run from the Cody checkout:
 
 ```powershell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Cody -PythonExecutable 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe'
+pwsh -NoProfile -File .\scripts\device.ps1 simulator -PythonExecutable 'E:\ESP32 Cody Companion\artifacts\python\simulator\Scripts\python.exe'
 ```
 
 The rig opens with points, handles, contour names and both outlines visible.
@@ -165,8 +165,8 @@ previews, not simulated proof that a hardware startup stage completed. All
 desktop views are labelled SYNTHETIC outside the circular UI.
 
 ```powershell
-pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Cody -CodyScreen boot-waking -Capture .\artifacts\cody-poc\boot-waking-launcher.png -PythonExecutable 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe'
-& 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe' -B .\scripts\verify_cody_poc.py --previews
+pwsh -NoProfile -File .\scripts\device.ps1 simulator -Screen boot-waking -OutputPath .\artifacts\cody-poc\boot-waking-launcher.png -PythonExecutable 'E:\ESP32 Cody Companion\artifacts\python\simulator\Scripts\python.exe'
+.\scripts\device.ps1 check -Check cody-poc -ToolArguments '--previews'
 ```
 
 The focused host package exercises named geometry, transforms, independent

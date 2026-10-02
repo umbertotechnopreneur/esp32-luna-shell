@@ -1,7 +1,7 @@
 # LUNASHELL declarative GUI source
 
 `root.json` is the editable canonical GUI document. The firmware never stages
-that monolith: `scripts/generate_LUNASHELL_gui_documents.py` produces a small
+that monolith: `scripts/generators/generate_LUNASHELL_gui_documents.py` produces a small
 bootstrap at `package/res/root.json` and one `package/res/screen_*.json`
 document per lazy content screen.
 
@@ -9,8 +9,8 @@ After changing the canonical document or a referenced template, regenerate and
 verify the package:
 
 ```powershell
-python .\scripts\generate_LUNASHELL_gui_documents.py
-python .\scripts\generate_LUNASHELL_gui_documents.py --check
+.\scripts\device.ps1 generate -Generator LUNASHELL-gui-documents
+.\scripts\device.ps1 generate -Generator LUNASHELL-gui-documents -ToolArguments '--check'
 ```
 
 The bootstrap retains the background, Welcome, persistent chrome, and their

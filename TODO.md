@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit validation request, run the consolidated console's
+  `device.ps1 check -Check device-console` and `script-contracts` checks, then
+  exercise menu/CLI routing, simulator captures, relocated imports, packaging,
+  cleanup and failure logging. Firmware build/flash paths retain separate
+  authorization requirements. This tooling reorganization has static review only.
+
 - [ ] On explicit host-validation request, exercise the contour and named-overlay
   extension: independent facial geometry, original/deformed outlines, point-name
   attachment at all cardinal rotations, pause/resume, slow/fast target changes,

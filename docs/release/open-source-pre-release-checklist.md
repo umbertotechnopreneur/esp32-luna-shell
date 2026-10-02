@@ -30,8 +30,8 @@ Use this checklist before publishing the repository or a release branch.
 
 ## Verification
 
-- [ ] Run `scripts/verify_pairing.py`.
-- [ ] Run `scripts/verify_snapshot_integrity.py`.
-- [ ] Run `scripts/verify_public_branding.py`.
+- [ ] Run `scripts/checks/verify_pairing.py`.
+- [ ] Run `scripts/checks/verify_snapshot_integrity.py`.
+- [ ] Run `scripts/checks/verify_public_branding.py`.
 - [ ] Review the final diff for public-facing text and accidental private data.
 - [ ] Confirm `git diff --check` is clean.

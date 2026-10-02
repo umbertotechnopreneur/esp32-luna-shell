@@ -21,7 +21,7 @@
         "components/LUNASHELL_platform"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/headless.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/headless",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/headless",
       "default_build_dir": "artifacts/build-headless"
     },
     "cody-companion": {
@@ -60,7 +60,7 @@
         "components/CODY_companion"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/cody-companion.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/cody-companion",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/cody-companion",
       "default_build_dir": "artifacts/build-cody-companion"
     },
     "display-touch": {
@@ -86,7 +86,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/display-touch.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/display-touch",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/display-touch",
       "default_build_dir": "artifacts/build-display-touch"
     },
     "ui-minimal": {
@@ -123,7 +123,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/ui-minimal.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/ui-minimal",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/ui-minimal",
       "default_build_dir": "artifacts/build-ui-bootstrap"
     },
     "connected": {
@@ -168,7 +168,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/connected.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/connected",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/connected",
       "default_build_dir": "artifacts/build-connected"
     },
     "leg-edition": {
@@ -213,7 +213,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/leg-edition.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/leg-edition",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/leg-edition",
       "default_build_dir": "artifacts/build-leg-edition"
     },
     "full": {
@@ -264,7 +264,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/full",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/full",
       "default_build_dir": "artifacts/build-full"
     },
     "full-distance": {
@@ -318,7 +318,7 @@
         "components/esp32_s3_touch_amoled_1_75"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/full-distance.lock",
-      "generated_sdkconfig": ".sdkconfig/v1/full-distance",
+      "generated_sdkconfig": "artifacts/sdkconfig/v1/full-distance",
       "default_build_dir": "artifacts/build-full-distance"
     }
   }
