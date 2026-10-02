@@ -19,6 +19,16 @@ class StimulusId(str, Enum):
 
 # These are reviewed authoring limits, not repairs of bad configuration.
 RESPONSE_RANGES = {
+    "touch": {
+        "event_timeout_seconds": (.1, 10),
+        "eye_hit_radius": (.05, .25),
+        "eye_hold_seconds": (.1, 3),
+        "close_seconds": (.01, .5),
+        "reopen_seconds": (.05, 3),
+        "annoyance_release_seconds": (.1, 10),
+        "stress_gain": (0, 1),
+        "brow_gain": (0, 1),
+    },
     "audio": {
         "sample_timeout_seconds": (.1, 10),
         "microphone_reference": (.001, 1),
@@ -83,7 +93,7 @@ def validate_response_config(value):
     expected = {"schema", *RESPONSE_RANGES}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError("Response requires exactly its named schema and model sections")
-    if value["schema"] != "cody.response.v2":
+    if value["schema"] != "cody.response.v3":
         raise ValueError(f"Unsupported response schema: {value['schema']}")
     for group, ranges in RESPONSE_RANGES.items():
         section = value[group]

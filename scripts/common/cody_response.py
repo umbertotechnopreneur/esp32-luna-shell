@@ -27,6 +27,12 @@ class InputOrigin(str, Enum):
     SYNTHETIC = "SYNTHETIC"
 
 
+class EyeId(str, Enum):
+    NONE = "none"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 @dataclass(frozen=True)
 class SampleStamp:
     health: SampleHealth = SampleHealth.UNAVAILABLE
@@ -69,6 +75,12 @@ class PlaybackSample:
 
 
 @dataclass(frozen=True)
+class EyeTapSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    eye: EyeId = EyeId.NONE
+
+
+@dataclass(frozen=True)
 class ResponseInputs:
     motion: MotionSample = field(default_factory=MotionSample)
     power: PowerSample = field(default_factory=PowerSample)
@@ -76,6 +88,7 @@ class ResponseInputs:
     microphone: MicrophoneSample = field(default_factory=MicrophoneSample)
     playback: PlaybackSample = field(default_factory=PlaybackSample)
     last_interaction_at_us: int = 0
+    eye_tap: EyeTapSample = field(default_factory=EyeTapSample)
 
 
 @dataclass(frozen=True)
@@ -120,6 +133,11 @@ class ResponseState:
     yawn_cooldown_seconds: float = 0.0
     yawn_weight: float = 0.0
     yawning: bool = False
+    eye_tap_status: SampleStamp = field(default_factory=SampleStamp)
+    consumed_eye_tap_at_us: int = 0
+    eye_hold_seconds: float = 0.0
+    protective_eye_closure: float = 0.0
+    annoyance: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -242,6 +260,7 @@ def validate_response_state(state):
         "microphone_target": (0, 1), "playback_target": (0, 1),
         "idle_seconds": (0, 600), "yawn_seconds": (0, 10),
         "yawn_cooldown_seconds": (0, 600), "yawn_weight": (0, 1),
+        "eye_hold_seconds": (0, 3), "protective_eye_closure": (0, 1), "annoyance": (0, 1),
     }
     for name, (minimum, maximum) in ranges.items():
         value = finite_number(getattr(state, name), f"response.state.{name}")
@@ -258,7 +277,7 @@ def validate_response_state(state):
         finite_number(state.body[axis].position, f"response.body.{axis.value}.position")
         finite_number(state.body[axis].velocity, f"response.body.{axis.value}.velocity")
     for name in ("consumed_motion_at_us", "consumed_power_at_us", "consumed_microphone_at_us",
-                 "consumed_playback_at_us", "consumed_interaction_at_us"):
+                 "consumed_playback_at_us", "consumed_interaction_at_us", "consumed_eye_tap_at_us"):
         timestamp = getattr(state, name)
         if type(timestamp) is not int or timestamp < 0:
             raise ValueError(f"response.state.{name}: rejected timestamp {timestamp!r}")
@@ -420,7 +439,27 @@ def advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm=Tru
             next_state.consumed_power_at_us = sampled_at_us
         next_state.fatigue = blend_state(state.fatigue, next_state.fatigue_target, seconds, state_config["fatigue_attack_seconds"], state_config["fatigue_release_seconds"])
     # Unknown charge freezes artistic fatigue. It never invents a full battery or recovery.
-    advance_audio_and_idle(config, state, inputs, seconds if animate_rhythm else 0, now_us, next_state)
+    touch = config["touch"]
+    next_state.eye_tap_status = effective_stamp(inputs.eye_tap.stamp, now_us,
+        touch["event_timeout_seconds"], "touch.eye")
+    active_seconds = seconds if animate_rhythm else 0
+    next_state.eye_hold_seconds = max(0, state.eye_hold_seconds - active_seconds)
+    next_state.annoyance = blend_state(state.annoyance, 0, active_seconds,
+        touch["annoyance_release_seconds"], touch["annoyance_release_seconds"])
+    if next_state.eye_tap_status.health == SampleHealth.CURRENT:
+        if inputs.eye_tap.eye not in (EyeId.LEFT, EyeId.RIGHT):
+            raise ValueError("touch.eye: invalid semantic eye identity")
+        if inputs.eye_tap.stamp.sampled_at_us < state.consumed_eye_tap_at_us:
+            raise ValueError("touch.eye: sample timestamp went backwards")
+        if inputs.eye_tap.stamp.sampled_at_us > state.consumed_eye_tap_at_us:
+            next_state.consumed_eye_tap_at_us = inputs.eye_tap.stamp.sampled_at_us
+            next_state.eye_hold_seconds = touch["eye_hold_seconds"]
+            next_state.annoyance = 1
+            next_state.stress = max(next_state.stress, touch["stress_gain"])
+    closure_target = 1 if next_state.eye_hold_seconds > 0 else 0
+    next_state.protective_eye_closure = blend_state(state.protective_eye_closure, closure_target,
+        active_seconds, touch["close_seconds"], touch["reopen_seconds"])
+    advance_audio_and_idle(config, state, inputs, active_seconds, now_us, next_state)
 
     if animate_rhythm:
         expression = config["expression"]
@@ -433,6 +472,28 @@ def advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm=Tru
         next_state.blink_elapsed_ms = (state.blink_elapsed_ms + delta_ms) % 4800
     validate_response_state(next_state)
     return next_state
+
+
+# scene: Exactly the shared evaluated geometry presented to the user.
+# point: Logical pointer coordinate after cardinal rotation mapping.
+# radius: Authored normalized radius, scaled with the same evaluated character.
+# Raises ValueError for nonfinite coordinates/radius or missing named eye anchors.
+def hit_test_eye(scene, point, radius):
+    x, y = (finite_number(value, "eye hit point") for value in point)
+    scale = finite_number(scene["scale"], "eye hit scale")
+    radius = finite_number(radius, "eye hit radius")
+    if scale <= 0 or not .05 <= radius <= .25:
+        raise ValueError("Eye hit geometry rejected")
+    nearest = EyeId.NONE
+    nearest_squared = (radius * scale) ** 2
+    for eye, name in ((EyeId.LEFT, "eye.left"), (EyeId.RIGHT, "eye.right")):
+        px, py = scene["world"][name]
+        squared = (x - px) ** 2 + (y - py) ** 2
+        if not math.isfinite(squared):
+            raise ValueError("Eye hit anchor rejected")
+        if squared <= nearest_squared:
+            nearest, nearest_squared = eye, squared
+    return nearest
 
 
 # x: Physical panel-frame horizontal vector component.
@@ -479,8 +540,10 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
     face[mouth] += (1 - face[mouth]) * state.yawn_weight * idle["mouth_open"]
     for eye in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT):
         face[eye] *= 1 - state.yawn_weight * idle["eye_closure"]
+        face[eye] *= 1 - state.protective_eye_closure
     for brow in (FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT):
         face[brow] += (1 - face[brow]) * state.attention * audio["attention_brow"]
+        face[brow] += (1 - face[brow]) * state.annoyance * rig["response"]["touch"]["brow_gain"]
     mouth_min = rig["channels"][FaceChannel.MOUTH_WIDTH]["minimum"]
     face[FaceChannel.MOUTH_WIDTH] -= (face[FaceChannel.MOUTH_WIDTH] - mouth_min) * stress * expression["stress_mouth_narrowing"]
     face[FaceChannel.CHEEK_OPACITY] *= 1 - fatigue * expression["fatigue_cheek_fade"]

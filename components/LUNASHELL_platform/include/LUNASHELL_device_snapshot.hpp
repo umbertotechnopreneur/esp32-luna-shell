@@ -485,6 +485,12 @@ struct ProcessorSnapshot : ComponentSnapshot {
     CoreSnapshot cores[2];
 };
 
+// Derived from acquired touch coordinates and the displayed character geometry.
+struct CharacterInteractionSnapshot : ComponentSnapshot {
+    enum class Kind : uint8_t { None, EyeLeftTap, EyeRightTap };
+    Kind kind = Kind::None;
+};
+
 struct DeviceSnapshot {
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
@@ -498,6 +504,7 @@ struct DeviceSnapshot {
     RtcSnapshot rtc;
     GpsSnapshot gps;
     AudioSnapshot audio;
+    CharacterInteractionSnapshot character_interaction;
     RadioSnapshot radios;
     StorageSnapshot storage;
     DiagnosticsSettingsSnapshot diagnostics;
@@ -522,6 +529,7 @@ struct MotionPowerObservation {
     uint16_t rendering_rotation_degrees = 0;
     AudioSnapshot audio;
     int64_t touch_last_activity_at_us = 0;
+    CharacterInteractionSnapshot character_interaction;
 };
 
 /**
@@ -606,7 +614,10 @@ public:
     // volume_percent: Actual requested codec volume, in the supported 0..100 range.
     // error: Original playback or codec error; failures invalidate the level.
     esp_err_t reportPlayback(bool active, uint32_t mean_level, uint32_t sample_rate_hz,
-                             int volume_percent, esp_err_t error);
+                            int volume_percent, esp_err_t error);
+    // kind: Semantic target recognized from displayed geometry and an acquired touch.
+    // sampled_at_us: Original report timestamp; duplicate/backward events are rejected.
+    esp_err_t reportCharacterInteraction(CharacterInteractionSnapshot::Kind kind, int64_t sampled_at_us);
     void reportWifi(const WifiSnapshot &wifi);
     void reportBle(
         bool ready,

@@ -12,6 +12,9 @@
 #include "CODY_rig.hpp"
 #include "CODY_debug_hud.hpp"
 #include "CODY_response.hpp"
+#include "CODY_demo.hpp"
+#include "CODY_benchmark.hpp"
+#include "poc_settings.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_sleep_blue.hpp"
 #include "cody_waking_blue.hpp"
@@ -87,6 +90,9 @@ std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
 uint16_t *s_strip = nullptr;
 std::atomic<uint32_t> s_rendered_revision{0};
+std::atomic<bool> s_demo_requested{false};
+// Bounded collector shares the display lock with completed-frame publication.
+CODY::FrameBenchmark s_benchmark;
 // Read and written only while the shared BSP display lock is held.
 BootPhase s_boot_phase = BootPhase::Sleeping;
 CODY::RigScene *s_rig = nullptr;
@@ -116,14 +122,27 @@ public:
     // Return this call's lock level; an outer recursive lock stays owned.
     ~DisplayUnlockOnExit()
     {
-        bsp_display_unlock();
+        release();
+    }
+
+    // Release this level early when subsequent logging no longer needs panel ownership.
+    void release()
+    {
+        if (active_) {
+            bsp_display_unlock();
+            active_ = false;
+        }
     }
 
     // other: A lock owner cannot be copied into a second owner.
     DisplayUnlockOnExit(const DisplayUnlockOnExit &other) = delete;
     // other: A live lock owner cannot be replaced by another owner.
     DisplayUnlockOnExit &operator=(const DisplayUnlockOnExit &other) = delete;
+
+private:
+    bool active_ = true;
 };
+
 
 struct FrameTimings {
     int64_t started_us = 0;
@@ -226,7 +245,24 @@ void log_response_source(CODY::StimulusId source, const CODY::SampleStamp &previ
     if (!force && previous.health == current.health && previous.error == current.error) {
         return;
     }
-    const char *name = source == CODY::StimulusId::MotionAcceleration ? "motion.acceleration" : "power.charge";
+    const char *name = nullptr;
+    switch (source) {
+    case CODY::StimulusId::MotionAcceleration:
+        name = "motion.acceleration";
+        break;
+    case CODY::StimulusId::PowerCharge:
+        name = "power.charge";
+        break;
+    case CODY::StimulusId::MicrophoneLevel:
+        name = "audio.microphone";
+        break;
+    case CODY::StimulusId::SpeakerPlayback:
+        name = "audio.playback";
+        break;
+    default:
+        name = "invalid-stimulus";
+        break;
+    }
     ESP_LOGI(kTag, "Stimulus %s=%s error=%s sample_at=%lldus", name,
              source_health_name(current.health), esp_err_to_name(current.error),
              static_cast<long long>(current.sampled_at_us));
@@ -242,9 +278,18 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     const int64_t animation_delta_us = resume_animation || s_animation_sampled_us == 0
         ? 0 : frame_started_us - s_animation_sampled_us;
     const float animation_delta_ms = static_cast<float>(animation_delta_us) / 1000.f;
+    CODY::Channels target_face{};
+    CODY::ContourControls target_contour{};
+    CODY::DemoPhase phase{};
+    const esp_err_t demo_error = CODY::demo_targets(s_animation_elapsed_us + animation_delta_us,
+        target_face, target_contour, phase);
+    if (demo_error != ESP_OK) {
+        ESP_LOGE(kTag, "Authored demo targets rejected: %s", esp_err_to_name(demo_error));
+        return demo_error;
+    }
     CODY::Channels next_face{};
     const esp_err_t face_error = CODY::advance_face(
-        s_face, CODY::Data::defaults, animation_delta_ms, next_face
+        s_face, target_face, animation_delta_ms, next_face
     );
     if (face_error != ESP_OK) {
         return face_error;
@@ -270,7 +315,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     }
     CODY::ResponseFrame response_frame{};
     const esp_err_t composition_error = CODY::compose_response(
-        CODY::Data::response, next_response, next_face, CODY::contour_defaults(),
+        CODY::Data::response, next_response, next_face, target_contour,
         CODY::Data::placement, inputs.rendering_rotation_degrees, true, response_frame
     );
     if (composition_error != ESP_OK) {
@@ -295,6 +340,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
                         next_response.motion_status, !s_response_sources_logged);
     log_response_source(CODY::StimulusId::PowerCharge, s_response.power_status,
                         next_response.power_status, !s_response_sources_logged);
+    log_response_source(CODY::StimulusId::MicrophoneLevel, s_response.microphone_status,
+                        next_response.microphone_status, !s_response_sources_logged);
+    log_response_source(CODY::StimulusId::SpeakerPlayback, s_response.playback_status,
+                        next_response.playback_status, !s_response_sources_logged);
     s_response_sources_logged = true;
     s_response = next_response;
     s_response_frame = response_frame;
@@ -304,51 +353,124 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     return ESP_OK;
 }
 
+struct CompletedFrameLog {
+    bool rig = false;
+    CODY::FrameDistribution distribution{};
+    uint32_t frame_count = 0;
+    bool debug = false;
+    int64_t completed_us = 0;
+    CODY::ResponseState response{};
+    CODY::ResponseFrame response_frame{};
+};
+
+struct CompletedFrameReport {
+    FrameTimings timings{};
+    CompletedFrameLog log{};
+    bool ready = false;
+};
+
 // timings: Completed frame's measured stages, never an estimated CPU metric.
-void record_completed_frame(const FrameTimings &timings)
+// log: Receives bounded copied state only when a timing log is due.
+// should_log: True only after the configured interval and a successful statistics snapshot.
+esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog &log, bool &should_log)
 {
+    should_log = false;
     s_frame_dirty.store(false, std::memory_order_release);
+    log.completed_us = esp_timer_get_time();
+    log.rig = s_rig_visible;
+    log.debug = s_rig_debug;
     if (!s_rig_visible) {
-        return;
+        should_log = CODY::PocData::execution_timings;
+        return ESP_OK;
     }
 
     // Let late frames go. Schedule from this frame's real timestamp.
     s_next_frame_us = timings.started_us + kRigFramePeriodMs * 1000;
     ++s_rig_frame_count;
-    const int64_t completed_us = esp_timer_get_time();
+    const int64_t completed_us = log.completed_us;
     CODY::record_frame_rate(s_frame_rate, timings.started_us, completed_us);
-    if (s_last_timing_log_us != 0 && completed_us - s_last_timing_log_us < 2000000) {
+    if (!CODY::PocData::execution_timings) {
+        return ESP_OK;
+    }
+    const CODY::OverlayMode mode = s_rig_debug ? CODY::OverlayMode::Skeleton : CODY::OverlayMode::Artwork;
+    const CODY::FrameCosts costs{static_cast<uint32_t>(timings.geometry_us),
+        static_cast<uint32_t>(timings.raster_us), static_cast<uint32_t>(timings.transfer_us),
+        static_cast<uint32_t>(completed_us - timings.started_us)};
+    esp_err_t error = s_benchmark.record(mode, costs);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Completed frame timing rejected: %s", esp_err_to_name(error));
+        return error;
+    }
+    if (s_last_timing_log_us != 0 && completed_us - s_last_timing_log_us <
+        CODY::PocData::report_interval_ms * 1000LL) {
+        return ESP_OK;
+    }
+    error = s_benchmark.summarize(mode, CODY::PocData::frame_budget_us, log.distribution);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Completed frame statistics failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    s_last_timing_log_us = completed_us;
+    log.frame_count = s_rig_frame_count;
+    log.debug = s_rig_debug;
+    log.completed_us = completed_us;
+    log.response = s_response;
+    log.response_frame = s_response_frame;
+    should_log = true;
+    return ESP_OK;
+}
+
+// timings: Actual geometry, raster and transfer durations for this completed frame.
+// log: Copied state; output runs after releasing the panel lock.
+void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &log)
+{
+    if (!log.rig) {
+        ESP_LOGI(kTag, "TIMING boot_buffer geometry=%ldus raster=%ldus transfer=%ldus total=%ldus",
+            static_cast<long>(timings.geometry_us), static_cast<long>(timings.raster_us),
+            static_cast<long>(timings.transfer_us), static_cast<long>(log.completed_us - timings.started_us));
         return;
     }
-
+    const auto &statistics = log.distribution;
+    ESP_LOGI(kTag, "TIMING window mode=%s n=%lu geometry_mean=%luus raster_mean=%luus "
+        "transfer_mean=%luus total_mean=%luus median=%luus p95=%luus max=%luus sd=%.1fus missed=%lu budget=%dus",
+        log.debug ? "skeleton" : "artwork", static_cast<unsigned long>(statistics.count),
+        static_cast<unsigned long>(statistics.mean.geometry_us), static_cast<unsigned long>(statistics.mean.raster_us),
+        static_cast<unsigned long>(statistics.mean.transfer_us), static_cast<unsigned long>(statistics.mean.total_us),
+        static_cast<unsigned long>(statistics.median_us), static_cast<unsigned long>(statistics.p95_us),
+        static_cast<unsigned long>(statistics.maximum_us), statistics.standard_deviation_us,
+        static_cast<unsigned long>(statistics.missed_deadlines), CODY::PocData::frame_budget_us);
     ESP_LOGI(
         kTag,
         "Rig frame=%lu debug=%u geometry=%ldus raster=%ldus transfer=%ldus total=%ldus scene=%uB strip=%luB",
-        static_cast<unsigned long>(s_rig_frame_count),
-        s_rig_debug,
+        static_cast<unsigned long>(log.frame_count),
+        log.debug,
         static_cast<long>(timings.geometry_us),
         static_cast<long>(timings.raster_us),
         static_cast<long>(timings.transfer_us),
-        static_cast<long>(completed_us - timings.started_us),
+        static_cast<long>(log.completed_us - timings.started_us),
         static_cast<unsigned>(sizeof(CODY::RigScene)),
         static_cast<unsigned long>(kStripPixels * sizeof(uint16_t))
     );
     ESP_LOGI(kTag,
              "Response MODEL stress=%.3f fatigue=%.3f fatigue_known=%u root_offset=(%.2f,%.2f)px depth=%.4f "
              "motion=%s(%s) power=%s(%s)",
-             s_response.stress, s_response.fatigue, static_cast<unsigned>(s_response.fatigue_known),
-             s_response_frame.current_root.x - s_response_frame.resting_root.x,
-             s_response_frame.current_root.y - s_response_frame.resting_root.y,
-             s_response_frame.depth_scale,
-             source_health_name(s_response.motion_status.health), esp_err_to_name(s_response.motion_status.error),
-             source_health_name(s_response.power_status.health), esp_err_to_name(s_response.power_status.error));
-    s_last_timing_log_us = completed_us;
+             log.response.stress, log.response.fatigue, static_cast<unsigned>(log.response.fatigue_known),
+             log.response_frame.current_root.x - log.response_frame.resting_root.x,
+             log.response_frame.current_root.y - log.response_frame.resting_root.y,
+             log.response_frame.depth_scale,
+             source_health_name(log.response.motion_status.health), esp_err_to_name(log.response.motion_status.error),
+             source_health_name(log.response.power_status.health), esp_err_to_name(log.response.power_status.error));
+    ESP_LOGI(kTag, "Response MODEL attention=%.3f speaking=%.3f idle=%.2fs yawn=%.3f annoyance=%.3f closure=%.3f microphone=%s playback=%s",
+        log.response.attention, log.response.speaking, log.response.idle_seconds, log.response.yawn_weight,
+        log.response.annoyance, log.response.protective_eye_closure,
+        source_health_name(log.response.microphone_status.health), source_health_name(log.response.playback_status.health));
 }
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
-DrawResult draw_companion_frame(bool resume_animation = false)
+// deferred_log: Boot defers output until its outer recursive lock is released.
+DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameReport *deferred_log = nullptr)
 {
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         return {ESP_ERR_INVALID_STATE, renderer_is_parked(), 0};
@@ -357,7 +479,7 @@ DrawResult draw_companion_frame(bool resume_animation = false)
     if (lock_error != ESP_OK) {
         return {lock_error, renderer_is_parked(), 0};
     }
-    const DisplayUnlockOnExit display_lock;
+    DisplayUnlockOnExit display_lock;
     if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         const esp_err_t error = s_terminal_error.load(std::memory_order_acquire);
         return {error, false, 0};
@@ -382,6 +504,7 @@ DrawResult draw_companion_frame(bool resume_animation = false)
     if (s_rig_visible) {
         if (resume_animation) {
             s_frame_rate = {};
+            s_benchmark.reset();
         }
         const esp_err_t readout_error = CODY::prepare_debug_readout(
             s_frame_rate, timings.started_us, debug_readout
@@ -453,11 +576,27 @@ DrawResult draw_companion_frame(bool resume_animation = false)
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         result = s_terminal_error.load(std::memory_order_acquire);
     }
+    CompletedFrameLog log{};
+    bool should_log = false;
     if (result == ESP_OK) {
-        record_completed_frame(timings);
+        const esp_err_t statistics_error = record_completed_frame(timings, log, should_log);
+        if (statistics_error != ESP_OK) {
+            return {fail_consumer("Completed frame statistics", statistics_error, false), false, 0};
+        }
         const esp_err_t input_error = dispatch_pending_touch(pending_touch);
         if (input_error != ESP_OK) {
             return {fail_consumer("Deferred touch dispatch", input_error, true), false, 0};
+        }
+    }
+    // Output runs outside this render lock; boot defers its outer lock too.
+    display_lock.release();
+    if (should_log) {
+        if (deferred_log != nullptr) {
+            deferred_log->timings = timings;
+            deferred_log->log = log;
+            deferred_log->ready = true;
+        } else {
+            log_completed_frame(timings, log);
         }
     }
     return {result, false, result == ESP_OK ? revision : 0};
@@ -494,7 +633,8 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     }
     // Every immutable flash asset completed full validation before worker creation.
     s_boot_phase = requested_phase;
-    const DrawResult draw = draw_companion_frame();
+    CompletedFrameReport report;
+    const DrawResult draw = draw_companion_frame(false, &report);
     if (draw.error != ESP_OK) {
         const esp_err_t result = fail_consumer(operation, draw.error, false);
         bsp_display_unlock();
@@ -502,7 +642,50 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
     bsp_display_unlock();
+    if (report.ready) {
+        log_completed_frame(report.timings, report.log);
+    }
     ESP_LOGI(kTag, "%s drawn", operation);
+    return ESP_OK;
+}
+
+// Shared route entry: touch and automatic demo use the same clocks, buffers and model.
+// Caller owns the display/state lock; entering does not draw while another frame is active.
+void enter_animation_demo()
+{
+    s_rig_visible = true;
+    s_rig_debug = true;
+    s_animation_elapsed_us = 0;
+    s_contour = CODY::make_contour_state();
+    s_face = CODY::Data::ready;
+    s_response = CODY::make_response_state(CODY::Data::response);
+    s_response_sources_logged = false;
+    s_animation_sampled_us = 0;
+    s_last_timing_log_us = 0;
+    s_rig_frame_count = 0;
+    s_frame_rate = {};
+    s_benchmark.reset();
+    s_frame_dirty.store(true, std::memory_order_release);
+    ESP_LOGI(kTag, "Animation demo entered: %s; authored targets and real snapshot stimuli", CODY::Data::character_name);
+}
+
+// The startup task submits an atomic intent; only the worker changes animation state.
+esp_err_t apply_demo_request()
+{
+    if (!s_demo_requested.exchange(false, std::memory_order_acq_rel)) {
+        return ESP_OK;
+    }
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    if (s_boot_phase != BootPhase::Ready) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!s_rig_visible) {
+        enter_animation_demo();
+    }
     return ESP_OK;
 }
 
@@ -514,34 +697,20 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     if (pressed_edge && s_boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
         if (!s_rig_visible) {
             if (point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
-                s_rig_visible = true;
-                s_rig_debug = true;
-                s_animation_elapsed_us = 0;
-                s_contour = CODY::make_contour_state();
-                s_face = CODY::Data::defaults;
-                s_response = CODY::make_response_state(CODY::Data::response);
-                s_response_sources_logged = false;
-                s_animation_sampled_us = 0;
-                s_last_timing_log_us = 0;
-                s_rig_frame_count = 0;
-                s_frame_rate = {};
-                s_frame_dirty.store(true, std::memory_order_release);
-                ESP_LOGI(kTag, "Rig debug entered: %s; independent contour, breathing and eyelids", CODY::Data::character_name);
+                enter_animation_demo();
             }
         } else {
-            const int32_t dx = static_cast<int32_t>(point.x) - 40;
-            const int32_t dy = static_cast<int32_t>(point.y) - 233;
-            const int32_t right_dx = static_cast<int32_t>(point.x) - 426;
-            if (dx*dx + dy*dy <= 900) {
+            const TouchAction action = classify_rig_touch(point);
+            if (action == TouchAction::ReturnToBoot) {
                 s_rig_visible = false;
                 s_selected_point = CODY::kNoPoint;
                 ESP_LOGI(kTag, "Rig Back -> completed boot checkpoint");
-            } else if (right_dx*right_dx + dy*dy <= 900) {
+            } else if (action == TouchAction::ToggleOverlay) {
                 s_rig_debug = !s_rig_debug;
                 s_selected_point = CODY::kNoPoint;
                 s_last_timing_log_us = 0;
                 ESP_LOGI(kTag, "Rig geometry overlay=%u", s_rig_debug);
-            } else if (s_rig_debug) {
+            } else if (action == TouchAction::SelectPoint) {
                 const esp_err_t selection_error = CODY::nearest_rig_point(*s_rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_selected_point);
                 if (selection_error != ESP_OK) {
@@ -551,6 +720,26 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                     const auto local = s_rig->local[CODY::to_index(s_selected_point)];
                     ESP_LOGI(kTag, "Rig point=%s local=(%.4f,%.4f) touch=(%u,%u)",
                              CODY::rig_point_name(s_selected_point), local.x, local.y, point.x, point.y);
+                }
+            }
+            if (s_rig_frame_count != 0 && action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay) {
+                CODY::EyeId eye = CODY::EyeId::None;
+                const esp_err_t hit_error = CODY::hit_test_eye(*s_rig,
+                    {static_cast<float>(point.x), static_cast<float>(point.y)},
+                    CODY::Data::response.touch.eye_hit_radius, eye);
+                if (hit_error != ESP_OK) {
+                    return hit_error;
+                }
+                if (eye != CODY::EyeId::None) {
+                    using Kind = LUNASHELL::CharacterInteractionSnapshot::Kind;
+                    const auto kind = eye == CODY::EyeId::Left ? Kind::EyeLeftTap : Kind::EyeRightTap;
+                    const esp_err_t event_error = LUNASHELL::DeviceSnapshotService::instance()
+                        .reportCharacterInteraction(kind, point.sample_timestamp_us);
+                    if (event_error != ESP_OK) {
+                        return event_error;
+                    }
+                    ESP_LOGI(kTag, "Eye tap=%s: protective closure and annoyance",
+                        eye == CODY::EyeId::Left ? "left" : "right");
                 }
             }
             s_frame_dirty.store(true, std::memory_order_release);
@@ -659,6 +848,11 @@ void companion_worker(void *context)
         const TouchPollResult touch = sample_touch();
         if (touch.status == TouchPollStatus::Failed) {
             fail_consumer("Touch sample", touch.error, true);
+            break;
+        }
+        const esp_err_t demo_error = apply_demo_request();
+        if (demo_error != ESP_OK) {
+            fail_consumer("Automatic demo request", demo_error, false);
             break;
         }
         if (!LUNASHELL_display_runtime_writes_allowed()) {
@@ -793,7 +987,37 @@ extern "C" esp_err_t CODY_companion_boot_completed(void)
     return advance_boot_phase(BootPhase::Ready, "Boot completed ready face");
 }
 
+// Automatic route entry is configurable; ready-frame completion remains a prerequisite.
+extern "C" esp_err_t CODY_companion_demo_start(void)
+{
+    if (!CODY::PocData::autostart) {
+        return ESP_OK;
+    }
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Demo entry lock failed: %s", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    if (s_start_state.load(std::memory_order_acquire) != StartState::Running ||
+        s_boot_phase != BootPhase::Ready) {
+        ESP_LOGE(kTag, "Demo entry state rejected: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_rig_visible) {
+        return ESP_OK; // A real touch may already have entered while startup finishes.
+    }
+    s_demo_requested.store(true, std::memory_order_release);
+    return ESP_OK;
+}
+
 #else
+
+// The companion is absent from this explicit build profile.
+extern "C" esp_err_t CODY_companion_demo_start(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // Start the single companion owner; a failed stage keeps its original error.
 extern "C" esp_err_t CODY_companion_start(void)

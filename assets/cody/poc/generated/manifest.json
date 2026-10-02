@@ -1,0 +1,18 @@
+{
+  "schema": "cody.poc.v1",
+  "source_sha256": "40037baf1661c7c19d50df90726d173c9e8860e9ff87fc4323de60378476585d",
+  "cues": {
+    "audio_ready": {
+      "pcm_bytes": 5760,
+      "duration_seconds": 0.18,
+      "sha256": "cdd51b48575ac4c3896a9ee5f8a475d503c0fb82ebc16b6f441bb201657885ab",
+      "origin": "original procedural synthesis"
+    },
+    "eyes_open": {
+      "pcm_bytes": 41600,
+      "duration_seconds": 1.3,
+      "sha256": "08614c6a1b8ffaa74c24a8a586782f5fdca60f1e197b56dc4cd4b9e9041ca2dc",
+      "origin": "original procedural synthesis"
+    }
+  }
+}

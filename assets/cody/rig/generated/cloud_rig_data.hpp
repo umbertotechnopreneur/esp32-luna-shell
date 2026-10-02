@@ -1099,6 +1099,14 @@ inline constexpr const char *character_name = "Cody";
 // Named assignments keep authoring order independent of native field identity.
 inline constexpr ResponseConfig response = [] {
     ResponseConfig config{};
+    config.touch.event_timeout_seconds = 2.000000000f;
+    config.touch.eye_hit_radius = 0.160000000f;
+    config.touch.eye_hold_seconds = 0.650000000f;
+    config.touch.close_seconds = 0.060000000f;
+    config.touch.reopen_seconds = 0.350000000f;
+    config.touch.annoyance_release_seconds = 3.000000000f;
+    config.touch.stress_gain = 0.700000000f;
+    config.touch.brow_gain = 0.900000000f;
     config.audio.sample_timeout_seconds = 2.500000000f;
     config.audio.microphone_reference = 0.080000000f;
     config.audio.playback_reference = 0.180000000f;
@@ -1149,9 +1157,17 @@ inline constexpr ResponseConfig response = [] {
 }();
 struct ResponseParameter { const char *name; float value; float minimum; float maximum; };
 // config: Runtime settings checked against the same limits as YAML authoring.
-inline std::array<ResponseParameter, 43> response_parameters(const ResponseConfig &config)
+inline std::array<ResponseParameter, 51> response_parameters(const ResponseConfig &config)
 {
     return {{
+        {"touch.event_timeout_seconds", config.touch.event_timeout_seconds, 0.100000000f, 10.000000000f},
+        {"touch.eye_hit_radius", config.touch.eye_hit_radius, 0.050000000f, 0.250000000f},
+        {"touch.eye_hold_seconds", config.touch.eye_hold_seconds, 0.100000000f, 3.000000000f},
+        {"touch.close_seconds", config.touch.close_seconds, 0.010000000f, 0.500000000f},
+        {"touch.reopen_seconds", config.touch.reopen_seconds, 0.050000000f, 3.000000000f},
+        {"touch.annoyance_release_seconds", config.touch.annoyance_release_seconds, 0.100000000f, 10.000000000f},
+        {"touch.stress_gain", config.touch.stress_gain, 0.000000000f, 1.000000000f},
+        {"touch.brow_gain", config.touch.brow_gain, 0.000000000f, 1.000000000f},
         {"audio.sample_timeout_seconds", config.audio.sample_timeout_seconds, 0.100000000f, 10.000000000f},
         {"audio.microphone_reference", config.audio.microphone_reference, 0.001000000f, 1.000000000f},
         {"audio.playback_reference", config.audio.playback_reference, 0.001000000f, 1.000000000f},

@@ -1051,6 +1051,7 @@ void apply_measured_sample_aging(
     age_measured_sample(snapshot.gps, now_us, ttl_us);
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
     age_measured_sample(snapshot.audio.playback, now_us, ttl_us);
+    age_measured_sample(snapshot.character_interaction, now_us, ttl_us);
     age_measured_sample(snapshot.audio.spectrum, now_us, ttl_us);
     if (snapshot.ui.orientation.auto_rotation_enabled) {
         age_measured_sample(snapshot.ui.orientation, now_us, ttl_us);
@@ -6717,6 +6718,7 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     copy.battery = s_snapshot.battery;
     copy.imu = s_snapshot.imu;
     copy.audio = s_snapshot.audio;
+    copy.character_interaction = s_snapshot.character_interaction;
     copy.storage_available = s_snapshot.storage.mounted && !s_snapshot.storage.poisoned &&
         s_snapshot.storage.card_response_verified && s_snapshot.storage.last_error == ESP_OK;
     copy.rendering_rotation_degrees = s_snapshot.ui.orientation.rendering_rotation_degrees;
@@ -6731,6 +6733,7 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     age_measured_sample(copy.imu, now_us, ttl_us);
     age_measured_sample(copy.audio.microphone, now_us, ttl_us);
     age_measured_sample(copy.audio.playback, now_us, ttl_us);
+    age_measured_sample(copy.character_interaction, now_us, ttl_us);
     // Match the full snapshot: the touch producer publishes its activity atomically.
     copy.touch_last_activity_at_us = touchActivityObservation().last_activity_at_us;
     observation = copy;
@@ -6780,6 +6783,43 @@ esp_err_t DeviceSnapshotService::reportPlayback(bool active, uint32_t mean_level
         ESP_LOGE(TAG, "Playback publication unlock failed: %s", esp_err_to_name(release_error));
     }
     return release_error;
+}
+
+// kind: Acquired touch target, not a synthetic firmware input.
+// sampled_at_us: Original report timestamp; the model consumes the latest event once.
+esp_err_t DeviceSnapshotService::reportCharacterInteraction(CharacterInteractionSnapshot::Kind kind,
+                                                          int64_t sampled_at_us)
+{
+    using Kind = CharacterInteractionSnapshot::Kind;
+    const int64_t now_us = esp_timer_get_time();
+    if ((kind != Kind::EyeLeftTap && kind != Kind::EyeRightTap) ||
+        sampled_at_us <= 0 || sampled_at_us > now_us) {
+        ESP_LOGE(TAG, "Character interaction rejected: kind=%u sample=%lldus now=%lldus (%s)",
+            static_cast<unsigned>(kind), static_cast<long long>(sampled_at_us),
+            static_cast<long long>(now_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "character interaction");
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Character interaction lock failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    auto &interaction = s_snapshot.character_interaction;
+    if (sampled_at_us <= interaction.last_success_at_us) {
+        error = ESP_ERR_INVALID_STATE;
+        ESP_LOGE(TAG, "Duplicate/reversed character interaction: %s", esp_err_to_name(error));
+    } else {
+        interaction.kind = kind;
+        mark_sample_success(interaction, sampled_at_us);
+    }
+    const esp_err_t release_error = give_snapshot_mutex("character interaction");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Character interaction unlock failed: %s", esp_err_to_name(release_error));
+        if (error == ESP_OK) {
+            error = release_error;
+        }
+    }
+    return error;
 }
 
 // geometry: Output owned by the distance service; failed sampling leaves it invalid.

@@ -43,6 +43,21 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs)
     ResponseInputs result{};
     result.rendering_rotation_degrees = observation.rendering_rotation_degrees;
     result.last_interaction_at_us = observation.touch_last_activity_at_us;
+    result.eye_tap.stamp = published_stamp(observation.character_interaction, true);
+    if (result.eye_tap.stamp.health == SampleHealth::Current) {
+        using Kind = LUNASHELL::CharacterInteractionSnapshot::Kind;
+        switch (observation.character_interaction.kind) {
+        case Kind::EyeLeftTap:
+            result.eye_tap.eye = EyeId::Left;
+            break;
+        case Kind::EyeRightTap:
+            result.eye_tap.eye = EyeId::Right;
+            break;
+        default:
+            ESP_LOGE(kTag, "Character interaction identity rejected: %s", esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
     const auto &audio = observation.audio;
     result.microphone.stamp = published_stamp(audio.microphone, audio.channel_count > 0);
     result.playback.stamp = published_stamp(audio.playback, true);

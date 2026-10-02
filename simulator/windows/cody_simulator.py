@@ -23,8 +23,10 @@ from scripts.common.cody_rig_types import (  # noqa: E402
 )
 from scripts.common.cody_response import (  # noqa: E402
     SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
+    EyeId, hit_test_eye,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
+from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -321,6 +323,8 @@ class CodyWindow:
         self.response_config = deepcopy(renderer.rig["response"])
         self.response_state = make_response_state(self.response_config)
         self.stimulus_source = SyntheticStimulusSource()
+        self.poc_settings = load_settings(ROOT / "assets/cody/poc.yaml")
+        self.demo_enabled = tk.BooleanVar(value=False)
         self.response_frame = None
         self.motion_overlay = tk.BooleanVar(value=True)
         self.elapsed_ms = 0.0
@@ -394,6 +398,7 @@ class CodyWindow:
     def build_face_controls(self, appearance):
         # Targets belong to the controls; smoothing belongs to the animation state.
         self.add_toggle(appearance,"Animate breath and blink",self.playing)
+        self.add_toggle(appearance,"Run authored hardware demo cycle",self.demo_enabled)
         phase_row = ttk.Frame(appearance)
         phase_row.pack(fill="x",pady=6)
         for phase in ("sleep","waking","ready"):
@@ -497,9 +502,39 @@ class CodyWindow:
         self.charge_readout = self.add_slider(stimuli, "Charge level", 0, 100, self.charge_percent, readout=True)
         self.charging = tk.BooleanVar(value=False)
         self.add_toggle(stimuli, "Charging / fatigue follows charge level", self.charging)
+        self.battery_present = tk.BooleanVar(value=True)
+        self.add_toggle(stimuli, "Battery present / otherwise UNAVAILABLE", self.battery_present)
+        ttk.Separator(stimuli).pack(fill="x", pady=10)
+        ttk.Label(stimuli, text="SYNTHETIC AUDIO / normalized PCM means").pack(anchor="w")
+        self.microphone_health = tk.StringVar(value=SampleHealth.CURRENT.value)
+        ttk.Combobox(stimuli, textvariable=self.microphone_health, values=health_choices, state="readonly").pack(fill="x")
+        self.microphone_levels = (tk.DoubleVar(value=0), tk.DoubleVar(value=0))
+        for channel, variable in zip(("Left", "Right"), self.microphone_levels):
+            self.add_slider(stimuli, f"Microphone {channel}", 0, 1, variable)
+        self.playback_health = tk.StringVar(value=SampleHealth.CURRENT.value)
+        ttk.Combobox(stimuli, textvariable=self.playback_health, values=health_choices, state="readonly").pack(fill="x")
+        self.playback_active = tk.BooleanVar(value=False)
+        self.add_toggle(stimuli, "Synthetic playback active", self.playback_active)
+        self.playback_level = tk.DoubleVar(value=.18)
+        self.add_slider(stimuli, "Playback PCM mean", 0, 1, self.playback_level)
+        for cue, label in (("audio_ready", "Preview audio-ready cue"), ("eyes_open", "Preview eyes-open strings")):
+            ttk.Button(stimuli, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
+        ttk.Button(stimuli, text="Interaction / cancel idle yawn", command=self.preview_interaction).pack(fill="x", pady=3)
         self.response_info = ttk.Label(stimuli, text="", font=self.label_font, wraplength=295)
         self.response_info.pack(fill="x", pady=8)
         ttk.Button(stimuli, text="Reset response model", command=self.reset_response).pack(fill="x")
+
+    # self: Preview controller; this button plays a local authored WAV, never the device speaker.
+    # cue: Stable identity of one of the two generated original boot cues.
+    # Raises OSError or RuntimeError if Windows cannot play the existing asset.
+    def preview_cue(self, cue):
+        import winsound
+        path = ROOT / "assets/cody/poc/generated" / f"cody-{cue}.wav"
+        winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+
+    # self: Preview controller publishing explicit activity through the synthetic snapshot owner.
+    def preview_interaction(self):
+        self.stimulus_source.interact(int(time.perf_counter() * 1_000_000))
 
     # self: Preview controller supplying the chosen board axis to its synthetic source.
     # Raises ValueError for an unsupported selected axis, or tk.TclError on a lost control.
@@ -518,8 +553,12 @@ class CodyWindow:
     def observe_stimuli(self, now_us, rotation):
         acceleration = {axis: value.get() for axis, value in self.acceleration.items()}
         return self.stimulus_source.snapshot(now_us, acceleration, self.motion_health.get(),
-                                            self.charge_percent.get(), self.charging.get(), self.power_health.get(),
-                                            self.shaking.get(), rotation)
+            self.charge_percent.get(), self.charging.get(),
+            self.power_health.get() if self.battery_present.get() else SampleHealth.UNAVAILABLE,
+            self.shaking.get(), rotation,
+            microphone_levels=tuple(level.get() for level in self.microphone_levels),
+            microphone_health=self.microphone_health.get(), playback_level=self.playback_level.get(),
+            playback_active=self.playback_active.get(), playback_health=self.playback_health.get())
 
     # self: Preview controller owning source and artistic-state readouts.
     # inputs: The exact synthetic snapshot consumed by this frame, never a device observation.
@@ -555,7 +594,12 @@ class CodyWindow:
             vx, vy = frame.spring_velocity_px_per_second
             body_text = f"\nRoot: {dx:+.1f}, {dy:+.1f} px\nSpring v: {vx:+.1f}, {vy:+.1f} px/s\nDepth: {frame.depth_scale:.4f}"
         status = "RUNNING" if screen == Screen.RIG else "PAUSED / boot artwork"
-        self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\nMODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
+        self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\n"
+            f"Microphone: {state.microphone_status.health.value}\nPlayback: {state.playback_status.health.value}\n"
+            f"MODEL attention: {state.attention:.3f} / speaking: {state.speaking:.3f}\n"
+            f"MODEL idle: {state.idle_seconds:.1f}s / yawn: {state.yawn_weight:.3f}\n"
+            f"MODEL annoyance: {state.annoyance:.3f} / eye closure: {state.protective_eye_closure:.3f}\n"
+            f"MODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
 
     # parent owns the shared checkbox row.
     # text describes the independent setting in English.
@@ -787,6 +831,7 @@ class CodyWindow:
 
     # event supplies desktop coordinates projected through the last displayed layout and rotation.
     def touch(self, event):
+        self.preview_interaction()
         clicked_name = None
         for item in self.canvas.find_withtag("current"):
             for tag in self.canvas.gettags(item):
@@ -813,6 +858,10 @@ class CodyWindow:
             self.choose_point(None)
             return
         # Debug leaders never override the device's fixed navigation touch targets.
+        if self.scene is not None:
+            eye = hit_test_eye(self.scene, (x, y), self.response_config["touch"]["eye_hit_radius"])
+            if eye != EyeId.NONE:
+                self.stimulus_source.tap_eye(eye, int(time.perf_counter() * 1_000_000))
         if clicked_name is not None:
             self.choose_point(clicked_name)
             return
@@ -842,13 +891,15 @@ class CodyWindow:
     # Raises ValueError for rejected targets or invalid elapsed time.
     def advance_animation(self, screen, active_ms):
         face_targets = [value.get() for value in self.values]
+        targets = {name: value.get() for name, value in self.contour_values.items()}
+        if self.demo_enabled.get() and screen == Screen.RIG:
+            _, face_targets, targets = demo_targets(self.poc_settings, self.renderer.rig, self.elapsed_ms)
         self.face_state = advance_face(
             self.renderer.rig, self.face_state, face_targets, active_ms
         )
         values = self.face_state
         if self.playing.get() and screen != Screen.RIG:
             values = animate(self.face_state, self.elapsed_ms)
-        targets = {name: value.get() for name, value in self.contour_values.items()}
         # The single response composer adds effects before the contour transition.
         return values, targets
 

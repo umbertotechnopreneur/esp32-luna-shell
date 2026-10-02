@@ -154,7 +154,16 @@ face_transition_seconds: 0.18
 # External stimuli feed continuous artistic state, never a measured emotion.
 # Board axes are explicit; verify their signs during the first hardware session.
 response:
-  schema: cody.response.v2
+  schema: cody.response.v3
+  touch:
+    event_timeout_seconds: 2
+    eye_hit_radius: 0.16
+    eye_hold_seconds: 0.65
+    close_seconds: 0.06
+    reopen_seconds: 0.35
+    annoyance_release_seconds: 3
+    stress_gain: 0.7
+    brow_gain: 0.9
   audio:
     sample_timeout_seconds: 2.5
     microphone_reference: 0.08

@@ -1,0 +1,112 @@
+#include "CODY_poc.h"
+#include "poc_settings.hpp"
+#include "LUNASHELL_platform.h"
+#include "LUNASHELL_device_snapshot.hpp"
+#include "esp_timer.h"
+#include "esp_log.h"
+#include <cstddef>
+#include <cstdint>
+
+extern "C" {
+extern const uint8_t audio_ready_start[] asm("_binary_cody_audio_ready_start");
+extern const uint8_t audio_ready_end[] asm("_binary_cody_audio_ready_end");
+extern const uint8_t eyes_open_start[] asm("_binary_cody_eyes_open_start");
+extern const uint8_t eyes_open_end[] asm("_binary_cody_eyes_open_end");
+}
+namespace {
+constexpr char kTag[] = "CODY_poc";
+int64_t s_boot_started_us = 0;
+int64_t s_stage_started_us = 0;
+
+// first: Aligned flash-owned little-endian PCM16 data.
+// last: Linker end symbol for exactly that asset.
+// samples: Receives borrowed samples without decoding or heap allocation.
+// count: Receives the exact mono sample count.
+esp_err_t pcm_view(const uint8_t *first, const uint8_t *last,
+                   const int16_t *&samples, size_t &count)
+{
+    const uintptr_t start = reinterpret_cast<uintptr_t>(first);
+    const uintptr_t end = reinterpret_cast<uintptr_t>(last);
+    if (end <= start || start % alignof(int16_t) != 0 || (end - start) % 2 != 0) {
+        ESP_LOGE(kTag, "Boot PCM bounds/alignment rejected: %s", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    samples = reinterpret_cast<const int16_t *>(first);
+    count = (end - start) / sizeof(int16_t);
+    return ESP_OK;
+}
+} // namespace
+
+// Begin real boot timings and register the cue without touching a hardware driver.
+extern "C" esp_err_t CODY_poc_prepare_boot(void)
+{
+    if (s_boot_started_us != 0) {
+        ESP_LOGE(kTag, "Duplicate PoC boot preparation: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_boot_started_us = esp_timer_get_time();
+    s_stage_started_us = s_boot_started_us;
+    const int16_t *samples = nullptr;
+    size_t count = 0;
+    esp_err_t error = pcm_view(audio_ready_start, audio_ready_end, samples, count);
+    if (error == ESP_OK) {
+        error = LUNASHELL_audio_set_startup_cue(samples, count,
+            CODY::PocData::sample_rate_hz, CODY::PocData::ready_volume_percent);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Audio-ready cue registration failed: %s", esp_err_to_name(error));
+    }
+    return error;
+}
+
+// stage: Real completed startup operation, logged to console before the optional SD mirror.
+extern "C" void CODY_poc_boot_checkpoint(const char *stage)
+{
+    const int64_t now_us = esp_timer_get_time();
+    if (CODY::PocData::execution_timings) {
+        ESP_LOGI(kTag, "TIMING boot stage=\"%s\" stage_us=%lld elapsed_us=%lld", stage,
+            static_cast<long long>(now_us - s_stage_started_us),
+            static_cast<long long>(now_us - s_boot_started_us));
+    }
+    s_stage_started_us = now_us;
+}
+
+// SD ownership remains in Luna. An absent card never causes a mount or format here.
+extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
+{
+    LUNASHELL::MotionPowerObservation observation;
+    const esp_err_t read_error =
+        LUNASHELL::DeviceSnapshotService::instance().readMotionPowerObservation(observation);
+    if (read_error != ESP_OK) {
+        ESP_LOGE(kTag, "Diagnostics snapshot read failed: %s", esp_err_to_name(read_error));
+        return read_error;
+    }
+    const bool requested = CODY::PocData::execution_timings && CODY::PocData::mirror_to_sd_when_available;
+    if (!observation.storage_available) {
+        ESP_LOGI(kTag, "Diagnostics console active=%u; SD mirror unavailable (card not mounted/healthy)",
+                 CODY::PocData::execution_timings);
+        return ESP_OK; // The optional sink is explicitly unavailable; console is authoritative.
+    }
+    const esp_err_t error = LUNASHELL_storage_set_logger_mirror(requested);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Existing SD logger mirror configuration failed: %s", esp_err_to_name(error));
+    }
+    return error;
+}
+
+// The ready artwork completes its panel transfer before this owner plays the second cue.
+extern "C" esp_err_t CODY_poc_play_eyes_open(void)
+{
+    const int16_t *samples = nullptr;
+    size_t count = 0;
+    esp_err_t error = pcm_view(eyes_open_start, eyes_open_end, samples, count);
+    if (error == ESP_OK) {
+        error = LUNASHELL_audio_play_pcm16(samples, count,
+            CODY::PocData::sample_rate_hz, CODY::PocData::eyes_open_volume_percent);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Eyes-open cue failed: %s", esp_err_to_name(error));
+    }
+    CODY_poc_boot_checkpoint("eyes-open audio cue");
+    return error;
+}

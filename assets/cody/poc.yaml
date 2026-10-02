@@ -1,0 +1,21 @@
+# Build-time settings for the hardware PoC; no fabricated firmware observations.
+schema: cody.poc.v1
+demo:
+  autostart: true
+  steps:
+    - {id: breathe, duration_seconds: 5, face: ready, amplitude: 0.12, speed: 0.25}
+    - {id: contour_slow, duration_seconds: 7, face: ready, amplitude: 0.65, speed: 0.15}
+    - {id: contour_fast, duration_seconds: 7, face: ready, amplitude: 0.65, speed: 1.4}
+    - {id: sleepy, duration_seconds: 5, face: waking, amplitude: 0.15, speed: 0.2}
+    - {id: awake, duration_seconds: 5, face: ready, amplitude: 0.3, speed: 0.5}
+diagnostics:
+  execution_timings: true
+  mirror_to_sd_when_available: true
+  report_interval_ms: 2000
+  frame_budget_us: 33333
+audio:
+  sample_rate_hz: 16000
+  ready_duration_seconds: 0.18
+  eyes_open_duration_seconds: 1.3
+  ready_volume_percent: 30
+  eyes_open_volume_percent: 40

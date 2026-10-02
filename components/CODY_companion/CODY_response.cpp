@@ -208,7 +208,7 @@ esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseSta
             sum += microphone.mean_level[channel];
         }
         if (microphone.stamp.sampled_at_us < previous.consumed_microphone_at_us) {
-            return reject_value("audio.microphone reversed timestamp", microphone.stamp.sampled_at_us);
+            return reject_value("audio.microphone reversed timestamp", static_cast<double>(microphone.stamp.sampled_at_us));
         }
         if (microphone.stamp.sampled_at_us > previous.consumed_microphone_at_us) {
             const float normalized = sum / (32768.f * microphone.channel_count);
@@ -224,11 +224,11 @@ esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseSta
             return reject_value("audio.playback PCM level", playback.mean_level);
         }
         if (playback.stamp.sampled_at_us < previous.consumed_playback_at_us) {
-            return reject_value("audio.playback reversed timestamp", playback.stamp.sampled_at_us);
+            return reject_value("audio.playback reversed timestamp", static_cast<double>(playback.stamp.sampled_at_us));
         }
         if (playback.stamp.sampled_at_us > previous.consumed_playback_at_us) {
             next.playback_target = playback.active
-                ? -std::expm1(-playback.mean_level / (32768.f * config.audio.playback_reference)) : 0;
+                ? -std::expm1(-static_cast<float>(playback.mean_level) / (32768.f * config.audio.playback_reference)) : 0;
             next.consumed_playback_at_us = playback.stamp.sampled_at_us;
         }
     } else {
@@ -244,7 +244,7 @@ esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseSta
                                 config.audio.attack_seconds, config.audio.release_seconds);
     if (inputs.last_interaction_at_us < previous.consumed_interaction_at_us ||
         inputs.last_interaction_at_us > now_us) {
-        return reject_value("interaction timestamp", inputs.last_interaction_at_us);
+        return reject_value("interaction timestamp", static_cast<double>(inputs.last_interaction_at_us));
     }
     const bool interaction = inputs.last_interaction_at_us > previous.consumed_interaction_at_us;
     next.consumed_interaction_at_us = inputs.last_interaction_at_us;
@@ -304,6 +304,9 @@ esp_err_t validate_response_state(const ResponseState &state)
         {"state.yawn_seconds", state.yawn_seconds, 0, 10},
         {"state.yawn_cooldown_seconds", state.yawn_cooldown_seconds, 0, 600},
         {"state.yawn_weight", state.yawn_weight, 0, 1},
+        {"state.eye_hold_seconds", state.eye_hold_seconds, 0, 3},
+        {"state.protective_eye_closure", state.protective_eye_closure, 0, 1},
+        {"state.annoyance", state.annoyance, 0, 1},
     };
     for (const auto &parameter : scalars) {
         if (!std::isfinite(parameter.value) || parameter.value < parameter.minimum ||
@@ -333,7 +336,7 @@ esp_err_t validate_response_state(const ResponseState &state)
         return reject_value("state.consumed_power_at_us", static_cast<double>(state.consumed_power_at_us));
     }
     if (state.consumed_microphone_at_us < 0 || state.consumed_playback_at_us < 0 ||
-        state.consumed_interaction_at_us < 0) {
+        state.consumed_interaction_at_us < 0 || state.consumed_eye_tap_at_us < 0) {
         return reject_value("state.audio/interaction timestamp", -1);
     }
     if (state.breath_phase >= kTau) {
@@ -345,6 +348,41 @@ esp_err_t validate_response_state(const ResponseState &state)
     return ESP_OK;
 }
 } // namespace
+
+// scene: Shared evaluated artwork geometry, including any inertial translation or scale.
+// point: Logical touch in the exact coordinate system used to draw that geometry.
+// radius: Strictly authored normalized touch radius; it stays usable while eyes close.
+// eye: Stable eye identity; no list position becomes an eye identifier.
+esp_err_t hit_test_eye(const RigScene &scene, CODY2D::Vec2 point, float radius, EyeId &eye)
+{
+    if (!scene.valid || !std::isfinite(scene.scale) || scene.scale <= 0 ||
+        !std::isfinite(point.x) || !std::isfinite(point.y) ||
+        !std::isfinite(radius) || radius < .05f || radius > .25f) {
+        ESP_LOGE(kTag, "Eye hit geometry rejected: %s", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const float limit = radius * scene.scale;
+    const struct { EyeId eye; PointId point; } targets[] = {
+        {EyeId::Left, PointId::EyeLeft}, {EyeId::Right, PointId::EyeRight}
+    };
+    EyeId nearest = EyeId::None;
+    float nearest_squared = limit * limit;
+    for (const auto &target : targets) {
+        const auto anchor = scene.world[to_index(target.point)];
+        const float dx = point.x - anchor.x;
+        const float dy = point.y - anchor.y;
+        const float squared = dx * dx + dy * dy;
+        if (!std::isfinite(squared)) {
+            return reject_value("eye hit anchor", squared);
+        }
+        if (squared <= nearest_squared) {
+            nearest = target.eye;
+            nearest_squared = squared;
+        }
+    }
+    eye = nearest;
+    return ESP_OK;
+}
 
 // config: Complete authored settings, checked without silent corrections or defaults.
 esp_err_t validate_response_config(const ResponseConfig &config)
@@ -498,7 +536,33 @@ esp_err_t advance_response(const ResponseConfig &config, const ResponseState &st
                                     config.state.fatigue_attack_seconds, config.state.fatigue_release_seconds);
     }
     // Unknown charge holds artistic state. It is never substituted with "battery full".
-    error = advance_audio_and_idle(config, state, inputs, animate_rhythm ? seconds : 0, now_us, result);
+    error = effective_stamp(inputs.eye_tap.stamp, now_us, config.touch.event_timeout_seconds,
+                            "touch.eye", result.eye_tap_status);
+    if (error != ESP_OK) {
+        return error;
+    }
+    const float active_seconds = animate_rhythm ? seconds : 0;
+    result.eye_hold_seconds = std::max(0.f, state.eye_hold_seconds - active_seconds);
+    result.annoyance = blend_state(state.annoyance, 0, active_seconds,
+        config.touch.annoyance_release_seconds, config.touch.annoyance_release_seconds);
+    if (result.eye_tap_status.health == SampleHealth::Current) {
+        if (inputs.eye_tap.eye != EyeId::Left && inputs.eye_tap.eye != EyeId::Right) {
+            return reject_value("touch.eye identity", to_index(inputs.eye_tap.eye));
+        }
+        if (inputs.eye_tap.stamp.sampled_at_us < state.consumed_eye_tap_at_us) {
+            return reject_value("touch.eye reversed timestamp", static_cast<double>(inputs.eye_tap.stamp.sampled_at_us));
+        }
+        if (inputs.eye_tap.stamp.sampled_at_us > state.consumed_eye_tap_at_us) {
+            result.consumed_eye_tap_at_us = inputs.eye_tap.stamp.sampled_at_us;
+            result.eye_hold_seconds = config.touch.eye_hold_seconds;
+            result.annoyance = 1;
+            result.stress = std::max(result.stress, config.touch.stress_gain);
+        }
+    }
+    const float closure_target = result.eye_hold_seconds > 0 ? 1.f : 0.f;
+    result.protective_eye_closure = blend_state(state.protective_eye_closure, closure_target,
+        active_seconds, config.touch.close_seconds, config.touch.reopen_seconds);
+    error = advance_audio_and_idle(config, state, inputs, active_seconds, now_us, result);
     if (error != ESP_OK) {
         return error;
     }
@@ -576,9 +640,11 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
     mouth += (1 - mouth) * state.yawn_weight * config.idle.mouth_open;
     for (const auto eye : {FaceChannel::EyeLeft, FaceChannel::EyeRight}) {
         result.face[eye] *= 1 - state.yawn_weight * config.idle.eye_closure;
+        result.face[eye] *= 1 - state.protective_eye_closure;
     }
     for (const auto brow : {FaceChannel::BrowLeft, FaceChannel::BrowRight}) {
         result.face[brow] += (1 - result.face[brow]) * state.attention * config.audio.attention_brow;
+        result.face[brow] += (1 - result.face[brow]) * state.annoyance * config.touch.brow_gain;
     }
     auto &mouth_width = result.face[FaceChannel::MouthWidth];
     const float mouth_minimum = Data::channel_min[to_index(FaceChannel::MouthWidth)];

@@ -6,6 +6,7 @@ import math
 from scripts.common.cody_response import (
     InputOrigin, MotionSample, PowerSample, MicrophoneSample, PlaybackSample,
     ResponseInputs, SampleHealth, SampleStamp,
+    EyeId, EyeTapSample,
 )
 from scripts.common.cody_response_contract import Axis
 
@@ -19,6 +20,18 @@ class SyntheticStimulusSource:
         self.pulse_axis = Axis.X
         self.pulse_until_us = 0
         self.last_interaction_at_us = 0
+        self.eye_tap = EyeTapSample()
+
+    # self: Host-only snapshot owner; this event has no firmware transport.
+    # eye: Stable left/right identity from the geometry displayed in the preview.
+    # now_us: Original synthetic pointer-event time.
+    # Raises ValueError for an invalid eye or reversed event clock.
+    def tap_eye(self, eye, now_us):
+        eye = EyeId(eye)
+        if eye == EyeId.NONE or now_us <= self.eye_tap.stamp.sampled_at_us:
+            raise ValueError("Synthetic eye-tap identity/time rejected")
+        self.interact(now_us)
+        self.eye_tap = EyeTapSample(SampleStamp(SampleHealth.CURRENT, InputOrigin.SYNTHETIC, now_us, 0), eye)
 
     # self: Host-only source owner retaining the last explicit preview interaction.
     # now_us: Monotonic timestamp from the same clock used by snapshot().
@@ -108,5 +121,5 @@ class SyntheticStimulusSource:
             microphone = replace(microphone, stamp=self.stamp(microphone.stamp, microphone_health, tick_us))
         if playback_health != SampleHealth.CURRENT:
             playback = replace(playback, stamp=self.stamp(playback.stamp, playback_health, tick_us))
-        self.current = ResponseInputs(motion, power, rotation, microphone, playback, self.last_interaction_at_us)
+        self.current = ResponseInputs(motion, power, rotation, microphone, playback, self.last_interaction_at_us, self.eye_tap)
         return self.current

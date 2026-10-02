@@ -9,6 +9,7 @@ enum class Axis : uint8_t { X, Y, Z, Count };
 enum class SampleHealth : uint8_t { Unavailable, Current, Stale, Error };
 // The firmware input boundary deliberately has no synthetic source.
 enum class InputOrigin : uint8_t { Hardware };
+enum class EyeId : uint8_t { None, Left, Right };
 
 struct AxisValues {
     float values[to_index(Axis::Count)] = {};
@@ -63,6 +64,10 @@ struct ResponseInputs {
     MicrophoneSample microphone{};
     PlaybackSample playback{};
     int64_t last_interaction_at_us = 0;
+    struct EyeTap {
+        SampleStamp stamp{};
+        EyeId eye = EyeId::None;
+    } eye_tap;
 };
 
 struct AxisMapping {
@@ -135,6 +140,16 @@ struct ResponseConfig {
         float mouth_open;
         float eye_closure;
     } idle;
+    struct TouchConfig {
+        float event_timeout_seconds;
+        float eye_hit_radius;
+        float eye_hold_seconds;
+        float close_seconds;
+        float reopen_seconds;
+        float annoyance_release_seconds;
+        float stress_gain;
+        float brow_gain;
+    } touch;
 };
 
 struct SpringState {
@@ -172,7 +187,18 @@ struct ResponseState {
     float yawn_cooldown_seconds = 0;
     float yawn_weight = 0;
     bool yawning = false;
+    SampleStamp eye_tap_status{};
+    int64_t consumed_eye_tap_at_us = 0;
+    float eye_hold_seconds = 0;
+    float protective_eye_closure = 0;
+    float annoyance = 0;
 };
+
+// scene: Exactly the valid geometry currently displayed; no second pose is evaluated.
+// point: Logical touch already mapped by the display owner for cardinal rotation.
+// radius: Authored normalized hit radius scaled with the evaluated character.
+// eye: Receives the hit semantic eye, or None when the touch misses both.
+esp_err_t hit_test_eye(const RigScene &scene, CODY2D::Vec2 point, float radius, EyeId &eye);
 
 struct ResponseFrame {
     Channels face{};
