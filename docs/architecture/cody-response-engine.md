@@ -4,12 +4,14 @@ Copyright umbertogiacobbi.biz 2026 - confidential
 
 Implementation checkpoint for the first hardware test release. The native engine,
 snapshot adapter, YAML configuration and Windows controls are implemented.
-Firmware tables were regenerated from source. Runtime, simulator and hardware
-validation are deferred until explicitly requested.
+The later offline extension adds microphone/playback observations, idle yawn and
+eye-tap closure/annoyance. Its authorized host checks passed; firmware compilation
+and physical behavior remain unverified. Current configuration, evidence and
+limits: [Cody offline PoC](cody-offline-poc.md).
 
 ```mermaid
 flowchart LR
-    HW[Hardware services: IMU / PMU / future microphone] --> DS[Single canonical DeviceSnapshot]
+    HW[Hardware services: IMU / PMU / microphones / playback] --> DS[Single canonical DeviceSnapshot]
     DS --> AD[Read-only typed observation adapter]
     SS[Windows-only synthetic snapshot owner] --> ADH[Host typed input boundary]
     AD --> FE[Freshness / one-time sample consumption / derived cues]

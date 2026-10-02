@@ -56,6 +56,9 @@ class RigContractTests(unittest.TestCase):
         if window.after_id is not None:
             window.root.after_cancel(window.after_id)
             window.after_id = None
+        # Windows queues WM resize/configure events outside Tk's idle geometry work.
+        # Drain those events before asserting against the newly presented layout.
+        window.root.update()
         window.root.update_idletasks()
         window.render_tick()
 

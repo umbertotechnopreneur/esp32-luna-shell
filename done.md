@@ -253,3 +253,14 @@ remain tracked in `TODO.md` and `planned-todo.md`.
 This section records host-validated implementation only. Forced-stall behavior,
 retained reset diagnostics, and worker stack margins remain hardware tests in
 `TODO.md`.
+
+## Cody offline PoC extension (2026-10-03)
+
+- Added an authored automatic animation cycle, two original PCM16 boot cues,
+  console-first boot/frame timings and optional existing SD logger mirroring.
+- Extended the canonical snapshot adapter and response composer for microphone
+  attention, confirmed playback, configurable idle yawn and real eye-tap
+  closure/annoyance. Windows controls remain explicitly synthetic.
+- Authorized host checks passed: 11 response tests, 23 PoC/Tk tests, portable
+  raster/rig contracts and 500 native/host model updates. ESP-IDF compilation,
+  physical audio/touch and measured firmware fluidity remain open in TODO.md.

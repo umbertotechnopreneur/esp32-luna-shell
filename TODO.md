@@ -6,6 +6,14 @@ authorization.
 
 ## Current integration
 
+- [ ] Validate the new Cody offline PoC on explicitly authorized firmware/device
+  work: compile/flash its automatic demo, two original boot cues, snapshot-backed
+  microphone/playback response, battery validity, 20-second idle yawn and eye-tap
+  protection/annoyance. Measure complete-frame stage distributions, overlay cost,
+  stack, radios and physical touch at all cardinal rotations. The authorized
+  host checks passed; ESP-IDF integration, sound quality and device fluidity remain
+  unverified. Evidence: `docs/architecture/cody-offline-poc.md`.
+
 - [ ] Finish the Cody device debug checkpoint when USB access is restored:
   flash the compiled Luna-transport/IRQ candidate, capture all three boot
   checkpoints, then verify repeated press/release, Back, overlay toggle,
@@ -17,16 +25,11 @@ authorization.
   validation and the Luna ports remain deferred. Details and evidence:
   `docs/architecture/cody-device-debug.md`.
 
-- [ ] On explicit validation request, validate the Cody Response Engine through
-  `device.ps1 check -Check cody-response` and the existing `cody-poc` checks.
-  Include all-axis gravity priming/inertia, duplicate timestamps, source errors
-  and aging, unknown/charging battery, composable stress/fatigue, phase continuity,
-  responsive Stimuli controls and resting/current-root overlays at all rotations.
-  Native/host equations and rendering parity, real snapshot cadence, board-axis
-  signs, standby/wake, frame cost, stack and radio headroom require the final
-  package and separately authorized hardware work. Source review and authored
-  table generation are complete; tests, simulator runs and firmware builds are
-  deferred. Blueprint: `docs/architecture/cody-response-engine.md`.
+- [ ] Validate real Cody snapshot cadence, board-axis signs, charge/microphone
+  response, standby/wake and radio headroom on explicitly authorized hardware.
+  Host response/model and PoC checks passed, including native/Python equations,
+  source validity, composable fatigue/stress and eye-tap recovery. Hardware
+  evidence remains open. Blueprint: `docs/architecture/cody-response-engine.md`.
 
 - [ ] On explicit validation request, validate the readability refactor:
   route-to-document ownership, navigation Back/Forward/return-to history, and
@@ -45,23 +48,17 @@ authorization.
   cleanup and failure logging. Firmware build/flash paths retain separate
   authorization requirements. This tooling reorganization has static review only.
 
-- [ ] On explicit host-validation request, exercise the contour and named-overlay
-  extension: independent facial geometry, original/deformed outlines, point-name
-  attachment at all cardinal rotations, pause/resume, slow/fast target changes,
-  extreme authored lobe limits, and current generated-table provenance. The
-  contour extension has static review only; the historical ten host checks
-  belong to the earlier rig checkpoint.
-  Include the later responsive layout and facial-control changes: narrow/wide
-  window resizing, scaled/rotated label and touch alignment, scroll access,
-  anchored mouth/nose/cheek sizes, interpolated face presets and cheek alpha at
-  zero, partial and full opacity. Those prepared regressions have not been run.
+- [ ] Measure the contour and named-overlay extension on explicitly authorized
+  hardware: smooth slow/fast target changes, physical point/touch alignment,
+  facial alpha and overlay cost. The authorized host PoC checks passed, including
+  named geometry, responsive Tk layout, interpolation and cardinal rotations.
+  Keep physical performance evidence separate from those host assertions.
 
 - [ ] On explicit firmware/device validation request, compile the Cody rig PoC
   and measure frame geometry/raster/transfer times with the overlay on and off,
   real 0/90/180/270 touch alignment, standby/wake, stack high-water mark and
-  Wi-Fi/BLE headroom. Compare native raster output against the Windows preview;
-  ten focused host checks passed before the contour extension, but native pixel
-  parity remains unverified.
+  Wi-Fi/BLE headroom. Portable native raster/rig contracts passed in the integrated
+  working copy; physical framebuffer output and firmware fluidity remain unverified.
 
 - [ ] On explicit request, resolve/review the `cody-companion` dependency lock,
   then validate the finished no-LVGL source/dependency closure, clean/incremental

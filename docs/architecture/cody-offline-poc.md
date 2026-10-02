@@ -102,14 +102,18 @@ selection, card mounting and any storage error keep their existing owners.
 ## Offline check entrypoints
 
 All commands use `scripts/device.ps1`; firmware/hardware validation is separate.
+Native checks accept an existing host Clang, GCC or MSVC driver. Select a host
+compiler; Espressif's installed Clang defaults to embedded RISC-V and does not
+produce an executable Windows test. For MSVC, enter its Developer PowerShell
+environment before invoking the same console commands.
 
 ```powershell
 ./scripts/device.ps1 generate -Generator cody-rig
 ./scripts/device.ps1 generate -Generator cody-poc
 ./scripts/device.ps1 check -Check cody-response
 ./scripts/device.ps1 check -Check cody-poc
-./scripts/device.ps1 check -Check cody-native -ToolArguments @('--compiler', '<host clang++ path>')
-./scripts/device.ps1 check -Check cody-runtime -ToolArguments @('--compiler', '<host clang++ path>')
+./scripts/device.ps1 check -Check cody-native -ToolArguments @('--compiler', '<host C++ compiler path>')
+./scripts/device.ps1 check -Check cody-runtime -ToolArguments @('--compiler', '<host C++ compiler path>')
 ```
 
 Native checks compile the real portable rig/raster and response/demo/benchmark
@@ -122,3 +126,32 @@ Pending on the board: new firmware compile/flash, all three boot artworks and tw
 audio cues, continuous demo, repeated touch release, 0/90/180/270 mapping, measured
 frame distributions with overlays off/on, stack high-water marks, radio headroom,
 and real battery/microphone/playback responsiveness.
+
+## Host evidence (2026-10-03)
+
+The explicitly authorized offline checks passed in the integrated working copy:
+
+| Console check | Result | Scope |
+| --- | --- | --- |
+| `cody-response` | 11 tests passed | Motion, power, aging and model contracts |
+| `cody-poc` | 23 tests passed | Palette, geometry, face/contour transitions, alpha, Tk resizing, labels, navigation and cardinal rotation |
+| `cody-native` | Passed | Actual portable C++ raster/rig, RGB565 alpha, stride guards, rejection, culling/strip parity and native/host named geometry |
+| `cody-runtime` | Passed | 500 native/host response updates over 50 fixture seconds, audio, unknown charge, yawn/cancellation, eye-tap closure/annoyance, original cue assets, demo boundaries and rolling statistics |
+
+The C++ host checks used installed MSVC 14.51 in its x64 developer environment.
+Their final compilation emitted no warnings. An earlier run exposed unsigned
+negation in the playback contribution; the source now converts the PCM mean to
+float before applying the negative gain. The Tk resize fixture also now drains
+Windows configure events before checking the presented layout; its original
+geometry and label assertions remain intact.
+
+Reports are under `artifacts/cody-poc/host-review.json`,
+`artifacts/checks/cody-native/report.json` and
+`artifacts/checks/cody-runtime/report.json`. No ESP-IDF configure/build/size,
+serial access, flash, SD access or physical hardware validation ran in this
+offline checkpoint. Hardware frame costs and fluidity remain unmeasured.
+
+Checkpoint commits keep the pre-existing display/DMA/module refactors separate.
+The portable raster check also exercised that pending work in the integrated
+working copy; it does not imply those unrelated changes were included in Cody's
+feature commits.
