@@ -1,6 +1,7 @@
 // Generated from assets/cody/cody.yaml; edit that skin, never this table.
 #pragma once
 #include "CODY_rig.hpp"
+#include "CODY_response.hpp"
 namespace CODY {
 enum class PointId : uint16_t {
     Center,
@@ -1095,4 +1096,77 @@ inline constexpr float overlay_marker_diameter = 5.000000000f;
 inline constexpr Transform placement = {233.000000000f, 235.000000000f, 145.000000000f};
 inline constexpr const char *character_id = "cody";
 inline constexpr const char *character_name = "Cody";
+// Named assignments keep authoring order independent of native field identity.
+inline constexpr ResponseConfig response = [] {
+    ResponseConfig config{};
+    config.motion.sensitivity = 1.000000000f;
+    config.motion.baseline_seconds = 0.700000000f;
+    config.motion.sample_timeout_seconds = 0.750000000f;
+    config.motion.translation_gain = 0.028000000f;
+    config.motion.translation_limit = 0.140000000f;
+    config.motion.depth_gain = 0.005000000f;
+    config.motion.depth_limit = 0.050000000f;
+    config.motion.spring_hz = 2.800000000f;
+    config.motion.damping_ratio = 0.780000000f;
+    config.motion.stress_reference_mps2 = 5.000000000f;
+    config.power.sample_timeout_seconds = 8.000000000f;
+    config.power.fatigue_curve = 1.600000000f;
+    config.state.stress_attack_seconds = 0.180000000f;
+    config.state.stress_release_seconds = 2.800000000f;
+    config.state.fatigue_attack_seconds = 1.600000000f;
+    config.state.fatigue_release_seconds = 3.000000000f;
+    config.expression.stress_brow = 0.750000000f;
+    config.expression.fatigue_eye_closure = 0.650000000f;
+    config.expression.fatigue_cheek_fade = 0.350000000f;
+    config.expression.stress_mouth_open = 0.200000000f;
+    config.expression.stress_mouth_narrowing = 0.150000000f;
+    config.expression.stress_wave_gain = 0.500000000f;
+    config.expression.stress_wave_speed_gain = 0.400000000f;
+    config.expression.fatigue_wave_slowdown = 0.600000000f;
+    config.expression.fatigue_fullness = 0.100000000f;
+    config.expression.base_breath_hz = 0.250000000f;
+    config.expression.stress_breath_gain = 0.800000000f;
+    config.expression.fatigue_breath_slowdown = 0.550000000f;
+    config.expression.rhythm_blend_seconds = 0.220000000f;
+    config.motion.board_to_panel[to_index(Axis::X)] = {Axis::X, 1.000000000f};
+    config.motion.board_to_panel[to_index(Axis::Y)] = {Axis::Y, 1.000000000f};
+    config.motion.board_to_panel[to_index(Axis::Z)] = {Axis::Z, 1.000000000f};
+    return config;
+}();
+struct ResponseParameter { const char *name; float value; float minimum; float maximum; };
+// config: Runtime settings checked against the same limits as YAML authoring.
+inline std::array<ResponseParameter, 29> response_parameters(const ResponseConfig &config)
+{
+    return {{
+        {"motion.sensitivity", config.motion.sensitivity, 0.000000000f, 4.000000000f},
+        {"motion.baseline_seconds", config.motion.baseline_seconds, 0.050000000f, 5.000000000f},
+        {"motion.sample_timeout_seconds", config.motion.sample_timeout_seconds, 0.050000000f, 10.000000000f},
+        {"motion.translation_gain", config.motion.translation_gain, 0.000000000f, 0.100000000f},
+        {"motion.translation_limit", config.motion.translation_limit, 0.000000000f, 0.250000000f},
+        {"motion.depth_gain", config.motion.depth_gain, 0.000000000f, 0.030000000f},
+        {"motion.depth_limit", config.motion.depth_limit, 0.000000000f, 0.120000000f},
+        {"motion.spring_hz", config.motion.spring_hz, 0.200000000f, 10.000000000f},
+        {"motion.damping_ratio", config.motion.damping_ratio, 0.200000000f, 2.000000000f},
+        {"motion.stress_reference_mps2", config.motion.stress_reference_mps2, 0.100000000f, 100.000000000f},
+        {"power.sample_timeout_seconds", config.power.sample_timeout_seconds, 0.100000000f, 60.000000000f},
+        {"power.fatigue_curve", config.power.fatigue_curve, 0.200000000f, 4.000000000f},
+        {"state.stress_attack_seconds", config.state.stress_attack_seconds, 0.010000000f, 10.000000000f},
+        {"state.stress_release_seconds", config.state.stress_release_seconds, 0.050000000f, 60.000000000f},
+        {"state.fatigue_attack_seconds", config.state.fatigue_attack_seconds, 0.010000000f, 60.000000000f},
+        {"state.fatigue_release_seconds", config.state.fatigue_release_seconds, 0.010000000f, 60.000000000f},
+        {"expression.stress_brow", config.expression.stress_brow, 0.000000000f, 1.000000000f},
+        {"expression.fatigue_eye_closure", config.expression.fatigue_eye_closure, 0.000000000f, 1.000000000f},
+        {"expression.fatigue_cheek_fade", config.expression.fatigue_cheek_fade, 0.000000000f, 1.000000000f},
+        {"expression.stress_mouth_open", config.expression.stress_mouth_open, 0.000000000f, 1.000000000f},
+        {"expression.stress_mouth_narrowing", config.expression.stress_mouth_narrowing, 0.000000000f, 0.500000000f},
+        {"expression.stress_wave_gain", config.expression.stress_wave_gain, 0.000000000f, 1.000000000f},
+        {"expression.stress_wave_speed_gain", config.expression.stress_wave_speed_gain, 0.000000000f, 1.000000000f},
+        {"expression.fatigue_wave_slowdown", config.expression.fatigue_wave_slowdown, 0.000000000f, 1.000000000f},
+        {"expression.fatigue_fullness", config.expression.fatigue_fullness, 0.000000000f, 0.500000000f},
+        {"expression.base_breath_hz", config.expression.base_breath_hz, 0.080000000f, 1.000000000f},
+        {"expression.stress_breath_gain", config.expression.stress_breath_gain, 0.000000000f, 2.000000000f},
+        {"expression.fatigue_breath_slowdown", config.expression.fatigue_breath_slowdown, 0.000000000f, 0.900000000f},
+        {"expression.rhythm_blend_seconds", config.expression.rhythm_blend_seconds, 0.010000000f, 5.000000000f},
+    }};
+}
 }  // namespace CODY::Data

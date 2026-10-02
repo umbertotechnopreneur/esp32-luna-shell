@@ -2,6 +2,8 @@ idf_component_register(
     SRCS
         "CODY_companion.cpp"
         "CODY_rig.cpp"
+        "CODY_response.cpp"
+        "CODY_response_inputs.cpp"
         "../../assets/cody/boot/generated/cody_sleep_blue.cpp"
         "../../assets/cody/boot/generated/cody_waking_blue.cpp"
         "../../assets/cody/boot/generated/cody_ready_blue.cpp"

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.common.cody_rig_contract import ROOT, enum_identifier, load_contract
 from scripts.common.cody_rig_types import FaceChannel, channel_name
+from scripts.common.cody_response_contract import Axis, RESPONSE_RANGES
 
 
 # value: Finite authoring coordinate emitted as an unambiguous C++ float.
@@ -166,7 +167,7 @@ def emit_style(rig, palette):
 def generate_header(rig, palette):
     lines = [
         f"// Generated from {rig['source_path']}; edit that skin, never this table.",
-        "#pragma once", '#include "CODY_rig.hpp"', "namespace CODY {",
+        "#pragma once", '#include "CODY_rig.hpp"', '#include "CODY_response.hpp"', "namespace CODY {",
     ]
     for enum_type, names in (
         ("PointId", [point["name"] for point in rig["points"]]),
@@ -182,8 +183,38 @@ def generate_header(rig, palette):
     lines.extend(emit_geometry(rig, palette))
     lines.extend(emit_animation(rig))
     lines.extend(emit_style(rig, palette))
+    lines.extend(emit_response(rig))
     lines.extend(["}  // namespace CODY::Data", ""])
     return "\n".join(lines)
+
+
+# rig: Selected character with strict named response configuration.
+def emit_response(rig):
+    response = rig["response"]
+    lines = ["// Named assignments keep authoring order independent of native field identity.",
+             "inline constexpr ResponseConfig response = [] {", "    ResponseConfig config{};"]
+    for group, ranges in RESPONSE_RANGES.items():
+        for field in ranges:
+            lines.append(f"    config.{group}.{field} = {cpp_float(response[group][field])};")
+    for panel_axis in Axis:
+        mapping = response["motion"]["board_to_panel"][panel_axis]
+        output_axis = panel_axis.value.upper()
+        input_axis = mapping["axis"].upper()
+        lines.append(f"    config.motion.board_to_panel[to_index(Axis::{output_axis})] = {{Axis::{input_axis}, {cpp_float(mapping['sign'])}}};")
+    lines.extend(["    return config;", "}();"])
+    parameter_count = sum(len(ranges) for ranges in RESPONSE_RANGES.values())
+    lines.extend([
+        "struct ResponseParameter { const char *name; float value; float minimum; float maximum; };",
+        "// config: Runtime settings checked against the same limits as YAML authoring.",
+        f"inline std::array<ResponseParameter, {parameter_count}> response_parameters(const ResponseConfig &config)",
+        "{", "    return {{",
+    ])
+    for group, ranges in RESPONSE_RANGES.items():
+        for field, (minimum, maximum) in ranges.items():
+            label = json.dumps(f"{group}.{field}")
+            lines.append(f"        {{{label}, config.{group}.{field}, {cpp_float(minimum)}, {cpp_float(maximum)}}},")
+    lines.extend(["    }};", "}"])
+    return lines
 
 
 # argv: Optional explicit CLI arguments from scripts/device.ps1.
@@ -209,6 +240,8 @@ def main(argv=None):
         "contour_lobes": len(rig["contour"]["lobes"]),
         "facial_channels": len(rig["channels"]),
         "face_transforms": len(rig["face_transforms"]),
+        "response_schema": rig["response"]["schema"],
+        "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
         "source_sha256": hashlib.sha256((ROOT / rig["source_path"]).read_bytes()).hexdigest(),
         "palette_sha256": hashlib.sha256((ROOT / rig["palette_file"]).read_bytes()).hexdigest(),
     }

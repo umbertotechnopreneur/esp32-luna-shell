@@ -11,6 +11,7 @@ import yaml
 from scripts.common.cody_rig_types import (
     ContourControl, CurvePoint, FaceChannel, PointRole, channel_name, face_channel,
 )
+from scripts.common.cody_response_contract import validate_response_config
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -188,6 +189,7 @@ def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
     compile_geometry(rig)
     validate_face_definition(rig)
     validate_contour_definition(rig)
+    validate_response_config(rig.get("response"))
     if set(rig["boot_channels"]) != {"sleep", "waking", "ready"}:
         raise ValueError("Three boot channel previews are required")
     rig["boot_channels"] = {
@@ -205,6 +207,12 @@ def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
     x, y, scale = [finite(placement[key], "default_transform") for key in ("x", "y", "scale")]
     if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
         raise ValueError("Invalid authored default transform")
+    motion = rig["response"]["motion"]
+    excursion = scale * motion["translation_limit"]
+    if x - excursion < 0 or x + excursion >= 466 or y - excursion < 0 or y + excursion >= 466:
+        raise ValueError("Authored root must retain space for the complete motion excursion")
+    if scale * (1 - motion["depth_limit"]) < 20 or scale * (1 + motion["depth_limit"]) > 200:
+        raise ValueError("Authored scale must retain space for the complete depth excursion")
     return rig, palette
 
 

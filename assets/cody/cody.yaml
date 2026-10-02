@@ -151,6 +151,52 @@ channels:
 # Shape and opacity controls compose with the original six facial channels.
 # Scale only descendants; the named anchor remains fixed in the face.
 face_transition_seconds: 0.18
+# External stimuli feed continuous artistic state, never a measured emotion.
+# Board axes are explicit; verify their signs during the first hardware session.
+response:
+  schema: cody.response.v1
+  motion:
+    source: motion.acceleration
+    unit: m/s2
+    board_to_panel:
+      x: {axis: x, sign: 1}
+      y: {axis: y, sign: 1}
+      z: {axis: z, sign: 1}
+    sensitivity: 1
+    baseline_seconds: 0.7
+    sample_timeout_seconds: 0.75
+    # Translation is a fraction of the resting body scale; Z changes scale only.
+    translation_gain: 0.028
+    translation_limit: 0.14
+    depth_gain: 0.005
+    depth_limit: 0.05
+    spring_hz: 2.8
+    damping_ratio: 0.78
+    stress_reference_mps2: 5
+  power:
+    source: power.charge
+    unit: percent
+    sample_timeout_seconds: 8
+    fatigue_curve: 1.6
+  state:
+    stress_attack_seconds: 0.18
+    stress_release_seconds: 2.8
+    fatigue_attack_seconds: 1.6
+    fatigue_release_seconds: 3
+  expression:
+    stress_brow: 0.75
+    fatigue_eye_closure: 0.65
+    fatigue_cheek_fade: 0.35
+    stress_mouth_open: 0.2
+    stress_mouth_narrowing: 0.15
+    stress_wave_gain: 0.5
+    stress_wave_speed_gain: 0.4
+    fatigue_wave_slowdown: 0.6
+    fatigue_fullness: 0.1
+    base_breath_hz: 0.25
+    stress_breath_gain: 0.8
+    fatigue_breath_slowdown: 0.55
+    rhythm_blend_seconds: 0.22
 face_transforms:
 - {anchor: mouth, channel: mouth_width, axes: [x]}
 - {anchor: nose, channel: nose_size, axes: [x, y]}

@@ -10,6 +10,7 @@
 
 #include "CODY2D.hpp"
 #include "CODY_rig.hpp"
+#include "CODY_response.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_sleep_blue.hpp"
 #include "cody_waking_blue.hpp"
@@ -72,6 +73,9 @@ int64_t s_animation_elapsed_us = 0;
 int64_t s_animation_sampled_us = 0;
 CODY::ContourState s_contour{};
 CODY::Channels s_face{};
+CODY::ResponseState s_response{};
+CODY::ResponseFrame s_response_frame{};
+bool s_response_sources_logged = false;
 int64_t s_next_frame_us = 0;
 int64_t s_last_timing_log_us = 0;
 uint32_t s_rig_frame_count = 0;
@@ -170,6 +174,37 @@ bool renderer_is_parked()
     return !LUNASHELL_display_runtime_writes_allowed() && bsp_display_is_ready();
 }
 
+// health: Explicit state of a published source; numeric telemetry is never implied here.
+const char *source_health_name(CODY::SampleHealth health)
+{
+    switch (health) {
+    case CODY::SampleHealth::Current:
+        return "CURRENT";
+    case CODY::SampleHealth::Stale:
+        return "STALE";
+    case CODY::SampleHealth::Error:
+        return "ERROR";
+    default:
+        return "UNAVAILABLE";
+    }
+}
+
+// source: Stable stimulus identity in its typed namespace.
+// previous: Last committed source status used to avoid repeated identical logs.
+// current: New source status, retaining the original error and sample timestamp.
+// force: Logs the first observed state even when the source starts unavailable.
+void log_response_source(CODY::StimulusId source, const CODY::SampleStamp &previous,
+                         const CODY::SampleStamp &current, bool force)
+{
+    if (!force && previous.health == current.health && previous.error == current.error) {
+        return;
+    }
+    const char *name = source == CODY::StimulusId::MotionAcceleration ? "motion.acceleration" : "power.charge";
+    ESP_LOGI(kTag, "Stimulus %s=%s error=%s sample_at=%lldus", name,
+             source_health_name(current.health), esp_err_to_name(current.error),
+             static_cast<long long>(current.sampled_at_us));
+}
+
 // frame_started_us: Real timestamp sampled while the display lock is held.
 // resume_animation: Exclude standby time from both independent animation clocks.
 esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_animation)
@@ -187,27 +222,57 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (face_error != ESP_OK) {
         return face_error;
     }
-    // The cloud takes a nap too: parked time never advances the face or outline.
-    // Accumulate microseconds first: fractional milliseconds survive across frames.
-    const int64_t next_elapsed_us = s_animation_elapsed_us + animation_delta_us;
-    const uint32_t next_elapsed_ms = static_cast<uint32_t>(next_elapsed_us / 1000);
-    const auto channels = CODY::animate_rig(next_face, next_elapsed_ms);
+    CODY::ResponseInputs inputs{};
+    const esp_err_t observation_error = CODY::observe_response_inputs(inputs);
+    if (observation_error != ESP_OK) {
+        return observation_error;
+    }
+    CODY::ResponseState previous_response = s_response;
+    if (resume_animation) {
+        CODY::rebase_response_motion(previous_response);
+    }
+    CODY::ResponseState next_response{};
+    // A publication can occur after frame_started_us while we wait for the snapshot.
+    // Freshness uses the later observation time, not a potentially earlier frame clock.
+    const esp_err_t response_error = CODY::advance_response(
+        CODY::Data::response, previous_response, inputs, animation_delta_ms,
+        esp_timer_get_time(), true, next_response
+    );
+    if (response_error != ESP_OK) {
+        return response_error;
+    }
+    CODY::ResponseFrame response_frame{};
+    const esp_err_t composition_error = CODY::compose_response(
+        CODY::Data::response, next_response, next_face, CODY::contour_defaults(),
+        CODY::Data::placement, inputs.rendering_rotation_degrees, true, response_frame
+    );
+    if (composition_error != ESP_OK) {
+        return composition_error;
+    }
     CODY::ContourState next_contour{};
     const esp_err_t contour_error = CODY::advance_contour(
-        s_contour, CODY::contour_defaults(), animation_delta_ms, next_contour
+        s_contour, response_frame.contour, animation_delta_ms, next_contour
     );
     if (contour_error != ESP_OK) {
         return contour_error;
     }
     const esp_err_t geometry_error = CODY::evaluate_rig(
-        channels, CODY::Data::placement, *s_rig, &next_contour
+        response_frame.face, response_frame.transform, *s_rig, &next_contour
     );
     if (geometry_error != ESP_OK) {
         return geometry_error;
     }
     s_contour = next_contour;
     s_face = next_face;
-    s_animation_elapsed_us = next_elapsed_us;
+    log_response_source(CODY::StimulusId::MotionAcceleration, s_response.motion_status,
+                        next_response.motion_status, !s_response_sources_logged);
+    log_response_source(CODY::StimulusId::PowerCharge, s_response.power_status,
+                        next_response.power_status, !s_response_sources_logged);
+    s_response_sources_logged = true;
+    s_response = next_response;
+    s_response_frame = response_frame;
+    // Parked time never advances the body, breath, blink or contour clocks.
+    s_animation_elapsed_us += animation_delta_us;
     s_animation_sampled_us = frame_started_us;
     return ESP_OK;
 }
@@ -240,6 +305,15 @@ void record_completed_frame(const FrameTimings &timings)
         static_cast<unsigned>(sizeof(CODY::RigScene)),
         static_cast<unsigned long>(kStripPixels * sizeof(uint16_t))
     );
+    ESP_LOGI(kTag,
+             "Response MODEL stress=%.3f fatigue=%.3f fatigue_known=%u root_offset=(%.2f,%.2f)px depth=%.4f "
+             "motion=%s(%s) power=%s(%s)",
+             s_response.stress, s_response.fatigue, static_cast<unsigned>(s_response.fatigue_known),
+             s_response_frame.current_root.x - s_response_frame.resting_root.x,
+             s_response_frame.current_root.y - s_response_frame.resting_root.y,
+             s_response_frame.depth_scale,
+             source_health_name(s_response.motion_status.health), esp_err_to_name(s_response.motion_status.error),
+             source_health_name(s_response.power_status.health), esp_err_to_name(s_response.power_status.error));
     s_last_timing_log_us = completed_us;
 }
 
@@ -397,6 +471,8 @@ esp_err_t sample_touch()
                 s_animation_elapsed_us = 0;
                 s_contour = CODY::make_contour_state();
                 s_face = CODY::Data::defaults;
+                s_response = CODY::make_response_state(CODY::Data::response);
+                s_response_sources_logged = false;
                 s_animation_sampled_us = 0;
                 s_last_timing_log_us = 0;
                 s_rig_frame_count = 0;
@@ -529,6 +605,11 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (ready_asset_error != ESP_OK) {
         return fail_consumer("Ready boot asset validation", ready_asset_error, false);
     }
+    const esp_err_t response_config_error = CODY::validate_response_config(CODY::Data::response);
+    if (response_config_error != ESP_OK) {
+        return fail_consumer("Response configuration", response_config_error, false);
+    }
+    s_response = CODY::make_response_state(CODY::Data::response);
     s_strip = static_cast<uint16_t *>(heap_caps_malloc(
         kStripPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));

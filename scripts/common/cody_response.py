@@ -1,0 +1,394 @@
+"""Host mirror of CODY_response: observations -> dynamics -> independent channels.
+
+Synthetic inputs exist only in the Windows preview. Model values are artistic
+state, never sensor readings or diagnoses. Equations match the native engine.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
+from enum import Enum
+import math
+
+from scripts.common.cody_response_contract import Axis
+from scripts.common.cody_rig_types import ContourControl, FaceChannel
+
+
+class SampleHealth(str, Enum):
+    UNAVAILABLE = "UNAVAILABLE"
+    CURRENT = "CURRENT"
+    STALE = "STALE"
+    ERROR = "ERROR"
+
+
+class InputOrigin(str, Enum):
+    HARDWARE = "HARDWARE"
+    SYNTHETIC = "SYNTHETIC"
+
+
+@dataclass(frozen=True)
+class SampleStamp:
+    health: SampleHealth = SampleHealth.UNAVAILABLE
+    origin: InputOrigin = InputOrigin.SYNTHETIC
+    sampled_at_us: int = 0
+    error: int = 0x103  # ESP_ERR_INVALID_STATE; absence is explicit.
+
+
+# Create storage keyed by semantic axes, without assigning meaning to list positions.
+def zero_axes():
+    return {axis: 0.0 for axis in Axis}
+
+
+@dataclass(frozen=True)
+class MotionSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    acceleration_mps2: dict = field(default_factory=zero_axes)
+
+
+@dataclass(frozen=True)
+class PowerSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    level_percent: float = 0.0
+    charging: bool = False
+
+
+@dataclass(frozen=True)
+class ResponseInputs:
+    motion: MotionSample = field(default_factory=MotionSample)
+    power: PowerSample = field(default_factory=PowerSample)
+    rendering_rotation_degrees: int = 0
+
+
+@dataclass(frozen=True)
+class SpringState:
+    position: float = 0.0
+    velocity: float = 0.0
+
+
+# Each independent body spring retains its velocity between frames.
+def resting_body():
+    return {axis: SpringState() for axis in Axis}
+
+
+@dataclass
+class ResponseState:
+    baseline_mps2: dict = field(default_factory=zero_axes)
+    transient_mps2: dict = field(default_factory=zero_axes)
+    body: dict = field(default_factory=resting_body)
+    motion_status: SampleStamp = field(default_factory=SampleStamp)
+    power_status: SampleStamp = field(default_factory=SampleStamp)
+    consumed_motion_at_us: int = 0
+    consumed_power_at_us: int = 0
+    motion_primed: bool = False
+    fatigue_known: bool = False
+    stress: float = 0.0
+    fatigue: float = 0.0
+    fatigue_target: float = 0.0
+    breath_phase: float = 0.0
+    breath_rate_hz: float = 0.0
+    blink_elapsed_ms: float = 0.0
+
+
+@dataclass(frozen=True)
+class ResponseFrame:
+    face: list
+    contour: dict
+    transform: tuple
+    resting_root: tuple
+    current_root: tuple
+    spring_velocity_px_per_second: tuple
+    depth_scale: float
+
+
+# config: Strict response section already checked by load_contract.
+def make_response_state(config):
+    return ResponseState(breath_rate_hz=config["expression"]["base_breath_hz"])
+
+
+# state: Previous model; discard motion history across standby without resetting phases.
+def rebase_response_motion(state):
+    next_state = deepcopy(state)
+    next_state.motion_primed = False
+    next_state.transient_mps2 = zero_axes()
+    return next_state
+
+
+# value: Runtime scalar at a public input boundary.
+# label: Source/field name attached to a rejection.
+# Raises ValueError for nonnumeric or nonfinite values.
+def finite_number(value, label):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        raise ValueError(f"{label}: rejected nonfinite/nonnumeric value {value!r}")
+    return float(value)
+
+
+# stamp: Source metadata; a failed source is handled explicitly, not turned into success.
+# now_us: Current monotonic observation time.
+# timeout_seconds: Declared maximum lifetime of a published sample.
+# source: Stable source name used in error messages.
+# Raises ValueError for inconsistent metadata or a future timestamp.
+def effective_stamp(stamp, now_us, timeout_seconds, source):
+    if not isinstance(stamp.health, SampleHealth) or not isinstance(stamp.origin, InputOrigin):
+        raise ValueError(f"{source}: unknown source health/origin")
+    if type(stamp.sampled_at_us) is not int or not 0 <= stamp.sampled_at_us <= now_us:
+        raise ValueError(f"{source}: invalid sample timestamp {stamp.sampled_at_us!r}")
+    if type(stamp.error) is not int:
+        raise ValueError(f"{source}: error must retain the original numeric code")
+    if stamp.health == SampleHealth.ERROR and stamp.error == 0:
+        raise ValueError(f"{source}: ERROR requires an original failure code")
+    if stamp.health == SampleHealth.CURRENT:
+        if stamp.error != 0 or stamp.sampled_at_us == 0:
+            raise ValueError(f"{source}: CURRENT requires a successful timestamped sample")
+        if now_us - stamp.sampled_at_us >= timeout_seconds * 1_000_000:
+            return replace(stamp, health=SampleHealth.STALE)
+    return stamp
+
+
+# state: One scalar spring's displacement and velocity.
+# target: Bounded artistic equilibrium for the current derived motion cue.
+# seconds: Active elapsed time, with no fixed-step catch-up loop.
+# frequency_hz: Spring natural frequency from authoring.
+# damping_ratio: Reviewed damping ratio, including under/critical/overdamped cases.
+def advance_spring(state, target, seconds, frequency_hz, damping_ratio):
+    if seconds == 0:
+        return state
+    omega = math.tau * frequency_hz
+    displacement = state.position - target
+    velocity = state.velocity
+    decay_rate = damping_ratio * omega
+    if damping_ratio < 1:
+        damped_frequency = omega * math.sqrt(1 - damping_ratio * damping_ratio)
+        decay = math.exp(-decay_rate * seconds)
+        cosine = math.cos(damped_frequency * seconds)
+        sine = math.sin(damped_frequency * seconds)
+        companion = (velocity + decay_rate * displacement) / damped_frequency
+        position = target + decay * (displacement * cosine + companion * sine)
+        speed = decay * (velocity * cosine - (decay_rate * velocity + omega * omega * displacement) / damped_frequency * sine)
+    elif damping_ratio == 1:
+        decay = math.exp(-omega * seconds)
+        companion = velocity + omega * displacement
+        position = target + decay * (displacement + companion * seconds)
+        speed = decay * (velocity - omega * companion * seconds)
+    else:
+        root = math.sqrt(damping_ratio * damping_ratio - 1)
+        slow_rate = -omega / (damping_ratio + root)
+        fast_rate = -omega * (damping_ratio + root)
+        slow_weight = (velocity - fast_rate * displacement) / (slow_rate - fast_rate)
+        fast_weight = displacement - slow_weight
+        slow_decay = math.exp(slow_rate * seconds)
+        fast_decay = math.exp(fast_rate * seconds)
+        position = target + slow_weight * slow_decay + fast_weight * fast_decay
+        speed = slow_rate * slow_weight * slow_decay + fast_rate * fast_weight * fast_decay
+    return SpringState(position, speed)
+
+
+# previous: Current normalized artistic state.
+# target: Requested normalized state.
+# seconds: Active elapsed time.
+# attack: Time constant when the target increases.
+# release: Time constant when the target decreases.
+def blend_state(previous, target, seconds, attack, release):
+    time_constant = attack if target > previous else release
+    return previous + (target - previous) * -math.expm1(-seconds / time_constant)
+
+
+# value: Requested artistic output, not a sensor measurement.
+# limit: Explicit maximum excursion; zero disables this effect.
+def soft_limit(value, limit):
+    return limit * math.tanh(value / limit) if limit > 0 else 0.0
+
+
+# state: Previously committed artistic state whose bounds protect the rig composer.
+# Raises ValueError for invalid axes, timestamps, nonfinite dynamics or normalized state.
+def validate_response_state(state):
+    ranges = {
+        "stress": (0, 1), "fatigue": (0, 1), "fatigue_target": (0, 1),
+        "breath_phase": (0, math.tau), "breath_rate_hz": (0, 3),
+        "blink_elapsed_ms": (0, 4800),
+    }
+    for name, (minimum, maximum) in ranges.items():
+        value = finite_number(getattr(state, name), f"response.state.{name}")
+        if not minimum <= value <= maximum:
+            raise ValueError(f"response.state.{name}: rejected {value}")
+    if state.breath_phase >= math.tau or state.blink_elapsed_ms >= 4800:
+        raise ValueError("Response phases must use half-open cycle bounds")
+    for name in ("baseline_mps2", "transient_mps2", "body"):
+        if set(getattr(state, name)) != set(Axis):
+            raise ValueError(f"response.state.{name}: requires exactly x, y and z")
+    for axis in Axis:
+        finite_number(state.baseline_mps2[axis], f"response.baseline.{axis.value}")
+        finite_number(state.transient_mps2[axis], f"response.transient.{axis.value}")
+        finite_number(state.body[axis].position, f"response.body.{axis.value}.position")
+        finite_number(state.body[axis].velocity, f"response.body.{axis.value}.velocity")
+    for name in ("consumed_motion_at_us", "consumed_power_at_us"):
+        timestamp = getattr(state, name)
+        if type(timestamp) is not int or timestamp < 0:
+            raise ValueError(f"response.state.{name}: rejected timestamp {timestamp!r}")
+
+
+# config: Validated immutable response settings.
+# state: Previous state; host copies mirror the native transaction boundary.
+# inputs: Typed observations with source metadata and board acceleration in m/s2.
+# delta_ms: Nonnegative active elapsed time, independent of sample age.
+# now_us: Current monotonic time for stale detection.
+# animate_rhythm: Whether the breath/blink clocks should advance.
+# Raises ValueError for invalid time, configuration use or rejected current samples.
+def advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm=True):
+    delta_ms = finite_number(delta_ms, "response.delta_ms")
+    if delta_ms < 0 or type(now_us) is not int or now_us <= 0:
+        raise ValueError("Response requires nonnegative elapsed time and positive monotonic time")
+    if type(animate_rhythm) is not bool or inputs.rendering_rotation_degrees not in (0, 90, 180, 270):
+        raise ValueError("Response requires a boolean rhythm switch and cardinal display orientation")
+    validate_response_state(state)
+    seconds = delta_ms / 1000
+    next_state = deepcopy(state)
+    motion_config = config["motion"]
+    next_state.motion_status = effective_stamp(inputs.motion.stamp, now_us, motion_config["sample_timeout_seconds"], "motion.acceleration")
+    next_state.power_status = effective_stamp(inputs.power.stamp, now_us, config["power"]["sample_timeout_seconds"], "power.charge")
+    motion_current = next_state.motion_status.health == SampleHealth.CURRENT
+    if motion_current:
+        if set(inputs.motion.acceleration_mps2) != set(Axis):
+            raise ValueError("motion.acceleration: exactly three named axes are required")
+        raw = {}
+        for axis in Axis:
+            value = finite_number(inputs.motion.acceleration_mps2[axis], f"motion.acceleration.{axis.value}")
+            if abs(value) > 256:
+                raise ValueError(f"motion.acceleration.{axis.value}: rejected {value}; reviewed bound +/-256 m/s2")
+            raw[axis] = value
+        sampled_at_us = next_state.motion_status.sampled_at_us
+        if sampled_at_us < state.consumed_motion_at_us:
+            raise ValueError("motion.acceleration: sample timestamp went backwards")
+        if sampled_at_us > state.consumed_motion_at_us:
+            sample_seconds = (sampled_at_us - state.consumed_motion_at_us) / 1_000_000
+            # Prime at rest and after gaps: gravity is not an artificial first impulse.
+            if not state.motion_primed or sample_seconds >= motion_config["sample_timeout_seconds"]:
+                next_state.baseline_mps2 = raw.copy()
+                next_state.transient_mps2 = zero_axes()
+            else:
+                blend = -math.expm1(-sample_seconds / motion_config["baseline_seconds"])
+                for axis in Axis:
+                    baseline = state.baseline_mps2[axis] + (raw[axis] - state.baseline_mps2[axis]) * blend
+                    next_state.baseline_mps2[axis] = baseline
+                    next_state.transient_mps2[axis] = raw[axis] - baseline
+            next_state.motion_primed = True
+            next_state.consumed_motion_at_us = sampled_at_us
+    else:
+        next_state.motion_primed = False
+        next_state.transient_mps2 = zero_axes()
+
+    # A derived cue can drive a spring between samples; the sample is never reconsumed.
+    sensitivity = motion_config["sensitivity"]
+    mapping = motion_config["board_to_panel"]
+    for panel_axis in Axis:
+        axis_map = mapping[panel_axis]
+        cue = next_state.transient_mps2[Axis(axis_map["axis"])] * axis_map["sign"]
+        gain = motion_config["depth_gain"] if panel_axis == Axis.Z else motion_config["translation_gain"]
+        limit = motion_config["depth_limit"] if panel_axis == Axis.Z else motion_config["translation_limit"]
+        target = soft_limit(-cue * sensitivity * gain, limit)
+        next_state.body[panel_axis] = advance_spring(state.body[panel_axis], target, seconds, motion_config["spring_hz"], motion_config["damping_ratio"])
+    magnitude = math.sqrt(sum(value * value for value in next_state.transient_mps2.values()))
+    normalized_motion = sensitivity * magnitude / motion_config["stress_reference_mps2"]
+    stress_target = -math.expm1(-normalized_motion * normalized_motion)
+    state_config = config["state"]
+    next_state.stress = blend_state(state.stress, stress_target, seconds, state_config["stress_attack_seconds"], state_config["stress_release_seconds"])
+
+    if next_state.power_status.health == SampleHealth.CURRENT:
+        percentage = finite_number(inputs.power.level_percent, "power.charge")
+        if not 0 <= percentage <= 100 or type(inputs.power.charging) is not bool:
+            raise ValueError(f"power.charge: rejected level/charging {percentage}/{inputs.power.charging!r}")
+        sampled_at_us = next_state.power_status.sampled_at_us
+        if sampled_at_us < state.consumed_power_at_us:
+            raise ValueError("power.charge: sample timestamp went backwards")
+        if sampled_at_us > state.consumed_power_at_us:
+            next_state.fatigue_target = (1 - percentage / 100) ** config["power"]["fatigue_curve"]
+            next_state.fatigue_known = True
+            next_state.consumed_power_at_us = sampled_at_us
+        next_state.fatigue = blend_state(state.fatigue, next_state.fatigue_target, seconds, state_config["fatigue_attack_seconds"], state_config["fatigue_release_seconds"])
+    # Unknown charge freezes artistic fatigue. It never invents a full battery or recovery.
+
+    if animate_rhythm:
+        expression = config["expression"]
+        target_rate = expression["base_breath_hz"] * (1 + expression["stress_breath_gain"] * next_state.stress) * (1 - expression["fatigue_breath_slowdown"] * next_state.fatigue)
+        time_constant = expression["rhythm_blend_seconds"]
+        blend = -math.expm1(-seconds / time_constant)
+        integrated_rate = target_rate * seconds + (state.breath_rate_hz - target_rate) * time_constant * blend
+        next_state.breath_phase = (state.breath_phase + math.tau * integrated_rate) % math.tau
+        next_state.breath_rate_hz = state.breath_rate_hz + (target_rate - state.breath_rate_hz) * blend
+        next_state.blink_elapsed_ms = (state.blink_elapsed_ms + delta_ms) % 4800
+    validate_response_state(next_state)
+    return next_state
+
+
+# x: Physical panel-frame horizontal vector component.
+# y: Physical panel-frame vertical vector component.
+# rotation: Clockwise orientation of the display; translation vectors have no pixel origin.
+# Raises ValueError for an unsupported rotation.
+def logical_vector(x, y, rotation):
+    if rotation == 0:
+        return x, y
+    if rotation == 90:
+        return y, -x
+    if rotation == 180:
+        return -x, -y
+    if rotation == 270:
+        return -y, x
+    raise ValueError(f"Unsupported response rotation: {rotation}")
+
+
+# rig: Skin with strict semantic channel/contour bounds and response configuration.
+# state: Updated continuous response state.
+# base_face: Independent facial controls before artistic response contributions.
+# base_contour: Independent contour targets before response contributions.
+# placement: Resting logical root x, y and scale.
+# rotation: Cardinal orientation used by image presentation.
+# animate_rhythm: Whether breath/blink are included in the composed face.
+# Raises ValueError for invalid base controls or placement.
+def compose_response(rig, state, base_face, base_contour, placement, rotation, animate_rhythm=True):
+    from scripts.common.cody_rig_contract import validate_channels, validate_contour_values
+    validate_channels(rig, base_face)
+    validate_contour_values(rig, base_contour)
+    validate_response_state(state)
+    face = list(base_face)
+    contour = dict(base_contour)
+    expression = rig["response"]["expression"]
+    stress, fatigue = state.stress, state.fatigue
+    for eye in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT):
+        face[eye] *= 1 - fatigue * expression["fatigue_eye_closure"]
+    for brow in (FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT):
+        face[brow] += (1 - face[brow]) * stress * expression["stress_brow"]
+    face[FaceChannel.MOUTH_OPEN] += (1 - face[FaceChannel.MOUTH_OPEN]) * stress * expression["stress_mouth_open"]
+    mouth_min = rig["channels"][FaceChannel.MOUTH_WIDTH]["minimum"]
+    face[FaceChannel.MOUTH_WIDTH] -= (face[FaceChannel.MOUTH_WIDTH] - mouth_min) * stress * expression["stress_mouth_narrowing"]
+    face[FaceChannel.CHEEK_OPACITY] *= 1 - fatigue * expression["fatigue_cheek_fade"]
+    contour[ContourControl.AMPLITUDE] += (1 - contour[ContourControl.AMPLITUDE]) * stress * expression["stress_wave_gain"]
+    contour[ContourControl.SPEED] += (2 - contour[ContourControl.SPEED]) * stress * expression["stress_wave_speed_gain"]
+    contour[ContourControl.SPEED] *= 1 - fatigue * expression["fatigue_wave_slowdown"]
+    contour[ContourControl.FULLNESS] -= (contour[ContourControl.FULLNESS] + 1) * fatigue * expression["fatigue_fullness"]
+    if animate_rhythm:
+        breathing = math.sin(state.breath_phase)
+        blink = .5 - .5 * math.cos(math.tau * state.blink_elapsed_ms / 280) if state.blink_elapsed_ms < 280 else 0
+        for eye in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT):
+            face[eye] *= 1 - blink
+        mouth = FaceChannel.MOUTH_OPEN
+        face[mouth] += (1 - face[mouth]) * .08 * (.5 + .5 * breathing)
+        breath = FaceChannel.BREATH
+        face[breath] += (1 - abs(face[breath])) * breathing
+
+    if len(placement) != 3:
+        raise ValueError("Response placement requires x, y and scale")
+    x, y, scale = [finite_number(value, "response.placement") for value in placement]
+    if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
+        raise ValueError(f"Response placement rejected: {placement!r}")
+    motion = rig["response"]["motion"]
+    horizontal, vertical = state.body[Axis.X].position, state.body[Axis.Y].position
+    magnitude = math.hypot(horizontal, vertical)
+    # Saturation belongs to the artistic output. Raw observations remain untouched.
+    multiplier = soft_limit(magnitude, motion["translation_limit"]) / magnitude if magnitude > 0 else 1
+    offset = logical_vector(horizontal * multiplier * scale, vertical * multiplier * scale, rotation)
+    velocity = logical_vector(state.body[Axis.X].velocity * scale, state.body[Axis.Y].velocity * scale, rotation)
+    depth_scale = 1 + soft_limit(state.body[Axis.Z].position, motion["depth_limit"])
+    transform = (x + offset[0], y + offset[1], scale * depth_scale)
+    if not 0 <= transform[0] < 466 or not 0 <= transform[1] < 466 or not 20 <= transform[2] <= 200:
+        raise ValueError(f"Response root exceeds rig placement bounds: {transform!r}")
+    return ResponseFrame(face, contour, transform, (x, y), transform[:2], velocity, depth_scale)

@@ -6643,6 +6643,35 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// observation: Receives a coherent, aged projection of the single canonical snapshot.
+// The renderer must never hold a second measurement cache or trigger a driver read.
+esp_err_t DeviceSnapshotService::readMotionPowerObservation(
+    MotionPowerObservation &observation
+) const
+{
+    MotionPowerObservation copy;
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "motion/power snapshot read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Motion/power snapshot read failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    copy.battery = s_snapshot.battery;
+    copy.imu = s_snapshot.imu;
+    copy.rendering_rotation_degrees = s_snapshot.ui.orientation.rendering_rotation_degrees;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("motion/power snapshot read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Motion/power snapshot release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.battery, now_us, ttl_us);
+    age_measured_sample(copy.imu, now_us, ttl_us);
+    observation = copy;
+    return ESP_OK;
+}
+
 esp_err_t DeviceSnapshotService::sampleDistanceGeometry(
     DistanceGeometrySnapshot *geometry
 )

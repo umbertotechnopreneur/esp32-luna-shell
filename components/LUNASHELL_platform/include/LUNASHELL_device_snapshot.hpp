@@ -503,6 +503,14 @@ struct TouchActivityObservation {
     int64_t last_activity_at_us = 0;
 };
 
+// A coherent view of the same canonical snapshot, not a second sensor cache.
+// Small consumers avoid copying audio spectra and storage inventories on their stack.
+struct MotionPowerObservation {
+    BatterySnapshot battery;
+    ImuSnapshot imu;
+    uint16_t rendering_rotation_degrees = 0;
+};
+
 /**
  * Canonical point-in-time hardware state.
  *
@@ -529,6 +537,9 @@ public:
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
+    // observation: Receives published motion/power fields under one snapshot lock.
+    // No hardware refresh or independent measurement ownership is introduced here.
+    esp_err_t readMotionPowerObservation(MotionPowerObservation &observation) const;
     /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 

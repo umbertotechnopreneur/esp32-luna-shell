@@ -11,6 +11,11 @@
   "contour_lobes": 11,
   "facial_channels": 10,
   "face_transforms": 4,
-  "source_sha256": "edc5bd5caedb0365229aa1f06b92c159d194428607d0c82ff5eeda4ac9174326",
+  "response_schema": "cody.response.v1",
+  "response_sources": [
+    "motion.acceleration",
+    "power.charge"
+  ],
+  "source_sha256": "133a6395b6daa83bbf41426c0833c9d9f9a8bb6bee6f73864c5d39ce4f6c578c",
   "palette_sha256": "bdf7adf1a914a621e781fe42d77731f050db8b8630986e8e84d3610e26ca9d3d"
 }
