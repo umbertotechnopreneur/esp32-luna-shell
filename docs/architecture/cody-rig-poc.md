@@ -6,6 +6,11 @@ the standalone display/touch owner and the local CODY2D renderer. Display, touch
 Wi-Fi and Bluetooth remain mandatory; the PoC disables HTTP diagnostics and
 does not implement a companion server, OOBE, voice or emotional-state inference.
 
+The [Cody Response Engine](cody-response-engine.md) now adds continuous artistic
+stress/fatigue and whole-body inertia from canonical motion/power observations.
+Its native/host implementation and synthetic controls have source review only;
+the first real hardware performance session is still pending authorization.
+
 ## Authoring source
 
 `assets/cody/cody.yaml` owns the character name, stable entity IDs and readable

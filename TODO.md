@@ -6,6 +6,17 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit validation request, validate the Cody Response Engine through
+  `device.ps1 check -Check cody-response` and the existing `cody-poc` checks.
+  Include all-axis gravity priming/inertia, duplicate timestamps, source errors
+  and aging, unknown/charging battery, composable stress/fatigue, phase continuity,
+  responsive Stimuli controls and resting/current-root overlays at all rotations.
+  Native/host equations and rendering parity, real snapshot cadence, board-axis
+  signs, standby/wake, frame cost, stack and radio headroom require the final
+  package and separately authorized hardware work. Source review and authored
+  table generation are complete; tests, simulator runs and firmware builds are
+  deferred. Blueprint: `docs/architecture/cody-response-engine.md`.
+
 - [ ] On explicit validation request, validate the readability refactor:
   route-to-document ownership, navigation Back/Forward/return-to history, and
   zero-to-five command layouts. Implementation has static source review only.

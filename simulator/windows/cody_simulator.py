@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import math
 import sys
 import time
@@ -20,6 +21,11 @@ from scripts.common.cody_rig_contract import (  # noqa: E402
 from scripts.common.cody_rig_types import (  # noqa: E402
     CurvePoint, LabelScope, PointRole, Screen,
 )
+from scripts.common.cody_response import (  # noqa: E402
+    SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
+)
+from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
+from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
@@ -139,14 +145,16 @@ class CodyRenderer:
                     mixed_colors[key] = rgb565(word)
                 pixels[x, y] = mixed_colors[key]
 
+    # self: Renderer owning the immutable skin and palette for this scene.
     # scene is evaluated once and shared by artwork, outlines and point overlays.
     # debug controls point, link and cubic handle visibility.
     # selected is the stable name of the highlighted point, or None.
     # guide shows the canonical safe square without changing geometry or hit testing.
     # outline shows the evaluated body contour without recomputing its curves.
     # rest_outline shows the undeformed contour with the same placement and breathing scale.
+    # response_frame optionally shows the actual resting/current root and inertia vector.
     # Raises ValueError for an invalid evaluated opacity or unsupported partial-alpha target.
-    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False):
+    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None):
         image = self.indexed()
         for path in scene["paths"]:
             if not path["visible"]:
@@ -206,10 +214,25 @@ class CodyRenderer:
                 radius = (diameter - 1) / 2
                 slot = colors["selected"] if point["name"] == selected else colors[point["role"]]
                 draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=slot)
+        if response_frame is not None:
+            self.draw_response_roots(image, response_frame, colors)
         self.draw_navigation(image, debug, colors)
         if guide:
             draw.rectangle((73,73,392,392), outline=colors["selected"])
         return image
+
+    # self: Renderer owning the palette and fixed navigation presentation.
+    # image: Logical framebuffer before fixed navigation is drawn.
+    # frame: Composed root positions also used by the evaluated geometry.
+    # colors: Resolved debug colors; source palette allocation stays unchanged.
+    def draw_response_roots(self, image, frame, colors):
+        draw = ImageDraw.Draw(image)
+        resting_x, resting_y = frame.resting_root
+        current_x, current_y = frame.current_root
+        draw.line((resting_x-6, resting_y, resting_x+6, resting_y), fill=colors["handle"], width=2)
+        draw.line((resting_x, resting_y-6, resting_x, resting_y+6), fill=colors["handle"], width=2)
+        draw.line((resting_x, resting_y, current_x, current_y), fill=colors["selected"], width=2)
+        draw.ellipse((current_x-4, current_y-4, current_x+4, current_y+4), outline=colors["selected"], width=2)
 
     # image: Logical framebuffer receiving the fixed lateral navigation controls.
     # debug: Whether the overlay-toggle icon should appear selected.
@@ -235,6 +258,7 @@ class CodyRenderer:
             draw.ellipse((x - marker_radius, y - marker_radius, x + marker_radius, y + marker_radius),
                          fill = colors["selected"] if debug else back_ink)
 
+    # self: Renderer whose evaluated scene is shared by all visible overlays.
     # screen selects the rig or one of the existing boot artworks.
     # values contains the independently composed facial channels.
     # transform contains logical x, y and uniform scale.
@@ -245,14 +269,15 @@ class CodyRenderer:
     # contour is the current independent outline state, or None for undeformed geometry.
     # outline enables the evaluated body contour overlay.
     # rest_outline enables the original body contour overlay.
+    # response_frame enables resting/current root overlays without recomputing geometry.
     # Raises ValueError for an unknown screen or invalid rig values.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False):
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
         if screen == Screen.RIG:
             image = self.draw_scene(scene, debug, selected, guide,
-                                    outline=outline, rest_outline=rest_outline)
+                                    outline=outline, rest_outline=rest_outline, response_frame=response_frame)
         else:
             image = self.boot[screen].copy()
         circular = Image.new("L", (SIZE, SIZE))
@@ -270,9 +295,11 @@ class CodyRenderer:
 
 
 class CodyWindow:
+    # self: New preview controller owning transient animation and synthetic model state.
     # root owns the Tk preview window and its scheduled frame callback.
     # renderer owns immutable authored tables and the shared scene drawing code.
     # args selects the initial screen, rotation and safe-square overlay.
+    # Raises tk.TclError for failed widget construction or lost Tk ownership.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
         self.root.title(f"{renderer.rig['character']['name']} / Rig PoC / SYNTHETIC")
@@ -291,6 +318,11 @@ class CodyWindow:
         self.entity_name = next(iter(renderer.rig["entities"]))
         self.face_state = [channel["default"] for channel in renderer.rig["channels"]]
         self.face_presets = renderer.rig["boot_channels"] | renderer.rig["expression_presets"]
+        self.response_config = deepcopy(renderer.rig["response"])
+        self.response_state = make_response_state(self.response_config)
+        self.stimulus_source = SyntheticStimulusSource()
+        self.response_frame = None
+        self.motion_overlay = tk.BooleanVar(value=True)
         self.elapsed_ms = 0.0
         self.last_tick = time.perf_counter()
         self.selected = None
@@ -332,13 +364,16 @@ class CodyWindow:
         tabs.pack(fill="both",pady=8)
         appearance = ttk.Frame(tabs,padding=8)
         contour = ttk.Frame(tabs,padding=8)
+        stimuli = ttk.Frame(tabs,padding=8)
         overlay = ttk.Frame(tabs,padding=8)
         tabs.add(appearance,text="Face")
         tabs.add(contour,text="Contour")
+        tabs.add(stimuli,text="Stimuli")
         tabs.add(overlay,text="Debug")
-        tabs.select(contour)
+        tabs.select(stimuli)
         self.build_face_controls(appearance)
         self.build_contour_controls(contour)
+        self.build_stimulus_controls(stimuli)
         self.build_debug_controls(overlay)
         self.info = ttk.Label(controls,text="Select a point to inspect its stable name.",width=38,font=self.label_font)
         self.info.pack(anchor="w",pady=6)
@@ -392,12 +427,15 @@ class CodyWindow:
         self.contour_info.pack(anchor="w",pady=4)
         ttk.Button(contour,text="Restore contour targets",command=self.reset_contour).pack(fill="x",pady=6)
 
+    # self: Preview controller owning shared geometry/response overlay switches.
     # overlay: Debug tab owning point selection, labels and placement.
+    # Raises tk.TclError when widgets cannot be constructed.
     def build_debug_controls(self, overlay):
         for text,variable in (("Points, links and curve handles",self.debug),
                               ("Stable point names + leader lines",self.names),
                               ("Current contour / mint",self.outline),
                               ("Original contour / dashed amber",self.rest_outline),
+                              ("Resting root + inertia vector",self.motion_overlay),
                               ("320 x 320 safe square",self.guide)):
             self.add_toggle(overlay,text,variable)
         scope = ttk.Combobox(overlay,textvariable=self.label_scope,values=LABEL_SCOPES,state="readonly")
@@ -427,6 +465,97 @@ class CodyWindow:
             value = tk.DoubleVar(value=self.renderer.rig['default_transform'][key])
             self.transform.append(value)
             self.add_slider(overlay,key,minimum,maximum,value)
+
+    # self: Preview controller whose source targets stay separate from artistic model state.
+    # stimuli: Responsive, scrollable tab owning synthetic source controls and model readouts.
+    # Raises tk.TclError when widgets cannot be constructed.
+    def build_stimulus_controls(self, stimuli):
+        ttk.Label(stimuli, text="SYNTHETIC SNAPSHOT / 50 Hz\nAxes: board frame, m/s2 offsets.\nZ includes a 9.81 m/s2 gravity baseline.", wraplength=295).pack(anchor="w")
+        health_choices = tuple(health.value for health in SampleHealth)
+        self.motion_health = tk.StringVar(value=SampleHealth.CURRENT.value)
+        ttk.Combobox(stimuli, textvariable=self.motion_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
+        self.acceleration = {}
+        self.acceleration_readouts = {}
+        for axis in Axis:
+            variable = tk.DoubleVar(value=0)
+            self.acceleration[axis] = variable
+            self.acceleration_readouts[axis] = self.add_slider(stimuli, f"Acceleration {axis.value.upper()}", -20, 20, variable, readout=True)
+        self.motion_sensitivity = tk.DoubleVar(value=self.response_config["motion"]["sensitivity"])
+        self.sensitivity_readout = self.add_slider(stimuli, "Motion sensitivity", 0, 4, self.motion_sensitivity, readout=True)
+        pulse_row = ttk.Frame(stimuli)
+        pulse_row.pack(fill="x", pady=6)
+        self.pulse_axis = tk.StringVar(value=Axis.X.value)
+        ttk.Combobox(pulse_row, textvariable=self.pulse_axis, values=tuple(axis.value for axis in Axis), state="readonly", width=4).pack(side="left")
+        ttk.Button(pulse_row, text="Pulse +8 m/s2", command=self.pulse_motion).pack(side="right", fill="x", expand=True)
+        self.shaking = tk.BooleanVar(value=False)
+        self.add_toggle(stimuli, "Continuous shake / all axes", self.shaking)
+        ttk.Separator(stimuli).pack(fill="x", pady=10)
+        ttk.Label(stimuli, text="SYNTHETIC BATTERY / percent").pack(anchor="w")
+        self.power_health = tk.StringVar(value=SampleHealth.CURRENT.value)
+        ttk.Combobox(stimuli, textvariable=self.power_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
+        self.charge_percent = tk.DoubleVar(value=100)
+        self.charge_readout = self.add_slider(stimuli, "Charge level", 0, 100, self.charge_percent, readout=True)
+        self.charging = tk.BooleanVar(value=False)
+        self.add_toggle(stimuli, "Charging / fatigue follows charge level", self.charging)
+        self.response_info = ttk.Label(stimuli, text="", font=self.label_font, wraplength=295)
+        self.response_info.pack(fill="x", pady=8)
+        ttk.Button(stimuli, text="Reset response model", command=self.reset_response).pack(fill="x")
+
+    # self: Preview controller supplying the chosen board axis to its synthetic source.
+    # Raises ValueError for an unsupported selected axis, or tk.TclError on a lost control.
+    def pulse_motion(self):
+        self.stimulus_source.pulse(self.pulse_axis.get(), int(time.perf_counter() * 1_000_000))
+
+    # self: Preview controller receiving an explicit debug-only reset of model state.
+    def reset_response(self):
+        self.response_state = make_response_state(self.response_config)
+        self.response_frame = None
+
+    # self: Preview controller that reads controls and obtains one synthetic snapshot.
+    # now_us: Monotonic host time for the single synthetic snapshot owner.
+    # rotation: Cardinal preview orientation; synthetic acceleration remains in board axes.
+    # Raises ValueError for an unknown health identity, or tk.TclError on lost controls.
+    def observe_stimuli(self, now_us, rotation):
+        acceleration = {axis: value.get() for axis, value in self.acceleration.items()}
+        return self.stimulus_source.snapshot(now_us, acceleration, self.motion_health.get(),
+                                            self.charge_percent.get(), self.charging.get(), self.power_health.get(),
+                                            self.shaking.get(), rotation)
+
+    # self: Preview controller owning source and artistic-state readouts.
+    # inputs: The exact synthetic snapshot consumed by this frame, never a device observation.
+    # screen: Current route; boot artwork freezes the response animation.
+    # Raises ValueError for inconsistent metadata, or tk.TclError on lost controls.
+    def update_stimulus_readouts(self, inputs, screen):
+        for axis, readout in self.acceleration_readouts.items():
+            readout.configure(text=f"{self.acceleration[axis].get():+.2f}")
+        self.sensitivity_readout.configure(text=f"{self.motion_sensitivity.get():.2f}")
+        self.charge_readout.configure(text=f"{self.charge_percent.get():.1f}% target")
+        state = self.response_state
+        motion = state.motion_status
+        power = state.power_status
+        if screen != Screen.RIG:
+            now_us = int(time.perf_counter() * 1_000_000)
+            motion = effective_stamp(inputs.motion.stamp, now_us, self.response_config["motion"]["sample_timeout_seconds"], "motion.acceleration")
+            power = effective_stamp(inputs.power.stamp, now_us, self.response_config["power"]["sample_timeout_seconds"], "power.charge")
+        motion_text = f"Motion: {motion.health.value} / err {motion.error}"
+        if motion.health == SampleHealth.CURRENT:
+            sample = inputs.motion.acceleration_mps2
+            motion_text += f"\na: {sample[Axis.X]:+.1f}, {sample[Axis.Y]:+.1f}, {sample[Axis.Z]:+.1f}"
+        power_text = f"Charge: {power.health.value} / err {power.error}"
+        if power.health == SampleHealth.CURRENT:
+            power_text += f" / {inputs.power.level_percent:.1f}%"
+        fatigue_text = f"{state.fatigue:.3f}" if state.fatigue_known else "UNKNOWN"
+        if state.fatigue_known and power.health != SampleHealth.CURRENT:
+            fatigue_text += " (held)"
+        body_text = ""
+        if self.response_frame is not None:
+            frame = self.response_frame
+            dx = frame.current_root[0] - frame.resting_root[0]
+            dy = frame.current_root[1] - frame.resting_root[1]
+            vx, vy = frame.spring_velocity_px_per_second
+            body_text = f"\nRoot: {dx:+.1f}, {dy:+.1f} px\nSpring v: {vx:+.1f}, {vy:+.1f} px/s\nDepth: {frame.depth_scale:.4f}"
+        status = "RUNNING" if screen == Screen.RIG else "PAUSED / boot artwork"
+        self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\nMODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
 
     # parent owns the shared checkbox row.
     # text describes the independent setting in English.
@@ -707,6 +836,7 @@ class CodyWindow:
             self.root.report_callback_exception(type(error), error, error.__traceback__)
 
 
+    # self: Preview controller holding independent face targets and their transition state.
     # screen: Route drawn during this frame; hidden routes do not advance animation.
     # active_ms: Actual elapsed time since the previous active frame.
     # Raises ValueError for rejected targets or invalid elapsed time.
@@ -716,13 +846,10 @@ class CodyWindow:
             self.renderer.rig, self.face_state, face_targets, active_ms
         )
         values = self.face_state
-        if self.playing.get():
+        if self.playing.get() and screen != Screen.RIG:
             values = animate(self.face_state, self.elapsed_ms)
         targets = {name: value.get() for name, value in self.contour_values.items()}
-        if self.contour_playing.get() and screen == Screen.RIG:
-            self.contour_state = advance_contour(
-                self.renderer.rig, self.contour_state, targets, active_ms
-            )
+        # The single response composer adds effects before the contour transition.
         return values, targets
 
     # image: Completed logical framebuffer; its geometry and hit targets stay unchanged.
@@ -786,7 +913,7 @@ class CodyWindow:
                  f"panel  {panel_x:.1f}, {panel_y:.1f}"
         )
 
-    # Render one frame and let Tk breathe before scheduling the next.
+    # self: Preview controller advancing sources, model, geometry and presentation once.
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
@@ -802,6 +929,22 @@ class CodyWindow:
 
         values, targets = self.advance_animation(screen, active_ms)
         transform = [value.get() for value in self.transform]
+        inputs = self.observe_stimuli(int(started * 1_000_000), rotation)
+        self.response_frame = None
+        if screen == Screen.RIG:
+            if self.display_screen != Screen.RIG:
+                self.response_state = rebase_response_motion(self.response_state)
+            self.response_config["motion"]["sensitivity"] = self.motion_sensitivity.get()
+            validate_response_config(self.response_config)
+            self.response_state = advance_response(self.response_config, self.response_state, inputs,
+                                                   active_ms, int(started * 1_000_000), self.playing.get())
+            self.response_frame = compose_response(self.renderer.rig, self.response_state, values, targets,
+                                                   transform, rotation, self.playing.get())
+            values = self.response_frame.face
+            targets = self.response_frame.contour
+            transform = self.response_frame.transform
+            if self.contour_playing.get():
+                self.contour_state = advance_contour(self.renderer.rig, self.contour_state, targets, active_ms)
         image, self.scene = self.renderer.render(
             screen,
             values,
@@ -813,9 +956,11 @@ class CodyWindow:
             contour=self.contour_state,
             outline=self.outline.get(),
             rest_outline=self.rest_outline.get(),
+            response_frame=self.response_frame if self.motion_overlay.get() else None,
         )
         self.present_frame(image, layout, screen, rotation)
         self.update_contour_readouts(targets, screen)
+        self.update_stimulus_readouts(inputs, screen)
         self.update_point_inspector()
 
         duration_ms = (time.perf_counter() - started) * 1000

@@ -1,5 +1,19 @@
 # Done
 
+## Cody Response Engine implementation (2026-10-02)
+
+- [x] Add typed external-stimulus inputs, a coherent read-only view of the single
+  canonical Luna snapshot, timestamp-gated gravity-baseline/transient processing,
+  analytic three-axis springs, continuous stress/fatigue and one rig composer.
+  Preserve input health/errors, phase continuity, cardinal rotation and fixed
+  navigation. Missing charge remains unknown; charging alone does not reset it.
+- [x] Author strict named YAML response parameters and share native/host limits
+  through generated firmware data. Add the Windows Stimuli tab with synthetic
+  inputs, pulse/shake, source-health controls, model readouts and root overlays.
+- [x] Prepare focused response regressions and an English architecture blueprint.
+  Source tables were regenerated; runtime checks, simulator execution, firmware
+  builds and hardware validation have not been run for this checkpoint.
+
 - Consolidated the Cody tooling behind `scripts/device.ps1`: local shared menu,
   host/firmware routing, grouped generators/checks/contracts, three boot captures,
   failure logs and artifact containment. Removed the duplicate simulator menu and
