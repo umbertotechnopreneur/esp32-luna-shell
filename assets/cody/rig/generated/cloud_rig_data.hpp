@@ -1099,6 +1099,20 @@ inline constexpr const char *character_name = "Cody";
 // Named assignments keep authoring order independent of native field identity.
 inline constexpr ResponseConfig response = [] {
     ResponseConfig config{};
+    config.audio.sample_timeout_seconds = 2.500000000f;
+    config.audio.microphone_reference = 0.080000000f;
+    config.audio.playback_reference = 0.180000000f;
+    config.audio.attack_seconds = 0.080000000f;
+    config.audio.release_seconds = 0.300000000f;
+    config.audio.attention_brow = 0.300000000f;
+    config.audio.playback_mouth = 0.650000000f;
+    config.idle.after_seconds = 20.000000000f;
+    config.idle.duration_seconds = 3.200000000f;
+    config.idle.cooldown_seconds = 40.000000000f;
+    config.idle.activity_stress_threshold = 0.150000000f;
+    config.idle.audio_activity_threshold = 0.080000000f;
+    config.idle.mouth_open = 0.850000000f;
+    config.idle.eye_closure = 0.750000000f;
     config.motion.sensitivity = 1.000000000f;
     config.motion.baseline_seconds = 0.700000000f;
     config.motion.sample_timeout_seconds = 0.750000000f;
@@ -1135,9 +1149,23 @@ inline constexpr ResponseConfig response = [] {
 }();
 struct ResponseParameter { const char *name; float value; float minimum; float maximum; };
 // config: Runtime settings checked against the same limits as YAML authoring.
-inline std::array<ResponseParameter, 29> response_parameters(const ResponseConfig &config)
+inline std::array<ResponseParameter, 43> response_parameters(const ResponseConfig &config)
 {
     return {{
+        {"audio.sample_timeout_seconds", config.audio.sample_timeout_seconds, 0.100000000f, 10.000000000f},
+        {"audio.microphone_reference", config.audio.microphone_reference, 0.001000000f, 1.000000000f},
+        {"audio.playback_reference", config.audio.playback_reference, 0.001000000f, 1.000000000f},
+        {"audio.attack_seconds", config.audio.attack_seconds, 0.010000000f, 5.000000000f},
+        {"audio.release_seconds", config.audio.release_seconds, 0.010000000f, 5.000000000f},
+        {"audio.attention_brow", config.audio.attention_brow, 0.000000000f, 1.000000000f},
+        {"audio.playback_mouth", config.audio.playback_mouth, 0.000000000f, 1.000000000f},
+        {"idle.after_seconds", config.idle.after_seconds, 1.000000000f, 600.000000000f},
+        {"idle.duration_seconds", config.idle.duration_seconds, 0.500000000f, 10.000000000f},
+        {"idle.cooldown_seconds", config.idle.cooldown_seconds, 1.000000000f, 600.000000000f},
+        {"idle.activity_stress_threshold", config.idle.activity_stress_threshold, 0.001000000f, 1.000000000f},
+        {"idle.audio_activity_threshold", config.idle.audio_activity_threshold, 0.001000000f, 1.000000000f},
+        {"idle.mouth_open", config.idle.mouth_open, 0.000000000f, 1.000000000f},
+        {"idle.eye_closure", config.idle.eye_closure, 0.000000000f, 1.000000000f},
         {"motion.sensitivity", config.motion.sensitivity, 0.000000000f, 4.000000000f},
         {"motion.baseline_seconds", config.motion.baseline_seconds, 0.050000000f, 5.000000000f},
         {"motion.sample_timeout_seconds", config.motion.sample_timeout_seconds, 0.050000000f, 10.000000000f},

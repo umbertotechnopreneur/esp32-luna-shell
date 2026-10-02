@@ -4,7 +4,7 @@
 
 namespace CODY {
 
-enum class StimulusId : uint8_t { MotionAcceleration, PowerCharge };
+enum class StimulusId : uint8_t { MotionAcceleration, PowerCharge, MicrophoneLevel, SpeakerPlayback };
 enum class Axis : uint8_t { X, Y, Z, Count };
 enum class SampleHealth : uint8_t { Unavailable, Current, Stale, Error };
 // The firmware input boundary deliberately has no synthetic source.
@@ -43,10 +43,26 @@ struct PowerSample {
     bool charging = false;
 };
 
+struct MicrophoneSample {
+    SampleStamp stamp{};
+    uint8_t channel_count = 0;
+    uint32_t mean_level[2] = {};
+    uint32_t peak_level[2] = {};
+};
+
+struct PlaybackSample {
+    SampleStamp stamp{};
+    bool active = false;
+    uint32_t mean_level = 0;
+};
+
 struct ResponseInputs {
     MotionSample motion{};
     PowerSample power{};
     uint16_t rendering_rotation_degrees = 0;
+    MicrophoneSample microphone{};
+    PlaybackSample playback{};
+    int64_t last_interaction_at_us = 0;
 };
 
 struct AxisMapping {
@@ -101,6 +117,24 @@ struct ResponseConfig {
     PowerResponseConfig power;
     InternalStateConfig state;
     ExpressionResponseConfig expression;
+    struct AudioConfig {
+        float sample_timeout_seconds;
+        float microphone_reference;
+        float playback_reference;
+        float attack_seconds;
+        float release_seconds;
+        float attention_brow;
+        float playback_mouth;
+    } audio;
+    struct IdleConfig {
+        float after_seconds;
+        float duration_seconds;
+        float cooldown_seconds;
+        float activity_stress_threshold;
+        float audio_activity_threshold;
+        float mouth_open;
+        float eye_closure;
+    } idle;
 };
 
 struct SpringState {
@@ -124,6 +158,20 @@ struct ResponseState {
     float breath_phase = 0;
     float breath_rate_hz = 0;
     float blink_elapsed_ms = 0;
+    SampleStamp microphone_status{};
+    SampleStamp playback_status{};
+    int64_t consumed_microphone_at_us = 0;
+    int64_t consumed_playback_at_us = 0;
+    int64_t consumed_interaction_at_us = 0;
+    float microphone_target = 0;
+    float playback_target = 0;
+    float attention = 0;
+    float speaking = 0;
+    float idle_seconds = 0;
+    float yawn_seconds = 0;
+    float yawn_cooldown_seconds = 0;
+    float yawn_weight = 0;
+    bool yawning = false;
 };
 
 struct ResponseFrame {

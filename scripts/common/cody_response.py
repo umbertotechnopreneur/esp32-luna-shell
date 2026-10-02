@@ -54,10 +54,28 @@ class PowerSample:
 
 
 @dataclass(frozen=True)
+class MicrophoneSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    channel_count: int = 0
+    mean_level: tuple = (0, 0)
+    peak_level: tuple = (0, 0)
+
+
+@dataclass(frozen=True)
+class PlaybackSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    active: bool = False
+    mean_level: int = 0
+
+
+@dataclass(frozen=True)
 class ResponseInputs:
     motion: MotionSample = field(default_factory=MotionSample)
     power: PowerSample = field(default_factory=PowerSample)
     rendering_rotation_degrees: int = 0
+    microphone: MicrophoneSample = field(default_factory=MicrophoneSample)
+    playback: PlaybackSample = field(default_factory=PlaybackSample)
+    last_interaction_at_us: int = 0
 
 
 @dataclass(frozen=True)
@@ -88,6 +106,20 @@ class ResponseState:
     breath_phase: float = 0.0
     breath_rate_hz: float = 0.0
     blink_elapsed_ms: float = 0.0
+    microphone_status: SampleStamp = field(default_factory=SampleStamp)
+    playback_status: SampleStamp = field(default_factory=SampleStamp)
+    consumed_microphone_at_us: int = 0
+    consumed_playback_at_us: int = 0
+    consumed_interaction_at_us: int = 0
+    microphone_target: float = 0.0
+    playback_target: float = 0.0
+    attention: float = 0.0
+    speaking: float = 0.0
+    idle_seconds: float = 0.0
+    yawn_seconds: float = 0.0
+    yawn_cooldown_seconds: float = 0.0
+    yawn_weight: float = 0.0
+    yawning: bool = False
 
 
 @dataclass(frozen=True)
@@ -206,6 +238,10 @@ def validate_response_state(state):
         "stress": (0, 1), "fatigue": (0, 1), "fatigue_target": (0, 1),
         "breath_phase": (0, math.tau), "breath_rate_hz": (0, 3),
         "blink_elapsed_ms": (0, 4800),
+        "attention": (0, 1), "speaking": (0, 1),
+        "microphone_target": (0, 1), "playback_target": (0, 1),
+        "idle_seconds": (0, 600), "yawn_seconds": (0, 10),
+        "yawn_cooldown_seconds": (0, 600), "yawn_weight": (0, 1),
     }
     for name, (minimum, maximum) in ranges.items():
         value = finite_number(getattr(state, name), f"response.state.{name}")
@@ -221,10 +257,88 @@ def validate_response_state(state):
         finite_number(state.transient_mps2[axis], f"response.transient.{axis.value}")
         finite_number(state.body[axis].position, f"response.body.{axis.value}.position")
         finite_number(state.body[axis].velocity, f"response.body.{axis.value}.velocity")
-    for name in ("consumed_motion_at_us", "consumed_power_at_us"):
+    for name in ("consumed_motion_at_us", "consumed_power_at_us", "consumed_microphone_at_us",
+                 "consumed_playback_at_us", "consumed_interaction_at_us"):
         timestamp = getattr(state, name)
         if type(timestamp) is not int or timestamp < 0:
             raise ValueError(f"response.state.{name}: rejected timestamp {timestamp!r}")
+
+
+# config: Validated authored audio and inactivity settings.
+# state: Previous committed artistic model.
+# inputs: Single synthetic snapshot in the Windows preview, never firmware telemetry.
+# seconds: Active animation time, excluding parked time.
+# now_us: Current monotonic observation time.
+# next_state: Transaction-local model changed only after source checks succeed.
+# Raises ValueError for invalid PCM metadata, levels or interaction timestamps.
+def advance_audio_and_idle(config, state, inputs, seconds, now_us, next_state):
+    audio, idle = config["audio"], config["idle"]
+    next_state.microphone_status = effective_stamp(inputs.microphone.stamp, now_us,
+        audio["sample_timeout_seconds"], "audio.microphone")
+    next_state.playback_status = effective_stamp(inputs.playback.stamp, now_us,
+        audio["sample_timeout_seconds"], "audio.playback")
+    microphone = inputs.microphone
+    if next_state.microphone_status.health == SampleHealth.CURRENT:
+        if type(microphone.channel_count) is not int or not 1 <= microphone.channel_count <= 2:
+            raise ValueError("audio.microphone: expected one or two measured channels")
+        if len(microphone.mean_level) != 2 or len(microphone.peak_level) != 2:
+            raise ValueError("audio.microphone: two explicit channel storage slots required")
+        for channel in range(microphone.channel_count):
+            mean, peak = microphone.mean_level[channel], microphone.peak_level[channel]
+            if type(mean) is not int or type(peak) is not int or not 0 <= mean <= peak <= 32768:
+                raise ValueError("audio.microphone: rejected PCM mean/peak level")
+        if microphone.stamp.sampled_at_us < state.consumed_microphone_at_us:
+            raise ValueError("audio.microphone: sample timestamp went backwards")
+        if microphone.stamp.sampled_at_us > state.consumed_microphone_at_us:
+            normalized = sum(microphone.mean_level[:microphone.channel_count]) / (32768 * microphone.channel_count)
+            next_state.microphone_target = -math.expm1(-normalized / audio["microphone_reference"])
+            next_state.consumed_microphone_at_us = microphone.stamp.sampled_at_us
+    else:
+        next_state.microphone_target = 0
+    playback = inputs.playback
+    if next_state.playback_status.health == SampleHealth.CURRENT:
+        if type(playback.mean_level) is not int or not 0 <= playback.mean_level <= 32768 or type(playback.active) is not bool:
+            raise ValueError("audio.playback: rejected PCM level or activity flag")
+        if playback.stamp.sampled_at_us < state.consumed_playback_at_us:
+            raise ValueError("audio.playback: sample timestamp went backwards")
+        if playback.stamp.sampled_at_us > state.consumed_playback_at_us:
+            next_state.playback_target = -math.expm1(-playback.mean_level / (32768 * audio["playback_reference"])) if playback.active else 0
+            next_state.consumed_playback_at_us = playback.stamp.sampled_at_us
+    else:
+        next_state.playback_target = 0
+    playing = next_state.playback_status.health == SampleHealth.CURRENT and playback.active
+    attention_target = 0 if playing else next_state.microphone_target
+    next_state.attention = blend_state(state.attention, attention_target, seconds, audio["attack_seconds"], audio["release_seconds"])
+    next_state.speaking = blend_state(state.speaking, next_state.playback_target, seconds, audio["attack_seconds"], audio["release_seconds"])
+    interaction_at = inputs.last_interaction_at_us
+    if type(interaction_at) is not int or not state.consumed_interaction_at_us <= interaction_at <= now_us:
+        raise ValueError("interaction: rejected timestamp")
+    interaction = interaction_at > state.consumed_interaction_at_us
+    next_state.consumed_interaction_at_us = interaction_at
+    busy = interaction or next_state.stress >= idle["activity_stress_threshold"] or next_state.microphone_target >= idle["audio_activity_threshold"] or playing
+    next_state.yawn_cooldown_seconds = max(0, state.yawn_cooldown_seconds - seconds)
+    if busy:
+        next_state.idle_seconds = 0
+        next_state.yawning = False
+        next_state.yawn_seconds = 0
+        next_state.yawn_weight = blend_state(state.yawn_weight, 0, seconds, audio["attack_seconds"], audio["release_seconds"])
+        return
+    if not next_state.yawning:
+        next_state.yawn_weight = blend_state(state.yawn_weight, 0, seconds, audio["attack_seconds"], audio["release_seconds"])
+    next_state.idle_seconds = min(idle["after_seconds"], state.idle_seconds + seconds)
+    if not next_state.yawning and next_state.idle_seconds >= idle["after_seconds"] and next_state.yawn_cooldown_seconds == 0:
+        next_state.yawning = True
+        next_state.yawn_seconds = 0
+    if next_state.yawning:
+        next_state.yawn_seconds += seconds
+        if next_state.yawn_seconds >= idle["duration_seconds"]:
+            next_state.yawning = False
+            next_state.yawn_seconds = 0
+            next_state.idle_seconds = 0
+            next_state.yawn_weight = 0
+            next_state.yawn_cooldown_seconds = idle["cooldown_seconds"]
+        else:
+            next_state.yawn_weight = math.sin(math.pi * next_state.yawn_seconds / idle["duration_seconds"]) ** 2
 
 
 # config: Validated immutable response settings.
@@ -306,6 +420,7 @@ def advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm=Tru
             next_state.consumed_power_at_us = sampled_at_us
         next_state.fatigue = blend_state(state.fatigue, next_state.fatigue_target, seconds, state_config["fatigue_attack_seconds"], state_config["fatigue_release_seconds"])
     # Unknown charge freezes artistic fatigue. It never invents a full battery or recovery.
+    advance_audio_and_idle(config, state, inputs, seconds if animate_rhythm else 0, now_us, next_state)
 
     if animate_rhythm:
         expression = config["expression"]
@@ -358,6 +473,14 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
     for brow in (FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT):
         face[brow] += (1 - face[brow]) * stress * expression["stress_brow"]
     face[FaceChannel.MOUTH_OPEN] += (1 - face[FaceChannel.MOUTH_OPEN]) * stress * expression["stress_mouth_open"]
+    audio, idle = rig["response"]["audio"], rig["response"]["idle"]
+    mouth = FaceChannel.MOUTH_OPEN
+    face[mouth] += (1 - face[mouth]) * state.speaking * audio["playback_mouth"]
+    face[mouth] += (1 - face[mouth]) * state.yawn_weight * idle["mouth_open"]
+    for eye in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT):
+        face[eye] *= 1 - state.yawn_weight * idle["eye_closure"]
+    for brow in (FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT):
+        face[brow] += (1 - face[brow]) * state.attention * audio["attention_brow"]
     mouth_min = rig["channels"][FaceChannel.MOUTH_WIDTH]["minimum"]
     face[FaceChannel.MOUTH_WIDTH] -= (face[FaceChannel.MOUTH_WIDTH] - mouth_min) * stress * expression["stress_mouth_narrowing"]
     face[FaceChannel.CHEEK_OPACITY] *= 1 - fatigue * expression["fatigue_cheek_fade"]

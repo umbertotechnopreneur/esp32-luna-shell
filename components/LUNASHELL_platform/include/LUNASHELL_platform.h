@@ -314,6 +314,14 @@ void LUNASHELL_hardware_report_speaker(bool ready, esp_err_t error);
 /** Initialize the selected speaker and microphone codec paths. */
 esp_err_t LUNASHELL_audio_init(void);
 
+// samples: Immutable PCM16 in internal flash, retained until the one-time startup cue completes.
+// sample_count: Exact mono sample count, not a byte count.
+// sample_rate_hz: Codec-compatible startup format.
+// volume_percent: Explicit 0..100 output volume.
+esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples, size_t sample_count,
+                                        uint32_t sample_rate_hz, int volume_percent);
+
+
 /** Return the number of physically selected microphone channels: 0, 1, or 2. */
 uint8_t LUNASHELL_audio_input_channel_count(void);
 

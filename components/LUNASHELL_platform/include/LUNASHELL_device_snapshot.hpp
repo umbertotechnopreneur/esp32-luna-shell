@@ -99,7 +99,17 @@ struct GpsSnapshot : ComponentSnapshot {
 
 constexpr std::size_t kAudioSpectrumBandCount = 16;
 
+enum class PlaybackState : uint8_t { Unavailable, Idle, Playing, Failed };
+struct PlaybackSnapshot : ComponentSnapshot {
+    PlaybackState state = PlaybackState::Unavailable;
+    bool level_valid = false;
+    uint32_t mean_level = 0;
+    uint32_t sample_rate_hz = 0;
+    uint8_t volume_percent = 0;
+};
+
 struct AudioSnapshot {
+    PlaybackSnapshot playback;
     ComponentSnapshot speaker;
     ComponentSnapshot microphone;
     ComponentSnapshot spectrum;
@@ -506,9 +516,12 @@ struct TouchActivityObservation {
 // A coherent view of the same canonical snapshot, not a second sensor cache.
 // Small consumers avoid copying audio spectra and storage inventories on their stack.
 struct MotionPowerObservation {
+    bool storage_available = false;
     BatterySnapshot battery;
     ImuSnapshot imu;
     uint16_t rendering_rotation_degrees = 0;
+    AudioSnapshot audio;
+    int64_t touch_last_activity_at_us = 0;
 };
 
 /**
@@ -587,6 +600,13 @@ public:
     void reportTouch(bool ready, esp_err_t error);
     void reportTouchActivity();
     void reportSpeaker(bool ready, esp_err_t error);
+    // active: Whether a successful codec write is currently driving playback.
+    // mean_level: Mean absolute PCM16 amplitude from that successful write only.
+    // sample_rate_hz: Actual selected playback format.
+    // volume_percent: Actual requested codec volume, in the supported 0..100 range.
+    // error: Original playback or codec error; failures invalidate the level.
+    esp_err_t reportPlayback(bool active, uint32_t mean_level, uint32_t sample_rate_hz,
+                             int volume_percent, esp_err_t error);
     void reportWifi(const WifiSnapshot &wifi);
     void reportBle(
         bool ready,

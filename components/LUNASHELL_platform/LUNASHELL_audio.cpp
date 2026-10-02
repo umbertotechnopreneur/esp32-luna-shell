@@ -5,6 +5,7 @@
  */
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_device_snapshot.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -35,7 +36,14 @@ uint32_t s_speaker_sample_rate_hz;
 uint32_t s_microphone_sample_rate_hz;
 std::atomic_bool s_initialized;
 bool s_initialization_attempted;
-esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
+std::atomic<esp_err_t> s_initialization_result{ESP_ERR_INVALID_STATE};
+struct StartupCue {
+    const int16_t *samples = nullptr;
+    size_t sample_count = 0;
+    uint32_t sample_rate_hz = 0;
+    int volume_percent = 0;
+};
+StartupCue s_startup_cue;
 uint8_t s_speaker_channel_count;
 uint8_t s_microphone_channel_count;
 bool s_speaker_open;
@@ -422,6 +430,38 @@ extern "C" uint8_t LUNASHELL_audio_input_channel_count(void)
 }
 
 // Initialize base audio unless standby owns or poisoned the shared route.
+// samples: Immutable flash-owned mono PCM; this owner does not allocate or copy it.
+// sample_count: Exact clip length in samples.
+// sample_rate_hz: Selected codec sample rate.
+// volume_percent: Explicit codec output volume.
+extern "C" esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples,
+    size_t sample_count, uint32_t sample_rate_hz, int volume_percent)
+{
+    if (samples == nullptr || sample_count == 0 || sample_rate_hz < 50 ||
+        volume_percent < 0 || volume_percent > 100) {
+        ESP_LOGE(TAG, "Startup audio cue rejected: invalid PCM or format");
+        return ESP_ERR_INVALID_ARG;
+    }
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) {
+        ESP_LOGE(TAG, "Startup cue mutex creation failed");
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Startup cue registration timed out");
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_initialization_attempted || s_startup_cue.samples != nullptr) {
+        audio_unlock(mutex);
+        ESP_LOGE(TAG, "Startup cue registration rejected after configuration/init");
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_startup_cue = {samples, sample_count, sample_rate_hz, volume_percent};
+    audio_unlock(mutex);
+    return ESP_OK;
+}
+
+// Initialize the existing board codec route once; the registered cue has the same owner.
 extern "C" esp_err_t LUNASHELL_audio_init(void)
 {
     if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
@@ -434,7 +474,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
     }
     // Initialization is immutable after success; avoid waiting behind playback.
     if (s_initialized.load(std::memory_order_acquire)) {
-        return ESP_OK;
+        return s_initialization_result.load(std::memory_order_acquire);
     }
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) {
@@ -445,7 +485,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
     }
     if (s_initialized.load(std::memory_order_relaxed)) {
         audio_unlock(mutex);
-        return ESP_OK;
+        return s_initialization_result.load(std::memory_order_acquire);
     }
     if (s_standby.load(std::memory_order_acquire)) {
         ESP_LOGE(TAG, "Audio initialization cancelled by standby");
@@ -556,12 +596,45 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
             LUNASHELL_AUDIO_HAS_OUTPUT ? "ES8311" : "disabled",
             static_cast<unsigned>(LUNASHELL_audio_input_channel_count())
         );
+        if (s_startup_cue.samples != nullptr) {
+            // The route is initialized and the mutex released before calling the
+            // existing playback API; its initialization fast path cannot recurse.
+            error = LUNASHELL_audio_play_pcm16(s_startup_cue.samples,
+                s_startup_cue.sample_count, s_startup_cue.sample_rate_hz,
+                s_startup_cue.volume_percent);
+            s_initialization_result.store(error, std::memory_order_release);
+            if (error != ESP_OK) {
+                ESP_LOGE(TAG, "Audio-ready cue failed: %s", esp_err_to_name(error));
+            }
+        }
     } else {
         ESP_LOGE(TAG, "Audio route initialization failed (%s)", esp_err_to_name(error));
     }
     return error;
 }
 
+namespace {
+// operation: Rejected playback stage retained in the original error log.
+// error: Original failure; a secondary publication failure cannot replace it.
+// sample_rate_hz: Requested rate, diagnostic only on a failed publication.
+// volume_percent: Requested volume, diagnostic only on failure.
+esp_err_t reject_playback(const char *operation, esp_err_t error,
+                         uint32_t sample_rate_hz, int volume_percent)
+{
+    ESP_LOGE(TAG, "%s failed: %s", operation, esp_err_to_name(error));
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, sample_rate_hz, volume_percent, error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Rejected playback publication failed: %s", esp_err_to_name(publication_error));
+    }
+    return error;
+}
+} // namespace
+
+// samples: Borrowed immutable mono PCM16; storage remains owned by the caller.
+// sample_count: Exact number of samples to write.
+// sample_rate_hz: Actual requested output sample rate.
+// volume_percent: Codec output volume in 0..100.
 extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     const int16_t *samples,
     size_t sample_count,
@@ -575,10 +648,13 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     (void)sample_rate_hz;
     (void)volume_percent;
     LUNASHELL_hardware_report_speaker(false, ESP_ERR_NOT_SUPPORTED);
-    return ESP_ERR_NOT_SUPPORTED;
+    return reject_playback("Disabled playback route", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
 #else
-    if (samples == nullptr || sample_count == 0) {
-        return ESP_ERR_INVALID_ARG;
+    if (samples == nullptr || sample_count == 0 || sample_rate_hz < 50) {
+        ESP_LOGE(TAG, "PCM playback rejected: samples=%p count=%u rate=%lu (%s)",
+            samples, static_cast<unsigned>(sample_count), static_cast<unsigned long>(sample_rate_hz),
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return reject_playback("Playback PCM format", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
     }
     if (volume_percent < 0 || volume_percent > 100) {
         ESP_LOGE(
@@ -586,7 +662,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             "Playback volume %d outside [0, 100]",
             volume_percent
         );
-        return ESP_ERR_INVALID_ARG;
+        return reject_playback("Playback volume", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
     }
     if (LUNASHELL_voice_afe_running() && sample_rate_hz != VOICE_SAMPLE_RATE_HZ) {
         ESP_LOGE(
@@ -594,15 +670,18 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             "Voice AFE owns 16 kHz capture; playback rate %lu is unsupported",
             static_cast<unsigned long>(sample_rate_hz)
         );
-        return ESP_ERR_NOT_SUPPORTED;
+        return reject_playback("Playback AFE format", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
     }
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) {
-        return error;
+        return reject_playback("Playback initialization", error, sample_rate_hz, volume_percent);
     }
     SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) {
+        return reject_playback("Playback mutex allocation", ESP_ERR_NO_MEM, sample_rate_hz, volume_percent);
+    }
     if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
+        return reject_playback("Playback mutex acquisition", ESP_ERR_TIMEOUT, sample_rate_hz, volume_percent);
     }
 
     error = configure_speaker_stream(sample_rate_hz);
@@ -616,7 +695,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
                 volume_percent,
                 volume_result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(volume_result);
         }
     }
     if (error == ESP_OK) {
@@ -628,7 +707,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
                 "Unmuting speaker failed: codec_result=%d",
                 unmute_result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(unmute_result);
         }
     }
     if (error == ESP_OK) {
@@ -639,7 +718,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             const bool voice_afe_active = LUNASHELL_voice_afe_running();
             const size_t chunk_samples = voice_afe_active
                 ? std::min(VOICE_REFERENCE_CHUNK_SAMPLES, sample_count - offset)
-                : sample_count - offset;
+                : std::min(static_cast<size_t>(sample_rate_hz / 50U), sample_count - offset);
             if (voice_afe_active) {
                 const esp_err_t reference_error = LUNASHELL_voice_afe_push_speaker_pcm16(
                     samples + offset,
@@ -663,7 +742,20 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
             );
             if (result != ESP_CODEC_DEV_OK) {
                 ESP_LOGE(TAG, "Speaker PCM write failed: codec_result=%d", result);
-                error = ESP_FAIL;
+                error = static_cast<esp_err_t>(result);
+                break;
+            }
+            uint64_t absolute_sum = 0;
+            for (size_t sample_index = 0; sample_index < chunk_samples; ++sample_index) {
+                const int32_t sample = samples[offset + sample_index];
+                absolute_sum += static_cast<uint32_t>(sample < 0 ? -sample : sample);
+            }
+            const esp_err_t publication_error =
+                LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+                    true, static_cast<uint32_t>(absolute_sum / chunk_samples),
+                    sample_rate_hz, volume_percent, ESP_OK);
+            if (publication_error != ESP_OK) {
+                error = publication_error;
                 break;
             }
             offset += chunk_samples;
@@ -674,10 +766,20 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     if (mute_result != ESP_CODEC_DEV_OK) {
         ESP_LOGE(TAG, "Muting speaker after playback failed (%d)", mute_result);
         if (error == ESP_OK) {
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(mute_result);
         }
     }
     audio_unlock(mutex);
+
+    const esp_err_t publication_error =
+        LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+            false, 0, sample_rate_hz, volume_percent, error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Playback final publication failed: %s", esp_err_to_name(publication_error));
+        if (error == ESP_OK) {
+            error = publication_error;
+        }
+    }
 
     ESP_LOGI(
         TAG,

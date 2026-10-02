@@ -6,6 +6,20 @@
 
 #include "LUNASHELL_platform.h"
 
+// samples: Borrowed PCM for a route absent from this build profile.
+// sample_count: Number of mono PCM16 samples.
+// sample_rate_hz: Requested codec rate.
+// volume_percent: Requested output volume.
+extern "C" esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples,
+    size_t sample_count, uint32_t sample_rate_hz, int volume_percent)
+{
+    (void)samples;
+    (void)sample_count;
+    (void)sample_rate_hz;
+    (void)volume_percent;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_audio_init(void)
 {
     return ESP_ERR_NOT_SUPPORTED;

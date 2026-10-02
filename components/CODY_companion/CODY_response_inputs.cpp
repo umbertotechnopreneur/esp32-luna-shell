@@ -42,6 +42,32 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs)
     }
     ResponseInputs result{};
     result.rendering_rotation_degrees = observation.rendering_rotation_degrees;
+    result.last_interaction_at_us = observation.touch_last_activity_at_us;
+    const auto &audio = observation.audio;
+    result.microphone.stamp = published_stamp(audio.microphone, audio.channel_count > 0);
+    result.playback.stamp = published_stamp(audio.playback, true);
+    if (result.microphone.stamp.health == SampleHealth::Current) {
+        result.microphone.channel_count = audio.channel_count;
+        for (uint8_t channel = 0; channel < 2; ++channel) {
+            result.microphone.mean_level[channel] = audio.channel_mean_level[channel];
+            result.microphone.peak_level[channel] = audio.channel_peak_level[channel];
+        }
+    }
+    if (result.playback.stamp.health == SampleHealth::Current) {
+        if (audio.playback.state != LUNASHELL::PlaybackState::Idle &&
+            audio.playback.state != LUNASHELL::PlaybackState::Playing) {
+            ESP_LOGE(kTag, "Playback snapshot contains an ambiguous current state");
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        result.playback.active = audio.playback.state == LUNASHELL::PlaybackState::Playing;
+        if (result.playback.active && !audio.playback.level_valid) {
+            ESP_LOGE(kTag, "Active playback snapshot has no successfully written PCM level");
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        if (result.playback.active) {
+            result.playback.mean_level = audio.playback.mean_level;
+        }
+    }
     result.motion.stamp = published_stamp(observation.imu, true);
     result.power.stamp = published_stamp(observation.battery,
                                          observation.battery.battery_present && observation.battery.level_percent_valid);

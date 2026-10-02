@@ -13,10 +13,30 @@ class Axis(str, Enum):
 class StimulusId(str, Enum):
     MOTION_ACCELERATION = "motion.acceleration"
     POWER_CHARGE = "power.charge"
+    MICROPHONE_LEVEL = "audio.microphone"
+    SPEAKER_PLAYBACK = "audio.playback"
 
 
 # These are reviewed authoring limits, not repairs of bad configuration.
 RESPONSE_RANGES = {
+    "audio": {
+        "sample_timeout_seconds": (.1, 10),
+        "microphone_reference": (.001, 1),
+        "playback_reference": (.001, 1),
+        "attack_seconds": (.01, 5),
+        "release_seconds": (.01, 5),
+        "attention_brow": (0, 1),
+        "playback_mouth": (0, 1),
+    },
+    "idle": {
+        "after_seconds": (1, 600),
+        "duration_seconds": (.5, 10),
+        "cooldown_seconds": (1, 600),
+        "activity_stress_threshold": (.001, 1),
+        "audio_activity_threshold": (.001, 1),
+        "mouth_open": (0, 1),
+        "eye_closure": (0, 1),
+    },
     "motion": {
         "sensitivity": (0, 4),
         "baseline_seconds": (.05, 5),
@@ -62,8 +82,8 @@ RESPONSE_RANGES = {
 def validate_response_config(value):
     expected = {"schema", *RESPONSE_RANGES}
     if not isinstance(value, dict) or set(value) != expected:
-        raise ValueError("Response requires schema, motion, power, state and expression sections")
-    if value["schema"] != "cody.response.v1":
+        raise ValueError("Response requires exactly its named schema and model sections")
+    if value["schema"] != "cody.response.v2":
         raise ValueError(f"Unsupported response schema: {value['schema']}")
     for group, ranges in RESPONSE_RANGES.items():
         section = value[group]
@@ -97,4 +117,3 @@ def validate_response_config(value):
         used_axes.add(entry["axis"])
     if used_axes != set(Axis):
         raise ValueError("board_to_panel must be a signed permutation, with no repeated sensor axis")
-

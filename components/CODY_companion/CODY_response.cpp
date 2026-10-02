@@ -1,6 +1,7 @@
 #include "CODY_response.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <initializer_list>
 #include "cloud_rig_data.hpp"
 #include "esp_log.h"
@@ -174,6 +175,117 @@ CODY2D::Vec2 logical_vector(CODY2D::Vec2 vector, uint16_t rotation)
     }
 }
 
+// config: Authored audio/idle gains, validated with the rest of the skin.
+// previous: Previous committed targets and consumed publication timestamps.
+// inputs: One canonical observation bundle; current PCM levels are never guessed.
+// seconds: Active animation time, excluding standby.
+// now_us: Current observation clock used for freshness and interaction timestamps.
+// next: Transaction-local next model, committed by the public boundary on success.
+esp_err_t advance_audio_and_idle(const ResponseConfig &config, const ResponseState &previous,
+    const ResponseInputs &inputs, float seconds, int64_t now_us, ResponseState &next)
+{
+    esp_err_t error = effective_stamp(inputs.microphone.stamp, now_us,
+        config.audio.sample_timeout_seconds, "audio.microphone", next.microphone_status);
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = effective_stamp(inputs.playback.stamp, now_us,
+        config.audio.sample_timeout_seconds, "audio.playback", next.playback_status);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (next.microphone_status.health == SampleHealth::Current) {
+        const auto &microphone = inputs.microphone;
+        if (microphone.channel_count == 0 || microphone.channel_count > 2) {
+            return reject_value("audio.microphone channel_count", microphone.channel_count);
+        }
+        uint32_t sum = 0;
+        for (uint8_t channel = 0; channel < microphone.channel_count; ++channel) {
+            if (microphone.peak_level[channel] > 32768U ||
+                microphone.mean_level[channel] > microphone.peak_level[channel]) {
+                return reject_value("audio.microphone PCM level", microphone.mean_level[channel]);
+            }
+            sum += microphone.mean_level[channel];
+        }
+        if (microphone.stamp.sampled_at_us < previous.consumed_microphone_at_us) {
+            return reject_value("audio.microphone reversed timestamp", microphone.stamp.sampled_at_us);
+        }
+        if (microphone.stamp.sampled_at_us > previous.consumed_microphone_at_us) {
+            const float normalized = sum / (32768.f * microphone.channel_count);
+            next.microphone_target = -std::expm1(-normalized / config.audio.microphone_reference);
+            next.consumed_microphone_at_us = microphone.stamp.sampled_at_us;
+        }
+    } else {
+        next.microphone_target = 0; // Decay an artistic contribution; do not invent a silent sample.
+    }
+    if (next.playback_status.health == SampleHealth::Current) {
+        const auto &playback = inputs.playback;
+        if (playback.mean_level > 32768U) {
+            return reject_value("audio.playback PCM level", playback.mean_level);
+        }
+        if (playback.stamp.sampled_at_us < previous.consumed_playback_at_us) {
+            return reject_value("audio.playback reversed timestamp", playback.stamp.sampled_at_us);
+        }
+        if (playback.stamp.sampled_at_us > previous.consumed_playback_at_us) {
+            next.playback_target = playback.active
+                ? -std::expm1(-playback.mean_level / (32768.f * config.audio.playback_reference)) : 0;
+            next.consumed_playback_at_us = playback.stamp.sampled_at_us;
+        }
+    } else {
+        next.playback_target = 0;
+    }
+    const bool playing = next.playback_status.health == SampleHealth::Current && inputs.playback.active;
+    // Playback may be heard by the microphones. Keep those measurements intact,
+    // but avoid treating our own cue as an independent attention stimulus.
+    const float attention_target = playing ? 0 : next.microphone_target;
+    next.attention = blend_state(previous.attention, attention_target, seconds,
+                                 config.audio.attack_seconds, config.audio.release_seconds);
+    next.speaking = blend_state(previous.speaking, next.playback_target, seconds,
+                                config.audio.attack_seconds, config.audio.release_seconds);
+    if (inputs.last_interaction_at_us < previous.consumed_interaction_at_us ||
+        inputs.last_interaction_at_us > now_us) {
+        return reject_value("interaction timestamp", inputs.last_interaction_at_us);
+    }
+    const bool interaction = inputs.last_interaction_at_us > previous.consumed_interaction_at_us;
+    next.consumed_interaction_at_us = inputs.last_interaction_at_us;
+    const bool busy = interaction || next.stress >= config.idle.activity_stress_threshold ||
+        next.microphone_target >= config.idle.audio_activity_threshold || playing;
+    next.yawn_cooldown_seconds = std::max(0.f, previous.yawn_cooldown_seconds - seconds);
+    if (busy) {
+        next.idle_seconds = 0;
+        next.yawning = false;
+        next.yawn_seconds = 0;
+        // Interruption releases the contribution smoothly instead of snapping the mouth shut.
+        next.yawn_weight = blend_state(previous.yawn_weight, 0, seconds,
+            config.audio.attack_seconds, config.audio.release_seconds);
+    } else {
+        if (!next.yawning) {
+            next.yawn_weight = blend_state(previous.yawn_weight, 0, seconds,
+                config.audio.attack_seconds, config.audio.release_seconds);
+        }
+        next.idle_seconds = std::min(config.idle.after_seconds, previous.idle_seconds + seconds);
+        if (!next.yawning && next.idle_seconds >= config.idle.after_seconds &&
+            next.yawn_cooldown_seconds == 0) {
+            next.yawning = true;
+            next.yawn_seconds = 0;
+        }
+        if (next.yawning) {
+            next.yawn_seconds += seconds;
+            if (next.yawn_seconds >= config.idle.duration_seconds) {
+                next.yawning = false;
+                next.yawn_seconds = 0;
+                next.idle_seconds = 0;
+                next.yawn_weight = 0;
+                next.yawn_cooldown_seconds = config.idle.cooldown_seconds;
+            } else {
+                const float shape = std::sin(kTau * .5f * next.yawn_seconds / config.idle.duration_seconds);
+                next.yawn_weight = shape * shape;
+            }
+        }
+    }
+    return ESP_OK;
+}
+
 // state: Previously committed state to inspect before it can affect geometry.
 esp_err_t validate_response_state(const ResponseState &state)
 {
@@ -184,6 +296,14 @@ esp_err_t validate_response_state(const ResponseState &state)
         {"state.breath_phase", state.breath_phase, 0, kTau},
         {"state.breath_rate_hz", state.breath_rate_hz, 0, 3},
         {"state.blink_elapsed_ms", state.blink_elapsed_ms, 0, 4800},
+        {"state.attention", state.attention, 0, 1},
+        {"state.speaking", state.speaking, 0, 1},
+        {"state.microphone_target", state.microphone_target, 0, 1},
+        {"state.playback_target", state.playback_target, 0, 1},
+        {"state.idle_seconds", state.idle_seconds, 0, 600},
+        {"state.yawn_seconds", state.yawn_seconds, 0, 10},
+        {"state.yawn_cooldown_seconds", state.yawn_cooldown_seconds, 0, 600},
+        {"state.yawn_weight", state.yawn_weight, 0, 1},
     };
     for (const auto &parameter : scalars) {
         if (!std::isfinite(parameter.value) || parameter.value < parameter.minimum ||
@@ -211,6 +331,10 @@ esp_err_t validate_response_state(const ResponseState &state)
     }
     if (state.consumed_power_at_us < 0) {
         return reject_value("state.consumed_power_at_us", static_cast<double>(state.consumed_power_at_us));
+    }
+    if (state.consumed_microphone_at_us < 0 || state.consumed_playback_at_us < 0 ||
+        state.consumed_interaction_at_us < 0) {
+        return reject_value("state.audio/interaction timestamp", -1);
     }
     if (state.breath_phase >= kTau) {
         return reject_value("state.breath_phase", state.breath_phase);
@@ -374,6 +498,10 @@ esp_err_t advance_response(const ResponseConfig &config, const ResponseState &st
                                     config.state.fatigue_attack_seconds, config.state.fatigue_release_seconds);
     }
     // Unknown charge holds artistic state. It is never substituted with "battery full".
+    error = advance_audio_and_idle(config, state, inputs, animate_rhythm ? seconds : 0, now_us, result);
+    if (error != ESP_OK) {
+        return error;
+    }
     if (animate_rhythm) {
         const auto &expression = config.expression;
         const float target_rate = expression.base_breath_hz * (1 + expression.stress_breath_gain * result.stress) *
@@ -444,6 +572,14 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
     }
     auto &mouth = result.face[FaceChannel::MouthOpen];
     mouth += (1 - mouth) * state.stress * expression.stress_mouth_open;
+    mouth += (1 - mouth) * state.speaking * config.audio.playback_mouth;
+    mouth += (1 - mouth) * state.yawn_weight * config.idle.mouth_open;
+    for (const auto eye : {FaceChannel::EyeLeft, FaceChannel::EyeRight}) {
+        result.face[eye] *= 1 - state.yawn_weight * config.idle.eye_closure;
+    }
+    for (const auto brow : {FaceChannel::BrowLeft, FaceChannel::BrowRight}) {
+        result.face[brow] += (1 - result.face[brow]) * state.attention * config.audio.attention_brow;
+    }
     auto &mouth_width = result.face[FaceChannel::MouthWidth];
     const float mouth_minimum = Data::channel_min[to_index(FaceChannel::MouthWidth)];
     mouth_width -= (mouth_width - mouth_minimum) * state.stress * expression.stress_mouth_narrowing;

@@ -1050,6 +1050,7 @@ void apply_measured_sample_aging(
     }
     age_measured_sample(snapshot.gps, now_us, ttl_us);
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
+    age_measured_sample(snapshot.audio.playback, now_us, ttl_us);
     age_measured_sample(snapshot.audio.spectrum, now_us, ttl_us);
     if (snapshot.ui.orientation.auto_rotation_enabled) {
         age_measured_sample(snapshot.ui.orientation, now_us, ttl_us);
@@ -6715,6 +6716,9 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     }
     copy.battery = s_snapshot.battery;
     copy.imu = s_snapshot.imu;
+    copy.audio = s_snapshot.audio;
+    copy.storage_available = s_snapshot.storage.mounted && !s_snapshot.storage.poisoned &&
+        s_snapshot.storage.card_response_verified && s_snapshot.storage.last_error == ESP_OK;
     copy.rendering_rotation_degrees = s_snapshot.ui.orientation.rendering_rotation_degrees;
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     const esp_err_t release_error = give_snapshot_mutex("motion/power snapshot read");
@@ -6725,10 +6729,60 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     const int64_t now_us = esp_timer_get_time();
     age_measured_sample(copy.battery, now_us, ttl_us);
     age_measured_sample(copy.imu, now_us, ttl_us);
+    age_measured_sample(copy.audio.microphone, now_us, ttl_us);
+    age_measured_sample(copy.audio.playback, now_us, ttl_us);
+    // Match the full snapshot: the touch producer publishes its activity atomically.
+    copy.touch_last_activity_at_us = touchActivityObservation().last_activity_at_us;
     observation = copy;
     return ESP_OK;
 }
 
+// active: Confirmed codec playback state, not an estimate from elapsed clip time.
+// mean_level: Absolute PCM16 mean, valid only after a successful codec write.
+// sample_rate_hz: Actual playback sample rate.
+// volume_percent: Selected codec volume; invalid values are rejected without repair.
+// error: Original codec/playback failure, retained by the canonical snapshot.
+esp_err_t DeviceSnapshotService::reportPlayback(bool active, uint32_t mean_level,
+                                               uint32_t sample_rate_hz,
+                                               int volume_percent, esp_err_t error)
+{
+    if (error == ESP_OK && (sample_rate_hz == 0 || mean_level > 32768U ||
+                           volume_percent < 0 || volume_percent > 100)) {
+        ESP_LOGE(TAG, "Playback publication rejected: rate=%lu mean=%lu volume=%d",
+                 static_cast<unsigned long>(sample_rate_hz),
+                 static_cast<unsigned long>(mean_level), volume_percent);
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "playback publication");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Playback publication lock failed: %s", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    PlaybackSnapshot &playback = s_snapshot.audio.playback;
+    const int64_t now_us = esp_timer_get_time();
+    if (error == ESP_OK) {
+        mark_sample_success(playback, now_us);
+        playback.state = active ? PlaybackState::Playing : PlaybackState::Idle;
+        playback.level_valid = active;
+        if (active) {
+            playback.mean_level = mean_level;
+        }
+        playback.sample_rate_hz = sample_rate_hz;
+        playback.volume_percent = static_cast<uint8_t>(volume_percent);
+    } else {
+        mark_sample_failure(playback, error, now_us);
+        playback.state = PlaybackState::Failed;
+        playback.level_valid = false;
+        ESP_LOGE(TAG, "Playback failed: %s", esp_err_to_name(error));
+    }
+    const esp_err_t release_error = give_snapshot_mutex("playback publication");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Playback publication unlock failed: %s", esp_err_to_name(release_error));
+    }
+    return release_error;
+}
+
+// geometry: Output owned by the distance service; failed sampling leaves it invalid.
 esp_err_t DeviceSnapshotService::sampleDistanceGeometry(
     DistanceGeometrySnapshot *geometry
 )
