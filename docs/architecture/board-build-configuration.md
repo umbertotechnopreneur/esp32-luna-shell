@@ -1,5 +1,9 @@
 # Board build configuration
 
+For mandatory display and touch without the Luna UI, use the dedicated
+[`display-touch` runtime](display-touch-runtime.md). The UI shell described
+below remains the Brookesia/LVGL consumer of the same physical devices.
+
 The Waveshare board YAML is
 [`ui-bootstrap.yaml`](../../config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-bootstrap.yaml).
 [`ui-services.yaml`](../../config/boards/waveshare-esp32s3-touch-amoled-1.75/ui-services.yaml)

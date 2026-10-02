@@ -1,0 +1,144 @@
+diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
+--- a/esp_lcd_touch_cst9217.c
++++ b/esp_lcd_touch_cst9217.c
+@@ -117,22 +117,30 @@
+  * Private functions
+  *******************************************************************************/
+ 
++// tp: Initialized touch controller whose current hardware report is being read.
+ static esp_err_t esp_lcd_touch_cst9217_read_data(esp_lcd_touch_handle_t tp)
+ {
+     uint8_t data[CST9217_DATA_LENGTH] = {0};
+     esp_err_t ret = ESP_OK;
++
++    portENTER_CRITICAL(&tp->data.lock);
++    tp->data.points = 0;
++    portEXIT_CRITICAL(&tp->data.lock);
+ 
+     ESP_GOTO_ON_ERROR(
+         cst9217_read_reg(tp, ESP_LCD_TOUCH_CST9217_DATA_REG, data, sizeof(data)),
+         err, TAG, "Read data failed");
+ 
+     if (data[6] != CST9217_ACK_VALUE) {
+-        // ESP_LOGE(TAG, "Invalid ACK: 0x%02X vs 0x%02X", data[6], CST9217_ACK_VALUE);
++        ESP_LOGE(TAG, "Read data rejected: ACK=0x%02X expected=0x%02X (%s)", data[6], CST9217_ACK_VALUE, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+         return ESP_ERR_INVALID_RESPONSE;
+     }
+ 
+     uint8_t points = data[5] & 0x7F;
+-    points = (points > CST9217_MAX_TOUCH_POINTS) ? CST9217_MAX_TOUCH_POINTS : points;
++    if (points > CST9217_MAX_TOUCH_POINTS) {
++        ESP_LOGE(TAG, "Read data rejected: contact count=%u maximum=%u (%s)", points, CST9217_MAX_TOUCH_POINTS, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
++        return ESP_ERR_INVALID_RESPONSE;
++    }
+ 
+     portENTER_CRITICAL(&tp->data.lock);
+     tp->data.points = 0;
+@@ -154,13 +162,7 @@
+     return ret;
+ 
+ err:
+-    if (tp->config.rst_gpio_num != GPIO_NUM_NC) {
+-        gpio_set_level(tp->config.rst_gpio_num, 0);
+-        vTaskDelay(pdMS_TO_TICKS(10));
+-        gpio_set_level(tp->config.rst_gpio_num, 1);
+-        vTaskDelay(pdMS_TO_TICKS(50));
+-    }
+-    return ESP_FAIL;
++    return ret;
+ }
+ 
+ static bool esp_lcd_touch_cst9217_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num)
+@@ -241,62 +243,38 @@
+     return ret;
+ }
+ 
++// tp: Initialized controller and its I2C panel transport.
++// reg: Controller register address to read.
++// data: Destination for the hardware register response.
++// len: Nonzero destination byte count.
+ static esp_err_t cst9217_read_reg(esp_lcd_touch_handle_t tp, uint16_t reg, uint8_t *data, size_t len)
+ {
++    ESP_RETURN_ON_FALSE(tp && tp->io && data && len > 0, ESP_ERR_INVALID_ARG, TAG, "Invalid register read arguments");
+     uint8_t reg_buf[2] = {reg >> 8, reg & 0xFF};
+-    const int max_retries = 5;
+-    esp_err_t ret;
+-
+-    for (int retry = 0; retry < max_retries; retry++) {
+-        ret = esp_lcd_panel_io_tx_param(tp->io, reg_buf[0], &reg_buf[1], 1);
+-        if (ret != ESP_OK) {
+-            ESP_LOGD(TAG, "TX failed, retry %d", retry);
+-            vTaskDelay(pdMS_TO_TICKS(3));
+-            continue;
+-        }
+-
+-        vTaskDelay(pdMS_TO_TICKS(2));
+-
+-        ret = esp_lcd_panel_io_rx_param(tp->io, -1, data, len);
+-        if (ret == ESP_OK) {
+-            return ESP_OK;
+-        }
+-        ESP_LOGD(TAG, "RX failed, retry %d", retry);
+-        vTaskDelay(pdMS_TO_TICKS(3));
+-    }
+-
+-    if (tp->config.rst_gpio_num != GPIO_NUM_NC) {
+-        ESP_LOGW(TAG, "Trigger hardware reset");
+-        gpio_set_level(tp->config.rst_gpio_num, 0);
+-        vTaskDelay(pdMS_TO_TICKS(10));
+-        gpio_set_level(tp->config.rst_gpio_num, 1);
+-        vTaskDelay(pdMS_TO_TICKS(100));
+-    }
+-    return ESP_FAIL;
+-}
+-
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, reg_buf[0], &reg_buf[1], 1),
++        TAG, "Register address write failed");
++    vTaskDelay(pdMS_TO_TICKS(2));
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_rx_param(tp->io, -1, data, len),
++        TAG, "Register read failed");
++    return ESP_OK;
++}
++
++// tp: Initialized controller and its I2C panel transport.
++// reg: Controller register address to write.
++// data: Source bytes for the controller command.
++// len: Nonzero source byte count, including its first command byte.
+ static esp_err_t cst9217_write_reg(esp_lcd_touch_handle_t tp, uint16_t reg, uint8_t *data, size_t len)
+ {
++    ESP_RETURN_ON_FALSE(tp && tp->io && data && len > 0, ESP_ERR_INVALID_ARG, TAG, "Invalid register write arguments");
+     uint8_t reg_buf[2] = {reg >> 8, reg & 0xFF};
+-    const int max_retries = 5;
+-    esp_err_t ret;
+-
+-    for (int retry = 0; retry < max_retries; retry++) {
+-        ret = esp_lcd_panel_io_tx_param(tp->io, reg_buf[0], &reg_buf[1], 1);
+-        if (ret != ESP_OK) {
+-            ESP_LOGD(TAG, "Addr TX failed, retry %d", retry);
+-            vTaskDelay(pdMS_TO_TICKS(3));
+-            continue;
+-        }
+-
+-        vTaskDelay(pdMS_TO_TICKS(2));
+-
+-        ret = esp_lcd_panel_io_tx_param(tp->io, data[0], &data[1], len-1);
+-        if (ret == ESP_OK) {
+-            return ESP_OK;
+-        }
+-        ESP_LOGD(TAG, "Data TX failed, retry %d", retry);
+-        vTaskDelay(pdMS_TO_TICKS(3));
+-    }
+-    return ESP_FAIL;
+-}
+\ No newline at end of file
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, reg_buf[0], &reg_buf[1], 1),
++        TAG, "Register address write failed");
++    vTaskDelay(pdMS_TO_TICKS(2));
++    ESP_RETURN_ON_ERROR(
++        esp_lcd_panel_io_tx_param(tp->io, data[0], &data[1], len - 1),
++        TAG, "Register payload write failed");
++    return ESP_OK;
++}

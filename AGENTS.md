@@ -7,8 +7,9 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 - Target ESP-IDF 6.0.2 and the official ESP-Brookesia 0.8 architecture only.
 - Do not add compatibility branches, shims, wrappers, migrations, or fallback
   paths for ESP-IDF 5.x, Brookesia 0.6/0.7, or the removed Phone framework.
-- LVGL is only the rendering backend below Brookesia System Super, System Core,
-  and the declarative GUI package.
+- The Luna UI uses LVGL only below Brookesia System Super, System Core, and its
+  declarative GUI package. Physical display and touch also support a standalone path with
+  that UI disabled; this path must not admit LVGL or its adapter dependencies.
 - Run every ESP-IDF configure, build, size, flash, erase, capture, and monitor
   workflow through `scripts/device.ps1`. Never invoke the ESP-IDF Python
   entrypoint directly.

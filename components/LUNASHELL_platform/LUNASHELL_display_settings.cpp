@@ -11,7 +11,7 @@
 #include <algorithm>
 #include <mutex>
 
-#include "bsp/esp32_s3_touch_amoled_1_75.h"
+#include "bsp/display.h"
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -26,7 +26,11 @@ constexpr uint32_t kBrightnessMaxPercent = 100;
 constexpr uint32_t kDimmedBrightnessNumerator = 50;
 constexpr uint32_t kDimmedBrightnessDenominator = 100;
 constexpr uint32_t kFadeStepPeriodMs = 20;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 constexpr uint32_t kDisplayOperationLockTimeoutMs = 1500;
+#else
+constexpr uint32_t kDisplayOperationLockTimeoutMs = 1000;
+#endif
 std::mutex s_brightness_mutex;
 
 class DisplayOperationLock {

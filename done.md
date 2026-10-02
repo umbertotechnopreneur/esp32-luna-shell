@@ -1,5 +1,13 @@
 # Done
 
+## Standalone display and touch implementation (2026-10-02)
+
+- [x] Separate physical display/touch selection from the Luna GUI. Add a
+  mandatory display-touch profile, standalone RGB565/touch APIs and a
+  hardware-owned display lock, preserving the existing UI path. This is a
+  source checkpoint with static review only; dependency locks, compilation and
+  physical behavior remain pending in `TODO.md`.
+
 ## Archived from the active backlog (2026-09-25)
 
 - [x] Build the Windows simulator device twin: validated synthetic snapshots,

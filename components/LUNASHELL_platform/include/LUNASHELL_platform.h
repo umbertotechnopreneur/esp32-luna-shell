@@ -226,6 +226,46 @@ esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended);
  */
 esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended);
 
+/** Initialize the standalone display and touch drivers without the UI backend. */
+esp_err_t LUNASHELL_display_runtime_init(void);
+
+/** Drain standalone rectangle writes and gate further writes during standby. */
+// suspended: Whether standalone rectangle writes must remain blocked.
+esp_err_t LUNASHELL_display_runtime_set_suspended(bool suspended);
+
+/** Query initialized standalone write availability without copying a full snapshot. */
+bool LUNASHELL_display_runtime_writes_allowed(void);
+
+/** Query the panel revision; a change requires the caller to redraw its full content. */
+uint32_t LUNASHELL_display_runtime_content_revision(void);
+
+/** Write one packed native little-endian RGB565 rectangle through the standalone panel. */
+// x_start: First included horizontal pixel coordinate.
+// y_start: First included vertical pixel coordinate.
+// x_end: First excluded horizontal pixel coordinate.
+// y_end: First excluded vertical pixel coordinate.
+// pixels: Packed RGB565 pixels retained until the synchronous write returns.
+esp_err_t LUNASHELL_display_write_rgb565(
+    int x_start,
+    int y_start,
+    int x_end,
+    int y_end,
+    const void *pixels
+);
+
+typedef struct {
+    bool valid;
+    bool pressed;
+    uint16_t x;
+    uint16_t y;
+    esp_err_t error;
+    int64_t sample_timestamp_us;
+} LUNASHELL_touch_point_t;
+
+/** Read one actual standalone touch sample; validity must precede coordinate use. */
+// point: Receives the real touch state or an explicit invalid state and error.
+esp_err_t LUNASHELL_touch_read_point(LUNASHELL_touch_point_t *point);
+
 /** Persist and apply AMOLED brightness (10-100 percent). */
 esp_err_t LUNASHELL_display_set_brightness_percent(uint32_t percent);
 esp_err_t LUNASHELL_display_get_brightness_percent(uint32_t *percent);
@@ -233,6 +273,10 @@ esp_err_t LUNASHELL_display_apply_saved_brightness(void);
 
 /** Persist the automatic cardinal-rotation preference. */
 esp_err_t LUNASHELL_display_set_auto_rotation_enabled(bool enabled);
+
+/** Persist and apply a manual cardinal rotation while automatic rotation is disabled. */
+// degrees: Exact panel and touch rotation, restricted to 0, 90, 180, or 270 degrees.
+esp_err_t LUNASHELL_display_set_rotation_degrees(uint32_t degrees);
 
 /** Return the active automatic cardinal-rotation preference. */
 bool LUNASHELL_display_get_auto_rotation_enabled(void);

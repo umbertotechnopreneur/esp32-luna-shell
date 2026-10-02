@@ -86,6 +86,12 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Display, rendering, and radios
 
+- Display/touch selection and the Luna GUI are separate compile-time owners.
+  UI-off consumers keep the mandatory physical devices through the standalone
+  BSP path. Their frame and input lifecycle must use hardware APIs rather than
+  an LVGL worker. Changing manifest gates requires a reviewed lock refresh;
+  static source review is not dependency resolution or device validation.
+
 - Cardinal rotation keeps LVGL at 466 × 466. Replay the last complete RGB565
   frame from PSRAM in bounded QSPI strips; only before that cache exists should
   rotation force a full LVGL redraw. Never use SD as a render cache.

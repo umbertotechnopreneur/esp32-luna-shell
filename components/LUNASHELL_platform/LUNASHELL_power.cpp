@@ -167,6 +167,10 @@ struct StandbyResourceState {
     bool display_off = false;
     bool display_consistent = true;
     StandbyResourceStatus lvgl_paused;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    StandbyResourceStatus wireless;
+    StandbyResourceStatus standalone_display;
+#endif
 };
 
 StandbyResourceState s_standby_resources;
@@ -543,6 +547,8 @@ void refresh_audio_suspend_flag()
 }
 
 // Bridge the BSP LVGL lifecycle only in profiles that own a UI worker.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// active: Receives whether the LVGL display progress watchdog is armed.
 esp_err_t display_watch_active(bool *active)
 {
     if (active == nullptr) {
@@ -564,9 +570,9 @@ esp_err_t display_watch_active(bool *active)
     return ESP_OK;
 }
 
+// standby: Whether to pause the UI renderer after the panel is dark.
 esp_err_t set_lvgl_standby(bool standby)
 {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (standby) {
         // Keep the display subscription armed while pause waits for the LVGL
         // worker. A wedged timer handler or panel flush therefore still trips
@@ -604,11 +610,35 @@ esp_err_t set_lvgl_standby(bool standby)
         return result;
     }
     return ESP_OK;
-#else
-    (void)standby;
-    return ESP_ERR_NOT_SUPPORTED;
-#endif
 }
+#endif
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI && \
+    (CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH)
+// standby: Whether to stop or restore the radios selected by the standalone profile.
+esp_err_t set_standalone_wireless_standby(bool standby)
+{
+    esp_err_t result = ESP_ERR_NOT_SUPPORTED;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+    if (standby) {
+        result = LUNASHELL_radios_stop();
+    } else {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+        result = LUNASHELL_radios_init();
+#else
+        result = LUNASHELL_ble_init();
+#endif
+    }
+#else
+    result = standby ? LUNASHELL_wifi_stop() : LUNASHELL_wifi_init();
+#endif
+    if (result != ESP_OK) {
+        ESP_LOGE(kTag, "Standalone radios %s failed (%s)",
+                 standby ? "standby" : "restore", esp_err_to_name(result));
+    }
+    return result;
+}
+#endif
 
 // Motion wake remains available in standby, but its host sampling cadence is
 // reduced from 10 Hz to 1 Hz. If motion wake is unavailable, PWR wake remains
@@ -624,6 +654,7 @@ esp_err_t set_motion_wake_standby(bool standby)
 // Wireless services are deliberately one-way for the PWR standby policy:
 // stopping them releases the Wi-Fi/BLE stacks and wake never restarts them
 // without a new explicit Settings action.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 esp_err_t stop_radios_for_standby()
 {
     record_standby_trace(StandbyTracePhase::RadiosStopping, ESP_OK);
@@ -652,6 +683,7 @@ esp_err_t stop_radios_for_standby()
     );
     return ESP_OK;
 }
+#endif
 
 // Apply the display-off policy before pausing LVGL, or restore it last.
 esp_err_t set_display_standby(bool standby)
@@ -663,6 +695,7 @@ esp_err_t set_display_standby(bool standby)
 }
 
 // Keep a failed fade from leaving the panel between active and display-off.
+// target: Whether the display must end in the standby panel-off state.
 esp_err_t transition_display_resource(bool target)
 {
     if (s_standby_resources.display_consistent &&
@@ -670,11 +703,13 @@ esp_err_t transition_display_resource(bool target)
         return ESP_OK;
     }
     const esp_err_t error = set_display_standby(target);
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     if (error == ESP_ERR_NOT_SUPPORTED) {
         s_standby_resources.display_off = false;
         s_standby_resources.display_consistent = true;
         return ESP_OK;
     }
+#endif
     if (error == ESP_OK) {
         s_standby_resources.display_off = target;
         s_standby_resources.display_consistent = true;
@@ -689,8 +724,11 @@ esp_err_t transition_display_resource(bool target)
         esp_err_to_name(error)
     );
     const esp_err_t rollback_error = set_display_standby(!target);
-    if (rollback_error == ESP_OK ||
-        rollback_error == ESP_ERR_NOT_SUPPORTED) {
+    if (rollback_error == ESP_OK
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+        || rollback_error == ESP_ERR_NOT_SUPPORTED
+#endif
+    ) {
         s_standby_resources.display_off = !target;
         s_standby_resources.display_consistent = true;
     } else {
@@ -761,6 +799,8 @@ esp_err_t transition_standby_resource(
 }
 
 // Require every mandatory resource to have a known lifecycle state.
+// target: Whether every selected resource must be in standby or active.
+// allow_storage_degraded: Whether an explicitly optional SD failure may remain visible.
 bool standby_resources_match_target(
     bool target,
     bool allow_storage_degraded
@@ -772,7 +812,7 @@ bool standby_resources_match_target(
     };
     const bool storage_matches =
         allow_storage_degraded || matches(s_standby_resources.storage);
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     const bool display_matches =
         s_standby_resources.display_consistent &&
         s_standby_resources.display_off == target;
@@ -788,11 +828,21 @@ bool standby_resources_match_target(
            matches(s_standby_resources.motion_wake_cadence) &&
            matches(s_standby_resources.voice_afe) &&
            matches(s_standby_resources.base_audio) &&
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
            matches(s_standby_resources.lvgl_paused) &&
+#else
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+           matches(s_standby_resources.wireless) &&
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+           matches(s_standby_resources.standalone_display) &&
+#endif
+#endif
            display_matches;
 }
 
 // Move every active workload to its low-power state in dependency order.
+// best_effort: Whether rollback should continue after preserving the first failure.
 esp_err_t suspend_standby_resources(bool best_effort)
 {
     esp_err_t first_error = ESP_OK;
@@ -858,12 +908,21 @@ esp_err_t suspend_standby_resources(bool best_effort)
         s_standby_resources.base_audio,
         LUNASHELL_audio_set_standby
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (best_effort || first_error == ESP_OK) {
         const esp_err_t radio_error = stop_radios_for_standby();
         if (first_error == ESP_OK && radio_error != ESP_OK) {
             first_error = radio_error;
         }
     }
+#elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+    step("Standalone wireless services", s_standby_resources.wireless,
+         set_standalone_wireless_standby);
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    step("Standalone rectangle writes", s_standby_resources.standalone_display,
+         LUNASHELL_display_runtime_set_suspended);
+#endif
     if (best_effort || first_error == ESP_OK) {
         const esp_err_t display_error =
             transition_display_resource(true);
@@ -881,12 +940,6 @@ esp_err_t suspend_standby_resources(bool best_effort)
             set_lvgl_standby
         );
     }
-#else
-    step(
-        "LVGL worker",
-        s_standby_resources.lvgl_paused,
-        set_lvgl_standby
-    );
 #endif
     refresh_audio_suspend_flag();
     if (!standby_resources_match_target(true, false)) {
@@ -902,6 +955,8 @@ esp_err_t suspend_standby_resources(bool best_effort)
 }
 
 // Restore producers before exposing the panel and preserve the first failure.
+// best_effort: Whether rollback should continue after preserving the first failure.
+// optional_storage_error: Receives the real SD error if optional storage cannot resume.
 esp_err_t resume_standby_resources(
     bool best_effort,
     esp_err_t *optional_storage_error = nullptr
@@ -928,11 +983,13 @@ esp_err_t resume_standby_resources(
         }
     };
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     step(
         "LVGL worker",
         s_standby_resources.lvgl_paused,
         set_lvgl_standby
     );
+#endif
     step(
         "IMU motion wake cadence",
         s_standby_resources.motion_wake_cadence,
@@ -991,14 +1048,25 @@ esp_err_t resume_standby_resources(
         s_standby_resources.full_snapshots,
         LUNASHELL_hardware_set_full_snapshot_power_suspended
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     ESP_LOGI(
         kTag,
         "Wake leaves Wi-Fi and BLE stopped; restart remains an explicit Settings action"
     );
+#elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+    step("Standalone wireless services", s_standby_resources.wireless,
+         set_standalone_wireless_standby);
+#endif
     // Keep the panel dark if any data producer failed to become coherent.
     if (first_error == ESP_OK) {
         first_error = transition_display_resource(false);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (first_error == ESP_OK) {
+        step("Standalone rectangle writes", s_standby_resources.standalone_display,
+             LUNASHELL_display_runtime_set_suspended);
+    }
+#endif
     refresh_audio_suspend_flag();
     const bool storage_degraded =
         optional_storage_error != nullptr &&
@@ -1199,6 +1267,9 @@ bool update_power_key_component(esp_err_t error)
     return report_due;
 }
 
+// reason: Observed activity that requires the display and input policy to be active.
+// display_snapshot_diverged: Whether the applied panel state disagrees with active policy.
+// exit_fullscreen: Whether the activity must also close the transient fullscreen state.
 esp_err_t restore_active_policy(
     LUNASHELL::DeviceStateReason reason,
     bool display_snapshot_diverged,
@@ -1213,7 +1284,11 @@ esp_err_t restore_active_policy(
             LUNASHELL_DISPLAY_POWER_ACTIVE,
             kDisplayFadeDurationMs
         );
-        if (error != ESP_OK && error != ESP_ERR_NOT_SUPPORTED) {
+        if (error != ESP_OK
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+            && error != ESP_ERR_NOT_SUPPORTED
+#endif
+        ) {
             publish_power(error);
             return error;
         }
@@ -2076,8 +2151,11 @@ esp_err_t apply_idle_policy()
                 mode,
                 kDisplayFadeDurationMs
             );
-        if (display_error != ESP_OK &&
-            display_error != ESP_ERR_NOT_SUPPORTED) {
+        if (display_error != ESP_OK
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+            && display_error != ESP_ERR_NOT_SUPPORTED
+#endif
+        ) {
             publish_power(display_error);
             return display_error;
         }
@@ -2355,16 +2433,22 @@ esp_err_t configure_wakeup(uint64_t wake_after_us)
     return result;
 }
 
+// operation: Display action skipped only when the display is absent from the profile.
+// result: Original display result, preserved for every enabled display driver.
 esp_err_t allow_disabled_display(const char *operation, esp_err_t result)
 {
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     if (result == ESP_ERR_NOT_SUPPORTED) {
         ESP_LOGI(
             kTag,
-            "Display transition '%s' skipped: UI disabled by profile",
+            "Display transition '%s' skipped: display disabled by profile",
             operation
         );
         return ESP_OK;
     }
+#else
+    (void)operation;
+#endif
     return result;
 }
 

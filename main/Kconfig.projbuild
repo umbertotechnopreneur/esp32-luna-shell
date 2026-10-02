@@ -19,7 +19,8 @@ choice LUNASHELL_BUILD_PROFILE
     default LUNASHELL_BUILD_PROFILE_FULL
     help
         Select one cumulative product image. Headless keeps only the portable
-        runtime foundation; UI minimal adds the local display experience;
+        runtime foundation; Display and touch exposes those physical devices
+        without a GUI; UI minimal adds the local display experience;
         Connected adds the network/provisioning stack; Full adds every standard
         Waveshare sensor, codec, and removable-storage service.
 
@@ -31,6 +32,9 @@ config LUNASHELL_BUILD_PROFILE_HEADLESS
 
 config LUNASHELL_BUILD_PROFILE_UI_MINIMAL
     bool "Display and touch shell only"
+
+config LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH
+    bool "Display and touch hardware without the Luna UI"
 
 config LUNASHELL_BUILD_PROFILE_CONNECTED
     bool "Connected UI runtime"
@@ -187,15 +191,32 @@ endchoice
 
 endmenu
 
-config LUNASHELL_BUILD_ENABLE_UI
-    bool "Enable display and touch UI stack"
+config LUNASHELL_BUILD_ENABLE_DISPLAY
+    bool "Enable the physical AMOLED display"
     depends on LUNASHELL_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED
+    default n if LUNASHELL_BUILD_PROFILE_HEADLESS
+    default y
+    help
+        Includes the CO5300 hardware owner independently of any GUI library.
+        Display startup is critical whenever this hardware is selected.
+
+config LUNASHELL_BUILD_ENABLE_TOUCH
+    bool "Enable the physical CST9217 touch controller"
+    depends on LUNASHELL_BUILD_ENABLE_DISPLAY
+    default y
+    help
+        Includes the touch controller independently of the Luna UI. Coordinates
+        use the same logical orientation as the display.
+
+config LUNASHELL_BUILD_ENABLE_UI
+    bool "Enable the Luna Brookesia/LVGL UI"
+    depends on LUNASHELL_BUILD_ENABLE_DISPLAY && LUNASHELL_BUILD_ENABLE_TOUCH
     default y if LUNASHELL_BUILD_PROFILE_FULL || LUNASHELL_BUILD_PROFILE_CONNECTED || LUNASHELL_BUILD_PROFILE_UI_MINIMAL || LUNASHELL_BUILD_PROFILE_LEG_EDITION
     default n if LUNASHELL_BUILD_PROFILE_HEADLESS
     help
-        Builds the Brookesia application runtime plus the Waveshare display
-        path. The current BSP couples touch input to this stack, so disabling
-        this option also removes touch support from the build.
+        Builds the Luna application and Brookesia 0.8 declarative GUI with its
+        LVGL backend. Display and touch remain independently selected hardware
+        when this UI is disabled.
 
 config LUNASHELL_BUILD_ENABLE_BOOT_UI
     bool "Enable boot splash screen"

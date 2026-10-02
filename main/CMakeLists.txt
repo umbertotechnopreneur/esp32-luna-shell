@@ -7,6 +7,9 @@ set(LUNASHELL_main_requires
 if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
     list(APPEND LUNASHELL_main_requires fatfs)
 endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
+    list(APPEND LUNASHELL_main_requires esp32_s3_touch_amoled_1_75)
+endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     list(APPEND LUNASHELL_main_srcs "main.cpp")
     list(APPEND LUNASHELL_main_requires
@@ -36,6 +39,9 @@ idf_component_register(
 # the full build receives their include and link interfaces.
 if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
     idf_component_optional_requires(PUBLIC fatfs)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
+    idf_component_optional_requires(PUBLIC esp32_s3_touch_amoled_1_75)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     idf_component_optional_requires(

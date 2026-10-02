@@ -1,5 +1,14 @@
 #pragma once
+#include <stdbool.h>
+#include <stdint.h>
+#include "sdkconfig.h"
+#include "esp_err.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 #include "esp_lcd_touch.h"
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+#include "bsp/esp32_s3_touch_amoled_1_75.h"
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -10,8 +19,38 @@ extern "C" {
  *
  */
 typedef struct {
-    void *dummy;    /*!< Prepared for future use. */
+    bool swap_xy;
+    bool mirror_x;
+    bool mirror_y;
 } bsp_touch_config_t;
+
+typedef struct {
+    bool valid;
+    bool pressed;
+    uint16_t x;
+    uint16_t y;
+    esp_err_t error;
+    int64_t sample_timestamp_us;
+} bsp_touch_point_t;
+
+bool bsp_touch_is_ready(void);
+
+/**
+ * Read one current contact. No contact is a valid released sample. Failed reads
+ * remain invalid and carry their real error and attempt timestamp.
+ * @param point Current sample output; coordinates are meaningful only when pressed and valid.
+ */
+esp_err_t bsp_touch_read_point(bsp_touch_point_t *point);
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+/**
+ * @param config Controller coordinate transform, independent of any GUI backend.
+ * @param ret_touch Initialized controller handle, cleared before a failed attempt.
+ */
+esp_err_t bsp_touch_new_raw(
+    const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch
+);
+#endif
 
 /**
  * @brief Create new touchscreen
@@ -28,7 +67,9 @@ typedef struct {
  *      - ESP_OK         On success
  *      - Else           esp_lcd_touch failure
  */
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *ret_touch);
+#endif
 
 #ifdef __cplusplus
 }

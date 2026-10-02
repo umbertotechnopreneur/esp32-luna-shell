@@ -19,16 +19,26 @@
 
 #include "esp_io_expander_tca9554.h"
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 #include "lvgl.h"
 #include "esp_lv_adapter.h"
+#endif
 
 
 /**************************************************************************************************
  *  BSP Capabilities
  **************************************************************************************************/
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #define BSP_CAPS_DISPLAY        1
+#else
+#define BSP_CAPS_DISPLAY        0
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 #define BSP_CAPS_TOUCH          1
+#else
+#define BSP_CAPS_TOUCH          0
+#endif
 #define BSP_CAPS_BUTTONS        1
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #define BSP_CAPS_AUDIO          1
@@ -81,7 +91,9 @@
 
 #define BSP_IO_EXPANDER_I2C_ADDRESS     (ESP_IO_EXPANDER_I2C_TCA9554_ADDRESS_000)
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 #define LVGL_BUFFER_HEIGHT          (CONFIG_BSP_DISPLAY_LVGL_BUF_HEIGHT)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -401,15 +413,14 @@ esp_err_t bsp_io_expander_init(
  *
  * LCD interface
  *
- * LVGL is used as graphics library. LVGL is NOT thread safe, therefore the user must take LVGL mutex
- * by calling bsp_display_lock() before calling any LVGL API (lv_...) and then give the mutex with
- * bsp_display_unlock().
- *
- * If you want to use the display without LVGL, see bsp/display.h API and use BSP version with 'noglib' suffix.
+ * The UI feature owns LVGL and its adapter. With UI disabled, bsp/display.h
+ * exposes the same panel hardware through standalone transactions.
+ * Take bsp_display_lock() before shared display operations and release it with
+ * bsp_display_unlock(). The lock follows the selected display owner.
  **************************************************************************************************/
 #define BSP_LCD_SPI_NUM            (SPI2_HOST)
 
-#if (BSP_CONFIG_NO_GRAPHIC_LIB == 0)
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 
 #define BSP_DISPLAY_LVGL_PAUSE_TIMEOUT_MS (1000U)
 
@@ -501,21 +512,7 @@ esp_err_t bsp_display_lvgl_pause(void);
  */
 esp_err_t bsp_display_lvgl_resume(void);
 
-/**
- * @brief Take LVGL mutex
- *
- * @param timeout_ms Timeout in [ms]. -1 will block indefinitely.
- * @return true  Mutex was taken
- * @return false Mutex was NOT taken
- */
-esp_err_t bsp_display_lock(uint32_t timeout_ms);
-
-/**
- * @brief Give LVGL mutex
- *
- */
-void bsp_display_unlock(void);
-#endif // BSP_CONFIG_NO_GRAPHIC_LIB == 0
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_UI
 
 #ifdef __cplusplus
 }

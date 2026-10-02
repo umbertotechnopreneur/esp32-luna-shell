@@ -51,6 +51,28 @@ idf_build_set_property(
 )
 project(esp32_luna_shell)
 
+if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH AND NOT CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
+    message(FATAL_ERROR "Touch requires the selected physical display")
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI AND
+   (NOT CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR NOT CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH))
+    message(FATAL_ERROR "The Luna UI requires both display and touch hardware")
+endif()
+if(CONFIG_LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH AND
+   (NOT CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR
+    NOT CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH OR
+    CONFIG_LUNASHELL_BUILD_ENABLE_UI))
+    message(FATAL_ERROR "The display-touch profile requires display and touch without the Luna UI")
+endif()
+if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_UI)
+    set(_reviewed_profile_roots "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}")
+    foreach(_profile_root IN LISTS _reviewed_profile_roots)
+        if(_profile_root MATCHES "lvgl|brookesia_gui" OR _profile_root STREQUAL "LUNASHELL_app")
+            message(FATAL_ERROR "UI-off firmware requires a profile without GUI component roots")
+        endif()
+    endforeach()
+endif()
+
 if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE AND
    (NOT CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR
     NOT CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 OR

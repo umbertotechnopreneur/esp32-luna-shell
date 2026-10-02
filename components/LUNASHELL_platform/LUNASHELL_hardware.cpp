@@ -21,7 +21,8 @@
 #include <cstring>
 #include <mutex>
 
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI || \
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || \
+    CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH || \
     CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS || \
     CONFIG_LUNASHELL_BUILD_ENABLE_RTC || \
     CONFIG_LUNASHELL_BUILD_ENABLE_IMU || \
@@ -1536,7 +1537,8 @@ bool is_cardinal_rotation(uint32_t degrees)
 }
 
 // Convert only a previously validated cardinal degree value.
-#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+// degrees: Previously validated cardinal panel rotation in degrees.
 bsp_display_rotation_t bsp_rotation_for_degrees(uint16_t degrees)
 {
     switch (degrees) {
@@ -1594,8 +1596,8 @@ esp_err_t persist_display_rotation(uint16_t rendering_degrees)
 // Commit the desired panel angle while allowing touch activity to defer it.
 esp_err_t apply_pending_display_rotation()
 {
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
-    ESP_LOGE(TAG, "Display rotation rejected: UI disabled by build profile");
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    ESP_LOGE(TAG, "Display rotation rejected: display disabled by build profile");
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (s_orientation.desired_rendering_degrees ==
@@ -8080,8 +8082,36 @@ extern "C" esp_err_t LUNASHELL_hardware_set_imu_low_power(bool enabled)
 }
 
 // Change rotation state only after the shared monitor and snapshot are ready.
+// enabled: Whether measured IMU samples should drive cardinal panel rotation.
 static esp_err_t set_auto_rotation_runtime(bool enabled)
 {
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_IMU && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (enabled) {
+        ESP_LOGE(TAG, "Auto-rotation rejected: IMU disabled by build profile");
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    if (!s_initialized) {
+        ESP_LOGE(TAG, "Display rotation rejected: hardware is not initialized");
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        ESP_LOGE(TAG, "Display rotation refresh lock allocation failed (%s)",
+                 esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Display rotation refresh lock timed out (%s)",
+                 esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    s_auto_rotation_enabled.store(false, std::memory_order_relaxed);
+    const esp_err_t result = apply_pending_display_rotation();
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex, "Standalone cardinal rotation update"
+    );
+    return result != ESP_OK ? result : release_error;
+#else
     if (!s_initialized || !s_imu_ready) {
         ESP_LOGE(
             TAG,
@@ -8117,6 +8147,7 @@ static esp_err_t set_auto_rotation_runtime(bool enabled)
         return publication_error;
     }
     return release_error;
+#endif
 }
 
 // Persist the preference before changing the active sampling policy.
@@ -8172,6 +8203,7 @@ extern "C" bool LUNASHELL_display_get_leg_flip_enabled(void)
     return s_leg_flip_enabled.load(std::memory_order_relaxed);
 }
 
+// enabled: Whether the Leg Edition applies an additional half-turn to its display.
 extern "C" esp_err_t LUNASHELL_display_set_leg_flip_enabled(bool enabled)
 {
     const esp_err_t init_error = ensure_user_settings();
@@ -8225,13 +8257,130 @@ extern "C" esp_err_t LUNASHELL_display_set_leg_flip_enabled(bool enabled)
     return release_error;
 }
 
+// degrees: Exact panel and touch rotation, restricted to 0, 90, 180, or 270 degrees.
+extern "C" esp_err_t LUNASHELL_display_set_rotation_degrees(uint32_t degrees)
+{
+    if (!is_cardinal_rotation(degrees)) {
+        ESP_LOGE(TAG, "Manual display rotation %lu rejected (%s)",
+                 static_cast<unsigned long>(degrees), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    ESP_LOGE(TAG, "Manual display rotation %lu rejected: display disabled (%s)",
+             static_cast<unsigned long>(degrees), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (!s_initialized || !bsp_display_is_ready()) {
+        ESP_LOGE(TAG, "Manual display rotation %lu rejected: hardware is not ready (%s)",
+                 static_cast<unsigned long>(degrees), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!bsp_display_rotation_is_consistent()) {
+        ESP_LOGE(TAG, "Manual display rotation %lu rejected: panel/touch mapping is inconsistent (%s)",
+                 static_cast<unsigned long>(degrees), esp_err_to_name(BSP_DISPLAY_ERR_ROTATION_INCONSISTENT));
+        return BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
+    }
+    const esp_err_t init_error = ensure_user_settings();
+    if (init_error != ESP_OK) {
+        return init_error;
+    }
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    bool automatic_requested = false;
+    esp_err_t result = load_or_create_bool_setting(
+        settings, kAutoRotationSetting, "Cardinal display auto-rotation",
+        false, &automatic_requested
+    );
+    if (result != ESP_OK) {
+        return result;
+    }
+    if (automatic_requested || s_auto_rotation_enabled.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "Manual display rotation %lu rejected: auto-rotation is enabled (%s)",
+                 static_cast<unsigned long>(degrees), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint32_t stored_degrees = 0;
+    result = load_or_create_uint32_setting(
+        settings, kDisplayRotationSetting, "Cardinal display rotation",
+        0, 0, 270, &stored_degrees
+    );
+    if (result != ESP_OK) {
+        return result;
+    }
+    if (!is_cardinal_rotation(stored_degrees)) {
+        ESP_LOGE(TAG, "Persisted display rotation %lu rejected; explicit reset required (%s)",
+                 static_cast<unsigned long>(stored_degrees), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr) {
+        ESP_LOGE(TAG, "Manual display rotation refresh lock allocation failed (%s)",
+                 esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        ESP_LOGE(TAG, "Manual display rotation refresh lock timed out (%s)",
+                 esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    const uint16_t previous_degrees = s_orientation.applied_rendering_degrees;
+    s_orientation.persisted_rendering_valid = true;
+    s_orientation.persisted_rendering_degrees = static_cast<uint16_t>(stored_degrees);
+    s_orientation.desired_rendering_degrees = static_cast<uint16_t>(degrees);
+    s_orientation.changed_at_us = esp_timer_get_time();
+    ++s_orientation.change_sequence;
+    result = apply_pending_display_rotation();
+    if (result == ESP_OK) {
+        result = persist_display_rotation(static_cast<uint16_t>(degrees));
+    }
+    if (result != ESP_OK) {
+        const bool applied_without_persistence =
+            s_orientation.applied_rendering_degrees == degrees &&
+            s_orientation.persisted_rendering_degrees != degrees;
+        if (applied_without_persistence) {
+            const esp_err_t rollback_error = bsp_display_rotation_set(
+                bsp_rotation_for_degrees(previous_degrees)
+            );
+            if (rollback_error == ESP_OK) {
+                s_orientation.applied_rendering_degrees = previous_degrees;
+            } else {
+                ESP_LOGE(TAG, "Manual display rotation rollback failed: requested=%lu rollback=%s primary=%s",
+                         static_cast<unsigned long>(degrees), esp_err_to_name(rollback_error),
+                         esp_err_to_name(result));
+                s_rotation_retry_blocked.store(true, std::memory_order_release);
+                result = rollback_error;
+            }
+        }
+        s_orientation.desired_rendering_degrees = s_orientation.applied_rendering_degrees;
+        s_rotation_retry_after_us.store(0, std::memory_order_release);
+        s_rotation_failure_latched.store(true, std::memory_order_release);
+        mark_sample_failure(s_orientation.component, result, esp_timer_get_time());
+        ESP_LOGE(TAG, "Manual display rotation %lu failed (%s)",
+                 static_cast<unsigned long>(degrees), esp_err_to_name(result));
+    } else {
+        s_rotation_failure_latched.store(false, std::memory_order_release);
+        mark_sample_success(s_orientation.component, esp_timer_get_time());
+        ESP_LOGI(TAG, "Manual panel and touch rotation persisted: %lu deg",
+                 static_cast<unsigned long>(degrees));
+    }
+    const esp_err_t publication_error = publish_orientation_state();
+    const esp_err_t release_error = give_refresh_mutex(
+        refresh_mutex, "Manual cardinal rotation update"
+    );
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Manual rotation publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return result != ESP_OK ? result :
+           publication_error != ESP_OK ? publication_error : release_error;
+#endif
+}
+
 // Restore both saved values exactly; invalid persisted data requires an explicit reset.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
 {
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     ESP_LOGE(
         TAG,
-        "Saved display rotation restore rejected: UI disabled by build profile"
+        "Saved display rotation restore rejected: display disabled by build profile"
     );
     return ESP_ERR_NOT_SUPPORTED;
 #else

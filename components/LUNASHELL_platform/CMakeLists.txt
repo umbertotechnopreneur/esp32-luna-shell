@@ -6,6 +6,7 @@ set(LUNASHELL_platform_srcs
     "LUNASHELL_time.cpp"
     "LUNASHELL_settings.cpp"
     "LUNASHELL_performance.cpp"
+    "LUNASHELL_display_runtime.cpp"
 )
 
 set(LUNASHELL_platform_requires
@@ -26,7 +27,8 @@ set(LUNASHELL_platform_requires
 )
 
 set(LUNASHELL_platform_uses_waveshare_bsp OFF)
-if(CONFIG_LUNASHELL_BUILD_ENABLE_UI OR
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR
+   CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH OR
    CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR
    CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS OR
    CONFIG_LUNASHELL_BUILD_ENABLE_IMU OR
@@ -70,9 +72,8 @@ else()
     list(APPEND LUNASHELL_platform_srcs "LUNASHELL_voice_afe_stub.cpp")
 endif()
 
-if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
     list(APPEND LUNASHELL_platform_srcs "LUNASHELL_display_settings.cpp")
-    list(APPEND LUNASHELL_platform_requires esp_lvgl_adapter)
 else()
     list(APPEND LUNASHELL_platform_srcs "LUNASHELL_display_settings_stub.cpp")
 endif()
