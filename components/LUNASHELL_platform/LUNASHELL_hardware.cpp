@@ -36,6 +36,7 @@
 #include "esp_cpu.h"
 #include "esp_heap_caps.h"
 #include "esp_image_format.h"
+#include "esp_ipc.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_psram.h"
@@ -303,11 +304,35 @@ void IRAM_ATTR allocation_failed_hook(
 
 struct ProcessorUsageState {
     bool initialized = false;
-    configRUN_TIME_COUNTER_TYPE sampled_at = 0;
+    configRUN_TIME_COUNTER_TYPE sampled_at[2] = {};
     configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
 };
 
 ProcessorUsageState s_processor_usage;
+
+struct ProcessorRuntimeSample {
+    int requested_core = 0;
+    configRUN_TIME_COUNTER_TYPE sampled_at = 0;
+    configRUN_TIME_COUNTER_TYPE idle_runtime = 0;
+    esp_err_t error = ESP_ERR_INVALID_STATE;
+};
+
+// context: Caller-owned sample; the blocking IPC call keeps it alive until completion.
+void capture_processor_runtime_on_core(void *context)
+{
+    auto &sample = *static_cast<ProcessorRuntimeSample *>(context);
+    const int running_core = esp_cpu_get_core_id();
+    if (running_core != sample.requested_core) {
+        sample.error = ESP_ERR_INVALID_STATE;
+        return;
+    }
+    // The IPC task has displaced idle on this core. FreeRTOS has therefore
+    // accounted its entire previous idle slice, and it cannot advance while
+    // this callback runs. A remote read alone sees the last context switch.
+    sample.idle_runtime = ulTaskGetIdleRunTimeCounterForCore(running_core);
+    sample.sampled_at = static_cast<configRUN_TIME_COUNTER_TYPE>(esp_timer_get_time());
+    sample.error = ESP_OK;
+}
 
 struct StaticMemoryMetadata {
     bool ready = false;
@@ -5845,6 +5870,7 @@ void log_summary(const LUNASHELL::DeviceSnapshot &snapshot)
     }
 }
 
+// Publish measured memory/CPU state; each CPU counter is captured on its owning core.
 esp_err_t sample_system_state()
 {
     LUNASHELL::MemorySnapshot memory;
@@ -6020,57 +6046,66 @@ esp_err_t sample_system_state()
 
     if (processor_error == ESP_OK) {
         std::lock_guard<std::mutex> lock(s_processor_usage_mutex);
-        const configRUN_TIME_COUNTER_TYPE sampled_at =
-            static_cast<configRUN_TIME_COUNTER_TYPE>(esp_timer_get_time());
-        configRUN_TIME_COUNTER_TYPE idle_runtime[2] = {};
+        ProcessorRuntimeSample runtime_samples[2];
         for (int core = 0; core < core_count; ++core) {
-            idle_runtime[core] = ulTaskGetIdleRunTimeCounterForCore(core);
+            ProcessorRuntimeSample &sample = runtime_samples[core];
+            sample.requested_core = core;
+            const esp_err_t ipc_error = esp_ipc_call_blocking(
+                core, capture_processor_runtime_on_core, &sample
+            );
+            const esp_err_t capture_error = ipc_error != ESP_OK ? ipc_error : sample.error;
+            if (capture_error != ESP_OK) {
+                ESP_LOGE(TAG, "CPU core %d runtime capture failed (%s)",
+                         core, esp_err_to_name(capture_error));
+                record_first_error(capture_error, &processor_error);
+                break;
+            }
             processor.cores[core].available = true;
         }
         if (processor_error == ESP_OK && s_processor_usage.initialized) {
-            const configRUN_TIME_COUNTER_TYPE elapsed =
-                sampled_at - s_processor_usage.sampled_at;
-            if (elapsed == 0) {
-                record_first_error(
-                    ESP_ERR_INVALID_RESPONSE,
-                    &processor_error
-                );
-            } else {
-                for (int core = 0; core < core_count; ++core) {
-                    const configRUN_TIME_COUNTER_TYPE idle_elapsed =
-                        idle_runtime[core] -
-                        s_processor_usage.idle_runtime[core];
-                    if (idle_elapsed > elapsed) {
-                        ESP_LOGE(
-                            TAG,
-                            "CPU core %d sample rejected: idle=%llu elapsed=%llu",
-                            core,
-                            static_cast<unsigned long long>(idle_elapsed),
-                            static_cast<unsigned long long>(elapsed)
-                        );
-                        record_first_error(
-                            ESP_ERR_INVALID_RESPONSE,
-                            &processor_error
-                        );
-                        break;
-                    }
-                    LUNASHELL::CoreSnapshot &core_snapshot =
-                        processor.cores[core];
-                    core_snapshot.utilization_percent =
-                        static_cast<uint8_t>(
-                            ((elapsed - idle_elapsed) * 100ULL +
-                             elapsed / 2ULL) /
-                            elapsed
-                        );
-                    core_snapshot.utilization_available = true;
+            for (int core = 0; core < core_count; ++core) {
+                const ProcessorRuntimeSample &sample = runtime_samples[core];
+                const configRUN_TIME_COUNTER_TYPE elapsed =
+                    sample.sampled_at - s_processor_usage.sampled_at[core];
+                if (elapsed == 0) {
+                    ESP_LOGE(TAG, "CPU core %d runtime interval is zero (%s)",
+                             core, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+                    record_first_error(ESP_ERR_INVALID_RESPONSE, &processor_error);
+                    break;
                 }
+                const configRUN_TIME_COUNTER_TYPE idle_elapsed =
+                    sample.idle_runtime -
+                    s_processor_usage.idle_runtime[core];
+                if (idle_elapsed > elapsed) {
+                    ESP_LOGE(
+                        TAG,
+                        "CPU core %d sample rejected: idle=%llu elapsed=%llu",
+                        core,
+                        static_cast<unsigned long long>(idle_elapsed),
+                        static_cast<unsigned long long>(elapsed)
+                    );
+                    record_first_error(
+                        ESP_ERR_INVALID_RESPONSE,
+                        &processor_error
+                    );
+                    break;
+                }
+                LUNASHELL::CoreSnapshot &core_snapshot =
+                    processor.cores[core];
+                core_snapshot.utilization_percent =
+                    static_cast<uint8_t>(
+                        ((elapsed - idle_elapsed) * 100ULL +
+                         elapsed / 2ULL) /
+                        elapsed
+                    );
+                core_snapshot.utilization_available = true;
             }
         }
         if (processor_error == ESP_OK) {
             s_processor_usage.initialized = true;
-            s_processor_usage.sampled_at = sampled_at;
             for (int core = 0; core < core_count; ++core) {
-                s_processor_usage.idle_runtime[core] = idle_runtime[core];
+                s_processor_usage.sampled_at[core] = runtime_samples[core].sampled_at;
+                s_processor_usage.idle_runtime[core] = runtime_samples[core].idle_runtime;
             }
         }
     }
