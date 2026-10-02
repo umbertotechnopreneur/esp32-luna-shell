@@ -6,11 +6,19 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit host-validation request, exercise the contour and named-overlay
+  extension: independent facial geometry, original/deformed outlines, point-name
+  attachment at all cardinal rotations, pause/resume, slow/fast target changes,
+  extreme authored lobe limits, and current generated-table provenance. The
+  contour extension has static review only; the historical ten host checks
+  belong to the earlier rig checkpoint.
+
 - [ ] On explicit firmware/device validation request, compile the Cody rig PoC
   and measure frame geometry/raster/transfer times with the overlay on and off,
   real 0/90/180/270 touch alignment, standby/wake, stack high-water mark and
   Wi-Fi/BLE headroom. Compare native raster output against the Windows preview;
-  ten focused host checks pass, but native pixel parity remains unverified.
+  ten focused host checks passed before the contour extension, but native pixel
+  parity remains unverified.
 
 - [ ] On explicit request, resolve/review the `cody-companion` dependency lock,
   then validate the finished no-LVGL source/dependency closure, clean/incremental

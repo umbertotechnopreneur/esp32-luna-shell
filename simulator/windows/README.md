@@ -10,7 +10,9 @@ visibly labelled `SYNTHETIC`; simulator state never enters firmware snapshots.
 The `esp32-cody-companion` worktree adds `-Cody` to this same launcher. It opens
 `cody_simulator.py`: a local cloud with named normalized points, cubic handles,
 independent facial sliders, elapsed-time breathing/blinking, rotation and point
-inspection. Its screen selector includes all three original boot artworks.
+inspection. Independent contour controls change cloud fullness, wave amplitude,
+speed and phase spread, with a separate pause control. Its screen selector
+includes all three original boot artworks.
 `assets/cody/cody.yaml` configures identity, entities, geometry and indexed style;
 the shared palette has 256 slots. No fake-device HTTP server is started.
 
@@ -24,6 +26,17 @@ path reuses the existing Luna environment; a local `.venv-simulator` with Pillow
 and PyYAML also works. Cody options cannot be mixed with device-twin scenarios.
 The legacy packaged EXE remains a Luna target; Cody currently launches from source.
 See `docs/architecture/cody-rig-poc.md` for controls, limits and validation scope.
+
+The debug view can show stable point names attached to evaluated positions,
+the current contour and the undeformed reference outline. Name filters keep
+anchors, contour points, one entity, one selected point or paged point groups
+readable. Desktop annotations sit outside the device circle and stay upright
+when the device view rotates; they are not additional firmware UI. Selecting
+a point reports its normalized and logical canvas coordinates.
+
+Contour/label changes have static source review only. Historical host evidence
+in the architecture document belongs to the preceding rig checkpoint; no
+simulator, build or device check was run for this extension.
 
 ## Minimal board shell preview
 

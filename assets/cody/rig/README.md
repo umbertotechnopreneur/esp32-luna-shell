@@ -24,6 +24,19 @@ are additive point deltas before the shared transform. The `boot_channels`
 entries are convenient rig previews; firmware boot retains the original three
 indexed artworks and their actual startup checkpoints.
 
+The separate `contour` configuration changes the cloud silhouette through its
+eleven lobe anchors. Fullness, wave amplitude, cycles-per-second speed and
+inter-lobe phase spread are continuous controls. Per-lobe coefficients preserve
+the authored topology and move descendant handles together; facial anchors stay
+independent. Target changes use a configurable smoothing time constant and a
+continuously integrated phase. Pausing the contour freezes its state. Zero
+fullness and amplitude preserve the original outline.
+
+The simulator can overlay the deformed and original outlines, point positions,
+curve handles and stable names. The reference outline shares the current
+placement and breathing scale. It is a desktop inspection aid; firmware keeps
+its existing bounded scene and strip rendering path without a text overlay.
+
 Convert authored geometry and the shared 256-slot palette with:
 
 ```powershell
@@ -49,5 +62,7 @@ editable, including closed eyes while the mouth continues breathing. The clock
 skips overdue frames; animation speed never depends on completed frame count.
 
 Host PoC checks and preview evidence are recorded in the architecture document.
+The initial ten-check result predates the contour extension; the extension's
+prepared regression checks have not been run in this implementation step.
 Firmware builds, physical behavior and ESP32 performance require separate
 validation; desktop timings do not establish target performance.

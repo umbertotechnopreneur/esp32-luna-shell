@@ -1,5 +1,21 @@
 # Done
 
+## Cody contour and named debug overlays (2026-10-02)
+
+- [x] Add YAML-authored fullness, wave amplitude, cycles-per-second speed and
+  phase spread for the eleven cloud lobes, separate from the facial channels.
+  Smooth targets and integrate speed without restarting the wave phase;
+  preserve the original shape when both displacement controls are zero.
+- [x] Extend the Windows inspector with Face/Contour/Debug tabs, independent
+  contour freeze, current/target readouts, current and reference outlines,
+  selectable stable names and leader lines, filtered/paged point groups and
+  normalized/logical/rotated coordinates. Preserve cardinal touch transforms
+  and icon-only lateral navigation.
+- [x] Prepare regression coverage for contour independence, phase continuity,
+  timing, invalid inputs, reference geometry and rotated name attachment.
+  Source conversion and static review only: the expanded suite and simulator
+  have not been run. Firmware build and hardware performance remain unverified.
+
 ## Cody cloud-rig PoC (2026-10-02)
 
 - [x] Add a YAML-owned front-facing cloud with 145 stable named points,
