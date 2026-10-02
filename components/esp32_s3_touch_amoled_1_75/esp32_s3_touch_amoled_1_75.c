@@ -2629,7 +2629,7 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
         "LCD output initialization failed"
     );
     display_panel_output_enabled = enable_output;
-    display_initialized = true;
+    __atomic_store_n(&display_initialized, true, __ATOMIC_RELEASE);
     __atomic_store_n(&display_content_revision, 1U, __ATOMIC_RELEASE);
 
     if (ret_panel)
@@ -2648,7 +2648,7 @@ fail:
         if (cleanup_result == ESP_OK) {
             panel_handle = NULL;
             display_panel_output_enabled = false;
-            display_initialized = false;
+            __atomic_store_n(&display_initialized, false, __ATOMIC_RELEASE);
         } else {
             ESP_LOGE(
                 TAG,
@@ -3375,7 +3375,7 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
         || display_handle == NULL
 #else
-        || display_dma_faulted
+        || __atomic_load_n(&display_dma_faulted, __ATOMIC_ACQUIRE)
 #endif
     ) {
         ESP_LOGE(TAG, "Display or touch handle is not initialized");
@@ -3665,7 +3665,7 @@ esp_err_t bsp_display_lock(uint32_t timeout_ms)
         ESP_LOGE(TAG, "Display lock timed out after %lu ms (%s)", (unsigned long)timeout_ms, esp_err_to_name(ESP_ERR_TIMEOUT));
         return ESP_ERR_TIMEOUT;
     }
-    if (display_dma_faulted) {
+    if (__atomic_load_n(&display_dma_faulted, __ATOMIC_ACQUIRE)) {
         bsp_display_unlock();
         ESP_LOGE(TAG, "Display transaction rejected: DMA state requires explicit reset, retained=%p (%s)", display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -3779,9 +3779,10 @@ bool bsp_display_is_ready(void)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
-    return display_initialized && display_handle != NULL;
+    return __atomic_load_n(&display_initialized, __ATOMIC_ACQUIRE) && display_handle != NULL;
 #else
-    return display_initialized && !display_dma_faulted;
+    return __atomic_load_n(&display_initialized, __ATOMIC_ACQUIRE) &&
+           !__atomic_load_n(&display_dma_faulted, __ATOMIC_ACQUIRE);
 #endif
 #else
     return false;
@@ -3930,9 +3931,11 @@ static esp_err_t bsp_display_write_rgb565_internal(
     if (lock_result != ESP_OK) {
         return lock_result;
     }
-    if (!display_initialized || (!clear_black && !display_panel_output_enabled) ||
-        !display_rotation_consistent || display_dma_faulted) {
-        ESP_LOGE(TAG, "Direct RGB565 write rejected: ready=%d output=%d rotation=%d DMA_fault=%d retained=%p (%s)", display_initialized, display_panel_output_enabled, display_rotation_consistent, display_dma_faulted, display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
+    const bool initialized = __atomic_load_n(&display_initialized, __ATOMIC_ACQUIRE);
+    const bool dma_faulted = __atomic_load_n(&display_dma_faulted, __ATOMIC_ACQUIRE);
+    if (!initialized || (!clear_black && !display_panel_output_enabled) ||
+        !display_rotation_consistent || dma_faulted) {
+        ESP_LOGE(TAG, "Direct RGB565 write rejected: ready=%d output=%d rotation=%d DMA_fault=%d retained=%p (%s)", initialized, display_panel_output_enabled, display_rotation_consistent, dma_faulted, display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
         bsp_display_unlock();
         return ESP_ERR_INVALID_STATE;
     }
@@ -3982,7 +3985,7 @@ static esp_err_t bsp_display_write_rgb565_internal(
         }
         if (result != ESP_OK) {
             // SDK failure does not prove that DMA released the submitted buffer.
-            display_dma_faulted = true;
+            __atomic_store_n(&display_dma_faulted, true, __ATOMIC_RELEASE);
             display_dma_fault_lease = lease;
             lease = (bsp_display_dma_lease_t){0};
             ESP_LOGE(TAG, "Direct RGB565 transfer failed at rows %d-%d; retaining DMA until explicit reset (%s)", strip_y, strip_end - 1, esp_err_to_name(result));
