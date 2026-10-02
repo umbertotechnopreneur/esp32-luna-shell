@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit request, resolve and review the new `display-touch` dependency
+  lock and refresh affected existing locks after the BSP manifest gates change.
+  Validate UI-on and standalone display/touch builds, source/dependency exclusion,
+  then separately authorize physical display, touch, rotation, DMA and standby
+  checks. The standalone checkpoint has static review only.
+
 - [ ] Only on explicit user request, validate the board-service corrections:
   shell-owned PWR quiescence/wake, boot-owned periodic sampling, battery-off PMU
   charging policy, directional codec source selection, and build-directory-only

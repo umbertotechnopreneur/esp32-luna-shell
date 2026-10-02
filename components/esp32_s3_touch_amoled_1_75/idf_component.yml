@@ -13,12 +13,23 @@ dependencies:
     version: "1.5.0"
     public: true
   idf: ">=6.0,<6.1"
-  lvgl/lvgl: "9.5.0"
-  espressif/esp_lcd_co5300: "2.1.0"
-  waveshare/esp_lcd_touch_cst9217: "2.0.0"
+  lvgl/lvgl:
+    version: "9.5.0"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
+  espressif/esp_lcd_co5300:
+    version: "2.1.0"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_DISPLAY} == True"
+  waveshare/esp_lcd_touch_cst9217:
+    version: "2.0.0"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_TOUCH} == True"
   espressif/esp_lvgl_adapter:
     version: "0.6.2"
     public: true
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_UI} == True"
 
   espressif/esp_codec_dev:
     version: "1.5.11"
@@ -26,7 +37,10 @@ dependencies:
     rules:
       - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_AUDIO} == True"
 
-  espressif/esp_lcd_panel_io_additions: "1.0.1~1"
+  espressif/esp_lcd_panel_io_additions:
+    version: "1.0.1~1"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_ENABLE_DISPLAY} == True"
   espressif/esp_io_expander_tca9554:
     version: "2.0.3"
     public: true

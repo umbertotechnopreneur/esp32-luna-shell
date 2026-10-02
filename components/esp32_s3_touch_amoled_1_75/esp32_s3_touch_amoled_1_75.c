@@ -1,10 +1,14 @@
+#include "sdkconfig.h"
 #include <inttypes.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #include "esp_lcd_panel_io_additions.h"
+#include "driver/spi_master.h"
+#endif
 
 #include "esp_attr.h"
 #include "esp_err.h"
@@ -24,9 +28,14 @@
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #include "esp_lcd_co5300.h"
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 #include "esp_lcd_touch_cst9217.h"
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #include "esp_codec_dev_defaults.h"
@@ -40,18 +49,22 @@ static const char *TAG = "ESP32-S3-Touch-AMOLED-1.75";
 static i2c_master_bus_handle_t i2c_handle = NULL; // I2C Handle
 static bool i2c_initialized = false;
 static esp_io_expander_handle_t io_expander = NULL; // IO expander tca9554 handle
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+static bool display_initialized;
+static uint32_t display_content_revision;
+static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
+static bool display_rotation_consistent = true;
+static bool display_panel_output_enabled = false;
+static bool display_dma_low_memory_reported = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
 static bsp_touch_activity_callback_t touch_activity_callback = NULL;
 static void *touch_activity_user_data = NULL;
-static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
-static bool display_rotation_consistent = true;
 static uint8_t *display_frame_cache = NULL;
 static bool display_frame_cache_rows[BSP_LCD_V_RES];
 static size_t display_frame_cache_full_row_count = 0;
 static bool display_frame_cache_valid = false;
-static bool display_panel_output_enabled = false;
-static bool display_dma_low_memory_reported = false;
 typedef enum {
     BSP_DISPLAY_LVGL_ACTIVE = 0,
     BSP_DISPLAY_LVGL_PAUSING,
@@ -61,10 +74,21 @@ typedef enum {
 } bsp_display_lvgl_state_t;
 static bsp_display_lvgl_state_t display_lvgl_state = BSP_DISPLAY_LVGL_ACTIVE;
 static portMUX_TYPE display_lvgl_state_lock = portMUX_INITIALIZER_UNLOCKED;
+#else
+static StaticSemaphore_t display_mutex_storage;
+static SemaphoreHandle_t display_mutex;
+static StaticSemaphore_t display_completion_storage;
+static SemaphoreHandle_t display_completion;
+static volatile bool display_completion_fault;
+static bool display_dma_faulted;
+#endif
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// event: Existing LVGL input event used to publish physical activity intent.
 static void bsp_touch_activity_event_cb(lv_event_t *event)
 {
     (void)event;
@@ -73,12 +97,14 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
         callback(touch_activity_user_data);
     }
 }
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #define BSP_SDCARD_MAX_FILES               5
 #define BSP_SDCARD_ALLOCATION_UNIT_SIZE    (16U * 1024U)
 #define BSP_SDCARD_FORMAT_WORK_BUFFER_SIZE 4096U
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
 #define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
 #define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
@@ -88,6 +114,7 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
 #define BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT BSP_DISPLAY_DMA_TRANSFER_HEIGHT
 #define BSP_DISPLAY_CIRCLE_EDGE_PADDING    2
 #define BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS 1000U
+#define BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS 1000U
 #define BSP_DISPLAY_FRAME_BYTES            \
     ((size_t)BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8U)
 #define BSP_DISPLAY_DMA_ROW_BYTES           \
@@ -106,7 +133,7 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
         BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_EMERGENCY_ROWS \
     )
 
-#if CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH < BSP_DISPLAY_DMA_PIPELINE_DEPTH
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH < BSP_DISPLAY_DMA_PIPELINE_DEPTH
 #error "LCD transaction queue must hold the display DMA pipeline"
 #endif
 
@@ -128,6 +155,11 @@ typedef struct {
     bool emergency;
 } bsp_display_dma_lease_t;
 
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// A failed completion must retain memory that the SPI peripheral may still own.
+static bsp_display_dma_lease_t display_dma_fault_lease;
+#endif
+
 // This one-row last resort is deliberately internal and static. It guarantees
 // display progress without recreating the old multi-row persistent staging
 // buffer that consumed and fragmented substantially more internal SRAM.
@@ -138,8 +170,11 @@ static uint32_t display_dma_dual_slot_count;
 static uint32_t display_dma_single_slot_count;
 static uint32_t display_dma_reduced_rows_count;
 static uint32_t display_dma_emergency_count;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static uint32_t display_dma_transfer_failure_count;
+#endif
 static bool display_dma_emergency_in_use;
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 typedef struct {
@@ -170,12 +205,16 @@ static bsp_sdcard_context_t sdcard_context = {
 };
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 static esp_lcd_touch_handle_t tp = NULL;
 static esp_lcd_panel_io_handle_t touch_io_handle = NULL;
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 static esp_lcd_panel_handle_t panel_handle = NULL; // LCD panel handle
 static esp_lcd_panel_io_handle_t io_handle = NULL;
 static bool display_spi_bus_initialized = false;
 uint8_t brightness;
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 #define BSP_AUDIO_HAS_OUTPUT 1
@@ -220,6 +259,7 @@ static const audio_codec_if_t *microphone_codec_interface;
     }
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xFE, (uint8_t[]){0x20}, 1, 0},
     {0x19, (uint8_t[]){0x10}, 1, 0},
@@ -235,8 +275,11 @@ static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x2A, (uint8_t[]){0x00, 0x06, 0x01, 0xD7}, 4, 0},
     {0x2B, (uint8_t[]){0x00, 0x00, 0x01, 0xD1}, 4, 600},
     {0x11, NULL, 0, 600},
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     {0x29, NULL, 0, 0},
+#endif
 };
+#endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO
 #define BSP_I2S_DUPLEX_STEREO_CFG(_sample_rate)                                                         \
@@ -1709,6 +1752,7 @@ esp_err_t bsp_audio_codec_deinit(void)
 }
 #endif
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #define LCD_CMD_BITS (8)
 #define LCD_PARAM_BITS (8)
 #define LCD_LEDC_CH (CONFIG_BSP_DISPLAY_BRIGHTNESS_LEDC_CH)
@@ -1720,6 +1764,7 @@ esp_err_t bsp_display_brightness_init(void)
     return bsp_display_brightness_set(100);
 }
 
+// brightness_percent: Controller brightness requested as a whole percentage.
 esp_err_t bsp_display_brightness_set(int brightness_percent)
 {
     if (panel_handle == NULL)
@@ -1730,7 +1775,7 @@ esp_err_t bsp_display_brightness_set(int brightness_percent)
 
     if (brightness_percent < 0 || brightness_percent > 100)
     {
-        ESP_LOGE(TAG, "Invalid brightness percentage. Should be between 0 and 100.");
+        ESP_LOGE(TAG, "Brightness percentage %d rejected: expected 0 through 100 (%s)", brightness_percent, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
 
@@ -1782,6 +1827,7 @@ int bsp_display_brightness_get(void)
     return (brightness * 100 + 127) / 255;
 }
 
+// enabled: Requested AMOLED output state, independent of brightness.
 esp_err_t bsp_display_panel_set_enabled(bool enabled)
 {
     if (panel_handle == NULL)
@@ -1814,6 +1860,9 @@ esp_err_t bsp_display_panel_set_enabled(bool enabled)
         esp_lcd_panel_disp_on_off(panel_handle, enabled);
     if (result == ESP_OK) {
         display_panel_output_enabled = enabled;
+        if (enabled) {
+            __atomic_add_fetch(&display_content_revision, 1U, __ATOMIC_RELEASE);
+        }
     }
     bsp_display_unlock();
     if (result != ESP_OK)
@@ -1842,6 +1891,8 @@ esp_err_t bsp_display_backlight_on(void)
     ESP_LOGI(TAG, "Backlight on");
     return bsp_display_brightness_set(100);
 }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// e: LVGL dirty-area event rounded to the panel's paired-pixel boundaries.
 static void rounder_event_cb(lv_event_t *e)
 {
     lv_area_t *area = (lv_area_t *)lv_event_get_param(e);
@@ -1858,6 +1909,7 @@ static void rounder_event_cb(lv_event_t *e)
     area->x2 = ((x2 >> 1) << 1) + 1;
     area->y2 = ((y2 >> 1) << 1) + 1;
 }
+#endif
 
 static size_t bsp_display_dma_aligned_size(size_t byte_count)
 {
@@ -2072,6 +2124,7 @@ static esp_err_t bsp_display_acquire_dma_pipeline(
 // internal DMA pipeline before QSPI. Two buffers let the CPU prepare the next
 // strip while the panel consumes the previous one without retaining scarce
 // internal RAM after the logical flush completes.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static esp_err_t bsp_display_draw_bitmap_bounced(
     esp_lcd_panel_handle_t panel,
     int x_start,
@@ -2438,11 +2491,62 @@ static esp_err_t bsp_display_replay_cached_frame(void)
     return ESP_OK;
 }
 
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_UI
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// panel_io: SPI panel transport reporting a finished pixel transfer.
+// event_data: Driver completion metadata, not needed for the one-strip transaction.
+// user_context: Static semaphore retained for the lifetime of the panel transport.
+static bool IRAM_ATTR bsp_display_color_transfer_done(
+    esp_lcd_panel_io_handle_t panel_io,
+    esp_lcd_panel_io_event_data_t *event_data,
+    void *user_context
+)
+{
+    (void)panel_io;
+    (void)event_data;
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    if (xSemaphoreGiveFromISR((SemaphoreHandle_t)user_context, &higher_priority_task_woken) != pdTRUE) {
+        // Report from task context; an IRQ must not allocate or log.
+        display_completion_fault = true;
+    }
+    return higher_priority_task_woken == pdTRUE;
+}
+#endif
+
+// config: Maximum pixel payload admitted to one SPI transfer.
+// ret_panel: Optional output for the initialized panel handle.
+// ret_io: Optional output for the initialized panel transport handle.
 esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
 {
     esp_err_t ret = ESP_OK;
     bool spi_bus_initialized = false;
-    assert(config != NULL && config->max_transfer_sz > 0);
+    if (ret_panel != NULL && ret_panel != &panel_handle) {
+        *ret_panel = NULL;
+    }
+    if (ret_io != NULL && ret_io != &io_handle) {
+        *ret_io = NULL;
+    }
+    if (config == NULL || config->max_transfer_sz <= 0) {
+        ESP_LOGE(TAG, "Display creation rejected: invalid transfer configuration (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (panel_handle != NULL || io_handle != NULL || display_spi_bus_initialized) {
+        ESP_LOGE(TAG, "Display creation rejected: resources already initialized (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (display_mutex == NULL) {
+        display_mutex = xSemaphoreCreateRecursiveMutexStatic(&display_mutex_storage);
+    }
+    if (display_completion == NULL) {
+        display_completion = xSemaphoreCreateBinaryStatic(&display_completion_storage);
+    }
+    if (display_mutex == NULL || display_completion == NULL) {
+        ESP_LOGE(TAG, "Display synchronization creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+#endif
 
     ESP_LOGI(TAG, "Initialize SPI bus");
     const spi_bus_config_t buscfg = CO5300_PANEL_BUS_QSPI_CONFIG(BSP_LCD_PCLK,
@@ -2469,6 +2573,10 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
             .use_qspi_interface = 1,
         },
     };
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    io_config.on_color_trans_done = bsp_display_color_transfer_done;
+    io_config.user_ctx = display_completion;
+#endif
     ESP_GOTO_ON_ERROR(
         esp_lcd_new_panel_io_spi(
             (esp_lcd_spi_bus_handle_t)BSP_LCD_SPI_NUM,
@@ -2509,13 +2617,20 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
         TAG,
         "LCD initialization failed"
     );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const bool enable_output = true;
+#else
+    const bool enable_output = false;
+#endif
     ESP_GOTO_ON_ERROR(
-        esp_lcd_panel_disp_on_off(panel_handle, true),
+        esp_lcd_panel_disp_on_off(panel_handle, enable_output),
         fail,
         TAG,
-        "LCD enable failed"
+        "LCD output initialization failed"
     );
-    display_panel_output_enabled = true;
+    display_panel_output_enabled = enable_output;
+    display_initialized = true;
+    __atomic_store_n(&display_content_revision, 1U, __ATOMIC_RELEASE);
 
     if (ret_panel)
     {
@@ -2533,6 +2648,7 @@ fail:
         if (cleanup_result == ESP_OK) {
             panel_handle = NULL;
             display_panel_output_enabled = false;
+            display_initialized = false;
         } else {
             ESP_LOGE(
                 TAG,
@@ -2571,15 +2687,22 @@ fail:
     return ret;
 }
 
-esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *ret_touch)
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+// config: Raw controller coordinate transformation, independent of a renderer.
+// ret_touch: Output handle, cleared before the initialization attempt.
+esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch)
 {
-    if (cfg == NULL || ret_touch == NULL) {
-        ESP_LOGE(TAG, "Touch configuration or output handle is NULL");
+    if (config == NULL || ret_touch == NULL) {
+        ESP_LOGE(TAG, "Touch creation rejected: configuration or output handle is NULL (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    *ret_touch = NULL;
+    if (ret_touch != &tp) {
+        *ret_touch = NULL;
+    }
     if (tp != NULL || touch_io_handle != NULL) {
-        ESP_LOGE(TAG, "Touch controller is already initialized");
+        ESP_LOGE(TAG, "Touch creation rejected: controller already initialized (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
 
@@ -2591,18 +2714,23 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *re
 
     /* Initialize touch */
     const esp_lcd_touch_config_t tp_cfg = {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
         .x_max = BSP_LCD_H_RES,
         .y_max = BSP_LCD_V_RES,
-        .rst_gpio_num = BSP_LCD_TOUCH_RST, // Shared with LCD reset
+#else
+        .x_max = BSP_LCD_H_RES - 1U,
+        .y_max = BSP_LCD_V_RES - 1U,
+#endif
+        .rst_gpio_num = BSP_LCD_TOUCH_RST, // Dedicated touch reset GPIO40; the panel uses GPIO39.
         .int_gpio_num = BSP_LCD_TOUCH_INT,
         .levels = {
             .reset = 0,
             .interrupt = 0,
         },
         .flags = {
-            .swap_xy = cfg->touch_flags.swap_xy,
-            .mirror_x = cfg->touch_flags.mirror_x,
-            .mirror_y = cfg->touch_flags.mirror_y,
+            .swap_xy = config->swap_xy,
+            .mirror_x = config->mirror_x,
+            .mirror_y = config->mirror_y,
         },
     };
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
@@ -2640,6 +2768,25 @@ esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *re
     tp = *ret_touch;
     return ESP_OK;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// cfg: Existing Luna adapter settings, including the wired touch-axis transform.
+// ret_touch: Output handle for the current legacy UI initialization sequence.
+esp_err_t bsp_touch_new(const bsp_display_cfg_t *cfg, esp_lcd_touch_handle_t *ret_touch)
+{
+    if (cfg == NULL) {
+        ESP_LOGE(TAG, "Legacy touch configuration rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const bsp_touch_config_t touch_config = {
+        .swap_xy = cfg->touch_flags.swap_xy,
+        .mirror_x = cfg->touch_flags.mirror_x,
+        .mirror_y = cfg->touch_flags.mirror_y,
+    };
+    return bsp_touch_new_raw(&touch_config, ret_touch);
+}
+#endif
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
 
 /**************************************************************************************************
  *
@@ -2679,6 +2826,8 @@ esp_err_t bsp_io_expander_init(
     return ESP_OK;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static esp_err_t bsp_display_lcd_init(
     const bsp_display_cfg_t *cfg,
     lv_display_t **out_display
@@ -3004,6 +3153,7 @@ esp_err_t bsp_display_set_touch_activity_callback(
     touch_activity_callback = callback;
     return ESP_OK;
 }
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_UI
 
 typedef struct {
     bool panel_swap_xy;
@@ -3032,6 +3182,8 @@ typedef struct {
 } bsp_display_rotation_apply_result_t;
 
 // Keep CO5300 scan direction and CST9217 coordinates in the same cardinal frame.
+// rotation: Requested cardinal orientation of the logical display surface.
+// config: Matching panel and touch scan-direction transaction.
 static bool bsp_display_rotation_config(
     bsp_display_rotation_t rotation,
     bsp_display_rotation_config_t *config
@@ -3097,6 +3249,8 @@ static const char *bsp_display_rotation_step_name(
     }
 }
 
+// config: Desired coherent panel and touch coordinate transform.
+// step: Single controller mutation to apply or roll back.
 static esp_err_t bsp_display_apply_rotation_step(
     const bsp_display_rotation_config_t *config,
     bsp_display_rotation_step_t step
@@ -3117,12 +3271,14 @@ static esp_err_t bsp_display_apply_rotation_step(
             config->panel_x_gap,
             config->panel_y_gap
         );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     case BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY:
         return esp_lcd_touch_set_swap_xy(tp, config->touch_swap_xy);
     case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X:
         return esp_lcd_touch_set_mirror_x(tp, config->touch_mirror_x);
     case BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y:
         return esp_lcd_touch_set_mirror_y(tp, config->touch_mirror_y);
+#endif
     default:
         return ESP_ERR_INVALID_ARG;
     }
@@ -3130,6 +3286,7 @@ static esp_err_t bsp_display_apply_rotation_step(
 
 // Apply each controller mutation explicitly so an interrupted transaction can
 // restore every operation that may have changed hardware state.
+// config: Complete desired mapping of panel scan direction and touch axes.
 static bsp_display_rotation_apply_result_t bsp_display_apply_rotation_config(
     const bsp_display_rotation_config_t *config
 )
@@ -3138,9 +3295,11 @@ static bsp_display_rotation_apply_result_t bsp_display_apply_rotation_config(
         BSP_DISPLAY_ROTATION_STEP_PANEL_SWAP_XY,
         BSP_DISPLAY_ROTATION_STEP_PANEL_MIRROR,
         BSP_DISPLAY_ROTATION_STEP_PANEL_GAP,
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
         BSP_DISPLAY_ROTATION_STEP_TOUCH_SWAP_XY,
         BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_X,
         BSP_DISPLAY_ROTATION_STEP_TOUCH_MIRROR_Y,
+#endif
     };
     bsp_display_rotation_apply_result_t result = {
         .error = ESP_OK,
@@ -3206,10 +3365,19 @@ static esp_err_t bsp_display_rollback_rotation_config(
     return first_error;
 }
 
-// Rotate only between touch releases, preserving the logical LVGL coordinate system.
+// rotation: Cardinal orientation; rotate coordinates without reflecting the artwork.
 esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 {
-    if (panel_handle == NULL || tp == NULL || display_handle == NULL) {
+    if (panel_handle == NULL
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+        || tp == NULL
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+        || display_handle == NULL
+#else
+        || display_dma_faulted
+#endif
+    ) {
         ESP_LOGE(TAG, "Display or touch handle is not initialized");
         return ESP_ERR_INVALID_STATE;
     }
@@ -3222,6 +3390,7 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
 
     const esp_err_t lock_result = bsp_display_lock(100);
     if (lock_result != ESP_OK) {
+        ESP_LOGE(TAG, "Display rotation lock failed (%s)", esp_err_to_name(lock_result));
         return lock_result;
     }
     if (!display_rotation_consistent) {
@@ -3234,6 +3403,7 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
         return BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
     }
     if (!display_panel_output_enabled) {
+        ESP_LOGE(TAG, "Display rotation rejected: panel output disabled (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         bsp_display_unlock();
         return ESP_ERR_INVALID_STATE;
     }
@@ -3241,10 +3411,21 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
         bsp_display_unlock();
         return ESP_OK;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (disp_indev != NULL && lv_indev_get_state(disp_indev) == LV_INDEV_STATE_PRESSED) {
+        ESP_LOGE(TAG, "Display rotation rejected: touch pressed (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         bsp_display_unlock();
         return ESP_ERR_INVALID_STATE;
     }
+#elif CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+    bsp_touch_point_t point;
+    const esp_err_t touch_result = bsp_touch_read_point(&point);
+    if (touch_result != ESP_OK || point.pressed) {
+        ESP_LOGE(TAG, "Display rotation touch check failed: pressed=%d (%s)", point.pressed, esp_err_to_name(touch_result == ESP_OK ? ESP_ERR_INVALID_STATE : touch_result));
+        bsp_display_unlock();
+        return touch_result == ESP_OK ? ESP_ERR_INVALID_STATE : touch_result;
+    }
+#endif
 
     bsp_display_rotation_config_t previous_config;
     if (!bsp_display_rotation_config(current_rotation, &previous_config)) {
@@ -3293,6 +3474,7 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
                    : BSP_DISPLAY_ERR_ROTATION_INCONSISTENT;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     const bool replay_ready = display_frame_cache_valid;
     if (replay_ready) {
         const esp_err_t replay_result = bsp_display_replay_cached_frame();
@@ -3337,12 +3519,22 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
             lv_obj_invalidate(screen);
         }
     }
+#else
+    current_rotation = rotation;
+    display_rotation_consistent = true;
+#endif
+    __atomic_add_fetch(&display_content_revision, 1U, __ATOMIC_RELEASE);
     bsp_display_unlock();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const char *render_path = replay_ready ? "PSRAM-cache" : "LVGL-redraw";
+#else
+    const char *render_path = "direct-redraw-required";
+#endif
     ESP_LOGI(
         TAG,
         "CO5300 + CST9217 rotation: %d degrees, path=%s, queued=%lld us",
         rotation * 90,
-        replay_ready ? "PSRAM-cache" : "LVGL-redraw",
+        render_path,
         (long long)(esp_timer_get_time() - started_at_us)
     );
     return ESP_OK;
@@ -3358,6 +3550,7 @@ bool bsp_display_rotation_is_consistent(void)
     return display_rotation_consistent;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 // Pause the LVGL worker through the patched, bounded adapter transaction.
 esp_err_t bsp_display_lvgl_pause(void)
 {
@@ -3452,13 +3645,374 @@ esp_err_t bsp_display_lvgl_resume(void)
     ESP_LOGI(TAG, "LVGL worker and tick resumed");
     return ESP_OK;
 }
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_UI
 
+// timeout_ms: Maximum wait for the renderer's shared display transaction mutex.
 esp_err_t bsp_display_lock(uint32_t timeout_ms)
 {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     return esp_lv_adapter_lock(timeout_ms);
+#else
+    if (timeout_ms > BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS) {
+        ESP_LOGE(TAG, "Display lock wait rejected: %lu ms exceeds %u ms (%s)", (unsigned long)timeout_ms, BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (display_mutex == NULL) {
+        ESP_LOGE(TAG, "Display lock unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (xSemaphoreTakeRecursive(display_mutex, pdMS_TO_TICKS(timeout_ms)) != pdTRUE) {
+        ESP_LOGE(TAG, "Display lock timed out after %lu ms (%s)", (unsigned long)timeout_ms, esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    if (display_dma_faulted) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Display transaction rejected: DMA state requires explicit reset, retained=%p (%s)", display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+#endif
 }
 
 void bsp_display_unlock(void)
 {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     esp_lv_adapter_unlock();
+#else
+    if (display_mutex == NULL || xSemaphoreGiveRecursive(display_mutex) != pdTRUE) {
+        ESP_LOGE(TAG, "Display unlock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+    }
+#endif
+}
+#endif // CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+// operation: Disabled display operation included in the component error log.
+static esp_err_t bsp_display_disabled(const char *operation)
+{
+    ESP_LOGE(TAG, "%s unavailable: display excluded by build profile (%s)", operation, esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// config: Unused creation settings when display hardware is excluded.
+// ret_panel: Optional output cleared to indicate unavailable hardware.
+// ret_io: Optional output cleared to indicate unavailable hardware.
+esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_handle_t *ret_panel, esp_lcd_panel_io_handle_t *ret_io)
+{
+    (void)config;
+    if (ret_panel != NULL) {
+        *ret_panel = NULL;
+    }
+    if (ret_io != NULL) {
+        *ret_io = NULL;
+    }
+    return bsp_display_disabled("Display creation");
+}
+
+esp_err_t bsp_display_brightness_init(void)
+{
+    return bsp_display_disabled("Brightness initialization");
+}
+
+// brightness_percent: Requested value is rejected when no panel is configured.
+esp_err_t bsp_display_brightness_set(int brightness_percent)
+{
+    ESP_LOGE(TAG, "Brightness %d rejected: display excluded (%s)", brightness_percent, esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+int bsp_display_brightness_get(void)
+{
+    ESP_LOGE(TAG, "Brightness read unavailable: display excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return -1;
+}
+
+// enabled: Requested output state is rejected when no panel is configured.
+esp_err_t bsp_display_panel_set_enabled(bool enabled)
+{
+    ESP_LOGE(TAG, "Panel state %d rejected: display excluded (%s)", enabled, esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+esp_err_t bsp_display_backlight_on(void)
+{
+    return bsp_display_disabled("Backlight enable");
+}
+
+esp_err_t bsp_display_backlight_off(void)
+{
+    return bsp_display_disabled("Backlight disable");
+}
+
+// rotation: Requested orientation is rejected when no panel is configured.
+esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
+{
+    ESP_LOGE(TAG, "Rotation %d rejected: display excluded (%s)", rotation, esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+bsp_display_rotation_t bsp_display_rotation_get(void)
+{
+    ESP_LOGE(TAG, "Rotation read unavailable: display excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return BSP_DISPLAY_ROTATE_UNAVAILABLE;
+}
+
+bool bsp_display_rotation_is_consistent(void)
+{
+    return false;
+}
+
+// timeout_ms: Unused wait limit because this profile has no display owner.
+esp_err_t bsp_display_lock(uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    return bsp_display_disabled("Display lock");
+}
+
+void bsp_display_unlock(void)
+{
+    ESP_LOGE(TAG, "Display unlock unavailable: display excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+}
+#endif
+
+bool bsp_display_is_ready(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    return display_initialized && display_handle != NULL;
+#else
+    return display_initialized && !display_dma_faulted;
+#endif
+#else
+    return false;
+#endif
+}
+
+bool bsp_touch_is_ready(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+    return tp != NULL;
+#else
+    return false;
+#endif
+}
+
+uint32_t bsp_display_content_revision(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    return __atomic_load_n(&display_content_revision, __ATOMIC_ACQUIRE);
+#else
+    return 0;
+#endif
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+static esp_err_t bsp_display_write_rgb565_internal(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels, bool clear_black
+);
+#endif
+
+esp_err_t bsp_display_base_start(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const bsp_display_config_t display_config = {
+        .max_transfer_sz = BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT,
+    };
+    ESP_RETURN_ON_ERROR(
+        bsp_display_new(&display_config, &panel_handle, &io_handle),
+        TAG, "Base display initialization failed"
+    );
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+    const bsp_touch_config_t touch_config = {
+        .swap_xy = false,
+        .mirror_x = true,
+        .mirror_y = true,
+    };
+    ESP_RETURN_ON_ERROR(
+        bsp_touch_new_raw(&touch_config, &tp),
+        TAG, "Base touch initialization failed"
+    );
+#endif
+    ESP_RETURN_ON_ERROR(
+        bsp_display_brightness_init(),
+        TAG, "Base display brightness initialization failed"
+    );
+    ESP_RETURN_ON_ERROR(
+        bsp_display_write_rgb565_internal(0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES, NULL, true),
+        TAG, "Base display black-frame initialization failed"
+    );
+    ESP_RETURN_ON_ERROR(
+        bsp_display_panel_set_enabled(true),
+        TAG, "Base display output enable failed"
+    );
+    current_rotation = BSP_DISPLAY_ROTATE_0;
+    display_rotation_consistent = true;
+    ESP_LOGI(TAG, "Base display and enabled touch initialized without a GUI worker");
+    return ESP_OK;
+#else
+    ESP_LOGE(TAG, "Standalone display startup unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// point: Current hardware sample; failures retain explicit invalid state and real error.
+esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
+{
+    if (point == NULL) {
+        ESP_LOGE(TAG, "Touch sample output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    *point = (bsp_touch_point_t){
+        .valid = false,
+        .error = ESP_ERR_NOT_SUPPORTED,
+        .sample_timestamp_us = esp_timer_get_time(),
+    };
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (tp == NULL) {
+        point->error = ESP_ERR_INVALID_STATE;
+        ESP_LOGE(TAG, "Touch read rejected: controller not initialized (%s)", esp_err_to_name(point->error));
+        return point->error;
+    }
+    const esp_err_t lock_result = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
+    if (lock_result != ESP_OK) {
+        point->error = lock_result;
+        return lock_result;
+    }
+    esp_err_t result = esp_lcd_touch_read_data(tp);
+    esp_lcd_touch_point_data_t data = {0};
+    uint8_t contact_count = 0;
+    if (result == ESP_OK) {
+        result = esp_lcd_touch_get_data(tp, &data, &contact_count, 1U);
+    }
+    point->sample_timestamp_us = esp_timer_get_time();
+    if (result == ESP_OK && contact_count > 0U &&
+        (data.x >= BSP_LCD_H_RES || data.y >= BSP_LCD_V_RES)) {
+        result = ESP_ERR_INVALID_RESPONSE;
+        ESP_LOGE(TAG, "Touch sample coordinate rejected: x=%u y=%u (%s)", data.x, data.y, esp_err_to_name(result));
+    }
+    point->error = result;
+    if (result == ESP_OK) {
+        point->valid = true;
+        point->pressed = contact_count > 0U;
+        if (point->pressed) {
+            point->x = data.x;
+            point->y = data.y;
+        }
+    } else {
+        ESP_LOGE(TAG, "Current touch sample failed (%s)", esp_err_to_name(result));
+    }
+    bsp_display_unlock();
+    return result;
+#else
+    ESP_LOGE(TAG, "Standalone touch sampling unavailable in this profile (%s)", esp_err_to_name(point->error));
+    return point->error;
+#endif
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// x_start: First column included in the dirty rectangle.
+// y_start: First row included in the dirty rectangle.
+// x_end: Exclusive last column; must remain inside the physical display.
+// y_end: Exclusive last row; must remain inside the physical display.
+// pixels: Packed native little-endian RGB565 data, owned by the caller throughout the call.
+// clear_black: Initialize the dark panel using bounded zeroed strips without a framebuffer.
+static esp_err_t bsp_display_write_rgb565_internal(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels, bool clear_black
+)
+{
+    if ((!clear_black && pixels == NULL) || x_start < 0 || y_start < 0 ||
+        x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
+        x_start >= x_end || y_start >= y_end) {
+        ESP_LOGE(TAG, "Direct RGB565 rectangle rejected: [%d,%d,%d,%d] pixels=%p (%s)", x_start, y_start, x_end, y_end, pixels, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t lock_result = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
+    if (lock_result != ESP_OK) {
+        return lock_result;
+    }
+    if (!display_initialized || (!clear_black && !display_panel_output_enabled) ||
+        !display_rotation_consistent || display_dma_faulted) {
+        ESP_LOGE(TAG, "Direct RGB565 write rejected: ready=%d output=%d rotation=%d DMA_fault=%d retained=%p (%s)", display_initialized, display_panel_output_enabled, display_rotation_consistent, display_dma_faulted, display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
+        bsp_display_unlock();
+        return ESP_ERR_INVALID_STATE;
+    }
+    const size_t source_row_bytes = (size_t)(x_end - x_start) * 2U;
+    const size_t transfer_rows = (size_t)(y_end - y_start) < BSP_DISPLAY_DMA_TRANSFER_HEIGHT
+        ? (size_t)(y_end - y_start) : BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
+    bsp_display_dma_lease_t lease = {0};
+    esp_err_t result = bsp_display_acquire_dma_pipeline(source_row_bytes, transfer_rows, 1U, &lease);
+    if (result != ESP_OK) {
+        bsp_display_unlock();
+        return result;
+    }
+    const uint8_t *source = (const uint8_t *)pixels;
+    const int64_t deadline_us = esp_timer_get_time() +
+        (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
+    for (int strip_y = y_start; strip_y < y_end; strip_y += (int)lease.transfer_rows) {
+        const int strip_end = strip_y + (int)lease.transfer_rows < y_end
+            ? strip_y + (int)lease.transfer_rows : y_end;
+        const size_t strip_bytes = (size_t)(strip_end - strip_y) * source_row_bytes;
+        if (clear_black) {
+            memset(lease.data, 0, strip_bytes);
+        } else {
+            const uint8_t *strip_source = source + (size_t)(strip_y - y_start) * source_row_bytes;
+            // The panel consumes the most significant RGB565 byte first.
+            for (size_t index = 0; index < strip_bytes; index += 2U) {
+                lease.data[index] = strip_source[index + 1U];
+                lease.data[index + 1U] = strip_source[index];
+            }
+        }
+        const int64_t remaining_us = deadline_us - esp_timer_get_time();
+        if (remaining_us <= 0) {
+            result = ESP_ERR_TIMEOUT;
+            ESP_LOGE(TAG, "Direct RGB565 write exceeded its deadline before row %d (%s)", strip_y, esp_err_to_name(result));
+            break;
+        }
+        // The previous strip has completed before either reuse or submission.
+        result = esp_lcd_panel_draw_bitmap(panel_handle, x_start, strip_y, x_end, strip_end, lease.data);
+        if (result == ESP_OK) {
+            const int64_t completion_wait_us = deadline_us - esp_timer_get_time();
+            const TickType_t completion_wait = completion_wait_us > 0
+                ? pdMS_TO_TICKS((uint32_t)((completion_wait_us + 999) / 1000)) : 0;
+            if (xSemaphoreTake(display_completion, completion_wait) != pdTRUE) {
+                result = ESP_ERR_TIMEOUT;
+            } else if (display_completion_fault) {
+                result = ESP_ERR_INVALID_STATE;
+            }
+        }
+        if (result != ESP_OK) {
+            // SDK failure does not prove that DMA released the submitted buffer.
+            display_dma_faulted = true;
+            display_dma_fault_lease = lease;
+            lease = (bsp_display_dma_lease_t){0};
+            ESP_LOGE(TAG, "Direct RGB565 transfer failed at rows %d-%d; retaining DMA until explicit reset (%s)", strip_y, strip_end - 1, esp_err_to_name(result));
+            break;
+        }
+    }
+    bsp_display_release_dma_pipeline(&lease);
+    bsp_display_unlock();
+    return result;
+}
+#endif
+
+// x_start: First column included in the dirty rectangle.
+// y_start: First row included in the dirty rectangle.
+// x_end: Exclusive last column, bounded by the physical display.
+// y_end: Exclusive last row, bounded by the physical display.
+// pixels: Packed native little-endian RGB565 rectangle, reusable after return.
+esp_err_t bsp_display_write_rgb565(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels
+)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    return bsp_display_write_rgb565_internal(x_start, y_start, x_end, y_end, pixels, false);
+#else
+    (void)x_start;
+    (void)y_start;
+    (void)x_end;
+    (void)y_end;
+    (void)pixels;
+    ESP_LOGE(TAG, "Standalone RGB565 output unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 }

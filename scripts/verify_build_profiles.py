@@ -30,6 +30,7 @@ def resolve_relative(relative: object, label: str) -> Path:
     return resolved
 
 
+# Raises AssertionError when a profile or its resolved dependency lock violates the contract.
 def main() -> None:
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if catalog.get("schema_version") != 1:
@@ -39,6 +40,7 @@ def main() -> None:
     variants = catalog.get("variants")
     if not isinstance(variants, dict) or set(variants) != {
         "headless",
+        "display-touch",
         "ui-minimal",
         "connected",
         "full",
@@ -78,8 +80,13 @@ def main() -> None:
             for required_root in ("esp_http_server", "espressif__network_provisioning"):
                 if required_root not in roots:
                     raise AssertionError(f"{variant_name} is missing root {required_root}")
-        if variant_name != "headless" and "espressif__esp_board_manager" not in roots:
+        if variant_name not in {"headless", "display-touch"} and "espressif__esp_board_manager" not in roots:
             raise AssertionError(f"{variant_name} is missing the HAL board-manager root")
+        if variant_name == "display-touch":
+            if "esp32_s3_touch_amoled_1_75" not in roots:
+                raise AssertionError("display-touch must admit the physical BSP")
+            if any("lvgl" in root or "brookesia" in root or root == "LUNASHELL_app" for root in roots):
+                raise AssertionError("display-touch must not admit a GUI root")
 
         component_dirs = variant.get("component_dirs")
         if not isinstance(component_dirs, list) or len(component_dirs) != len(
@@ -105,6 +112,10 @@ def main() -> None:
             app_dir in resolved_component_dirs or bsp_dir in resolved_component_dirs
         ):
             raise AssertionError("headless must not discover app or BSP manifests")
+        if variant_name == "display-touch" and (
+            bsp_dir not in resolved_component_dirs or app_dir in resolved_component_dirs
+        ):
+            raise AssertionError("display-touch must discover the BSP without the Luna app")
 
         lock = resolve_relative(variant.get("dependency_lock"), f"{variant_name}.lock")
         if not lock.is_file() or lock.stat().st_size == 0:
@@ -116,6 +127,11 @@ def main() -> None:
         if variant_name == "headless":
             if lock_dependencies != {"idf"}:
                 raise AssertionError("headless dependency lock must contain only ESP-IDF")
+        elif variant_name == "display-touch":
+            if not {"idf", "espressif/esp_lcd_co5300", "waveshare/esp_lcd_touch_cst9217"}.issubset(lock_dependencies):
+                raise AssertionError("display-touch lock must contain display and touch drivers")
+            if any("lvgl" in dependency or "brookesia" in dependency for dependency in lock_dependencies):
+                raise AssertionError("display-touch lock must not contain the GUI stack")
         else:
             required_dependencies = {
                 "espressif/esp_board_manager",
@@ -160,6 +176,15 @@ def main() -> None:
     for removed in ("sdkconfig.defaults", "sdkconfig.distance.defaults"):
         if (ROOT / removed).exists():
             raise AssertionError(f"obsolete monolithic defaults remain: {removed}")
+
+    standalone_defaults = read("config/sdkconfig/v1/profiles/display-touch.defaults")
+    for flag in (
+        "CONFIG_LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_UI=n",
+    ):
+        require(standalone_defaults, flag, "standalone mandatory display/touch contract")
 
     selectors = {
         "full": "CONFIG_LUNASHELL_BUILD_PROFILE_FULL=y",
@@ -214,6 +239,9 @@ def main() -> None:
         "LUNASHELL_BUILD_PROFILE_CONNECTED",
         "LUNASHELL_BUILD_PROFILE_UI_MINIMAL",
         "LUNASHELL_BUILD_PROFILE_HEADLESS",
+        "LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH",
+        "LUNASHELL_BUILD_ENABLE_DISPLAY",
+        "LUNASHELL_BUILD_ENABLE_TOUCH",
         "LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE",
         "LUNASHELL_BUILD_ENABLE_HTTP_API",
     ):

@@ -1,5 +1,8 @@
 set(REQ esp_driver_gpio esp_driver_i2c)
 set(PRIV_REQ esp_driver_ledc heap)
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
+    list(APPEND PRIV_REQ esp_driver_spi)
+endif()
 if("$ENV{LUNASHELL_PROFILE_BUILD_KEY}" MATCHES "^full(-distance)?$")
     list(APPEND REQ esp_driver_i2s esp_driver_sdmmc fatfs)
 endif()
@@ -10,20 +13,12 @@ if("$ENV{LUNASHELL_BOARD_ENABLE_SD}" STREQUAL "1")
     list(APPEND REQ esp_driver_sdmmc fatfs)
 endif()
 
-# Patch the pinned adapter for the board's synchronous multi-strip flush and
-# for transactional worker pause/resume with real tick-timer error recovery.
-set(_adapter_patches
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_synchronous_custom_draw.patch"
-    "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_pause_recovery.patch"
-)
-idf_build_get_property(_build_components BUILD_COMPONENTS)
-if(
-    NOT CMAKE_BUILD_EARLY_EXPANSION
-    AND "espressif__esp_lvgl_adapter" IN_LIST _build_components
-)
+# component: Admitted managed component whose exact pinned source must accept the patch.
+# ARGN: Required repository-owned patch files, applied in their supplied order.
+function(bsp_apply_required_patches component)
     idf_component_get_property(
-        _adapter_dir
-        espressif__esp_lvgl_adapter
+        _component_dir
+        ${component}
         COMPONENT_DIR
     )
     find_package(Git REQUIRED)
@@ -40,56 +35,73 @@ if(
     endif()
     file(
         RELATIVE_PATH
-        _adapter_dir_relative
+        _component_dir_relative
         "${_repo_root}"
-        "${_adapter_dir}"
+        "${_component_dir}"
     )
-    foreach(_adapter_patch IN LISTS _adapter_patches)
+    foreach(_component_patch IN LISTS ARGN)
         execute_process(
             COMMAND
                 ${GIT_EXECUTABLE} apply --reverse --check
                 --ignore-space-change
-                "--directory=${_adapter_dir_relative}"
-                -p1 "${_adapter_patch}"
+                "--directory=${_component_dir_relative}"
+                -p1 "${_component_patch}"
             WORKING_DIRECTORY "${_repo_root}"
-            RESULT_VARIABLE _adapter_patch_present
+            RESULT_VARIABLE _component_patch_present
             OUTPUT_QUIET
             ERROR_QUIET
         )
-        if(NOT _adapter_patch_present EQUAL 0)
+        if(NOT _component_patch_present EQUAL 0)
             execute_process(
                 COMMAND
                     ${GIT_EXECUTABLE} apply --check
                     --ignore-space-change
-                    "--directory=${_adapter_dir_relative}"
-                    -p1 "${_adapter_patch}"
+                    "--directory=${_component_dir_relative}"
+                    -p1 "${_component_patch}"
                 WORKING_DIRECTORY "${_repo_root}"
-                RESULT_VARIABLE _adapter_patch_check
+                RESULT_VARIABLE _component_patch_check
                 OUTPUT_QUIET
                 ERROR_QUIET
             )
-            if(NOT _adapter_patch_check EQUAL 0)
+            if(NOT _component_patch_check EQUAL 0)
                 message(FATAL_ERROR
-                    "The pinned esp_lvgl_adapter no longer accepts required patch: "
-                    "${_adapter_patch}"
+                    "The pinned ${component} no longer accepts required patch: "
+                    "${_component_patch}"
                 )
             endif()
             execute_process(
                 COMMAND
                     ${GIT_EXECUTABLE} apply
                     --ignore-space-change
-                    "--directory=${_adapter_dir_relative}"
-                    -p1 "${_adapter_patch}"
+                    "--directory=${_component_dir_relative}"
+                    -p1 "${_component_patch}"
                 WORKING_DIRECTORY "${_repo_root}"
-                RESULT_VARIABLE _adapter_patch_result
+                RESULT_VARIABLE _component_patch_result
             )
-            if(NOT _adapter_patch_result EQUAL 0)
+            if(NOT _component_patch_result EQUAL 0)
                 message(FATAL_ERROR
-                    "Applying required esp_lvgl_adapter patch failed: ${_adapter_patch}"
+                    "Applying required ${component} patch failed: ${_component_patch}"
                 )
             endif()
         endif()
     endforeach()
+endfunction()
+
+idf_build_get_property(_build_components BUILD_COMPONENTS)
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    if("espressif__esp_lvgl_adapter" IN_LIST _build_components)
+        bsp_apply_required_patches(
+            espressif__esp_lvgl_adapter
+            "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_synchronous_custom_draw.patch"
+            "${CMAKE_CURRENT_SOURCE_DIR}/patches/esp_lvgl_adapter_pause_recovery.patch"
+        )
+    endif()
+    if("waveshare__esp_lcd_touch_cst9217" IN_LIST _build_components)
+        bsp_apply_required_patches(
+            waveshare__esp_lcd_touch_cst9217
+            "${CMAKE_CURRENT_SOURCE_DIR}/patches/cst9217_fail_fast_reads.patch"
+        )
+    endif()
 endif()
 
 idf_component_register(
@@ -98,3 +110,14 @@ idf_component_register(
     REQUIRES ${REQ} esp_lcd
     PRIV_REQUIRES ${PRIV_REQ} esp_timer spiffs esp_psram
 )
+
+# Profile roots admit the board dependencies before project Kconfig is loaded.
+if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
+    idf_component_optional_requires(PRIVATE esp_driver_spi esp_lcd_co5300 esp_lcd_panel_io_additions)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
+    idf_component_optional_requires(PUBLIC esp_lcd_touch_cst9217)
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
+    idf_component_optional_requires(PUBLIC lvgl esp_lvgl_adapter)
+endif()

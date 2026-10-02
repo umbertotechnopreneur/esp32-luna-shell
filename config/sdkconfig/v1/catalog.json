@@ -24,6 +24,32 @@
       "generated_sdkconfig": ".sdkconfig/v1/headless",
       "default_build_dir": "artifacts/build-headless"
     },
+    "display-touch": {
+      "profile": "display-touch",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/profiles/display-touch.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/esp32_s3_touch_amoled_1_75"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/display-touch.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/display-touch",
+      "default_build_dir": "artifacts/build-display-touch"
+    },
     "ui-minimal": {
       "profile": "ui-minimal",
       "feature": "none",
@@ -38,6 +64,9 @@
         "main",
         "LUNASHELL_app",
         "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions",
         "joltwallet__littlefs",
         "espressif__brookesia_hal_adaptor",
         "espressif__brookesia_gui_lvgl",
@@ -74,6 +103,9 @@
         "LUNASHELL_app",
         "LUNASHELL_boot",
         "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions",
         "joltwallet__littlefs",
         "espressif__brookesia_hal_adaptor",
         "espressif__brookesia_gui_lvgl",
@@ -117,6 +149,9 @@
         "LUNASHELL_app",
         "LUNASHELL_boot",
         "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions",
         "joltwallet__littlefs",
         "espressif__brookesia_hal_adaptor",
         "espressif__brookesia_gui_lvgl",
@@ -167,6 +202,9 @@
         "LUNASHELL_boot",
         "LUNASHELL_tof400f",
         "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions",
         "joltwallet__littlefs",
         "espressif__brookesia_hal_adaptor",
         "espressif__brookesia_gui_lvgl",

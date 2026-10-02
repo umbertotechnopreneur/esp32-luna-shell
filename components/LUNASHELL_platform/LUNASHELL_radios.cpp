@@ -1281,6 +1281,7 @@ static esp_err_t radios_stop_impl(void)
         return ble_result;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
     const esp_err_t wifi_result = LUNASHELL_wifi_stop();
     radio_operation_progress("Wi-Fi stop");
     if (wifi_result != ESP_OK) {
@@ -1291,6 +1292,7 @@ static esp_err_t radios_stop_impl(void)
         );
         return wifi_result;
     }
+#endif
 
     LUNASHELL::DeviceSnapshotService::instance().reportBle(
         false,
