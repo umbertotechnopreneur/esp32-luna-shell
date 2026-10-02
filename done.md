@@ -1,5 +1,15 @@
 # Done
 
+## Cody base implementation (2026-10-02)
+
+- [x] Carry the reusable main display/touch checkpoint into a remote-main-based
+  Cody branch. Add the standalone connected profile, local minimal CODY2D
+  surface/fill/RLE code, boot consumer and three blue Imagegen phases in flash:
+  sleeping at start, waking after local services, ready after startup completion.
+  Preserve mandatory hardware, real errors and cardinal orientation. This is
+  implementation plus static review and asset conversion only; firmware and
+  device validation remain open in `TODO.md`.
+
 ## Standalone display and touch implementation (2026-10-02)
 
 - [x] Separate physical display/touch selection from the Luna GUI. Add a

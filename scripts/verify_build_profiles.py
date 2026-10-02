@@ -35,12 +35,14 @@ def main() -> None:
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if catalog.get("schema_version") != 1:
         raise AssertionError("profile catalog schema_version must be 1")
-    if catalog.get("default_variant") != "full":
-        raise AssertionError("full must remain the default firmware variant")
+    if catalog.get("default_variant") != "cody-companion":
+        raise AssertionError("cody-companion must be the default firmware variant in this branch")
     variants = catalog.get("variants")
     if not isinstance(variants, dict) or set(variants) != {
         "headless",
         "display-touch",
+        "cody-companion",
+        "leg-edition",
         "ui-minimal",
         "connected",
         "full",
@@ -76,17 +78,19 @@ def main() -> None:
             raise AssertionError(f"variant {variant_name} has invalid component roots")
         if variant_name == "headless" and roots != ["main"]:
             raise AssertionError("headless must admit only the main transitive root")
-        if variant_name in {"connected", "full", "full-distance"}:
+        if variant_name in {"connected", "full", "full-distance", "cody-companion"}:
             for required_root in ("esp_http_server", "espressif__network_provisioning"):
                 if required_root not in roots:
                     raise AssertionError(f"{variant_name} is missing root {required_root}")
-        if variant_name not in {"headless", "display-touch"} and "espressif__esp_board_manager" not in roots:
+        if variant_name not in {"headless", "display-touch", "cody-companion"} and "espressif__esp_board_manager" not in roots:
             raise AssertionError(f"{variant_name} is missing the HAL board-manager root")
-        if variant_name == "display-touch":
+        if variant_name in {"display-touch", "cody-companion"}:
             if "esp32_s3_touch_amoled_1_75" not in roots:
-                raise AssertionError("display-touch must admit the physical BSP")
+                raise AssertionError(f"{variant_name} must admit the physical BSP")
             if any("lvgl" in root or "brookesia" in root or root == "LUNASHELL_app" for root in roots):
-                raise AssertionError("display-touch must not admit a GUI root")
+                raise AssertionError(f"{variant_name} must not admit a GUI root")
+        if variant_name == "cody-companion" and not {"CODY2D", "CODY_companion"}.issubset(roots):
+            raise AssertionError("cody-companion must admit its local renderer and consumer")
 
         component_dirs = variant.get("component_dirs")
         if not isinstance(component_dirs, list) or len(component_dirs) != len(
@@ -112,10 +116,10 @@ def main() -> None:
             app_dir in resolved_component_dirs or bsp_dir in resolved_component_dirs
         ):
             raise AssertionError("headless must not discover app or BSP manifests")
-        if variant_name == "display-touch" and (
+        if variant_name in {"display-touch", "cody-companion"} and (
             bsp_dir not in resolved_component_dirs or app_dir in resolved_component_dirs
         ):
-            raise AssertionError("display-touch must discover the BSP without the Luna app")
+            raise AssertionError(f"{variant_name} must discover the BSP without the Luna app")
 
         lock = resolve_relative(variant.get("dependency_lock"), f"{variant_name}.lock")
         if not lock.is_file() or lock.stat().st_size == 0:
@@ -127,11 +131,16 @@ def main() -> None:
         if variant_name == "headless":
             if lock_dependencies != {"idf"}:
                 raise AssertionError("headless dependency lock must contain only ESP-IDF")
-        elif variant_name == "display-touch":
+        elif variant_name in {"display-touch", "cody-companion"}:
             if not {"idf", "espressif/esp_lcd_co5300", "waveshare/esp_lcd_touch_cst9217"}.issubset(lock_dependencies):
-                raise AssertionError("display-touch lock must contain display and touch drivers")
+                raise AssertionError(f"{variant_name} lock must contain display and touch drivers")
             if any("lvgl" in dependency or "brookesia" in dependency for dependency in lock_dependencies):
-                raise AssertionError("display-touch lock must not contain the GUI stack")
+                raise AssertionError(f"{variant_name} lock must not contain the GUI stack")
+            if variant_name == "cody-companion" and not {
+                "espressif/network_provisioning", "espressif/esp_codec_dev",
+                "waveshare/qmi8658", "cube32esp/xpowerslib",
+            }.issubset(lock_dependencies):
+                raise AssertionError("cody-companion lock is missing selected connected hardware")
         else:
             required_dependencies = {
                 "espressif/esp_board_manager",
@@ -185,6 +194,18 @@ def main() -> None:
         "CONFIG_LUNASHELL_BUILD_ENABLE_UI=n",
     ):
         require(standalone_defaults, flag, "standalone mandatory display/touch contract")
+
+    cody_defaults = read("config/sdkconfig/v1/profiles/cody-companion.defaults")
+    for flag in (
+        "CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_WIFI=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH=y",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_UI=n",
+        "CONFIG_LUNASHELL_BUILD_ENABLE_GNSS=n",
+    ):
+        require(cody_defaults, flag, "Cody mandatory hardware and GUI exclusion contract")
 
     selectors = {
         "full": "CONFIG_LUNASHELL_BUILD_PROFILE_FULL=y",
@@ -240,6 +261,7 @@ def main() -> None:
         "LUNASHELL_BUILD_PROFILE_UI_MINIMAL",
         "LUNASHELL_BUILD_PROFILE_HEADLESS",
         "LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH",
+        "LUNASHELL_BUILD_PROFILE_CODY_COMPANION",
         "LUNASHELL_BUILD_ENABLE_DISPLAY",
         "LUNASHELL_BUILD_ENABLE_TOUCH",
         "LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE",

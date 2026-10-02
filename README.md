@@ -1,4 +1,14 @@
-# ESP32 Luna Shell
+# ESP32 Cody Companion
+
+This feature branch contains the connected Cody base: mandatory display and
+touch, Wi-Fi/BLE, three blue cloud boot phases, and a small local 2D renderer
+without LVGL. The default firmware profile is `cody-companion`. See
+[the current base and its deferred validation](docs/architecture/cody-companion-base.md).
+Color selection is planned as an OOBE preference; OOBE and MCP are not implemented
+in this checkpoint. The inherited Luna documentation below describes the other
+explicit firmware profiles.
+
+## Inherited Luna Shell
 
 Firmware and Windows simulator for ESP32 Luna Shell, currently configured for
 the GPS variant of the [Waveshare ESP32-S3-Touch-AMOLED-1.75](https://www.waveshare.com/esp32-s3-touch-amoled-1.75.html) and its [wiki page](https://www.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75).
@@ -8,7 +18,7 @@ System Super owns the system shell and services, System Core owns the native
 application lifecycle, and GUI LVGL renders the declarative JSON interface.
 LVGL 9 is the rendering backend, not an application-level UI API. The official
 ESP-Brookesia monorepo is tracked as the `third_party/esp-brookesia` submodule,
-pinned to commit `d802d808cfa7ccfbdac8c4f58530198203dfddea`.
+pinned to commit `56c55040d6d5ec06da2b4a7e4b1827c62027be4a`.
 
 The official Waveshare board support package (BSP) remains the owner of the
 display, touch panel, audio codecs, shared I2C bus, and board-specific pins.

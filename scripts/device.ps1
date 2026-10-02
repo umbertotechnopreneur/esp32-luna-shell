@@ -11,8 +11,8 @@ param(
 
     [string]$BuildDir,
 
-    [ValidateSet("full", "connected", "ui-minimal", "display-touch", "headless", "leg-edition")]
-    [string]$Profile = "full",
+    [ValidateSet("full", "connected", "ui-minimal", "display-touch", "headless", "leg-edition", "cody-companion")]
+    [string]$Profile = "cody-companion",
 
     [ValidateSet("none", "distance")]
     [string]$Feature = "none",

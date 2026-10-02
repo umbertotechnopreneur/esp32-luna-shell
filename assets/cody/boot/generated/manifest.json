@@ -1,0 +1,59 @@
+{
+  "images": [
+    {
+      "source": "assets/cody/boot/cody-sleep-blue.png",
+      "symbol": "sleeping_blue",
+      "source_sha256": "ad4d5641afac2eb932293083960f02511eb47d16fde8e8a04cfdf21db7c1c764",
+      "source_dimensions": [
+        1254,
+        1254
+      ],
+      "width": 466,
+      "height": 466,
+      "encoding": "row-indexed-rle-rgb565",
+      "run_format": "uint16 little-endian pixel count, uint8 palette index",
+      "palette_colors": 33,
+      "black_palette_index": 0,
+      "rle_bytes": 26289,
+      "resource_data_bytes": 28223
+    },
+    {
+      "source": "assets/cody/boot/cody-waking-blue.png",
+      "symbol": "waking_blue",
+      "source_sha256": "035b41fb6b175824901c754cd16559b5335e24799d196267c13327970e4c61bc",
+      "source_dimensions": [
+        1254,
+        1254
+      ],
+      "width": 466,
+      "height": 466,
+      "encoding": "row-indexed-rle-rgb565",
+      "run_format": "uint16 little-endian pixel count, uint8 palette index",
+      "palette_colors": 37,
+      "black_palette_index": 0,
+      "rle_bytes": 30072,
+      "resource_data_bytes": 32014
+    },
+    {
+      "source": "assets/cody/boot/cody-ready-blue.png",
+      "symbol": "ready_blue",
+      "source_sha256": "b10116084b917cfc7d2700ef4a3187ba0cf50e2e7cc5c675a47da391f0ba3979",
+      "source_dimensions": [
+        1254,
+        1254
+      ],
+      "width": 466,
+      "height": 466,
+      "encoding": "row-indexed-rle-rgb565",
+      "run_format": "uint16 little-endian pixel count, uint8 palette index",
+      "palette_colors": 34,
+      "black_palette_index": 0,
+      "rle_bytes": 29091,
+      "resource_data_bytes": 31027
+    }
+  ],
+  "resource_data_bytes": 91264,
+  "renderer_strip_rows": 8,
+  "renderer_strip_bytes": 7456,
+  "note": "Source encoding sizes only; compiled firmware size and hardware behavior are unverified."
+}

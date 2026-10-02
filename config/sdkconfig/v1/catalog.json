@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "board": "waveshare-esp32s3-touch-amoled-1.75",
-  "default_variant": "full",
+  "default_variant": "cody-companion",
   "variants": {
     "headless": {
       "profile": "headless",
@@ -23,6 +23,46 @@
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/headless.lock",
       "generated_sdkconfig": ".sdkconfig/v1/headless",
       "default_build_dir": "artifacts/build-headless"
+    },
+    "cody-companion": {
+      "profile": "cody-companion",
+      "feature": "none",
+      "defaults": [
+        "config/sdkconfig/v1/base.defaults",
+        "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
+        "config/sdkconfig/v1/products/lunashell.defaults",
+        "config/sdkconfig/v1/features/connectivity.defaults",
+        "config/sdkconfig/v1/profiles/cody-companion.defaults"
+      ],
+      "component_roots": [
+        "main",
+        "CODY_companion",
+        "CODY2D",
+        "esp32_s3_touch_amoled_1_75",
+        "espressif__esp_lcd_co5300",
+        "waveshare__esp_lcd_touch_cst9217",
+        "espressif__esp_lcd_panel_io_additions",
+        "esp_http_server",
+        "espressif__network_provisioning",
+        "esp_wifi",
+        "bt",
+        "esp_pm",
+        "esp_driver_i2s",
+        "espressif__esp_codec_dev",
+        "waveshare__qmi8658",
+        "cube32esp__xpowerslib"
+      ],
+      "component_dirs": [
+        "main",
+        "components/LUNASHELL_logger",
+        "components/LUNASHELL_platform",
+        "components/esp32_s3_touch_amoled_1_75",
+        "components/CODY2D",
+        "components/CODY_companion"
+      ],
+      "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/cody-companion.lock",
+      "generated_sdkconfig": ".sdkconfig/v1/cody-companion",
+      "default_build_dir": "artifacts/build-cody-companion"
     },
     "display-touch": {
       "profile": "display-touch",

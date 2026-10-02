@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit request, resolve/review the `cody-companion` dependency lock,
+  then validate the finished no-LVGL source/dependency closure, clean/incremental
+  build and size. Physical boot, mandatory display/touch, 0/90/180/270 rotation,
+  standby/wake and Wi-Fi/BLE coexistence require separate device authorization.
+  This base has static source review and asset conversion only.
+
 - [ ] On explicit request, resolve and review the new `display-touch` dependency
   lock and refresh affected existing locks after the BSP manifest gates change.
   Validate UI-on and standalone display/touch builds, source/dependency exclusion,

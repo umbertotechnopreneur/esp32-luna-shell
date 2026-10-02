@@ -16,7 +16,7 @@ endchoice
 
 choice LUNASHELL_BUILD_PROFILE
     prompt "ESP32 Luna Shell firmware profile"
-    default LUNASHELL_BUILD_PROFILE_FULL
+    default LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     help
         Select one cumulative product image. Headless keeps only the portable
         runtime foundation; Display and touch exposes those physical devices
@@ -35,6 +35,13 @@ config LUNASHELL_BUILD_PROFILE_UI_MINIMAL
 
 config LUNASHELL_BUILD_PROFILE_DISPLAY_TOUCH
     bool "Display and touch hardware without the Luna UI"
+
+config LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    bool "Cody connected companion without the Luna UI"
+    help
+        Keeps mandatory display, touch, Wi-Fi and BLE, with the small Cody 2D
+        consumer. Excludes the Luna GUI and GNSS. This base does not implement
+        OOBE, a Codex transport, or voice interaction yet.
 
 config LUNASHELL_BUILD_PROFILE_CONNECTED
     bool "Connected UI runtime"

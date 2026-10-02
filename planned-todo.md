@@ -3,6 +3,21 @@
 This file tracks deferred work that is worth retaining but is not a current
 priority. Promote an item to `TODO.md` when it becomes active.
 
+## Cody product increments
+
+- [ ] Add English circular OOBE with real provisioning QR, explicit failure
+  reasons, saved preferences and optional user-selected Cody gradient color.
+  Blue is the initial accent. Keep manual 0/180 orientation, auto-rotation,
+  shake-to-wake and sound preferences separate and validity-aware.
+- [ ] Add a compact front-facing cloud rig/skin over CODY2D; use a 32-level
+  vertical ramp, discrete activity poses and bounded dirty-region invalidation.
+  Keep palette changes and orientation/wake as explicit redraw causes.
+- [ ] Define/version the companion session/event contract and implement a real
+  MCP transport, context/status/messages and confirmed question responses.
+  The inherited read-only diagnostics server is not this transport.
+- [ ] Add push-to-talk capture, PC-side transcription/confirmation and session
+  targeting, plus precomputed sound cues. Keep credentials on the PC.
+
 ## Board compilation and BSP
 
 - [ ] Remove the indirect FatFS/SDMMC dependencies pulled by `esp_board_manager`

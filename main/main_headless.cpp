@@ -12,6 +12,9 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+#include "CODY_companion.h"
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API
 #include "LUNASHELL_http_server.hpp"
 #endif
@@ -43,10 +46,7 @@ public:
         if (!active_) {
             return;
         }
-        const esp_err_t result = LUNASHELL_liveness_watch_end(
-            LUNASHELL_LIVENESS_STARTUP,
-            ESP_OK
-        );
+        const esp_err_t result = finish();
         if (result != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -55,6 +55,25 @@ public:
             );
             std::abort();
         }
+    }
+
+    // Finish the startup watchdog before the consumer displays a completed boot.
+    esp_err_t finish()
+    {
+        if (!active_) {
+            ESP_LOGE(kTag, "Startup watchdog finish rejected: %s",
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        const esp_err_t result = LUNASHELL_liveness_watch_end(
+            LUNASHELL_LIVENESS_STARTUP, ESP_OK
+        );
+        if (result == ESP_OK) {
+            active_ = false;
+        } else {
+            ESP_LOGE(kTag, "Startup watchdog finish failed: %s", esp_err_to_name(result));
+        }
+        return result;
     }
 
     // stage: Startup stage completed before renewing the startup watchdog.
@@ -131,6 +150,10 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(LUNASHELL_display_apply_saved_auto_rotation());
     startup_watch.progress("saved display settings");
 #endif
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(CODY_companion_start());
+    startup_watch.progress("Cody boot frame and touch consumer");
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());
     startup_watch.progress("voice AFE");
@@ -143,14 +166,30 @@ extern "C" void app_main(void)
 #endif
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
     startup_watch.progress("removable storage");
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(CODY_companion_boot_midpoint());
+    startup_watch.progress("Cody local-services boot checkpoint");
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(LUNASHELL_radios_init());
+#else
     report_optional_startup_failure("Wi-Fi/BLE", LUNASHELL_radios_init());
+#endif
     startup_watch.progress("Wi-Fi/BLE services");
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(LUNASHELL_wifi_init());
+#else
     report_optional_startup_failure("Wi-Fi", LUNASHELL_wifi_init());
+#endif
     startup_watch.progress("Wi-Fi service");
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(LUNASHELL_ble_init());
+#else
     report_optional_startup_failure("BLE", LUNASHELL_ble_init());
+#endif
     startup_watch.progress("BLE service");
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API
@@ -168,6 +207,10 @@ extern "C" void app_main(void)
     (CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE)
     ESP_ERROR_CHECK(LUNASHELL_hardware_start_full_snapshot_monitor());
     startup_watch.progress("background hardware sampling");
+#endif
+    ESP_ERROR_CHECK(startup_watch.finish());
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    ESP_ERROR_CHECK(CODY_companion_boot_completed());
 #endif
     ESP_LOGI(kTag, "Standalone hardware startup completed");
 }
