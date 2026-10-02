@@ -2540,10 +2540,18 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     }
 
 #if CONFIG_PM_ENABLE
+    // This hardware PoC needs native USB available even after a rendering/input
+    // failure. Automatic light sleep disconnects USB Serial/JTAG on the S3.
+    // Keep frequency scaling; measured sleep/battery policy comes after the PoC.
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    constexpr bool automatic_light_sleep = false;
+#else
+    constexpr bool automatic_light_sleep = true;
+#endif
     const esp_pm_config_t power_policy = {
         .max_freq_mhz = kMaximumCpuFrequencyMhz,
         .min_freq_mhz = kMinimumCpuFrequencyMhz,
-        .light_sleep_enable = true,
+        .light_sleep_enable = automatic_light_sleep,
     };
     result = esp_pm_configure(&power_policy);
     if (result != ESP_OK) {
@@ -2563,9 +2571,10 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 #endif
     ESP_LOGI(
         kTag,
-        "ESP power policy active: CPU=%d..%d MHz automatic-light-sleep=yes",
+        "ESP power policy active: CPU=%d..%d MHz automatic-light-sleep=%s",
         kMinimumCpuFrequencyMhz,
-        kMaximumCpuFrequencyMhz
+        kMaximumCpuFrequencyMhz,
+        automatic_light_sleep ? "yes" : "no (Cody hardware PoC)"
     );
 #if CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION
     ESP_LOGI(
