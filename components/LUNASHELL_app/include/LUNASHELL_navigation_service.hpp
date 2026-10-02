@@ -35,8 +35,11 @@ enum class Route {
 // Owns app route history independently from the declarative screen renderer.
 class NavigationService final {
 public:
+    // initial: Named route starting a fresh history.
     void reset(Route initial);
+    // route: Destination whose screen the caller has already prepared.
     void navigate(Route route);
+    // route: Replacement that does not create a Back entry.
     void replace(Route route);
     void clear_history();
 
@@ -45,16 +48,20 @@ public:
     [[nodiscard]] bool can_forward() const;
     [[nodiscard]] std::optional<Route> back_target() const;
     [[nodiscard]] std::optional<Route> forward_target() const;
+    // route: Named destination to find in retained history.
     [[nodiscard]] bool contains_in_back(Route route) const;
 
-    bool commit_back(Route expected);
-    bool commit_forward(Route expected);
-    bool return_to(Route expected);
+    // expected_route: Previously peeked Back target; reject a changed trail.
+    bool commit_back(Route expected_route);
+    // expected_route: Previously peeked Forward target; reject a changed trail.
+    bool commit_forward(Route expected_route);
+    // expected_route: Retained route to revisit while discarding newer entries.
+    bool return_to(Route expected_route);
 
 private:
-    Route current_ = Route::Welcome;
-    std::vector<Route> back_;
-    std::vector<Route> forward_;
+    Route current_route_ = Route::Welcome;
+    std::vector<Route> back_history_;
+    std::vector<Route> forward_history_;
 };
 
 }  // namespace LUNASHELL

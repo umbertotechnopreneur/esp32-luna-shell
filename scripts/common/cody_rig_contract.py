@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from pathlib import Path
 import yaml
+
+from scripts.common.cody_rig_types import (
+    ContourControl, CurvePoint, FaceChannel, PointRole, channel_name, face_channel,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -14,10 +19,16 @@ class RigLoader(yaml.SafeLoader):
     """Safe YAML with duplicate-key rejection for authored character configuration."""
 
 
-# loader is the safe YAML parser; node is one mapping; deep controls nested construction.
+# loader: Safe YAML parser for this authoring document.
+# node: Mapping whose original key/value pairs must remain unambiguous.
+# deep: Whether nested values are constructed immediately.
 # Raises ValueError on duplicate keys, including ambiguous style roles.
 def yaml_mapping(loader, node, deep=False):
-    return unique_object((loader.construct_object(key, deep=deep), loader.construct_object(value, deep=deep)) for key, value in node.value)
+    pairs = (
+        (loader.construct_object(key, deep=deep), loader.construct_object(value, deep=deep))
+        for key, value in node.value
+    )
+    return unique_object(pairs)
 
 
 RigLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, yaml_mapping)
@@ -29,7 +40,7 @@ def unique_object(pairs):
     result = {}
     for key, value in pairs:
         if key in result:
-            raise ValueError(f"Duplicate JSON key: {key}")
+            raise ValueError(f"Duplicate authoring key: {key}")
         result[key] = value
     return result
 
@@ -40,7 +51,8 @@ def read_json(path):
     return json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object)
 
 
-# value is the required finite number; label supplies useful rejection context.
+# value: Required finite numeric input.
+# label: Identifies the rejected authoring field in the error.
 # Raises ValueError for booleans, non-numeric or non-finite values.
 def finite(value, label):
     if type(value) not in (float, int) or not math.isfinite(value):
@@ -48,26 +60,121 @@ def finite(value, label):
     return float(value)
 
 
-# root identifies the checkout containing the versioned artwork and palette.
-# Raises ValueError or OSError when the explicit asset contract is inconsistent.
-def load_contract(root=ROOT):
-    rig = yaml.load((root / "assets/cody/cody.yaml").read_text(encoding="utf-8"), Loader=RigLoader)
-    if rig["character"]["id"] != "cody" or rig["character"]["facing"] != "front" or not isinstance(rig["character"]["name"], str) or not rig["character"]["name"].strip():
-        raise ValueError("Cody requires a nonempty name, stable id and front-facing rig")
-    if rig["palette_file"] != "assets/cody/palette/palette256.json":
-        raise ValueError("The PoC uses the versioned shared palette file")
-    palette = read_json(root / rig["palette_file"])
-    for role, slots in rig["style"]["paints"].items():
-        if not isinstance(role, str) or not role or len(slots) != 2 or any(type(v) is not int or not 0 <= v < 172 for v in slots) or slots[0] > slots[1]:
-            raise ValueError(f"Invalid paint role: {role}")
+# name: Authored stable ID converted to a readable C++ enumerator.
+# Raises ValueError for an empty or unsupported identifier.
+def enum_identifier(name):
+    if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", name):
+        raise ValueError(f"Invalid stable identifier: {name!r}")
+    words = re.split(r"[_.-]", name)
+    if any(not word for word in words):
+        raise ValueError(f"Empty identifier segment: {name!r}")
+    return "".join(word[:1].upper() + word[1:] for word in words)
+
+
+# names: Stable IDs inside one explicit namespace (point, curve, path, entity or color).
+# category: Namespace named in duplicate/collision errors.
+# Raises ValueError for duplicate IDs or IDs that produce the same C++ enum name.
+def validate_identifiers(names, category):
+    seen_names = set()
+    seen_enumerators = {"None", "Count"}
+    for name in names:
+        enumerator = enum_identifier(name)
+        if name in seen_names or enumerator in seen_enumerators:
+            raise ValueError(f"Duplicate or ambiguous {category} identifier: {name!r}")
+        seen_names.add(name)
+        seen_enumerators.add(enumerator)
+
+
+# root: Active checkout that owns the source assets.
+# relative: Explicit YAML/palette reference, resolved inside this checkout's assets.
+# Raises ValueError or OSError for an external, missing or non-file source.
+def asset_path(root, relative):
+    assets = (Path(root) / "assets").resolve()
+    source = (Path(root) / relative).resolve()
+    if not source.is_relative_to(assets) or not source.is_file():
+        raise ValueError(f"Skin source must be a file below {assets}: {source}")
+    return source
+
+
+# rig: Checked facial-channel catalog.
+# authored: Named preset values; positional authoring is deliberately unsupported.
+# label: Preset identity named in any rejection.
+# Raises ValueError for missing, extra or invalid preset channels.
+def named_preset(rig, authored, label):
+    expected = {channel_name(channel) for channel in FaceChannel}
+    if not isinstance(authored, dict) or set(authored) != expected:
+        raise ValueError(f"{label}: requires exactly the named facial channels")
+    values = [authored[channel_name(channel)] for channel in FaceChannel]
+    validate_channels(rig, values)
+    return values
+
+
+# rig: Style document whose named colors are resolved at the encoding boundary.
+# palette: Shared RGB565 catalog; every entry has a stable unique color ID.
+# Raises ValueError for unknown/reserved colors, reversed ramps or invalid pixel metrics.
+def resolve_style(rig, palette):
+    entries = palette["entries"]
+    validate_identifiers([entry["id"] for entry in entries], "color")
+    color_slots = {entry["id"]: entry["index"] for entry in entries}
+
+    # name: Explicit source color ID; reserved slots cannot become visible skin colors.
+    # Raises ValueError for a missing or reserved color reference.
+    def color_slot(name):
+        if name not in color_slots or entries[color_slots[name]]["reserved"]:
+            raise ValueError(f"Unknown or reserved palette color: {name!r}")
+        return color_slots[name]
+
+    # names: Ordered named endpoints of a solid paint or inclusive gradient ramp.
+    # Raises ValueError for malformed, reversed or reserved gradient ranges.
+    def ramp(names):
+        if not isinstance(names, list) or len(names) != 2:
+            raise ValueError(f"Paint requires two named colors: {names!r}")
+        first, last = [color_slot(name) for name in names]
+        if first > last or any(entry["reserved"] for entry in entries[first:last + 1]):
+            raise ValueError(f"Invalid gradient range: {names!r}")
+        return [first, last]
+
+    style = rig["style"]
+    validate_identifiers(list(style["paints"]), "paint")
+    style["paints"] = {name: ramp(colors) for name, colors in style["paints"].items()}
+    style["debug"] = {role: color_slot(name) for role, name in style["debug"].items()}
+    style["background"] = color_slot(style["background"])
+    style["back"]["ink"] = color_slot(style["back"]["ink"])
+    style["back"]["fill"] = ramp(style["back"]["fill"])
+    expected_metrics = {
+        "link_width", "handle_width", "outline_width", "anchor_diameter",
+        "handle_diameter", "selected_diameter", "label_marker_diameter",
+    }
+    if set(style["debug_metrics"]) != expected_metrics:
+        raise ValueError("Every named debug metric must be present")
+    metrics = dict(style["debug_metrics"])
+    metrics["back.stroke"] = style["back"]["stroke"]
+    metrics["overlay.stroke"] = style["overlay_toggle"]["stroke"]
+    metrics["overlay.marker_diameter"] = style["overlay_toggle"]["marker_diameter"]
+    for name, value in metrics.items():
+        if not 0 < finite(value, name) <= 21:
+            raise ValueError(f"Unsupported pixel metric {name}: {value}")
+
+
+# root: Checkout owning every source asset.
+# skin_path: Explicit character YAML to load; this is a build/preview selection.
+# Raises ValueError, yaml.YAMLError or OSError for invalid or unreadable skin authoring.
+def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
+    source = asset_path(root, skin_path)
+    rig = yaml.load(source.read_text(encoding="utf-8"), Loader=RigLoader)
+    if not isinstance(rig, dict) or rig.get("schema") != "cody.rig.v2":
+        raise ValueError(f"Unsupported skin document: {source}")
+    if rig["subdivisions"] != 12:
+        raise ValueError("Unsupported cubic subdivision count")
+    rig["source_path"] = source.relative_to(Path(root).resolve()).as_posix()
+    enum_identifier(rig["character"]["id"])
+    if rig["character"]["facing"] != "front" or not isinstance(rig["character"]["name"], str) or not rig["character"]["name"].strip():
+        raise ValueError("Skin requires a nonempty name, stable id and front-facing rig")
+    palette = read_json(asset_path(root, rig["palette_file"]))
+    validate_palette(palette)
+    resolve_style(rig, palette)
     if set(rig["style"]["debug"]) != {"anchor", "knot", "handle", "link", "selected"}:
         raise ValueError("All five debug color roles are required")
-    for value in list(rig["style"]["debug"].values()) + [rig["style"]["back"]["ink"]]:
-        if type(value) is not int or not 0 <= value < 172:
-            raise ValueError(f"Invalid debug/navigation palette slot: {value}")
-    back_slots = rig["style"]["back"]["fill"]
-    if len(back_slots) != 2 or any(type(v) is not int or not 0 <= v < 172 for v in back_slots) or back_slots[0] > back_slots[1]:
-        raise ValueError("Invalid Back gradient")
     font = rig["style"]["host_font"]
     if not isinstance(font["family"], str) or not font["family"] or type(font["size"]) is not int or not 6 <= font["size"] <= 24:
         raise ValueError("Invalid host font configuration")
@@ -75,14 +182,43 @@ def load_contract(root=ROOT):
         if path["paint"] not in rig["style"]["paints"]:
             raise ValueError(f"Unknown paint: {path['name']}")
         path["paint"] = rig["style"]["paints"][path["paint"]]
-    if rig["schema"] != "cody.rig.v1" or rig["subdivisions"] != 12:
-        raise ValueError("Unsupported rig schema or subdivision count")
     if not 1 <= len(rig["points"]) <= 192 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
         raise ValueError("Rig exceeds the bounded firmware geometry capacity")
-    channel_names = [item["name"] for item in rig["channels"]]
-    if channel_names != ["eye_left", "eye_right", "brow_left", "brow_right", "mouth_open", "breath",
-                         "mouth_width", "nose_size", "cheek_size", "cheek_opacity"]:
-        raise ValueError("Unexpected facial channel order")
+    validate_channel_catalog(rig)
+    compile_geometry(rig)
+    validate_face_definition(rig)
+    validate_contour_definition(rig)
+    if set(rig["boot_channels"]) != {"sleep", "waking", "ready"}:
+        raise ValueError("Three boot channel previews are required")
+    rig["boot_channels"] = {
+        name: named_preset(rig, values, f"boot.{name}")
+        for name, values in rig["boot_channels"].items()
+    }
+    validate_identifiers(list(rig["expression_presets"]), "expression")
+    if set(rig["expression_presets"]) & set(rig["boot_channels"]):
+        raise ValueError("Expression IDs must not collide with boot preset IDs")
+    for name, values in rig["expression_presets"].items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Expression presets require nonempty names")
+        rig["expression_presets"][name] = named_preset(rig, values, f"expression.{name}")
+    placement = rig["default_transform"]
+    x, y, scale = [finite(placement[key], "default_transform") for key in ("x", "y", "scale")]
+    if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
+        raise ValueError("Invalid authored default transform")
+    return rig, palette
+
+
+
+# rig: Declared semantic channels; YAML order never chooses their runtime meaning.
+# Raises ValueError for duplicate names, unsupported channels or unsafe bounds.
+def validate_channel_catalog(rig):
+    declared_channels = {channel["name"]: channel for channel in rig["channels"]}
+    expected_channels = {channel_name(channel) for channel in FaceChannel}
+    validate_identifiers([channel["name"] for channel in rig["channels"]], "channel")
+    if set(declared_channels) != expected_channels:
+        raise ValueError("Skin must declare the supported named facial channels")
+    # Canonical storage order is derived from semantic enums, never YAML positions.
+    rig["channels"] = [declared_channels[channel_name(channel)] for channel in FaceChannel]
     for channel in rig["channels"]:
         lower, upper, default = [finite(channel[key], channel["name"]) for key in ("minimum", "maximum", "default")]
         if not lower <= default <= upper or lower >= upper:
@@ -91,11 +227,18 @@ def load_contract(root=ROOT):
                           'mouth_width': (.5, 1.6), 'nose_size': (.5, 1.6), 'cheek_size': (.4, 1.8)}.get(channel['name'], (0, 1))
         if (lower, upper) != expected_range:
             raise ValueError(f"{channel['name']}: semantic range must remain {expected_range}")
+
+
+# rig: Named point/curve/path/entity graph, compiled without changing its geometry.
+# Raises ValueError for missing IDs, ambiguous ownership or invalid geometry.
+def compile_geometry(rig):
+    channel_names = {channel_name(channel) for channel in FaceChannel}
     names = [point["name"] for point in rig["points"]]
-    if len(set(names)) != len(names) or names[0] != "center":
-        raise ValueError("Rig points require unique stable names and a leading center")
+    validate_identifiers(names, "point")
+    # The first declared point owns the rig; give that relationship a name.
+    rig["root_point"] = names[0]
     for index, point in enumerate(rig["points"]):
-        if point["role"] not in ("anchor", "knot", "handle"):
+        if point["role"] not in {role.value for role in PointRole}:
             raise ValueError(f"Invalid point role: {point['name']}")
         parent = point["parent"]
         if (index == 0 and parent is not None) or (index != 0 and parent not in names[:index]):
@@ -106,32 +249,48 @@ def load_contract(root=ROOT):
         if point["channel"] is not None and point["channel"] not in channel_names:
             raise ValueError(f"Unknown point channel: {point['name']}")
     curve_names = [curve["name"] for curve in rig["curves"]]
-    if len(set(curve_names)) != len(curve_names):
-        raise ValueError("Duplicate curve name")
+    validate_identifiers(curve_names, "curve")
     for curve in rig["curves"]:
         if len(curve["points"]) != 4 or any(name not in names for name in curve["points"]):
             raise ValueError(f"Invalid cubic: {curve['name']}")
-    next_curve = 0
-    path_names = set()
+    validate_identifiers([path["name"] for path in rig["paths"]], "path")
+    curves_by_name = {curve["name"]: curve for curve in rig["curves"]}
+    ordered_curves = []
+    owned_curves = set()
+    # Compile named path ownership to compact contiguous curve ranges.
     for path in rig["paths"]:
-        if path["name"] in path_names or type(path["first_curve"]) is not int or type(path["curve_count"]) is not int or path["first_curve"] != next_curve or not 1 <= path["curve_count"] <= 21:
-            raise ValueError(f"Invalid path extent or name: {path['name']}")
-        path_names.add(path["name"])
-        next_curve += path["curve_count"]
-        segments = rig["curves"][path["first_curve"]:next_curve]
-        if len(segments) != path["curve_count"] or any(a["points"][3] != b["points"][0] for a, b in zip(segments, segments[1:])):
-            raise ValueError(f"Disconnected path: {path['name']}")
+        curve_ids = path["curves"]
+        if not isinstance(curve_ids, list) or not 1 <= len(curve_ids) <= 21:
+            raise ValueError(f"Invalid named curve list: {path['name']}")
+        for curve_id in curve_ids:
+            if curve_id not in curves_by_name or curve_id in owned_curves:
+                raise ValueError(f"Missing or multiply owned curve: {curve_id}")
+            owned_curves.add(curve_id)
+            ordered_curves.append(curves_by_name[curve_id])
+        path["first_curve"] = len(ordered_curves) - len(curve_ids)
+        path["curve_count"] = len(curve_ids)
+    if owned_curves != set(curves_by_name):
+        raise ValueError("Every named curve must have exactly one path owner")
+    rig["curves"] = ordered_curves
+    path_names = {path["name"] for path in rig["paths"]}
+    for path in rig["paths"]:
+        # Ownership was compiled above. Here we inspect the actual connected geometry.
+        first_curve = path["first_curve"]
+        last_curve = first_curve + path["curve_count"]
+        segments = rig["curves"][first_curve:last_curve]
+        for previous, following in zip(segments, segments[1:]):
+            if previous["points"][CurvePoint.END] != following["points"][CurvePoint.START]:
+                raise ValueError(f"Disconnected path: {path['name']}")
         width = finite(path["stroke"], path["name"])
-        if not 0 <= width <= .1 or (width == 0 and segments[-1]["points"][3] != segments[0]["points"][0]):
-            raise ValueError(f"Invalid stroke or open fill: {path['name']}")
+        if not 0 <= width <= .1 or width * 200 * 1.018 > 21:
+            raise ValueError(f"Unsupported stroke width: {path['name']}")
+        first_point = segments[0]["points"][CurvePoint.START]
+        last_point = segments[-1]["points"][CurvePoint.END]
+        if width == 0 and first_point != last_point:
+            raise ValueError(f"Filled path must be closed: {path['name']}")
         if path["visible"] is not None and path["visible"] not in channel_names:
             raise ValueError(f"Unknown visibility channel: {path['name']}")
-        if len(path["paint"]) != 2 or any(type(slot) is not int or not 0 <= slot < 172 for slot in path["paint"]):
-            raise ValueError(f"Invalid palette range: {path['name']}")
-        if path["paint"][0] > path["paint"][1]:
-            raise ValueError(f"Reversed palette range: {path['name']}")
-    if next_curve != len(rig["curves"]):
-        raise ValueError("Unowned rig curves")
+    validate_identifiers(list(rig["entities"]), "entity")
     owned_paths = []
     for name, entity in rig["entities"].items():
         if not name or not isinstance(entity["label"], str) or not entity["label"].strip() or entity["anchor"] not in names or not entity["paths"]:
@@ -139,8 +298,11 @@ def load_contract(root=ROOT):
         owned_paths.extend(entity["paths"])
     if len(owned_paths) != len(set(owned_paths)) or set(owned_paths) != path_names:
         raise ValueError("Each drawn path must belong to exactly one named entity")
-    validate_face_definition(rig)
-    validate_contour_definition(rig)
+
+
+# palette: Shared indexed color source to check before any skin references are resolved.
+# Raises ValueError for incomplete slots or inconsistent RGB888/RGB565 words.
+def validate_palette(palette):
     if len(palette["entries"]) != 256 or [item["index"] for item in palette["entries"]] != list(range(256)):
         raise ValueError("Palette must contain all 256 ordered slots")
     for entry in palette["entries"]:
@@ -150,35 +312,25 @@ def load_contract(root=ROOT):
         red, green, blue = (int(rgb[i:i+2], 16) for i in (0, 2, 4))
         if int(entry["rgb565"], 16) != ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3):
             raise ValueError(f"RGB565 mismatch: {entry['index']}")
-    if set(rig["boot_channels"]) != {"sleep", "waking", "ready"}:
-        raise ValueError("Three boot channel previews are required")
-    for values in rig["boot_channels"].values():
-        validate_channels(rig, values)
-    for name, values in rig["expression_presets"].items():
-        if not isinstance(name, str) or not name.strip():
-            raise ValueError("Expression presets require nonempty names")
-        validate_channels(rig, values)
-    placement = rig["default_transform"]
-    x, y, scale = [finite(placement[key], "default_transform") for key in ("x", "y", "scale")]
-    if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
-        raise ValueError("Invalid authored default transform")
-    return rig, palette
-
 
 # rig supplies the already checked point/path graph and declarative facial bindings.
 # Raises ValueError for ambiguous transforms, unsafe anchors or unsupported opacity bindings.
 def validate_face_definition(rig):
     if not .05 <= finite(rig["face_transition_seconds"], "face_transition_seconds") <= 5:
         raise ValueError("Face transition time constant must be between 0.05 and 5 seconds")
-    expected = {("mouth", "mouth_width", ("x",)), ("nose", "nose_size", ("x", "y")),
-                ("cheek.left", "cheek_size", ("x", "y")), ("cheek.right", "cheek_size", ("x", "y"))}
     bindings = rig["face_transforms"]
-    if len(bindings) != len(expected) or {(item["anchor"], item["channel"], tuple(item["axes"])) for item in bindings} != expected:
-        raise ValueError("Face transforms must explicitly bind mouth width, nose size and both cheek sizes")
+    anchor_ids = [binding["anchor"] for binding in bindings]
+    if len(set(anchor_ids)) != len(anchor_ids):
+        raise ValueError("Each facial anchor may have only one transform binding")
+    for binding in bindings:
+        face_channel(binding["channel"])
+        axes = binding["axes"]
+        if not axes or len(set(axes)) != len(axes) or set(axes) - {"x", "y"}:
+            raise ValueError(f"Invalid facial transform axes: {binding['anchor']}")
     points = {point["name"]: point for point in rig["points"]}
     anchors = {item["anchor"]: item for item in bindings}
     for name in anchors:
-        if name not in points or points[name]["role"] != "anchor" or points[name]["parent"] != "center":
+        if name not in points or points[name]["role"] != PointRole.ANCHOR or points[name]["parent"] != rig["root_point"]:
             raise ValueError(f"Face transform requires a fixed direct root anchor: {name}")
     rig["point_face_transforms"] = {}
     for point in rig["points"]:
@@ -192,21 +344,19 @@ def validate_face_definition(rig):
             ancestor = points[ancestor]["parent"]
         rig["point_face_transforms"][point["name"]] = tuple(
             binding["channel"] if binding is not None and axis in binding["axes"] else None for axis in ("x", "y"))
-    if rig["path_opacity"] != {"cheek.left": "cheek_opacity", "cheek.right": "cheek_opacity"}:
-        raise ValueError("Only the two cheek fills have an authored opacity channel")
-    owned_points = {anchor: set() for anchor in anchors}
+    path_names = {path["name"] for path in rig["paths"]}
+    for path_name, channel in rig["path_opacity"].items():
+        if path_name not in path_names:
+            raise ValueError(f"Unknown opacity path: {path_name}")
+        definition = rig["channels"][face_channel(channel)]
+        if definition["minimum"] != 0 or definition["maximum"] != 1:
+            raise ValueError(f"Opacity requires a zero-to-one channel: {channel}")
     for path in rig["paths"]:
         opacity_channel = rig["path_opacity"].get(path["name"])
         if opacity_channel is not None and path["stroke"] != 0:
             raise ValueError(f"Opacity is supported by filled paths only: {path['name']}")
         path["opacity_channel"] = opacity_channel
-        curves = rig["curves"][path["first_curve"]:path["first_curve"] + path["curve_count"]]
-        if path["name"] in owned_points:
-            owned_points[path["name"]].update(name for curve in curves for name in curve["points"])
-    for anchor, path_points in owned_points.items():
-        expected_channel = anchors[anchor]["channel"]
-        if not path_points or any(expected_channel not in rig["point_face_transforms"][name] for name in path_points):
-            raise ValueError(f"All facial path points must descend from their stable anchor: {anchor}")
+
 
 
 # rig supplies authored outline metadata and the already checked parent/path graph.
@@ -214,8 +364,11 @@ def validate_face_definition(rig):
 def validate_contour_definition(rig):
     contour = rig["contour"]
     expected = {"fullness": (-1, 1), "amplitude": (0, 1), "speed": (0, 2), "phase_spread": (0, 1)}
-    if [item["name"] for item in contour["controls"]] != list(expected):
-        raise ValueError("Contour controls must be fullness, amplitude, speed and phase_spread")
+    validate_identifiers([item["name"] for item in contour["controls"]], "contour control")
+    declared = {item["name"]: item for item in contour["controls"]}
+    if set(declared) != set(expected):
+        raise ValueError("Contour controls must name fullness, amplitude, speed and phase_spread")
+    contour["controls"] = [declared[control.value] for control in ContourControl]
     for control in contour["controls"]:
         bounds = tuple(finite(control[key], control["name"]) for key in ("minimum", "maximum"))
         if bounds != expected[control["name"]] or not bounds[0] <= finite(control["default"], control["name"]) <= bounds[1]:
@@ -224,18 +377,18 @@ def validate_contour_definition(rig):
             raise ValueError(f"Missing contour label: {control['name']}")
     if not .05 <= finite(contour["transition_seconds"], "contour.transition_seconds") <= 5:
         raise ValueError("Contour transition time constant must be between 0.05 and 5 seconds")
-    body = next((path for path in rig["paths"] if path["name"] == "body"), None)
-    if body is None or body["stroke"] != 0 or body["curve_count"] != 11:
-        raise ValueError("Contour requires the eleven-segment filled body path")
+    body = next((path for path in rig["paths"] if path["name"] == contour["path"]), None)
+    if body is None or body["stroke"] != 0 or not 1 <= body["curve_count"] <= 21:
+        raise ValueError("Contour requires an explicit bounded filled path")
     curves = rig["curves"][body["first_curve"]:body["first_curve"] + body["curve_count"]]
-    lobe_names = [curve["points"][0] for curve in curves]
-    if [lobe["point"] for lobe in contour["lobes"]] != lobe_names or len(set(lobe_names)) != 11:
-        raise ValueError("Contour lobes must follow the eleven unique body knots in perimeter order")
+    lobe_names = [curve["points"][CurvePoint.START] for curve in curves]
+    if [lobe["point"] for lobe in contour["lobes"]] != lobe_names or len(set(lobe_names)) != len(curves):
+        raise ValueError("Contour lobes must follow the unique outline knots in perimeter order")
     points = {point["name"]: point for point in rig["points"]}
     body_points = {name for curve in curves for name in curve["points"]}
     for curve in curves:
-        for handle, anchor in ((curve["points"][1], curve["points"][0]), (curve["points"][2], curve["points"][3])):
-            if points[handle]["role"] != "handle" or points[handle]["parent"] != anchor:
+        for handle, anchor in ((curve["points"][CurvePoint.OUTGOING_HANDLE], curve["points"][CurvePoint.START]), (curve["points"][CurvePoint.INCOMING_HANDLE], curve["points"][CurvePoint.END])):
+            if points[handle]["role"] != PointRole.HANDLE or points[handle]["parent"] != anchor:
                 raise ValueError(f"Contour handle must follow its own lobe: {handle}")
     for name in body_points:
         if points[name]["channel"] is not None:
@@ -249,7 +402,7 @@ def validate_contour_definition(rig):
     previous_phase = -1
     for lobe in contour["lobes"]:
         point = points[lobe["point"]]
-        if point["role"] != "anchor" or point["parent"] != "center":
+        if point["role"] != PointRole.ANCHOR or point["parent"] != rig["root_point"]:
             raise ValueError(f"Contour lobe must be a direct root anchor: {lobe['point']}")
         if len(lobe["direction"]) != 2:
             raise ValueError(f"Contour direction needs two coordinates: {lobe['point']}")
@@ -258,8 +411,10 @@ def validate_contour_definition(rig):
             raise ValueError(f"Contour direction must have unit length: {lobe['point']}")
         fullness = finite(lobe["fullness"], lobe["point"])
         wave = finite(lobe["wave"], lobe["point"])
-        # The tiny lower-left and foot curves permit less travel than the large crown.
-        limit = .03 if lobe["point"] in ("lobe.foot_left", "lobe.foot_right", "lobe.lower_left") else .12
+        # Each skin declares its local excursion limit; the engine keeps a hard safety ceiling.
+        limit = finite(lobe["limit"], f"contour.{lobe['point']}.limit")
+        if not 0 < limit <= .12:
+            raise ValueError(f"Invalid contour excursion limit: {lobe['point']}")
         if not 0 <= fullness <= .06 or not 0 <= wave <= .06 or fullness + wave > limit:
             raise ValueError(f"Contour displacement exceeds the authored PoC bound: {lobe['point']}")
         phase = finite(lobe["phase_turns"], lobe["point"])
@@ -314,24 +469,30 @@ def advance_contour(rig, state, target, delta_ms):
         raise ValueError("Contour transition time constant must be between 0.05 and 5 seconds")
     ratio = delta_seconds / time_constant
     weight = -math.expm1(-ratio)
-    result = {key: state[key] if state[key] == target[key] else state[key] * (1 - weight) + target[key] * weight for key in target}
+    result = {}
+    for name, requested in target.items():
+        previous = state[name]
+        result[name] = previous if previous == requested else previous * (1 - weight) + requested * weight
     # Integral of the smoothed frequency; the series avoids cancellation at tiny dt.
-    ramp_time = delta_seconds * ratio * (.5 - ratio/6 + ratio*ratio/24 - ratio*ratio*ratio/120) if ratio < .001 else delta_seconds - time_constant * weight
-    turns = state["speed"] * (delta_seconds - ramp_time) + target["speed"] * ramp_time
+    if ratio < .001:
+        ramp_time = delta_seconds * ratio * (.5 - ratio / 6 + ratio ** 2 / 24 - ratio ** 3 / 120)
+    else:
+        ramp_time = delta_seconds - time_constant * weight
+    turns = state[ContourControl.SPEED] * (delta_seconds - ramp_time) + target[ContourControl.SPEED] * ramp_time
     result["phase"] = (state["phase"] + math.tau * finite(turns, "contour.integrated_turns")) % math.tau
     validate_contour_values(rig, result, state=True)
     return result
 
 
-# rig supplies the eleven bounded per-lobe displacement definitions.
+# rig: Supplies the skin-defined bounded per-lobe displacement definitions.
 # state is a previously validated contour state, or None for the undeformed authored outline.
 def contour_offsets(rig, state):
     if state is None:
         return {}
     offsets = {}
     for lobe in rig["contour"]["lobes"]:
-        wave = math.sin(state["phase"] - math.tau * state["phase_spread"] * lobe["phase_turns"])
-        distance = state["fullness"] * lobe["fullness"] + state["amplitude"] * lobe["wave"] * wave
+        wave = math.sin(state["phase"] - math.tau * state[ContourControl.PHASE_SPREAD] * lobe["phase_turns"])
+        distance = state[ContourControl.FULLNESS] * lobe["fullness"] + state[ContourControl.AMPLITUDE] * lobe["wave"] * wave
         offsets[lobe["point"]] = tuple(value * distance for value in lobe["direction"])
     return offsets
 
@@ -370,7 +531,8 @@ def advance_face(rig, state, target, delta_ms):
     return result
 
 
-# base contains independent facial controls; elapsed_ms is monotonic animation time.
+# base: Independent semantic face channels, accessed through FaceChannel.
+# elapsed_ms: Active monotonic animation time.
 # Raises ValueError if elapsed time is negative or non-finite.
 def animate(base, elapsed_ms):
     if finite(elapsed_ms, "elapsed_ms") < 0:
@@ -379,10 +541,10 @@ def animate(base, elapsed_ms):
     blink_ms = elapsed_ms % 4800
     blink = .5 - .5 * math.cos(math.tau * blink_ms / 280) if blink_ms < 280 else 0
     values = list(base)
-    values[0] *= 1 - blink
-    values[1] *= 1 - blink
-    values[4] += (1 - base[4]) * .08 * (.5 + .5 * breath)
-    values[5] += (1 - abs(base[5])) * breath
+    values[FaceChannel.EYE_LEFT] *= 1 - blink
+    values[FaceChannel.EYE_RIGHT] *= 1 - blink
+    values[FaceChannel.MOUTH_OPEN] += (1 - base[FaceChannel.MOUTH_OPEN]) * .08 * (.5 + .5 * breath)
+    values[FaceChannel.BREATH] += (1 - abs(base[FaceChannel.BREATH])) * breath
     return values
 
 
@@ -395,11 +557,20 @@ def sample_path(rig, definition, world):
     for curve_index, curve in enumerate(curves):
         control = [world[name] for name in curve["points"]]
         if curve_index == 0:
-            vertices.append(control[0])
+            vertices.append(control[CurvePoint.START])
         for step in range(1, rig["subdivisions"] + 1):
-            t = step / rig["subdivisions"]
-            u = 1 - t
-            vertices.append(tuple(u*u*u*control[0][axis] + 3*u*u*t*control[1][axis] + 3*u*t*t*control[2][axis] + t*t*t*control[3][axis] for axis in (0, 1)))
+            progress = step / rig["subdivisions"]
+            remaining = 1 - progress
+            weights = (
+                remaining ** 3,
+                3 * remaining ** 2 * progress,
+                3 * remaining * progress ** 2,
+                progress ** 3,
+            )
+            # The handles steer the curve; they are not extra points on its outline.
+            horizontal = sum(weight * point[0] for weight, point in zip(weights, control))
+            vertical = sum(weight * point[1] for weight, point in zip(weights, control))
+            vertices.append((horizontal, vertical))
     return vertices
 
 
@@ -449,7 +620,7 @@ def evaluate(rig, values, transform, contour=None):
     rest_outline = []
     for definition in rig["paths"]:
         vertices = sample_path(rig, definition, world)
-        if definition["name"] == "body":
+        if definition["name"] == rig["contour"]["path"]:
             rest_outline = sample_path(rig, definition, rest_world)
         opacity = channels[definition["opacity_channel"]] if definition["opacity_channel"] is not None else 1.0
         paths.append(dict(definition=definition, vertices=vertices,

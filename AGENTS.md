@@ -41,6 +41,23 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
   Its geometry comes from the existing Luna UI; Cody layouts must use the
   standalone 2D renderer without admitting LVGL dependencies.
 
+## Code clarity and identities
+
+- Prefer readable steps and clear variable/method names over fewer lines.
+  Do not compress branches or unrelated statements onto one line.
+- Address domain controls and identities with enums and unique names/IDs.
+  Raw indices belong only to internal storage traversal or API boundaries;
+  never use list position as the meaning or identity of a domain element.
+- Give authored entities unique IDs within explicit typed namespaces. Reject
+  duplicates and ambiguous references; preserve names across reordering.
+- Above each new or modified function, describe each parameter on its own
+  comment line and applicable exceptions on a separate line. Add useful
+  comments inside methods for non-obvious choices, ownership and invariants.
+- Keep comments natural and occasionally informal where helpful. Explain the
+  decision; do not narrate obvious code or add filler comments.
+- Extract helpers around a clear responsibility. Avoid speculative abstraction
+  and check that removing repetition also improves understanding.
+
 ## Fail-fast and error visibility
 
 - Never convert a failure or partial failure into `ESP_OK`.

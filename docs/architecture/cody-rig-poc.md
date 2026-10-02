@@ -18,9 +18,9 @@ not introduced by this PoC.
 
 The shared table in `assets/cody/palette/palette256.json` has exactly 256 slots:
 172 allocated colors and 84 reserved black slots. All rig fills, strokes and
-debug markers use this table, quantized to RGB565. Blue uses slots 20-83; mint
-uses 84-131. To try mint, change `style.paints.cloud` and `style.back.fill` to
-`[84, 131]`, regenerate the tables, then restart the preview. Core graphics and
+debug markers use this table, quantized to RGB565. Slot numbers are an encoding detail. Blue occupies slots 20-83; mint
+occupies 84-131. YAML refers to their unique color IDs. To try mint, change `style.paints.cloud` and `style.back.fill` to
+`[mint.level.00, mint.level.47]`, regenerate the tables, then restart the preview. Core graphics and
 tables stay in internal flash. Original boot assets retain their own indexed
 palettes; this does not recolor those approved PNGs.
 
@@ -33,6 +33,56 @@ Conversion checks the authored contract and writes immutable C++ data under
 `assets/cody/rig/generated/`. It is separate from building or running firmware.
 Do not edit generated point tables. IDs use viewer-left/viewer-right consistently.
 The point cloud contains 145 named points, 44 cubic segments and 11 drawn parts.
+
+## Named skins and readable implementation
+
+The v2 authoring contract selects one front-facing character per YAML. Points,
+curves, paths, entities and colors have unique IDs within their typed namespace.
+Paths list curve IDs directly; boot and expression presets map channel names
+to values. YAML declaration order does not choose a control's meaning.
+The generator rejects duplicate IDs and names that collide after C++ enum
+conversion. Numeric offsets remain internal to compact rendering tables.
+
+`FaceChannel`, `ContourControl`, `PointRole` and `CurvePoint` make engine
+semantics explicit. Generated `PointId`, `CurveId`, `PathId`, `EntityId`,
+`ColorId` and `ContourLobeId` carry authored identities into firmware.
+Style owns the named background, paint ramps, debug colors, debug line/marker
+metrics and lateral icon stroke widths. Native raster limits remain engine
+constraints rather than skin settings.
+
+The selected contour path and its bounded lobe definitions come from YAML;
+the engine no longer requires Cody's eleven particular lobes. A skin still
+must fit the supported ten face controls, four contour controls and bounded
+front-facing geometry. This is character reuse within this renderer's contract.
+
+```powershell
+# Preview the selected YAML directly.
+.\scripts\device.ps1 simulator -Skin assets/cody/cody.yaml
+
+# Select the YAML for the next firmware asset conversion.
+.\scripts\device.ps1 generate -Generator cody-rig -ToolArguments '--skin','assets/cody/cody.yaml'
+```
+
+Conversion replaces the active generated rig package and records the selected
+source path and character ID in its manifest. Firmware reads that one package;
+there is no runtime YAML parser or skin switch. The three existing boot
+artworks stay separate and need their own authoring/conversion for a new
+character's complete startup imagery.
+
+The loader separates style resolution, channel definitions, geometry ownership,
+face bindings and contour constraints. Firmware drawing separates artwork,
+debug geometry and lateral navigation. The companion separates geometry
+evaluation from measured frame diagnostics and adopts an acquired BSP lock
+with an automatic release on every draw exit.
+
+The preview separates face, contour and debug control construction from frame
+advancement. Frame presentation, contour readouts and point inspection now have
+their own methods. Desktop scaling uses the same logical framebuffer; input and
+labels use the layout and rotation that were actually presented.
+
+This refactor has static source review and successful asset conversion only.
+Builds, simulator execution, regression checks and physical behavior have not
+been validated for this revision.
 
 ## Geometry and animation
 

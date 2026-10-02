@@ -268,6 +268,9 @@ private:
     static std::optional<LazyScreenDescriptor> lazy_screen_descriptor(
         Screen screen
     );
+    // Select the lazy document only when a non-Welcome route owns it.
+    [[nodiscard]] bool has_active_screen_document() const;
+
     static bool shares_lazy_document(Screen left, Screen right);
     std::expected<void, std::string> activate_screen_document(
         esp_brookesia::system::core::AppContext &context,
@@ -278,6 +281,21 @@ private:
     );
     std::expected<void, std::string> unload_active_screen_document(
         esp_brookesia::system::core::AppContext &context
+    );
+    // context: Runtime owning the document event stream.
+    // document_id: Loaded document identity retained by the callback.
+    // generation: Loading generation used to reject obsolete callbacks.
+    // action: Unique action ID within this document.
+    // handler: Callback invoked only while the captured document is active.
+    // connections: Owner of the loading attempt's successful subscriptions.
+    // Exceptions: std::bad_alloc if callback or connection storage cannot be allocated.
+    std::expected<void, std::string> subscribe_screen_document_action(
+        esp_brookesia::system::core::AppContext &context,
+        esp_brookesia::gui::DocumentId document_id,
+        uint32_t generation,
+        std::string_view action,
+        esp_brookesia::gui::Runtime::ActionHandler handler,
+        std::vector<esp_brookesia::gui::ScopedConnection> &connections
     );
     std::expected<void, std::string> subscribe_screen_document_actions(
         esp_brookesia::system::core::AppContext &context,

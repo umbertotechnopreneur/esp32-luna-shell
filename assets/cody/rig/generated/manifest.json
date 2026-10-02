@@ -1,5 +1,7 @@
 {
-  "schema": "cody.rig.generated.v1",
+  "schema": "cody.rig.generated.v2",
+  "skin_id": "cody",
+  "source_path": "assets/cody/cody.yaml",
   "points": 145,
   "curves": 44,
   "paths": 11,
@@ -9,6 +11,6 @@
   "contour_lobes": 11,
   "facial_channels": 10,
   "face_transforms": 4,
-  "source_sha256": "b3a0350b66450ca1bb23c1fca61412b862011b7aad6fc1bd7b0ee8ee52d4ac0c",
-  "palette_sha256": "31669270115a8eb9a5af445de80537b4674c2882029ae6435d1a506cdd13ffdf"
+  "source_sha256": "edc5bd5caedb0365229aa1f06b92c159d194428607d0c82ff5eeda4ac9174326",
+  "palette_sha256": "bdf7adf1a914a621e781fe42d77731f050db8b8630986e8e84d3610e26ca9d3d"
 }

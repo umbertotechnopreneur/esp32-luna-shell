@@ -1,40 +1,54 @@
 # Cody identity, entities, normalized rig and indexed style.
 # Point offsets are relative to their parent anchor; curve handles follow their knots.
-# Paint slots refer to palette256.json; cloud [84, 131] selects mint.
-schema: cody.rig.v1
+# Paints name palette colors; use mint.level.00 through mint.level.47 for mint.
+schema: cody.rig.v2
 character:
   id: cody
   name: Cody
   facing: front
 palette_file: assets/cody/palette/palette256.json
+# Style references stable palette color IDs; widths/diameters below are pixels.
 style:
   paints:
     cloud:
-    - 20
-    - 83
+    - blue.level.00
+    - blue.level.63
     cheek:
-    - 143
-    - 143
+    - coral.level.11
+    - coral.level.11
     ink:
-    - 3
-    - 3
+    - fixed.ink
+    - fixed.ink
     highlight:
-    - 1
-    - 1
+    - fixed.highlight
+    - fixed.highlight
   debug:
-    anchor: 1
-    knot: 20
-    handle: 160
-    link: 83
-    selected: 110
+    anchor: fixed.highlight
+    knot: blue.level.00
+    handle: gold.level.04
+    link: blue.level.63
+    selected: mint.level.26
   back:
     fill:
-    - 20
-    - 83
-    ink: 3
+    - blue.level.00
+    - blue.level.63
+    ink: fixed.ink
+    stroke: 3
   host_font:
     family: JetBrains Mono Nerd Font
     size: 10
+  background: fixed.background
+  debug_metrics:
+    link_width: 1
+    handle_width: 1
+    outline_width: 1
+    anchor_diameter: 5
+    handle_diameter: 3
+    selected_diameter: 9
+    label_marker_diameter: 6
+  overlay_toggle:
+    stroke: 1
+    marker_diameter: 5
 entities:
   body:
     label: Body
@@ -146,10 +160,21 @@ path_opacity:
   cheek.left: cheek_opacity
   cheek.right: cheek_opacity
 expression_presets:
-  embarrassed: [0.65, 0.65, 0.3, 0.3, 0.12, 0, 0.8, 1, 1.5, 0.85]
+  embarrassed:
+    eye_left: 0.65
+    eye_right: 0.65
+    brow_left: 0.3
+    brow_right: 0.3
+    mouth_open: 0.12
+    breath: 0
+    mouth_width: 0.8
+    nose_size: 1
+    cheek_size: 1.5
+    cheek_opacity: 0.85
 # Shape controls affect only the outline anchors and their child handles.
 # Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
 contour:
+  path: body
   transition_seconds: 0.35
   controls:
   - {name: fullness, label: Fullness, minimum: -1, maximum: 1, default: 0}
@@ -159,17 +184,17 @@ contour:
   # Unit directions follow the authored perimeter. Small feet get smaller excursions.
   # Fullness and wave are maximum normalized distances, not sensor measurements.
   lobes:
-  - {point: lobe.left, direction: [-1, 0], fullness: 0.025, wave: 0.025, phase_turns: 0.0}
-  - {point: lobe.upper_left, direction: [-0.6, -0.8], fullness: 0.035, wave: 0.045, phase_turns: 0.091}
-  - {point: lobe.crown, direction: [0, -1], fullness: 0.05, wave: 0.06, phase_turns: 0.182}
-  - {point: lobe.upper_right, direction: [0.6, -0.8], fullness: 0.035, wave: 0.04, phase_turns: 0.273}
-  - {point: lobe.shoulder, direction: [0.8, -0.6], fullness: 0.035, wave: 0.035, phase_turns: 0.364}
-  - {point: lobe.right, direction: [1, 0], fullness: 0.025, wave: 0.025, phase_turns: 0.455}
-  - {point: lobe.lower_right, direction: [0.6, 0.8], fullness: 0.02, wave: 0.02, phase_turns: 0.545}
-  - {point: lobe.foot_right, direction: [0, 1], fullness: 0.014, wave: 0.014, phase_turns: 0.636}
-  - {point: lobe.belly, direction: [0, 1], fullness: 0.018, wave: 0.018, phase_turns: 0.727}
-  - {point: lobe.foot_left, direction: [0, 1], fullness: 0.012, wave: 0.012, phase_turns: 0.818}
-  - {point: lobe.lower_left, direction: [-0.6, 0.8], fullness: 0.014, wave: 0.014, phase_turns: 0.909}
+  - {point: lobe.left, direction: [-1, 0], fullness: 0.025, wave: 0.025, limit: 0.12, phase_turns: 0.0}
+  - {point: lobe.upper_left, direction: [-0.6, -0.8], fullness: 0.035, wave: 0.045, limit: 0.12, phase_turns: 0.091}
+  - {point: lobe.crown, direction: [0, -1], fullness: 0.05, wave: 0.06, limit: 0.12, phase_turns: 0.182}
+  - {point: lobe.upper_right, direction: [0.6, -0.8], fullness: 0.035, wave: 0.04, limit: 0.12, phase_turns: 0.273}
+  - {point: lobe.shoulder, direction: [0.8, -0.6], fullness: 0.035, wave: 0.035, limit: 0.12, phase_turns: 0.364}
+  - {point: lobe.right, direction: [1, 0], fullness: 0.025, wave: 0.025, limit: 0.12, phase_turns: 0.455}
+  - {point: lobe.lower_right, direction: [0.6, 0.8], fullness: 0.02, wave: 0.02, limit: 0.12, phase_turns: 0.545}
+  - {point: lobe.foot_right, direction: [0, 1], fullness: 0.014, wave: 0.014, limit: 0.03, phase_turns: 0.636}
+  - {point: lobe.belly, direction: [0, 1], fullness: 0.018, wave: 0.018, limit: 0.12, phase_turns: 0.727}
+  - {point: lobe.foot_left, direction: [0, 1], fullness: 0.012, wave: 0.012, limit: 0.03, phase_turns: 0.818}
+  - {point: lobe.lower_left, direction: [-0.6, 0.8], fullness: 0.014, wave: 0.014, limit: 0.03, phase_turns: 0.909}
 points:
 - name: center
   position:
@@ -1886,78 +1911,142 @@ curves:
   - mouth.p7
   - mouth.p8
   - mouth.p0
+# Each path owns an explicit ordered list of named curves.
 paths:
 - name: body
-  first_curve: 0
-  curve_count: 11
   paint: cloud
   stroke: 0
   visible: null
+  curves:
+  - body.curve.0
+  - body.curve.1
+  - body.curve.2
+  - body.curve.3
+  - body.curve.4
+  - body.curve.5
+  - body.curve.6
+  - body.curve.7
+  - body.curve.8
+  - body.curve.9
+  - body.curve.10
 - name: cheek.left
-  first_curve: 11
-  curve_count: 4
   paint: cheek
   stroke: 0
   visible: null
+  curves:
+  - cheek.left.curve.0
+  - cheek.left.curve.1
+  - cheek.left.curve.2
+  - cheek.left.curve.3
 - name: cheek.right
-  first_curve: 15
-  curve_count: 4
   paint: cheek
   stroke: 0
   visible: null
+  curves:
+  - cheek.right.curve.0
+  - cheek.right.curve.1
+  - cheek.right.curve.2
+  - cheek.right.curve.3
 - name: eye.left
-  first_curve: 19
-  curve_count: 4
   paint: ink
   stroke: 0
   visible: null
+  curves:
+  - eye.left.curve.0
+  - eye.left.curve.1
+  - eye.left.curve.2
+  - eye.left.curve.3
 - name: eye.left.shine
-  first_curve: 23
-  curve_count: 4
   paint: highlight
   stroke: 0
   visible: eye_left
+  curves:
+  - eye.left.shine.curve.0
+  - eye.left.shine.curve.1
+  - eye.left.shine.curve.2
+  - eye.left.shine.curve.3
 - name: brow.left
-  first_curve: 27
-  curve_count: 1
   paint: ink
   stroke: 0.042
   visible: null
+  curves:
+  - brow.left.curve.0
 - name: eye.right
-  first_curve: 28
-  curve_count: 4
   paint: ink
   stroke: 0
   visible: null
+  curves:
+  - eye.right.curve.0
+  - eye.right.curve.1
+  - eye.right.curve.2
+  - eye.right.curve.3
 - name: eye.right.shine
-  first_curve: 32
-  curve_count: 4
   paint: highlight
   stroke: 0
   visible: eye_right
+  curves:
+  - eye.right.shine.curve.0
+  - eye.right.shine.curve.1
+  - eye.right.shine.curve.2
+  - eye.right.shine.curve.3
 - name: brow.right
-  first_curve: 36
-  curve_count: 1
   paint: ink
   stroke: 0.042
   visible: null
+  curves:
+  - brow.right.curve.0
 - name: nose
-  first_curve: 37
-  curve_count: 4
   paint: ink
   stroke: 0
   visible: null
+  curves:
+  - nose.curve.0
+  - nose.curve.1
+  - nose.curve.2
+  - nose.curve.3
 - name: mouth
-  first_curve: 41
-  curve_count: 3
   paint: ink
   stroke: 0
   visible: null
+  curves:
+  - mouth.curve.0
+  - mouth.curve.1
+  - mouth.curve.2
 default_transform:
   x: 233
   y: 235
   scale: 145
 boot_channels:
-  sleep: [0, 0, 0, 0, 0, 0, 1, 1, 1.2, 1]
-  waking: [0.35, 0.35, 0, 0, 0.06, 0, 1, 1, 1.2, 1]
-  ready: [1, 1, 0, 0, 0.15, 0, 1, 1, 1.2, 1]
+  sleep:
+    eye_left: 0
+    eye_right: 0
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0
+    breath: 0
+    mouth_width: 1
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1
+  waking:
+    eye_left: 0.35
+    eye_right: 0.35
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0.06
+    breath: 0
+    mouth_width: 1
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1
+  ready:
+    eye_left: 1
+    eye_right: 1
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0.15
+    breath: 0
+    mouth_width: 1
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1

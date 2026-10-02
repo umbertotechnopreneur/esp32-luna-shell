@@ -111,7 +111,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "fixed.background"
     },
     {
       "index": 1,
@@ -124,7 +125,8 @@
       "rgb565_little_endian": [
         255,
         255
-      ]
+      ],
+      "id": "fixed.highlight"
     },
     {
       "index": 2,
@@ -137,7 +139,8 @@
       "rgb565_little_endian": [
         191,
         247
-      ]
+      ],
+      "id": "fixed.secondary"
     },
     {
       "index": 3,
@@ -150,7 +153,8 @@
       "rgb565_little_endian": [
         131,
         0
-      ]
+      ],
+      "id": "fixed.ink"
     },
     {
       "index": 4,
@@ -163,7 +167,8 @@
       "rgb565_little_endian": [
         131,
         8
-      ]
+      ],
+      "id": "neutral.level.00"
     },
     {
       "index": 5,
@@ -176,7 +181,8 @@
       "rgb565_little_endian": [
         196,
         16
-      ]
+      ],
+      "id": "neutral.level.01"
     },
     {
       "index": 6,
@@ -189,7 +195,8 @@
       "rgb565_little_endian": [
         6,
         25
-      ]
+      ],
+      "id": "neutral.level.02"
     },
     {
       "index": 7,
@@ -202,7 +209,8 @@
       "rgb565_little_endian": [
         136,
         33
-      ]
+      ],
+      "id": "neutral.level.03"
     },
     {
       "index": 8,
@@ -215,7 +223,8 @@
       "rgb565_little_endian": [
         233,
         41
-      ]
+      ],
+      "id": "neutral.level.04"
     },
     {
       "index": 9,
@@ -228,7 +237,8 @@
       "rgb565_little_endian": [
         75,
         50
-      ]
+      ],
+      "id": "neutral.level.05"
     },
     {
       "index": 10,
@@ -241,7 +251,8 @@
       "rgb565_little_endian": [
         173,
         66
-      ]
+      ],
+      "id": "neutral.level.06"
     },
     {
       "index": 11,
@@ -254,7 +265,8 @@
       "rgb565_little_endian": [
         46,
         75
-      ]
+      ],
+      "id": "neutral.level.07"
     },
     {
       "index": 12,
@@ -267,7 +279,8 @@
       "rgb565_little_endian": [
         144,
         91
-      ]
+      ],
+      "id": "neutral.level.08"
     },
     {
       "index": 13,
@@ -280,7 +293,8 @@
       "rgb565_little_endian": [
         18,
         108
-      ]
+      ],
+      "id": "neutral.level.09"
     },
     {
       "index": 14,
@@ -293,7 +307,8 @@
       "rgb565_little_endian": [
         148,
         124
-      ]
+      ],
+      "id": "neutral.level.10"
     },
     {
       "index": 15,
@@ -306,7 +321,8 @@
       "rgb565_little_endian": [
         22,
         149
-      ]
+      ],
+      "id": "neutral.level.11"
     },
     {
       "index": 16,
@@ -319,7 +335,8 @@
       "rgb565_little_endian": [
         184,
         165
-      ]
+      ],
+      "id": "neutral.level.12"
     },
     {
       "index": 17,
@@ -332,7 +349,8 @@
       "rgb565_little_endian": [
         58,
         190
-      ]
+      ],
+      "id": "neutral.level.13"
     },
     {
       "index": 18,
@@ -345,7 +363,8 @@
       "rgb565_little_endian": [
         187,
         206
-      ]
+      ],
+      "id": "neutral.level.14"
     },
     {
       "index": 19,
@@ -358,7 +377,8 @@
       "rgb565_little_endian": [
         61,
         223
-      ]
+      ],
+      "id": "neutral.level.15"
     },
     {
       "index": 20,
@@ -371,7 +391,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.00"
     },
     {
       "index": 21,
@@ -384,7 +405,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.01"
     },
     {
       "index": 22,
@@ -397,7 +419,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.02"
     },
     {
       "index": 23,
@@ -410,7 +433,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.03"
     },
     {
       "index": 24,
@@ -423,7 +447,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.04"
     },
     {
       "index": 25,
@@ -436,7 +461,8 @@
       "rgb565_little_endian": [
         94,
         118
-      ]
+      ],
+      "id": "blue.level.05"
     },
     {
       "index": 26,
@@ -449,7 +475,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.06"
     },
     {
       "index": 27,
@@ -462,7 +489,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.07"
     },
     {
       "index": 28,
@@ -475,7 +503,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.08"
     },
     {
       "index": 29,
@@ -488,7 +517,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.09"
     },
     {
       "index": 30,
@@ -501,7 +531,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.10"
     },
     {
       "index": 31,
@@ -514,7 +545,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.11"
     },
     {
       "index": 32,
@@ -527,7 +559,8 @@
       "rgb565_little_endian": [
         62,
         110
-      ]
+      ],
+      "id": "blue.level.12"
     },
     {
       "index": 33,
@@ -540,7 +573,8 @@
       "rgb565_little_endian": [
         30,
         110
-      ]
+      ],
+      "id": "blue.level.13"
     },
     {
       "index": 34,
@@ -553,7 +587,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.14"
     },
     {
       "index": 35,
@@ -566,7 +601,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.15"
     },
     {
       "index": 36,
@@ -579,7 +615,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.16"
     },
     {
       "index": 37,
@@ -592,7 +629,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.17"
     },
     {
       "index": 38,
@@ -605,7 +643,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.18"
     },
     {
       "index": 39,
@@ -618,7 +657,8 @@
       "rgb565_little_endian": [
         30,
         102
-      ]
+      ],
+      "id": "blue.level.19"
     },
     {
       "index": 40,
@@ -631,7 +671,8 @@
       "rgb565_little_endian": [
         254,
         101
-      ]
+      ],
+      "id": "blue.level.20"
     },
     {
       "index": 41,
@@ -644,7 +685,8 @@
       "rgb565_little_endian": [
         254,
         101
-      ]
+      ],
+      "id": "blue.level.21"
     },
     {
       "index": 42,
@@ -657,7 +699,8 @@
       "rgb565_little_endian": [
         254,
         101
-      ]
+      ],
+      "id": "blue.level.22"
     },
     {
       "index": 43,
@@ -670,7 +713,8 @@
       "rgb565_little_endian": [
         253,
         93
-      ]
+      ],
+      "id": "blue.level.23"
     },
     {
       "index": 44,
@@ -683,7 +727,8 @@
       "rgb565_little_endian": [
         253,
         93
-      ]
+      ],
+      "id": "blue.level.24"
     },
     {
       "index": 45,
@@ -696,7 +741,8 @@
       "rgb565_little_endian": [
         253,
         93
-      ]
+      ],
+      "id": "blue.level.25"
     },
     {
       "index": 46,
@@ -709,7 +755,8 @@
       "rgb565_little_endian": [
         253,
         93
-      ]
+      ],
+      "id": "blue.level.26"
     },
     {
       "index": 47,
@@ -722,7 +769,8 @@
       "rgb565_little_endian": [
         221,
         93
-      ]
+      ],
+      "id": "blue.level.27"
     },
     {
       "index": 48,
@@ -735,7 +783,8 @@
       "rgb565_little_endian": [
         221,
         93
-      ]
+      ],
+      "id": "blue.level.28"
     },
     {
       "index": 49,
@@ -748,7 +797,8 @@
       "rgb565_little_endian": [
         221,
         93
-      ]
+      ],
+      "id": "blue.level.29"
     },
     {
       "index": 50,
@@ -761,7 +811,8 @@
       "rgb565_little_endian": [
         221,
         93
-      ]
+      ],
+      "id": "blue.level.30"
     },
     {
       "index": 51,
@@ -774,7 +825,8 @@
       "rgb565_little_endian": [
         221,
         85
-      ]
+      ],
+      "id": "blue.level.31"
     },
     {
       "index": 52,
@@ -787,7 +839,8 @@
       "rgb565_little_endian": [
         221,
         85
-      ]
+      ],
+      "id": "blue.level.32"
     },
     {
       "index": 53,
@@ -800,7 +853,8 @@
       "rgb565_little_endian": [
         189,
         85
-      ]
+      ],
+      "id": "blue.level.33"
     },
     {
       "index": 54,
@@ -813,7 +867,8 @@
       "rgb565_little_endian": [
         189,
         85
-      ]
+      ],
+      "id": "blue.level.34"
     },
     {
       "index": 55,
@@ -826,7 +881,8 @@
       "rgb565_little_endian": [
         189,
         85
-      ]
+      ],
+      "id": "blue.level.35"
     },
     {
       "index": 56,
@@ -839,7 +895,8 @@
       "rgb565_little_endian": [
         189,
         85
-      ]
+      ],
+      "id": "blue.level.36"
     },
     {
       "index": 57,
@@ -852,7 +909,8 @@
       "rgb565_little_endian": [
         189,
         85
-      ]
+      ],
+      "id": "blue.level.37"
     },
     {
       "index": 58,
@@ -865,7 +923,8 @@
       "rgb565_little_endian": [
         157,
         85
-      ]
+      ],
+      "id": "blue.level.38"
     },
     {
       "index": 59,
@@ -878,7 +937,8 @@
       "rgb565_little_endian": [
         157,
         77
-      ]
+      ],
+      "id": "blue.level.39"
     },
     {
       "index": 60,
@@ -891,7 +951,8 @@
       "rgb565_little_endian": [
         157,
         77
-      ]
+      ],
+      "id": "blue.level.40"
     },
     {
       "index": 61,
@@ -904,7 +965,8 @@
       "rgb565_little_endian": [
         157,
         77
-      ]
+      ],
+      "id": "blue.level.41"
     },
     {
       "index": 62,
@@ -917,7 +979,8 @@
       "rgb565_little_endian": [
         157,
         77
-      ]
+      ],
+      "id": "blue.level.42"
     },
     {
       "index": 63,
@@ -930,7 +993,8 @@
       "rgb565_little_endian": [
         125,
         77
-      ]
+      ],
+      "id": "blue.level.43"
     },
     {
       "index": 64,
@@ -943,7 +1007,8 @@
       "rgb565_little_endian": [
         125,
         77
-      ]
+      ],
+      "id": "blue.level.44"
     },
     {
       "index": 65,
@@ -956,7 +1021,8 @@
       "rgb565_little_endian": [
         125,
         77
-      ]
+      ],
+      "id": "blue.level.45"
     },
     {
       "index": 66,
@@ -969,7 +1035,8 @@
       "rgb565_little_endian": [
         125,
         69
-      ]
+      ],
+      "id": "blue.level.46"
     },
     {
       "index": 67,
@@ -982,7 +1049,8 @@
       "rgb565_little_endian": [
         125,
         69
-      ]
+      ],
+      "id": "blue.level.47"
     },
     {
       "index": 68,
@@ -995,7 +1063,8 @@
       "rgb565_little_endian": [
         93,
         69
-      ]
+      ],
+      "id": "blue.level.48"
     },
     {
       "index": 69,
@@ -1008,7 +1077,8 @@
       "rgb565_little_endian": [
         93,
         69
-      ]
+      ],
+      "id": "blue.level.49"
     },
     {
       "index": 70,
@@ -1021,7 +1091,8 @@
       "rgb565_little_endian": [
         93,
         69
-      ]
+      ],
+      "id": "blue.level.50"
     },
     {
       "index": 71,
@@ -1034,7 +1105,8 @@
       "rgb565_little_endian": [
         93,
         69
-      ]
+      ],
+      "id": "blue.level.51"
     },
     {
       "index": 72,
@@ -1047,7 +1119,8 @@
       "rgb565_little_endian": [
         93,
         69
-      ]
+      ],
+      "id": "blue.level.52"
     },
     {
       "index": 73,
@@ -1060,7 +1133,8 @@
       "rgb565_little_endian": [
         61,
         69
-      ]
+      ],
+      "id": "blue.level.53"
     },
     {
       "index": 74,
@@ -1073,7 +1147,8 @@
       "rgb565_little_endian": [
         61,
         61
-      ]
+      ],
+      "id": "blue.level.54"
     },
     {
       "index": 75,
@@ -1086,7 +1161,8 @@
       "rgb565_little_endian": [
         61,
         61
-      ]
+      ],
+      "id": "blue.level.55"
     },
     {
       "index": 76,
@@ -1099,7 +1175,8 @@
       "rgb565_little_endian": [
         61,
         61
-      ]
+      ],
+      "id": "blue.level.56"
     },
     {
       "index": 77,
@@ -1112,7 +1189,8 @@
       "rgb565_little_endian": [
         61,
         61
-      ]
+      ],
+      "id": "blue.level.57"
     },
     {
       "index": 78,
@@ -1125,7 +1203,8 @@
       "rgb565_little_endian": [
         29,
         61
-      ]
+      ],
+      "id": "blue.level.58"
     },
     {
       "index": 79,
@@ -1138,7 +1217,8 @@
       "rgb565_little_endian": [
         29,
         61
-      ]
+      ],
+      "id": "blue.level.59"
     },
     {
       "index": 80,
@@ -1151,7 +1231,8 @@
       "rgb565_little_endian": [
         29,
         61
-      ]
+      ],
+      "id": "blue.level.60"
     },
     {
       "index": 81,
@@ -1164,7 +1245,8 @@
       "rgb565_little_endian": [
         28,
         53
-      ]
+      ],
+      "id": "blue.level.61"
     },
     {
       "index": 82,
@@ -1177,7 +1259,8 @@
       "rgb565_little_endian": [
         28,
         53
-      ]
+      ],
+      "id": "blue.level.62"
     },
     {
       "index": 83,
@@ -1190,7 +1273,8 @@
       "rgb565_little_endian": [
         252,
         52
-      ]
+      ],
+      "id": "blue.level.63"
     },
     {
       "index": 84,
@@ -1203,7 +1287,8 @@
       "rgb565_little_endian": [
         155,
         159
-      ]
+      ],
+      "id": "mint.level.00"
     },
     {
       "index": 85,
@@ -1216,7 +1301,8 @@
       "rgb565_little_endian": [
         122,
         159
-      ]
+      ],
+      "id": "mint.level.01"
     },
     {
       "index": 86,
@@ -1229,7 +1315,8 @@
       "rgb565_little_endian": [
         122,
         159
-      ]
+      ],
+      "id": "mint.level.02"
     },
     {
       "index": 87,
@@ -1242,7 +1329,8 @@
       "rgb565_little_endian": [
         122,
         151
-      ]
+      ],
+      "id": "mint.level.03"
     },
     {
       "index": 88,
@@ -1255,7 +1343,8 @@
       "rgb565_little_endian": [
         122,
         151
-      ]
+      ],
+      "id": "mint.level.04"
     },
     {
       "index": 89,
@@ -1268,7 +1357,8 @@
       "rgb565_little_endian": [
         122,
         151
-      ]
+      ],
+      "id": "mint.level.05"
     },
     {
       "index": 90,
@@ -1281,7 +1371,8 @@
       "rgb565_little_endian": [
         122,
         151
-      ]
+      ],
+      "id": "mint.level.06"
     },
     {
       "index": 91,
@@ -1294,7 +1385,8 @@
       "rgb565_little_endian": [
         122,
         143
-      ]
+      ],
+      "id": "mint.level.07"
     },
     {
       "index": 92,
@@ -1307,7 +1399,8 @@
       "rgb565_little_endian": [
         90,
         143
-      ]
+      ],
+      "id": "mint.level.08"
     },
     {
       "index": 93,
@@ -1320,7 +1413,8 @@
       "rgb565_little_endian": [
         90,
         143
-      ]
+      ],
+      "id": "mint.level.09"
     },
     {
       "index": 94,
@@ -1333,7 +1427,8 @@
       "rgb565_little_endian": [
         90,
         143
-      ]
+      ],
+      "id": "mint.level.10"
     },
     {
       "index": 95,
@@ -1346,7 +1441,8 @@
       "rgb565_little_endian": [
         89,
         135
-      ]
+      ],
+      "id": "mint.level.11"
     },
     {
       "index": 96,
@@ -1359,7 +1455,8 @@
       "rgb565_little_endian": [
         89,
         135
-      ]
+      ],
+      "id": "mint.level.12"
     },
     {
       "index": 97,
@@ -1372,7 +1469,8 @@
       "rgb565_little_endian": [
         89,
         135
-      ]
+      ],
+      "id": "mint.level.13"
     },
     {
       "index": 98,
@@ -1385,7 +1483,8 @@
       "rgb565_little_endian": [
         89,
         127
-      ]
+      ],
+      "id": "mint.level.14"
     },
     {
       "index": 99,
@@ -1398,7 +1497,8 @@
       "rgb565_little_endian": [
         57,
         127
-      ]
+      ],
+      "id": "mint.level.15"
     },
     {
       "index": 100,
@@ -1411,7 +1511,8 @@
       "rgb565_little_endian": [
         57,
         127
-      ]
+      ],
+      "id": "mint.level.16"
     },
     {
       "index": 101,
@@ -1424,7 +1525,8 @@
       "rgb565_little_endian": [
         57,
         127
-      ]
+      ],
+      "id": "mint.level.17"
     },
     {
       "index": 102,
@@ -1437,7 +1539,8 @@
       "rgb565_little_endian": [
         57,
         119
-      ]
+      ],
+      "id": "mint.level.18"
     },
     {
       "index": 103,
@@ -1450,7 +1553,8 @@
       "rgb565_little_endian": [
         57,
         119
-      ]
+      ],
+      "id": "mint.level.19"
     },
     {
       "index": 104,
@@ -1463,7 +1567,8 @@
       "rgb565_little_endian": [
         57,
         119
-      ]
+      ],
+      "id": "mint.level.20"
     },
     {
       "index": 105,
@@ -1476,7 +1581,8 @@
       "rgb565_little_endian": [
         24,
         111
-      ]
+      ],
+      "id": "mint.level.21"
     },
     {
       "index": 106,
@@ -1489,7 +1595,8 @@
       "rgb565_little_endian": [
         24,
         111
-      ]
+      ],
+      "id": "mint.level.22"
     },
     {
       "index": 107,
@@ -1502,7 +1609,8 @@
       "rgb565_little_endian": [
         24,
         111
-      ]
+      ],
+      "id": "mint.level.23"
     },
     {
       "index": 108,
@@ -1515,7 +1623,8 @@
       "rgb565_little_endian": [
         24,
         111
-      ]
+      ],
+      "id": "mint.level.24"
     },
     {
       "index": 109,
@@ -1528,7 +1637,8 @@
       "rgb565_little_endian": [
         24,
         103
-      ]
+      ],
+      "id": "mint.level.25"
     },
     {
       "index": 110,
@@ -1541,7 +1651,8 @@
       "rgb565_little_endian": [
         24,
         103
-      ]
+      ],
+      "id": "mint.level.26"
     },
     {
       "index": 111,
@@ -1554,7 +1665,8 @@
       "rgb565_little_endian": [
         24,
         103
-      ]
+      ],
+      "id": "mint.level.27"
     },
     {
       "index": 112,
@@ -1567,7 +1679,8 @@
       "rgb565_little_endian": [
         248,
         94
-      ]
+      ],
+      "id": "mint.level.28"
     },
     {
       "index": 113,
@@ -1580,7 +1693,8 @@
       "rgb565_little_endian": [
         248,
         94
-      ]
+      ],
+      "id": "mint.level.29"
     },
     {
       "index": 114,
@@ -1593,7 +1707,8 @@
       "rgb565_little_endian": [
         248,
         94
-      ]
+      ],
+      "id": "mint.level.30"
     },
     {
       "index": 115,
@@ -1606,7 +1721,8 @@
       "rgb565_little_endian": [
         247,
         94
-      ]
+      ],
+      "id": "mint.level.31"
     },
     {
       "index": 116,
@@ -1619,7 +1735,8 @@
       "rgb565_little_endian": [
         247,
         86
-      ]
+      ],
+      "id": "mint.level.32"
     },
     {
       "index": 117,
@@ -1632,7 +1749,8 @@
       "rgb565_little_endian": [
         247,
         86
-      ]
+      ],
+      "id": "mint.level.33"
     },
     {
       "index": 118,
@@ -1645,7 +1763,8 @@
       "rgb565_little_endian": [
         247,
         86
-      ]
+      ],
+      "id": "mint.level.34"
     },
     {
       "index": 119,
@@ -1658,7 +1777,8 @@
       "rgb565_little_endian": [
         215,
         86
-      ]
+      ],
+      "id": "mint.level.35"
     },
     {
       "index": 120,
@@ -1671,7 +1791,8 @@
       "rgb565_little_endian": [
         215,
         78
-      ]
+      ],
+      "id": "mint.level.36"
     },
     {
       "index": 121,
@@ -1684,7 +1805,8 @@
       "rgb565_little_endian": [
         215,
         78
-      ]
+      ],
+      "id": "mint.level.37"
     },
     {
       "index": 122,
@@ -1697,7 +1819,8 @@
       "rgb565_little_endian": [
         215,
         78
-      ]
+      ],
+      "id": "mint.level.38"
     },
     {
       "index": 123,
@@ -1710,7 +1833,8 @@
       "rgb565_little_endian": [
         215,
         70
-      ]
+      ],
+      "id": "mint.level.39"
     },
     {
       "index": 124,
@@ -1723,7 +1847,8 @@
       "rgb565_little_endian": [
         215,
         70
-      ]
+      ],
+      "id": "mint.level.40"
     },
     {
       "index": 125,
@@ -1736,7 +1861,8 @@
       "rgb565_little_endian": [
         214,
         70
-      ]
+      ],
+      "id": "mint.level.41"
     },
     {
       "index": 126,
@@ -1749,7 +1875,8 @@
       "rgb565_little_endian": [
         182,
         70
-      ]
+      ],
+      "id": "mint.level.42"
     },
     {
       "index": 127,
@@ -1762,7 +1889,8 @@
       "rgb565_little_endian": [
         182,
         62
-      ]
+      ],
+      "id": "mint.level.43"
     },
     {
       "index": 128,
@@ -1775,7 +1903,8 @@
       "rgb565_little_endian": [
         182,
         62
-      ]
+      ],
+      "id": "mint.level.44"
     },
     {
       "index": 129,
@@ -1788,7 +1917,8 @@
       "rgb565_little_endian": [
         182,
         62
-      ]
+      ],
+      "id": "mint.level.45"
     },
     {
       "index": 130,
@@ -1801,7 +1931,8 @@
       "rgb565_little_endian": [
         182,
         54
-      ]
+      ],
+      "id": "mint.level.46"
     },
     {
       "index": 131,
@@ -1814,7 +1945,8 @@
       "rgb565_little_endian": [
         182,
         54
-      ]
+      ],
+      "id": "mint.level.47"
     },
     {
       "index": 132,
@@ -1827,7 +1959,8 @@
       "rgb565_little_endian": [
         144,
         252
-      ]
+      ],
+      "id": "coral.level.00"
     },
     {
       "index": 133,
@@ -1840,7 +1973,8 @@
       "rgb565_little_endian": [
         144,
         252
-      ]
+      ],
+      "id": "coral.level.01"
     },
     {
       "index": 134,
@@ -1853,7 +1987,8 @@
       "rgb565_little_endian": [
         112,
         252
-      ]
+      ],
+      "id": "coral.level.02"
     },
     {
       "index": 135,
@@ -1866,7 +2001,8 @@
       "rgb565_little_endian": [
         111,
         252
-      ]
+      ],
+      "id": "coral.level.03"
     },
     {
       "index": 136,
@@ -1879,7 +2015,8 @@
       "rgb565_little_endian": [
         79,
         252
-      ]
+      ],
+      "id": "coral.level.04"
     },
     {
       "index": 137,
@@ -1892,7 +2029,8 @@
       "rgb565_little_endian": [
         47,
         252
-      ]
+      ],
+      "id": "coral.level.05"
     },
     {
       "index": 138,
@@ -1905,7 +2043,8 @@
       "rgb565_little_endian": [
         47,
         252
-      ]
+      ],
+      "id": "coral.level.06"
     },
     {
       "index": 139,
@@ -1918,7 +2057,8 @@
       "rgb565_little_endian": [
         14,
         252
-      ]
+      ],
+      "id": "coral.level.07"
     },
     {
       "index": 140,
@@ -1931,7 +2071,8 @@
       "rgb565_little_endian": [
         14,
         252
-      ]
+      ],
+      "id": "coral.level.08"
     },
     {
       "index": 141,
@@ -1944,7 +2085,8 @@
       "rgb565_little_endian": [
         238,
         251
-      ]
+      ],
+      "id": "coral.level.09"
     },
     {
       "index": 142,
@@ -1957,7 +2099,8 @@
       "rgb565_little_endian": [
         238,
         251
-      ]
+      ],
+      "id": "coral.level.10"
     },
     {
       "index": 143,
@@ -1970,7 +2113,8 @@
       "rgb565_little_endian": [
         205,
         251
-      ]
+      ],
+      "id": "coral.level.11"
     },
     {
       "index": 144,
@@ -1983,7 +2127,8 @@
       "rgb565_little_endian": [
         173,
         243
-      ]
+      ],
+      "id": "coral.level.12"
     },
     {
       "index": 145,
@@ -1996,7 +2141,8 @@
       "rgb565_little_endian": [
         173,
         243
-      ]
+      ],
+      "id": "coral.level.13"
     },
     {
       "index": 146,
@@ -2009,7 +2155,8 @@
       "rgb565_little_endian": [
         141,
         243
-      ]
+      ],
+      "id": "coral.level.14"
     },
     {
       "index": 147,
@@ -2022,7 +2169,8 @@
       "rgb565_little_endian": [
         140,
         243
-      ]
+      ],
+      "id": "coral.level.15"
     },
     {
       "index": 148,
@@ -2035,7 +2183,8 @@
       "rgb565_little_endian": [
         108,
         243
-      ]
+      ],
+      "id": "coral.level.16"
     },
     {
       "index": 149,
@@ -2048,7 +2197,8 @@
       "rgb565_little_endian": [
         76,
         243
-      ]
+      ],
+      "id": "coral.level.17"
     },
     {
       "index": 150,
@@ -2061,7 +2211,8 @@
       "rgb565_little_endian": [
         76,
         243
-      ]
+      ],
+      "id": "coral.level.18"
     },
     {
       "index": 151,
@@ -2074,7 +2225,8 @@
       "rgb565_little_endian": [
         43,
         243
-      ]
+      ],
+      "id": "coral.level.19"
     },
     {
       "index": 152,
@@ -2087,7 +2239,8 @@
       "rgb565_little_endian": [
         43,
         243
-      ]
+      ],
+      "id": "coral.level.20"
     },
     {
       "index": 153,
@@ -2100,7 +2253,8 @@
       "rgb565_little_endian": [
         11,
         243
-      ]
+      ],
+      "id": "coral.level.21"
     },
     {
       "index": 154,
@@ -2113,7 +2267,8 @@
       "rgb565_little_endian": [
         235,
         242
-      ]
+      ],
+      "id": "coral.level.22"
     },
     {
       "index": 155,
@@ -2126,7 +2281,8 @@
       "rgb565_little_endian": [
         234,
         242
-      ]
+      ],
+      "id": "coral.level.23"
     },
     {
       "index": 156,
@@ -2139,7 +2295,8 @@
       "rgb565_little_endian": [
         209,
         254
-      ]
+      ],
+      "id": "gold.level.00"
     },
     {
       "index": 157,
@@ -2152,7 +2309,8 @@
       "rgb565_little_endian": [
         176,
         246
-      ]
+      ],
+      "id": "gold.level.01"
     },
     {
       "index": 158,
@@ -2165,7 +2323,8 @@
       "rgb565_little_endian": [
         144,
         246
-      ]
+      ],
+      "id": "gold.level.02"
     },
     {
       "index": 159,
@@ -2178,7 +2337,8 @@
       "rgb565_little_endian": [
         111,
         246
-      ]
+      ],
+      "id": "gold.level.03"
     },
     {
       "index": 160,
@@ -2191,7 +2351,8 @@
       "rgb565_little_endian": [
         111,
         246
-      ]
+      ],
+      "id": "gold.level.04"
     },
     {
       "index": 161,
@@ -2204,7 +2365,8 @@
       "rgb565_little_endian": [
         78,
         246
-      ]
+      ],
+      "id": "gold.level.05"
     },
     {
       "index": 162,
@@ -2217,7 +2379,8 @@
       "rgb565_little_endian": [
         46,
         238
-      ]
+      ],
+      "id": "gold.level.06"
     },
     {
       "index": 163,
@@ -2230,7 +2393,8 @@
       "rgb565_little_endian": [
         13,
         238
-      ]
+      ],
+      "id": "gold.level.07"
     },
     {
       "index": 164,
@@ -2243,7 +2407,8 @@
       "rgb565_little_endian": [
         237,
         237
-      ]
+      ],
+      "id": "gold.level.08"
     },
     {
       "index": 165,
@@ -2256,7 +2421,8 @@
       "rgb565_little_endian": [
         204,
         237
-      ]
+      ],
+      "id": "gold.level.09"
     },
     {
       "index": 166,
@@ -2269,7 +2435,8 @@
       "rgb565_little_endian": [
         204,
         229
-      ]
+      ],
+      "id": "gold.level.10"
     },
     {
       "index": 167,
@@ -2282,7 +2449,8 @@
       "rgb565_little_endian": [
         171,
         229
-      ]
+      ],
+      "id": "gold.level.11"
     },
     {
       "index": 168,
@@ -2295,7 +2463,8 @@
       "rgb565_little_endian": [
         139,
         229
-      ]
+      ],
+      "id": "gold.level.12"
     },
     {
       "index": 169,
@@ -2308,7 +2477,8 @@
       "rgb565_little_endian": [
         106,
         229
-      ]
+      ],
+      "id": "gold.level.13"
     },
     {
       "index": 170,
@@ -2321,7 +2491,8 @@
       "rgb565_little_endian": [
         74,
         229
-      ]
+      ],
+      "id": "gold.level.14"
     },
     {
       "index": 171,
@@ -2334,7 +2505,8 @@
       "rgb565_little_endian": [
         41,
         221
-      ]
+      ],
+      "id": "gold.level.15"
     },
     {
       "index": 172,
@@ -2347,7 +2519,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.00"
     },
     {
       "index": 173,
@@ -2360,7 +2533,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.01"
     },
     {
       "index": 174,
@@ -2373,7 +2547,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.02"
     },
     {
       "index": 175,
@@ -2386,7 +2561,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.03"
     },
     {
       "index": 176,
@@ -2399,7 +2575,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.04"
     },
     {
       "index": 177,
@@ -2412,7 +2589,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.05"
     },
     {
       "index": 178,
@@ -2425,7 +2603,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.06"
     },
     {
       "index": 179,
@@ -2438,7 +2617,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.07"
     },
     {
       "index": 180,
@@ -2451,7 +2631,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.08"
     },
     {
       "index": 181,
@@ -2464,7 +2645,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.09"
     },
     {
       "index": 182,
@@ -2477,7 +2659,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.10"
     },
     {
       "index": 183,
@@ -2490,7 +2673,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.11"
     },
     {
       "index": 184,
@@ -2503,7 +2687,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.12"
     },
     {
       "index": 185,
@@ -2516,7 +2701,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.13"
     },
     {
       "index": 186,
@@ -2529,7 +2715,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.14"
     },
     {
       "index": 187,
@@ -2542,7 +2729,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.15"
     },
     {
       "index": 188,
@@ -2555,7 +2743,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.16"
     },
     {
       "index": 189,
@@ -2568,7 +2757,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.17"
     },
     {
       "index": 190,
@@ -2581,7 +2771,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.18"
     },
     {
       "index": 191,
@@ -2594,7 +2785,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.19"
     },
     {
       "index": 192,
@@ -2607,7 +2799,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.20"
     },
     {
       "index": 193,
@@ -2620,7 +2813,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.21"
     },
     {
       "index": 194,
@@ -2633,7 +2827,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.22"
     },
     {
       "index": 195,
@@ -2646,7 +2841,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.23"
     },
     {
       "index": 196,
@@ -2659,7 +2855,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.24"
     },
     {
       "index": 197,
@@ -2672,7 +2869,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.25"
     },
     {
       "index": 198,
@@ -2685,7 +2883,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.26"
     },
     {
       "index": 199,
@@ -2698,7 +2897,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.27"
     },
     {
       "index": 200,
@@ -2711,7 +2911,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.28"
     },
     {
       "index": 201,
@@ -2724,7 +2925,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.29"
     },
     {
       "index": 202,
@@ -2737,7 +2939,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.30"
     },
     {
       "index": 203,
@@ -2750,7 +2953,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.31"
     },
     {
       "index": 204,
@@ -2763,7 +2967,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.32"
     },
     {
       "index": 205,
@@ -2776,7 +2981,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.33"
     },
     {
       "index": 206,
@@ -2789,7 +2995,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.34"
     },
     {
       "index": 207,
@@ -2802,7 +3009,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.35"
     },
     {
       "index": 208,
@@ -2815,7 +3023,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.36"
     },
     {
       "index": 209,
@@ -2828,7 +3037,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.37"
     },
     {
       "index": 210,
@@ -2841,7 +3051,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.38"
     },
     {
       "index": 211,
@@ -2854,7 +3065,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.39"
     },
     {
       "index": 212,
@@ -2867,7 +3079,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.40"
     },
     {
       "index": 213,
@@ -2880,7 +3093,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.41"
     },
     {
       "index": 214,
@@ -2893,7 +3107,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.42"
     },
     {
       "index": 215,
@@ -2906,7 +3121,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.43"
     },
     {
       "index": 216,
@@ -2919,7 +3135,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.44"
     },
     {
       "index": 217,
@@ -2932,7 +3149,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.45"
     },
     {
       "index": 218,
@@ -2945,7 +3163,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.46"
     },
     {
       "index": 219,
@@ -2958,7 +3177,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.47"
     },
     {
       "index": 220,
@@ -2971,7 +3191,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.48"
     },
     {
       "index": 221,
@@ -2984,7 +3205,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.49"
     },
     {
       "index": 222,
@@ -2997,7 +3219,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.50"
     },
     {
       "index": 223,
@@ -3010,7 +3233,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.51"
     },
     {
       "index": 224,
@@ -3023,7 +3247,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.52"
     },
     {
       "index": 225,
@@ -3036,7 +3261,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.53"
     },
     {
       "index": 226,
@@ -3049,7 +3275,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.54"
     },
     {
       "index": 227,
@@ -3062,7 +3289,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.55"
     },
     {
       "index": 228,
@@ -3075,7 +3303,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.56"
     },
     {
       "index": 229,
@@ -3088,7 +3317,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.57"
     },
     {
       "index": 230,
@@ -3101,7 +3331,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.58"
     },
     {
       "index": 231,
@@ -3114,7 +3345,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.59"
     },
     {
       "index": 232,
@@ -3127,7 +3359,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.60"
     },
     {
       "index": 233,
@@ -3140,7 +3373,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.61"
     },
     {
       "index": 234,
@@ -3153,7 +3387,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.62"
     },
     {
       "index": 235,
@@ -3166,7 +3401,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.63"
     },
     {
       "index": 236,
@@ -3179,7 +3415,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.64"
     },
     {
       "index": 237,
@@ -3192,7 +3429,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.65"
     },
     {
       "index": 238,
@@ -3205,7 +3443,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.66"
     },
     {
       "index": 239,
@@ -3218,7 +3457,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.67"
     },
     {
       "index": 240,
@@ -3231,7 +3471,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.68"
     },
     {
       "index": 241,
@@ -3244,7 +3485,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.69"
     },
     {
       "index": 242,
@@ -3257,7 +3499,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.70"
     },
     {
       "index": 243,
@@ -3270,7 +3513,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.71"
     },
     {
       "index": 244,
@@ -3283,7 +3527,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.72"
     },
     {
       "index": 245,
@@ -3296,7 +3541,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.73"
     },
     {
       "index": 246,
@@ -3309,7 +3555,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.74"
     },
     {
       "index": 247,
@@ -3322,7 +3569,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.75"
     },
     {
       "index": 248,
@@ -3335,7 +3583,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.76"
     },
     {
       "index": 249,
@@ -3348,7 +3597,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.77"
     },
     {
       "index": 250,
@@ -3361,7 +3611,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.78"
     },
     {
       "index": 251,
@@ -3374,7 +3625,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.79"
     },
     {
       "index": 252,
@@ -3387,7 +3639,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.80"
     },
     {
       "index": 253,
@@ -3400,7 +3653,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.81"
     },
     {
       "index": 254,
@@ -3413,7 +3667,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.82"
     },
     {
       "index": 255,
@@ -3426,7 +3681,8 @@
       "rgb565_little_endian": [
         0,
         0
-      ]
+      ],
+      "id": "reserved.level.83"
     }
   ]
 }

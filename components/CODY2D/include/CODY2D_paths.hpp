@@ -8,6 +8,7 @@ struct Vec2 { float x = 0; float y = 0; };
 
 // Paths use canvas coordinates. Only this explicit strip API clips to a tile.
 constexpr uint16_t kMaxPathVertices = 256;
+constexpr float kMaxStrokeWidth = 21;
 
 // strip: Validated caller-owned RGB565 destination covering full canvas width.
 // first_row: Canvas row represented by the strip's first pixel row.
@@ -26,7 +27,7 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
 // first_row: Global canvas row represented by this strip.
 // from: Segment start in canvas coordinates.
 // to: Segment end in canvas coordinates; an equal endpoint draws a dot.
-// width: Positive finite stroke diameter in pixels, at most twenty.
+// width: Positive finite stroke diameter in pixels, at most kMaxStrokeWidth.
 // color: Native RGB565 stroke color, with round caps.
 esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                       Vec2 from, Vec2 to, float width, uint16_t color);

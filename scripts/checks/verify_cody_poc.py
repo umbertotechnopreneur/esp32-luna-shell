@@ -23,6 +23,7 @@ from scripts.common.cody_rig_contract import (
     advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract,
     make_contour_state, unique_object, validate_channels,
 )
+from scripts.common.cody_rig_types import FaceChannel, face_channel
 from cody_preview_layout import PreviewLayout
 from cody_simulator import (
     CodyRenderer, CodyWindow, logical_touch, orient, physical_point,
@@ -38,7 +39,6 @@ class RigContractTests(unittest.TestCase):
         cls.rig,cls.palette=load_contract()
         cls.transform=tuple(cls.rig['default_transform'][key] for key in ('x','y','scale'))
         cls.ready=cls.rig['boot_channels']['ready']
-        cls.channel_index = {channel['name']: index for index, channel in enumerate(cls.rig['channels'])}
 
     # self supplies the authored ready expression and stable channel-name mapping.
     # overrides contains only the facial channels changed by the current scenario.
@@ -46,7 +46,7 @@ class RigContractTests(unittest.TestCase):
     def face_channels(self, **overrides):
         values = list(self.ready)
         for name, value in overrides.items():
-            values[self.channel_index[name]] = value
+            values[face_channel(name)] = value
         return values
 
     # window owns the viewport and scheduled callback used by a manually requested test frame.
@@ -102,7 +102,7 @@ class RigContractTests(unittest.TestCase):
     # self receives the test context: closing one eye cannot override another facial channel.
     def test_independent_eye_and_mouth_channels(self):
         base=evaluate(self.rig,self.ready,self.transform)
-        changed=list(self.ready); changed[0]=0
+        changed=list(self.ready); changed[FaceChannel.EYE_LEFT]=0
         altered=evaluate(self.rig,changed,self.transform)
         for point in self.rig['points']:
             if point['channel']!='eye_left': self.assertEqual(base['local'][point['name']],altered['local'][point['name']])
@@ -110,8 +110,9 @@ class RigContractTests(unittest.TestCase):
         sleeping_base = self.face_channels(eye_left=0, eye_right=0, brow_left=.5,
                                            brow_right=-.4, mouth_open=.1, breath=0)
         sleeping=animate(sleeping_base,1000)
-        self.assertEqual(sleeping[:4],[0,0,.5,-.4])
-        self.assertGreater(sleeping[4],.1)
+        self.assertEqual([sleeping[channel] for channel in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT,
+                                                                    FaceChannel.BROW_LEFT, FaceChannel.BROW_RIGHT)],[0,0,.5,-.4])
+        self.assertGreater(sleeping[FaceChannel.MOUTH_OPEN],.1)
         self.assertEqual(sleeping[6:], sleeping_base[6:])
 
     # self receives the test context: shape controls resize only their own descendants around unchanged anchors.
@@ -126,7 +127,7 @@ class RigContractTests(unittest.TestCase):
             with self.subTest(control=control):
                 channels = self.face_channels(**{control: value})
                 scene = evaluate(self.rig, channels, self.transform)
-                ratio = value / self.ready[self.channel_index[control]]
+                ratio = value / self.ready[face_channel(control)]
                 changed = False
                 for name, point in original['world'].items():
                     owner = next((anchor for anchor in anchors if name.startswith(anchor + '.')), None)
@@ -320,7 +321,7 @@ class RigContractTests(unittest.TestCase):
     # self receives the test context: the reference outline stays authored while debug points follow deformation.
     def test_contour_reference_outline_and_evaluated_geometry_agree(self):
         channels = list(self.ready)
-        channels[5] = .7
+        channels[FaceChannel.BREATH] = .7
         transform = (210, 240, 100)
         original = evaluate(self.rig, channels, transform)
         original_body = next(path['vertices'] for path in original['paths']
@@ -434,7 +435,7 @@ class RigContractTests(unittest.TestCase):
     # No parameters beyond the test instance: invalid values are rejected instead of silently repaired.
     def test_invalid_input_rejected(self):
         for bad in (-.01,1.01,math.nan,math.inf,True):
-            values=list(self.ready); values[0]=bad
+            values=list(self.ready); values[FaceChannel.EYE_LEFT]=bad
             with self.assertRaises(ValueError): evaluate(self.rig,values,self.transform)
         with self.assertRaises(ValueError): evaluate(self.rig,self.ready,(0,0,0))
         with self.assertRaises(ValueError): unique_object([('name','Cody'),('name','Other')])

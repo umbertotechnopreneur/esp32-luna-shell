@@ -36,6 +36,7 @@ param(
     [ValidateRange(0,2147483647)][int]$AtMs = 1000,
     [switch]$SafeGuide,
     [string]$PythonExecutable,
+    [string]$Skin,
     [string]$Check = 'cody-poc',
     [string]$Generator = 'cody-rig',
     [string[]]$ToolArguments = @()

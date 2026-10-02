@@ -163,6 +163,8 @@ def verify_asset_references(
                 )
 
 
+# Read the app modules together so moving a handler does not hide its contract.
+# Raises OSError or AssertionError for missing sources or rejected pairing contracts.
 def main() -> None:
     provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
     provisioning_header = read("components/LUNASHELL_platform/include/LUNASHELL_provisioning.hpp")
@@ -174,7 +176,10 @@ def main() -> None:
     app_documents = read(
         "components/LUNASHELL_app/LUNASHELL_app_documents.cpp"
     )
-    app_sources = f"{app}\n{app_documents}"
+    app_document_actions = read(
+        "components/LUNASHELL_app/LUNASHELL_app_document_actions.cpp"
+    )
+    app_sources = f"{app}\n{app_documents}\n{app_document_actions}"
     simulator = read("simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("scripts/device.ps1")
     edge_navigation = read("components/LUNASHELL_app/LUNASHELL_edge_navigation.cpp")

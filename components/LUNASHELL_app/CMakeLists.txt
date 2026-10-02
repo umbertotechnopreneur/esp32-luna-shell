@@ -12,6 +12,7 @@ idf_component_register(
         "LUNASHELL_alert_service.cpp"
         "LUNASHELL_app.cpp"
         "LUNASHELL_app_documents.cpp"
+        "LUNASHELL_app_document_actions.cpp"
         "LUNASHELL_adaptive_chrome.cpp"
         "LUNASHELL_adaptive_command_bar.cpp"
         "LUNASHELL_background_asset.cpp"

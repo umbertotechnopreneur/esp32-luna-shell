@@ -322,6 +322,8 @@ def verify_documents() -> None:
     require_binding(detail, "labelProps.text", "text", "power metric detail")
 
 
+# Check the named Battery route and its binding contract in the current source layout.
+# Raises OSError or AssertionError for missing sources or rejected Battery contracts.
 def verify_firmware_contract() -> None:
     app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
     app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
@@ -341,10 +343,8 @@ def verify_firmware_contract() -> None:
     )
     require_regex(
         app_documents,
-        r"case\s+Screen::Battery\s*:\s*"
-        r"return\s+LazyScreenDescriptor\s*\{\s*"
-        r'\.document_path\s*=\s*"res/screen_battery\.json"\s*,\s*'
-        r'\.screen_path\s*=\s*"/LUNASHELL_battery"\s*,?\s*\};',
+        r"ScreenDocument\s*\{\s*Screen::Battery\s*,\s*\{\s*"
+        r'"res/screen_battery\.json"\s*,\s*"/LUNASHELL_battery"\s*\}\s*\}',
         "Battery lazy screen descriptor",
     )
     require_regex(

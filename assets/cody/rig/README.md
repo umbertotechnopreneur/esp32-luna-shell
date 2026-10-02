@@ -1,10 +1,13 @@
 # Cody normalized cloud rig
 
-`../cody.yaml` is the single authored configuration and geometry source. It owns
+`../cody.yaml` is the default authored skin. Another YAML below `assets/`
+can be selected explicitly with the simulator's `-Skin` or the generator's
+`-ToolArguments '--skin','assets/path/character.yaml'`. It owns
 the character name, stable entity IDs, readable entity labels, named points,
 paths, channel ranges and defaults, placement, boot-channel previews and style.
-Paint roles resolve into the shared 256-slot palette; debug and Back colors are
-also configured by role. Names use the viewer's
+Paint roles reference unique named colors in the shared 256-slot palette.
+Background, debug and Back colors, line widths and marker diameters are
+configured in YAML. Numeric palette slots belong to the generated encoding. Names use the viewer's
 left and right. Local x points right and local y points down, with `center` at
 (0, 0). Authored point offsets are relative to the named parent; moving an
 anchor carries all descendant knots, handles and features. Translation and
@@ -14,7 +17,7 @@ The source has 145 named points, 44 cubic curves and 11 paths. Semantic anchors
 include `center`, `lobe.crown`, the other named lobes, `eye.left/right`,
 `brow.left/right`, `cheek.left/right`, `nose` and `mouth`. Curve knots and handles
 have stable names and never receive identities from runtime traversal order.
-Curve segments refer to those points directly; the debug overlay traverses the
+Paths list their owned curve IDs; curve segments refer to point IDs directly; the debug overlay traverses the
 same evaluated point arrays, including tangents and parent links.
 
 Ten independent channels control left/right eye openness, left/right brow
@@ -42,7 +45,8 @@ eleven lobe anchors. Fullness, wave amplitude, cycles-per-second speed and
 inter-lobe phase spread are continuous controls. Per-lobe coefficients preserve
 the authored topology and move descendant handles together; facial anchors stay
 independent. Target changes use a configurable smoothing time constant and a
-continuously integrated phase. Pausing the contour freezes its state. Zero
+continuously integrated phase. Pausing the contour freezes its state. The selected contour path, named lobes
+and per-lobe displacement limits are authored in the skin. Zero
 fullness and amplitude preserve the original outline.
 
 The simulator can overlay the deformed and original outlines, point positions,

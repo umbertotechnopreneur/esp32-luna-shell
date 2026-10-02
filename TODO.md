@@ -6,6 +6,17 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit validation request, validate the readability refactor:
+  route-to-document ownership, navigation Back/Forward/return-to history, and
+  zero-to-five command layouts. Implementation has static source review only.
+  Include the separated document-action module: callback ownership, stale
+  document generations, standby gating and cleanup after partial subscription.
+  Include named v2 skin generation/selection, reordered YAML declarations,
+  palette IDs, independent face/contour controls and pause/resume. The active
+  rig header and manifest were regenerated; no build or simulator checks ran.
+  Include frame-lock release on all render exits, measured frame timing and
+  the separated preview presentation/inspector/readout methods.
+
 - [ ] On explicit validation request, run the consolidated console's
   `device.ps1 check -Check device-console` and `script-contracts` checks, then
   exercise menu/CLI routing, simulator captures, relocated imports, packaging,

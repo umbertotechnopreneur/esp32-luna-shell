@@ -13,6 +13,7 @@
 #include "LUNASHELL_app.hpp"
 #include "LUNASHELL_app_internal.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -66,90 +67,11 @@ esp_brookesia::system::core::AppGuiResources make_gui_resources()
 
 namespace LUNASHELL {
 
-std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
-    Screen screen
-)
+// screen: Named route whose lazily loaded document is requested.
+std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(Screen screen)
 {
+    // Pairing is a small journey inside one document, so its steps share the owner.
     switch (screen) {
-    case Screen::Welcome:
-        return std::nullopt;
-    case Screen::Battery:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_battery.json",
-            .screen_path = "/LUNASHELL_battery",
-        };
-    case Screen::Logs:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_logs.json",
-            .screen_path = "/LUNASHELL_logs",
-        };
-    case Screen::Hardware:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_hardware.json",
-            .screen_path = "/LUNASHELL_hardware",
-        };
-    case Screen::HardwareDetail:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_hardware_detail.json",
-            .screen_path = "/LUNASHELL_hardware_detail",
-        };
-    case Screen::Audio:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_audio.json",
-            .screen_path = "/LUNASHELL_audio",
-        };
-    case Screen::AudioFft:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_audio_fft.json",
-            .screen_path = "/LUNASHELL_audio_fft",
-        };
-    case Screen::AudioDetail:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_audio_detail.json",
-            .screen_path = "/LUNASHELL_audio_detail",
-        };
-    case Screen::Imu:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_imu.json",
-            .screen_path = "/LUNASHELL_imu",
-        };
-    case Screen::Leg:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_leg.json",
-            .screen_path = "/LUNASHELL_leg",
-        };
-    case Screen::Gps:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_gps.json",
-            .screen_path = "/LUNASHELL_gps",
-        };
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-    case Screen::Tof:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_tof.json",
-            .screen_path = "/LUNASHELL_tof",
-        };
-    case Screen::TofSettings:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_tof_settings.json",
-            .screen_path = "/LUNASHELL_tof_settings",
-        };
-#endif
-    case Screen::Settings:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_settings.json",
-            .screen_path = "/LUNASHELL_settings",
-        };
-    case Screen::Storage:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_storage.json",
-            .screen_path = "/LUNASHELL_storage",
-        };
-    case Screen::About:
-        return LazyScreenDescriptor{
-            .document_path = "res/screen_about.json",
-            .screen_path = "/LUNASHELL_about",
-        };
     case Screen::PairIntro:
     case Screen::PairBluetooth:
     case Screen::PairApp:
@@ -160,10 +82,53 @@ std::optional<App::LazyScreenDescriptor> App::lazy_screen_descriptor(
             .document_path = "res/screen_pairing.json",
             .screen_path = "/LUNASHELL_pairing",
         };
+    default:
+        break;
     }
-    return std::nullopt;
+
+    struct ScreenDocument {
+        Screen route;
+        LazyScreenDescriptor descriptor;
+    };
+    static constexpr std::array screen_documents = {
+        ScreenDocument{Screen::Battery, {"res/screen_battery.json", "/LUNASHELL_battery"}},
+        ScreenDocument{Screen::Logs, {"res/screen_logs.json", "/LUNASHELL_logs"}},
+        ScreenDocument{Screen::Hardware, {"res/screen_hardware.json", "/LUNASHELL_hardware"}},
+        ScreenDocument{Screen::HardwareDetail, {"res/screen_hardware_detail.json", "/LUNASHELL_hardware_detail"}},
+        ScreenDocument{Screen::Audio, {"res/screen_audio.json", "/LUNASHELL_audio"}},
+        ScreenDocument{Screen::AudioFft, {"res/screen_audio_fft.json", "/LUNASHELL_audio_fft"}},
+        ScreenDocument{Screen::AudioDetail, {"res/screen_audio_detail.json", "/LUNASHELL_audio_detail"}},
+        ScreenDocument{Screen::Imu, {"res/screen_imu.json", "/LUNASHELL_imu"}},
+        ScreenDocument{Screen::Leg, {"res/screen_leg.json", "/LUNASHELL_leg"}},
+        ScreenDocument{Screen::Gps, {"res/screen_gps.json", "/LUNASHELL_gps"}},
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
+        ScreenDocument{Screen::Tof, {"res/screen_tof.json", "/LUNASHELL_tof"}},
+        ScreenDocument{Screen::TofSettings, {"res/screen_tof_settings.json", "/LUNASHELL_tof_settings"}},
+#endif
+        ScreenDocument{Screen::Settings, {"res/screen_settings.json", "/LUNASHELL_settings"}},
+        ScreenDocument{Screen::Storage, {"res/screen_storage.json", "/LUNASHELL_storage"}},
+        ScreenDocument{Screen::About, {"res/screen_about.json", "/LUNASHELL_about"}},
+    };
+
+    const auto document = std::find_if(
+        screen_documents.begin(),
+        screen_documents.end(),
+        [screen](const ScreenDocument &entry) { return entry.route == screen; }
+    );
+    if (document == screen_documents.end()) {
+        return std::nullopt;
+    }
+    return document->descriptor;
 }
 
+// Welcome stays resident; other routes own a lazily loaded document.
+bool App::has_active_screen_document() const
+{
+    return screen_ != Screen::Welcome && active_screen_document_id_.has_value();
+}
+
+// left: First named route whose owner is compared.
+// right: Second route; sharing a document preserves its active state.
 bool App::shares_lazy_document(Screen left, Screen right)
 {
     const auto left_descriptor = lazy_screen_descriptor(left);
@@ -172,411 +137,6 @@ bool App::shares_lazy_document(Screen left, Screen right)
            right_descriptor.has_value() &&
            left_descriptor->document_path == right_descriptor->document_path &&
            left_descriptor->screen_path == right_descriptor->screen_path;
-}
-
-bool App::is_current_screen_document(
-    esp_brookesia::gui::DocumentId document_id,
-    uint32_t generation
-) const
-{
-    return active_screen_document_id_.has_value() &&
-           *active_screen_document_id_ == document_id &&
-           screen_document_generation_ == generation;
-}
-
-void App::dispatch_screen_document_action(std::string action)
-{
-    if (context_ == nullptr) {
-        ESP_LOGE(
-            kTag,
-            "Rejected lazy GUI action '%s': app context is unavailable",
-            action.c_str()
-        );
-        return;
-    }
-    auto result = on_action(*context_, action);
-    if (!result) {
-        ESP_LOGE(
-            kTag,
-            "Lazy GUI action '%s' failed: %s",
-            action.c_str(),
-            result.error().c_str()
-        );
-    }
-}
-
-// Route every lazy document callback through the standby producer gate.
-std::expected<void, std::string> App::subscribe_screen_document_actions(
-    AppContext &context,
-    esp_brookesia::gui::DocumentId document_id,
-    Screen screen,
-    uint32_t generation,
-    std::vector<esp_brookesia::gui::ScopedConnection> &connections
-)
-{
-    const auto add_connection = [&](
-        std::string_view action,
-        esp_brookesia::gui::Runtime::ActionHandler handler
-    ) -> std::expected<void, std::string> {
-        auto guarded_handler =
-            [this, handler = std::move(handler)](
-                const esp_brookesia::gui::Event &event
-            ) mutable {
-                if (standby_ui_state_ != StandbyUiState::Active) {
-                    return;
-                }
-                handler(event);
-            };
-        auto connection = context.gui().subscribe_action(
-            document_id,
-            action,
-            std::move(guarded_handler)
-        );
-        if (!connection.connected()) {
-            return std::unexpected(
-                "Failed to subscribe lazy GUI action '" + std::string(action) + "'"
-            );
-        }
-        connections.push_back(std::move(connection));
-        return {};
-    };
-
-    static constexpr std::array<std::string_view, 1> kBatteryActions = {
-        "LUNASHELL.chrome.activity.battery",
-    };
-    static constexpr std::array<std::string_view, 1> kGpsActions = {
-        "LUNASHELL.chrome.activity.gps",
-    };
-    static constexpr std::array<std::string_view, 2> kLegActions = {
-        "LUNASHELL.leg.previous",
-        "LUNASHELL.leg.next",
-    };
-    static constexpr std::array<std::string_view, 1> kLogActions = {
-        "LUNASHELL.chrome.activity.logs",
-    };
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-    static constexpr std::size_t kHardwareActionCount = 14;
-#else
-    static constexpr std::size_t kHardwareActionCount = 13;
-#endif
-    static constexpr std::array<
-        std::string_view,
-        kHardwareActionCount
-    > kHardwareActions = {
-        "LUNASHELL.chrome.activity.hardware",
-        "LUNASHELL.hardware.detail.0",
-        "LUNASHELL.hardware.detail.1",
-        "LUNASHELL.hardware.detail.2",
-        "LUNASHELL.hardware.detail.3",
-        "LUNASHELL.hardware.detail.4",
-        "LUNASHELL.hardware.detail.5",
-        "LUNASHELL.hardware.detail.6",
-        "LUNASHELL.hardware.detail.7",
-        "LUNASHELL.hardware.detail.8",
-        "LUNASHELL.hardware.detail.9",
-        "LUNASHELL.hardware.detail.10",
-        "LUNASHELL.hardware.detail.11",
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-        "LUNASHELL.hardware.detail.12",
-#endif
-    };
-    static constexpr std::array<std::string_view, 1> kHardwareDetailActions = {
-        "LUNASHELL.chrome.activity.hardware_detail",
-    };
-    static constexpr std::array<std::string_view, 2> kSettingsActions = {
-        "LUNASHELL.chrome.activity.settings",
-        "LUNASHELL.open.about",
-    };
-    static constexpr std::array<std::string_view, 2> kStorageActions = {
-        "LUNASHELL.chrome.activity.storage",
-        "LUNASHELL.storage.format",
-    };
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-    static constexpr std::array<std::string_view, 1> kTofSettingsActions = {
-        "LUNASHELL.chrome.activity.tof_settings",
-    };
-#endif
-
-    std::span<const std::string_view> forwarded_actions;
-    switch (screen) {
-    case Screen::Battery:
-        forwarded_actions = kBatteryActions;
-        break;
-    case Screen::Gps:
-        forwarded_actions = kGpsActions;
-        break;
-    case Screen::Leg:
-        forwarded_actions = kLegActions;
-        break;
-    case Screen::Logs:
-        forwarded_actions = kLogActions;
-        break;
-    case Screen::Hardware:
-        forwarded_actions = kHardwareActions;
-        break;
-    case Screen::HardwareDetail:
-        forwarded_actions = kHardwareDetailActions;
-        break;
-    case Screen::Settings:
-        forwarded_actions = kSettingsActions;
-        break;
-    case Screen::Storage:
-        forwarded_actions = kStorageActions;
-        break;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-    case Screen::TofSettings:
-        forwarded_actions = kTofSettingsActions;
-        break;
-#endif
-    default:
-        break;
-    }
-
-    for (const std::string_view action : forwarded_actions) {
-        auto result = add_connection(
-            action,
-            [this,
-             document_id,
-             generation,
-             action = std::string(action)](const esp_brookesia::gui::Event &) {
-                if (!is_current_screen_document(document_id, generation)) {
-                    return;
-                }
-                dispatch_screen_document_action(action);
-            }
-        );
-        if (!result) {
-            connections.clear();
-            return result;
-        }
-    }
-
-    if (screen == Screen::Leg) {
-        static constexpr std::array<std::string_view, 4> kLegSettingsActions = {
-            "LUNASHELL.leg.rotation.changed",
-            "LUNASHELL.leg.flip.changed",
-            "LUNASHELL.leg.sounds.changed",
-            "LUNASHELL.leg.wake.changed",
-        };
-        for (const std::string_view action : kLegSettingsActions) {
-            auto result = add_connection(
-                action,
-                [this, document_id, generation,
-                 action = std::string(action)](
-                    const esp_brookesia::gui::Event &event
-                ) {
-                    if (!is_current_screen_document(document_id, generation)) {
-                        return;
-                    }
-                    handle_leg_setting_event(action, event);
-                }
-            );
-            if (!result) {
-                connections.clear();
-                return result;
-            }
-        }
-        return {};
-    }
-
-#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART
-    if (screen == Screen::TofSettings) {
-        const auto add_tof_settings_connection = [&](
-            std::string_view action,
-            auto handler
-        ) -> std::expected<void, std::string> {
-            return add_connection(
-                action,
-                [this,
-                 document_id,
-                 generation,
-                 handler = std::move(handler)](
-                    const esp_brookesia::gui::Event &event
-                ) mutable {
-                    if (!is_current_screen_document(document_id, generation)) {
-                        return;
-                    }
-                    handler(event);
-                }
-            );
-        };
-
-        if (auto result = add_tof_settings_connection(
-                "LUNASHELL.tof.settings.samples.changed",
-                [this](const esp_brookesia::gui::Event &event) {
-                    handle_tof_sample_count_event(event);
-                }
-            ); !result) {
-            connections.clear();
-            return result;
-        }
-        if (auto result = add_tof_settings_connection(
-                "LUNASHELL.tof.settings.interval.changed",
-                [this](const esp_brookesia::gui::Event &event) {
-                    handle_tof_sample_interval_event(event);
-                }
-            ); !result) {
-            connections.clear();
-            return result;
-        }
-        if (auto result = add_tof_settings_connection(
-                "LUNASHELL.tof.settings.reference.preview",
-                [this](const esp_brookesia::gui::Event &event) {
-                    handle_tof_reference_preview_event(event);
-                }
-            ); !result) {
-            connections.clear();
-            return result;
-        }
-        if (auto result = add_tof_settings_connection(
-                "LUNASHELL.tof.settings.reference.commit",
-                [this](const esp_brookesia::gui::Event &event) {
-                    handle_tof_reference_commit_event(event);
-                }
-            ); !result) {
-            connections.clear();
-            return result;
-        }
-        return {};
-    }
-#endif
-
-    if (screen != Screen::Settings) {
-        return {};
-    }
-
-    const auto add_settings_connection = [&](
-        std::string_view action,
-        auto handler
-    ) -> std::expected<void, std::string> {
-        return add_connection(
-            action,
-            [this,
-             document_id,
-             generation,
-             handler = std::move(handler)](
-                const esp_brookesia::gui::Event &event
-            ) mutable {
-                if (!is_current_screen_document(document_id, generation)) {
-                    return;
-                }
-                handler(event);
-            }
-        );
-    };
-
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.command_arc.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_chrome_timing_event(
-                    AdaptiveChromeTiming::CommandArc,
-                    event
-                );
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.status_arc.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_chrome_timing_event(
-                    AdaptiveChromeTiming::StatusArc,
-                    event
-                );
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.display_dim.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_chrome_timing_event(
-                    AdaptiveChromeTiming::DisplayDim,
-                    event
-                );
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.screen_sleep.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_chrome_timing_event(
-                    AdaptiveChromeTiming::ScreenSleep,
-                    event
-                );
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.full_snapshot.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_full_snapshot_period_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.diagnostic.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_diagnostic_period_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.imu_smoothing.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_imu_smoothing_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.display.brightness.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_brightness_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.performance.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_performance_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.storage.mirror.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_storage_mirror_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    if (auto result = add_settings_connection(
-            "LUNASHELL.settings.display.rotation.changed",
-            [this](const esp_brookesia::gui::Event &event) {
-                handle_auto_rotation_event(event);
-            }
-        ); !result) {
-        connections.clear();
-        return result;
-    }
-    return {};
 }
 
 void App::invalidate_screen_document_state(Screen screen)
@@ -880,6 +440,9 @@ std::expected<void, std::string> App::restore_welcome_document(
     return {};
 }
 
+// context: Active Brookesia application runtime.
+// path: Stable absolute view path inside the selected document.
+// text: Visible text to publish after selecting the document owner.
 std::expected<void, std::string> App::set_text(
     AppContext &context,
     std::string_view path,
@@ -887,8 +450,7 @@ std::expected<void, std::string> App::set_text(
 )
 {
     const bool use_screen_document =
-        screen_ != Screen::Welcome &&
-        active_screen_document_id_.has_value();
+        has_active_screen_document();
     auto result = use_screen_document
         ? context.gui().set_text(*active_screen_document_id_, path, text)
         : context.gui().set_text(path, text);
@@ -901,14 +463,15 @@ std::expected<void, std::string> App::set_text(
     return {};
 }
 
+// context: Active Brookesia application runtime.
+// updates: Named binding batch, applied by the correct document owner.
 std::expected<void, std::string> App::set_binding_values(
     AppContext &context,
     const std::vector<esp_brookesia::gui::BindingValueUpdate> &updates
 )
 {
     const bool use_screen_document =
-        screen_ != Screen::Welcome &&
-        active_screen_document_id_.has_value();
+        has_active_screen_document();
     auto result = use_screen_document
         ? context.gui().set_binding_values(
               *active_screen_document_id_,
@@ -923,6 +486,9 @@ std::expected<void, std::string> App::set_binding_values(
     return {};
 }
 
+// context: Active Brookesia application runtime.
+// path: Stable view path receiving the progress value.
+// value: Explicit percentage in the accepted zero-to-one-hundred range.
 std::expected<void, std::string> App::set_value(
     AppContext &context,
     std::string_view path,
@@ -935,8 +501,7 @@ std::expected<void, std::string> App::set_value(
             "': " + std::to_string(value)
         );
     }
-    if (screen_ == Screen::Welcome ||
-        !active_screen_document_id_.has_value()) {
+    if (!has_active_screen_document()) {
         auto result = context.gui().set_value(path, value);
         if (!result) {
             return std::unexpected(
@@ -958,14 +523,16 @@ std::expected<void, std::string> App::set_value(
     );
 }
 
+// context: Active Brookesia application runtime.
+// path: Stable view path whose visibility is changed.
+// hidden: Requested visibility state, never a speculative cached value.
 std::expected<void, std::string> App::set_hidden(
     AppContext &context,
     std::string_view path,
     bool hidden
 )
 {
-    if (screen_ != Screen::Welcome &&
-        active_screen_document_id_.has_value()) {
+    if (has_active_screen_document()) {
         return set_binding_values(
             context,
             {
@@ -991,6 +558,10 @@ std::expected<void, std::string> App::set_hidden(
     return {};
 }
 
+// context: Active Brookesia application runtime.
+// path: Stable view path owning the binding.
+// binding: Unique binding name in that view.
+// value: Text to publish through the selected document owner.
 std::expected<void, std::string> App::set_binding_text(
     AppContext &context,
     std::string_view path,
@@ -998,8 +569,7 @@ std::expected<void, std::string> App::set_binding_text(
     std::string_view value
 )
 {
-    if (screen_ != Screen::Welcome &&
-        active_screen_document_id_.has_value()) {
+    if (has_active_screen_document()) {
         return set_binding_values(
             context,
             {
@@ -1025,6 +595,11 @@ std::expected<void, std::string> App::set_binding_text(
     return {};
 }
 
+// context: Active Brookesia application runtime.
+// path: Stable scroll-container path.
+// x: Requested horizontal scroll offset.
+// y: Requested vertical scroll offset.
+// animated: Whether Brookesia should animate this explicit scroll request.
 std::expected<void, std::string> App::scroll_to(
     AppContext &context,
     std::string_view path,
@@ -1033,8 +608,7 @@ std::expected<void, std::string> App::scroll_to(
     bool animated
 )
 {
-    return screen_ != Screen::Welcome &&
-           active_screen_document_id_.has_value()
+    return has_active_screen_document()
         ? context.gui().scroll_to(
               *active_screen_document_id_,
               path,

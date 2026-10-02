@@ -45,6 +45,8 @@ struct CommandGeometry {
     int diameter;
 };
 
+// count: Active command count, checked before geometry is requested.
+// index: Internal traversal position within this route's ordered command list.
 size_t command_center_distance(size_t count, size_t index)
 {
     const size_t right_center = count / 2U;
@@ -54,11 +56,17 @@ size_t command_center_distance(size_t count, size_t index)
         ));
     }
     const size_t left_center = right_center - 1U;
-    return index < left_center
-        ? left_center - index
-        : index > right_center ? index - right_center : 0U;
+    if (index < left_center) {
+        return left_center - index;
+    }
+    if (index > right_center) {
+        return index - right_center;
+    }
+    return 0;
 }
 
+// count: Number of visible commands on the arc.
+// index: Traversal position whose distance from the center chooses its diameter.
 int command_diameter(size_t count, size_t index)
 {
     const int distance = static_cast<int>(
@@ -68,6 +76,8 @@ int command_diameter(size_t count, size_t index)
            (distance * LUNASHELL::AdaptiveCommandBar::kDiameterStepDp);
 }
 
+// count: Number of visible commands on the arc.
+// index: Traversal position whose center is lifted along the arc.
 int command_center_y(size_t count, size_t index)
 {
     const int distance = static_cast<int>(
@@ -78,6 +88,9 @@ int command_center_y(size_t count, size_t index)
            (kArcRiseQuadraticDp * distance * distance);
 }
 
+// first_diameter: Diameter of the first adjacent button.
+// second_diameter: Diameter of its neighbor.
+// vertical_delta: Difference between their vertical centers.
 int horizontal_center_delta(
     int first_diameter,
     int second_diameter,
@@ -97,8 +110,16 @@ int horizontal_center_delta(
     );
 }
 
-CommandGeometry command_geometry(size_t count, size_t index)
+using CommandLayout = std::array<CommandGeometry, LUNASHELL::AdaptiveCommandBar::kSlotCount>;
+
+// count: Previously checked number of visible commands, including an empty route.
+CommandLayout command_layout(size_t count)
 {
+    CommandLayout layout{};
+    if (count == 0) {
+        return layout;
+    }
+    // Settle the middle first, then grow the arc evenly toward both sides.
     const size_t right_center = count / 2U;
     const size_t left_center =
         (count % 2U) == 0U ? right_center - 1U : right_center;
@@ -147,18 +168,27 @@ CommandGeometry command_geometry(size_t count, size_t index)
             );
     }
 
-    return {
-        .x = center_x[index] - (diameter[index] / 2),
-        .y = center_y[index] - (diameter[index] / 2),
-        .diameter = diameter[index],
-    };
+    for (size_t slot = 0; slot < count; ++slot) {
+        layout[slot] = {
+            .x = center_x[slot] - (diameter[slot] / 2),
+            .y = center_y[slot] - (diameter[slot] / 2),
+            .diameter = diameter[slot],
+        };
+    }
+    return layout;
 }
 
+// index: Internal slot position, encoded into its existing stable GUI path.
 std::string slot_path(size_t index)
 {
     return std::string(kCommandRoot) + "/slot" + std::to_string(index);
 }
 
+// updates: Pending batch receiving this named binding.
+// path: Unique view path in the mounted command document.
+// key: Binding name owned by that view.
+// value: Explicit value to apply when the batch commits.
+// Exceptions: std::bad_alloc if the binding batch cannot be allocated.
 void add_binding(
     std::vector<esp_brookesia::gui::BindingValueUpdate> &updates,
     std::string_view path,
@@ -178,6 +208,10 @@ void add_binding(
 namespace LUNASHELL {
 
 // Replace command bindings only after any prior animation is fully stopped.
+// gui: Brookesia runtime that owns the mounted command arc.
+// commands: Named route actions, kept in their intended visual order.
+// visible: Requested chrome visibility after the route bindings commit.
+// Exceptions: std::bad_alloc if command or binding storage cannot be allocated.
 std::expected<void, std::string> AdaptiveCommandBar::activate(
     const esp_brookesia::system::core::AppGuiRuntime &gui,
     std::span<const CommandSpec> commands,
@@ -212,8 +246,11 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
             }
         }
     }
-    const size_t expected_main_count =
-        commands.empty() ? 0U : (commands.size() % 2U) == 0U ? 2U : 1U;
+    size_t expected_main_count = 0;
+    if (!commands.empty()) {
+        const bool has_two_centers = (commands.size() % 2U) == 0U;
+        expected_main_count = has_two_centers ? 2U : 1U;
+    }
     if (main_count != expected_main_count) {
         return std::unexpected(
             "Command Arc requires one central Main Command for odd layouts "
@@ -231,6 +268,7 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
 
     std::vector<esp_brookesia::gui::BindingValueUpdate> updates;
     updates.reserve(72);
+    const CommandLayout layout = command_layout(commands.size());
     add_binding(
         updates,
         kCommandRoot,
@@ -259,8 +297,7 @@ std::expected<void, std::string> AdaptiveCommandBar::activate(
         }
 
         const CommandSpec &command = commands[index];
-        const CommandGeometry geometry =
-            command_geometry(commands.size(), index);
+        const CommandGeometry &geometry = layout[index];
         const palette::ActionColors &colors =
             palette::action_colors(command.role);
         actions_[index].assign(command.action);

@@ -10,7 +10,7 @@ function Get-FirmwareActions {
 function Get-DeviceActionParameters {
     $idf = @('Profile','Feature','BoardConfig','BuildDir','IdfPath','ToolsPath','PythonExe')
     $serial = @('Port','Baud','WaitSeconds')
-    $preview = @('Screen','Rotation','AtMs','SafeGuide','PythonExecutable')
+    $preview = @('Screen','Rotation','AtMs','SafeGuide','PythonExecutable','Skin')
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
@@ -116,6 +116,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 elseif ($Options.ContainsKey('Screen')) { @($Options.Screen) } else { @('rig') }
             foreach ($screenName in $screens) {
                 $arguments = @('--screen',$screenName)
+                if ($Options.ContainsKey('Skin')) { $arguments += @('--skin',$Options.Skin) }
                 if ($Options.ContainsKey('Rotation')) { $arguments += @('--rotation',[string]$Options.Rotation) }
                 if ($Options.ContainsKey('AtMs')) { $arguments += @('--at-ms',[string]$Options.AtMs) }
                 if ($Options.SafeGuide) { $arguments += '--safe-guide' }
@@ -150,6 +151,7 @@ function Show-DeviceHelp {
 CODY COMPANION / DEVICE CONSOLE
   device.ps1                              Interactive menu
   device.ps1 simulator                    Cody rig and debug controls
+  device.ps1 simulator -Skin assets/characters/example.yaml
   device.ps1 simulator -Screen boot-ready -Rotation 180
   device.ps1 simulator -OutputPath artifacts/simulator/rig.png
   device.ps1 boot-screens                  Capture all three boot stages

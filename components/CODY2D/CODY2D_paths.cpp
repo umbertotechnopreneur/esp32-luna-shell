@@ -106,7 +106,7 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
     const esp_err_t error = validate_surface(strip);
     if (error != ESP_OK) return error;
     if (!valid_point(from) || !valid_point(to) || !std::isfinite(width) ||
-        width <= 0 || width > 20 || first_row + strip.height > kMaxDimension) {
+        width <= 0 || width > kMaxStrokeWidth || first_row + strip.height > kMaxDimension) {
         ESP_LOGE(kTag, "Stroke rejected: from=%f,%f to=%f,%f width=%f row=%u (%s)",
                  from.x, from.y, to.x, to.y, width, first_row, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -119,14 +119,18 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                             static_cast<int>(std::floor(std::min(from.y, to.y) - radius)));
     const int bottom = std::min(static_cast<int>(first_row + strip.height) - 1,
                                static_cast<int>(std::ceil(std::max(from.y, to.y) + radius)));
-    const float dx = to.x - from.x, dy = to.y - from.y;
+    const float dx = to.x - from.x;
+    const float dy = to.y - from.y;
     const float squared_length = dx*dx + dy*dy;
     for (int row = top; row <= bottom; ++row) {
         for (int column = left; column <= right; ++column) {
-            const float px = column + .5f - from.x, py = row + .5f - from.y;
+            const float px = column + .5f - from.x;
+            const float py = row + .5f - from.y;
             const float position = squared_length == 0 ? 0 :
                 std::max(0.f, std::min(1.f, (px*dx + py*dy) / squared_length));
-            const float ex = px - position*dx, ey = py - position*dy;
+            // Distance from the pixel center to the closest position on the segment.
+            const float ex = px - position * dx;
+            const float ey = py - position * dy;
             if (ex*ex + ey*ey <= radius*radius) {
                 strip.pixels[(row - first_row)*strip.stride + column] = color;
             }
