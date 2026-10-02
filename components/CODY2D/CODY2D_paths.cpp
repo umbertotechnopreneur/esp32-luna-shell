@@ -14,6 +14,18 @@ bool valid_point(Vec2 point)
     return std::isfinite(point.x) && std::isfinite(point.y) &&
            std::abs(point.x) <= 2048 && std::abs(point.y) <= 2048;
 }
+
+// source: Native RGB565 source color from the immutable palette.
+// destination: Current native RGB565 pixel below this path.
+// opacity: Source coverage in 0..255; integer rounding is shared with the host renderer.
+uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
+{
+    const uint32_t alpha = opacity, inverse = 255U - alpha;
+    const uint32_t red = (((source >> 11) & 31U) * alpha + ((destination >> 11) & 31U) * inverse + 127U) / 255U;
+    const uint32_t green = (((source >> 5) & 63U) * alpha + ((destination >> 5) & 63U) * inverse + 127U) / 255U;
+    const uint32_t blue = ((source & 31U) * alpha + (destination & 31U) * inverse + 127U) / 255U;
+    return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+}
 }  // namespace
 
 // strip: Caller-owned destination; no row padding is touched.
@@ -23,9 +35,11 @@ bool valid_point(Vec2 point)
 // palette: Readable table of 256 native RGB565 entries.
 // first_color: Top slot, also the solid slot for a constant-color polygon.
 // last_color: Bottom slot in the same ordered ramp.
+// opacity: Source coverage; zero still checks the supplied geometry before returning without writes.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
-                        const uint16_t *palette, uint8_t first_color, uint8_t last_color)
+                        const uint16_t *palette, uint8_t first_color, uint8_t last_color,
+                        uint8_t opacity)
 {
     const esp_err_t error = validate_surface(strip);
     if (error != ESP_OK) return error;
@@ -46,6 +60,7 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
         top = std::min(top, vertices[index].y);
         bottom = std::max(bottom, vertices[index].y);
     }
+    if (opacity == 0) return ESP_OK;
     float intersections[kMaxPathVertices];
     for (uint16_t row = 0; row < strip.height; ++row) {
         const float scan_y = first_row + row + .5f;
@@ -71,7 +86,8 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
             const int right = std::min(static_cast<int>(strip.width),
                                       static_cast<int>(std::ceil(intersections[hit + 1] - .5f)));
             for (int column = left; column < right; ++column) {
-                strip.pixels[row * strip.stride + column] = palette[slot];
+                auto &destination = strip.pixels[row * strip.stride + column];
+                destination = opacity == 255 ? palette[slot] : blend_rgb565(palette[slot], destination, opacity);
             }
         }
     }

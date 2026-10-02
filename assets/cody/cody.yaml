@@ -118,6 +118,35 @@ channels:
   minimum: -1
   maximum: 1
   default: 0
+- name: mouth_width
+  minimum: 0.5
+  maximum: 1.6
+  default: 1
+- name: nose_size
+  minimum: 0.5
+  maximum: 1.6
+  default: 1
+- name: cheek_size
+  minimum: 0.4
+  maximum: 1.8
+  default: 1.2
+- name: cheek_opacity
+  minimum: 0
+  maximum: 1
+  default: 1
+# Shape and opacity controls compose with the original six facial channels.
+# Scale only descendants; the named anchor remains fixed in the face.
+face_transition_seconds: 0.18
+face_transforms:
+- {anchor: mouth, channel: mouth_width, axes: [x]}
+- {anchor: nose, channel: nose_size, axes: [x, y]}
+- {anchor: cheek.left, channel: cheek_size, axes: [x, y]}
+- {anchor: cheek.right, channel: cheek_size, axes: [x, y]}
+path_opacity:
+  cheek.left: cheek_opacity
+  cheek.right: cheek_opacity
+expression_presets:
+  embarrassed: [0.65, 0.65, 0.3, 0.3, 0.12, 0, 0.8, 1, 1.5, 0.85]
 # Shape controls affect only the outline anchors and their child handles.
 # Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
 contour:
@@ -1929,24 +1958,6 @@ default_transform:
   y: 235
   scale: 145
 boot_channels:
-  sleep:
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  - 0
-  waking:
-  - 0.35
-  - 0.35
-  - 0
-  - 0
-  - 0.06
-  - 0
-  ready:
-  - 1
-  - 1
-  - 0
-  - 0
-  - 0.15
-  - 0
+  sleep: [0, 0, 0, 0, 0, 0, 1, 1, 1.2, 1]
+  waking: [0.35, 0.35, 0, 0, 0.06, 0, 1, 1, 1.2, 1]
+  ready: [1, 1, 0, 0, 0.15, 0, 1, 1, 1.2, 1]

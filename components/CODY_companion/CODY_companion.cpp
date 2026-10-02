@@ -71,6 +71,7 @@ std::atomic<bool> s_frame_dirty{false};
 int64_t s_animation_started_us = 0;
 int64_t s_contour_sampled_us = 0;
 CODY::ContourState s_contour{};
+CODY::Channels s_face{};
 int64_t s_next_frame_us = 0;
 int64_t s_last_timing_log_us = 0;
 uint32_t s_rig_frame_count = 0;
@@ -183,10 +184,16 @@ DrawResult draw_boot_frame(bool resume_animation = false)
             bsp_display_unlock();
             return {ESP_ERR_INVALID_STATE, false, 0};
         }
-        const auto channels = CODY::animate_rig(CODY::Data::defaults,
-            static_cast<uint32_t>((frame_started_us - s_animation_started_us) / 1000));
         const float contour_delta_ms = resume_animation || s_contour_sampled_us == 0 ? 0 :
             static_cast<float>(frame_started_us - s_contour_sampled_us) / 1000.f;
+        CODY::Channels next_face{};
+        const esp_err_t face_error = CODY::advance_face(s_face, CODY::Data::defaults, contour_delta_ms, next_face);
+        if (face_error != ESP_OK) {
+            bsp_display_unlock();
+            return {face_error, false, 0};
+        }
+        const auto channels = CODY::animate_rig(next_face,
+            static_cast<uint32_t>((frame_started_us - s_animation_started_us) / 1000));
         CODY::ContourState next_contour{};
         const esp_err_t contour_error = CODY::advance_contour(s_contour, CODY::contour_defaults(),
                                                              contour_delta_ms, next_contour);
@@ -200,6 +207,7 @@ DrawResult draw_boot_frame(bool resume_animation = false)
             return {geometry_error, false, 0};
         }
         s_contour = next_contour;
+        s_face = next_face;
         s_contour_sampled_us = frame_started_us;
         geometry_us = esp_timer_get_time() - frame_started_us;
     }
@@ -329,6 +337,7 @@ esp_err_t sample_touch()
                 s_rig_debug = true;
                 s_animation_started_us = esp_timer_get_time();
                 s_contour = CODY::make_contour_state();
+                s_face = CODY::Data::defaults;
                 s_contour_sampled_us = 0;
                 s_last_timing_log_us = 0;
                 s_rig_frame_count = 0;

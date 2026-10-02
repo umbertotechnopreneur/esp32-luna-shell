@@ -80,13 +80,15 @@ def load_contract(root=ROOT):
     if not 1 <= len(rig["points"]) <= 192 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
         raise ValueError("Rig exceeds the bounded firmware geometry capacity")
     channel_names = [item["name"] for item in rig["channels"]]
-    if channel_names != ["eye_left", "eye_right", "brow_left", "brow_right", "mouth_open", "breath"]:
+    if channel_names != ["eye_left", "eye_right", "brow_left", "brow_right", "mouth_open", "breath",
+                         "mouth_width", "nose_size", "cheek_size", "cheek_opacity"]:
         raise ValueError("Unexpected facial channel order")
     for channel in rig["channels"]:
         lower, upper, default = [finite(channel[key], channel["name"]) for key in ("minimum", "maximum", "default")]
         if not lower <= default <= upper or lower >= upper:
             raise ValueError(f"Invalid channel bounds: {channel['name']}")
-        expected_range = (-1, 1) if channel['name'] in ('brow_left','brow_right','breath') else (0, 1)
+        expected_range = {'brow_left': (-1, 1), 'brow_right': (-1, 1), 'breath': (-1, 1),
+                          'mouth_width': (.5, 1.6), 'nose_size': (.5, 1.6), 'cheek_size': (.4, 1.8)}.get(channel['name'], (0, 1))
         if (lower, upper) != expected_range:
             raise ValueError(f"{channel['name']}: semantic range must remain {expected_range}")
     names = [point["name"] for point in rig["points"]]
@@ -137,6 +139,7 @@ def load_contract(root=ROOT):
         owned_paths.extend(entity["paths"])
     if len(owned_paths) != len(set(owned_paths)) or set(owned_paths) != path_names:
         raise ValueError("Each drawn path must belong to exactly one named entity")
+    validate_face_definition(rig)
     validate_contour_definition(rig)
     if len(palette["entries"]) != 256 or [item["index"] for item in palette["entries"]] != list(range(256)):
         raise ValueError("Palette must contain all 256 ordered slots")
@@ -151,11 +154,59 @@ def load_contract(root=ROOT):
         raise ValueError("Three boot channel previews are required")
     for values in rig["boot_channels"].values():
         validate_channels(rig, values)
+    for name, values in rig["expression_presets"].items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Expression presets require nonempty names")
+        validate_channels(rig, values)
     placement = rig["default_transform"]
     x, y, scale = [finite(placement[key], "default_transform") for key in ("x", "y", "scale")]
     if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
         raise ValueError("Invalid authored default transform")
     return rig, palette
+
+
+# rig supplies the already checked point/path graph and declarative facial bindings.
+# Raises ValueError for ambiguous transforms, unsafe anchors or unsupported opacity bindings.
+def validate_face_definition(rig):
+    if not .05 <= finite(rig["face_transition_seconds"], "face_transition_seconds") <= 5:
+        raise ValueError("Face transition time constant must be between 0.05 and 5 seconds")
+    expected = {("mouth", "mouth_width", ("x",)), ("nose", "nose_size", ("x", "y")),
+                ("cheek.left", "cheek_size", ("x", "y")), ("cheek.right", "cheek_size", ("x", "y"))}
+    bindings = rig["face_transforms"]
+    if len(bindings) != len(expected) or {(item["anchor"], item["channel"], tuple(item["axes"])) for item in bindings} != expected:
+        raise ValueError("Face transforms must explicitly bind mouth width, nose size and both cheek sizes")
+    points = {point["name"]: point for point in rig["points"]}
+    anchors = {item["anchor"]: item for item in bindings}
+    for name in anchors:
+        if name not in points or points[name]["role"] != "anchor" or points[name]["parent"] != "center":
+            raise ValueError(f"Face transform requires a fixed direct root anchor: {name}")
+    rig["point_face_transforms"] = {}
+    for point in rig["points"]:
+        ancestor = point["parent"]
+        binding = None
+        while ancestor is not None:
+            if ancestor in anchors:
+                if binding is not None:
+                    raise ValueError(f"Overlapping facial transform bindings: {point['name']}")
+                binding = anchors[ancestor]
+            ancestor = points[ancestor]["parent"]
+        rig["point_face_transforms"][point["name"]] = tuple(
+            binding["channel"] if binding is not None and axis in binding["axes"] else None for axis in ("x", "y"))
+    if rig["path_opacity"] != {"cheek.left": "cheek_opacity", "cheek.right": "cheek_opacity"}:
+        raise ValueError("Only the two cheek fills have an authored opacity channel")
+    owned_points = {anchor: set() for anchor in anchors}
+    for path in rig["paths"]:
+        opacity_channel = rig["path_opacity"].get(path["name"])
+        if opacity_channel is not None and path["stroke"] != 0:
+            raise ValueError(f"Opacity is supported by filled paths only: {path['name']}")
+        path["opacity_channel"] = opacity_channel
+        curves = rig["curves"][path["first_curve"]:path["first_curve"] + path["curve_count"]]
+        if path["name"] in owned_points:
+            owned_points[path["name"]].update(name for curve in curves for name in curve["points"])
+    for anchor, path_points in owned_points.items():
+        expected_channel = anchors[anchor]["channel"]
+        if not path_points or any(expected_channel not in rig["point_face_transforms"][name] for name in path_points):
+            raise ValueError(f"All facial path points must descend from their stable anchor: {anchor}")
 
 
 # rig supplies authored outline metadata and the already checked parent/path graph.
@@ -285,7 +336,8 @@ def contour_offsets(rig, state):
     return offsets
 
 
-# rig supplies the channel bounds; values are independently composed facial controls.
+# rig supplies the channel bounds.
+# values are independently composed facial controls in stable authoring order.
 # Raises ValueError for missing, invalid or out-of-range channels; nothing is clamped.
 def validate_channels(rig, values):
     if len(values) != len(rig["channels"]):
@@ -293,6 +345,29 @@ def validate_channels(rig, values):
     for channel, value in zip(rig["channels"], values):
         if not channel["minimum"] <= finite(value, channel["name"]) <= channel["maximum"]:
             raise ValueError(f"{channel['name']}: rejected value {value}")
+
+
+# rig supplies the ten channel bounds and face smoothing time constant.
+# state contains the previous unanimated facial controls; it is not mutated.
+# target contains the requested facial controls, independent of contour state.
+# delta_ms is active elapsed time; zero freezes all facial transitions exactly.
+# Raises ValueError for invalid channels, timing or smoothing configuration.
+def advance_face(rig, state, target, delta_ms):
+    validate_channels(rig, state)
+    validate_channels(rig, target)
+    seconds = finite(delta_ms, "face.delta_ms") / 1000
+    if seconds < 0:
+        raise ValueError("Face time cannot move backwards")
+    time_constant = finite(rig["face_transition_seconds"], "face_transition_seconds")
+    if not .05 <= time_constant <= 5:
+        raise ValueError("Face transition time constant must be between 0.05 and 5 seconds")
+    if seconds == 0:
+        return list(state)
+    weight = -math.expm1(-seconds / time_constant)
+    result = [previous if previous == requested else previous * (1 - weight) + requested * weight
+              for previous, requested in zip(state, target)]
+    validate_channels(rig, result)
+    return result
 
 
 # base contains independent facial controls; elapsed_ms is monotonic animation time.
@@ -352,6 +427,9 @@ def evaluate(rig, values, transform, contour=None):
     for point in rig["points"]:
         amount = channels[point["channel"]] if point["channel"] is not None else 0
         px, py = [position + delta * amount for position, delta in zip(point["position"], point["delta"])]
+        scale_x, scale_y = rig["point_face_transforms"][point["name"]]
+        px *= channels[scale_x] if scale_x is not None else 1
+        py *= channels[scale_y] if scale_y is not None else 1
         rest_x, rest_y = px, py
         offset_x, offset_y = offsets.get(point["name"], (0, 0))
         px += offset_x
@@ -373,5 +451,8 @@ def evaluate(rig, values, transform, contour=None):
         vertices = sample_path(rig, definition, world)
         if definition["name"] == "body":
             rest_outline = sample_path(rig, definition, rest_world)
-        paths.append(dict(definition=definition, vertices=vertices, visible=definition["visible"] is None or channels[definition["visible"]] >= .25))
+        opacity = channels[definition["opacity_channel"]] if definition["opacity_channel"] is not None else 1.0
+        paths.append(dict(definition=definition, vertices=vertices,
+                          visible=definition["visible"] is None or channels[definition["visible"]] >= .25,
+                          opacity=opacity))
     return dict(local=local, world=world, paths=paths, scale=scale * breathing_scale, rest_outline=rest_outline)

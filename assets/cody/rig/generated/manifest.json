@@ -7,6 +7,8 @@
   "palette_slots": 256,
   "contour_controls": 4,
   "contour_lobes": 11,
-  "source_sha256": "6e543d4267b586106c383f51c992aaef623c017572dde545281e5e08d5833e53",
+  "facial_channels": 10,
+  "face_transforms": 4,
+  "source_sha256": "b3a0350b66450ca1bb23c1fca61412b862011b7aad6fc1bd7b0ee8ee52d4ac0c",
   "palette_sha256": "31669270115a8eb9a5af445de80537b4674c2882029ae6435d1a506cdd13ffdf"
 }

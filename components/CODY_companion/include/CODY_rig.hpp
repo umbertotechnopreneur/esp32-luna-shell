@@ -13,7 +13,8 @@ constexpr uint16_t kMaxVertices = 64 * kSubdivisions + kMaxPaths;
 constexpr uint16_t kNoPoint = UINT16_MAX;
 
 // These channels compose independently. They are not an enumeration of whole faces.
-struct Channels { float values[6] = {1, 1, 0, 0, .15f, 0}; };
+// Initialize input state from Data::defaults; authored defaults live only in the generated table.
+struct Channels { float values[10] = {}; };
 struct Transform { float x = 233; float y = 235; float scale = 145; };
 // Independent outline controls in stable order: fullness, amplitude, speed, phase_spread.
 struct ContourControls { float values[4] = {}; };
@@ -32,16 +33,19 @@ struct PointDefinition {
     uint8_t role;  // 0 anchor, 1 path knot, 2 cubic handle.
 };
 struct CurveDefinition { uint16_t points[4]; };
+struct PointFaceTransform { int8_t x_channel, y_channel; };
 struct EntityDefinition { const char *id; const char *label; uint16_t anchor; };
 struct PathDefinition {
     uint16_t first_curve, curve_count;
     uint8_t first_color, last_color;
     float stroke;
     int8_t visible_channel;
+    int8_t opacity_channel;
 };
 struct EvaluatedPath {
     uint16_t first_vertex = 0, count = 0;
     bool visible = false;
+    uint8_t opacity = 255;
 };
 
 // Allocate this once in caller-owned PSRAM. It contains no heap-owning objects.
@@ -73,6 +77,13 @@ ContourState make_contour_state();
 // next: Receives the complete next state only on success; may alias state.
 esp_err_t advance_contour(const ContourState &state, const ContourControls &target,
                           float delta_ms, ContourState &next);
+
+// state: Previous unanimated independent facial controls.
+// target: Requested facial controls, including feature dimensions and cheek opacity.
+// delta_ms: Active elapsed time; zero freezes transitions while still rejecting invalid inputs.
+// next: Receives the new controls on success; may alias state.
+esp_err_t advance_face(const Channels &state, const Channels &target,
+                       float delta_ms, Channels &next);
 
 // base: Independent caller-selected facial controls.
 // elapsed_ms: Monotonic elapsed animation time; no frame-count dependency.

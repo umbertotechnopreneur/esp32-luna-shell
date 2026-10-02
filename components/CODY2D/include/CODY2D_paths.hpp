@@ -16,9 +16,11 @@ constexpr uint16_t kMaxPathVertices = 256;
 // palette: Readable 256-entry native RGB565 palette.
 // first_color: Top gradient slot, or the solid color slot.
 // last_color: Bottom gradient slot, equal to first_color for a solid fill.
+// opacity: Source coverage from transparent zero to opaque 255, composited in native RGB565.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
-                        const uint16_t *palette, uint8_t first_color, uint8_t last_color);
+                        const uint16_t *palette, uint8_t first_color, uint8_t last_color,
+                        uint8_t opacity = 255);
 
 // strip: Caller-owned RGB565 destination.
 // first_row: Global canvas row represented by this strip.

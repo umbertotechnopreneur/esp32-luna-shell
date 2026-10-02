@@ -16,6 +16,25 @@ static_assert(std::size(Data::contour_lobes) == 11);
 static_assert(std::size(Data::point_contour_lobe) == std::size(Data::points));
 static_assert(std::size(Data::contour_min) == 4 && std::size(Data::contour_max) == 4);
 static_assert(Data::contour_transition_seconds >= .05f && Data::contour_transition_seconds <= 5.f);
+static_assert(Data::face_transition_seconds >= .05f && Data::face_transition_seconds <= 5.f);
+static_assert(std::size(Data::point_face_transforms) == std::size(Data::points));
+static_assert(std::size(Data::channel_min) == std::size(Channels{}.values));
+static_assert(std::size(Data::channel_max) == std::size(Channels{}.values));
+
+// channels: Independent facial values, including shape and cheek opacity controls.
+// operation: Identifies the caller that rejected a channel without clamping it.
+esp_err_t validate_face_channels(const Channels &channels, const char *operation)
+{
+    for (uint16_t index = 0; index < std::size(channels.values); ++index) {
+        const float value = channels.values[index];
+        if (!std::isfinite(value) || value < Data::channel_min[index] || value > Data::channel_max[index]) {
+            ESP_LOGE(kTag, "%s: channel %s rejected: %f (%s)", operation, Data::channel_names[index], value,
+                     esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    return ESP_OK;
+}
 
 // controls: Independent contour controls to check without clamping.
 // operation: Identifies which caller rejected the value in the component log.
@@ -115,7 +134,39 @@ esp_err_t advance_contour(const ContourState &state, const ContourControls &targ
     return ESP_OK;
 }
 
-// base: Unsmoothed independent controls, validated when the scene is evaluated.
+// state: Previous unanimated facial channels; caller ownership remains unchanged on failure.
+// target: Requested independent face controls, with authored finite bounds.
+// delta_ms: Real active elapsed time; zero freezes state without accepting invalid values.
+// next: Receives a complete smoothed set only after successful validation; may alias state.
+esp_err_t advance_face(const Channels &state, const Channels &target, float delta_ms, Channels &next)
+{
+    esp_err_t result = validate_face_channels(state, "Face advance state");
+    if (result != ESP_OK) return result;
+    result = validate_face_channels(target, "Face advance target");
+    if (result != ESP_OK) return result;
+    if (!std::isfinite(delta_ms) || delta_ms < 0) {
+        ESP_LOGE(kTag, "Face advance time rejected: %fms (%s)", delta_ms,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (delta_ms == 0) {
+        next = state;
+        return ESP_OK;
+    }
+    const float weight = -std::expm1(-(delta_ms / 1000.f) / Data::face_transition_seconds);
+    Channels candidate = state;
+    for (uint16_t index = 0; index < std::size(target.values); ++index) {
+        if (state.values[index] != target.values[index]) {
+            candidate.values[index] = state.values[index] * (1 - weight) + target.values[index] * weight;
+        }
+    }
+    result = validate_face_channels(candidate, "Face advance result");
+    if (result != ESP_OK) return result;
+    next = candidate;
+    return ESP_OK;
+}
+
+// base: Smoothed independent controls, validated when the scene is evaluated.
 // elapsed_ms: Real monotonic animation time, never a sensor measurement.
 Channels animate_rig(const Channels &base, uint32_t elapsed_ms)
 {
@@ -144,14 +195,8 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         const esp_err_t contour_error = validate_contour_state(*contour, "Rig evaluation");
         if (contour_error != ESP_OK) return contour_error;
     }
-    for (uint16_t index = 0; index < std::size(channels.values); ++index) {
-        const float value = channels.values[index];
-        if (!std::isfinite(value) || value < Data::channel_min[index] || value > Data::channel_max[index]) {
-            ESP_LOGE(kTag, "Channel %s rejected: %f (%s)", Data::channel_names[index], value,
-                     esp_err_to_name(ESP_ERR_INVALID_ARG));
-            return ESP_ERR_INVALID_ARG;
-        }
-    }
+    const esp_err_t face_error = validate_face_channels(channels, "Rig evaluation");
+    if (face_error != ESP_OK) return face_error;
     if (!std::isfinite(transform.x) || !std::isfinite(transform.y) || !std::isfinite(transform.scale) ||
         transform.x < 0 || transform.x >= 466 || transform.y < 0 || transform.y >= 466 ||
         transform.scale < 20 || transform.scale > 200) {
@@ -174,6 +219,9 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         const auto &definition = Data::points[index];
         const float value = definition.channel < 0 ? 0 : channels.values[definition.channel];
         CODY2D::Vec2 local{definition.x + definition.dx * value, definition.y + definition.dy * value};
+        const auto &face_transform = Data::point_face_transforms[index];
+        if (face_transform.x_channel >= 0) local.x *= channels.values[face_transform.x_channel];
+        if (face_transform.y_channel >= 0) local.y *= channels.values[face_transform.y_channel];
         const int8_t lobe = Data::point_contour_lobe[index];
         if (lobe >= 0) {
             local.x += contour_offsets[lobe].x;
@@ -192,6 +240,8 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         auto &path = scene.paths[index];
         path.first_vertex = vertex;
         path.visible = definition.visible_channel < 0 || channels.values[definition.visible_channel] >= .25f;
+        path.opacity = definition.opacity_channel < 0 ? 255 : static_cast<uint8_t>(
+            std::floor(channels.values[definition.opacity_channel] * 255.f + .5f));
         for (uint16_t curve_index = 0; curve_index < definition.curve_count; ++curve_index) {
             const auto &curve = Data::curves[definition.first_curve + curve_index];
             CODY2D::Vec2 control[4];
@@ -229,7 +279,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         const auto *vertices = scene.vertices.data() + path.first_vertex;
         if (definition.stroke == 0) {
             result = CODY2D::fill_path_rows(strip, first_row, vertices, path.count,
-                                          Data::palette, definition.first_color, definition.last_color);
+                                          Data::palette, definition.first_color, definition.last_color, path.opacity);
         } else {
             for (uint16_t segment = 1; segment < path.count; ++segment) {
                 result = CODY2D::stroke_rows(strip, first_row, vertices[segment-1], vertices[segment],

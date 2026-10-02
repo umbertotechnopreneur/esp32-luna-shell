@@ -26,7 +26,11 @@ def main():
         lines.append('    {{' + ', '.join(str(names[name]) for name in curve["points"]) + '}},')
     lines += ['};', 'inline constexpr PathDefinition paths[] = {']
     for path in rig["paths"]:
-        lines.append(f'    {{{path["first_curve"]}, {path["curve_count"]}, {path["paint"][0]}, {path["paint"][1]}, {cpp_float(path["stroke"])}, {channels.get(path["visible"], -1)}}},')
+        lines.append(f'    {{{path["first_curve"]}, {path["curve_count"]}, {path["paint"][0]}, {path["paint"][1]}, {cpp_float(path["stroke"])}, {channels.get(path["visible"], -1)}, {channels.get(path["opacity_channel"], -1)}}},')
+    lines += ['};', 'inline constexpr PointFaceTransform point_face_transforms[] = {']
+    for point in rig['points']:
+        x_channel, y_channel = rig['point_face_transforms'][point['name']]
+        lines.append(f'    {{{channels.get(x_channel, -1)}, {channels.get(y_channel, -1)}}},')
     lines += ['};', 'inline constexpr uint16_t palette[256] = {']
     for start in range(0, 256, 8):
         lines.append('    ' + ', '.join(entry["rgb565"] for entry in palette["entries"][start:start+8]) + ',')
@@ -34,6 +38,7 @@ def main():
     for phase, values in rig['boot_channels'].items():
         lines.append(f'inline constexpr Channels {phase} = {{{{{", ".join(cpp_float(v) for v in values)}}}}};')
     lines.append('inline constexpr Channels defaults = {{' + ', '.join(cpp_float(channel['default']) for channel in rig['channels']) + '}};')
+    lines.append('inline constexpr float face_transition_seconds = ' + cpp_float(rig['face_transition_seconds']) + ';')
     controls = rig['contour']['controls']
     lines.append('inline constexpr ContourControls contour_defaults = {{' + ', '.join(cpp_float(control['default']) for control in controls) + '}};')
     for label, key in (('min', 'minimum'), ('max', 'maximum')):
@@ -62,6 +67,7 @@ def main():
     (output / 'cloud_rig_data.hpp').write_text('\n'.join(lines), encoding='utf-8')
     manifest = {'schema':'cody.rig.generated.v1', 'points':len(rig['points']), 'curves':len(rig['curves']), 'paths':len(rig['paths']), 'subdivisions':12, 'palette_slots':256,
                 'contour_controls':len(controls), 'contour_lobes':len(rig['contour']['lobes']),
+                'facial_channels':len(rig['channels']), 'face_transforms':len(rig['face_transforms']),
                 'source_sha256':hashlib.sha256((ROOT/'assets/cody/cody.yaml').read_bytes()).hexdigest(),
                 'palette_sha256':hashlib.sha256((ROOT/'assets/cody/palette/palette256.json').read_bytes()).hexdigest()}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', encoding='utf-8')
