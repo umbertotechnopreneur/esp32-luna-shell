@@ -5,6 +5,26 @@ flow. It does not emulate the Waveshare electrical hardware or ESP-IDF drivers.
 All values originate in a deterministic device-twin snapshot and remain
 visibly labelled `SYNTHETIC`; simulator state never enters firmware snapshots.
 
+## Cody cloud-rig PoC
+
+The `esp32-cody-companion` worktree adds `-Cody` to this same launcher. It opens
+`cody_simulator.py`: a local cloud with named normalized points, cubic handles,
+independent facial sliders, elapsed-time breathing/blinking, rotation and point
+inspection. Its screen selector includes all three original boot artworks.
+`assets/cody/cody.yaml` configures identity, entities, geometry and indexed style;
+the shared palette has 256 slots. No fake-device HTTP server is started.
+
+```powershell
+pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Cody -PythonExecutable 'E:\ESP32 Luna Shell\.venv-simulator\Scripts\python.exe'
+```
+
+Use `-CodyScreen boot-sleep|boot-waking|boot-ready|rig`, `-CodyRotation 180`,
+`-SafeGuide`, or `-Capture .\artifacts\cody-poc\preview.png`. The explicit Python
+path reuses the existing Luna environment; a local `.venv-simulator` with Pillow
+and PyYAML also works. Cody options cannot be mixed with device-twin scenarios.
+The legacy packaged EXE remains a Luna target; Cody currently launches from source.
+See `docs/architecture/cody-rig-poc.md` for controls, limits and validation scope.
+
 ## Minimal board shell preview
 
 The reviewed `ui-bootstrap` board profile has a separate preview that reads

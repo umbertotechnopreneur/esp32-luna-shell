@@ -1,5 +1,23 @@
 # Done
 
+## Cody cloud-rig PoC (2026-10-02)
+
+- [x] Add a YAML-owned front-facing cloud with 145 stable named points,
+  normalized feature anchors, 44 cubic segments and shared evaluated geometry
+  for artwork, debug links, control handles and touch selection.
+- [x] Integrate the exact 256-slot palette for the rig, named paint/debug roles,
+  independent eye/brow/mouth controls and elapsed-time breathing/blinking.
+  Keep original boot images and real startup boundaries. Add the animated rig
+  route, lateral Back/debug icons and actual device timing instrumentation.
+- [x] Add `-Cody` to the existing Windows simulator launcher, with independent
+  controls, scaling, placement, all cardinal orientations and three boot views.
+  Disable HTTP diagnostics for this local PoC, keeping Wi-Fi/BLE hardware.
+- [x] Run ten focused host checks, including actual Tk control navigation,
+  and the PowerShell boot-preview capture path. Review generated screen PNGs;
+  record a 600-frame host render sample and looping animation under
+  `artifacts/cody-poc/`. Firmware compilation, physical performance and native
+  raster parity remain explicitly open in `TODO.md`.
+
 ## Cody base implementation (2026-10-02)
 
 - [x] Record the source-verified 466 x 466 circle, 320 x 320 central safe

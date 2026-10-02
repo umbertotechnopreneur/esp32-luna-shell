@@ -18,12 +18,14 @@ struct Transform { float x = 233; float y = 235; float scale = 145; };
 
 struct PointDefinition {
     const char *name;
+    // Parent-relative normalized offset and independent channel displacement.
     float x, y, dx, dy;
     int16_t parent;
     int8_t channel;
     uint8_t role;  // 0 anchor, 1 path knot, 2 cubic handle.
 };
 struct CurveDefinition { uint16_t points[4]; };
+struct EntityDefinition { const char *id; const char *label; uint16_t anchor; };
 struct PathDefinition {
     uint16_t first_curve, curve_count;
     uint8_t first_color, last_color;
@@ -50,6 +52,10 @@ struct RigScene {
 // scene: Caller-owned evaluated geometry, invalidated immediately on entry.
 esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene);
 
+// base: Independent caller-selected facial controls.
+// elapsed_ms: Monotonic elapsed animation time; no frame-count dependency.
+Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
+
 // scene: Successfully evaluated geometry used by both artwork and debug.
 // strip: Caller-owned full-width RGB565 tile.
 // first_row: Logical y origin of the tile.
@@ -61,7 +67,8 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
 // scene: Evaluated, valid geometry in current logical coordinates.
 // point: Logical touch coordinate, already mapped by the display/touch owner.
 // radius: Maximum selection distance in pixels.
-uint16_t nearest_rig_point(const RigScene &scene, CODY2D::Vec2 point, float radius);
+// selected: Receives the nearest stable point, or kNoPoint for a valid empty hit.
+esp_err_t nearest_rig_point(const RigScene &scene, CODY2D::Vec2 point, float radius, uint16_t &selected);
 
 // index: Stable point index, or kNoPoint for no selection.
 const char *rig_point_name(uint16_t index);

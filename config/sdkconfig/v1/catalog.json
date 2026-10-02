@@ -42,7 +42,6 @@
         "espressif__esp_lcd_co5300",
         "waveshare__esp_lcd_touch_cst9217",
         "espressif__esp_lcd_panel_io_additions",
-        "esp_http_server",
         "espressif__network_provisioning",
         "esp_wifi",
         "bt",

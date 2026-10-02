@@ -78,10 +78,13 @@ def main() -> None:
             raise AssertionError(f"variant {variant_name} has invalid component roots")
         if variant_name == "headless" and roots != ["main"]:
             raise AssertionError("headless must admit only the main transitive root")
-        if variant_name in {"connected", "full", "full-distance", "cody-companion"}:
+        if variant_name in {"connected", "full", "full-distance"}:
             for required_root in ("esp_http_server", "espressif__network_provisioning"):
                 if required_root not in roots:
                     raise AssertionError(f"{variant_name} is missing root {required_root}")
+        if variant_name == "cody-companion":
+            if "espressif__network_provisioning" not in roots or "esp_http_server" in roots:
+                raise AssertionError("Cody rig PoC requires provisioning with HTTP diagnostics excluded")
         if variant_name not in {"headless", "display-touch", "cody-companion"} and "espressif__esp_board_manager" not in roots:
             raise AssertionError(f"{variant_name} is missing the HAL board-manager root")
         if variant_name in {"display-touch", "cody-companion"}:

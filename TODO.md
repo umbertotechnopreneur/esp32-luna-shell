@@ -6,16 +6,18 @@ authorization.
 
 ## Current integration
 
-- [ ] Implement the local Cody cloud-rig PoC: stable normalized anchors and
-  cubic handles, shared geometry for drawing/debug, Windows simulator mode,
-  and the three existing real boot checkpoints. Keep firmware/device and
-  simulator validation deferred until explicitly requested.
+- [ ] On explicit firmware/device validation request, compile the Cody rig PoC
+  and measure frame geometry/raster/transfer times with the overlay on and off,
+  real 0/90/180/270 touch alignment, standby/wake, stack high-water mark and
+  Wi-Fi/BLE headroom. Compare native raster output against the Windows preview;
+  ten focused host checks pass, but native pixel parity remains unverified.
 
 - [ ] On explicit request, resolve/review the `cody-companion` dependency lock,
   then validate the finished no-LVGL source/dependency closure, clean/incremental
   build and size. Physical boot, mandatory display/touch, 0/90/180/270 rotation,
   standby/wake and Wi-Fi/BLE coexistence require separate device authorization.
-  This base has static source review and asset conversion only.
+  Firmware still has static source review and asset conversion only; the local
+  rig's separate host validation is recorded in `docs/architecture/cody-rig-poc.md`.
 
 - [ ] On explicit request, resolve and review the new `display-touch` dependency
   lock and refresh affected existing locks after the BSP manifest gates change.

@@ -68,7 +68,13 @@ and error in component logs. There is no substitute image or zero filling.
 The component does not track dirty redraws or flush the panel. The boot consumer
 decodes a bounded strip and sends it through the independently owned platform
 display API. Font, QR, widgets, cloud Bézier geometry, OOBE, and PC transport
-remain outside this base component.
+remain outside this base component. The local rig PoC adds bounded path fills
+and round line/dot strokes through `CODY2D_paths.hpp`. That API explicitly uses
+full-canvas coordinates and clips to a caller-owned strip; it does not change
+the strict bounds of the original rectangle/circle primitives. Cubics are
+evaluated by the companion into one reusable scene before rasterization. See
+`docs/architecture/cody-rig-poc.md` for host/device differences and pending
+performance validation.
 
 Only static source review was performed for this implementation. No configure,
 build, test, simulator, size, or physical device validation has been run.

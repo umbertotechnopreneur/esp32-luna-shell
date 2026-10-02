@@ -9,9 +9,10 @@ priority. Promote an item to `TODO.md` when it becomes active.
   reasons, saved preferences and optional user-selected Cody gradient color.
   Blue is the initial accent. Keep manual 0/180 orientation, auto-rotation,
   shake-to-wake and sound preferences separate and validity-aware.
-- [ ] Add a compact front-facing cloud rig/skin over CODY2D; use a 32-level
-  vertical ramp, discrete activity poses and bounded dirty-region invalidation.
-  Keep palette changes and orientation/wake as explicit redraw causes.
+- [ ] After the local cloud-rig PoC, select antialiasing/tessellation and
+  dirty-region policy using measured target timings. Add state-to-channel
+  composition from real, validity-aware environmental events. Keep the shared
+  256-slot palette, independent facial channels, and smooth time-based animation.
 - [ ] Define/version the companion session/event contract and implement a real
   MCP transport, context/status/messages and confirmed question responses.
   The inherited read-only diagnostics server is not this transport.

@@ -1,8 +1,14 @@
 # Cody normalized cloud rig
 
-`cloud-rig.json` is the single authored geometry source. Names use the viewer's
+`../cody.yaml` is the single authored configuration and geometry source. It owns
+the character name, stable entity IDs, readable entity labels, named points,
+paths, channel ranges and defaults, placement, boot-channel previews and style.
+Paint roles resolve into the shared 256-slot palette; debug and Back colors are
+also configured by role. Names use the viewer's
 left and right. Local x points right and local y points down, with `center` at
-(0, 0). Translation and uniform scale position the same front-facing character.
+(0, 0). Authored point offsets are relative to the named parent; moving an
+anchor carries all descendant knots, handles and features. Translation and
+uniform scale position the same front-facing character.
 
 The source has 145 named points, 44 cubic curves and 11 paths. Semantic anchors
 include `center`, `lobe.crown`, the other named lobes, `eye.left/right`,
@@ -26,7 +32,7 @@ python -B .\scripts\generate_cody_rig.py
 
 This asset conversion writes immutable flash tables and a source-hash manifest
 under `generated/`. It does not compile or execute firmware. The Windows preview
-reads the JSON directly; firmware reads the generated tables. Both evaluate
+reads the YAML directly; firmware reads the generated tables. Both evaluate
 the same additive controls and use 12 samples per cubic. Host and device
 evaluators are separate implementations, so runtime/pixel parity still needs
 explicit validation. Geometry and overlay share one evaluated scene inside
@@ -37,5 +43,11 @@ edges without resetting the gradient. Firmware uses one PSRAM scene and the
 existing 466 x 8 strip, with no full-frame allocation. Layout and touch retain
 the repository's common rotation owner. No runtime performance claim is made.
 
-Implementation and asset generation only. Build, simulator checks and device
-validation are deferred until explicitly requested.
+The elapsed-time animation composes a four-second breathing cycle with a smooth
+280 ms blink every 4.8 seconds. Left/right eye openness remains independently
+editable, including closed eyes while the mouth continues breathing. The clock
+skips overdue frames; animation speed never depends on completed frame count.
+
+Host PoC checks and preview evidence are recorded in the architecture document.
+Firmware builds, physical behavior and ESP32 performance require separate
+validation; desktop timings do not establish target performance.

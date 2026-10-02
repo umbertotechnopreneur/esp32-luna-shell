@@ -9,6 +9,12 @@ profiles; the default here is `cody-companion`.
 
 ## Current implementation
 
+The local character PoC now extends this base. See
+[`cody-rig-poc.md`](cody-rig-poc.md) for the YAML rig, 256-slot palette, debug
+overlay, elapsed-time animation and Windows preview. The historical boot-only
+description below records the earlier checkpoint; Cody now also allocates a
+bounded PSRAM rig scene. HTTP diagnostics are disabled in the PoC profile.
+
 | Owner | Selected behavior |
 | --- | --- |
 | Waveshare BSP | Mandatory CO5300 display and CST9217 touch, shared board buses and pins |
@@ -85,8 +91,8 @@ boot resource is not a completed skin engine or OOBE implementation.
 Wi-Fi and BLE initialize from the standalone startup sequence, without a Luna
 Settings application. Provisioning support is compiled, but this checkpoint
 does not automatically enter provisioning or provide an OOBE QR screen.
-Existing HTTP diagnostics retain their persisted opt-in and authentication
-policy. They are not an MCP server. No Codex registration, session handshake,
+The local rig PoC disables the inherited HTTP diagnostics at build selection.
+No MCP server, Codex registration, session handshake,
 question transport, transcription, or PC bridge is implemented here.
 
 Touch samples remain real and current, at 50 ms while active and 200 ms while

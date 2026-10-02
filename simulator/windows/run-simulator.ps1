@@ -14,6 +14,21 @@ Simulation scenario to start.
 .PARAMETER BoardConfig
 Preview the reviewed ui-bootstrap YAML and minimal firmware shell.
 
+.PARAMETER Cody
+Open the local Cody normalized cloud-rig PoC, without network/device services.
+
+.PARAMETER CodyScreen
+Select rig, boot-sleep, boot-waking or boot-ready in Cody mode.
+
+.PARAMETER CodyRotation
+Rotate the entire Cody canvas and inverse-map touch by 0, 90, 180 or 270 degrees.
+
+.PARAMETER CodyAtMs
+Choose deterministic animation time for a Cody capture.
+
+.PARAMETER PythonExecutable
+Explicit Python interpreter with Pillow and PyYAML for Cody mode.
+
 .PARAMETER DumpBoardShell
 Print the synthetic ui-bootstrap shell contract and exit.
 
@@ -85,6 +100,14 @@ Show full help and exit.
 #>
 [CmdletBinding()]
 param(
+    [switch]$Cody,
+    [ValidateSet('rig','boot-sleep','boot-waking','boot-ready')]
+    [string]$CodyScreen = 'rig',
+    [ValidateSet(0,90,180,270)]
+    [int]$CodyRotation = 0,
+    [ValidateRange(0,2147483647)]
+    [int]$CodyAtMs = 1000,
+    [string]$PythonExecutable,
     [switch]$BoardConfig,
     [switch]$DumpBoardShell,
     [int]$ShellTaps = 0,
@@ -730,6 +753,30 @@ function Run-Interactive {
             }
         }
     }
+}
+
+# Bound arguments select one explicit host-only route; no firmware tool is invoked.
+if ($Cody) {
+    foreach ($argumentName in $script:LauncherBoundParameters.Keys) {
+        if ($argumentName -notin @('Cody','CodyScreen','CodyRotation','CodyAtMs','PythonExecutable','Capture','SafeGuide','Help')) {
+            throw "-Cody cannot be combined with -$argumentName. Cody has no device-twin scenarios or service actions."
+        }
+    }
+    $codyPython = if ($PythonExecutable) { $PythonExecutable } else { Resolve-PythonCommand }
+    $codyEntry = Join-Path $PSScriptRoot 'cody_simulator.py'
+    if (-not (Test-Path -LiteralPath $codyEntry -PathType Leaf)) { throw "Missing Cody preview: $codyEntry" }
+    & $codyPython -c 'import PIL, yaml'
+    if ($LASTEXITCODE -ne 0) { throw 'Cody preview requires Pillow and PyYAML. Select the simulator interpreter with -PythonExecutable.' }
+    $codyArguments = @('--screen', $CodyScreen, '--rotation', [string]$CodyRotation, '--at-ms', [string]$CodyAtMs)
+    if ($Capture) { $codyArguments += @('--capture', $Capture) }
+    if ($SafeGuide) { $codyArguments += '--safe-guide' }
+    if ($Help) { $codyArguments = @('--help') }
+    & $codyPython -B $codyEntry @codyArguments
+    if ($LASTEXITCODE -ne 0) { throw "Cody preview failed with exit code $LASTEXITCODE." }
+    return
+}
+foreach ($codyOption in @('CodyScreen','CodyRotation','CodyAtMs','PythonExecutable')) {
+    if ($script:LauncherBoundParameters.ContainsKey($codyOption)) { throw "-$codyOption requires -Cody." }
 }
 
 if ($Help) {

@@ -6,8 +6,11 @@
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include <atomic>
 #include <cstdint>
+#include <new>
 
 #include "CODY2D.hpp"
+#include "CODY_rig.hpp"
+#include "cloud_rig_data.hpp"
 #include "cody_sleep_blue.hpp"
 #include "cody_waking_blue.hpp"
 #include "cody_ready_blue.hpp"
@@ -15,6 +18,7 @@
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
@@ -30,7 +34,8 @@ constexpr uint32_t kStripPixels = static_cast<uint32_t>(kPanelWidth) * kStripRow
 constexpr uint32_t kSamplePeriodMs = 50;
 constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
-constexpr uint32_t kWorkerStackBytes = 3072;
+constexpr uint32_t kWorkerStackBytes = 6144;
+constexpr uint32_t kRigFramePeriodMs = 33;
 
 enum class StartState : uint32_t {
     Idle,
@@ -57,6 +62,16 @@ uint16_t *s_strip = nullptr;
 std::atomic<uint32_t> s_rendered_revision{0};
 // Read and written only while the shared BSP display lock is held.
 BootPhase s_boot_phase = BootPhase::Sleeping;
+CODY::RigScene *s_rig = nullptr;
+bool s_rig_visible = false;
+bool s_rig_debug = true;
+bool s_touch_pressed = false;
+uint16_t s_selected_point = CODY::kNoPoint;
+std::atomic<bool> s_frame_dirty{false};
+int64_t s_animation_started_us = 0;
+int64_t s_next_frame_us = 0;
+int64_t s_last_timing_log_us = 0;
+uint32_t s_rig_frame_count = 0;
 
 // operation: Consumer stage that has failed and must remain visible in the snapshot.
 // error: Original initialization, decode, display, touch, or task creation failure.
@@ -95,6 +110,11 @@ esp_err_t validate_boot_asset(const CODY2D::IndexedRleImage &image, const char *
 // Before task creation, only startup owns the strip and no renderer can reference it.
 void release_startup_strip()
 {
+    if (s_rig != nullptr) {
+        s_rig->~RigScene();
+        heap_caps_free(s_rig);
+        s_rig = nullptr;
+    }
     if (s_strip != nullptr) {
         heap_caps_free(s_strip);
         s_strip = nullptr;
@@ -111,10 +131,7 @@ esp_err_t release_worker_strip()
                  esp_err_to_name(lock_error));
         return lock_error;
     }
-    if (s_strip != nullptr) {
-        heap_caps_free(s_strip);
-        s_strip = nullptr;
-    }
+    release_startup_strip();
     bsp_display_unlock();
     return ESP_OK;
 }
@@ -156,6 +173,22 @@ DrawResult draw_boot_frame()
         : s_boot_phase == BootPhase::Waking
             ? CODY_asset::waking_blue : CODY_asset::sleeping_blue;
 
+    const int64_t frame_started_us = esp_timer_get_time();
+    int64_t geometry_us = 0, raster_us = 0, transfer_us = 0;
+    if (s_rig_visible) {
+        if (s_rig == nullptr) {
+            bsp_display_unlock();
+            return {ESP_ERR_INVALID_STATE, false, 0};
+        }
+        const auto channels = CODY::animate_rig(CODY::Data::defaults,
+            static_cast<uint32_t>((frame_started_us - s_animation_started_us) / 1000));
+        const esp_err_t geometry_error = CODY::evaluate_rig(channels, CODY::Data::placement, *s_rig);
+        if (geometry_error != ESP_OK) {
+            bsp_display_unlock();
+            return {geometry_error, false, 0};
+        }
+        geometry_us = esp_timer_get_time() - frame_started_us;
+    }
     esp_err_t result = ESP_OK;
     for (uint32_t row = 0; row < kPanelHeight; row += kStripRows) {
         if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
@@ -176,14 +209,20 @@ DrawResult draw_boot_frame()
         const CODY2D::Surface strip{
             s_strip, kPanelWidth, strip_rows, kPanelWidth, kStripPixels
         };
-        result = CODY2D::decode_rows(image, row, strip);
+        const int64_t raster_started_us = esp_timer_get_time();
+        result = s_rig_visible
+            ? CODY::draw_rig_rows(*s_rig, strip, static_cast<uint16_t>(row), s_rig_debug, s_selected_point)
+            : CODY2D::decode_rows(image, row, strip);
+        raster_us += esp_timer_get_time() - raster_started_us;
         if (result != ESP_OK) {
             break;
         }
+        const int64_t transfer_started_us = esp_timer_get_time();
         result = LUNASHELL_display_write_rgb565(
             0, static_cast<int>(row), kPanelWidth,
             static_cast<int>(row + strip_rows), s_strip
         );
+        transfer_us += esp_timer_get_time() - transfer_started_us;
         if (result != ESP_OK) {
             // The lock still excludes power transitions here: a returned write
             // error is a real driver/watchdog failure, never a successful park.
@@ -193,6 +232,23 @@ DrawResult draw_boot_frame()
     if (result == ESP_OK &&
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         result = s_terminal_error.load(std::memory_order_acquire);
+    }
+    if (result == ESP_OK) {
+        s_frame_dirty.store(false, std::memory_order_release);
+        const int64_t completed_us = esp_timer_get_time();
+        // Never replay overdue animation frames; sampling uses real elapsed time.
+        if (s_rig_visible) {
+            s_next_frame_us = frame_started_us + kRigFramePeriodMs * 1000;
+            ++s_rig_frame_count;
+            if (s_last_timing_log_us == 0 || completed_us - s_last_timing_log_us >= 2000000) {
+                ESP_LOGI(kTag, "Rig frame=%lu debug=%u geometry=%ldus raster=%ldus transfer=%ldus total=%ldus scene=%uB strip=%luB",
+                         static_cast<unsigned long>(s_rig_frame_count), s_rig_debug, static_cast<long>(geometry_us),
+                         static_cast<long>(raster_us), static_cast<long>(transfer_us),
+                         static_cast<long>(completed_us - frame_started_us), static_cast<unsigned>(sizeof(CODY::RigScene)),
+                         static_cast<unsigned long>(kStripPixels * sizeof(uint16_t)));
+                s_last_timing_log_us = completed_us;
+            }
+        }
     }
     bsp_display_unlock();
     return {result, false, result == ESP_OK ? revision : 0};
@@ -242,20 +298,72 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
 // Read once through the hardware owner, which publishes validity and touch activity intent.
 esp_err_t sample_touch()
 {
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) return lock_error;
     LUNASHELL_touch_point_t point{};
-    return LUNASHELL_touch_read_point(&point);
+    const esp_err_t result = LUNASHELL_touch_read_point(&point);
+    if (result != ESP_OK || !point.valid) {
+        bsp_display_unlock();
+        return result != ESP_OK ? result : ESP_ERR_INVALID_RESPONSE;
+    }
+    const bool pressed_edge = point.pressed && !s_touch_pressed;
+    s_touch_pressed = point.pressed;
+    if (pressed_edge && s_boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
+        if (!s_rig_visible) {
+            if (point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
+                s_rig_visible = true;
+                s_rig_debug = true;
+                s_animation_started_us = esp_timer_get_time();
+                s_last_timing_log_us = 0;
+                s_rig_frame_count = 0;
+                s_frame_dirty.store(true, std::memory_order_release);
+                ESP_LOGI(kTag, "Rig debug entered: %s; independent breathing and eyelids", CODY::Data::character_name);
+            }
+        } else {
+            const int32_t dx = static_cast<int32_t>(point.x) - 40;
+            const int32_t dy = static_cast<int32_t>(point.y) - 233;
+            const int32_t right_dx = static_cast<int32_t>(point.x) - 426;
+            if (dx*dx + dy*dy <= 900) {
+                s_rig_visible = false;
+                s_selected_point = CODY::kNoPoint;
+                ESP_LOGI(kTag, "Rig Back -> completed boot checkpoint");
+            } else if (right_dx*right_dx + dy*dy <= 900) {
+                s_rig_debug = !s_rig_debug;
+                s_selected_point = CODY::kNoPoint;
+                s_last_timing_log_us = 0;
+                ESP_LOGI(kTag, "Rig geometry overlay=%u", s_rig_debug);
+            } else if (s_rig_debug) {
+                const esp_err_t selection_error = CODY::nearest_rig_point(*s_rig,
+                    {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_selected_point);
+                if (selection_error != ESP_OK) {
+                    bsp_display_unlock();
+                    return selection_error;
+                }
+                if (s_selected_point != CODY::kNoPoint) {
+                    const auto local = s_rig->local[s_selected_point];
+                    ESP_LOGI(kTag, "Rig point=%s local=(%.4f,%.4f) touch=(%u,%u)",
+                             CODY::rig_point_name(s_selected_point), local.x, local.y, point.x, point.y);
+                }
+            }
+            s_frame_dirty.store(true, std::memory_order_release);
+        }
+    }
+    bsp_display_unlock();
+    return ESP_OK;
 }
 
-// context: Unused because this single consumer owns its three immutable boot assets.
+// context: Unused; this single worker owns the boot/debug route and animation clock.
 void companion_worker(void *context)
 {
     (void)context;
-    TickType_t last_wake = xTaskGetTickCount();
     bool parked = false;
     for (;;) {
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(
-            parked ? kStandbySamplePeriodMs : kSamplePeriodMs
-        ));
+        const int64_t now_us = esp_timer_get_time();
+        // Only this worker changes rig visibility after startup; boot remains static.
+        const int64_t remaining_us = s_next_frame_us - now_us;
+        const uint32_t wait_ms = parked ? kStandbySamplePeriodMs : !s_rig_visible ? kSamplePeriodMs :
+            remaining_us > 0 ? static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
+        vTaskDelay(pdMS_TO_TICKS(wait_ms) > 0 ? pdMS_TO_TICKS(wait_ms) : 1);
         if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
             break;
         }
@@ -273,7 +381,8 @@ void companion_worker(void *context)
             continue;
         }
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
-        if (!parked && revision == s_rendered_revision.load(std::memory_order_acquire)) {
+        if (!parked && !s_rig_visible && !s_frame_dirty.load(std::memory_order_acquire) &&
+            revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
         const DrawResult draw = draw_boot_frame();
@@ -284,7 +393,7 @@ void companion_worker(void *context)
             continue;
         }
         if (draw.error != ESP_OK) {
-            fail_consumer("Boot frame redraw", draw.error, false);
+            fail_consumer("Companion frame redraw", draw.error, false);
             break;
         }
         s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
@@ -336,6 +445,12 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (s_strip == nullptr) {
         return fail_consumer("Boot strip allocation", ESP_ERR_NO_MEM, false);
     }
+    void *rig_storage = heap_caps_malloc(sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (rig_storage == nullptr) {
+        release_startup_strip();
+        return fail_consumer("Rig scene allocation", ESP_ERR_NO_MEM, false);
+    }
+    s_rig = new (rig_storage) CODY::RigScene{};
     const DrawResult draw = draw_boot_frame();
     if (draw.error != ESP_OK) {
         release_startup_strip();
