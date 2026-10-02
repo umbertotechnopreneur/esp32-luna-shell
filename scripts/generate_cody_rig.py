@@ -34,6 +34,19 @@ def main():
     for phase, values in rig['boot_channels'].items():
         lines.append(f'inline constexpr Channels {phase} = {{{{{", ".join(cpp_float(v) for v in values)}}}}};')
     lines.append('inline constexpr Channels defaults = {{' + ', '.join(cpp_float(channel['default']) for channel in rig['channels']) + '}};')
+    controls = rig['contour']['controls']
+    lines.append('inline constexpr ContourControls contour_defaults = {{' + ', '.join(cpp_float(control['default']) for control in controls) + '}};')
+    for label, key in (('min', 'minimum'), ('max', 'maximum')):
+        lines.append(f'inline constexpr float contour_{label}[] = {{' + ', '.join(cpp_float(control[key]) for control in controls) + '};')
+    lines.append('inline constexpr const char *contour_names[] = {' + ', '.join(json.dumps(control['name']) for control in controls) + '};')
+    lines.append('inline constexpr float contour_transition_seconds = ' + cpp_float(rig['contour']['transition_seconds']) + ';')
+    lines.append('inline constexpr ContourLobeDefinition contour_lobes[] = {')
+    for lobe in rig['contour']['lobes']:
+        values = lobe['direction'] + [lobe['fullness'], lobe['wave'], lobe['phase_turns']]
+        lines.append('    {' + str(names[lobe['point']]) + ', ' + ', '.join(cpp_float(value) for value in values) + '},')
+    lines.append('};')
+    lobe_indices = {lobe['point']: index for index, lobe in enumerate(rig['contour']['lobes'])}
+    lines.append('inline constexpr int8_t point_contour_lobe[] = {' + ', '.join(str(lobe_indices.get(point['name'], -1)) for point in rig['points']) + '};')
     for role, slot in rig['style']['debug'].items():
         lines.append(f'inline constexpr uint8_t debug_{role} = {slot};')
     lines.append(f'inline constexpr uint8_t back_top = {rig["style"]["back"]["fill"][0]}, back_bottom = {rig["style"]["back"]["fill"][1]}, back_ink = {rig["style"]["back"]["ink"]};')
@@ -48,6 +61,7 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     (output / 'cloud_rig_data.hpp').write_text('\n'.join(lines), encoding='utf-8')
     manifest = {'schema':'cody.rig.generated.v1', 'points':len(rig['points']), 'curves':len(rig['curves']), 'paths':len(rig['paths']), 'subdivisions':12, 'palette_slots':256,
+                'contour_controls':len(controls), 'contour_lobes':len(rig['contour']['lobes']),
                 'source_sha256':hashlib.sha256((ROOT/'assets/cody/cody.yaml').read_bytes()).hexdigest(),
                 'palette_sha256':hashlib.sha256((ROOT/'assets/cody/palette/palette256.json').read_bytes()).hexdigest()}
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2)+'\n', encoding='utf-8')

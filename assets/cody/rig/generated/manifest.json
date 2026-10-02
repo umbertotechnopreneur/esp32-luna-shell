@@ -5,6 +5,8 @@
   "paths": 11,
   "subdivisions": 12,
   "palette_slots": 256,
-  "source_sha256": "6868b3fb51e1b471c8e51287cd2eaf93f36495fccd1f0d938d553ab4c31201a0",
+  "contour_controls": 4,
+  "contour_lobes": 11,
+  "source_sha256": "6e543d4267b586106c383f51c992aaef623c017572dde545281e5e08d5833e53",
   "palette_sha256": "31669270115a8eb9a5af445de80537b4674c2882029ae6435d1a506cdd13ffdf"
 }

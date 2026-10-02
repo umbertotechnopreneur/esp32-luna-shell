@@ -118,6 +118,29 @@ channels:
   minimum: -1
   maximum: 1
   default: 0
+# Shape controls affect only the outline anchors and their child handles.
+# Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
+contour:
+  transition_seconds: 0.35
+  controls:
+  - {name: fullness, label: Fullness, minimum: -1, maximum: 1, default: 0}
+  - {name: amplitude, label: Wave amplitude, minimum: 0, maximum: 1, default: 0.35}
+  - {name: speed, label: Wave speed (cycles/s), minimum: 0, maximum: 2, default: 0.2}
+  - {name: phase_spread, label: Phase spread, minimum: 0, maximum: 1, default: 1}
+  # Unit directions follow the authored perimeter. Small feet get smaller excursions.
+  # Fullness and wave are maximum normalized distances, not sensor measurements.
+  lobes:
+  - {point: lobe.left, direction: [-1, 0], fullness: 0.025, wave: 0.025, phase_turns: 0.0}
+  - {point: lobe.upper_left, direction: [-0.6, -0.8], fullness: 0.035, wave: 0.045, phase_turns: 0.091}
+  - {point: lobe.crown, direction: [0, -1], fullness: 0.05, wave: 0.06, phase_turns: 0.182}
+  - {point: lobe.upper_right, direction: [0.6, -0.8], fullness: 0.035, wave: 0.04, phase_turns: 0.273}
+  - {point: lobe.shoulder, direction: [0.8, -0.6], fullness: 0.035, wave: 0.035, phase_turns: 0.364}
+  - {point: lobe.right, direction: [1, 0], fullness: 0.025, wave: 0.025, phase_turns: 0.455}
+  - {point: lobe.lower_right, direction: [0.6, 0.8], fullness: 0.02, wave: 0.02, phase_turns: 0.545}
+  - {point: lobe.foot_right, direction: [0, 1], fullness: 0.014, wave: 0.014, phase_turns: 0.636}
+  - {point: lobe.belly, direction: [0, 1], fullness: 0.018, wave: 0.018, phase_turns: 0.727}
+  - {point: lobe.foot_left, direction: [0, 1], fullness: 0.012, wave: 0.012, phase_turns: 0.818}
+  - {point: lobe.lower_left, direction: [-0.6, 0.8], fullness: 0.014, wave: 0.014, phase_turns: 0.909}
 points:
 - name: center
   position:

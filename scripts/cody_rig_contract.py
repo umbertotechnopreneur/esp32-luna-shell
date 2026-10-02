@@ -137,6 +137,7 @@ def load_contract(root=ROOT):
         owned_paths.extend(entity["paths"])
     if len(owned_paths) != len(set(owned_paths)) or set(owned_paths) != path_names:
         raise ValueError("Each drawn path must belong to exactly one named entity")
+    validate_contour_definition(rig)
     if len(palette["entries"]) != 256 or [item["index"] for item in palette["entries"]] != list(range(256)):
         raise ValueError("Palette must contain all 256 ordered slots")
     for entry in palette["entries"]:
@@ -155,6 +156,133 @@ def load_contract(root=ROOT):
     if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
         raise ValueError("Invalid authored default transform")
     return rig, palette
+
+
+# rig supplies authored outline metadata and the already checked parent/path graph.
+# Raises ValueError when contour controls could move a facial point or exceed PoC bounds.
+def validate_contour_definition(rig):
+    contour = rig["contour"]
+    expected = {"fullness": (-1, 1), "amplitude": (0, 1), "speed": (0, 2), "phase_spread": (0, 1)}
+    if [item["name"] for item in contour["controls"]] != list(expected):
+        raise ValueError("Contour controls must be fullness, amplitude, speed and phase_spread")
+    for control in contour["controls"]:
+        bounds = tuple(finite(control[key], control["name"]) for key in ("minimum", "maximum"))
+        if bounds != expected[control["name"]] or not bounds[0] <= finite(control["default"], control["name"]) <= bounds[1]:
+            raise ValueError(f"Invalid contour range/default: {control['name']}")
+        if not isinstance(control["label"], str) or not control["label"].strip():
+            raise ValueError(f"Missing contour label: {control['name']}")
+    if not .05 <= finite(contour["transition_seconds"], "contour.transition_seconds") <= 5:
+        raise ValueError("Contour transition time constant must be between 0.05 and 5 seconds")
+    body = next((path for path in rig["paths"] if path["name"] == "body"), None)
+    if body is None or body["stroke"] != 0 or body["curve_count"] != 11:
+        raise ValueError("Contour requires the eleven-segment filled body path")
+    curves = rig["curves"][body["first_curve"]:body["first_curve"] + body["curve_count"]]
+    lobe_names = [curve["points"][0] for curve in curves]
+    if [lobe["point"] for lobe in contour["lobes"]] != lobe_names or len(set(lobe_names)) != 11:
+        raise ValueError("Contour lobes must follow the eleven unique body knots in perimeter order")
+    points = {point["name"]: point for point in rig["points"]}
+    body_points = {name for curve in curves for name in curve["points"]}
+    for curve in curves:
+        for handle, anchor in ((curve["points"][1], curve["points"][0]), (curve["points"][2], curve["points"][3])):
+            if points[handle]["role"] != "handle" or points[handle]["parent"] != anchor:
+                raise ValueError(f"Contour handle must follow its own lobe: {handle}")
+    for name in body_points:
+        if points[name]["channel"] is not None:
+            raise ValueError(f"Contour point cannot use a facial channel: {name}")
+    for point in rig["points"]:
+        ancestor = point["parent"]
+        while ancestor is not None:
+            if ancestor in lobe_names and point["name"] not in body_points:
+                raise ValueError(f"Facial geometry cannot descend from a contour lobe: {point['name']}")
+            ancestor = points[ancestor]["parent"]
+    previous_phase = -1
+    for lobe in contour["lobes"]:
+        point = points[lobe["point"]]
+        if point["role"] != "anchor" or point["parent"] != "center":
+            raise ValueError(f"Contour lobe must be a direct root anchor: {lobe['point']}")
+        if len(lobe["direction"]) != 2:
+            raise ValueError(f"Contour direction needs two coordinates: {lobe['point']}")
+        dx, dy = (finite(value, lobe["point"]) for value in lobe["direction"])
+        if abs(dx*dx + dy*dy - 1) > 1e-6:
+            raise ValueError(f"Contour direction must have unit length: {lobe['point']}")
+        fullness = finite(lobe["fullness"], lobe["point"])
+        wave = finite(lobe["wave"], lobe["point"])
+        # The tiny lower-left and foot curves permit less travel than the large crown.
+        limit = .03 if lobe["point"] in ("lobe.foot_left", "lobe.foot_right", "lobe.lower_left") else .12
+        if not 0 <= fullness <= .06 or not 0 <= wave <= .06 or fullness + wave > limit:
+            raise ValueError(f"Contour displacement exceeds the authored PoC bound: {lobe['point']}")
+        phase = finite(lobe["phase_turns"], lobe["point"])
+        if not 0 <= phase < 1 or phase <= previous_phase:
+            raise ValueError(f"Contour phase offsets must increase around the perimeter: {lobe['point']}")
+        previous_phase = phase
+
+
+# rig supplies the independent shape controls and their authored default values.
+def contour_defaults(rig):
+    return {control["name"]: control["default"] for control in rig["contour"]["controls"]}
+
+
+# rig supplies shape defaults; each new preview starts at a stable zero phase.
+def make_contour_state(rig):
+    return dict(contour_defaults(rig), phase=0.0)
+
+
+# rig supplies allowed control names and ranges.
+# values is a flat control dictionary, with phase only for an evaluated state.
+# state distinguishes a runtime state from a target control dictionary.
+# Raises ValueError for missing/extra fields or non-finite/out-of-range values.
+def validate_contour_values(rig, values, state=False):
+    keys = {control["name"] for control in rig["contour"]["controls"]}
+    if state:
+        keys.add("phase")
+    if not isinstance(values, dict) or set(values) != keys:
+        raise ValueError(f"Contour requires exactly these fields: {sorted(keys)}")
+    for control in rig["contour"]["controls"]:
+        value = finite(values[control["name"]], f"contour.{control['name']}")
+        if not control["minimum"] <= value <= control["maximum"]:
+            raise ValueError(f"Contour {control['name']}: rejected value {value}")
+    if state and not 0 <= finite(values["phase"], "contour.phase") < math.tau:
+        raise ValueError(f"Contour phase must be in [0, 2*pi): {values['phase']}")
+
+
+# rig supplies the smoothing time constant and authored control ranges.
+# state is the previous flat state; it is never mutated.
+# target is the requested four-control dictionary without phase.
+# delta_ms is nonnegative active elapsed time; zero explicitly pauses all contour motion.
+# Raises ValueError for rejected controls, phase, timing or arithmetic overflow.
+def advance_contour(rig, state, target, delta_ms):
+    validate_contour_values(rig, state, state=True)
+    validate_contour_values(rig, target)
+    delta_seconds = finite(delta_ms, "contour.delta_ms") / 1000
+    if delta_seconds < 0:
+        raise ValueError("Contour time cannot move backwards")
+    if delta_seconds == 0:
+        return dict(state)
+    time_constant = finite(rig["contour"]["transition_seconds"], "contour.transition_seconds")
+    if not .05 <= time_constant <= 5:
+        raise ValueError("Contour transition time constant must be between 0.05 and 5 seconds")
+    ratio = delta_seconds / time_constant
+    weight = -math.expm1(-ratio)
+    result = {key: state[key] if state[key] == target[key] else state[key] * (1 - weight) + target[key] * weight for key in target}
+    # Integral of the smoothed frequency; the series avoids cancellation at tiny dt.
+    ramp_time = delta_seconds * ratio * (.5 - ratio/6 + ratio*ratio/24 - ratio*ratio*ratio/120) if ratio < .001 else delta_seconds - time_constant * weight
+    turns = state["speed"] * (delta_seconds - ramp_time) + target["speed"] * ramp_time
+    result["phase"] = (state["phase"] + math.tau * finite(turns, "contour.integrated_turns")) % math.tau
+    validate_contour_values(rig, result, state=True)
+    return result
+
+
+# rig supplies the eleven bounded per-lobe displacement definitions.
+# state is a previously validated contour state, or None for the undeformed authored outline.
+def contour_offsets(rig, state):
+    if state is None:
+        return {}
+    offsets = {}
+    for lobe in rig["contour"]["lobes"]:
+        wave = math.sin(state["phase"] - math.tau * state["phase_spread"] * lobe["phase_turns"])
+        distance = state["fullness"] * lobe["fullness"] + state["amplitude"] * lobe["wave"] * wave
+        offsets[lobe["point"]] = tuple(value * distance for value in lobe["direction"])
+    return offsets
 
 
 # rig supplies the channel bounds; values are independently composed facial controls.
@@ -183,10 +311,32 @@ def animate(base, elapsed_ms):
     return values
 
 
-# rig is the loaded source; values are the facial controls; transform is (x, y, scale).
+# rig supplies the authored paths and fixed subdivision count.
+# definition identifies the single path to sample.
+# world maps stable point names to evaluated display coordinates.
+def sample_path(rig, definition, world):
+    vertices = []
+    curves = rig["curves"][definition["first_curve"]:definition["first_curve"] + definition["curve_count"]]
+    for curve_index, curve in enumerate(curves):
+        control = [world[name] for name in curve["points"]]
+        if curve_index == 0:
+            vertices.append(control[0])
+        for step in range(1, rig["subdivisions"] + 1):
+            t = step / rig["subdivisions"]
+            u = 1 - t
+            vertices.append(tuple(u*u*u*control[0][axis] + 3*u*u*t*control[1][axis] + 3*u*t*t*control[2][axis] + t*t*t*control[3][axis] for axis in (0, 1)))
+    return vertices
+
+
+# rig is the loaded authoring source.
+# values are the independent facial controls.
+# transform is (x, y, scale) in logical display coordinates.
+# contour is an independent shape state; None preserves the original authored geometry.
 # Raises ValueError if a caller supplies non-finite or unsupported geometry.
-def evaluate(rig, values, transform):
+def evaluate(rig, values, transform, contour=None):
     validate_channels(rig, values)
+    if contour is not None:
+        validate_contour_values(rig, contour, state=True)
     if len(transform) != 3:
         raise ValueError("Transform requires x, y and uniform scale")
     x, y, scale = [finite(v, "transform") for v in transform]
@@ -196,26 +346,32 @@ def evaluate(rig, values, transform):
     breathing_scale = 1 + .018 * channels["breath"]
     local = {}
     world = {}
+    rest_local = {}
+    rest_world = {}
+    offsets = contour_offsets(rig, contour)
     for point in rig["points"]:
         amount = channels[point["channel"]] if point["channel"] is not None else 0
         px, py = [position + delta * amount for position, delta in zip(point["position"], point["delta"])]
+        rest_x, rest_y = px, py
+        offset_x, offset_y = offsets.get(point["name"], (0, 0))
+        px += offset_x
+        py += offset_y
         if point['parent'] is not None:
             parent_x, parent_y = local[point['parent']]
             px += parent_x
             py += parent_y
+            parent_x, parent_y = rest_local[point['parent']]
+            rest_x += parent_x
+            rest_y += parent_y
         local[point["name"]] = (px, py)
         world[point["name"]] = (x + px * scale * breathing_scale, y + py * scale * breathing_scale)
+        rest_local[point["name"]] = (rest_x, rest_y)
+        rest_world[point["name"]] = (x + rest_x * scale * breathing_scale, y + rest_y * scale * breathing_scale)
     paths = []
+    rest_outline = []
     for definition in rig["paths"]:
-        vertices = []
-        curves = rig["curves"][definition["first_curve"]:definition["first_curve"] + definition["curve_count"]]
-        for curve_index, curve in enumerate(curves):
-            control = [world[name] for name in curve["points"]]
-            if curve_index == 0:
-                vertices.append(control[0])
-            for step in range(1, rig["subdivisions"] + 1):
-                t = step / rig["subdivisions"]
-                u = 1 - t
-                vertices.append(tuple(u*u*u*control[0][axis] + 3*u*u*t*control[1][axis] + 3*u*t*t*control[2][axis] + t*t*t*control[3][axis] for axis in (0, 1)))
+        vertices = sample_path(rig, definition, world)
+        if definition["name"] == "body":
+            rest_outline = sample_path(rig, definition, rest_world)
         paths.append(dict(definition=definition, vertices=vertices, visible=definition["visible"] is None or channels[definition["visible"]] >= .25))
-    return dict(local=local, world=world, paths=paths, scale=scale * breathing_scale)
+    return dict(local=local, world=world, paths=paths, scale=scale * breathing_scale, rest_outline=rest_outline)

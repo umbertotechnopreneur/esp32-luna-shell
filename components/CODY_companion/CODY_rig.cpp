@@ -8,9 +8,43 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_rig";
+constexpr float kTau = 6.2831853071795864769f;
 static_assert(std::size(Data::points) <= kMaxPoints);
 static_assert(std::size(Data::paths) <= kMaxPaths);
 static_assert(std::size(Data::curves) * kSubdivisions + std::size(Data::paths) <= kMaxVertices);
+static_assert(std::size(Data::contour_lobes) == 11);
+static_assert(std::size(Data::point_contour_lobe) == std::size(Data::points));
+static_assert(std::size(Data::contour_min) == 4 && std::size(Data::contour_max) == 4);
+static_assert(Data::contour_transition_seconds >= .05f && Data::contour_transition_seconds <= 5.f);
+
+// controls: Independent contour controls to check without clamping.
+// operation: Identifies which caller rejected the value in the component log.
+esp_err_t validate_contour_controls(const ContourControls &controls, const char *operation)
+{
+    for (uint16_t index = 0; index < std::size(controls.values); ++index) {
+        const float value = controls.values[index];
+        if (!std::isfinite(value) || value < Data::contour_min[index] || value > Data::contour_max[index]) {
+            ESP_LOGE(kTag, "%s: contour %s rejected: %f (%s)", operation, Data::contour_names[index],
+                     value, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    return ESP_OK;
+}
+
+// state: Shape controls and integrated phase that must be finite and in range.
+// operation: Identifies the failing evaluation or animation operation.
+esp_err_t validate_contour_state(const ContourState &state, const char *operation)
+{
+    const esp_err_t controls_error = validate_contour_controls(state.controls, operation);
+    if (controls_error != ESP_OK) return controls_error;
+    if (!std::isfinite(state.phase) || state.phase < 0 || state.phase >= kTau) {
+        ESP_LOGE(kTag, "%s: contour phase rejected: %f (%s)", operation, state.phase,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
 
 // control: Four already evaluated control points.
 // t: Cubic parameter between zero and one.
@@ -23,6 +57,63 @@ CODY2D::Vec2 cubic(const CODY2D::Vec2 (&control)[4], float t)
     };
 }
 }  // namespace
+
+// No parameters: return immutable YAML-authored contour defaults.
+ContourControls contour_defaults()
+{
+    return Data::contour_defaults;
+}
+
+// No parameters: each explicit route entry starts its own contour clock.
+ContourState make_contour_state()
+{
+    return {Data::contour_defaults, 0};
+}
+
+// state: Previous independent shape state, never modified before successful completion.
+// target: Requested outline controls, unrelated to facial channels.
+// delta_ms: Active elapsed time; zero freezes phase and all shape transitions.
+// next: Receives the new state atomically after checks; may alias state.
+esp_err_t advance_contour(const ContourState &state, const ContourControls &target,
+                          float delta_ms, ContourState &next)
+{
+    esp_err_t result = validate_contour_state(state, "Contour advance state");
+    if (result != ESP_OK) return result;
+    result = validate_contour_controls(target, "Contour advance target");
+    if (result != ESP_OK) return result;
+    if (!std::isfinite(delta_ms) || delta_ms < 0) {
+        ESP_LOGE(kTag, "Contour advance time rejected: %fms (%s)", delta_ms,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (delta_ms == 0) {
+        next = state;
+        return ESP_OK;
+    }
+    const float seconds = delta_ms / 1000.f;
+    const float time_constant = Data::contour_transition_seconds;
+    const float ratio = seconds / time_constant;
+    const float weight = -std::expm1(-ratio);
+    ContourState candidate = state;
+    for (uint16_t index = 0; index < std::size(target.values); ++index) {
+        if (state.controls.values[index] != target.values[index]) {
+            candidate.controls.values[index] =
+                state.controls.values[index] * (1 - weight) + target.values[index] * weight;
+        }
+    }
+    // Integrate the smoothed frequency analytically; the series keeps tiny dt stable.
+    const float ramp_time = ratio < .001f ?
+        seconds * ratio * (.5f - ratio/6 + ratio*ratio/24 - ratio*ratio*ratio/120) :
+        seconds - time_constant * weight;
+    const float turns = state.controls.values[2] * (seconds - ramp_time) + target.values[2] * ramp_time;
+    candidate.phase = std::fmod(state.phase + kTau * turns, kTau);
+    // Preserve the canonical periodic boundary after float rounding.
+    if (candidate.phase >= kTau) candidate.phase = 0;
+    result = validate_contour_state(candidate, "Contour advance result");
+    if (result != ESP_OK) return result;
+    next = candidate;
+    return ESP_OK;
+}
 
 // base: Unsmoothed independent controls, validated when the scene is evaluated.
 // elapsed_ms: Real monotonic animation time, never a sensor measurement.
@@ -44,9 +135,15 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms)
 // channels: Authored independent facial controls; invalid values stop evaluation.
 // transform: Logical translation and scale, shared by every feature and debug marker.
 // scene: Caller-owned geometry buffer, never retained as valid after failure.
-esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene)
+// contour: Optional outline controls; parented handles inherit their own lobe's translation.
+esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
+                       const ContourState *contour)
 {
     scene.valid = false;
+    if (contour != nullptr) {
+        const esp_err_t contour_error = validate_contour_state(*contour, "Rig evaluation");
+        if (contour_error != ESP_OK) return contour_error;
+    }
     for (uint16_t index = 0; index < std::size(channels.values); ++index) {
         const float value = channels.values[index];
         if (!std::isfinite(value) || value < Data::channel_min[index] || value > Data::channel_max[index]) {
@@ -63,10 +160,25 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         return ESP_ERR_INVALID_ARG;
     }
     scene.scale = transform.scale * (1 + .018f * channels.values[5]);
+    std::array<CODY2D::Vec2, std::size(Data::contour_lobes)> contour_offsets{};
+    if (contour != nullptr) {
+        for (uint16_t index = 0; index < std::size(Data::contour_lobes); ++index) {
+            const auto &lobe = Data::contour_lobes[index];
+            const auto &controls = contour->controls.values;
+            const float wave = std::sin(contour->phase - kTau * controls[3] * lobe.phase_turns);
+            const float distance = controls[0] * lobe.fullness + controls[1] * lobe.wave * wave;
+            contour_offsets[index] = {lobe.direction_x * distance, lobe.direction_y * distance};
+        }
+    }
     for (uint16_t index = 0; index < std::size(Data::points); ++index) {
         const auto &definition = Data::points[index];
         const float value = definition.channel < 0 ? 0 : channels.values[definition.channel];
         CODY2D::Vec2 local{definition.x + definition.dx * value, definition.y + definition.dy * value};
+        const int8_t lobe = Data::point_contour_lobe[index];
+        if (lobe >= 0) {
+            local.x += contour_offsets[lobe].x;
+            local.y += contour_offsets[lobe].y;
+        }
         if (definition.parent >= 0) {
             local.x += scene.local[definition.parent].x;
             local.y += scene.local[definition.parent].y;

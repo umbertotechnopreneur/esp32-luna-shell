@@ -69,6 +69,8 @@ bool s_touch_pressed = false;
 uint16_t s_selected_point = CODY::kNoPoint;
 std::atomic<bool> s_frame_dirty{false};
 int64_t s_animation_started_us = 0;
+int64_t s_contour_sampled_us = 0;
+CODY::ContourState s_contour{};
 int64_t s_next_frame_us = 0;
 int64_t s_last_timing_log_us = 0;
 uint32_t s_rig_frame_count = 0;
@@ -144,7 +146,8 @@ bool renderer_is_parked()
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
-DrawResult draw_boot_frame()
+// resume_animation: Skip parked time when restarting the contour clock after standby.
+DrawResult draw_boot_frame(bool resume_animation = false)
 {
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         return {ESP_ERR_INVALID_STATE, renderer_is_parked(), 0};
@@ -182,11 +185,22 @@ DrawResult draw_boot_frame()
         }
         const auto channels = CODY::animate_rig(CODY::Data::defaults,
             static_cast<uint32_t>((frame_started_us - s_animation_started_us) / 1000));
-        const esp_err_t geometry_error = CODY::evaluate_rig(channels, CODY::Data::placement, *s_rig);
+        const float contour_delta_ms = resume_animation || s_contour_sampled_us == 0 ? 0 :
+            static_cast<float>(frame_started_us - s_contour_sampled_us) / 1000.f;
+        CODY::ContourState next_contour{};
+        const esp_err_t contour_error = CODY::advance_contour(s_contour, CODY::contour_defaults(),
+                                                             contour_delta_ms, next_contour);
+        if (contour_error != ESP_OK) {
+            bsp_display_unlock();
+            return {contour_error, false, 0};
+        }
+        const esp_err_t geometry_error = CODY::evaluate_rig(channels, CODY::Data::placement, *s_rig, &next_contour);
         if (geometry_error != ESP_OK) {
             bsp_display_unlock();
             return {geometry_error, false, 0};
         }
+        s_contour = next_contour;
+        s_contour_sampled_us = frame_started_us;
         geometry_us = esp_timer_get_time() - frame_started_us;
     }
     esp_err_t result = ESP_OK;
@@ -314,10 +328,12 @@ esp_err_t sample_touch()
                 s_rig_visible = true;
                 s_rig_debug = true;
                 s_animation_started_us = esp_timer_get_time();
+                s_contour = CODY::make_contour_state();
+                s_contour_sampled_us = 0;
                 s_last_timing_log_us = 0;
                 s_rig_frame_count = 0;
                 s_frame_dirty.store(true, std::memory_order_release);
-                ESP_LOGI(kTag, "Rig debug entered: %s; independent breathing and eyelids", CODY::Data::character_name);
+                ESP_LOGI(kTag, "Rig debug entered: %s; independent contour, breathing and eyelids", CODY::Data::character_name);
             }
         } else {
             const int32_t dx = static_cast<int32_t>(point.x) - 40;
@@ -385,7 +401,7 @@ void companion_worker(void *context)
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
-        const DrawResult draw = draw_boot_frame();
+        const DrawResult draw = draw_boot_frame(parked);
         if (draw.parked) {
             ESP_LOGW(kTag, "Redraw parked during power transition: %s",
                      esp_err_to_name(draw.error));

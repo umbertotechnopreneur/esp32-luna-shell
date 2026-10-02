@@ -15,6 +15,13 @@ constexpr uint16_t kNoPoint = UINT16_MAX;
 // These channels compose independently. They are not an enumeration of whole faces.
 struct Channels { float values[6] = {1, 1, 0, 0, .15f, 0}; };
 struct Transform { float x = 233; float y = 235; float scale = 145; };
+// Independent outline controls in stable order: fullness, amplitude, speed, phase_spread.
+struct ContourControls { float values[4] = {}; };
+struct ContourState { ContourControls controls{}; float phase = 0; };
+struct ContourLobeDefinition {
+    uint16_t point;
+    float direction_x, direction_y, fullness, wave, phase_turns;
+};
 
 struct PointDefinition {
     const char *name;
@@ -50,7 +57,22 @@ struct RigScene {
 // channels: Independent finite controls, each strictly inside its authored range.
 // transform: Position and uniform scale in logical display pixels.
 // scene: Caller-owned evaluated geometry, invalidated immediately on entry.
-esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene);
+// contour: Optional independent shape state; nullptr preserves the authored outline.
+esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
+                       const ContourState *contour = nullptr);
+
+// No parameters: defaults come from the YAML-generated immutable contour table.
+ContourControls contour_defaults();
+
+// No parameters: create the authored controls with zero integrated phase.
+ContourState make_contour_state();
+
+// state: Previous contour controls and phase, unchanged by a failed advance.
+// target: Independent requested shape controls in their authored ranges.
+// delta_ms: Nonnegative active elapsed time; zero pauses phase and transitions.
+// next: Receives the complete next state only on success; may alias state.
+esp_err_t advance_contour(const ContourState &state, const ContourControls &target,
+                          float delta_ms, ContourState &next);
 
 // base: Independent caller-selected facial controls.
 // elapsed_ms: Monotonic elapsed animation time; no frame-count dependency.
