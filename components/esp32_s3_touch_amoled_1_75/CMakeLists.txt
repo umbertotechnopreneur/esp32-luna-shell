@@ -119,7 +119,9 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
     idf_component_optional_requires(PUBLIC esp_driver_i2s esp_codec_dev)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
-    idf_component_optional_requires(PUBLIC esp_lcd_touch_cst9217)
+    # bsp/touch.h exposes the core driver's handle. Use the admitted managed
+    # component names: optional_requires compares against BUILD_COMPONENTS exactly.
+    idf_component_optional_requires(PUBLIC espressif__esp_lcd_touch waveshare__esp_lcd_touch_cst9217)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_UI)
     idf_component_optional_requires(PUBLIC lvgl esp_lvgl_adapter)
