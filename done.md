@@ -1,5 +1,18 @@
 # Done
 
+## Cody responsive inspector and facial controls (2026-10-02)
+
+- [x] Fit the desktop preview to its viewport with one shared image/label/touch
+  transform. Reflow the controls below the preview at narrow widths, keep the
+  panel scrollable, and adapt label pagination without shrinking the font.
+  Factor repeated sliders and toggles into commented helpers.
+- [x] Add anchored mouth width, nose size, cheek size and cheek opacity controls.
+  Enlarge default cheeks slightly, interpolate face targets, and expose an
+  Embarrassed example while preserving independent breath and contour motion.
+  Blend partial cheek opacity in RGB565 using the fixed source palette.
+- [x] Update prepared regressions and documentation. Asset conversion and static
+  review only; no test, simulator, firmware build or hardware run in this step.
+
 ## Cody contour and named debug overlays (2026-10-02)
 
 - [x] Add YAML-authored fullness, wave amplitude, cycles-per-second speed and

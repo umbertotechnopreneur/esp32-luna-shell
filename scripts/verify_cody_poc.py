@@ -17,12 +17,12 @@ from types import SimpleNamespace
 ROOT=Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'simulator/windows'))
 from cody_rig_contract import (
-    advance_contour, animate, contour_defaults, evaluate, load_contract,
+    advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract,
     make_contour_state, unique_object, validate_channels,
 )
+from cody_preview_layout import PreviewLayout
 from cody_simulator import (
-    LABEL_MARGIN, LABEL_PAGE_SIZE, CodyRenderer, CodyWindow,
-    logical_touch, orient, physical_point,
+    CodyRenderer, CodyWindow, logical_touch, orient, physical_point,
 )
 from PIL import Image
 import tkinter as tk
@@ -35,6 +35,26 @@ class RigContractTests(unittest.TestCase):
         cls.rig,cls.palette=load_contract()
         cls.transform=tuple(cls.rig['default_transform'][key] for key in ('x','y','scale'))
         cls.ready=cls.rig['boot_channels']['ready']
+        cls.channel_index = {channel['name']: index for index, channel in enumerate(cls.rig['channels'])}
+
+    # self supplies the authored ready expression and stable channel-name mapping.
+    # overrides contains only the facial channels changed by the current scenario.
+    # Raises KeyError for a misspelled or unsupported test channel.
+    def face_channels(self, **overrides):
+        values = list(self.ready)
+        for name, value in overrides.items():
+            values[self.channel_index[name]] = value
+        return values
+
+    # window owns the viewport and scheduled callback used by a manually requested test frame.
+    # Raises tk.TclError if the preview has already been destroyed.
+    @staticmethod
+    def render_preview_frame(window):
+        if window.after_id is not None:
+            window.root.after_cancel(window.after_id)
+            window.after_id = None
+        window.root.update_idletasks()
+        window.render_tick()
 
     # No parameters beyond the test instance: generated tables must match the current authoring inputs.
     def test_generated_provenance(self):
@@ -76,7 +96,7 @@ class RigContractTests(unittest.TestCase):
             self.assertAlmostEqual(after['local'][name][0]-before['local'][name][0],expected)
             self.assertAlmostEqual(after['local'][name][1],before['local'][name][1])
 
-    # No parameters beyond the test instance: closing one eye cannot override another facial channel.
+    # self receives the test context: closing one eye cannot override another facial channel.
     def test_independent_eye_and_mouth_channels(self):
         base=evaluate(self.rig,self.ready,self.transform)
         changed=list(self.ready); changed[0]=0
@@ -84,9 +104,96 @@ class RigContractTests(unittest.TestCase):
         for point in self.rig['points']:
             if point['channel']!='eye_left': self.assertEqual(base['local'][point['name']],altered['local'][point['name']])
         self.assertNotEqual(base['local']['eye.left.p3'],altered['local']['eye.left.p3'])
-        sleeping=animate([0,0,.5,-.4,.1,0],1000)
+        sleeping_base = self.face_channels(eye_left=0, eye_right=0, brow_left=.5,
+                                           brow_right=-.4, mouth_open=.1, breath=0)
+        sleeping=animate(sleeping_base,1000)
         self.assertEqual(sleeping[:4],[0,0,.5,-.4])
         self.assertGreater(sleeping[4],.1)
+        self.assertEqual(sleeping[6:], sleeping_base[6:])
+
+    # self receives the test context: shape controls resize only their own descendants around unchanged anchors.
+    def test_face_shape_controls_preserve_anchors_and_other_features(self):
+        original = evaluate(self.rig, self.ready, self.transform)
+        cases = (
+            ('mouth_width', 1.4, ('mouth',), False),
+            ('nose_size', 1.35, ('nose',), True),
+            ('cheek_size', .7, ('cheek.left', 'cheek.right'), True),
+        )
+        for control, value, anchors, scale_vertical in cases:
+            with self.subTest(control=control):
+                channels = self.face_channels(**{control: value})
+                scene = evaluate(self.rig, channels, self.transform)
+                ratio = value / self.ready[self.channel_index[control]]
+                changed = False
+                for name, point in original['world'].items():
+                    owner = next((anchor for anchor in anchors if name.startswith(anchor + '.')), None)
+                    if owner is None:
+                        self.assertEqual(scene['world'][name], point, name)
+                        continue
+                    anchor = original['world'][owner]
+                    after = scene['world'][name]
+                    self.assertAlmostEqual(after[0] - anchor[0], (point[0] - anchor[0]) * ratio)
+                    self.assertAlmostEqual(after[1] - anchor[1],
+                                           (point[1] - anchor[1]) * (ratio if scale_vertical else 1))
+                    changed |= after != point
+                self.assertTrue(changed)
+
+    # self receives the test context: facial targets must blend continuously and preserve elapsed-time equivalence.
+    def test_face_transition_preserves_timing_and_rejects_invalid_targets(self):
+        initial = self.face_channels(mouth_width=.6, nose_size=1.5, cheek_size=.5, cheek_opacity=.1)
+        target = self.face_channels(mouth_width=1.5, nose_size=.65, cheek_size=1.65, cheek_opacity=.9)
+        original_state, original_target = list(initial), list(target)
+        frozen = advance_face(self.rig, initial, target, 0)
+        self.assertEqual(frozen, initial)
+        self.assertIsNot(frozen, initial)
+        direct = advance_face(self.rig, initial, target, 500)
+        subdivided = initial
+        for delta_ms in (0, 19, 131, 350):
+            subdivided = advance_face(self.rig, subdivided, target, delta_ms)
+        for channel, before, after, requested, split in zip(self.rig['channels'], initial, direct, target, subdivided):
+            self.assertAlmostEqual(after, split, places=10, msg=channel['name'])
+            if before != requested:
+                self.assertGreater(after, min(before, requested))
+                self.assertLess(after, max(before, requested))
+            else:
+                self.assertEqual(after, before)
+        validate_channels(self.rig, direct)
+        self.assertEqual(initial, original_state)
+        self.assertEqual(target, original_target)
+        self.assertEqual(advance_face(self.rig, self.ready, self.ready, 17), self.ready)
+        for bad_target in (self.face_channels(mouth_width=math.nan),
+                           self.face_channels(cheek_opacity=1.01)):
+            with self.assertRaises(ValueError):
+                advance_face(self.rig, initial, bad_target, 0)
+        with self.assertRaises(ValueError):
+            advance_face(self.rig, initial, target, -1)
+
+    # self receives the test context: cheek opacity must composite over the body without moving facial geometry.
+    def test_cheek_opacity_composites_and_quantizes_partial_color(self):
+        renderer = CodyRenderer()
+        original = evaluate(self.rig, self.ready, self.transform)
+        sample = tuple(round(value) for value in original['world']['cheek.left'])
+        pixels = {}
+        for opacity in (0, .5, 1):
+            scene = evaluate(self.rig, self.face_channels(cheek_opacity=opacity), self.transform)
+            self.assertEqual(scene['world'], original['world'])
+            for path in scene['paths']:
+                expected = opacity if path['definition']['name'].startswith('cheek.') else 1
+                self.assertEqual(path['opacity'], expected)
+            image = renderer.draw_scene(scene, debug=False)
+            if opacity == 1:
+                self.assertEqual(image.mode, 'P')
+                self.assertEqual(len(image.getpalette()), 768)
+            elif opacity == .5:
+                self.assertEqual(image.mode, 'RGB')
+            pixels[opacity] = image.convert('RGB').getpixel(sample)
+        self.assertNotEqual(pixels[0], pixels[1])
+        self.assertNotEqual(pixels[.5], pixels[0])
+        self.assertNotEqual(pixels[.5], pixels[1])
+        for axis, shift, maximum, tolerance in ((0, 3, 31, 9), (1, 2, 63, 5), (2, 3, 31, 9)):
+            channel = pixels[.5][axis]
+            self.assertLessEqual(abs(channel - (pixels[0][axis] + pixels[1][axis]) / 2), tolerance)
+            self.assertEqual(channel, (channel >> shift) * 255 // maximum)
 
     # No parameters beyond the test instance: speed depends on elapsed time, never on frame count.
     def test_animation_determinism_smoothness_and_bounds(self):
@@ -117,7 +224,9 @@ class RigContractTests(unittest.TestCase):
     def test_contour_keeps_face_and_center_independent(self):
         state = make_contour_state(self.rig)
         state.update(fullness=.6, amplitude=.8, phase=1.2, phase_spread=.7)
-        for channels in (self.ready, [0, 1, -.5, .4, .8, -.5], [1, 0, .7, -.6, 0, 1]):
+        for channels in (self.ready,
+                         self.face_channels(eye_left=0, eye_right=1, brow_left=-.5, brow_right=.4, mouth_open=.8, breath=-.5),
+                         self.face_channels(eye_left=1, eye_right=0, brow_left=.7, brow_right=-.6, mouth_open=0, breath=1)):
             with self.subTest(channels=channels):
                 original = evaluate(self.rig, channels, self.transform)
                 scene = evaluate(self.rig, channels, self.transform, contour=state)
@@ -286,19 +395,36 @@ class RigContractTests(unittest.TestCase):
                         lx,ly=logical_touch(x,y,angle)
                         self.assertEqual(marker.getpixel((lx,ly)),255)
 
-    # self receives the test context: orientation must retain subpixel precision for evaluated curve points.
-    def test_evaluated_point_rotation_round_trips_without_rounding(self):
+    # self receives the test context: fitting and rotating a preview must preserve its aspect and point precision.
+    def test_resized_preview_preserves_aspect_and_fractional_point_mapping(self):
         state = make_contour_state(self.rig)
         state.update(fullness=.4, amplitude=.8, phase=1.23)
         scene = evaluate(self.rig, self.ready, (233.4, 235.8, 145.3), contour=state)
         self.assertTrue(any(value != round(value) for point in scene['world'].values() for value in point))
-        for angle in (0, 90, 180, 270):
-            for name, logical in scene['world'].items():
-                with self.subTest(rotation=angle, point=name):
-                    physical = physical_point(*logical, angle)
-                    restored = logical_touch(*physical, angle)
-                    self.assertAlmostEqual(restored[0], logical[0], places=10)
-                    self.assertAlmostEqual(restored[1], logical[1], places=10)
+        for width, height in ((701, 397), (1301, 733), (373, 811)):
+            for show_labels in (False, True):
+                layout = PreviewLayout.fit(width, height, show_labels)
+                self.assertGreater(layout.image_size, 0)
+                self.assertGreaterEqual(layout.left, 0)
+                self.assertGreaterEqual(layout.top, 0)
+                self.assertLessEqual(layout.left + layout.image_size, width)
+                self.assertLessEqual(layout.top + layout.image_size, height)
+                self.assertIsNone(layout.to_logical(layout.left - 1, layout.top + layout.image_size / 2, 0))
+                self.assertIsNone(layout.to_logical(layout.left + layout.image_size / 2,
+                                                    layout.top + layout.image_size + 1, 0))
+                for angle in (0, 90, 180, 270):
+                    for name, logical in scene['world'].items():
+                        with self.subTest(viewport=(width, height), labels=show_labels,
+                                          rotation=angle, point=name):
+                            canvas = layout.to_canvas(*logical, angle)
+                            restored = layout.to_logical(*canvas, angle)
+                            self.assertIsNotNone(restored)
+                            self.assertAlmostEqual(restored[0], logical[0], places=10)
+                            self.assertAlmostEqual(restored[1], logical[1], places=10)
+                    origin = layout.to_canvas(100.25, 100.25, angle)
+                    horizontal = layout.to_canvas(300.75, 100.25, angle)
+                    vertical = layout.to_canvas(100.25, 300.75, angle)
+                    self.assertAlmostEqual(math.dist(origin, horizontal), math.dist(origin, vertical), places=10)
         with self.assertRaises(ValueError):
             physical_point(233.4, 235.8, 45)
 
@@ -322,29 +448,40 @@ class RigContractTests(unittest.TestCase):
         self.assertLessEqual(len(used),256)
         self.assertTrue(set(self.rig['style']['debug'].values())- {self.rig['style']['debug']['selected']} <= used)
 
-    # No parameters beyond the test instance: the actual Tk controls navigate and hit-test a rotated view.
+    # self receives the test context: navigation must hit the controls in the last displayed viewport.
     def test_tk_boot_back_and_point_inspection(self):
         root=tk.Tk(); root.withdraw()
         window=CodyWindow(root,CodyRenderer(),SimpleNamespace(screen='boot-ready',rotation=180,safe_guide=True))
         try:
-            window.touch(SimpleNamespace(x=LABEL_MARGIN+232,y=232))
+            root.geometry('1100x760')
+            root.deiconify()
+            self.render_preview_frame(window)
+            x, y = window.layout.to_canvas(233, 233, window.display_rotation)
+            window.touch(SimpleNamespace(x=x,y=y))
             self.assertEqual(window.screen.get(),'rig')
-            window.touch(SimpleNamespace(x=LABEL_MARGIN+39,y=232))
+            self.render_preview_frame(window)
+            x, y = window.layout.to_canvas(426, 233, window.display_rotation)
+            window.rotation.set(0)
+            window.touch(SimpleNamespace(x=x,y=y))
             self.assertFalse(window.debug.get())
-            window.touch(SimpleNamespace(x=LABEL_MARGIN+39,y=232))
+            self.assertEqual(window.display_rotation, 180)
+            window.touch(SimpleNamespace(x=x,y=y))
             self.assertTrue(window.debug.get())
             window.preset('sleep')
             self.assertEqual([value.get() for value in window.values][:2],[0,0])
-            window.touch(SimpleNamespace(x=LABEL_MARGIN+425,y=232))
+            x, y = window.layout.to_canvas(40, 233, window.display_rotation)
+            # The selector can request a new route before its first frame is presented.
+            window.screen.set('boot-waking')
+            window.touch(SimpleNamespace(x=x,y=y))
             self.assertEqual(window.screen.get(),'boot-ready')
             for screen in ('boot-sleep','boot-waking','boot-ready','rig'):
                 window.screen.set(screen)
-                window.render_tick()
+                self.render_preview_frame(window)
                 self.assertIsNotNone(window.scene)
         finally:
             window.close()
 
-    # self receives the test context: every name must stay attached to its rotated, animated scene point.
+    # self receives the test context: names and touch must follow the displayed points after resize and rotation.
     def test_tk_name_leaders_follow_evaluated_points_and_rotation(self):
         root = tk.Tk()
         root.withdraw()
@@ -352,21 +489,30 @@ class RigContractTests(unittest.TestCase):
         try:
             window.playing.set(False)
             window.contour_playing.set(False)
+            window.face_state = list(self.ready)
+            for variable, value in zip(window.values, self.ready):
+                variable.set(value)
             window.names.set(True)
             window.label_scope.set('Contour')
             expected_names = {point['name'] for point in self.rig['points']
                               if point['role'] == 'anchor' and point['name'].startswith('lobe.')}
-            self.assertEqual(set(window.overlay_names()), expected_names)
             state = make_contour_state(self.rig)
             state.update(fullness=.4, amplitude=.8)
-            for phase in (.3, 2.1):
+            displayed_sizes = []
+            displayed_modes = []
+            root.deiconify()
+            for geometry, phase in (('920x780', .3), ('1280x780', 2.1)):
+                root.geometry(geometry)
                 state['phase'] = phase
-                window.scene = evaluate(self.rig, self.ready, self.transform, contour=state)
+                window.contour_state = dict(state)
                 for angle in (0, 90, 180, 270):
                     window.rotation.set(angle)
-                    window.draw_labels()
-                    for name in expected_names:
-                        with self.subTest(phase=phase, rotation=angle, point=name):
+                    self.render_preview_frame(window)
+                    shown_names = window.overlay_names()
+                    self.assertTrue(shown_names)
+                    self.assertTrue(set(shown_names) <= expected_names)
+                    for name in shown_names:
+                        with self.subTest(geometry=geometry, phase=phase, rotation=angle, point=name):
                             items = window.canvas.find_withtag(f'point:{name}')
                             leaders = [item for item in items if window.canvas.type(item) == 'line']
                             markers = [item for item in items if window.canvas.type(item) == 'oval']
@@ -374,26 +520,38 @@ class RigContractTests(unittest.TestCase):
                             self.assertEqual(len(leaders), 1)
                             self.assertEqual(len(markers), 1)
                             self.assertEqual(len(labels), 1)
-                            physical = physical_point(*window.scene['world'][name], angle)
-                            expected = (LABEL_MARGIN + physical[0], physical[1])
+                            expected = window.layout.to_canvas(*window.scene['world'][name], angle)
                             endpoint = window.canvas.coords(leaders[0])[-2:]
                             marker = window.canvas.coords(markers[0])
                             for axis in (0, 1):
                                 self.assertAlmostEqual(endpoint[axis], expected[axis], places=8)
                                 self.assertAlmostEqual((marker[axis] + marker[axis + 2]) / 2,
                                                        expected[axis], places=8)
-                            self.assertEqual(window.canvas.itemcget(labels[0], 'text'), name)
+                            visible_name = window.canvas.itemcget(labels[0], 'text').rstrip('.…')
+                            self.assertTrue(visible_name)
+                            self.assertTrue(name.startswith(visible_name))
                             self.assertEqual(float(window.canvas.itemcget(labels[0], 'angle')), 0)
+                    target = window.scene['world']['lobe.crown']
+                    x, y = window.layout.to_canvas(*target, window.display_rotation)
+                    window.canvas.event_generate('<Motion>', x=round(x), y=round(y))
+                    window.touch(SimpleNamespace(x=x, y=y))
+                    self.assertEqual(window.selected, 'lobe.crown')
+                    window.choose_point(None)
+                displayed_sizes.append(window.layout.image_size)
+                displayed_modes.append(window.layout_mode)
+            self.assertNotEqual(displayed_sizes[0], displayed_sizes[1])
+            self.assertEqual(displayed_modes, ['stacked', 'wide'])
             window.choose_point('eye.left.p1')
             self.assertIn('eye.left.p1', window.overlay_names())
             window.choose_point(None)
             window.label_scope.set('All points')
             all_names = {point['name'] for point in self.rig['points']}
             visited = set()
-            for page in range(math.ceil(len(all_names) / LABEL_PAGE_SIZE)):
+            capacity = window.layout.label_capacity(window.label_row_height)
+            for page in range(math.ceil(len(all_names) / capacity)):
                 window.label_page.set(page)
                 names = window.overlay_names()
-                self.assertLessEqual(len(names), LABEL_PAGE_SIZE)
+                self.assertLessEqual(len(names), capacity)
                 self.assertTrue(visited.isdisjoint(names))
                 visited.update(names)
             self.assertEqual(visited, all_names)

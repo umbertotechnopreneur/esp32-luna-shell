@@ -17,12 +17,25 @@ have stable names and never receive identities from runtime traversal order.
 Curve segments refer to those points directly; the debug overlay traverses the
 same evaluated point arrays, including tangents and parent links.
 
-Six independent channels control left/right eye openness, left/right brow
-tilt, mouth openness and a small breathing scale. These are geometric controls,
+Ten independent channels control left/right eye openness, left/right brow
+tilt, mouth openness, a small breathing scale, mouth width, nose size, cheek
+size and cheek opacity. These are geometric controls,
 not sensor measurements or a complete emotional-state model. Channel changes
 are additive point deltas before the shared transform. The `boot_channels`
 entries are convenient rig previews; firmware boot retains the original three
 indexed artworks and their actual startup checkpoints.
+
+Declarative `face_transforms` scale descendant controls around fixed named
+anchors; `path_opacity` binds the cheek fills to their shared opacity control.
+Cheeks start at 1.2 times their authored size. `face_transition_seconds` controls
+smooth target interpolation for sliders and presets, before breathing/blinking
+are composed. `expression_presets.embarrassed` is a manual example using these
+same controls. It does not infer an emotional state.
+
+Partial cheek opacity uses real source-over blending in native RGB565 channels.
+The 256-entry source palette stays unchanged; the framebuffer may contain
+derived blend colors. Opaque host frames remain indexed, while translucent
+host frames use RGB output quantized to RGB565 precision.
 
 The separate `contour` configuration changes the cloud silhouette through its
 eleven lobe anchors. Fullness, wave amplitude, cycles-per-second speed and

@@ -45,11 +45,33 @@ shows semantic parent links, cubic tangent lines, knots and handles. Selecting
 a point reports its stable name and evaluated local/canvas coordinates.
 
 The independent channels are left/right eye openness, left/right brow tilt,
-mouth openness and breathing. No enum selects an entire face. A four-second
+mouth openness, breathing, mouth width, nose size, cheek size and cheek opacity.
+No enum selects an entire face. A four-second
 breathing cycle and a smooth 280 ms blink every 4.8 seconds compose over those
 base controls, so closed or half-open eyes can coexist with a breathing mouth.
 Both clocks use elapsed time, skip overdue frames and never alter sensor data.
 There is no invented charge, motion, stress or fear measurement.
+
+`face_transforms` binds the mouth's horizontal scale and the nose/cheeks' uniform
+scale to their named anchors. Those anchors stay in place, and both artwork and
+debug use the resulting evaluated controls. `cheek_size` starts at 1.2 times the
+authored size; width and nose size start at 1.0. Cheek opacity ranges from 0
+(fully absent) to 1 (fully opaque), independently of cheek size.
+
+Facial targets interpolate with the YAML `face_transition_seconds` time constant
+(0.18 seconds by default). Changing sliders or presets preserves the current
+expression and moves toward the new target instead of replacing it abruptly.
+Breathing and blinking then compose over those smoothed targets; their clocks
+are not reset by a facial preset. `expression_presets.embarrassed` is a manual
+example of parameter composition, not emotion detection or an enum-based state
+machine. At zero active elapsed time the target transition is frozen.
+
+The palette still contains exactly 256 authored source colors. True cheek
+translucency blends their native RGB565 channels over the already drawn cloud,
+rounded with an 8-bit opacity value. The resulting framebuffer can contain
+derived colors outside that source palette. The host remains indexed for opaque
+frames and expands partial-opacity frames to RGB whose values are quantized to
+the same RGB565 channel precision. No additional firmware framebuffer is used.
 
 ### Independent cloud contour
 
@@ -99,8 +121,9 @@ pwsh -NoProfile -File .\simulator\windows\run-simulator.ps1 -Cody -PythonExecuta
 
 The rig opens with points, handles, contour names and both outlines visible.
 The controls are grouped into `Face`, `Contour` and `Debug` tabs. `Face` keeps
-the six independent sliders and Sleep/Waking/Ready channel examples. Turning off
-breathing/blinking shows their static base values. `Contour` exposes the four
+ten independent sliders, Sleep/Waking/Ready channel examples and the Embarrassed
+expression example. Turning off breathing/blinking leaves the smoothed base
+expression; slider and preset interpolation remains active. `Contour` exposes the four
 shape/motion targets, their current smoothed values, and an independent run/freeze
 toggle. Pausing freezes the full contour state; targets edited during pause take
 effect after resume. Restoring contour targets never resets the phase.
@@ -111,9 +134,18 @@ upright desktop margin labels with leader lines ending at the evaluated,
 rotated point positions. These annotations are outside the physical display
 preview, not part of firmware rendering. The initial name scope shows the eleven
 contour anchors. Other scopes show all anchors, a selected entity, a selected
-point, or all points in groups of at most 36, plus the selected point when it is
-not in that group. Clicking a label or marker, or choosing a name from the list,
+point, or all points in groups sized to the available viewport height, up to 36
+including space for the selected point. Clicking a label or marker, or choosing a name from the list,
 shows normalized, logical canvas and rotated panel coordinates in the inspector.
+
+Resizing the desktop window preserves the native 466 x 466 rendering contract.
+The square preview scales uniformly and remains centered; labels retain their
+readable desktop font and shorten long names when needed. At narrow widths the
+controls move below the preview and remain accessible through vertical scrolling.
+At wider widths they sit beside it. A shared `PreviewLayout` maps artwork,
+annotation endpoints and mouse input. Input uses the last displayed layout and
+orientation until the next frame presents a pending resize or rotation. Resize
+notifications never advance the animation clock themselves.
 
 The position/scale sliders change placement without changing topology. The entity
 selector comes from YAML. Orientation
@@ -181,7 +213,8 @@ and must use `scripts/device.ps1` when explicitly requested.
 ## Host evidence, 2026-10-02
 
 The evidence below describes the initial rig checkpoint `03c6c544`, before the
-contour and named-overlay extension. The extension has static source review
+contour and named-overlay extension. That extension and the later responsive
+viewport/facial-control changes have static source review
 only; its newly prepared checks have not been executed. Firmware compilation,
 simulator execution and device performance remain unverified for that extension.
 

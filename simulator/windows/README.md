@@ -13,6 +13,9 @@ independent facial sliders, elapsed-time breathing/blinking, rotation and point
 inspection. Independent contour controls change cloud fullness, wave amplitude,
 speed and phase spread, with a separate pause control. Its screen selector
 includes all three original boot artworks.
+The Face tab also exposes mouth width, nose size, cheek size and cheek opacity;
+sliders and example presets interpolate smoothly before breathing/blinking.
+The Embarrassed example makes the cheeks more prominent using the same controls.
 `assets/cody/cody.yaml` configures identity, entities, geometry and indexed style;
 the shared palette has 256 slots. No fake-device HTTP server is started.
 
@@ -34,7 +37,17 @@ readable. Desktop annotations sit outside the device circle and stay upright
 when the device view rotates; they are not additional firmware UI. Selecting
 a point reports its normalized and logical canvas coordinates.
 
-Contour/label changes have static source review only. Historical host evidence
+The desktop window is resizable. A uniform viewport transform keeps the round
+preview, point labels and mouse input aligned at every size and rotation.
+Controls move below the preview in narrow windows and stay scrollable when
+vertical space is limited. Label pages adapt to viewport height without shrinking
+the font; shortened names remain complete in the point inspector. Native rendering
+and captures remain 466 x 466. Slider and checkbox construction share helpers.
+
+The source palette remains 256 entries. Partial cheek opacity composites in
+RGB565 precision, so the framebuffer can include derived intermediate colors.
+
+Contour/label, responsive layout and facial-control changes have static source review only. Historical host evidence
 in the architecture document belongs to the preceding rig checkpoint; no
 simulator, build or device check was run for this extension.
 

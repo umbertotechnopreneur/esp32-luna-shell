@@ -12,6 +12,10 @@ authorization.
   extreme authored lobe limits, and current generated-table provenance. The
   contour extension has static review only; the historical ten host checks
   belong to the earlier rig checkpoint.
+  Include the later responsive layout and facial-control changes: narrow/wide
+  window resizing, scaled/rotated label and touch alignment, scroll access,
+  anchored mouth/nose/cheek sizes, interpolated face presets and cheek alpha at
+  zero, partial and full opacity. Those prepared regressions have not been run.
 
 - [ ] On explicit firmware/device validation request, compile the Cody rig PoC
   and measure frame geometry/raster/transfer times with the overlay on and off,
