@@ -33,7 +33,7 @@
         <path d="M 0 233 H 466 M 233 0 V 466" fill="none" stroke="#35495B" stroke-width="1" stroke-dasharray="3 5"/>
         <path d="M 228 233 H 238 M 233 228 V 238" fill="none" stroke="#B9C6D1" stroke-width="1"/>
         <circle id="back-control" cx="40" cy="233" r="30" fill="url(#shared-blue)"/>
-        <text x="40" y="233" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#04101A">Back</text>
+        <path id="back-icon" d="M 45 222 L 34 233 L 45 244" fill="none" stroke="#04101A" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
         <circle id="optional-right-slot" cx="426" cy="233" r="30" fill="none" stroke="#7D91A2" stroke-width="1" stroke-dasharray="3 3"/>
         <text x="426" y="233" dominant-baseline="central" text-anchor="middle" font-size="10" fill="#92A3B2">Optional</text>
       </g>

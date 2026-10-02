@@ -35,7 +35,7 @@ rotation or wake. The base does not yet provide an orientation settings screen.
 
 The layout baseline is the source-verified 320 x 320 safe square at (73, 73)
 within the 466 x 466 circle. Its rounded margins are usable space, including
-the 60 x 60 Back slot at (10, 203). See
+the 60 x 60 icon-only Back slot at (10, 203). See
 [`circular-display-layout.md`](circular-display-layout.md) for the geometry;
 OOBE navigation remains a subsequent implementation step.
 

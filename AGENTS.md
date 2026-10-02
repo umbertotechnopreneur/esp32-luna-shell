@@ -27,6 +27,9 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
   bounding box, circular radius 30, and center (40, 233). Keep it separate from
   the central content and primary action. Do not place Back beside a footer
   action or below it. Show it only when a valid previous route exists.
+- Render Back as a single left-facing chevron icon, centered in that control.
+  Do not display the word Back or another text label inside the control.
+  Preserve its full touch target independently of the icon's smaller bounds.
 - Derive the available horizontal chord from the circle at every occupied
   vertical position. Keep the full visible control and its hit target inside
   the display, preserve QR quiet zones, and prevent overlap with lateral

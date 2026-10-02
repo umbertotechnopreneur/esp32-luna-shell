@@ -6,6 +6,8 @@
   square at (73, 73), variable rounded margins, and lateral Back slot in
   `AGENTS.md` and the architecture documentation. This is a documentation
   checkpoint from static source review, not OOBE implementation or validation.
+- [x] Specify an icon-only left-chevron Back control, preserving its lateral
+  position, gradient, and full touch target; update the geometry diagram.
 
 - [x] Carry the reusable main display/touch checkpoint into a remote-main-based
   Cody branch. Add the standalone connected profile, local minimal CODY2D

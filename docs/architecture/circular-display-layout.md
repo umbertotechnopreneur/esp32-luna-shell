@@ -79,8 +79,10 @@ rectangle, including its white quiet zone, must remain unobstructed.
 
 Back uses the left lateral slot when a previous route exists. Its control and
 touch target must not overlap content or an independent action. It is not a
-left footer button. The label, typography, and gradient may follow Cody's
-style while keeping the source placement and readable proportions.
+left footer button. Render a single centered left-chevron icon, without the
+word Back. Preserve the 60 x 60 touch target and the shared blue gradient;
+the smaller icon does not reduce the interactive area. Back remains the
+semantic action name in layout data and navigation history.
 
 The existing Luna content viewport can release top and bottom arc space:
 320 x 320 at y=73 with both arcs, 320 x 393 at y=73 with only the upper arc,
