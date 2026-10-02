@@ -14,6 +14,30 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
   workflow through `scripts/device.ps1`. Never invoke the ESP-IDF Python
   entrypoint directly.
 
+## Circular display geometry
+
+- Use a 466 x 466 logical canvas, nominal center (233, 233), and radius 233.
+  The canonical central safe square is 320 x 320 at (73, 73): both axes use
+  half-open bounds [73, 393), corresponding to pixel indices 73 through 392.
+- Keep the rounded regions outside that square available for navigation,
+  status, and suitable artwork. At the horizontal center there are 73 pixels
+  on each side of the square; this width narrows toward the top and bottom.
+  Do not discard these regions or assume they are uniform rectangular strips.
+- Place Back in the left lateral region at logical (10, 203), with a 60 x 60
+  bounding box, circular radius 30, and center (40, 233). Keep it separate from
+  the central content and primary action. Do not place Back beside a footer
+  action or below it. Show it only when a valid previous route exists.
+- Derive the available horizontal chord from the circle at every occupied
+  vertical position. Keep the full visible control and its hit target inside
+  the display, preserve QR quiet zones, and prevent overlap with lateral
+  navigation. The safe square is the baseline, not the only usable area.
+- Rendering, clipping, and touch must share these logical coordinates through
+  0/90/180/270 degree rotation. Back stays visually on the left in the chosen
+  orientation; never mirror text or independently rotate the hit target.
+- Read `docs/architecture/circular-display-layout.md` before changing layouts.
+  Its geometry comes from the existing Luna UI; Cody layouts must use the
+  standalone 2D renderer without admitting LVGL dependencies.
+
 ## Fail-fast and error visibility
 
 - Never convert a failure or partial failure into `ESP_OK`.

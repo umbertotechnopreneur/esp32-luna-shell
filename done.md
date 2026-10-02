@@ -2,6 +2,11 @@
 
 ## Cody base implementation (2026-10-02)
 
+- [x] Record the source-verified 466 x 466 circle, 320 x 320 central safe
+  square at (73, 73), variable rounded margins, and lateral Back slot in
+  `AGENTS.md` and the architecture documentation. This is a documentation
+  checkpoint from static source review, not OOBE implementation or validation.
+
 - [x] Carry the reusable main display/touch checkpoint into a remote-main-based
   Cody branch. Add the standalone connected profile, local minimal CODY2D
   surface/fill/RLE code, boot consumer and three blue Imagegen phases in flash:

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640" role="img" aria-labelledby="title description">
+  <title id="title">Cody circular display geometry: 466-pixel circle and 320-pixel central square</title>
+  <desc id="description">Exact nominal logical geometry. A 466 by 466 canvas contains a circle centered at 233,233 with radius 233. The central square starts at 73,73 and measures 320 by 320. Four shaded rounded regions remain available outside the square. Back is a 60-pixel circle at bounding-box origin 10,203. An optional right slot is at 396,203. All panel geometry is translated by 96,72 only for diagram placement.</desc>
+  <defs>
+    <clipPath id="nominal-circle">
+      <circle cx="233" cy="233" r="233"/>
+    </clipPath>
+    <linearGradient id="shared-blue" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#75CBF3"/>
+      <stop offset="50.7936507937%" stop-color="#56B8EE"/>
+      <stop offset="100%" stop-color="#359FE7"/>
+    </linearGradient>
+    <marker id="dimension-arrow" viewBox="0 0 6 6" refX="3" refY="3" markerWidth="6" markerHeight="6" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
+      <path d="M 0 0 L 6 3 L 0 6 Z" fill="#B9C6D1"/>
+    </marker>
+  </defs>
+  <rect width="960" height="640" fill="#000000"/>
+  <g font-family="JetBrains Mono, Cascadia Mono, Consolas, monospace">
+    <text x="24" y="25" font-size="20" font-weight="700" fill="#F4F6FA">CODY / CIRCULAR DISPLAY GEOMETRY</text>
+
+    <!-- Diagram translation only: all child geometry uses exact logical display coordinates. -->
+    <g id="logical-display" transform="translate(96 72)">
+      <rect x="0" y="0" width="466" height="466" fill="none" stroke="#35495B" stroke-width="1" stroke-dasharray="4 4"/>
+      <g clip-path="url(#nominal-circle)">
+        <circle cx="233" cy="233" r="233" fill="#000000"/>
+        <!-- These four clipped rectangles partition the disk outside the central square. -->
+        <rect id="rounded-top" x="0" y="0" width="466" height="73" fill="#111A24"/>
+        <rect id="rounded-bottom" x="0" y="393" width="466" height="73" fill="#203040"/>
+        <rect id="rounded-left" x="0" y="73" width="73" height="320" fill="#182330"/>
+        <rect id="rounded-right" x="393" y="73" width="73" height="320" fill="#182330"/>
+        <rect id="safe-square" x="73" y="73" width="320" height="320" fill="#0B1118" stroke="#56B8EE" stroke-width="1.5"/>
+        <path d="M 0 233 H 466 M 233 0 V 466" fill="none" stroke="#35495B" stroke-width="1" stroke-dasharray="3 5"/>
+        <path d="M 228 233 H 238 M 233 228 V 238" fill="none" stroke="#B9C6D1" stroke-width="1"/>
+        <circle id="back-control" cx="40" cy="233" r="30" fill="url(#shared-blue)"/>
+        <text x="40" y="233" dominant-baseline="central" text-anchor="middle" font-size="18" font-weight="700" fill="#04101A">Back</text>
+        <circle id="optional-right-slot" cx="426" cy="233" r="30" fill="none" stroke="#7D91A2" stroke-width="1" stroke-dasharray="3 3"/>
+        <text x="426" y="233" dominant-baseline="central" text-anchor="middle" font-size="10" fill="#92A3B2">Optional</text>
+      </g>
+      <circle cx="233" cy="233" r="233" fill="none" stroke="#F4F6FA" stroke-width="1.5"/>
+    </g>
+
+    <!-- Dimension lines are outside the logical canvas. Their endpoints map directly to its boundaries. -->
+    <g id="dimensions" fill="none" stroke="#B9C6D1" stroke-width="1">
+      <path d="M 96 72 V 47 M 562 72 V 47 M 96 52 H 562" marker-end="none"/>
+      <path d="M 96 52 H 562" marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)"/>
+      <path d="M 96 72 H 64 M 96 538 H 64"/>
+      <path d="M 70 72 V 538" marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)"/>
+      <path d="M 169 465 V 572 M 489 465 V 572" stroke="#4D6477" stroke-dasharray="3 4"/>
+      <path d="M 169 566 H 489" marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)"/>
+      <path d="M 96 538 V 607 M 169 572 V 607" stroke="#4D6477" stroke-dasharray="3 4"/>
+      <path d="M 96 601 H 169" marker-start="url(#dimension-arrow)" marker-end="url(#dimension-arrow)"/>
+    </g>
+    <text x="329" y="46" text-anchor="middle" font-size="13" fill="#F4F6FA">466 px</text>
+    <text x="49" y="305" transform="rotate(-90 49 305)" text-anchor="middle" font-size="13" fill="#F4F6FA">466 px</text>
+    <text x="329" y="586" text-anchor="middle" font-size="13" fill="#56B8EE">320 px safe square</text>
+    <text x="181" y="605" font-size="12" fill="#B9C6D1">73 px inset</text>
+
+    <!-- All exact logical coordinate labels sit outside the panel. -->
+    <g id="geometry-labels" font-size="13" fill="#B9C6D1">
+      <text x="610" y="82" font-size="15" font-weight="700" fill="#F4F6FA">LOGICAL GEOMETRY</text>
+      <text x="610" y="108">Canvas 466 × 466 px</text>
+      <text x="610" y="131">Circle C=(233,233), R=233</text>
+
+      <text x="610" y="174" font-size="15" font-weight="700" fill="#56B8EE">CENTRAL SAFE SQUARE</text>
+      <text x="610" y="198">Origin (73,73)</text>
+      <text x="610" y="221">Extent 320 × 320 px</text>
+      <text x="610" y="244">Both axes: [73,393)</text>
+      <text x="610" y="267">Included pixels: 73…392</text>
+
+      <text x="610" y="310" font-size="15" font-weight="700" fill="#56B8EE">BACK / LEFT NAVIGATION</text>
+      <text x="610" y="334">Box origin (10,203)</text>
+      <text x="610" y="357">60 × 60 px · radius 30</text>
+      <text x="610" y="380">Center (40,233)</text>
+
+      <text x="610" y="423" font-size="15" font-weight="700" fill="#92A3B2">OPTIONAL RIGHT SLOT</text>
+      <text x="610" y="447">Box origin (396,203)</text>
+      <text x="610" y="470">60 × 60 px · radius 30</text>
+      <text x="610" y="493">Center (426,233)</text>
+
+      <text x="610" y="540" font-size="12">Four shaded rounded regions remain usable.</text>
+      <text x="610" y="560" font-size="12">Side gap: 73 px at y=233;</text>
+      <text x="610" y="580" font-size="12">9.38 px at y=73 and y=393.</text>
+      <text x="610" y="600" font-size="12">Drawing + touch share cardinal rotation.</text>
+    </g>
+    <text x="24" y="629" font-size="11" fill="#92A3B2">Nominal ideal geometry · origin and extents are logical pixels · physical clearance and touch are unmeasured</text>
+  </g>
+</svg>
