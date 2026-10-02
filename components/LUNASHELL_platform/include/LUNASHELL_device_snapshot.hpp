@@ -537,6 +537,9 @@ public:
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
+    // processor: Receives current/aged CPU fields under the canonical snapshot lock.
+    // This read never samples FreeRTOS directly or starts another telemetry cache.
+    esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;
     // observation: Receives published motion/power fields under one snapshot lock.
     // No hardware refresh or independent measurement ownership is introduced here.
     esp_err_t readMotionPowerObservation(MotionPowerObservation &observation) const;

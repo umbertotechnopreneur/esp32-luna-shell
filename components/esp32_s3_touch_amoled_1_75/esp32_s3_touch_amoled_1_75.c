@@ -2690,6 +2690,31 @@ fail:
 #endif // CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// The CST9217 reports on IRQ edges; polling its data registers while idle is
+// not a current measurement. The ISR only latches work for the owning task.
+static uint32_t touch_report_pending;
+static uint32_t touch_report_irq_at_us;
+static StaticSemaphore_t touch_report_signal_storage;
+static SemaphoreHandle_t touch_report_signal;
+// Input gesture latches guard rotation; these are never published as new samples.
+static bool touch_contact_pressed;
+static esp_err_t touch_last_report_error;
+
+// touch_handle: Controller that raised a report-ready interrupt; no I2C is done here.
+static void IRAM_ATTR bsp_touch_report_interrupt(esp_lcd_touch_handle_t touch_handle)
+{
+    (void)touch_handle;
+    __atomic_store_n(&touch_report_irq_at_us, (uint32_t)esp_timer_get_time(), __ATOMIC_RELAXED);
+    __atomic_store_n(&touch_report_pending, 1U, __ATOMIC_RELEASE);
+    BaseType_t higher_priority_task_woken = pdFALSE;
+    xSemaphoreGiveFromISR(touch_report_signal, &higher_priority_task_woken);
+    if (higher_priority_task_woken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+#endif
+
 // config: Raw controller coordinate transformation, independent of a renderer.
 // ret_touch: Output handle, cleared before the initialization attempt.
 esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_handle_t *ret_touch)
@@ -2705,6 +2730,16 @@ esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_hand
         ESP_LOGE(TAG, "Touch creation rejected: controller already initialized (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    __atomic_store_n(&touch_report_pending, 0U, __ATOMIC_RELEASE);
+    // Same binary IRQ signal as Luna's input adapter, without a GUI dependency.
+    touch_report_signal = xSemaphoreCreateBinaryStatic(&touch_report_signal_storage);
+    if (touch_report_signal == NULL) {
+        ESP_LOGE(TAG, "Touch IRQ signal creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+#endif
 
     ESP_RETURN_ON_ERROR(
         bsp_i2c_init(),
@@ -2732,6 +2767,9 @@ esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_hand
             .mirror_x = config->mirror_x,
             .mirror_y = config->mirror_y,
         },
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+        .interrupt_callback = bsp_touch_report_interrupt,
+#endif
     };
     esp_lcd_panel_io_i2c_config_t tp_io_config = ESP_LCD_TOUCH_IO_I2C_CST9217_CONFIG();
     tp_io_config.scl_speed_hz = CONFIG_BSP_I2C_CLK_SPEED_HZ;
@@ -2766,6 +2804,15 @@ esp_err_t bsp_touch_new_raw(const bsp_touch_config_t *config, esp_lcd_touch_hand
         return touch_result;
     }
     tp = *ret_touch;
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // Include a report already asserted between configuration and ISR registration.
+    if (gpio_get_level(BSP_LCD_TOUCH_INT) == tp->config.levels.interrupt) {
+        __atomic_store_n(&touch_report_irq_at_us, (uint32_t)esp_timer_get_time(), __ATOMIC_RELAXED);
+        __atomic_store_n(&touch_report_pending, 1U, __ATOMIC_RELEASE);
+        xSemaphoreGive(touch_report_signal);
+    }
+    ESP_LOGI(TAG, "Standalone touch input ready: IRQ GPIO%d, binary report signal", BSP_LCD_TOUCH_INT);
+#endif
     return ESP_OK;
 }
 
@@ -3418,12 +3465,16 @@ esp_err_t bsp_display_rotation_set(bsp_display_rotation_t rotation)
         return ESP_ERR_INVALID_STATE;
     }
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
-    bsp_touch_point_t point;
-    const esp_err_t touch_result = bsp_touch_read_point(&point);
-    if (touch_result != ESP_OK || point.pressed) {
-        ESP_LOGE(TAG, "Display rotation touch check failed: pressed=%d (%s)", point.pressed, esp_err_to_name(touch_result == ESP_OK ? ESP_ERR_INVALID_STATE : touch_result));
+    // Do not consume the UI's next event just to check rotation. Pending input,
+    // an unfinished gesture or a real acquisition failure defers the change.
+    const bool report_pending = __atomic_load_n(&touch_report_pending, __ATOMIC_ACQUIRE) != 0U;
+    if (report_pending || touch_contact_pressed || touch_last_report_error != ESP_OK) {
+        const esp_err_t touch_result = touch_last_report_error != ESP_OK
+                                          ? touch_last_report_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(TAG, "Display rotation deferred by touch: pending=%d pressed=%d (%s)",
+                 report_pending, touch_contact_pressed, esp_err_to_name(touch_result));
         bsp_display_unlock();
-        return touch_result == ESP_OK ? ESP_ERR_INVALID_STATE : touch_result;
+        return touch_result;
     }
 #endif
 
@@ -3856,7 +3907,30 @@ esp_err_t bsp_display_base_start(void)
 #endif
 }
 
-// point: Current hardware sample; failures retain explicit invalid state and real error.
+// timeout_ms: Maximum idle wait; an IRQ wakes the consumer before its next frame deadline.
+esp_err_t bsp_touch_wait_for_report(uint32_t timeout_ms)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (tp == NULL || touch_report_signal == NULL) {
+        ESP_LOGE(TAG, "Touch IRQ wait rejected: not initialized (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (__atomic_load_n(&touch_report_pending, __ATOMIC_ACQUIRE) != 0U) {
+        return ESP_OK;
+    }
+    const TickType_t wait_ticks = pdMS_TO_TICKS(timeout_ms);
+    return xSemaphoreTake(touch_report_signal, wait_ticks) == pdTRUE
+               ? ESP_OK : ESP_ERR_NOT_FOUND;
+#else
+    (void)timeout_ms;
+    ESP_LOGE(TAG, "Standalone touch IRQ wait unavailable (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// point: Current report, or invalid state with the real error; no report has timestamp zero.
 esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
 {
     if (point == NULL) {
@@ -3866,7 +3940,7 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
     *point = (bsp_touch_point_t){
         .valid = false,
         .error = ESP_ERR_NOT_SUPPORTED,
-        .sample_timestamp_us = esp_timer_get_time(),
+        .sample_timestamp_us = 0,
     };
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (tp == NULL) {
@@ -3879,6 +3953,16 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
         point->error = lock_result;
         return lock_result;
     }
+    if (__atomic_exchange_n(&touch_report_pending, 0U, __ATOMIC_ACQ_REL) == 0U) {
+        // No IRQ means no new hardware sample, rather than a fabricated release.
+        point->error = ESP_ERR_NOT_FOUND;
+        bsp_display_unlock();
+        return point->error;
+    }
+    const uint32_t irq_at_us = __atomic_load_n(&touch_report_irq_at_us, __ATOMIC_RELAXED);
+    // Consume the wake signal together with this report. A newer IRQ keeps pending set.
+    xSemaphoreTake(touch_report_signal, 0);
+    const uint32_t read_started_us = (uint32_t)esp_timer_get_time();
     esp_err_t result = esp_lcd_touch_read_data(tp);
     esp_lcd_touch_point_data_t data = {0};
     uint8_t contact_count = 0;
@@ -3892,15 +3976,20 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
         ESP_LOGE(TAG, "Touch sample coordinate rejected: x=%u y=%u (%s)", data.x, data.y, esp_err_to_name(result));
     }
     point->error = result;
+    touch_last_report_error = result;
     if (result == ESP_OK) {
         point->valid = true;
         point->pressed = contact_count > 0U;
+        touch_contact_pressed = point->pressed;
         if (point->pressed) {
             point->x = data.x;
             point->y = data.y;
         }
     } else {
-        ESP_LOGE(TAG, "Current touch sample failed (%s)", esp_err_to_name(result));
+        ESP_LOGE(TAG, "Current touch sample failed: IRQ age=%luus read=%luus level=%d (%s)",
+                 (unsigned long)(read_started_us - irq_at_us),
+                 (unsigned long)((uint32_t)esp_timer_get_time() - read_started_us),
+                 gpio_get_level(BSP_LCD_TOUCH_INT), esp_err_to_name(result));
     }
     bsp_display_unlock();
     return result;

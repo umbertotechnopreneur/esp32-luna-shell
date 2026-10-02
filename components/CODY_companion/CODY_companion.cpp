@@ -10,6 +10,7 @@
 
 #include "CODY2D.hpp"
 #include "CODY_rig.hpp"
+#include "CODY_debug_hud.hpp"
 #include "CODY_response.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_sleep_blue.hpp"
@@ -57,6 +58,31 @@ struct DrawResult {
     uint32_t completed_revision = 0;
 };
 
+enum class TouchPollStatus : uint8_t {
+    Reported,
+    NoReport,
+    Failed,
+};
+
+struct TouchPollResult {
+    TouchPollStatus status;
+    esp_err_t error;
+};
+
+// One report per strip fits here. Preserve every press/release until the frame
+// ends, so a navigation event cannot change half of the displayed image.
+struct PendingTouchReports {
+    LUNASHELL_touch_point_t samples[(kPanelHeight + kStripRows - 1U) / kStripRows]{};
+    uint16_t count = 0;
+};
+
+// point: Receives a real report, retaining its original timestamp and error.
+TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point);
+// reports: Frame-local reports to dispatch after complete frame retirement.
+esp_err_t capture_pending_touch(PendingTouchReports &reports);
+// reports: Acquired reports in their original order, under the display lock.
+esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
+
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
 uint16_t *s_strip = nullptr;
@@ -79,6 +105,7 @@ bool s_response_sources_logged = false;
 int64_t s_next_frame_us = 0;
 int64_t s_last_timing_log_us = 0;
 uint32_t s_rig_frame_count = 0;
+CODY::FrameRateMeasurement s_frame_rate{};
 
 // Adopt one successfully acquired BSP lock. Failed acquisition never creates this guard.
 class DisplayUnlockOnExit final {
@@ -289,6 +316,7 @@ void record_completed_frame(const FrameTimings &timings)
     s_next_frame_us = timings.started_us + kRigFramePeriodMs * 1000;
     ++s_rig_frame_count;
     const int64_t completed_us = esp_timer_get_time();
+    CODY::record_frame_rate(s_frame_rate, timings.started_us, completed_us);
     if (s_last_timing_log_us != 0 && completed_us - s_last_timing_log_us < 2000000) {
         return;
     }
@@ -348,8 +376,19 @@ DrawResult draw_companion_frame(bool resume_animation = false)
             ? CODY_asset::waking_blue : CODY_asset::sleeping_blue;
 
     FrameTimings timings{};
+    PendingTouchReports pending_touch;
     timings.started_us = esp_timer_get_time();
+    CODY::DebugReadout debug_readout;
     if (s_rig_visible) {
+        if (resume_animation) {
+            s_frame_rate = {};
+        }
+        const esp_err_t readout_error = CODY::prepare_debug_readout(
+            s_frame_rate, timings.started_us, debug_readout
+        );
+        if (readout_error != ESP_OK) {
+            return {readout_error, false, 0};
+        }
         const esp_err_t geometry_error = evaluate_companion_geometry(
             timings.started_us, resume_animation
         );
@@ -381,6 +420,11 @@ DrawResult draw_companion_frame(bool resume_animation = false)
         result = s_rig_visible
             ? CODY::draw_rig_rows(*s_rig, strip, static_cast<uint16_t>(row), s_rig_debug, s_selected_point)
             : CODY2D::decode_rows(image, row, strip);
+        if (result == ESP_OK && s_rig_visible) {
+            result = CODY::draw_debug_readout_rows(
+                debug_readout, strip, static_cast<uint16_t>(row)
+            );
+        }
         timings.raster_us += esp_timer_get_time() - raster_started_us;
         if (result != ESP_OK) {
             break;
@@ -396,6 +440,14 @@ DrawResult draw_companion_frame(bool resume_animation = false)
             // error is a real driver/watchdog failure, never a successful park.
             break;
         }
+        // Service IRQ reports between strips; the evaluated geometry stays immutable.
+        if (s_start_state.load(std::memory_order_acquire) == StartState::Running) {
+            const esp_err_t touch_error = capture_pending_touch(pending_touch);
+            if (touch_error != ESP_OK) {
+                result = fail_consumer("Touch report during frame", touch_error, true);
+                break;
+            }
+        }
     }
     if (result == ESP_OK &&
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
@@ -403,6 +455,10 @@ DrawResult draw_companion_frame(bool resume_animation = false)
     }
     if (result == ESP_OK) {
         record_completed_frame(timings);
+        const esp_err_t input_error = dispatch_pending_touch(pending_touch);
+        if (input_error != ESP_OK) {
+            return {fail_consumer("Deferred touch dispatch", input_error, true), false, 0};
+        }
     }
     return {result, false, result == ESP_OK ? revision : 0};
 }
@@ -450,17 +506,9 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     return ESP_OK;
 }
 
-// Read once through the hardware owner, which publishes validity and touch activity intent.
-esp_err_t sample_touch()
+// point: Successfully acquired valid hardware sample, handled under the display lock.
+esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
-    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
-    if (lock_error != ESP_OK) return lock_error;
-    LUNASHELL_touch_point_t point{};
-    const esp_err_t result = LUNASHELL_touch_read_point(&point);
-    if (result != ESP_OK || !point.valid) {
-        bsp_display_unlock();
-        return result != ESP_OK ? result : ESP_ERR_INVALID_RESPONSE;
-    }
     const bool pressed_edge = point.pressed && !s_touch_pressed;
     s_touch_pressed = point.pressed;
     if (pressed_edge && s_boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
@@ -476,6 +524,7 @@ esp_err_t sample_touch()
                 s_animation_sampled_us = 0;
                 s_last_timing_log_us = 0;
                 s_rig_frame_count = 0;
+                s_frame_rate = {};
                 s_frame_dirty.store(true, std::memory_order_release);
                 ESP_LOGI(kTag, "Rig debug entered: %s; independent contour, breathing and eyelids", CODY::Data::character_name);
             }
@@ -496,7 +545,6 @@ esp_err_t sample_touch()
                 const esp_err_t selection_error = CODY::nearest_rig_point(*s_rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_selected_point);
                 if (selection_error != ESP_OK) {
-                    bsp_display_unlock();
                     return selection_error;
                 }
                 if (s_selected_point != CODY::kNoPoint) {
@@ -508,8 +556,80 @@ esp_err_t sample_touch()
             s_frame_dirty.store(true, std::memory_order_release);
         }
     }
-    bsp_display_unlock();
     return ESP_OK;
+}
+
+// point: Receives a real report, retaining its original timestamp and error.
+TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        return {TouchPollStatus::Failed, lock_error};
+    }
+    const esp_err_t sample_error = LUNASHELL_touch_read_point(&point);
+    if (sample_error == ESP_ERR_NOT_FOUND && point.error == sample_error &&
+        !point.valid && point.sample_timestamp_us == 0) {
+        bsp_display_unlock();
+        return {TouchPollStatus::NoReport, sample_error};
+    }
+    if (sample_error != ESP_OK || !point.valid) {
+        bsp_display_unlock();
+        return {TouchPollStatus::Failed,
+                sample_error != ESP_OK ? sample_error : ESP_ERR_INVALID_RESPONSE};
+    }
+    bsp_display_unlock();
+    return {TouchPollStatus::Reported, ESP_OK};
+}
+
+// reports: Frame-local reports to dispatch after complete frame retirement.
+esp_err_t capture_pending_touch(PendingTouchReports &reports)
+{
+    LUNASHELL_touch_point_t point{};
+    const TouchPollResult sample = read_touch_report(point);
+    if (sample.status == TouchPollStatus::NoReport) {
+        return ESP_OK; // No read took place; no measurement was published.
+    }
+    if (sample.status == TouchPollStatus::Failed) {
+        return sample.error;
+    }
+    if (reports.count >= sizeof(reports.samples) / sizeof(reports.samples[0])) {
+        ESP_LOGE(kTag, "Frame touch report capacity exhausted (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    reports.samples[reports.count++] = point;
+    return ESP_OK;
+}
+
+// reports: Acquired reports in their original order, under the display lock.
+esp_err_t dispatch_pending_touch(const PendingTouchReports &reports)
+{
+    for (uint16_t report_index = 0; report_index < reports.count; ++report_index) {
+        const esp_err_t result = handle_touch_sample(reports.samples[report_index]);
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+    return ESP_OK;
+}
+
+// Poll the hardware owner once; no report is distinct from a failed hardware read.
+TouchPollResult sample_touch()
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        return {TouchPollStatus::Failed, lock_error};
+    }
+    LUNASHELL_touch_point_t point{};
+    const TouchPollResult sample = read_touch_report(point);
+    if (sample.status != TouchPollStatus::Reported) {
+        bsp_display_unlock();
+        return sample;
+    }
+    const esp_err_t route_error = handle_touch_sample(point);
+    bsp_display_unlock();
+    return {route_error == ESP_OK ? TouchPollStatus::Reported : TouchPollStatus::Failed,
+            route_error};
 }
 
 // context: Unused; this single worker owns the boot/debug route and animation clock.
@@ -528,13 +648,17 @@ void companion_worker(void *context)
             wait_ms = remaining_us > 0 ?
                 static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
         }
-        vTaskDelay(pdMS_TO_TICKS(wait_ms) > 0 ? pdMS_TO_TICKS(wait_ms) : 1);
+        const esp_err_t wait_error = LUNASHELL_touch_wait_for_report(wait_ms);
+        if (wait_error != ESP_OK && wait_error != ESP_ERR_NOT_FOUND) {
+            fail_consumer("Touch IRQ wait", wait_error, true);
+            break;
+        }
         if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
             break;
         }
-        const esp_err_t touch_error = sample_touch();
-        if (touch_error != ESP_OK) {
-            fail_consumer("Touch sample", touch_error, true);
+        const TouchPollResult touch = sample_touch();
+        if (touch.status == TouchPollStatus::Failed) {
+            fail_consumer("Touch sample", touch.error, true);
             break;
         }
         if (!LUNASHELL_display_runtime_writes_allowed()) {
@@ -546,6 +670,11 @@ void companion_worker(void *context)
             continue;
         }
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
+        if (!parked && s_rig_visible && esp_timer_get_time() < s_next_frame_us &&
+            !s_frame_dirty.load(std::memory_order_acquire) &&
+            revision == s_rendered_revision.load(std::memory_order_acquire)) {
+            continue;
+        }
         if (!parked && !s_rig_visible && !s_frame_dirty.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
@@ -628,10 +757,13 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Mandatory boot frame", draw.error, false);
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
-    const esp_err_t touch_error = sample_touch();
-    if (touch_error != ESP_OK) {
+    const TouchPollResult touch = sample_touch();
+    if (touch.status == TouchPollStatus::Failed) {
         release_startup_strip();
-        return fail_consumer("Mandatory first touch sample", touch_error, true);
+        return fail_consumer("Mandatory touch input", touch.error, true);
+    }
+    if (touch.status == TouchPollStatus::NoReport) {
+        ESP_LOGI(kTag, "Mandatory touch input initialized; awaiting first hardware report");
     }
     s_start_state.store(StartState::Running, std::memory_order_release);
     TaskHandle_t worker = nullptr;

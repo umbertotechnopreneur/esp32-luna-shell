@@ -35,9 +35,13 @@ typedef struct {
 
 bool bsp_touch_is_ready(void);
 
+// timeout_ms: Maximum wait for a report; NOT_FOUND is a normal idle timeout.
+esp_err_t bsp_touch_wait_for_report(uint32_t timeout_ms);
+
 /**
- * Read one current contact. No contact is a valid released sample. Failed reads
- * remain invalid and carry their real error and attempt timestamp.
+ * Read one IRQ-triggered report. A successful report without contact is released.
+ * ESP_ERR_NOT_FOUND means no new report: valid is false and the timestamp is zero.
+ * Failed hardware reads remain invalid with their real error and attempt timestamp.
  * @param point Current sample output; coordinates are meaningful only when pressed and valid.
  */
 esp_err_t bsp_touch_read_point(bsp_touch_point_t *point);

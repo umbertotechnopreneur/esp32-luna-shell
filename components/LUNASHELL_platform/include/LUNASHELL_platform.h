@@ -262,9 +262,12 @@ typedef struct {
     int64_t sample_timestamp_us;
 } LUNASHELL_touch_point_t;
 
-/** Read one actual standalone touch sample; validity must precede coordinate use. */
+/** Read one IRQ-triggered report. NOT_FOUND with timestamp zero means no new sample. */
 // point: Receives the real touch state or an explicit invalid state and error.
 esp_err_t LUNASHELL_touch_read_point(LUNASHELL_touch_point_t *point);
+
+// timeout_ms: Maximum idle wait; NOT_FOUND means no IRQ arrived before the deadline.
+esp_err_t LUNASHELL_touch_wait_for_report(uint32_t timeout_ms);
 
 /** Persist and apply AMOLED brightness (10-100 percent). */
 esp_err_t LUNASHELL_display_set_brightness_percent(uint32_t percent);

@@ -1,7 +1,42 @@
 diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
 --- a/esp_lcd_touch_cst9217.c
 +++ b/esp_lcd_touch_cst9217.c
-@@ -117,22 +117,30 @@
+@@ -47,6 +47,9 @@
+  * Public API functions
+  *******************************************************************************/
+ 
++// io: Initialized board-owned I2C transport, using Luna's existing command sequence.
++// config: Pins, coordinate transform and optional report interrupt callback.
++// out_touch: Receives the controller only after configuration succeeds.
+ esp_err_t esp_lcd_touch_new_i2c_cst9217(const esp_lcd_panel_io_handle_t io, const esp_lcd_touch_config_t *config, esp_lcd_touch_handle_t *out_touch)
+ {
+     esp_err_t ret = ESP_OK;
+@@ -80,10 +83,6 @@
+         };
+         ESP_GOTO_ON_ERROR(gpio_config(&int_gpio_config), err, TAG, "GPIO intr config failed");
+ 
+-        /* Register interrupt callback */
+-        if (cst9217->config.interrupt_callback) {
+-            esp_lcd_touch_register_interrupt_callback(cst9217, cst9217->config.interrupt_callback);
+-        }
+     }
+ 
+     /* Initialize reset GPIO */
+@@ -102,6 +101,13 @@
+     /* Read chip configuration */
+     ESP_GOTO_ON_ERROR(cst9217_read_config(cst9217), err, TAG, "Read config failed");
+ 
++    // Initialization traffic must not be mistaken for a contact report.
++    if (cst9217->config.interrupt_callback) {
++        ESP_GOTO_ON_ERROR(
++            esp_lcd_touch_register_interrupt_callback(cst9217, cst9217->config.interrupt_callback),
++            err, TAG, "Report interrupt registration failed");
++    }
++
+     *out_touch = cst9217;
+     return ESP_OK;
+ 
+@@ -117,22 +123,44 @@
   * Private functions
   *******************************************************************************/
  
@@ -19,9 +54,23 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
          cst9217_read_reg(tp, ESP_LCD_TOUCH_CST9217_DATA_REG, data, sizeof(data)),
          err, TAG, "Read data failed");
  
++    // Preserve the controller's actual empty release frame. This exception
++    // never applies to a failed read or a partially malformed response.
++    bool empty_report = true;
++    for (size_t byte_index = 0; byte_index < sizeof(data); ++byte_index) {
++        if (data[byte_index] != 0) {
++            empty_report = false;
++            break;
++        }
++    }
++    if (empty_report) {
++        return ESP_OK;
++    }
++
      if (data[6] != CST9217_ACK_VALUE) {
 -        // ESP_LOGE(TAG, "Invalid ACK: 0x%02X vs 0x%02X", data[6], CST9217_ACK_VALUE);
 +        ESP_LOGE(TAG, "Read data rejected: ACK=0x%02X expected=0x%02X (%s)", data[6], CST9217_ACK_VALUE, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
++        ESP_LOG_BUFFER_HEX_LEVEL(TAG, data, sizeof(data), ESP_LOG_ERROR);
          return ESP_ERR_INVALID_RESPONSE;
      }
  
@@ -34,7 +83,7 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
  
      portENTER_CRITICAL(&tp->data.lock);
      tp->data.points = 0;
-@@ -154,13 +162,7 @@
+@@ -154,13 +182,7 @@
      return ret;
  
  err:
@@ -49,7 +98,7 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
  }
  
  static bool esp_lcd_touch_cst9217_get_xy(esp_lcd_touch_handle_t tp, uint16_t *x, uint16_t *y, uint16_t *strength, uint8_t *point_num, uint8_t max_point_num)
-@@ -241,62 +243,38 @@
+@@ -241,62 +263,38 @@
      return ret;
  }
  
@@ -132,7 +181,6 @@ diff --git a/esp_lcd_touch_cst9217.c b/esp_lcd_touch_cst9217.c
 -    }
 -    return ESP_FAIL;
 -}
-\ No newline at end of file
 +    ESP_RETURN_ON_ERROR(
 +        esp_lcd_panel_io_tx_param(tp->io, reg_buf[0], &reg_buf[1], 1),
 +        TAG, "Register address write failed");

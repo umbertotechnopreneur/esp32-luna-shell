@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "CODY_companion.cpp"
+        "CODY_debug_hud.cpp"
         "CODY_rig.cpp"
         "CODY_response.cpp"
         "CODY_response_inputs.cpp"

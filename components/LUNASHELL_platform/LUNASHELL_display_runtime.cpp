@@ -176,7 +176,22 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
 #endif
 }
 
-// point: Receives the real touch state or an explicit invalid state and error.
+// timeout_ms: Maximum idle wait; this signal carries no synthetic touch measurement.
+extern "C" esp_err_t LUNASHELL_touch_wait_for_report(uint32_t timeout_ms)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const esp_err_t result = bsp_touch_wait_for_report(timeout_ms);
+    if (result != ESP_OK && result != ESP_ERR_NOT_FOUND) {
+        return log_operation_result("Touch IRQ wait", result);
+    }
+    return result;
+#else
+    (void)timeout_ms;
+    return log_operation_result("Touch IRQ wait", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
+// point: Receives a real report, or invalid state; NOT_FOUND with timestamp zero means no report.
 extern "C" esp_err_t LUNASHELL_touch_read_point(LUNASHELL_touch_point_t *point)
 {
     if (point == nullptr) {
@@ -187,6 +202,12 @@ extern "C" esp_err_t LUNASHELL_touch_read_point(LUNASHELL_touch_point_t *point)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     bsp_touch_point_t sample{};
     esp_err_t result = bsp_touch_read_point(&sample);
+    if (result == ESP_ERR_NOT_FOUND && !sample.valid && sample.sample_timestamp_us == 0) {
+        // The initialized transport stays healthy while its IRQ has no work.
+        // Preserve the unavailable sample instead of publishing a fake release.
+        point->error = result;
+        return result;
+    }
     if (result == ESP_OK && (!sample.valid || sample.error != ESP_OK ||
                             sample.sample_timestamp_us <= 0)) {
         result = sample.error != ESP_OK ? sample.error : ESP_ERR_INVALID_RESPONSE;
