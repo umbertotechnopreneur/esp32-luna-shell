@@ -6,6 +6,17 @@ authorization.
 
 ## Current integration
 
+- [ ] Finish the Cody device debug checkpoint when USB access is restored:
+  flash the compiled Luna-transport/IRQ candidate, capture all three boot
+  checkpoints, then verify repeated press/release, Back, overlay toggle,
+  continuous breathing/contour/motion response and the white FPS/CPU readout.
+  Check physical 0/90/180/270 touch alignment, frame distributions and stack.
+  The previous flashed image completed boot and measured CPU correctly but
+  stopped on invalid touch data; the newest candidate has not been flashed.
+  Narrow Cody build/flash/capture work was authorized; broader host/simulator
+  validation and the Luna ports remain deferred. Details and evidence:
+  `docs/architecture/cody-device-debug.md`.
+
 - [ ] On explicit validation request, validate the Cody Response Engine through
   `device.ps1 check -Check cody-response` and the existing `cody-poc` checks.
   Include all-axis gravity priming/inertia, duplicate timestamps, source errors

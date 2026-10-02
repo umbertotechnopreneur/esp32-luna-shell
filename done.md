@@ -1,5 +1,21 @@
 # Done
 
+## Cody measured diagnostics and shared input integration (2026-10-03)
+
+- [x] Add the white FPS/CPU1/CPU2 readout below the circular safe square,
+  using completed-frame timing and a read-only canonical processor projection.
+  Preserve unavailable/stale states instead of displaying numeric placeholders.
+- [x] Acquire measured idle runtime on each owning CPU with a matching clock.
+  The earlier flashed Cody capture retained valid CPU measurements through
+  the capture window; port the focused correction to Luna separately.
+- [x] Restore Luna's original CST9217 transport and connect its binary IRQ
+  flow to standalone strip rendering. Preserve report order until the frame
+  boundary, real failures and rotation/input ownership. Port shared changes
+  to Luna without incorporating the parallel review's source edits.
+- [x] Compile the current Cody candidate, including the temporary debug awake
+  policy. This records implementation/compilation only: its flash and physical
+  touch/animation/rotation checks remain open in `TODO.md`.
+
 ## Cody Response Engine implementation (2026-10-02)
 
 - [x] Add typed external-stimulus inputs, a coherent read-only view of the single
