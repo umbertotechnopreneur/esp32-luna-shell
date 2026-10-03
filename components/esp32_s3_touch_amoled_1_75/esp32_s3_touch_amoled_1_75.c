@@ -17,6 +17,7 @@
 #include "esp_heap_caps.h"
 #include "esp_memory_utils.h"
 #include "esp_timer.h"
+#include "esp_system.h"
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #include "esp_vfs_fat.h"
 #include "diskio_impl.h"
@@ -61,6 +62,7 @@ static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
 static bsp_touch_activity_callback_t touch_activity_callback = NULL;
 static void *touch_activity_user_data = NULL;
+static uint32_t touch_interrupt_sequence;
 static uint8_t *display_frame_cache = NULL;
 static bool display_frame_cache_rows[BSP_LCD_V_RES];
 static size_t display_frame_cache_full_row_count = 0;
@@ -88,6 +90,26 @@ sdmmc_card_t *bsp_sdcard = NULL; // Global uSD card handler
 #endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// touch_handle: Adapter-owned hardware controller; this observer never reads it.
+// user_context: Unused observer context; no allocation or task work runs in the ISR.
+static void IRAM_ATTR bsp_touch_wake_interrupt(
+    esp_lcd_touch_handle_t touch_handle,
+    void *user_context
+)
+{
+    (void)touch_handle;
+    (void)user_context;
+    // The GPIO ISR remains live while LVGL is paused. This is wake intent,
+    // not a measured contact; only the normal input owner may publish a touch.
+    __atomic_add_fetch(&touch_interrupt_sequence, 1U, __ATOMIC_RELEASE);
+}
+
+// No parameters: expose raw IRQ generation without consuming the input owner's report.
+uint32_t bsp_touch_interrupt_sequence(void)
+{
+    return __atomic_load_n(&touch_interrupt_sequence, __ATOMIC_ACQUIRE);
+}
+
 // event: Existing LVGL input event used to publish physical activity intent.
 static void bsp_touch_activity_event_cb(lv_event_t *event)
 {
@@ -227,6 +249,8 @@ static const audio_codec_if_t *microphone_codec_interface;
 #endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+// Set the command's brightness before init to avoid exposing old panel RAM on wake.
+static uint8_t initial_panel_brightness = 0xFF;
 static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0xFE, (uint8_t[]){0x20}, 1, 0},
     {0x19, (uint8_t[]){0x10}, 1, 0},
@@ -237,7 +261,7 @@ static const co5300_lcd_init_cmd_t lcd_init_cmds[] = {
     {0x3A, (uint8_t[]){0x55}, 1, 0},
     {0x35, (uint8_t[]){0x00}, 1, 0},
     {0x53, (uint8_t[]){0x20}, 1, 0},
-    {0x51, (uint8_t[]){0xFF}, 1, 0},
+    {0x51, &initial_panel_brightness, 1, 0},
     {0x63, (uint8_t[]){0xFF}, 1, 0},
     {0x2A, (uint8_t[]){0x00, 0x06, 0x01, 0xD7}, 4, 0},
     {0x2B, (uint8_t[]){0x00, 0x00, 0x01, 0xD1}, 4, 600},
@@ -1726,9 +1750,10 @@ esp_err_t bsp_audio_codec_deinit(void)
 #define LVGL_TICK_PERIOD_MS (CONFIG_BSP_DISPLAY_LVGL_TICK)
 #define LVGL_MAX_SLEEP_MS (CONFIG_BSP_DISPLAY_LVGL_MAX_SLEEP)
 
+// No parameters: keep Deep-sleep wake dark until the first real frame is rendered.
 esp_err_t bsp_display_brightness_init(void)
 {
-    return bsp_display_brightness_set(100);
+    return bsp_display_brightness_set(esp_reset_reason() == ESP_RST_DEEPSLEEP ? 0 : 100);
 }
 
 // brightness_percent: Controller brightness requested as a whole percentage.
@@ -2365,6 +2390,7 @@ esp_err_t bsp_display_new(const bsp_display_config_t *config, esp_lcd_panel_hand
         TAG,
         "LCD reset failed"
     );
+    initial_panel_brightness = esp_reset_reason() == ESP_RST_DEEPSLEEP ? 0 : 0xFF;
     ESP_GOTO_ON_ERROR(
         esp_lcd_panel_init(panel_handle),
         fail,
@@ -2746,6 +2772,8 @@ static esp_err_t bsp_display_lcd_init(
     return ESP_OK;
 }
 
+// cfg: Selected display adapter and touch coordinate mapping.
+// disp: Initialized display to which the single input owner is registered.
 static esp_err_t bsp_display_indev_init(
     const bsp_display_cfg_t *cfg,
     lv_display_t *disp
@@ -2760,7 +2788,10 @@ static esp_err_t bsp_display_indev_init(
         "Touch hardware initialization failed"
     );
 
-    const esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, tp);
+    esp_lv_adapter_touch_config_t touch_cfg = ESP_LV_ADAPTER_TOUCH_DEFAULT_CONFIG(disp, tp);
+    // Keep the adapter as the only report reader. Its ISR observer can wake
+    // the power owner even while the renderer and LVGL input loop are parked.
+    touch_cfg.callbacks.on_interrupt = bsp_touch_wake_interrupt;
 
     disp_indev = esp_lv_adapter_register_touch(&touch_cfg);
     if (disp_indev == NULL) {

@@ -607,6 +607,17 @@ void DeviceSnapshotService::reportDisplayPowerMode(
     );
 }
 
+// pairing: Original controller result, including failure and confirmed cleanup.
+void DeviceSnapshotService::reportPairingSession(const PairingSessionSnapshot &pairing)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.pairing = pairing;
+        }
+    );
+    log_snapshot_publication_failure("Pairing session report", publication_error);
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)
@@ -743,6 +754,17 @@ void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
         }
     );
     log_snapshot_publication_failure("Wi-Fi report", publication_error);
+}
+
+// provisioning: Original lifecycle state and timestamp, including observed failures.
+void DeviceSnapshotService::reportProvisioning(const ProvisioningSnapshot &provisioning)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.provisioning = provisioning;
+        }
+    );
+    log_snapshot_publication_failure("Provisioning report", publication_error);
 }
 
 // ready: Hardware readiness confirmed by a successful operation.
@@ -895,6 +917,7 @@ void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
 // status_arc_timeout_seconds: Configured status-arc inactivity threshold.
 // display_dim_timeout_seconds: Configured delay before display dimming.
 // screen_sleep_delay_seconds: Configured delay before display sleep.
+// screen_idle_timeout_seconds: Timeout from the last activity, independent of dimming.
 // transition_sequence: Monotonic power-transition identity.
 // last_activity_at_us: Real timestamp of the latest accepted user activity.
 // error: Original operation or publication failure.
@@ -910,6 +933,7 @@ void DeviceSnapshotService::reportPowerManagement(
     uint32_t status_arc_timeout_seconds,
     uint32_t display_dim_timeout_seconds,
     uint32_t screen_sleep_delay_seconds,
+    uint32_t screen_idle_timeout_seconds,
     uint32_t transition_sequence,
     int64_t last_activity_at_us,
     esp_err_t error
@@ -933,6 +957,8 @@ void DeviceSnapshotService::reportPowerManagement(
                 display_dim_timeout_seconds;
             snapshot.power.screen_sleep_delay_seconds =
                 screen_sleep_delay_seconds;
+            snapshot.power.screen_idle_timeout_seconds =
+                screen_idle_timeout_seconds;
             snapshot.power.transition_sequence = transition_sequence;
             snapshot.power.last_activity_at_us = last_activity_at_us;
             snapshot.power.changed_at_us = attempted_at_us;

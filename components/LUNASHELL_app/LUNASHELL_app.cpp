@@ -8779,6 +8779,7 @@ std::expected<void, std::string> App::set_settings_text(
     return {};
 }
 
+// context: Active Brookesia app context used to publish live Settings bindings.
 std::expected<void, std::string> App::refresh_settings(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -9308,7 +9309,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
             AdaptiveChromeTiming::DisplayDim
         )),
         static_cast<int32_t>(adaptive_chrome_.selected_index(
-            AdaptiveChromeTiming::ScreenSleep
+            AdaptiveChromeTiming::ScreenIdle
         )),
         resolved_index(
             component_ready(snapshot.diagnostics.full_snapshot_period),
@@ -9374,7 +9375,7 @@ std::expected<void, std::string> App::refresh_settings(AppContext &context)
         next_controls.selected_indexes[2]
     );
     add_selected_index(
-        "/LUNASHELL_settings/surface/settings_scroller/screen_sleep_delay",
+        "/LUNASHELL_settings/surface/settings_scroller/screen_idle_timeout",
         next_controls.selected_indexes[3]
     );
     add_selected_index(

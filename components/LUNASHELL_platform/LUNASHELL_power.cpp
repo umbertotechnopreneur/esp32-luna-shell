@@ -7,7 +7,9 @@
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_settings.hpp"
+#include "LUNASHELL_sleep.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -32,18 +34,17 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_power_manager";
 constexpr gpio_num_t kBootButton = GPIO_NUM_0;
 constexpr TickType_t kPollTicks = pdMS_TO_TICKS(20);
-// In standby, PWR events and the retained low-rate IMU monitor only need
-// human-scale responsiveness. A one-second cadence avoids waking the CPU and
-// shared I2C bus ten times per second while retaining both wake paths.
-constexpr TickType_t kStandbyPollTicks = pdMS_TO_TICKS(1000);
+// Debug keeps motion observable at 10 Hz. Release enters Deep-sleep after
+// successful standby; incomplete standby retains a slower software cadence.
+constexpr TickType_t kStandbyPollTicks = pdMS_TO_TICKS(
+    LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled ? 100 : 1000);
 constexpr TickType_t kPolicyTicks = pdMS_TO_TICKS(100);
 constexpr TickType_t kUiQuiescenceTimeoutTicks = pdMS_TO_TICKS(1500);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
 constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
 constexpr uint32_t kTaskStackBytes = 8192;
-constexpr uint32_t kDisplayFadeDurationMs = 360;
-constexpr int64_t kLegScreenOnUs = 25LL * 1000LL * 1000LL;
+constexpr uint32_t kDisplayFadeDurationMs = LUNASHELL::power_policy::kDisplayFadeDurationMs;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 constexpr int64_t kLegAlertRepeatUs = 3000000LL;
 constexpr uint32_t kLegAudioSampleRate = 16000;
@@ -51,9 +52,9 @@ constexpr size_t kLegAudioCapacity = 12480;
 constexpr float kLegCuePcmAmplitude = 12000.0F;
 constexpr int kLegCueVolumePercent = 95;
 #endif
-constexpr float kMotionAccelerationEnterMps2 = 0.80F;
+constexpr float kMotionAccelerationEnterMps2 =
+    LUNASHELL::power_policy::kMotionWakeThresholdMg * 0.00980665F;
 constexpr float kMotionAccelerationQuietMps2 = 0.40F;
-constexpr float kMotionAngularVelocityEnterDps = 4.0F;
 constexpr float kMotionAngularVelocityQuietDps = 2.0F;
 constexpr uint32_t kMotionEnterSampleCount = 3;
 constexpr uint32_t kMotionQuietSampleCount = 3;
@@ -101,6 +102,9 @@ std::atomic<uint32_t> s_dim_timeout_seconds{
 };
 std::atomic<uint32_t> s_screen_sleep_delay_seconds{
     LUNASHELL::power_policy::kDefaultScreenSleepDelaySeconds
+};
+std::atomic<uint32_t> s_screen_idle_timeout_seconds{
+    LUNASHELL::power_policy::kDefaultScreenIdleTimeoutSeconds
 };
 
 LUNASHELL::DeviceOperatingState s_state =
@@ -323,6 +327,7 @@ void log_retained_standby_trace()
     );
 }
 
+// timeout: Typed timeout identity, independent of UI option ordering.
 std::atomic<uint32_t> *timeout_storage(LUNASHELL_power_timeout_t timeout)
 {
     switch (timeout) {
@@ -334,10 +339,13 @@ std::atomic<uint32_t> *timeout_storage(LUNASHELL_power_timeout_t timeout)
         return &s_dim_timeout_seconds;
     case LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP:
         return &s_screen_sleep_delay_seconds;
+    case LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE:
+        return &s_screen_idle_timeout_seconds;
     }
     return nullptr;
 }
 
+// timeout: Setting loaded strictly; only an absent key receives a persisted default.
 esp_err_t load_timeout(LUNASHELL_power_timeout_t timeout)
 {
     auto &settings = LUNASHELL::UserSettingsService::instance();
@@ -350,8 +358,9 @@ esp_err_t load_timeout(LUNASHELL_power_timeout_t timeout)
         seconds = LUNASHELL::power_policy::default_timeout_seconds(timeout);
         ESP_LOGI(
             kTag,
-            "%s timeout absent; persisting explicit default %lu s",
+            "%s timeout key '%s' absent; persisting first-boot default %lu s",
             LUNASHELL::power_policy::display_name(timeout),
+            LUNASHELL::power_policy::settings_key(timeout),
             static_cast<unsigned long>(seconds)
         );
         error = settings.setUInt32(
@@ -360,6 +369,8 @@ esp_err_t load_timeout(LUNASHELL_power_timeout_t timeout)
         );
     }
     if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Timeout key '%s' read/persist failed (%s)",
+                 LUNASHELL::power_policy::settings_key(timeout), esp_err_to_name(error));
         return error;
     }
     if (!LUNASHELL::power_policy::timeout_supported(timeout, seconds)) {
@@ -407,6 +418,7 @@ void publish_inputs()
     LUNASHELL::DeviceSnapshotService::instance().reportInputs(s_inputs);
 }
 
+// error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
 {
     LUNASHELL::DeviceSnapshotService::instance().reportPowerManagement(
@@ -421,6 +433,7 @@ void publish_power(esp_err_t error)
         s_status_timeout_seconds.load(std::memory_order_acquire),
         s_dim_timeout_seconds.load(std::memory_order_acquire),
         s_screen_sleep_delay_seconds.load(std::memory_order_acquire),
+        s_screen_idle_timeout_seconds.load(std::memory_order_acquire),
         s_transition_sequence,
         s_last_activity_at_us,
         error
@@ -641,15 +654,17 @@ esp_err_t set_standalone_wireless_standby(bool standby)
 }
 #endif
 
-// Motion wake remains available in standby, but its host sampling cadence is
-// reduced from 10 Hz to 1 Hz. If motion wake is unavailable, PWR wake remains
-// a valid standalone policy and no transition is required.
+// Release reduces sampling during the transaction, then arms hardware WoM.
+// Debug keeps the host monitor available for software wake and diagnostics.
+// standby: Transactional standby request; Debug retains its normal 10-Hz observation.
 esp_err_t set_motion_wake_standby(bool standby)
 {
     if (!s_motion_monitor_started) {
         return ESP_OK;
     }
-    return LUNASHELL_hardware_set_ui_motion_monitor_standby(standby);
+    const bool reduce_sampling = standby &&
+        !LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
+    return LUNASHELL_hardware_set_ui_motion_monitor_standby(reduce_sampling);
 }
 
 // Wireless services are deliberately one-way for the PWR standby policy:
@@ -1058,18 +1073,36 @@ esp_err_t resume_standby_resources(
     step("Standalone wireless services", s_standby_resources.wireless,
          set_standalone_wireless_standby);
 #endif
+    // Restore the standalone frame while dark, then expose it. A previous sleep
+    // pose must never flash on screen before the consumer can prepare Wake.
+    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+    const bool wake_frame_requested = first_error == ESP_OK && display_lifecycle != nullptr;
+    if (wake_frame_requested) {
+        // A dark frame needs RAM writes enabled while luminance remains zero.
+        // This intermediate physical state must be reasserted during rollback.
+        s_standby_resources.display_consistent = false;
+        first_error = LUNASHELL_display_prepare_dark_frame();
+    }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (first_error == ESP_OK && display_lifecycle == nullptr) {
+        // Profiles without a lifecycle consumer retain the ordinary panel wake.
+        first_error = transition_display_resource(false);
+    }
     if (first_error == ESP_OK) {
+        // The worker can draw immediately after this gate opens, so the panel
+        // must already accept frames before releasing its parked renderer.
         step("Standalone rectangle writes", s_standby_resources.standalone_display,
              LUNASHELL_display_runtime_set_suspended);
     }
 #endif
-    // Restore the standalone frame while dark, then expose it. A previous sleep
-    // pose must never flash on screen before the consumer can prepare Wake.
-    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
-    if (first_error == ESP_OK && display_lifecycle != nullptr) {
-        first_error = display_lifecycle(false);
+    if (wake_frame_requested) {
+        if (first_error == ESP_OK) {
+            first_error = display_lifecycle(false);
+        }
         if (first_error != ESP_OK) {
+            LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+                LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+                first_error);
             ESP_LOGE(kTag, "Display Wake preparation failed (%s)", esp_err_to_name(first_error));
         }
     }
@@ -1370,12 +1403,28 @@ esp_err_t handle_boot_short_press()
 
 // callback: Registered single display consumer, or nullptr for a profile without one.
 // original_error: Real rejected Sleep operation, preserved even if recovery also fails.
+// recovery_error: Receives the actual dark-frame, Wake-frame, or fade recovery result.
 esp_err_t recover_display_after_rejected_sleep(
-    LUNASHELL_display_lifecycle_callback_t callback, esp_err_t original_error)
+    LUNASHELL_display_lifecycle_callback_t callback,
+    esp_err_t original_error,
+    esp_err_t &recovery_error)
 {
+    recovery_error = ESP_OK;
     if (callback != nullptr) {
-        const esp_err_t recovery_error = callback(false);
+        recovery_error = LUNASHELL_display_prepare_dark_frame();
+        if (recovery_error == ESP_OK) {
+            recovery_error = callback(false);
+        }
+        if (recovery_error == ESP_OK) {
+            // The original operation can fail before the panel was faded out.
+            // Recovery still prepares Wake while dark, then restores visible Active.
+            recovery_error = LUNASHELL_display_fade_to_power_mode(
+                LUNASHELL_DISPLAY_POWER_ACTIVE, kDisplayFadeDurationMs);
+        }
         if (recovery_error != ESP_OK) {
+            LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+                LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+                recovery_error);
             ESP_LOGE(kTag, "Display recovery after rejected Sleep failed (original=%s recovery=%s)",
                 esp_err_to_name(original_error), esp_err_to_name(recovery_error));
         }
@@ -1384,8 +1433,12 @@ esp_err_t recover_display_after_rejected_sleep(
 }
 
 // transition_sequence: Exact standby generation whose GUI producers must quiesce.
-esp_err_t wait_for_ui_quiescence(uint32_t transition_sequence)
+// display_recovery_error: Real recovery result if the standalone Sleep callback rejects.
+esp_err_t wait_for_ui_quiescence(
+    uint32_t transition_sequence,
+    esp_err_t &display_recovery_error)
 {
+    display_recovery_error = ESP_OK;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     const TickType_t started_at = xTaskGetTickCount();
     while (s_ui_quiescence_acknowledged_sequence.load(
@@ -1435,15 +1488,17 @@ esp_err_t wait_for_ui_quiescence(uint32_t transition_sequence)
         const esp_err_t error = display_lifecycle(true);
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Display Sleep preparation failed (%s)", esp_err_to_name(error));
-            return recover_display_after_rejected_sleep(display_lifecycle, error);
+            return recover_display_after_rejected_sleep(
+                display_lifecycle, error, display_recovery_error);
         }
     }
 #endif
     return ESP_OK;
 }
 
-// standby: Enter or leave the complete device standby transaction.
-// reason: Canonical source of the requested operating-state change.
+// Coordinate UI quiescence and every hardware resource as one transaction.
+// standby: Target standby or active state for all mandatory resources.
+// reason: Real user/activity event that caused this transition.
 esp_err_t set_standby(
     bool standby,
     LUNASHELL::DeviceStateReason reason
@@ -1465,6 +1520,10 @@ esp_err_t set_standby(
     }
 
     if (standby) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+        const uint32_t activity_before_standby =
+            s_activity_sequence.load(std::memory_order_acquire);
+#endif
         s_deferred_standby_trace_report_at_us = 0;
         s_deferred_standby_trace_reports_remaining = 0;
         s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;
@@ -1488,14 +1547,27 @@ esp_err_t set_standby(
 #endif
         publish_power(ESP_OK);
 
+        esp_err_t display_recovery_error = ESP_OK;
         const esp_err_t ui_quiescence_error =
-            wait_for_ui_quiescence(s_transition_sequence);
+            wait_for_ui_quiescence(s_transition_sequence, display_recovery_error);
         if (ui_quiescence_error != ESP_OK) {
             record_standby_trace(
                 StandbyTracePhase::EntryFailed,
                 ui_quiescence_error
             );
-            s_state = LUNASHELL::DeviceOperatingState::Active;
+            if (display_recovery_error == ESP_OK) {
+                s_state = LUNASHELL::DeviceOperatingState::Active;
+                if (s_display_lifecycle_callback.load(std::memory_order_acquire) != nullptr) {
+                    s_display_stage = LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
+                }
+            } else {
+                // The original Sleep error is preserved, but no successful
+                // Active state may hide an incomplete Wake frame or dark panel.
+                s_state = LUNASHELL::DeviceOperatingState::Waking;
+                s_standby_resources.display_consistent = false;
+                ESP_LOGE(kTag, "Standby rejected with display recovery incomplete (%s)",
+                         esp_err_to_name(display_recovery_error));
+            }
             publish_power(ui_quiescence_error);
             ESP_LOGE(
                 kTag,
@@ -1585,6 +1657,28 @@ esp_err_t set_standby(
             device_state_reason_name(reason),
             static_cast<unsigned long>(s_transition_sequence)
         );
+        if constexpr (LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+            const bool activity_during_suspend =
+                activity_before_standby != s_activity_sequence.load(std::memory_order_acquire);
+            const esp_err_t sleep_error = activity_during_suspend
+                ? ESP_ERR_SLEEP_REJECT : LUNASHELL_power_enter_deep_sleep(0);
+            // Successful Deep-sleep restarts firmware and never returns here.
+            // A rejected wake level or failed arm restores the full active transaction.
+            if (!LUNASHELL::sleep::recovery_complete()) {
+                s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;
+                publish_power(sleep_error);
+                ESP_LOGE(kTag, "Deep-sleep recovery incomplete; active operation remains blocked");
+                return sleep_error;
+            }
+            const esp_err_t rollback_error = set_standby(false, reason);
+            if (rollback_error != ESP_OK) {
+                ESP_LOGE(kTag, "Deep-sleep active rollback failed (%s)", esp_err_to_name(rollback_error));
+            }
+            publish_power(sleep_error);
+            return sleep_error;
+#endif
+        }
         return ESP_OK;
     }
 
@@ -1693,10 +1787,12 @@ esp_err_t set_standby(
 #endif
     publish_power(optional_storage_error);
     record_standby_trace(StandbyTracePhase::Awake, optional_storage_error);
-    s_deferred_standby_trace_report_at_us =
-        esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
-    s_deferred_standby_trace_reports_remaining =
-        kDeferredStandbyTraceReportCount;
+    if constexpr (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        s_deferred_standby_trace_report_at_us =
+            esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
+        s_deferred_standby_trace_reports_remaining =
+            kDeferredStandbyTraceReportCount;
+    }
     ESP_LOGI(
         kTag,
         "Device awake: reason=%s sequence=%lu storage=%s",
@@ -1709,6 +1805,7 @@ esp_err_t set_standby(
     return optional_storage_error;
 }
 
+// imu: Original valid, fresh measured sample from the canonical snapshot owner.
 bool qualified_motion_detected(const LUNASHELL::ImuSnapshot &imu)
 {
     const bool valid =
@@ -1794,10 +1891,7 @@ bool qualified_motion_detected(const LUNASHELL::ImuSnapshot &imu)
     const bool above_enter =
         acceleration_delta_squared >=
             kMotionAccelerationEnterMps2 *
-                kMotionAccelerationEnterMps2 ||
-        angular_velocity_squared >=
-            kMotionAngularVelocityEnterDps *
-                kMotionAngularVelocityEnterDps;
+                kMotionAccelerationEnterMps2;
 
     if (!s_motion_armed) {
         s_motion_enter_sample_count = 0;
@@ -2088,6 +2182,7 @@ esp_err_t handle_power_key_events(
     );
 }
 
+// No parameters: apply inactivity from the last real touch or qualified movement.
 esp_err_t apply_idle_policy()
 {
     if (s_state != LUNASHELL::DeviceOperatingState::Active) {
@@ -2099,31 +2194,6 @@ esp_err_t apply_idle_policy()
         return seconds > 0U &&
                elapsed_us >= static_cast<int64_t>(seconds) * 1000000LL;
     };
-
-    if (s_leg_mode_enabled.load(std::memory_order_acquire)) {
-        const auto target = elapsed_us >= kLegScreenOnUs
-            ? LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
-            : LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
-        if (target != s_display_stage) {
-            const esp_err_t display_error =
-                LUNASHELL_display_fade_to_power_mode(
-                    target == LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
-                        ? LUNASHELL_DISPLAY_POWER_OFF
-                        : LUNASHELL_DISPLAY_POWER_ACTIVE,
-                    kDisplayFadeDurationMs
-                );
-            if (display_error != ESP_OK) {
-                ESP_LOGE(kTag, "Leg display fade failed (%s)",
-                         esp_err_to_name(display_error));
-                publish_power(display_error);
-                return display_error;
-            }
-            s_display_stage = target;
-            ++s_transition_sequence;
-            publish_power(ESP_OK);
-        }
-        return ESP_OK;
-    }
 
     const bool command_visible =
         !s_fullscreen_active &&
@@ -2139,15 +2209,9 @@ esp_err_t apply_idle_policy()
         LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
     const uint32_t dim_seconds =
         s_dim_timeout_seconds.load(std::memory_order_acquire);
-    const uint32_t screen_sleep_delay =
-        s_screen_sleep_delay_seconds.load(std::memory_order_acquire);
-    const bool standby_due =
-        expired(dim_seconds) &&
-        screen_sleep_delay > 0U &&
-        elapsed_us >=
-            (static_cast<int64_t>(dim_seconds) +
-             static_cast<int64_t>(screen_sleep_delay)) *
-                1000000LL;
+    const uint32_t screen_idle_seconds =
+        s_screen_idle_timeout_seconds.load(std::memory_order_acquire);
+    const bool standby_due = expired(screen_idle_seconds);
     if (standby_due) {
         const int64_t standby_requested_at_us = esp_timer_get_time();
         // A timeout commonly expires while the device is still moving. Reset
@@ -2156,10 +2220,10 @@ esp_err_t apply_idle_policy()
         begin_motion_grace(standby_requested_at_us);
         ESP_LOGI(
             kTag,
-            "Inactivity timeout reached: entering Device Standby after "
-            "dim=%lu s + sleep=%lu s",
-            static_cast<unsigned long>(dim_seconds),
-            static_cast<unsigned long>(screen_sleep_delay)
+            "Inactivity timeout reached after %lu s; mode=%s fade=%lu ms",
+            static_cast<unsigned long>(screen_idle_seconds),
+            LUNASHELL::build_mode::kName,
+            static_cast<unsigned long>(kDisplayFadeDurationMs)
         );
         return set_standby(
             true,
@@ -2220,9 +2284,13 @@ esp_err_t apply_idle_policy()
     return ESP_OK;
 }
 
+// argument: Unused task context; this worker owns the published power timeline.
 void power_task(void *argument)
 {
     (void)argument;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+    uint32_t consumed_touch_interrupt_sequence = bsp_touch_interrupt_sequence();
+#endif
     TickType_t last_policy_tick = xTaskGetTickCount();
     publish_inputs();
     publish_power(ESP_OK);
@@ -2389,15 +2457,36 @@ void power_task(void *argument)
             }
         }
 
+        bool physical_touch_interrupt = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
+        const uint32_t touch_interrupt_sequence = bsp_touch_interrupt_sequence();
+        physical_touch_interrupt = touch_interrupt_sequence != consumed_touch_interrupt_sequence;
+        consumed_touch_interrupt_sequence = touch_interrupt_sequence;
+        if (physical_touch_interrupt && s_state == LUNASHELL::DeviceOperatingState::Standby) {
+            // LVGL is parked, but its IRQ observer remains alive. This is wake intent,
+            // not a measured touch contact; acquisition publishes the actual sample.
+            const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::Touch);
+            if (wake_error != ESP_OK) {
+                ESP_LOGE(kTag, "Touch IRQ wake failed (%s)", esp_err_to_name(wake_error));
+            }
+        }
+#endif
         const uint32_t activity_sequence =
             s_activity_sequence.load(std::memory_order_acquire);
         if (activity_sequence != s_consumed_activity_sequence) {
             s_consumed_activity_sequence = activity_sequence;
+            const LUNASHELL::DeviceStateReason activity_reason =
+                s_activity_reason.load(std::memory_order_relaxed);
+            if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
+                const esp_err_t wake_error = set_standby(false, activity_reason);
+                if (wake_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Input activity wake failed (%s)", esp_err_to_name(wake_error));
+                }
+            }
             if (s_state == LUNASHELL::DeviceOperatingState::Active) {
-                s_last_activity_at_us =
-                    s_activity_at_us.load(std::memory_order_relaxed);
-                const LUNASHELL::DeviceStateReason activity_reason =
-                    s_activity_reason.load(std::memory_order_relaxed);
+                // A pending pre-suspend event must not backdate a completed wake.
+                s_last_activity_at_us = std::max(
+                    s_last_activity_at_us, s_activity_at_us.load(std::memory_order_relaxed));
                 const bool display_snapshot_diverged =
                     active_display_snapshot_diverged();
                 if ((!s_fullscreen_active &&
@@ -2423,7 +2512,9 @@ void power_task(void *argument)
                 }
             }
         }
-        const esp_err_t idle_error = apply_idle_policy();
+        // Let the ordinary acquisition path consume a new IRQ before parking it.
+        // A raw IRQ never becomes a fabricated touch sample or activity timestamp.
+        const esp_err_t idle_error = physical_touch_interrupt ? ESP_OK : apply_idle_policy();
         if (idle_error != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -2431,7 +2522,8 @@ void power_task(void *argument)
                 esp_err_to_name(idle_error)
             );
         }
-        if (s_deferred_standby_trace_report_at_us > 0 &&
+        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled &&
+            s_deferred_standby_trace_report_at_us > 0 &&
             s_state == LUNASHELL::DeviceOperatingState::Active &&
             esp_timer_get_time() >= s_deferred_standby_trace_report_at_us) {
             s_deferred_standby_trace_report_at_us = 0;
@@ -2546,6 +2638,9 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     if (result == ESP_OK) {
         result = load_timeout(LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP);
     }
+    if (result == ESP_OK) {
+        result = load_timeout(LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE);
+    }
     if (result != ESP_OK) {
         s_initialized.store(false, std::memory_order_release);
         ESP_LOGE(
@@ -2593,14 +2688,10 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     }
 
 #if CONFIG_PM_ENABLE
-    // This hardware PoC needs native USB available even after a rendering/input
-    // failure. Automatic light sleep disconnects USB Serial/JTAG on the S3.
-    // Keep frequency scaling; measured sleep/battery policy comes after the PoC.
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    constexpr bool automatic_light_sleep = false;
-#else
-    constexpr bool automatic_light_sleep = true;
-#endif
+    // Debug keeps USB reachable even after a consumer failure. Release may
+    // sleep between functional wake checks; the unsafe USB SOF hook stays off.
+    constexpr bool automatic_light_sleep =
+        LUNASHELL::build_mode::kAutomaticLightSleepEnabled;
     const esp_pm_config_t power_policy = {
         .max_freq_mhz = kMaximumCpuFrequencyMhz,
         .min_freq_mhz = kMinimumCpuFrequencyMhz,
@@ -2627,7 +2718,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
         "ESP power policy active: CPU=%d..%d MHz automatic-light-sleep=%s",
         kMinimumCpuFrequencyMhz,
         kMaximumCpuFrequencyMhz,
-        automatic_light_sleep ? "yes" : "no (Cody hardware PoC)"
+        automatic_light_sleep ? "yes (Release)" : "no (Debug)"
     );
 #if CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION
     ESP_LOGI(
@@ -2728,7 +2819,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     ESP_LOGI(
         kTag,
         "Power service ready: BOOT=GPIO0 PWR=AXP2101-PKEY motion-wake=%s, "
-        "timers=%lu/%lu/%lu/+%lu s",
+        "timers=%lu/%lu/%lu/+%lu s, screen-idle=%lu s",
         s_motion_monitor_started ? "ready" : "unavailable",
         static_cast<unsigned long>(
             s_command_timeout_seconds.load(std::memory_order_acquire)
@@ -2741,6 +2832,9 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
         ),
         static_cast<unsigned long>(
             s_screen_sleep_delay_seconds.load(std::memory_order_acquire)
+        ),
+        static_cast<unsigned long>(
+            s_screen_idle_timeout_seconds.load(std::memory_order_acquire)
         )
     );
     return ESP_OK;
@@ -2759,6 +2853,8 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
     s_activity_sequence.fetch_add(1, std::memory_order_release);
 }
 
+// active: Whether the Leg Edition view owns motion/audio interaction.
+// wake_on_motion: Whether measured leg activity should refresh/wake its display.
 extern "C" esp_err_t LUNASHELL_power_manager_set_leg_mode(
     bool active,
     bool wake_on_motion
@@ -2787,8 +2883,9 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_leg_mode(
     s_leg_wake_enabled.store(wake_on_motion, std::memory_order_release);
     s_leg_mode_enabled.store(active, std::memory_order_release);
     LUNASHELL_power_manager_note_activity();
-    ESP_LOGI(kTag, "Leg display policy: active=%s wake=%s timeout=25 s",
-             active ? "yes" : "no", wake_on_motion ? "yes" : "no");
+    ESP_LOGI(kTag, "Leg display policy: active=%s wake=%s screen-idle=%lu s",
+             active ? "yes" : "no", wake_on_motion ? "yes" : "no",
+             static_cast<unsigned long>(s_screen_idle_timeout_seconds.load(std::memory_order_acquire)));
     return ESP_OK;
 }
 
@@ -2849,12 +2946,16 @@ extern "C" void LUNASHELL_power_manager_note_ui_standby_result(
     }
 }
 
+// timeout: Typed inactivity setting to update without rebuilding firmware.
+// seconds: Supported value in seconds; zero explicitly disables this timeout.
 extern "C" esp_err_t LUNASHELL_power_manager_set_timeout(
     LUNASHELL_power_timeout_t timeout,
     uint32_t seconds
 )
 {
     if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Timeout write rejected: power manager is not initialized (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     std::atomic<uint32_t> *storage = timeout_storage(timeout);
@@ -2874,6 +2975,8 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_timeout(
             seconds
         );
     if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Timeout key '%s' persistence failed (%s)",
+                 LUNASHELL::power_policy::settings_key(timeout), esp_err_to_name(error));
         return error;
     }
     storage->store(seconds, std::memory_order_release);
@@ -2887,19 +2990,27 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_timeout(
     return ESP_OK;
 }
 
+// timeout: Typed inactivity setting to read.
+// seconds: Required output for the live value.
 extern "C" esp_err_t LUNASHELL_power_manager_get_timeout(
     LUNASHELL_power_timeout_t timeout,
     uint32_t *seconds
 )
 {
     if (seconds == nullptr) {
+        ESP_LOGE(kTag, "Timeout read rejected: output is null (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Timeout read rejected: power manager is not initialized (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     std::atomic<uint32_t> *storage = timeout_storage(timeout);
     if (storage == nullptr) {
+        ESP_LOGE(kTag, "Timeout read rejected: unknown identity %d (%s)",
+                 static_cast<int>(timeout), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     *seconds = storage->load(std::memory_order_acquire);
@@ -2913,12 +3024,14 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
     if (result != ESP_OK) {
         return result;
     }
+    esp_err_t display_recovery_error = ESP_OK;
     const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
     if (display_lifecycle != nullptr) {
         result = display_lifecycle(true);
         if (result != ESP_OK) {
             ESP_LOGE(kTag, "Explicit Light-sleep display preparation failed (%s)", esp_err_to_name(result));
-            return recover_display_after_rejected_sleep(display_lifecycle, result);
+            return recover_display_after_rejected_sleep(
+                display_lifecycle, result, display_recovery_error);
         }
     }
     result = allow_disabled_display(
@@ -2929,7 +3042,8 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
         )
     );
     if (result != ESP_OK) {
-        return recover_display_after_rejected_sleep(display_lifecycle, result);
+        return recover_display_after_rejected_sleep(
+            display_lifecycle, result, display_recovery_error);
     }
     const esp_err_t sleep_result = esp_light_sleep_start();
     s_pending_wakeup_cause.store(
@@ -2939,8 +3053,14 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
     s_boot_rearm_requested.store(true, std::memory_order_release);
     esp_err_t wake_frame_error = ESP_OK;
     if (display_lifecycle != nullptr) {
-        wake_frame_error = display_lifecycle(false);
+        wake_frame_error = LUNASHELL_display_prepare_dark_frame();
+        if (wake_frame_error == ESP_OK) {
+            wake_frame_error = display_lifecycle(false);
+        }
         if (wake_frame_error != ESP_OK) {
+            LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+                LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+                wake_frame_error);
             ESP_LOGE(kTag, "Explicit Light-sleep Wake frame failed (%s)", esp_err_to_name(wake_frame_error));
         }
     }
@@ -2961,31 +3081,18 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
     return resume_error;
 }
 
-// wake_after_us: Optional timer deadline in microseconds; zero uses the configured GPIO wake.
+// wake_after_us: Optional timer in addition to touch/motion; zero adds no periodic wake.
 extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
 {
-    esp_err_t result = configure_wakeup(wake_after_us);
-    if (result != ESP_OK) {
-        return result;
+    if (!LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled ||
+        s_state != LUNASHELL::DeviceOperatingState::Standby ||
+        xTaskGetCurrentTaskHandle() != s_task ||
+        !standby_resources_match_target(true, false)) {
+        ESP_LOGE(kTag, "Deep-sleep rejected: requires Release and confirmed standby on the power owner (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
     }
-    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
-    if (display_lifecycle != nullptr) {
-        result = display_lifecycle(true);
-        if (result != ESP_OK) {
-            ESP_LOGE(kTag, "Explicit Deep-sleep display preparation failed (%s)", esp_err_to_name(result));
-            return recover_display_after_rejected_sleep(display_lifecycle, result);
-        }
-    }
-    result = allow_disabled_display(
-        "deep-sleep-off",
-        LUNASHELL_display_fade_to_power_mode(
-            LUNASHELL_DISPLAY_POWER_OFF,
-            kDisplayFadeDurationMs
-        )
-    );
-    if (result != ESP_OK) {
-        return recover_display_after_rejected_sleep(display_lifecycle, result);
-    }
-    esp_deep_sleep_start();
-    return ESP_OK;
+    // The standby transaction already retired the Sleep frame and faded out.
+    // A second presentation here would target a renderer that is now suspended.
+    return LUNASHELL::sleep::try_deep_sleep(wake_after_us);
 }

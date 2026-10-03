@@ -30,9 +30,14 @@ def variant_key(profile: str = "full", feature: str = "none") -> str:
     return profile if feature == "none" else f"{profile}-{feature}"
 
 
+# profile: Hardware/product profile declared in the versioned catalog.
+# feature: Optional feature identity for that profile.
+# build_mode: Debug by default; Release must be selected by the caller.
+# Raises ValueError, FileNotFoundError, OSError or UnicodeError for invalid inputs.
 def profile_defaults_paths(
     profile: str = "full",
     feature: str = "none",
+    build_mode: str = "Debug",
 ) -> tuple[Path, ...]:
     """Resolve the ordered defaults layers for one legal catalog variant."""
     catalog = load_catalog()
@@ -43,8 +48,26 @@ def profile_defaults_paths(
     if variant.get("profile") != profile or variant.get("feature") != feature:
         raise ValueError(f"firmware profile identity mismatch for variant: {key}")
 
+    modes = catalog.get("build_modes")
+    if catalog.get("default_build_mode") != "Debug" or not isinstance(modes, dict):
+        raise ValueError("firmware build-mode catalog must explicitly default to Debug")
+    if set(modes) != {"Debug", "Release"} or build_mode not in modes:
+        raise ValueError(f"unknown or ambiguous firmware build mode: {build_mode}")
+    profile_defaults = variant.get("defaults")
+    if not isinstance(profile_defaults, list) or not profile_defaults:
+        raise ValueError(f"firmware profile variant has no defaults: {key}")
+    mode = modes[build_mode]
+    if not isinstance(mode, dict):
+        raise ValueError(f"invalid firmware build-mode declaration: {build_mode}")
+    mode_defaults = mode.get("defaults")
+    if not isinstance(mode_defaults, list) or not mode_defaults:
+        raise ValueError(f"firmware build mode has no defaults: {build_mode}")
+
     resolved: list[Path] = []
-    for relative in variant.get("defaults", []):
+    # Mode policy is always the final layer, as in the public PowerShell wrapper.
+    for relative in [*profile_defaults, *mode_defaults]:
+        if not isinstance(relative, str) or not relative:
+            raise ValueError(f"invalid firmware defaults path for {key}/{build_mode}")
         path = (ROOT / relative).resolve()
         try:
             path.relative_to(ROOT)
@@ -60,12 +83,17 @@ def profile_defaults_paths(
     return tuple(resolved)
 
 
+# profile: Hardware/product profile declared in the versioned catalog.
+# feature: Optional feature identity for that profile.
+# build_mode: Explicit mode whose final defaults layer is included.
+# Raises ValueError, FileNotFoundError, OSError or UnicodeError for invalid inputs.
 def read_profile_defaults(
     profile: str = "full",
     feature: str = "none",
+    build_mode: str = "Debug",
 ) -> str:
     """Concatenate one profile exactly in the wrapper's declared order."""
     return "\n".join(
         path.read_text(encoding="utf-8").rstrip("\n")
-        for path in profile_defaults_paths(profile, feature)
+        for path in profile_defaults_paths(profile, feature, build_mode)
     ) + "\n"

@@ -697,7 +697,7 @@
                                     "type": "label",
                                     "id": "adaptive_chrome_description",
                                     "labelProps": {
-                                        "text": "Touch or motion wakes"
+                                        "text": "Touch or strong motion wakes"
                                     },
                                     "style": {
                                         "textColor": "#9fb1c1",
@@ -846,9 +846,9 @@
                                 },
                                 {
                                     "type": "label",
-                                    "id": "screen_sleep_delay_label",
+                                    "id": "screen_idle_timeout_label",
                                     "labelProps": {
-                                        "text": "Device Standby after display dim"
+                                        "text": "Screen inactivity timeout"
                                     },
                                     "style": {
                                         "textColor": "#f3f7fa",
@@ -862,7 +862,7 @@
                                 },
                                 {
                                     "type": "templateRef",
-                                    "id": "screen_sleep_delay",
+                                    "id": "screen_idle_timeout",
                                     "templateId": "LUNASHELL_settings_dropdown",
                                     "overrides": {
                                         ".": {
@@ -880,7 +880,7 @@
                                             "events": [
                                                 {
                                                     "type": "valueChanged",
-                                                    "action": "LUNASHELL.settings.screen_sleep.changed"
+                                                    "action": "LUNASHELL.settings.screen_idle.changed"
                                                 }
                                             ]
                                         }

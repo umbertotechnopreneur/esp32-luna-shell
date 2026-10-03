@@ -4,30 +4,10 @@
 #include <mutex>
 
 #include "esp_err.h"
+#include "LUNASHELL_provisioning_state.hpp"
 #include "network_provisioning/manager.h"
 
 namespace LUNASHELL {
-
-enum class ProvisioningState {
-    Idle,
-    Starting,
-    WaitingForApp,
-    CredentialsReceived,
-    Connecting,
-    Success,
-    Failed,
-    Stopping,
-    Deinitializing,
-    Stopped,
-    Poisoned,
-};
-
-enum class ProvisioningFailureReason {
-    None,
-    Authentication,
-    AccessPointNotFound,
-    Unknown,
-};
 
 /** BLE-only Espressif network provisioning facade for Wi-Fi credentials. */
 class ProvisioningService final {
@@ -47,6 +27,11 @@ public:
     ProvisioningFailureReason failureReason() const;
     const char *serviceName() const;
     const char *qrPayload() const;
+    const char *proofOfPossession() const;
+    // buffer: Caller-owned destination for the active session's secret QR.
+    // buffer_size: Destination capacity, including the final null byte.
+    // session_id: Expected snapshot session identity; stale callers are rejected.
+    esp_err_t copyQrPayload(char *buffer, size_t buffer_size, uint32_t session_id) const;
 
 private:
     ProvisioningService() = default;
@@ -56,6 +41,7 @@ private:
     static void onEvent(void *user_data, network_prov_cb_event_t event, void *event_data);
     void handleEvent(network_prov_cb_event_t event, void *event_data);
     esp_err_t rebuildIdentity();
+    void publishSnapshotLocked();
 
     enum class Operation {
         None,
@@ -71,10 +57,16 @@ private:
     bool _poisoned = false;
     Operation _operation = Operation::None;
     esp_err_t _last_error = ESP_OK;
+    esp_err_t _wifi_handoff_error = ESP_OK;
     ProvisioningState _state = ProvisioningState::Idle;
     ProvisioningFailureReason _failure_reason = ProvisioningFailureReason::None;
+    bool _credentials_succeeded = false;
+    uint32_t _session_id = 0;
+    uint32_t _event_sequence = 0;
+    int64_t _last_success_at_us = 0;
     char _service_name[24]{};
     char _qr_payload[192]{};
+    char _pop[17]{};
 };
 
 }  // namespace LUNASHELL

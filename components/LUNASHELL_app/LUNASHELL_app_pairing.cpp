@@ -126,14 +126,9 @@ std::expected<void, std::string> App::start_pairing_session(
     NavigationMode mode
 )
 {
-    esp_err_t result = LUNASHELL_wifi_init();
-    if (result == ESP_OK &&
-        !LUNASHELL_provisioning_initialized()) {
-        result = LUNASHELL_provisioning_init();
-    }
-    if (result == ESP_OK) {
-        result = LUNASHELL_provisioning_start();
-    }
+    const esp_err_t result = LUNASHELL_provisioning_initialized()
+        ? LUNASHELL_provisioning_start()
+        : LUNASHELL_radios_start_pairing();
     if (result != ESP_OK) {
         return show_pairing_result(
             context,
@@ -181,8 +176,8 @@ std::expected<void, std::string> App::show_pairing_result(
 )
 {
     // The result page no longer owns an active BLE provisioning session.
-    if (LUNASHELL_provisioning_active()) {
-        const esp_err_t stop_result = LUNASHELL_provisioning_stop();
+    if (LUNASHELL_provisioning_initialized()) {
+        const esp_err_t stop_result = LUNASHELL_radios_end_pairing(success);
         if (stop_result != ESP_OK) {
             return std::unexpected(
                 "Failed to stop BLE provisioning before showing its result: " +

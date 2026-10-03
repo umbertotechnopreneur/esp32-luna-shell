@@ -405,6 +405,126 @@ void writeBle(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::BleSnapshot &ble
     (void)json.raw("}");
 }
 
+// state: Typed state observed by the provisioning owner.
+const char *provisioningStateName(LUNASHELL::ProvisioningState state)
+{
+    using State = LUNASHELL::ProvisioningState;
+    switch (state) {
+    case State::Idle:
+        return "idle";
+    case State::Starting:
+        return "starting";
+    case State::WaitingForApp:
+        return "waiting-for-app";
+    case State::CredentialsReceived:
+        return "credentials-received";
+    case State::Connecting:
+        return "connecting";
+    case State::Success:
+        return "success";
+    case State::Failed:
+        return "failed";
+    case State::Stopping:
+        return "stopping";
+    case State::Deinitializing:
+        return "deinitializing";
+    case State::Stopped:
+        return "stopped";
+    case State::Poisoned:
+        return "poisoned";
+    }
+    return "unknown";
+}
+
+// reason: Typed failure reported by the credential manager.
+const char *provisioningFailureName(LUNASHELL::ProvisioningFailureReason reason)
+{
+    using Reason = LUNASHELL::ProvisioningFailureReason;
+    switch (reason) {
+    case Reason::None:
+        return "none";
+    case Reason::Authentication:
+        return "authentication";
+    case Reason::AccessPointNotFound:
+        return "access-point-not-found";
+    case Reason::Unknown:
+        return "unknown";
+    }
+    return "unknown";
+}
+
+// json: Bounded streaming writer; transport failures remain in its status.
+// provisioning: Canonical lifecycle state; deliberately contains no secrets.
+void writeProvisioning(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::ProvisioningSnapshot &provisioning)
+{
+    writeComponentStart(json, provisioning);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(provisioningStateName(provisioning.state));
+    (void)json.raw(",\"failure_reason\":");
+    (void)json.quoted(provisioningFailureName(provisioning.failure_reason));
+    (void)json.raw(",\"running\":");
+    (void)json.boolean(provisioning.running);
+    (void)json.raw(",\"initialized\":");
+    (void)json.boolean(provisioning.initialized);
+    (void)json.format(",\"session_id\":%lu,\"event_sequence\":%lu,\"changed_at_us\":%lld,\"cleanup_error\":",
+        static_cast<unsigned long>(provisioning.session_id),
+        static_cast<unsigned long>(provisioning.event_sequence),
+        static_cast<long long>(provisioning.changed_at_us));
+    (void)json.quoted(esp_err_to_name(provisioning.cleanup_error));
+    (void)json.raw("}");
+}
+
+// state: Typed controller state observed in the canonical snapshot.
+const char *pairingSessionStateName(LUNASHELL::PairingSessionState state)
+{
+    using State = LUNASHELL::PairingSessionState;
+    switch (state) {
+    case State::Idle:
+        return "idle";
+    case State::Starting:
+        return "starting";
+    case State::ReadyToScan:
+        return "ready-to-scan";
+    case State::Connecting:
+        return "connecting";
+    case State::Completing:
+        return "completing";
+    case State::Online:
+        return "online";
+    case State::Cancelling:
+        return "cancelling";
+    case State::Cancelled:
+        return "cancelled";
+    case State::Failed:
+        return "failed";
+    case State::TimedOut:
+        return "timed-out";
+    }
+    return "unknown";
+}
+
+// json: Bounded writer retaining all transport errors.
+// pairing: Canonical controller status; no QR or credentials are present.
+void writePairingSession(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::PairingSessionSnapshot &pairing)
+{
+    writeComponentStart(json, pairing);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(pairingSessionStateName(pairing.state));
+    (void)json.raw(",\"failure_reason\":");
+    (void)json.quoted(provisioningFailureName(pairing.failure_reason));
+    (void)json.raw(",\"command_pending\":");
+    (void)json.boolean(pairing.command_pending);
+    (void)json.format(",\"attempt_id\":%lu,\"provisioning_session_id\":%lu,\"changed_at_us\":%lld,\"deadline_at_us\":%lld,\"cleanup_error\":",
+        static_cast<unsigned long>(pairing.attempt_id),
+        static_cast<unsigned long>(pairing.provisioning_session_id),
+        static_cast<long long>(pairing.changed_at_us),
+        static_cast<long long>(pairing.deadline_at_us));
+    (void)json.quoted(esp_err_to_name(pairing.cleanup_error));
+    (void)json.raw("}");
+}
+
 const char *storageMountOutcomeName(LUNASHELL::StorageMountOutcome outcome)
 {
     switch (outcome) {
@@ -668,6 +788,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
     return "unknown";
 }
 
+// json: Response writer that owns formatting and serialization errors.
+// power: Canonical published power state, including the live inactivity setting.
 void writePowerManagement(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::PowerManagementSnapshot &power
@@ -689,11 +811,12 @@ void writePowerManagement(
     (void)json.raw(",\"display_idle_stage\":");
     (void)json.quoted(displayPowerModeName(power.display_idle_stage));
     (void)json.format(
-        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"screen_sleep_delay_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
+        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"screen_sleep_delay_seconds\":%lu,\"screen_idle_timeout_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
         static_cast<unsigned long>(power.command_arc_timeout_seconds),
         static_cast<unsigned long>(power.status_arc_timeout_seconds),
         static_cast<unsigned long>(power.display_dim_timeout_seconds),
         static_cast<unsigned long>(power.screen_sleep_delay_seconds),
+        static_cast<unsigned long>(power.screen_idle_timeout_seconds),
         static_cast<unsigned long>(power.transition_sequence),
         static_cast<long long>(power.last_activity_at_us),
         static_cast<long long>(power.changed_at_us)
@@ -981,6 +1104,9 @@ LUNASHELL::DeviceHealth overallHealth(const LUNASHELL::DeviceSnapshot &snapshot)
     return LUNASHELL::DeviceHealth::Ready;
 }
 
+// json: Bounded streaming writer that retains its transport error.
+// snapshot: Canonical device state with original validity and timestamps.
+// complete_diagnostics: Whether to include protected network identity/details.
 void writeSnapshotData(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::DeviceSnapshot &snapshot,
@@ -1009,6 +1135,10 @@ void writeSnapshotData(
     writeWifi(json, snapshot.radios.wifi, complete_diagnostics);
     (void)json.raw(",\"ble\":");
     writeBle(json, snapshot.radios.ble);
+    (void)json.raw(",\"provisioning\":");
+    writeProvisioning(json, snapshot.radios.provisioning);
+    (void)json.raw(",\"pairing\":");
+    writePairingSession(json, snapshot.radios.pairing);
     (void)json.raw("},\"storage\":");
     writeStorage(json, snapshot.storage);
     if (complete_diagnostics) {

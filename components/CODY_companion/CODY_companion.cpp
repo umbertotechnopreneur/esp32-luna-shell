@@ -29,6 +29,7 @@
 #include "cody_waking_blue.hpp"
 #include "cody_ready_blue.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_platform.h"
 #include "bsp/display.h"
 #include "esp_heap_caps.h"
@@ -47,8 +48,12 @@ constexpr uint16_t kPanelHeight = 466;
 // comes from the lease; touch polling stays bounded even on an emergency row.
 constexpr uint16_t kTouchPollRows = 32;
 constexpr uint16_t kPaletteLimit = 64;
-constexpr uint32_t kSamplePeriodMs = 50;
-constexpr uint32_t kStandbySamplePeriodMs = 200;
+constexpr bool kRenderDiagnosticsEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
+constexpr bool kExecutionTimingsEnabled = kRenderDiagnosticsEnabled && CODY::PocData::execution_timings;
+// Touch IRQs wake immediately. Release polls only the functional display gate
+// at 1 Hz on static/paused routes and in standby, instead of refreshing diagnostics.
+constexpr uint32_t kSamplePeriodMs = kRenderDiagnosticsEnabled ? 50U : 1000U;
+constexpr uint32_t kStandbySamplePeriodMs = kRenderDiagnosticsEnabled ? 200U : 1000U;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 // Coverage rows add bounded raster scratch; retain room for the display owner
 // and error paths on this PSRAM-backed worker stack.
@@ -152,7 +157,7 @@ struct CompanionState {
     CODY::OnboardingSettings onboarding{};
     CODY::SceneFrame scene{};
 #if CONFIG_LUNASHELL_CODY_DIAGNOSTICS_READOUT
-    bool debug_readout_enabled = true;
+    bool debug_readout_enabled = kRenderDiagnosticsEnabled;
 #else
     bool debug_readout_enabled = false;
 #endif
@@ -670,7 +675,7 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     log.debug = s_state.rig_debug;
     log.paused = s_state.animation_paused;
     if (!s_state.rig_visible) {
-        should_log = CODY::PocData::execution_timings;
+        should_log = kExecutionTimingsEnabled;
         return ESP_OK;
     }
 
@@ -683,8 +688,10 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     ++s_state.rig_frame_count;
     log.frame_count = s_state.rig_frame_count;
     const int64_t completed_us = log.completed_us;
-    CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
-    if (!CODY::PocData::execution_timings) {
+    if constexpr (kRenderDiagnosticsEnabled) {
+        CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
+    }
+    if (!kExecutionTimingsEnabled) {
         return ESP_OK;
     }
     if (s_state.animation_paused) {
@@ -864,7 +871,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     PendingTouchReports pending_touch;
     timings.buffer_ready_us = esp_timer_get_time();
     timings.started_us = timings.buffer_ready_us;
-    CODY::DebugReadout debug_readout;
+    CODY::DebugReadout debug_readout{};
     CODY::DirtyPlan dirty_plan;
     const bool frame_debug = s_state.rig_debug;
     if (s_state.rig_visible) {
@@ -872,13 +879,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_state.frame_rate = {};
             s_benchmark.reset();
         }
-        const esp_err_t readout_error = s_state.greeting_entered
-            ? CODY::prepare_debug_readout(s_state.frame_rate, timings.started_us, debug_readout) : ESP_OK;
-        if (readout_error != ESP_OK) {
-            return frame.finish({readout_error, false, 0});
-        }
-        if (s_state.animation_paused) {
-            std::snprintf(debug_readout.frame_rate, sizeof(debug_readout.frame_rate), "PAUSED");
+        if constexpr (kRenderDiagnosticsEnabled) {
+            if (s_state.greeting_entered && s_state.debug_readout_enabled) {
+                const esp_err_t readout_error = CODY::prepare_debug_readout(
+                    s_state.frame_rate, timings.started_us, debug_readout
+                );
+                if (readout_error != ESP_OK) {
+                    return frame.finish({readout_error, false, 0});
+                }
+                if (s_state.animation_paused) {
+                    std::snprintf(debug_readout.frame_rate, sizeof(debug_readout.frame_rate), "PAUSED");
+                }
+            }
         }
         // Freeze the evaluated scene as well as the clocks. Fresh sensors keep
         // publishing independently, but cannot deform a paused character.
@@ -928,7 +940,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool frame_navigation_visible = lifecycle_navigation_allowed && presentation.content_visible &&
         (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
     const uint8_t branding_opacity = startup_branding_opacity();
-    const bool frame_readout_visible = s_state.greeting_entered && s_state.debug_readout_enabled && presentation.content_visible &&
+    const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
+        s_state.debug_readout_enabled && presentation.content_visible &&
         (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     // Fade a bounded palette once, not 466x466 boot pixels or the physical
     // backlight setting. The immutable source asset remains untouched.
@@ -963,7 +976,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 }
             }
         }
-        if (plan_error == ESP_OK &&
+        if (plan_error == ESP_OK && kRenderDiagnosticsEnabled &&
             (s_cached_readout_visible != frame_readout_visible ||
              (frame_readout_visible &&
               (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
@@ -1039,7 +1052,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             if (frame_was_rig) {
                 result = CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
-                    CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
+                    kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
                     frame_navigation_visible
@@ -1615,11 +1628,13 @@ void companion_worker(void *context)
         FrameTimings::WorkerLoopTrace worker_trace{};
         worker_trace.valid = true;
         worker_trace.loop_started_us = now_us;
-        // Only this worker changes rig visibility after startup; boot remains static.
+        // The same worker advances boot, expression and body animation clocks.
         const int64_t remaining_us = s_state.next_frame_us - now_us;
         uint32_t wait_ms = kSamplePeriodMs;
         if (parked) {
             wait_ms = kStandbySamplePeriodMs;
+        } else if (s_state.animation_paused && !kRenderDiagnosticsEnabled) {
+            wait_ms = kSamplePeriodMs;
         } else if (s_state.rig_visible) {
             wait_ms = remaining_us > 0 ?
                 static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
@@ -1659,7 +1674,9 @@ void companion_worker(void *context)
             continue;
         }
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
-        if (!parked && s_state.rig_visible && esp_timer_get_time() < s_state.next_frame_us &&
+        const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled;
+        if (!parked && s_state.rig_visible &&
+            (paused_release_frame || esp_timer_get_time() < s_state.next_frame_us) &&
             !s_state.frame_dirty.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
@@ -1866,6 +1883,13 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
 // enabled: Session preference for the existing measured layer; the worker owns rendering.
 extern "C" esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled)
 {
+    if constexpr (!kRenderDiagnosticsEnabled) {
+        if (enabled) {
+            ESP_LOGE(kTag, "Readout enable rejected: diagnostics excluded in Release (%s)",
+                esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+            return ESP_ERR_NOT_SUPPORTED;
+        }
+    }
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
         ESP_LOGE(kTag, "Readout preference lock failed (%s)", esp_err_to_name(lock_error));

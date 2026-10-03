@@ -13,6 +13,7 @@
 
 #include "bsp/display.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -425,6 +426,7 @@ extern "C" esp_err_t LUNASHELL_display_get_brightness_percent(uint32_t *percent)
     return error;
 }
 
+// No parameters: load the saved target strictly; keep Deep-sleep startup at zero.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
 {
     DisplayOperationLock display_lock;
@@ -498,9 +500,11 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
 
     ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
              static_cast<unsigned long>(brightness));
+    const bool waking_from_deep_sleep = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+    const uint32_t applied_brightness = waking_from_deep_sleep ? 0U : brightness;
     const esp_err_t display_error =
-        bsp_display_brightness_set(static_cast<int>(brightness));
-    publish_brightness(brightness, display_error);
+        bsp_display_brightness_set(static_cast<int>(applied_brightness));
+    publish_brightness(applied_brightness, display_error);
     publish_configured_brightness(brightness, display_error);
     if (display_error != ESP_OK) {
         ESP_LOGE(
@@ -510,11 +514,56 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
         );
     } else {
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
-            LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active,
+            waking_from_deep_sleep
+                ? LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
+                : LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active,
             ESP_OK
         );
     }
     return display_error;
+}
+
+// No parameters: allow a real wake frame to be drawn without exposing old panel RAM.
+extern "C" esp_err_t LUNASHELL_display_prepare_dark_frame(void)
+{
+    // operation: Exact preparation stage whose original failure is being published.
+    // error: Driver or lock failure; no failed operation becomes a successful mode.
+    const auto report_failure = [](const char *operation, esp_err_t error) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+            LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown, error);
+        ESP_LOGE(kTag, "Dark-frame preparation %s failed (%s)",
+                 operation, esp_err_to_name(error));
+        return error;
+    };
+    DisplayOperationLock display_lock;
+    if (display_lock.error() != ESP_OK) {
+        return report_failure("display lock", display_lock.error());
+    }
+    std::lock_guard<std::mutex> brightness_lock(s_brightness_mutex);
+    const esp_err_t brightness_error = bsp_display_brightness_set(0);
+    publish_brightness(0, brightness_error);
+    if (brightness_error != ESP_OK) {
+        return report_failure("zero brightness", brightness_error);
+    }
+    uint32_t applied_brightness = 0;
+    const esp_err_t brightness_read_error = read_applied_brightness(&applied_brightness);
+    publish_brightness(applied_brightness, brightness_read_error);
+    if (brightness_read_error != ESP_OK) {
+        return report_failure("brightness state", brightness_read_error);
+    }
+    if (applied_brightness != 0) {
+        publish_brightness(applied_brightness, ESP_ERR_INVALID_RESPONSE);
+        return report_failure("dark brightness verification", ESP_ERR_INVALID_RESPONSE);
+    }
+    // The BSP requires its panel-output gate open for a complete RAM frame.
+    // Brightness is already zero, so opening it cannot expose the previous pose.
+    const esp_err_t panel_error = bsp_display_panel_set_enabled(true);
+    if (panel_error != ESP_OK) {
+        return report_failure("panel frame gate", panel_error);
+    }
+    LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+        LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff, ESP_OK);
+    return ESP_OK;
 }
 
 extern "C" esp_err_t LUNASHELL_display_set_power_mode(

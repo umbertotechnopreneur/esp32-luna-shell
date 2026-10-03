@@ -30,7 +30,7 @@ enum class AdaptiveChromeTiming : uint8_t {
     CommandArc,
     StatusArc,
     DisplayDim,
-    ScreenSleep,
+    ScreenIdle,
 };
 
 enum class DisplayIdleStage : uint8_t {

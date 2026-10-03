@@ -112,6 +112,8 @@ esp_err_t LUNASHELL_hardware_set_ui_sampling_power_suspended(bool suspended);
  * g/500 Hz accelerometer and 512 dps/500 Hz gyroscope configuration.
  */
 esp_err_t LUNASHELL_hardware_set_imu_low_power(bool enabled);
+/** Configure the acquisition owner's accelerometer-only INT2 wake profile. */
+esp_err_t LUNASHELL_hardware_set_imu_motion_wakeup(bool enabled);
 /** Configure the active diagnostic sample period (100-2000 ms). */
 esp_err_t LUNASHELL_hardware_set_diagnostic_period_ms(uint32_t period_ms);
 /** Return the current diagnostic sample period in milliseconds. */
@@ -170,6 +172,7 @@ typedef enum {
     LUNASHELL_POWER_TIMEOUT_STATUS_ARC = 1,
     LUNASHELL_POWER_TIMEOUT_DISPLAY_DIM = 2,
     LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP = 3,
+    LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE = 4,
 } LUNASHELL_power_timeout_t;
 
 /** Start the single BOOT/PWR, inactivity, display, audio, and IMU service. */
@@ -186,7 +189,7 @@ esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
 
-/** Apply Leg Edition's 25-second display-off policy while its view is active. */
+/** Select Leg Edition's motion/audio behavior; the shared idle timeout still applies. */
 esp_err_t LUNASHELL_power_manager_set_leg_mode(bool active, bool wake_on_motion);
 /** Enable or silence the movement cues without changing the screen policy. */
 esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled);
@@ -209,9 +212,14 @@ esp_err_t LUNASHELL_power_manager_get_timeout(
     uint32_t *seconds
 );
 
-/** Enter explicit low-power states; callers own the surrounding UI lifecycle. */
+/** Explicit Light-sleep callers own UI lifecycle; Deep-sleep requires Release
+ * and confirmed transactional standby on the power-owner task. */
 esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us);
 esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us);
+/** Release retained wake pins before any peripheral initialization. */
+esp_err_t LUNASHELL_power_prepare_boot(void);
+/** Fade in after the first valid frame following a Deep-sleep restart. */
+esp_err_t LUNASHELL_power_restore_wake_display(void);
 
 /** Start non-blocking SD detection/mount retries. Never formats automatically. */
 esp_err_t LUNASHELL_storage_init(void);
@@ -299,6 +307,9 @@ esp_err_t LUNASHELL_touch_wait_for_report(uint32_t timeout_ms);
 esp_err_t LUNASHELL_display_set_brightness_percent(uint32_t percent);
 esp_err_t LUNASHELL_display_get_brightness_percent(uint32_t *percent);
 esp_err_t LUNASHELL_display_apply_saved_brightness(void);
+/** Enable frame writes at zero brightness without changing the saved brightness.
+ * The caller must render the wake frame before fading to the active power mode. */
+esp_err_t LUNASHELL_display_prepare_dark_frame(void);
 
 /** Persist the automatic cardinal-rotation preference. */
 esp_err_t LUNASHELL_display_set_auto_rotation_enabled(bool enabled);
@@ -443,6 +454,10 @@ void LUNASHELL_performance_mode_get_status(
 esp_err_t LUNASHELL_radios_init(void);
 esp_err_t LUNASHELL_radios_stop(void);
 esp_err_t LUNASHELL_ble_init(void);
+/** Explicit telemetry-to-provisioning handoff; call from a service worker. */
+esp_err_t LUNASHELL_radios_start_pairing(void);
+/** Close provisioning before optionally restoring telemetry on verified Wi-Fi. */
+esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
 
 #define LUNASHELL_WIFI_MAX_NETWORKS 16
 #define LUNASHELL_WIFI_SSID_MAX_LEN 32
@@ -547,6 +562,19 @@ esp_err_t LUNASHELL_provisioning_connection_summary(char *buffer, size_t buffer_
 const char *LUNASHELL_provisioning_service_name(void);
 const char *LUNASHELL_provisioning_qr_payload(void);
 const char *LUNASHELL_provisioning_pop(void);
+/** Copy the active pairing QR without returning shared mutable storage. */
+esp_err_t LUNASHELL_provisioning_copy_qr(char *buffer, size_t buffer_size, uint32_t session_id);
+
+typedef enum {
+    LUNASHELL_PAIRING_ACTION_START,
+    LUNASHELL_PAIRING_ACTION_RETRY,
+    LUNASHELL_PAIRING_ACTION_CANCEL,
+} LUNASHELL_pairing_action_t;
+
+/** Initialize the internal-stack async pairing controller; never opens BLE. */
+esp_err_t LUNASHELL_pairing_service_init(void);
+/** Submit one explicit action against the currently observed attempt identity. */
+esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action, uint32_t expected_attempt_id);
 
 #ifdef __cplusplus
 }

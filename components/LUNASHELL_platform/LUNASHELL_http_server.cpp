@@ -787,6 +787,10 @@ esp_err_t httpServerInitLocked()
 
     bool enabled = false;
     error = settings.getBool(kEnabledSetting, &enabled);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "First boot: missing %s, persisting default false", kEnabledSetting);
+        error = settings.setBool(kEnabledSetting, false);
+    }
     if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP preference initialization failed: %s", esp_err_to_name(error));
         return error;
@@ -794,8 +798,8 @@ esp_err_t httpServerInitLocked()
     s_enabled.store(enabled);
 
     error = loadApiKeyFromSettings();
-    if (error == ESP_ERR_INVALID_SIZE) {
-        ESP_LOGI(kTag, "HTTP API waiting for an ApiKey from Settings");
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "HTTP API waiting for an explicitly configured ApiKey");
     } else if (error != ESP_OK) {
         ESP_LOGW(kTag, "HTTP API key initialization failed: %s", esp_err_to_name(error));
         return error;
@@ -914,7 +918,7 @@ esp_err_t httpServerInit()
     return httpServerInitLocked();
 }
 
-// Persist one user choice, then apply only the matching server transition.
+// enabled: Explicit user choice, persisted before applying the server transition.
 esp_err_t httpServerSetEnabled(bool enabled)
 {
     std::lock_guard<std::mutex> initialization_lock(s_initialization_mutex);
@@ -951,7 +955,7 @@ esp_err_t httpServerSetEnabled(bool enabled)
     return ESP_OK;
 }
 
-// Persist first so a failed write never leaves a new in-memory key active.
+// api_key: Explicit bounded Bearer secret; persisted before activation and never logged.
 esp_err_t httpServerSetApiKey(const char *api_key)
 {
     const esp_err_t validation_error = validateApiKeyValue(api_key);

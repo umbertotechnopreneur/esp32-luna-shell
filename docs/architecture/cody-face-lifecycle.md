@@ -125,7 +125,11 @@ cody-rig`. No build, configure, tests, checks, simulator, serial access or hardw
 operation was authorized or performed. Appearance, physical transitions,
 measured frame cost and real sleep/wake behavior remain unverified.
 
-This change is in the Cody Companion worktree on `main`. The separate
-Debug/Release and Deep-sleep policy work in Luna Shell remains on its current
-branch; it has not been merged into this worktree. The facial lifecycle is
-independent of build mode and does not import that policy implicitly.
+The Cody lifecycle and Luna Debug/Release, connectivity and Deep-sleep work are
+now integrated on `main`. Debug keeps the requested performance HUD available;
+Release excludes HUD and benchmark instrumentation and rejects runtime HUD
+enable requests with the real unsupported error. Both modes use
+the same face, breathing, blink and branding lifecycle. Release completes the
+Sleep presentation before physical sleep and starts Wake -> Idle after the
+Deep-sleep reset; the first complete Wake frame precedes the 300-ms display fade.
+See [Release sleep policy](release-deep-sleep.md) for wake wiring and runtime timing.

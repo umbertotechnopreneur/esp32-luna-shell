@@ -34,6 +34,7 @@
 #include "esp_attr.h"
 #include "esp_bit_defs.h"
 #include "esp_chip_info.h"
+#include "esp_check.h"
 #include "esp_cpu.h"
 #include "esp_heap_caps.h"
 #include "esp_image_format.h"
@@ -196,6 +197,7 @@ bool s_imu_ready;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
 bool s_imu_profile_low_power;
 bool s_imu_profile_valid;
+bool s_imu_motion_wakeup_enabled;
 esp_err_t s_imu_profile_error = ESP_ERR_INVALID_STATE;
 #endif
 bool s_imu_calibrated;
@@ -3175,12 +3177,16 @@ esp_err_t sample_rtc(
 }
 
 // Reject samples after a failed profile transition instead of publishing partial data.
+// sample: Required output; unavailable profiles never read or manufacture measurements.
 esp_err_t read_imu_sample(ImuRawSample *sample)
 {
     if (sample == nullptr) {
         return ESP_ERR_INVALID_ARG;
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
+    if (s_imu_motion_wakeup_enabled) {
+        return ESP_ERR_INVALID_STATE;
+    }
     if (s_imu_ready && !s_imu_profile_valid) {
         return s_imu_profile_error;
     }
@@ -3224,7 +3230,84 @@ esp_err_t imu_profile_step_result(
     return error;
 }
 
+// asserted: Required value of STATUSINT.CmdDone for one CTRL9 handshake phase.
+esp_err_t wait_imu_command_done(bool asserted)
+{
+    constexpr uint8_t kStatusInterruptRegister = 0x2D;
+    constexpr uint8_t kCommandDoneMask = 0x80;
+    const int64_t deadline_us = esp_timer_get_time() + 200000;
+    do {
+        uint8_t status = 0;
+        ESP_RETURN_ON_ERROR(qmi8658_read_register(&s_imu, kStatusInterruptRegister, &status, 1),
+                            TAG, "QMI8658 CTRL9 status read");
+        if (((status & kCommandDoneMask) != 0) == asserted) {
+            return ESP_OK;
+        }
+        vTaskDelay(pdMS_TO_TICKS(5));
+    } while (esp_timer_get_time() < deadline_us);
+    ESP_LOGE(TAG, "QMI8658 CTRL9 CmdDone=%u timed out (%s)", asserted, esp_err_to_name(ESP_ERR_TIMEOUT));
+    return ESP_ERR_TIMEOUT;
+}
+
+// No parameters: require the documented QMI8658C command protocol before mutation.
+esp_err_t verify_imu_wake_revision()
+{
+    constexpr uint8_t kSupportedRevision = 0x7C;
+    uint8_t revision = 0;
+    ESP_RETURN_ON_ERROR(qmi8658_read_register(&s_imu, QMI8658_REVISION, &revision, 1), TAG, "QMI8658 wake revision read");
+    if (revision != kSupportedRevision) {
+        ESP_LOGE(TAG, "QMI8658 wake revision 0x%02x rejected: expected 0x%02x (%s)",
+                 revision, kSupportedRevision, esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return ESP_OK;
+}
+
+// enabled: Arm accelerometer-only WoM, or explicitly exit it after a wake/rejection.
+// Must run under the acquisition owner's refresh mutex, or during exclusive boot init.
+esp_err_t configure_imu_motion_wakeup(bool enabled)
+{
+    constexpr uint8_t kWomThresholdRegister = 0x0B;
+    constexpr uint8_t kWomInterruptRegister = 0x0C;
+    constexpr uint8_t kWomCommand = 0x08;
+    constexpr uint8_t kCommandAcknowledge = 0x00;
+    constexpr uint8_t kInt2InitiallyHigh = 0xC0;
+    constexpr uint8_t kBlankingSamples = 3;
+    ESP_RETURN_ON_ERROR(verify_imu_wake_revision(), TAG, "QMI8658 wake protocol");
+    ESP_RETURN_ON_ERROR(qmi8658_enable_sensors(&s_imu, QMI8658_DISABLE_ALL), TAG, "QMI8658 WoM sensor disable");
+    if (enabled) {
+        ESP_RETURN_ON_ERROR(qmi8658_set_accel_range(&s_imu, QMI8658_ACCEL_RANGE_8G), TAG, "QMI8658 WoM range");
+        ESP_RETURN_ON_ERROR(qmi8658_set_accel_odr(&s_imu, QMI8658_ACCEL_ODR_LOWPOWER_21HZ), TAG, "QMI8658 WoM low-power ODR");
+    }
+    // The vendor helper only writes CAL registers. It omits the required CTRL9
+    // command/ACK and selects INT1, which is not wired to the ESP32 on this PCB.
+    ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kCommandAcknowledge), TAG, "QMI8658 clear prior command");
+    ESP_RETURN_ON_ERROR(wait_imu_command_done(false), TAG, "QMI8658 command idle");
+    ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, kWomThresholdRegister,
+                        enabled ? LUNASHELL::power_policy::kMotionWakeThresholdMg : 0), TAG, "QMI8658 WoM threshold");
+    ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, kWomInterruptRegister,
+                        kInt2InitiallyHigh | kBlankingSamples), TAG, "QMI8658 WoM INT2 polarity");
+    ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kWomCommand), TAG, "QMI8658 WoM command");
+    ESP_RETURN_ON_ERROR(wait_imu_command_done(true), TAG, "QMI8658 WoM command completion");
+    ESP_RETURN_ON_ERROR(qmi8658_write_register(&s_imu, QMI8658_CTRL9, kCommandAcknowledge), TAG, "QMI8658 WoM command ACK");
+    ESP_RETURN_ON_ERROR(wait_imu_command_done(false), TAG, "QMI8658 WoM ACK completion");
+    if (enabled) {
+        ESP_RETURN_ON_ERROR(qmi8658_enable_sensors(&s_imu, QMI8658_ENABLE_ACCEL), TAG, "QMI8658 WoM accelerometer enable");
+        uint8_t controls[6] = {};
+        ESP_RETURN_ON_ERROR(qmi8658_read_register(&s_imu, QMI8658_CTRL2, controls, sizeof(controls)), TAG, "QMI8658 WoM control readback");
+        const uint8_t expected_accelerometer =
+            (static_cast<uint8_t>(QMI8658_ACCEL_RANGE_8G) << 4U) | QMI8658_ACCEL_ODR_LOWPOWER_21HZ;
+        if (controls[0] != expected_accelerometer || controls[5] != QMI8658_ENABLE_ACCEL) {
+            ESP_LOGE(TAG, "QMI8658 WoM readback rejected: CTRL2=0x%02x CTRL7=0x%02x (%s)",
+                     controls[0], controls[5], esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    }
+    return ESP_OK;
+}
+
 // Apply and read back one complete measured QMI8658 sampling profile.
+// low_power: Select the software-standby ODR instead of the active ODR.
 esp_err_t configure_imu_profile(bool low_power)
 {
     const char *profile = low_power ? "low-power" : "active";
@@ -3356,6 +3439,7 @@ void publish_imu_profile_failure(esp_err_t error, int64_t attempted_at_us)
 }
 
 // Initialize the QMI8658 in the canonical active sampling profile.
+// bus: Shared I2C bus owned by the hardware acquisition service.
 esp_err_t init_imu(i2c_master_bus_handle_t bus)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
@@ -3364,6 +3448,10 @@ esp_err_t init_imu(i2c_master_bus_handle_t bus)
     for (size_t i = 0; i < sizeof(addresses) / sizeof(addresses[0]); ++i) {
         std::memset(&s_imu, 0, sizeof(s_imu));
         error = qmi8658_init(&s_imu, bus, addresses[i]);
+        if (error == ESP_OK && esp_reset_reason() == ESP_RST_DEEPSLEEP) {
+            // The shared rail stayed on: a CPU restart does not reset QMI8658 WoM.
+            error = configure_imu_motion_wakeup(false);
+        }
         if (error == ESP_OK) {
             error = configure_imu_profile(false);
         }
@@ -6635,6 +6723,25 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// observation: Coherent projection for the connectivity worker; no driver reads.
+esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "connectivity read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const ConnectivityObservation copy{
+        .radios = s_snapshot.radios,
+        .operating_state = s_snapshot.power.state,
+    };
+    const esp_err_t release_error = give_snapshot_mutex("connectivity read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // frame: Receives the last completed display operation, never a new driver read.
 // Its measured flag, original error and completion timestamp travel with the values.
 esp_err_t DeviceSnapshotService::readDisplayFrameObservation(DisplayFrameSnapshot &frame) const
@@ -7414,7 +7521,83 @@ extern "C" esp_err_t LUNASHELL_hardware_set_gps_power_suspended(bool suspended)
 #endif
 }
 
+// enabled: Arm the physical wake profile, or restore normal software-standby sampling.
+extern "C" esp_err_t LUNASHELL_hardware_set_imu_motion_wakeup(bool enabled)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU && CONFIG_LUNASHELL_BUILD_IMU_DRIVER_QMI8658
+    std::lock_guard<std::mutex> calibration_lock(s_imu_calibration_mutex);
+    if (!s_initialized || !s_imu_ready || s_imu.dev_handle == nullptr ||
+        s_imu_calibration_request_pending.load(std::memory_order_acquire)) {
+        ESP_LOGE(TAG, "QMI8658 WoM rejected: hardware unavailable or calibration pending (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        publish_imu_profile_failure(ESP_ERR_INVALID_STATE, attempted_at_us);
+        return ESP_ERR_INVALID_STATE;
+    }
+    SemaphoreHandle_t refresh_mutex = ensure_refresh_mutex();
+    if (refresh_mutex == nullptr || xSemaphoreTake(refresh_mutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+        const esp_err_t error = refresh_mutex == nullptr ? ESP_ERR_NO_MEM : ESP_ERR_TIMEOUT;
+        ESP_LOGE(TAG, "QMI8658 WoM acquisition lock failed (%s)", esp_err_to_name(error));
+        publish_imu_profile_failure(error, attempted_at_us);
+        return error;
+    }
+    if (!enabled && !s_imu_motion_wakeup_enabled) {
+        return give_refresh_mutex(refresh_mutex, "IMU WoM already disabled");
+    }
+    const esp_err_t revision_error = verify_imu_wake_revision();
+    if (revision_error != ESP_OK) {
+        const esp_err_t release_error = give_refresh_mutex(refresh_mutex, "IMU WoM unsupported revision");
+        if (release_error != ESP_OK) {
+            ESP_LOGE(TAG, "QMI8658 rejected revision lock recovery failed (%s); preserving primary error %s",
+                     esp_err_to_name(release_error), esp_err_to_name(revision_error));
+        }
+        publish_imu_profile_failure(revision_error, attempted_at_us);
+        return revision_error;
+    }
+    // Block host sampling before the first register change, including partial failures.
+    s_imu_motion_wakeup_enabled = true;
+    s_imu_profile_valid = false;
+    s_imu_profile_error = ESP_ERR_INVALID_STATE;
+    esp_err_t error = configure_imu_motion_wakeup(enabled);
+    if (error == ESP_OK && !enabled) {
+        error = configure_imu_profile(true);
+    }
+    if (error == ESP_OK && !enabled) {
+        s_imu_motion_wakeup_enabled = false;
+        s_imu_profile_valid = true;
+        s_imu_profile_low_power = true;
+        s_imu_profile_error = ESP_OK;
+        reset_imu_filter();
+    } else if (error != ESP_OK) {
+        s_imu_profile_error = error;
+    }
+    const esp_err_t release_error = give_refresh_mutex(refresh_mutex, "IMU WoM transition");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "QMI8658 WoM lock recovery failed (%s)", esp_err_to_name(release_error));
+        if (error == ESP_OK) {
+            error = release_error;
+        }
+        s_imu_profile_valid = false;
+        s_imu_profile_error = error;
+    }
+    // WoM is an interrupt mode, not a fresh accelerometer/gyroscope measurement.
+    publish_imu_profile_failure(error != ESP_OK ? error : ESP_ERR_INVALID_STATE, attempted_at_us);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "QMI8658 WoM %s failed (%s)", enabled ? "enable" : "disable", esp_err_to_name(error));
+    } else {
+        ESP_LOGI(TAG, "QMI8658 WoM %s: INT2 initially high, threshold=%u mg, accelerometer-only ~21 Hz",
+                 enabled ? "armed" : "disabled", LUNASHELL::power_policy::kMotionWakeThresholdMg);
+    }
+    return error;
+#else
+    (void)enabled;
+    ESP_LOGE(TAG, "QMI8658 WoM rejected: driver excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    publish_imu_profile_failure(ESP_ERR_NOT_SUPPORTED, attempted_at_us);
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 // Serialize QMI8658 profile changes with sampling and calibration ownership.
+// enabled: Select the existing software-standby sampling profile.
 extern "C" esp_err_t LUNASHELL_hardware_set_imu_low_power(bool enabled)
 {
     const int64_t attempted_at_us = esp_timer_get_time();
@@ -7461,6 +7644,18 @@ extern "C" esp_err_t LUNASHELL_hardware_set_imu_low_power(bool enabled)
             "IMU QMI8658 profile transition failed: sampler quiescence timed out"
         );
         return ESP_ERR_TIMEOUT;
+    }
+
+    if (s_imu_motion_wakeup_enabled) {
+        const esp_err_t error = s_imu_profile_error;
+        const esp_err_t release_error = give_refresh_mutex(refresh_mutex, "IMU sampling blocked by WoM");
+        if (release_error != ESP_OK) {
+            ESP_LOGE(TAG, "QMI8658 blocked profile lock recovery failed (%s); preserving primary error %s",
+                     esp_err_to_name(release_error), esp_err_to_name(error));
+        }
+        ESP_LOGE(TAG, "QMI8658 sampling profile rejected while WoM remains armed (%s)", esp_err_to_name(error));
+        publish_imu_profile_failure(error, attempted_at_us);
+        return error;
     }
 
     if (s_imu_profile_valid && s_imu_profile_low_power == enabled) {

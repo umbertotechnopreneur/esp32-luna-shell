@@ -6,6 +6,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "esp_log.h"
 
 extern "C" esp_err_t LUNASHELL_display_set_brightness_percent(uint32_t percent)
 {
@@ -31,6 +32,17 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
         0,
         ESP_ERR_NOT_SUPPORTED
     );
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// No parameters: a profile without a display cannot provide a dark frame gate.
+extern "C" esp_err_t LUNASHELL_display_prepare_dark_frame(void)
+{
+    LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
+        LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Unknown,
+        ESP_ERR_NOT_SUPPORTED);
+    ESP_LOGE("LUNASHELL_display_settings", "Dark-frame preparation unavailable (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 }
 

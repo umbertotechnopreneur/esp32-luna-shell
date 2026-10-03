@@ -21,6 +21,12 @@ inline constexpr std::array<uint32_t, 6> kDisplayDimTimeoutOptions = {
 inline constexpr std::array<uint32_t, 7> kScreenSleepDelayOptions = {
     30, 60, 120, 300, 600, 900, 0,
 };
+inline constexpr std::array<uint32_t, 7> kScreenIdleTimeoutOptions = {
+    30, 60, 120, 300, 600, 900, 0,
+};
+inline constexpr uint32_t kDefaultScreenIdleTimeoutSeconds = 60;
+inline constexpr uint32_t kDisplayFadeDurationMs = 300;
+inline constexpr uint8_t kMotionWakeThresholdMg = 200;
 
 // Hide the command buttons quickly; any touch or motion wakes them again.
 inline constexpr uint32_t kDefaultCommandArcTimeoutSeconds = 10;
@@ -28,6 +34,7 @@ inline constexpr uint32_t kDefaultStatusArcTimeoutSeconds = 120;
 inline constexpr uint32_t kDefaultDisplayDimTimeoutSeconds = 300;
 inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
 
+// timeout: Typed setting whose supported runtime values are requested.
 [[nodiscard]] constexpr std::span<const uint32_t> timeout_options(
     LUNASHELL_power_timeout_t timeout
 )
@@ -40,10 +47,13 @@ inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
         return kDisplayDimTimeoutOptions;
     case LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP:
         return kScreenSleepDelayOptions;
+    case LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE:
+        return kScreenIdleTimeoutOptions;
     }
     return {};
 }
 
+// timeout: Typed setting whose first-boot default is requested.
 [[nodiscard]] constexpr uint32_t default_timeout_seconds(
     LUNASHELL_power_timeout_t timeout
 )
@@ -57,10 +67,13 @@ inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
         return kDefaultDisplayDimTimeoutSeconds;
     case LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP:
         return kDefaultScreenSleepDelaySeconds;
+    case LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE:
+        return kDefaultScreenIdleTimeoutSeconds;
     }
     return 0;
 }
 
+// timeout: Typed setting whose NVS key is requested.
 [[nodiscard]] constexpr const char *settings_key(
     LUNASHELL_power_timeout_t timeout
 )
@@ -74,10 +87,13 @@ inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
         return "dim_idle_s";
     case LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP:
         return "sleep_delay_s";
+    case LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE:
+        return "idle_sleep_s";
     }
     return "";
 }
 
+// timeout: Typed setting whose diagnostic name is requested.
 [[nodiscard]] constexpr const char *display_name(
     LUNASHELL_power_timeout_t timeout
 )
@@ -91,6 +107,8 @@ inline constexpr uint32_t kDefaultScreenSleepDelaySeconds = 300;
         return "display dim";
     case LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP:
         return "screen sleep after dim";
+    case LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE:
+        return "screen inactivity";
     }
     return "unknown";
 }
@@ -123,6 +141,10 @@ static_assert(timeout_supported(
 static_assert(timeout_supported(
     LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP,
     kDefaultScreenSleepDelaySeconds
+));
+static_assert(timeout_supported(
+    LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE,
+    kDefaultScreenIdleTimeoutSeconds
 ));
 
 }  // namespace LUNASHELL::power_policy

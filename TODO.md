@@ -6,6 +6,11 @@ authorization.
 
 ## Current integration
 
+- [ ] On fresh explicit authorization, validate the integrated `main` policies
+  together: Debug/Release diagnostic gates, Cody Sleep/Wake preparation, first
+  dark Wake frame before the 300-ms fade, and recovery after a rejected sleep.
+  The branch integration has static source review only.
+
 - [ ] After fresh specific authorization, compile and observe the current Cody
   face lifecycle: Calm/Happy/Calm on ordinary boot, continuous breath/blink,
   35A / Sleep before display suspension, and 35B / Wake -> 16 / Idle while
@@ -35,6 +40,19 @@ authorization.
   Check the two-second Ready deadline, happy pearl face, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
+- [ ] On fresh explicit validation/hardware authorization, validate Release
+  touch/IMU Deep-sleep and Debug software standby: QMI revision/protocol, 60-second
+  runtime timeout and persistence, 300-ms fades, held-IRQ rejection/recovery,
+  repeated wake boots, USB/radios and complete-board current including powered
+  GPS. Source implementation only; see `docs/architecture/release-deep-sleep.md`.
+
+- [ ] On fresh explicit validation authorization, validate the common Debug/Release
+  split: build-mode selector/configuration rejection check, console/profile/power
+  checks, both modes' clean/incremental builds, size and simulator behavior.
+  Separately authorize physical PWR/IMU/touch wake, USB reconnect, radio behavior
+  and active/standby current. Implementation has static review only. Evidence:
+  `docs/architecture/firmware-build-modes.md`.
+
 - [ ] Identify the intermittent display/touch stop reported after the pearl
   release. The first capture began after failure and shows DISPLAY/TOUCH in
   error while the MCU continues snapshots. The triggering error is absent.

@@ -231,7 +231,7 @@ class InactivityPolicy:
     command_timeout_ms: int
     status_timeout_ms: int
     dim_timeout_ms: int
-    screen_sleep_delay_ms: int
+    screen_idle_timeout_ms: int
 
     def __post_init__(self) -> None:
         require(
@@ -239,7 +239,7 @@ class InactivityPolicy:
                 self.command_timeout_ms,
                 self.status_timeout_ms,
                 self.dim_timeout_ms,
-                self.screen_sleep_delay_ms,
+                self.screen_idle_timeout_ms,
             )
             >= 0,
             "timeouts must not be negative",
@@ -276,13 +276,7 @@ class InactivityTimeline:
         def expired(timeout_ms: int) -> bool:
             return timeout_ms > 0 and elapsed_ms >= timeout_ms
 
-        standby_due = (
-            expired(self.policy.dim_timeout_ms)
-            and self.policy.screen_sleep_delay_ms > 0
-            and elapsed_ms
-            >= self.policy.dim_timeout_ms
-            + self.policy.screen_sleep_delay_ms
-        )
+        standby_due = expired(self.policy.screen_idle_timeout_ms)
         display = (
             DisplayStage.OFF
             if standby_due
@@ -589,7 +583,7 @@ def verify_inactivity_timeline() -> None:
             command_timeout_ms=10_000,
             status_timeout_ms=20_000,
             dim_timeout_ms=30_000,
-            screen_sleep_delay_ms=40_000,
+            screen_idle_timeout_ms=70_000,
         )
     )
     expected = {
@@ -629,7 +623,7 @@ def verify_inactivity_timeline() -> None:
     )
     require(
         no_panel_off.state_at(10_000) == IdleState(True, True, DisplayStage.DIMMED),
-        "zero sleep delay must disable standby without disabling DIMMED",
+        "zero screen inactivity must disable standby without disabling DIMMED",
     )
 
 
@@ -1464,9 +1458,9 @@ def verify_source_contracts() -> None:
         "s_command_timeout_seconds.load(",
         "s_status_timeout_seconds.load(",
         "s_dim_timeout_seconds.load(",
-        "s_screen_sleep_delay_seconds.load(",
+        "s_screen_idle_timeout_seconds.load(",
         "const bool standby_due",
-        "static_cast<int64_t>(screen_sleep_delay)",
+        "expired(screen_idle_seconds)",
         "DisplayPowerMode::Dimmed",
         "begin_motion_grace(standby_requested_at_us)",
         "DeviceStateReason::Inactivity",
@@ -2630,7 +2624,7 @@ def verify_source_contracts() -> None:
         "kDeferredStandbyTraceReportCount",
         "s_deferred_standby_trace_report_at_us",
         "s_deferred_standby_trace_reports_remaining",
-        "kStandbyPollTicks = pdMS_TO_TICKS(1000)",
+        "kDevelopmentDiagnosticsEnabled ? 100 : 1000",
     ):
         require_contains(power, fragment, "standby trace lifecycle")
 
@@ -2647,8 +2641,13 @@ def verify_source_contracts() -> None:
     require_regex(
         power,
         r"esp_pm_config_t\s+power_policy\s*=\s*\{.*?"
-        r"\.light_sleep_enable\s*=\s*true",
-        "automatic ESP-IDF Light-sleep policy",
+        r"\.light_sleep_enable\s*=\s*automatic_light_sleep",
+        "build-mode-selected ESP-IDF Light-sleep policy",
+    )
+    require_contains(
+        power,
+        "LUNASHELL::build_mode::kAutomaticLightSleepEnabled",
+        "shared Debug/Release sleep policy",
     )
     require_contains(
         power,

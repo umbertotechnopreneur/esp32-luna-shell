@@ -1,5 +1,13 @@
 # Done
 
+## Shared main integration (2026-10-04)
+
+- [x] Merge Luna connectivity, hardware census, Debug/Release and Deep-sleep work
+  with Cody's typed face lifecycle, branding and performance HUD on `main`.
+  Preserve the existing worktree branches. Prepare standalone Wake frames with
+  panel output enabled at zero brightness before exposing the 300-ms fade.
+  Static source review only; build, tests and physical behavior remain unverified.
+
 ## Cody facial lifecycle and expression service implementation (2026-10-04)
 
 - [x] Render Calm/Happy/Calm from the first animated boot frame on ordinary
@@ -71,6 +79,34 @@
   `1df7ee0a` subsequently compiled and flashed on COM10 at explicit user
   request: 2,055,376-byte application, verified flash hash and hardware reset.
   No automated tests or simulator ran; runtime/size checks remain open.
+## Release touch/motion sleep policy (2026-10-04)
+
+- [x] Implement runtime `idle_sleep_s` (default 60 seconds), shared 300-ms fades,
+  Release transactional Deep-sleep with touch GPIO11 and QMI8658 INT2/GPIO21
+  accelerometer-only WoM, wake startup pin/IMU/display restoration and rejected
+  entry recovery. Debug retains CPU/USB/logs and 10-Hz software motion observation.
+  Update Luna Settings, canonical power snapshot and HTTP diagnostics. Source
+  review and GUI document generation only; validation and device evidence remain
+  open in `TODO.md`. No board-current or wake-latency claim.
+
+## Hardware power census (2026-10-04)
+
+- [x] Add the root hardware consumption census with manufacturer datasheet
+  references, typical/maximum/peak distinctions, rail conditions and explicit
+  unavailable currents. Extend the integration/JSON inventories with schematic
+  flash/amplifier identities and touch, IMU, PMU/RTC interrupt routing. Document
+  Deep-sleep/ULP candidates and current firmware limits. Source/PDF review only;
+  no build, test, hardware or electrical validation performed.
+
+## Common firmware build modes (2026-10-04)
+
+- [x] Add profile-independent Debug/Release selection to the public firmware CLI
+  and menu. Debug is the default; Release requires explicit selection. Isolate
+  generated configuration/build output and reject mode/log/power mismatches.
+  Apply Release warning/error logs, automatic Light-sleep eligibility, disabled
+  debug-only residency/frame/HUD work and reduced Cody static/parked polling.
+  Preserve errors, watchdogs and functional wake/acquisition contracts. Source
+  implementation and static review only; validation remains in `TODO.md`.
 
 ## Cody rendering checkpoint (2026-10-03)
 

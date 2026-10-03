@@ -8,6 +8,8 @@ set(LUNASHELL_platform_srcs
     "LUNASHELL_settings.cpp"
     "LUNASHELL_performance.cpp"
     "LUNASHELL_display_runtime.cpp"
+    "LUNASHELL_sleep.cpp"
+    "LUNASHELL_pairing_service.cpp"
 )
 
 set(LUNASHELL_platform_requires

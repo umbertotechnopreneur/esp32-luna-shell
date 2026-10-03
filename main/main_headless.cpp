@@ -8,7 +8,9 @@
 #include <string_view>
 
 #include "esp_log.h"
+#include "esp_system.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
@@ -128,8 +130,10 @@ void report_optional_startup_failure(
 // No parameters: start the profile's owners in watchdog-tracked, fail-fast stages.
 extern "C" void app_main(void)
 {
+    ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
     ESP_ERROR_CHECK(LUNASHELL_logger_init());
+    LUNASHELL::build_mode::log_startup_mode();
     ESP_ERROR_CHECK(LUNASHELL_liveness_init());
     StartupWatch startup_watch;
     ESP_LOGI(kTag, "Firmware boot");
@@ -165,10 +169,20 @@ extern "C" void app_main(void)
     }
 #endif
     startup_watch.progress("saved display settings");
+    if (esp_reset_reason() == ESP_RST_DEEPSLEEP) {
+        // The frame owner requires panel output enabled, but Wake must remain
+        // invisible until Cody has completed its first real frame.
+        ESP_ERROR_CHECK(LUNASHELL_display_prepare_dark_frame());
+    }
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     ESP_ERROR_CHECK(CODY_companion_start());
     startup_watch.progress("Cody boot frame and touch consumer");
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    // Cody start returns only after its first real Wake/Idle frame retires.
+    // Keep that ordering: restoring brightness earlier would expose stale pixels.
+    ESP_ERROR_CHECK(LUNASHELL_power_restore_wake_display());
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());

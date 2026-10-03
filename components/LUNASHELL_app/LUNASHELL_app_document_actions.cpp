@@ -303,7 +303,7 @@ std::expected<void, std::string> App::subscribe_screen_document_actions(
         TimingEventBinding{"LUNASHELL.settings.command_arc.changed", AdaptiveChromeTiming::CommandArc},
         TimingEventBinding{"LUNASHELL.settings.status_arc.changed", AdaptiveChromeTiming::StatusArc},
         TimingEventBinding{"LUNASHELL.settings.display_dim.changed", AdaptiveChromeTiming::DisplayDim},
-        TimingEventBinding{"LUNASHELL.settings.screen_sleep.changed", AdaptiveChromeTiming::ScreenSleep},
+        TimingEventBinding{"LUNASHELL.settings.screen_idle.changed", AdaptiveChromeTiming::ScreenIdle},
     };
     for (const auto &binding : timing_settings) {
         auto result = connect_action(

@@ -1,5 +1,10 @@
 # Low-power runtime acquisition
 
+The current inactivity/product policy is documented in
+[Release sleep and Debug observation](release-deep-sleep.md): runtime 60-second
+default, 300-ms fades, Release touch/IMU Deep-sleep and Debug CPU/USB retention.
+The acquisition optimizations below remain separate from electrical evidence.
+
 This document defines the bounded low-power acquisition changes. They reduce
 avoidable wakeups, I2C traffic, register reads, and routine serial output
 without changing configured healthy-stream cadences or weakening error

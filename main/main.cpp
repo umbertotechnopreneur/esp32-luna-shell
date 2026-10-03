@@ -26,6 +26,7 @@
 #include "LUNASHELL_app_identity.hpp"
 #include "../components/LUNASHELL_boot/include/LUNASHELL_boot.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
@@ -361,10 +362,13 @@ void brookesia_task()
 
 }  // namespace
 
+// No parameters: restore wake pins, then start the selected Brookesia firmware.
 extern "C" void app_main(void)
 {
+    ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
     ESP_ERROR_CHECK(LUNASHELL_logger_init());
+    LUNASHELL::build_mode::log_startup_mode();
     ESP_ERROR_CHECK(LUNASHELL_liveness_init());
     StartupWatch startup_watch;
     ESP_LOGI(kTag, "Firmware boot");
@@ -457,6 +461,11 @@ extern "C" void app_main(void)
         return;
     }
     startup_watch.progress("display settings");
+    const esp_err_t wake_display_error = LUNASHELL_power_restore_wake_display();
+    if (wake_display_error != ESP_OK) {
+        ESP_LOGE(kTag, "Wake display fade failed (%s)", esp_err_to_name(wake_display_error));
+        return;
+    }
 
     report_optional_startup_failure("time", LUNASHELL_time_init("UTC0"));
     startup_watch.progress("time service");

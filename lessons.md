@@ -6,6 +6,12 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Build profiles and resources
 
+- Debug/Release is a separate axis from the hardware graph. Default to Debug;
+  require explicit Release, isolate each mode's sdkconfig/build state and retain
+  the mode in recovery commands. Existing Release artifacts never imply intent.
+  Debug keeps USB awake; Release permits sleep with the unsafe USB SOF hook still
+  disabled. Source policy alone does not establish electrical savings.
+
 - ESP-IDF resolves components before project Kconfig. Each legal
   board/profile/feature variant needs a pre-Kconfig catalog of admitted roots,
   local component directories, defaults, and a reviewed dependency lock.
@@ -125,6 +131,27 @@ not substitutes for authorized device validation. Open work belongs in
   breathing/blinking as independent rhythmic channels when changing a base
   expression; ordinary boot intent must not silently replace Wake after an
   actual Deep-sleep reset.
+- Release standby enters touch/IMU Deep-sleep after quiescence; Debug keeps CPU,
+  USB and 10-Hz software motion observation awake. `idle_sleep_s` is measured
+  from real activity and defaults to 60 seconds; do not add the previous dim and
+  sleep-delay settings. Deep-sleep restarts owners and loses live radio sessions.
+- QMI8658C Rev A WoM needs CTRL9/STATUSINT CmdDone/ACK; the vendor convenience
+  helper does not perform that protocol and chooses unwired INT1. Check revision,
+  use INT2 initially high with EXT1 ANY_LOW, exclude host reads while WoM is armed,
+  and explicitly exit WoM after wake because the shared rail remains powered.
+- Keep touch scanning and its reset high for wake. Controller sleep that cannot
+  detect a finger is unsuitable. A powered GPS can dominate board current even
+  when its firmware feature is excluded; MCU sleep numbers are not board numbers.
+- EXT1 setup claims and holds RTC pads before the SDK may reject sleep. Release
+  both the RTC holds and mux on rejection and wake before digital touch IRQs
+  resume. Parked LVGL still needs an IRQ wake observer, without a second reader.
+
+- The published PCB routes touch IRQ to GPIO11 and QMI8658 INT2 to GPIO21;
+  both are RTC-capable wake candidates. IMU INT1, PMU IRQ and RTC INT go to
+  the TCA9554, whose INT output has no ESP connection. Keep these routes distinct.
+  The QMI8658 six-axis reference changes only from 757-758 uA at 500 Hz to
+  750 uA at 31.25 Hz (1.8 V datasheet conditions). Sensor power reduction needs
+  a gyro-off profile, not only slower host polling. See `hardware-inventory.md`.
 
 - Performance Mode is session-scoped; it must not overwrite saved settings or
   combine high-rate snapshots, diagnostics, verbose logs, and SD mirroring in
@@ -156,8 +183,9 @@ not substitutes for authorized device validation. Open work belongs in
   display state. Arc visibility, hit testing, viewport, brightness, and manual
   Fullscreen derive from the canonical snapshot. Disable Command Arc hit
   testing before hide fades and enable it only after show fades.
-- `Screen sleep after display dim` promises full transactional Device Standby,
-  not panel-off alone. Preserve requested diagnostics and orientation while
+- The former `Screen sleep after display dim` setting has been superseded by
+  an independent `Screen inactivity timeout`. Its expiry still requests full
+  transactional Device Standby. Preserve requested diagnostics and orientation while
   gating actual work; require a fresh active IMU sample before applying a
   pending rotation. Qualify motion with re-arm, consecutive samples,
   hysteresis, and transition cooldown.
