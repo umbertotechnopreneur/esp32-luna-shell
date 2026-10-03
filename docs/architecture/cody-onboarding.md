@@ -22,6 +22,13 @@ already-rendered Sleeping01 through that panel fade, without multiplying a secon
 two-second character fade over it; Waking02 and Ready03 then receive 4 seconds each.
 Standby and pause do not advance the Hello reading hold or typewriter.
 
+05 starts with the same large Cody placement as Hello. One reusable scene
+entrance moves it upward and halves its scale over 1 second, then waits 300 ms
+before revealing the title and captions sequentially at 45 ms per character.
+The same snapshot-based motion, blinking, breathing and elastic drag remain active.
+Happy now keeps both eyes open between natural blinks; its scene faces and named
+catalog preset are changed together, preserving the compile-time identity contract.
+
 ## QR and radio routing
 
 | Current route/action | Result |
@@ -82,8 +89,23 @@ the current caller; future Settings can reuse the same screen and IDs.
 - `CODY_scene` still owns cloud/title/optional content. `title_visible` explicitly
   hides the installation title without an empty/fallback glyph or a special renderer.
 - `CODY2D::CapsuleControl` shares full bounds between drawing and hit testing.
-  Actions reuse the existing Blue Primary anchors; Retry remains Primary. Back is
-  one left chevron at `(10,203)` in a 60x60 target, separate from content/footer.
+  OOBE uses discreet graphite circles with small light chevrons, not blue footer
+  buttons. Previous/Cancel occupies `(10,203,60,60)`; Next/Retry/Continue/Done
+  occupies `(396,203,60,60)`. Both are outside the safe square. Disabled actions
+  retain a dimmed target and cannot invoke a command. Back appears only for a
+  valid previous route; there is no synthetic navigation history.
+- A released horizontal swipe in the safe square invokes those same typed
+  navigation actions: left is Next, right is Previous. It needs 48 pixels of
+  displacement and horizontal dominance. Axis ownership locks after 12 pixels;
+  vertical look-list scroll and short Cody drags are retained. Route/orientation
+  changes cancel a pending gesture. Start/Retry/Cancel still await their real
+  backend state and confirmed cleanup; swipe never shortcuts those gates.
+- Debug Pause/Skeleton is independent of the OOBE route's Back/Next policy.
+  Rounded 44-pixel controls occupy the top rim, initially hidden until touch,
+  with 5-second inactivity and 330-ms fades. A reveal-only touch never triggers
+  a control, and toolbar contacts cannot become navigation swipes. Release
+  excludes these inspection controls. The top area remains reserved for later
+  battery/date/time chrome; that status implementation is not included here.
 - Logical drawing and acquired touch share the existing rotation owner. The cloud
   remains animated/reactive at each authored scale; QR modules are never warped.
 - One static 4-KiB action-worker stack moves Start/Retry/Cancel admission and QR
@@ -115,3 +137,5 @@ through `scripts/device.ps1 update-lock -Profile cody-companion -BuildMode Debug
 canonical lock comparison. Tests/build/flash require the user's explicit approvals.
 The scene asset generator completed for eight scenes. This source preparation
 is not firmware, simulator or physical-device validation.
+The rounded navigation/swipe/entrance/open-eye increment likewise has no new
+build, test, simulator run, flash or device observation.

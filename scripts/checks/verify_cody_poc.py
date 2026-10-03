@@ -27,6 +27,8 @@ from scripts.common.cody_rig_contract import (
 from scripts.common.cody_rig_types import FaceChannel, FillAntialiasing, face_channel
 from scripts.common.asset_provenance import text_source_hash
 from cody_coverage import FULL_COVERAGE, coverage_mask
+from cody_scene import ScenePainter
+from scripts.common.cody_navigation import load_navigation, NavigationVisibility
 from cody_preview_layout import PreviewLayout
 from cody_simulator import (
     CodyRenderer, CodyWindow, logical_touch, orient, physical_point, rgb565,
@@ -42,6 +44,40 @@ class RigContractTests(unittest.TestCase):
         cls.rig,cls.palette=load_contract()
         cls.transform=tuple(cls.rig['default_transform'][key] for key in ('x','y','scale'))
         cls.ready=cls.rig['boot_channels']['ready']
+
+    # self: Host context; this check uses authored layout clocks, never device samples.
+    def test_pair_entrance_and_delayed_caption_clock(self):
+        scenes = ScenePainter(ROOT, self.rig)
+        self.assertEqual(scenes.cloud_transform("pair-invitation", 0), (233, 225, 130))
+        self.assertEqual(scenes.cloud_transform("pair-invitation", 500), (233, 165, 97.5))
+        self.assertEqual(scenes.cloud_transform("pair-invitation", 1000), (233, 105, 65))
+        self.assertFalse(scenes.presentation("pair-invitation", 1299)[2])
+        self.assertTrue(scenes.presentation("pair-invitation", 1300)[2])
+        self.assertEqual(scenes.visible_characters("pair-invitation", 1345), 1)
+        self.assertEqual(scenes.visible_characters("pair-invitation", 1750), 10)
+        self.assertEqual(scenes.content_characters("pair-invitation", 1750, 20, 10), 0)
+        self.assertEqual(scenes.content_characters("pair-invitation", 1795, 20, 10), 1)
+
+    # self: Host context owning the authored circles and touch-only wall-clock policy.
+    def test_rounded_debug_tools_start_hidden_above_safe_area(self):
+        navigation = load_navigation(ROOT)
+        for control in navigation["controls"]:
+            if control["id"] != "back":
+                self.assertEqual(control["shape"], "circle")
+                self.assertLessEqual(control["bounds"][3], 73)
+        visibility = NavigationVisibility(navigation)
+        self.assertEqual(visibility.opacity(20_000_000), 0)
+        visibility.interact(20_000_000)
+        self.assertEqual(visibility.opacity(20_330_000), 255)
+        visibility.update(25_330_000)
+        self.assertEqual(visibility.opacity(25_330_000), 0)
+
+    # self: Host context; the named Happy atlas scenes must keep awake eyes between blinks.
+    def test_happy_scene_eyes_are_open(self):
+        scenes = ScenePainter(ROOT, self.rig)
+        for identity in ("greeting", "pair-invitation", "online", "cody-look"):
+            self.assertEqual(scenes.face(identity)[FaceChannel.EYE_LEFT], 1)
+            self.assertEqual(scenes.face(identity)[FaceChannel.EYE_RIGHT], 1)
 
     # self supplies the authored ready expression and stable channel-name mapping.
     # overrides contains only the facial channels changed by the current scenario.

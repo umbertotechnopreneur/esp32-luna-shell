@@ -24,14 +24,15 @@ The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
   fade-in. Generic scenes still support explicitly authored optional fades.
 - Place Cody at `(233, 225)` with scale `130`, versus the demo's `(233, 235)`
   and scale `145`: ten pixels higher and about ten percent smaller.
-- Select a happy squint, raised cheeks and an open smile. The same response
+- Select open happy eyes, raised cheeks and an open smile. The same response
   composer still supplies blinking, breathing, motion and valid snapshot input.
 - Reveal `Hi, I'm Cody!` in white, one character every 70 ms. The full line
   appears after 910 ms following the completed intro; pause/standby advances
   neither intro nor typewriter. Text, content, HUD and touch targets remain
   hidden during the intro.
-- Hide demo navigation. Hidden controls have no touch target; the greeting is
-  a root scene with no previous route. Eye interaction still uses the evaluated,
+- Hide Back; the greeting is a root scene with no previous route. In Debug,
+  touch can still reveal the rounded Pause/Skeleton toolbar above the safe square.
+  Eye interaction still uses the evaluated,
   optionally deformed face geometry. Admit the existing measured FPS/CPU readout
   below the title; its visibility remains a session preference.
 
@@ -50,6 +51,30 @@ fade multiplies RGB565 in the existing owned raster tile, respecting its byte
 order. Neither changes panel brightness or allocates a framebuffer. Opacity
 changes invalidate both old and new artwork bounds even if geometry is static.
 The Windows mirror follows the same phases; it remains explicitly synthetic.
+
+## Reusable entrance motion and teletype
+
+Every source definition explicitly declares `entrance.from`, `move_ms` and
+`text_delay_ms`. A zero movement duration keeps its authored final placement;
+there is no legacy-schema fallback. The frame owns one bounded active-time
+entrance clock, independent of sensor timestamps and the wall-clock Debug toolbar.
+The movement uses smoothstep between authored placements before the existing
+snapshot-based IMU/touch/breath response is composed. Pause/standby exclude time.
+
+05 / Let's pair starts at `(233,225,130)`, continuous with Hello, and moves to
+`(233,105,65)` over **1,000 ms**. After another **300 ms**, its title and three
+captions share one sequential **45 ms/character** teletype. No text or lateral
+action is admitted during the movement/wait. Later glyphs invalidate only content;
+lateral navigation has its own immutable revision and damage bounds.
+
+Scene generation can explicitly use `device.ps1 generate -Generator cody-scenes
+-ToolArguments '--definitions-only'` when only layout/timing/text changes: the
+committed ASCII glyph assets are retained unchanged. A font regeneration still
+requires an explicit `--font-path`; installed-font discovery or substitution is
+not introduced. The Windows scene helper mirrors movement, text delay and cadence.
+
+This entrance/control increment has source review and asset generation only;
+firmware build, tests, simulator execution and hardware deployment remain deferred.
 
 ## Settings and failure behavior
 

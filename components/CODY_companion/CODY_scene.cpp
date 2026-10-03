@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include "scene_data.hpp"
 #include "esp_log.h"
 
@@ -72,7 +73,8 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
         definition.name == nullptr || definition.name[0] == '\0' ||
         definition.character_interval_ms > 1000 || definition.title_top >= 466 ||
         definition.title.length == 0 || definition.intro.bitmap_fade_out_ms > 10000 ||
-        definition.intro.cloud_fade_in_ms > 10000) {
+        definition.intro.cloud_fade_in_ms > 10000 || definition.entrance.move_ms > 10000 ||
+        definition.entrance.text_delay_ms > 10000) {
         ESP_LOGE(kTag, "Scene definition rejected: identity=%u (%s)", to_index(definition.id),
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -88,6 +90,9 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
         return ESP_ERR_INVALID_ARG;
     }
     error = validate_rig_pose(definition.face, definition.cloud);
+    if (error == ESP_OK && definition.entrance.move_ms != 0) {
+        error = validate_rig_pose(definition.face, definition.entrance.from);
+    }
     if (error != ESP_OK) {
         return error;
     }
@@ -118,7 +123,8 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
     prepared.intro_phase = definition.intro.bitmap_fade_out_ms != 0 ? SceneIntroPhase::BitmapFadeOut :
         definition.intro.cloud_fade_in_ms != 0 ? SceneIntroPhase::CloudFadeIn : SceneIntroPhase::Complete;
     prepared.visible_characters = prepared.intro_phase == SceneIntroPhase::Complete &&
-        definition.character_interval_ms == 0 ? definition.title.length : 0;
+        definition.character_interval_ms == 0 && definition.entrance.move_ms == 0 &&
+        definition.entrance.text_delay_ms == 0 ? definition.title.length : 0;
     prepared.valid = true;
     frame = prepared;
     return ESP_OK;
@@ -185,6 +191,8 @@ esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation 
             ESP_LOGE(kTag, "Completed intro retains a phase clock (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
             return ESP_ERR_INVALID_STATE;
         }
+        prepared.content_visible = frame.entrance_elapsed_us >=
+            (frame.definition->entrance.move_ms + frame.definition->entrance.text_delay_ms) * 1000U;
         presentation = prepared;
         return ESP_OK;
     default:
@@ -238,6 +246,21 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
             ? SceneIntroPhase::CloudFadeIn : SceneIntroPhase::Complete;
         next.intro_elapsed_us = 0;
     }
+    const uint32_t text_start_us =
+        (next.definition->entrance.move_ms + next.definition->entrance.text_delay_ms) * 1000U;
+    const uint32_t previous_elapsed_us = next.entrance_elapsed_us;
+    // This bounded presentation clock may stop after all text is visible; it is
+    // not a sensor timestamp. Saturation prevents long-running screens wrapping.
+    next.entrance_elapsed_us = static_cast<uint32_t>(std::min<uint64_t>(
+        static_cast<uint64_t>(next.entrance_elapsed_us) + remaining_us,
+        std::numeric_limits<uint32_t>::max()));
+    if (previous_elapsed_us < text_start_us) {
+        remaining_us -= std::min<int64_t>(remaining_us, text_start_us - previous_elapsed_us);
+        if (next.entrance_elapsed_us < text_start_us) {
+            frame = next;
+            return ESP_OK;
+        }
+    }
     if (next.visible_characters == next.title.text.length) {
         frame = next;
         return ESP_OK;
@@ -262,10 +285,61 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
     return ESP_OK;
 }
 
+// frame: Valid generic scene, not a special-case screen number.
+// transform: Receives placement only after frame validation succeeds.
+// Exception: Returns ESP_ERR_INVALID_STATE for a missing scene definition.
+esp_err_t scene_cloud_transform(const SceneFrame &frame, Transform &transform)
+{
+    if (!frame.valid || frame.definition == nullptr) {
+        ESP_LOGE(kTag, "Entrance transform rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const auto &definition = *frame.definition;
+    const uint32_t duration_us = definition.entrance.move_ms * 1000U;
+    if (duration_us == 0 || frame.entrance_elapsed_us >= duration_us) {
+        transform = definition.cloud;
+        return ESP_OK;
+    }
+    const float progress = static_cast<float>(frame.entrance_elapsed_us) / duration_us;
+    const float eased = progress * progress * (3.f - 2.f * progress);
+    const auto &from = definition.entrance.from;
+    transform = {from.x + (definition.cloud.x - from.x) * eased,
+        from.y + (definition.cloud.y - from.y) * eased,
+        from.scale + (definition.cloud.scale - from.scale) * eased};
+    return ESP_OK;
+}
+
+// frame: Valid prepared frame; all timing derives from its active presentation clock.
+// length: Bounded ASCII character count of this content line.
+// preceding_characters: Earlier title/body characters sharing the same cadence.
+uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
+                                 uint16_t preceding_characters)
+{
+    const auto &definition = *frame.definition;
+    const uint32_t start_us = (definition.entrance.move_ms + definition.entrance.text_delay_ms) * 1000U;
+    if (frame.intro_phase != SceneIntroPhase::Complete || frame.entrance_elapsed_us < start_us) {
+        return 0;
+    }
+    const uint32_t interval_us = definition.character_interval_ms * 1000U;
+    if (interval_us == 0) {
+        return length;
+    }
+    const uint32_t total = (frame.entrance_elapsed_us - start_us) / interval_us;
+    return total <= preceding_characters ? 0 :
+        static_cast<uint16_t>(std::min<uint32_t>(length, total - preceding_characters));
+}
+
 // frame: Valid prepared scene whose content slot is updated after validation.
 // content: Immutable optional content, wholly below the title and within the circle.
 esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
 {
+    for (const auto &bounds : content.control_bounds) {
+        const bool empty_control = bounds.left == 0 && bounds.top == 0 && bounds.right == 0 && bounds.bottom == 0;
+        if (!empty_control && !inside_circle(bounds)) {
+            ESP_LOGE(kTag, "Scene control bounds leave the display (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
     const bool empty = content.draw_rows == nullptr && content.state == nullptr &&
         content.bounds.left == 0 && content.bounds.top == 0 &&
         content.bounds.right == 0 && content.bounds.bottom == 0;
@@ -321,17 +395,39 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
     }
     const auto &old_content = previous.content;
     const auto &new_content = current.content;
-    if ((previous.intro_phase == SceneIntroPhase::Complete) !=
-            (current.intro_phase == SceneIntroPhase::Complete) ||
+    ScenePresentation old_presentation;
+    ScenePresentation new_presentation;
+    esp_err_t error = prepare_scene_presentation(previous, old_presentation);
+    if (error == ESP_OK) {
+        error = prepare_scene_presentation(current, new_presentation);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    const bool visibility_changed = old_presentation.content_visible != new_presentation.content_visible;
+    if (visibility_changed ||
         old_content.revision != new_content.revision || old_content.state != new_content.state ||
         old_content.draw_rows != new_content.draw_rows || old_content.bounds.left != new_content.bounds.left ||
         old_content.bounds.top != new_content.bounds.top || old_content.bounds.right != new_content.bounds.right ||
         old_content.bounds.bottom != new_content.bounds.bottom) {
-        esp_err_t error = include_damage(plan, old_content.bounds);
+        error = include_damage(plan, old_content.bounds);
         if (error == ESP_OK) {
             error = include_damage(plan, new_content.bounds);
         }
-        return error;
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    if (visibility_changed || old_content.control_revision != new_content.control_revision) {
+        for (uint16_t index = 0; index < 2; ++index) {
+            error = include_damage(plan, old_content.control_bounds[index]);
+            if (error == ESP_OK) {
+                error = include_damage(plan, new_content.control_bounds[index]);
+            }
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
     }
     return ESP_OK;
 }

@@ -54,7 +54,7 @@ def load_scenes(root: Path, rig=None):
     if rig is None:
         rig, _ = load_contract(root)
     for scene in scenes:
-        require_keys(scene, {"id", "identity", "intro", "cloud", "face", "title",
+        require_keys(scene, {"id", "identity", "intro", "entrance", "cloud", "face", "title",
                             "navigation_visible", "readout_visible"}, "scene")
         name = scene["id"]
         identity = scene["identity"]
@@ -77,6 +77,17 @@ def load_scenes(root: Path, rig=None):
                 raise ValueError(f"{name}.cloud.{key}: expected a finite number")
         if not 0 <= cloud["x"] < 466 or not 0 <= cloud["y"] < 466 or not 20 <= cloud["scale"] <= 200:
             raise ValueError(f"{name}.cloud leaves the supported logical canvas")
+        entrance = scene["entrance"]
+        require_keys(entrance, {"from", "move_ms", "text_delay_ms"}, f"{name}.entrance")
+        require_keys(entrance["from"], {"x", "y", "scale"}, f"{name}.entrance.from")
+        for key, maximum in (("x", 465), ("y", 465), ("scale", 200)):
+            value = entrance["from"][key]
+            if (type(value) not in (int, float) or not math.isfinite(value)
+                    or not (20 if key == "scale" else 0) <= value <= maximum):
+                raise ValueError(f"{name}.entrance.from.{key}: invalid placement")
+        for key in ("move_ms", "text_delay_ms"):
+            if type(entrance[key]) is not int or not 0 <= entrance[key] <= 10000:
+                raise ValueError(f"{name}.entrance.{key}: invalid duration")
         face = scene["face"]
         require_keys(face, {channel.name.lower() for channel in FaceChannel}, f"{name}.face")
         if any(type(value) not in (int, float) or not math.isfinite(value) for value in face.values()):

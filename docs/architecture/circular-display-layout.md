@@ -21,31 +21,31 @@ file or a dependency on the Luna GUI.
 | Left navigation / Back | Origin (10, 203), 60 x 60, circular radius 30 |
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
-| Cody Debug Pause/Play | Upper-left annular segment, radii 167–223, 13–31 degrees left of the top |
-| Cody Debug Skeleton | Mirrored upper-right annular segment, same radii and angles |
+| Cody Debug Pause/Play | Circle centered at (158, 47), radius 22 |
+| Cody Debug Skeleton | Circle centered at (308, 47), radius 22 |
 
 The 60-pixel Back fits entirely to the left of the square: its right exclusive
 edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
 ten pixels inside the nominal circle at its widest horizontal chord.
 The complete bounding box also fits within the circle.
 
-The right navigation slot records available space in the source UI. A primary
-OOBE action such as Next, Pair Cody, or Setup guide can remain centered in the
-content area; it does not need to move into that slot.
+The right navigation slot hosts Cody's discreet forward chevron. Its circular
+60-pixel touch target stays separate from the QR and central content.
 
-The Cody Debug view places icon-only Pause/Play and Skeleton controls in two
-annular upper-rim segments. The source `assets/cody/navigation.json` generates
-the native table and supplies the simulator geometry; rendering and hit testing
-share the annulus and angular boundaries. Both targets remain inside radius 223,
-ten pixels inside the nominal rim. Their conservative logical bounds are
-`[118,196) x [15,90)` and `[270,348) x [15,90)`; the actual sector, not its
+The Cody Debug view places rounded, graphite Pause/Play and Skeleton controls
+along the upper rim. The source `assets/cody/navigation.json` generates the
+native table and supplies the simulator geometry and neutral RGB565 material.
+Rendering and hit testing share the circles. Both targets remain inside radius
+223 and completely above the safe square. Their logical bounds are
+`[136,180) x [25,69)` and `[286,330) x [25,69)`; the actual circle, not its
 rectangular damage box, defines the hit target. The physical owner maps these
 same targets through all cardinal rotations. The debug-view Back remains at
 its canonical position but `visible_by_default` is false, disabling paint and
 touch together. Route-specific OOBE Back/Cancel remains a separate control.
 
 These inspection controls are visible/interactable only in Debug firmware,
-not Release. Five seconds without touch starts a 330-ms fade-out. Touch reveals
+not Release, including OOBE screens. They start hidden: only touch reveals them.
+Five seconds without touch starts a 330-ms fade-out. Touch reveals
 them with a 330-ms fade-in; a press on a hidden/fading button reveals it without
 activating the action. The clock keeps running while the character is paused.
 Pause freezes the evaluated character and its animation clocks.
@@ -103,7 +103,8 @@ rectangle, including its white quiet zone, must remain unobstructed.
 Back uses the left lateral slot when a previous route exists. Its control and
 touch target must not overlap content or an independent action. It is not a
 left footer button. Render a single centered left-chevron icon, without the
-word Back. Preserve the 60 x 60 touch target and the shared blue gradient;
+word Back. Preserve the 60 x 60 touch target; Cody uses a subdued graphite fill
+and light chevron instead of Luna's blue gradient;
 the smaller icon does not reduce the interactive area. Back remains the
 semantic action name in layout data and navigation history.
 

@@ -15,6 +15,11 @@ first setup enters **04 / Hi, I'm Cody!** with the authored Happy face and
 monospace typewriter; a saved opt-out instead reaches **16 / Idle**. There is no second
 bitmap/cloud fade in the Hello scene.
 
+The authored `happy` preset now has fully open eyes (EyeLeft/EyeRight = 1),
+not the earlier 0.12 squint. Greeting04, PairInvitation05, Online09 and CodyLook11
+share that same named face; natural blink and protective eye-tap closure remain
+separate response effects, not a permanently closed happy expression.
+
 The source atlas names are **35A / Sleep**, **35B / Wake**, and **16 / Idle**.
 Calm and Happy are expression combinations, in a separate typed namespace from
 screen identities. The atlas recommends restoring the previous useful screen;

@@ -5,12 +5,14 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iterator>
 
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "scene_data.hpp"
+#include "navigation_data.hpp"
 #include "esp_log.h"
 #include "qrcode.h"
 #include "freertos/FreeRTOS.h"
@@ -29,7 +31,8 @@ constexpr uint16_t kBlueTop = 0x765E; // Authored #75CBF3 anchor.
 constexpr uint16_t kBlueBottom = 0x34FC; // Authored #359FE7 anchor.
 constexpr uint16_t kLookNeutralTop = 0x2946;
 constexpr uint16_t kLookNeutralBottom = 0x18C4;
-constexpr CODY2D::Rect kActionBounds{117, 380, 232, 48};
+constexpr uint16_t kCaptionWidth = 232;
+constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
 constexpr CODY2D::Rect kLookListViewport{117, 226, 232, 146};
 constexpr CODY2D::Rect kLookItemBase{117, 226, 220, 38};
@@ -45,6 +48,9 @@ enum class Route : uint8_t {
     None, Hello04, Invitation05, Install06, Scan06Bis, Pairing07, Failed08, Online09, Look11
 };
 enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel };
+enum class NavigationDirection : uint8_t { Previous, Next };
+enum class OnboardingAction : uint8_t { None, ShowQr, PairCody, Cancel, Retry, Continue, Done };
+enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
 struct QrModules {
     uint8_t bits[kQrBytes]{};
@@ -68,8 +74,10 @@ struct LookItem {
 struct ContentView {
     CODY2D::TextLine lines[3]{};
     uint8_t line_count = 0;
+    uint16_t visible_characters[3]{};
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
+    OnboardingAction action_id = OnboardingAction::None;
     QrModules qr{};
     char error_text[32]{};
     LookItem look_items[kLookItemCapacity]{};
@@ -82,6 +90,7 @@ ContentView s_view;
 Route s_route = Route::None;
 uint32_t s_generation = 1;
 uint32_t s_revision = 0;
+uint32_t s_navigation_revision = 0;
 uint32_t s_attempt = 0;
 uint32_t s_session = 0;
 bool s_command_pending = false;
@@ -97,6 +106,12 @@ bool s_look_touch_active = false;
 bool s_look_touch_dragged = false;
 int16_t s_look_touch_start_y = 0;
 uint16_t s_look_scroll_start = 0;
+bool s_swipe_active = false;
+CODY2D::Point s_swipe_start{};
+CODY2D::Point s_swipe_last{};
+Route s_swipe_route = Route::None;
+uint16_t s_swipe_rotation = 0;
+GestureAxis s_swipe_axis = GestureAxis::Undecided;
 
 // A single-slot mailbox keeps blocking radio admission and QR encoding off the
 // display worker. Release/acquire transfers ownership; no per-frame queue allocation.
@@ -253,7 +268,7 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
     const auto &font = SceneData::body_font;
     const size_t length = std::strlen(text);
     const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
-    if (length == 0 || length > 31 || width > kActionBounds.width || top + font.height > 466) {
+    if (length == 0 || length > 31 || width > kCaptionWidth || top + font.height > 466) {
         ESP_LOGE(kTag, "Caption rejected: length=%u width=%lu top=%u (%s)",
                  static_cast<unsigned>(length), static_cast<unsigned long>(width), top,
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
@@ -263,19 +278,32 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
-// text: Immutable action label, or nullptr to hide the action entirely.
+// action: Explicit route action; never inferred from an English label.
 // enabled: True only when the route has an admissible backend or navigation action.
-esp_err_t prepare_action(const char *text, bool enabled)
+// Exception: Rejects an unknown action identity without changing the view.
+esp_err_t prepare_action(OnboardingAction action, bool enabled)
 {
-    s_view.action_visible = text != nullptr;
-    s_view.action = {kActionBounds, {}, kBlueTop, kBlueBottom, enabled};
-    if (text == nullptr) {
-        return ESP_OK;
+    switch (action) {
+    case OnboardingAction::None:
+    case OnboardingAction::ShowQr:
+    case OnboardingAction::PairCody:
+    case OnboardingAction::Cancel:
+    case OnboardingAction::Retry:
+    case OnboardingAction::Continue:
+    case OnboardingAction::Done:
+        break;
+    default:
+        ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
     }
-    const uint16_t top = kActionBounds.y + (kActionBounds.height - SceneData::body_font.height) / 2U;
-    const esp_err_t error = prepare_caption(text, top, s_view.action.caption);
-    s_view.action.caption.color = 0x0001;
-    return error;
+    if (s_view.action_id != action || s_view.action.enabled != enabled) {
+        ++s_navigation_revision;
+    }
+    s_view.action_id = action;
+    s_view.action_visible = action != OnboardingAction::None;
+    const auto bounds = action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
+    s_view.action = {bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
+    return ESP_OK;
 }
 
 // No parameters: maximum list displacement that still ends on the last authored row.
@@ -334,7 +362,7 @@ esp_err_t prepare_look_list()
             return error;
         }
     }
-    return prepare_action("Done", true);
+    return prepare_action(OnboardingAction::Done, true);
 #endif
 }
 
@@ -475,14 +503,11 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     const auto &view = *static_cast<const ContentView *>(state);
     esp_err_t error = draw_qr_rows(view.qr, strip, first_row, first_column);
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
-        error = CODY2D::draw_text_rows(view.lines[index], view.lines[index].text.length,
+        error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
     }
     if (error == ESP_OK) {
         error = draw_look_list(view, strip, first_row, first_column);
-    }
-    if (error == ESP_OK && view.action_visible) {
-        error = CODY2D::draw_capsule_rows(view.action, strip, first_row, first_column);
     }
     return error;
 }
@@ -491,11 +516,19 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
 // Exception: Returns the scene-content validation error without replacing the frame.
 esp_err_t attach_content(SceneFrame &scene)
 {
+    uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
+    for (uint8_t index = 0; index < s_view.line_count; ++index) {
+        s_view.visible_characters[index] = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
+        preceding += s_view.lines[index].text.length;
+    }
+    const DamageRect controls[] = {{10, 203, 70, 263}, {396, 203, 456, 263}};
     if (s_route == Route::Look11) {
         SceneContent content;
         content.bounds = {117, 226, 349, 436};
         content.state = &s_view;
         content.revision = ++s_revision;
+        content.control_revision = s_navigation_revision;
+        std::copy(std::begin(controls), std::end(controls), content.control_bounds);
         content.draw_rows = draw_content;
         return set_scene_content(scene, content);
     }
@@ -505,6 +538,8 @@ esp_err_t attach_content(SceneFrame &scene)
     content.bounds = {117, top, 349, 428};
     content.state = &s_view;
     content.revision = ++s_revision;
+    content.control_revision = s_navigation_revision;
+    std::copy(std::begin(controls), std::end(controls), content.control_bounds);
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
 }
@@ -554,6 +589,8 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     wipe(&s_view, sizeof(s_view));
     s_look_touch_active = false;
     s_look_touch_dragged = false;
+    s_swipe_active = false;
+    ++s_navigation_revision;
     s_route = route;
     if (route == Route::Invitation05) {
         constexpr const char *captions[] = {"We'll show a QR code.", "Scan it to install", "the pairing app."};
@@ -564,9 +601,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             }
             ++s_view.line_count;
         }
-        error = prepare_action("Show QR", true);
+        error = prepare_action(OnboardingAction::ShowQr, true);
     } else if (route == Route::Install06) {
-        error = prepare_action("Pair Cody", !s_command_pending);
+        error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
     } else if (route == Route::Scan06Bis) {
         error = prepare_caption("Scan inside the", 372, s_view.lines[0]);
         if (error == ESP_OK) {
@@ -574,21 +611,21 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         s_view.line_count = 2;
     } else if (route == Route::Pairing07) {
-        error = prepare_action("Cancel", s_pairing_owned && !s_command_pending);
+        error = prepare_action(OnboardingAction::Cancel, s_pairing_owned && !s_command_pending);
     } else if (route == Route::Failed08) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
             static_cast<unsigned long>(s_visible_error));
         error = prepare_caption(s_view.error_text, 348, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_action(nullptr, false); // A current observation enables Retry/Cancel separately.
+            error = prepare_action(OnboardingAction::None, false); // A current observation enables Retry/Cancel separately.
         }
     } else if (route == Route::Online09) {
         error = prepare_caption("Wi-Fi connected", 350, s_view.lines[0]);
         s_view.line_count = 1;
 #if CODY_ENABLE_PEARL_JELLY
         if (error == ESP_OK) {
-            error = prepare_action("Continue", true);
+            error = prepare_action(OnboardingAction::Continue, true);
         }
 #endif
     } else if (route == Route::Look11) {
@@ -648,6 +685,9 @@ void reset_onboarding()
     s_look_touch_dragged = false;
     s_look_touch_start_y = 0;
     s_look_scroll_start = 0;
+    s_swipe_active = false;
+    s_swipe_route = Route::None;
+    s_swipe_axis = GestureAxis::Undecided;
     wipe(&s_view, sizeof(s_view));
 }
 
@@ -698,6 +738,24 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         changed = true;
         return enter_route(Route::Invitation05, scene);
     }
+    if (!scene.valid || scene.definition == nullptr) {
+        ESP_LOGE(kTag, "Active route has no prepared scene (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
+    bool caption_changed = false;
+    for (uint8_t index = 0; index < s_view.line_count; ++index) {
+        const uint16_t visible = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
+        caption_changed = caption_changed || visible != s_view.visible_characters[index];
+        preceding += s_view.lines[index].text.length;
+    }
+    if (caption_changed) {
+        const esp_err_t caption_error = attach_content(scene);
+        if (caption_error != ESP_OK) {
+            return caption_error;
+        }
+        changed = true;
+    }
     if (s_route == Route::Look11) {
         wipe(&result, sizeof(result));
         return ESP_OK;
@@ -724,7 +782,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 s_local_failure = true;
                 error = show_error(scene, result.error);
                 if (error == ESP_OK) {
-                    error = prepare_action("Retry", true);
+                    error = prepare_action(OnboardingAction::Retry, true);
                     if (error == ESP_OK) {
                         error = attach_content(scene);
                     }
@@ -733,7 +791,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         } else if (result.command.work == Work::InstallQr && s_route == Route::Install06) {
             s_local_failure = false;
             s_view.qr = result.qr;
-            error = prepare_action("Pair Cody", true);
+            error = prepare_action(OnboardingAction::PairCody, true);
             if (error == ESP_OK) {
                 error = attach_content(scene);
             }
@@ -787,7 +845,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             if (error == ESP_OK) {
                 const bool can_retry = pairing.cleanup_error == ESP_OK;
                 const bool can_cancel = pairing.state == PairState::Failed && !can_retry;
-                error = prepare_action(can_retry ? "Retry" : can_cancel ? "Cancel" : nullptr,
+                error = prepare_action(can_retry ? OnboardingAction::Retry : can_cancel ? OnboardingAction::Cancel : OnboardingAction::None,
                     (can_retry || can_cancel) && !s_command_pending);
                 if (error == ESP_OK) {
                     error = attach_content(scene);
@@ -799,7 +857,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = enter_route(Route::Pairing07, scene);
             }
             if (error == ESP_OK) {
-                error = prepare_action("Cancel", !s_command_pending &&
+                error = prepare_action(OnboardingAction::Cancel, !s_command_pending &&
                     pairing.state != PairState::Cancelling && pairing.state != PairState::Completing);
                 if (error == ESP_OK) {
                     error = attach_content(scene);
@@ -847,7 +905,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 changed = true;
                 error = enter_route(Route::Pairing07, scene);
                 if (error == ESP_OK) {
-                    error = prepare_action(nullptr, false);
+                    error = prepare_action(OnboardingAction::None, false);
                 }
                 if (error == ESP_OK) {
                     error = prepare_caption("Waiting for Wi-Fi", 350, s_view.lines[0]);
@@ -921,60 +979,38 @@ esp_err_t select_look_at(SceneFrame &scene, CODY2D::Point point)
 #endif
 }
 
-// scene: Current route, never advanced on unconfirmed cancellation/cleanup.
-// point: Real logical sample, not an inferred gesture coordinate.
-// pressed: Current hardware contact state.
-// pressed_edge: True only for the first pressed sample of this contact.
-// consumed: True while an OOBE control owns this contact or its release.
-// Exception: Returns the real persistence, snapshot, command or route error.
-esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
-                                  bool pressed, bool pressed_edge, bool &consumed)
+// No parameters: only routes with a real previous destination expose Back.
+bool previous_navigation_available()
 {
-    consumed = false;
-    CODY2D::CapsuleControl back{kBackBounds, {}, kBlueTop, kBlueBottom, true};
-    const bool back_visible = s_route == Route::Install06 || s_route == Route::Scan06Bis ||
-        s_route == Route::Look11;
-    const bool back_hit = back_visible && CODY2D::capsule_contains(back, point);
-    CODY2D::CapsuleControl action_target = s_view.action;
-    action_target.enabled = true; // A gated control still owns the gesture, not the cloud.
-    const bool action_hit = s_view.action_visible && CODY2D::capsule_contains(action_target, point);
-    if (s_route == Route::Look11 && s_look_touch_active) {
-        consumed = true;
-        if (pressed) {
-            const int displacement = s_look_touch_start_y - point.y;
-            if (std::abs(displacement) >= kLookDragThreshold) {
-                s_look_touch_dragged = true;
-            }
-            const int next_scroll = std::clamp<int>(s_look_scroll_start + displacement,
-                0, look_scroll_limit());
-            if (next_scroll != s_view.look_scroll) {
-                s_view.look_scroll = static_cast<uint16_t>(next_scroll);
-                return attach_content(scene);
-            }
-            return ESP_OK;
-        }
-        s_look_touch_active = false;
-        const bool tap = !s_look_touch_dragged && point_in_rect(kLookListViewport, point);
-        s_look_touch_dragged = false;
-        return tap ? select_look_at(scene, point) : ESP_OK;
-    }
-    if (s_route == Route::Look11 && pressed_edge && point_in_rect(kLookListViewport, point)) {
-        s_look_touch_active = true;
-        s_look_touch_dragged = false;
-        s_look_touch_start_y = point.y;
-        s_look_scroll_start = s_view.look_scroll;
-        consumed = true;
-        return ESP_OK;
-    }
-    if (!pressed_edge) {
-        return ESP_OK;
-    }
+    return s_route == Route::Install06 || s_route == Route::Scan06Bis ||
+        s_route == Route::Look11 ||
+        (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
+}
+
+// No parameters: forward actions retain their backend admission and enabled state.
+bool next_navigation_available()
+{
+    return s_view.action_visible && s_view.action_id != OnboardingAction::Cancel;
+}
+
+// scene: Current route, never advanced on unconfirmed cancellation/cleanup.
+// direction: Explicit previous/next intent, shared by tap and released swipe.
+// Exception: Returns the real persistence, snapshot, command or route error.
+esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection direction)
+{
+    const bool back_hit = direction == NavigationDirection::Previous && previous_navigation_available();
+    const bool action_hit = direction == NavigationDirection::Next && next_navigation_available();
     if (!back_hit && !action_hit) {
         return ESP_OK;
     }
-    consumed = true;
-    if (s_command_pending || (action_hit && !s_view.action.enabled)) {
+    const bool cancel_hit = back_hit && s_view.action_id == OnboardingAction::Cancel;
+    if (s_command_pending || ((action_hit || cancel_hit) && !s_view.action.enabled)) {
         return ESP_OK;
+    }
+    ScenePresentation presentation;
+    const esp_err_t presentation_error = prepare_scene_presentation(scene, presentation);
+    if (presentation_error != ESP_OK || !presentation.content_visible) {
+        return presentation_error;
     }
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);
@@ -1040,8 +1076,126 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         // Retire the session's secret immediately; navigation still awaits Cancelled.
         return enter_route(Route::Pairing07, scene);
     }
-    const esp_err_t action_error = prepare_action("Cancel", false);
+    const esp_err_t action_error = prepare_action(OnboardingAction::Cancel, false);
     return action_error == ESP_OK ? attach_content(scene) : action_error;
+}
+
+// scene: Current route; swipes use the exact same gated actions as the chevrons.
+// point: Real logical coordinate from the existing touch acquisition owner.
+// pressed: Actual contact state, not an inferred sensor value.
+// pressed_edge: True only for the first pressed sample of the contact.
+// rotation_degrees: Shared evaluated orientation, never a second sensor read.
+// consumed: True for controls/list gestures and a recognized navigation release.
+// Exception: Returns the real route, persistence, snapshot or action error.
+esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
+                                  bool pressed, bool pressed_edge, uint16_t rotation_degrees, bool &consumed)
+{
+    consumed = false;
+    if (s_route == Route::None || s_route == Route::Hello04) {
+        return ESP_OK;
+    }
+    if (s_swipe_route != s_route || (s_swipe_active && s_swipe_rotation != rotation_degrees)) {
+        s_swipe_active = false;
+        s_look_touch_active = false;
+        s_look_touch_dragged = false;
+    }
+    const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
+    const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
+    if (pressed_edge) {
+        const bool back_hit = previous_navigation_available() && CODY2D::capsule_contains(back, point);
+        const bool next_hit = next_navigation_available() && CODY2D::capsule_contains(next, point);
+        if (back_hit || next_hit) {
+            consumed = true;
+            return activate_onboarding_navigation(scene,
+                back_hit ? NavigationDirection::Previous : NavigationDirection::Next);
+        }
+        // A candidate does not steal Cody's drag. Only an unmistakable horizontal
+        // release navigates; vertical drags retain the look-list's scroll behavior.
+        s_swipe_active = point_in_rect({73, 73, 320, 320}, point);
+        s_swipe_start = point;
+        s_swipe_last = point;
+        s_swipe_route = s_route;
+        s_swipe_rotation = rotation_degrees;
+        s_swipe_axis = GestureAxis::Undecided;
+        if (s_route == Route::Look11 && point_in_rect(kLookListViewport, point)) {
+            s_look_touch_active = true;
+            s_look_touch_dragged = false;
+            s_look_touch_start_y = point.y;
+            s_look_scroll_start = s_view.look_scroll;
+        }
+    }
+    if (pressed && s_swipe_active) {
+        s_swipe_last = point;
+        const int dx = std::abs(point.x - s_swipe_start.x);
+        const int dy = std::abs(point.y - s_swipe_start.y);
+        if (s_swipe_axis == GestureAxis::Undecided && std::max(dx, dy) >= 12) {
+            if (dx * 2 > dy * 3) {
+                s_swipe_axis = GestureAxis::Horizontal;
+            } else if (dy * 2 > dx * 3) {
+                s_swipe_axis = GestureAxis::Vertical;
+            }
+        }
+    }
+    if (!pressed && s_swipe_active) {
+        s_swipe_active = false;
+        const int dx = s_swipe_last.x - s_swipe_start.x;
+        const int dy = s_swipe_last.y - s_swipe_start.y;
+        if (s_swipe_axis == GestureAxis::Horizontal && std::abs(dx) >= 48 &&
+            std::abs(dx) * 2 > std::abs(dy) * 3) {
+            s_look_touch_active = false;
+            s_look_touch_dragged = false;
+            consumed = true;
+            return activate_onboarding_navigation(scene,
+                dx < 0 ? NavigationDirection::Next : NavigationDirection::Previous);
+        }
+    }
+    if (s_route == Route::Look11 && s_look_touch_active) {
+        consumed = true;
+        if (pressed) {
+            const int displacement = s_look_touch_start_y - point.y;
+            if (std::abs(displacement) >= kLookDragThreshold || s_swipe_axis == GestureAxis::Horizontal) {
+                s_look_touch_dragged = true;
+            }
+            if (s_swipe_axis == GestureAxis::Horizontal) {
+                return ESP_OK;
+            }
+            const int scroll = std::clamp<int>(s_look_scroll_start + displacement, 0, look_scroll_limit());
+            if (scroll != s_view.look_scroll) {
+                s_view.look_scroll = static_cast<uint16_t>(scroll);
+                return attach_content(scene);
+            }
+            return ESP_OK;
+        }
+        s_look_touch_active = false;
+        const bool tap = !s_look_touch_dragged && point_in_rect(kLookListViewport, s_swipe_last);
+        s_look_touch_dragged = false;
+        return tap ? select_look_at(scene, s_swipe_last) : ESP_OK;
+    }
+    return ESP_OK;
+}
+
+// direction: Icon orientation in the same logical coordinate basis as touch.
+// enabled: Disabled actions keep their full target but use dimmer ink.
+// strip: Caller-owned destination tile, including the lateral region.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the first real capsule or stroke drawing error.
+esp_err_t draw_navigation_chevron(NavigationDirection direction, bool enabled,
+                                  CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    const auto bounds = direction == NavigationDirection::Previous ? kBackBounds : kForwardBounds;
+    const CODY2D::CapsuleControl control{bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
+    esp_err_t error = CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
+    const float center_x = bounds.x + bounds.width / 2.f;
+    const float center_y = bounds.y + bounds.height / 2.f;
+    const float sign = direction == NavigationDirection::Previous ? -1.f : 1.f;
+    const CODY2D::Vec2 points[] = {{center_x - sign * 3.f, center_y - 8.f},
+        {center_x + sign * 5.f, center_y}, {center_x - sign * 3.f, center_y + 8.f}};
+    const uint16_t ink = CODY2D::fade_rgb565_to_black(NavigationData::ink, enabled ? 255 : 128);
+    for (uint16_t index = 0; error == ESP_OK && index < 2; ++index) {
+        error = CODY2D::stroke_rows(strip, first_row, points[index], points[index + 1U], 2.f, ink, first_column);
+    }
+    return error;
 }
 
 // strip: Valid caller-owned logical tile outside the content slot as well.
@@ -1051,29 +1205,17 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
 esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
                                     uint16_t first_column)
 {
-    if (s_route != Route::Install06 && s_route != Route::Scan06Bis &&
-        s_route != Route::Look11) {
-        return ESP_OK;
+    esp_err_t error = ESP_OK;
+    if (previous_navigation_available()) {
+        const bool enabled = !s_command_pending &&
+            (s_view.action_id != OnboardingAction::Cancel || s_view.action.enabled);
+        error = draw_navigation_chevron(NavigationDirection::Previous, enabled, strip, first_row, first_column);
     }
-    const CODY2D::CapsuleControl back{kBackBounds, {}, kBlueTop, kBlueBottom, true};
-    const esp_err_t error = CODY2D::draw_capsule_rows(back, strip, first_row, first_column);
-    if (error != ESP_OK) {
-        return error;
+    if (error == ESP_OK && next_navigation_available()) {
+        error = draw_navigation_chevron(NavigationDirection::Next, !s_command_pending && s_view.action.enabled,
+            strip, first_row, first_column);
     }
-    for (int row = std::max<int>(first_row, 223); row < std::min<int>(first_row + strip.height, 244); ++row) {
-        const int center = 35 + std::abs(row - 233);
-        const int left = std::max<int>(first_column, center - 2);
-        const int right = std::min<int>(first_column + strip.width, center + 2);
-        if (right > left) {
-            const esp_err_t fill_error = CODY2D::fill_rect(strip,
-                {static_cast<uint16_t>(left - first_column), static_cast<uint16_t>(row - first_row),
-                 static_cast<uint16_t>(right - left), 1}, 0x0001);
-            if (fill_error != ESP_OK) {
-                return fill_error;
-            }
-        }
-    }
-    return ESP_OK;
+    return error;
 }
 
 } // namespace CODY

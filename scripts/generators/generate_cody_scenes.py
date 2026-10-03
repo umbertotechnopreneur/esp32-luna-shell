@@ -64,15 +64,12 @@ def bake_font(font_path: Path, document):
     return bytes(coverage), width, height, advance, row_bytes
 
 
-# argv: Literal generator arguments forwarded by scripts/device.ps1.
-# Raises OSError for input/output failures and ValueError for invalid authoring or fonts.
-def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--font-path", required=True, type=Path)
-    args = parser.parse_args(argv)
-    document = load_scenes(ROOT)
-    coverage, width, height, advance, row_bytes = bake_font(args.font_path, document)
-    count = document["font"]["last_character"] - document["font"]["first_character"] + 1
+# document: Strict scene source, including reusable entrance timing and placement.
+# width: Existing ASCII glyph cell width.
+# height: Existing ASCII glyph cell height.
+# advance: Existing monospace advance, independent of placement animation.
+# Raises ValueError for a title that leaves its supported safe bounds.
+def definition_header(document, width, height, advance):
     header = [
         "// Generated via scripts/device.ps1 generate -Generator cody-scenes.",
         "#pragma once", '#include "CODY_scene.hpp"',
@@ -85,6 +82,7 @@ def main(argv=None):
     for scene in document["scenes"]:
         cloud = scene["cloud"]
         intro = scene["intro"]
+        entrance = scene["entrance"]
         title = scene["title"]
         text_width = (len(title["text"]) - 1) * advance + width
         origin_x = (466 - text_width) // 2
@@ -96,6 +94,7 @@ def main(argv=None):
                     raise ValueError(f"Scene {scene['id']} title leaves the circular display")
         channels = ", ".join(cpp_float(scene["face"][channel.name.lower()]) for channel in FaceChannel)
         transform = ", ".join(cpp_float(cloud[key]) for key in ("x", "y", "scale"))
+        entrance_from = ", ".join(cpp_float(entrance["from"][key]) for key in ("x", "y", "scale"))
         name = SCENE_IDENTITIES[scene["id"]][1]
         flags = ", ".join(str(scene[key]).lower() for key in ("navigation_visible", "readout_visible"))
         header.extend([
@@ -103,10 +102,38 @@ def main(argv=None):
             f"        {{{intro['bitmap_fade_out_ms']}, {intro['cloud_fade_in_ms']}}},",
             f"        {{{{{channels}}}}}, &title_font,",
             f'        {{{json.dumps(title["text"])}, {len(title["text"])}}},',
-            f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()}",
+            f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()},",
+            f"        {{{{{entrance_from}}}, {entrance['move_ms']}, {entrance['text_delay_ms']}}}",
             "    },",
         ])
     header.extend(["};", "} // namespace CODY::SceneData"])
+    return "\n".join(header) + "\n"
+
+
+# argv: Literal source-generation arguments forwarded by scripts/device.ps1.
+# Raises OSError for missing inputs and ValueError for invalid scene/font contracts.
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--font-path", type=Path)
+    mode.add_argument("--definitions-only", action="store_true",
+                      help="Regenerate layouts explicitly, retaining unchanged committed ASCII fonts")
+    args = parser.parse_args(argv)
+    document = load_scenes(ROOT)
+    if args.definitions_only:
+        manifest = json.loads((OUTPUT / "manifest.json").read_text(encoding="utf-8"))
+        if (manifest["schema"] != "cody.scene-font.v1" or manifest["first_character"] != 32
+                or manifest["character_count"] != 95):
+            raise ValueError("Definition-only generation requires the current committed ASCII font")
+        header = definition_header(document, manifest["width"], manifest["height"], manifest["advance"])
+        manifest["scenes_sha256"] = scene_source_hash(ROOT)
+        (OUTPUT / "scene_data.hpp").write_text(header, encoding="utf-8")
+        (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        print(f"Generated {len(document['scenes'])} scene definitions; ASCII glyph assets unchanged")
+        return
+    coverage, width, height, advance, row_bytes = bake_font(args.font_path, document)
+    count = document["font"]["last_character"] - document["font"]["first_character"] + 1
+    header = definition_header(document, width, height, advance)
     source = [
         "// Cody Title Mono coverage; derived from JetBrains Mono, SIL OFL 1.1.",
         "// Copyright 2020 The JetBrains Mono Project Authors. See ../OFL.txt.",
@@ -129,7 +156,7 @@ def main(argv=None):
         "note": "Source asset generation only; no firmware or simulator validation.",
     }
     OUTPUT.mkdir(parents=True, exist_ok=True)
-    (OUTPUT / "scene_data.hpp").write_text("\n".join(header) + "\n", encoding="utf-8")
+    (OUTPUT / "scene_data.hpp").write_text(header, encoding="utf-8")
     (OUTPUT / "scene_font.cpp").write_text("\n".join(source) + "\n", encoding="utf-8")
     # A second, small ASCII face lives in flash for reusable captions/actions.
     # It reuses the same licensed source, never a runtime glyph cache.

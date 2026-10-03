@@ -18,6 +18,12 @@ struct SceneIntroDefinition {
     uint16_t cloud_fade_in_ms;
 };
 
+struct SceneEntranceDefinition {
+    Transform from{};
+    uint16_t move_ms = 0;
+    uint16_t text_delay_ms = 0;
+};
+
 struct SceneDefinition {
     SceneId id;
     const char *name;
@@ -32,6 +38,7 @@ struct SceneDefinition {
     bool navigation_visible;
     bool readout_visible;
     bool title_visible = true;
+    SceneEntranceDefinition entrance{};
 };
 
 // Optional caller-owned content, e.g. text, a button or a QR in a later scene.
@@ -41,6 +48,8 @@ struct SceneContent {
     DamageRect bounds{};
     const void *state = nullptr;
     uint32_t revision = 0;
+    DamageRect control_bounds[2]{};
+    uint32_t control_revision = 0;
     // state: Immutable content owned by the caller through complete frame retirement.
     // strip: Borrowed tile clipped to this content slot; never submit a display transaction.
     // first_row: Logical y origin shared with cloud and title.
@@ -57,6 +66,7 @@ struct SceneFrame {
     uint32_t character_remainder_us = 0;
     SceneIntroPhase intro_phase = SceneIntroPhase::Complete;
     uint32_t intro_elapsed_us = 0;
+    uint32_t entrance_elapsed_us = 0;
     bool valid = false;
 };
 
@@ -85,6 +95,17 @@ esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title);
 // frame: Current prepared scene; unchanged if the request is invalid.
 // active_delta_us: Nonnegative animation time, excluding pause and standby intervals.
 esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us);
+
+// frame: Prepared scene whose entrance clock excludes pause and standby.
+// transform: Receives the reusable animated placement before IMU/touch composition.
+// Exception: Returns the real scene-state error; never substitutes a placement.
+esp_err_t scene_cloud_transform(const SceneFrame &frame, Transform &transform);
+
+// frame: Prepared scene with its authored delay and character cadence.
+// length: Counted ASCII characters in this content line.
+// preceding_characters: Title and preceding lines already in the teletype sequence.
+uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
+                                 uint16_t preceding_characters);
 
 // frame: Valid prepared scene whose content slot is updated after validation.
 // content: Immutable optional content, wholly below the title and within the circle.

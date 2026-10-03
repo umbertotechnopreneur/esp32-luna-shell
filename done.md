@@ -1,5 +1,22 @@
 # Done
 
+## Rounded Cody controls, swipe and reusable scene entrance (2026-10-04)
+
+- [x] Replace Debug upper-rim sectors with small rounded graphite controls,
+  fully outside the safe square. Remove startup visibility priming; touch
+  reveals Pause/Skeleton on OOBE too, with existing 5-second/330-ms timing.
+- [x] Move OOBE actions to discreet lateral chevrons. Route released horizontal
+  swipes through the same gated actions, retaining vertical look-list scrolling,
+  short cloud drags and confirmed pairing cancellation/cleanup.
+- [x] Add authored reusable cloud entrance and delayed sequential teletype.
+  Let's pair moves/shrinks for 1 second, waits 300 ms, then types its title and
+  captions. Keep snapshot-based character response and bounded fixed storage.
+- [x] Open Happy's eyes across its named preset and atlas scenes, retaining blink.
+  Generate definitions without rebaking unchanged ASCII glyph assets.
+  Source review and source generation only; no tests, build, simulator run,
+  flash or post-change physical observation. QR white-theme/layout decision is
+  separate from this checkpoint.
+
 ## Offline SD logging and native USB readback (2026-10-04)
 
 - [x] Enable the existing SD owner and FAT long filenames for Cody. Capture

@@ -170,6 +170,7 @@ struct CompanionState {
     bool face_follows_body = false;
 #endif
     bool touch_pressed = false;
+    bool navigation_touch_active = false;
     bool body_drag_active = false;
     LUNASHELL::CharacterTouchSnapshot body_drag{};
     uint16_t rendered_rotation_degrees = 0;
@@ -631,8 +632,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         }
     }
     if (next_scene.valid) {
-        base_transform = next_scene.definition->cloud;
-        const esp_err_t scene_error = CODY::advance_scene(next_scene, animation_delta_us);
+        esp_err_t scene_error = CODY::advance_scene(next_scene, animation_delta_us);
+        if (scene_error == ESP_OK) {
+            scene_error = CODY::scene_cloud_transform(next_scene, base_transform);
+        }
         if (scene_error != ESP_OK) {
             return scene_error;
         }
@@ -1009,6 +1012,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             geometry_error = evaluate_companion_geometry(timings.started_us, resume_animation);
         } else if (!s_resources.rig->valid) {
             geometry_error = ESP_ERR_INVALID_STATE;
+        } else if (s_state.scene.valid && (!s_cached_scene.valid ||
+                   s_cached_scene.definition != s_state.scene.definition)) {
+            // Navigation may change layout while animation is paused. Reposition
+            // the saved face/contour without advancing time or sampling sensors.
+            CODY::Transform placement;
+            geometry_error = CODY::scene_cloud_transform(s_state.scene, placement);
+            if (geometry_error == ESP_OK) {
+                geometry_error = CODY::evaluate_rig(s_state.response_frame.face, placement,
+                    *s_resources.rig, &s_state.contour, s_state.face_follows_body);
+            }
+            if (geometry_error == ESP_OK) {
+                s_state.response_frame.transform = placement;
+            }
         } else if (s_resources.rig->face_deformed != s_state.face_follows_body) {
             // A preference switch must also work while paused. Rebuild only the
             // saved pose; do not sample sensors or advance expression/motion clocks.
@@ -1658,26 +1674,43 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         const uint8_t previous_opacity = s_state.navigation_visibility.opacity(point.sample_timestamp_us);
         reveal_only = eligible && pressed_edge && previous_opacity != 255 &&
             CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;
+        if (pressed_edge) {
+            s_state.navigation_touch_active = eligible &&
+                CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;
+        }
         if (point.pressed || s_state.touch_pressed) {
             s_state.navigation_visibility.interact(point.sample_timestamp_us);
             s_state.frame_dirty.store(true, std::memory_order_release);
         }
     }
     s_state.touch_pressed = point.pressed;
+    const bool debug_control_contact = s_state.navigation_touch_active;
+    if (!point.pressed) {
+        s_state.navigation_touch_active = false;
+    }
+    if (debug_control_contact && !pressed_edge) {
+        return ESP_OK; // A Pause/Skeleton contact never becomes an onboarding swipe.
+    }
     if (reveal_only) {
         s_state.body_drag_active = false;
         return ESP_OK;
     }
-    if (s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
+    if (!debug_control_contact && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
         CODY::lifecycle_is_resting(s_state.lifecycle)) {
         bool consumed = false;
         const esp_err_t route_error = CODY::handle_onboarding_touch(
             s_state.scene, {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)},
-            point.pressed, pressed_edge, consumed);
+            point.pressed, pressed_edge, s_state.rendered_rotation_degrees, consumed);
         if (route_error != ESP_OK) {
             return route_error;
         }
         if (consumed) {
+            if (!point.pressed && s_state.body_drag_active) {
+                const esp_err_t release_error = publish_body_gesture(point, false);
+                if (release_error != ESP_OK) {
+                    return release_error;
+                }
+            }
             s_state.body_drag_active = false;
             s_state.frame_dirty.store(true, std::memory_order_release);
             return ESP_OK;

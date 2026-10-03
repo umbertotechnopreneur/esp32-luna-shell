@@ -24,10 +24,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
 // point: Acquired logical sample, already mapped by the shared rotation owner.
 // pressed: Current hardware contact state.
 // pressed_edge: True only for the first pressed sample of this contact.
+// rotation_degrees: Evaluated logical orientation; a change cancels in-flight gestures.
 // consumed: True while an enabled OOBE control owns this contact.
 // Exception: Returns the real route, persistence, snapshot or content error.
 esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
-                                  bool pressed, bool pressed_edge, bool &consumed);
+                                  bool pressed, bool pressed_edge, uint16_t rotation_degrees, bool &consumed);
 
 // strip: Borrowed RGB565 tile; no display writes or allocations occur here.
 // first_row: Logical y origin of the tile.

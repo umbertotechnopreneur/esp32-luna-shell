@@ -71,12 +71,50 @@ class ScenePainter:
         if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
             raise ValueError(f"Invalid scene clock: {active_ms!r}")
         scene = self.definition(identity)
-        intro_ms = sum(scene["intro"].values())
-        if active_ms < intro_ms:
+        entrance = scene["entrance"]
+        text_start_ms = sum(scene["intro"].values()) + entrance["move_ms"] + entrance["text_delay_ms"]
+        if active_ms < text_start_ms:
             return 0
         title = scene["title"]
         interval = title["character_interval_ms"]
-        return len(title["text"]) if interval == 0 else min(len(title["text"]), int((active_ms - intro_ms) / interval))
+        return len(title["text"]) if interval == 0 else min(len(title["text"]), int((active_ms - text_start_ms) / interval))
+
+    # self: Immutable scene registry shared with the firmware authoring contract.
+    # identity: Stable scene selecting its from/to placement and duration.
+    # active_ms: Active presentation time, excluding standby and pause.
+    # Raises ValueError for invalid time or an unknown scene identity.
+    def cloud_transform(self, identity, active_ms):
+        if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
+            raise ValueError(f"Invalid scene entrance clock: {active_ms!r}")
+        scene = self.definition(identity)
+        entrance = scene["entrance"]
+        elapsed_ms = max(0, active_ms - sum(scene["intro"].values()))
+        duration_ms = entrance["move_ms"]
+        if duration_ms == 0 or elapsed_ms >= duration_ms:
+            return tuple(scene["cloud"][key] for key in ("x", "y", "scale"))
+        progress = elapsed_ms / duration_ms
+        eased = progress * progress * (3 - 2 * progress)
+        return tuple(entrance["from"][key] + (scene["cloud"][key] - entrance["from"][key])*eased
+                     for key in ("x", "y", "scale"))
+
+    # self: Registry with the same sequential title/body character clock as firmware.
+    # identity: Stable scene identity.
+    # active_ms: Active presentation clock in milliseconds.
+    # length: Counted printable-ASCII characters in this line.
+    # preceding_characters: Title and preceding caption characters.
+    # Raises ValueError for invalid counts, identity or time.
+    def content_characters(self, identity, active_ms, length, preceding_characters):
+        if any(type(value) is not int or not 0 <= value <= 65535 for value in (length, preceding_characters)):
+            raise ValueError("Invalid counted scene content")
+        if not self.presentation(identity, active_ms)[2]:
+            return 0
+        scene = self.definition(identity)
+        interval = scene["title"]["character_interval_ms"]
+        if interval == 0:
+            return length
+        entrance = scene["entrance"]
+        start_ms = sum(scene["intro"].values()) + entrance["move_ms"] + entrance["text_delay_ms"]
+        return min(length, max(0, int((active_ms-start_ms)/interval)-preceding_characters))
 
     # self: Shared immutable scene authoring.
     # identity: Scene selecting the two sequential intro durations.
@@ -94,7 +132,8 @@ class ScenePainter:
         elapsed_ms = active_ms - fade_out_ms
         if elapsed_ms < fade_in_ms:
             return False, int(elapsed_ms * 255 / fade_in_ms + .5), False
-        return False, 255, True
+        entrance = self.definition(identity)["entrance"]
+        return False, 255, elapsed_ms >= fade_in_ms + entrance["move_ms"] + entrance["text_delay_ms"]
 
     # self: Stateless host mirror of the native tile fade.
     # image: Whole synthetic RGB framebuffer, never a firmware allocation.

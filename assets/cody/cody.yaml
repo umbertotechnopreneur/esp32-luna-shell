@@ -281,8 +281,8 @@ expression_presets:
     cheek_size: 1.2
     cheek_opacity: 1
   happy:
-    eye_left: 0.12
-    eye_right: 0.12
+    eye_left: 1
+    eye_right: 1
     brow_left: 0.15
     brow_right: 0.15
     mouth_open: 0.65

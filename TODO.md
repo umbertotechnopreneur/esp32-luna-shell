@@ -6,6 +6,13 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh explicit authorization, build and review rounded graphite
+  navigation and Let's pair's 1-second entrance + 300-ms delayed teletype.
+  Observe touch-only Debug reveal, 5-second/330-ms fades, paused layout changes,
+  swipe/drag/vertical scroll ownership, cardinal rotation cancellation and
+  Start/Retry/Cancel cleanup gates. Verify Hello's open happy eyes and blink.
+  Only source review and asset generation ran for this increment.
+
 - [ ] After fresh explicit authorization, validate offline SD logging and native
   USB readback: build the updated Cody profile; observe boot with the cable
   connected and monitor closed; compare current/previous downloads and CRCs;
