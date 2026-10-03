@@ -442,12 +442,17 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms)
 
 // channels: Authored independent facial controls; invalid values stop evaluation.
 // transform: Logical translation and scale, shared by every feature and debug marker.
-// scene: Caller-owned geometry buffer, never retained as valid after failure.
+// scene: Caller-owned geometry and pearl row mappings, never valid after failure.
 // contour: Optional outline controls; parented handles inherit their own lobe's translation.
+// deform_face: Runtime preference for the same forward warp as the pearlescent body.
 esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
-                       const ContourState *contour)
+                       const ContourState *contour, bool deform_face)
 {
     scene.valid = false;
+    scene.face_deformed = CODY_ENABLE_PEARL_JELLY && deform_face;
+#if CODY_ENABLE_PEARL_JELLY
+    scene.jelly.valid = false;
+#endif
     if (contour != nullptr) {
         const esp_err_t contour_error = validate_contour_state(*contour, "Rig evaluation");
         if (contour_error != ESP_OK) {
@@ -549,6 +554,18 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
             path.last_scan_y = std::max(path.last_scan_y, position.y + stroke_margin);
         }
     }
+#if CODY_ENABLE_PEARL_JELLY
+    const esp_err_t jelly_error = prepare_jelly_frame(scene, scene.jelly);
+    if (jelly_error != ESP_OK) {
+        return jelly_error;
+    }
+    if (deform_face) {
+        const esp_err_t face_warp_error = deform_jelly_face(scene);
+        if (face_warp_error != ESP_OK) {
+            return face_warp_error;
+        }
+    }
+#endif
     scene.valid = true;
     return ESP_OK;
 }
@@ -656,7 +673,7 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
     return ESP_OK;
 }
 
-// scene: One completed evaluation used unchanged throughout the frame's strips.
+// scene: Completed vector face and pearl mapping reused unchanged by every tile.
 // strip: RGB565 destination owned by the companion worker.
 // first_row: Tile y origin in the unrotated logical canvas.
 // debug: Enables bones, Bézier tangents and evaluated point markers.
@@ -716,9 +733,22 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         profile->clear_us += now_us - stage_started_us;
         stage_started_us = now_us;
     }
+#if CODY_ENABLE_PEARL_JELLY
+    result = draw_jelly_rows(scene.jelly, strip, first_row, first_column);
+    if (result != ESP_OK) {
+        return result;
+    }
+#endif
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
         const auto &definition = Data::paths[index];
         const auto &path = scene.paths[index];
+#if CODY_ENABLE_PEARL_JELLY
+        // The sprite owns the body contour and baked relief. The original paths
+        // remain evaluated for rig inspection, but must not cover the texture.
+        if (jelly_replaces_path(definition.id)) {
+            continue;
+        }
+#endif
         // Bounds belong to the evaluated frame, not to whichever strip draws first.
         const float strip_first_scan_y = first_row + .5f;
         const float strip_last_scan_y = first_row + strip.height - .5f;
@@ -778,7 +808,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.
-// bounds: Receives conservative artwork coverage clipped to the 466-pixel canvas.
+// bounds: Receives pearl and face coverage clipped to the 466-pixel canvas.
 esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bounds)
 {
     bounds = {};
@@ -790,9 +820,27 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
     float top = 466.f;
     float right = 0.f;
     float bottom = 0.f;
+#if CODY_ENABLE_PEARL_JELLY
+    if (!scene.jelly.valid) {
+        ESP_LOGE(kTag, "Artwork bounds rejected: invalid jelly mapping (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!scene.jelly.bounds.empty()) {
+        left = scene.jelly.bounds.left;
+        top = scene.jelly.bounds.top;
+        right = scene.jelly.bounds.right;
+        bottom = scene.jelly.bounds.bottom;
+    }
+#endif
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
         const auto &definition = Data::paths[index];
         const auto &path = scene.paths[index];
+#if CODY_ENABLE_PEARL_JELLY
+        if (jelly_replaces_path(definition.id)) {
+            continue;
+        }
+#endif
         if (!path.visible || (definition.stroke == 0 && path.opacity == 0)) {
             continue;
         }

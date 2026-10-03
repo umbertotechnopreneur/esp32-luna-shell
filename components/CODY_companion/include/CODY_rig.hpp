@@ -6,6 +6,9 @@
 #include <type_traits>
 #include "CODY2D_paths.hpp"
 #include "CODY_damage.hpp"
+#if CODY_ENABLE_PEARL_JELLY
+#include "CODY_jelly.hpp"
+#endif
 
 namespace CODY {
 
@@ -158,7 +161,11 @@ struct RigScene {
     std::array<CODY2D::Vec2, kMaxPoints> world{};
     std::array<CODY2D::Vec2, kMaxVertices> vertices{};
     std::array<EvaluatedPath, kMaxPaths> paths{};
+#if CODY_ENABLE_PEARL_JELLY
+    JellyFrame jelly{};
+#endif
     float scale = 0;
+    bool face_deformed = false;
     bool valid = false;
 };
 
@@ -223,8 +230,9 @@ struct RigRasterProfile {
 // transform: Position and uniform scale in logical display pixels.
 // scene: Caller-owned evaluated geometry, invalidated immediately on entry.
 // contour: Optional independent shape state; nullptr preserves the authored outline.
+// deform_face: Apply the sprite's exact row warp to the face when pearl jelly is compiled in.
 esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
-                       const ContourState *contour = nullptr);
+                       const ContourState *contour = nullptr, bool deform_face = true);
 
 // scene: Successfully evaluated geometry that remains unchanged while the cache is used.
 // selected: Stable point ID whose prepared marker receives the selected style, or kNoPoint.

@@ -2,6 +2,16 @@
 
 ## Cody rendering checkpoint (2026-10-03)
 
+- [x] Port the approved concept-08 pearl texture to native scanline deformation,
+  with premultiplied alpha filtering and old/new sprite damage. The first
+  release was built and flashed on COM10; the user accepted its appearance.
+  Add a named build-time renderer selection, currently enabled by default,
+  and a session-scoped runtime face-follow flag, also initially enabled.
+  Facial paths and debug/touch points receive the exact forward body warp.
+  The final default/face revision was built and flashed on COM10 with both
+  options enabled (2,027,936-byte application); no new tests were run.
+  Document provenance, settings, measured older-firmware cost and the unresolved
+  intermittent freeze separately. Performance optimization remains open.
 - [x] Implement the reduced timing report and geometry-driven pre-raster damage
   candidate: compact clipped tiles, no live pixel-cache compare/pack, and
   reference geometry committed only after successful frame retirement.

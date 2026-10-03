@@ -10,7 +10,7 @@ function Get-FirmwareActions {
 function Get-DeviceActionParameters {
     $idf = @('Profile','Feature','BoardConfig','BuildDir','IdfPath','ToolsPath','PythonExe')
     $serial = @('Port','Baud','WaitSeconds')
-    $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','MeshOverlay','PythonExecutable','Skin')
+    $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
@@ -122,6 +122,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 if ($Options.SafeGuide) { $arguments += '--safe-guide' }
                 if ($Options.CloudMaterialStudy) { $arguments += '--cloud-material-study' }
                 if ($Options.CloudPngMeshStudy) { $arguments += '--cloud-png-mesh-study' }
+                if ($Options.CloudJellyStudy) { $arguments += '--cloud-jelly-study' }
                 if ($Options.MeshOverlay) { $arguments += '--mesh-overlay' }
                 $capture = if ($RequestedAction -eq 'boot-screens') {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
@@ -161,6 +162,8 @@ CODY COMPANION / DEVICE CONSOLE
   device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-mesh.png
   device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-mesh.gif
   device.ps1 simulator -CloudPngMeshStudy -MeshOverlay -OutputPath artifacts/simulator/cloud-mesh-wire.png
+  device.ps1 simulator -CloudJellyStudy      Interactive pearlescent scanline study
+  device.ps1 simulator -CloudJellyStudy -OutputPath artifacts/simulator/cloud-jelly.gif
   device.ps1 boot-screens                  Capture all three boot stages
   device.ps1 check -Check cody-poc          Explicit host checks
   device.ps1 generate -Generator cody-rig  Regenerate authored firmware tables

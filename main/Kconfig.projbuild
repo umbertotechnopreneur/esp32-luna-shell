@@ -53,6 +53,26 @@ endchoice
 
 menu "ESP32 Luna Shell board hardware drivers"
 
+config LUNASHELL_CODY_RENDER_PEARL_JELLY
+    bool "Render Cody with the pearlescent jelly sprite"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Select the approved pearlescent texture and lobe-bound scanline morph.
+        Enabled by default for the current artwork iteration. Disable to use
+        the vector body and omit the jelly texture and row caches from firmware.
+        The jelly mode targets 25 FPS; the vector mode keeps its 33 ms period.
+
+config LUNASHELL_CODY_FACE_FOLLOWS_BODY
+    bool "Deform Cody's face with the pearl-jelly body by default"
+    depends on LUNASHELL_CODY_RENDER_PEARL_JELLY
+    default y
+    help
+        Apply the body's forward scanline mapping to facial paths and touch
+        points. CODY_companion_set_face_deformation changes this preference
+        at runtime without restarting the renderer. The runtime flag is not
+        persisted; this setting supplies the initial choice on each boot.
+
 choice LUNASHELL_BUILD_DISPLAY_DRIVER
     prompt "Display and touch board driver"
     default LUNASHELL_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED

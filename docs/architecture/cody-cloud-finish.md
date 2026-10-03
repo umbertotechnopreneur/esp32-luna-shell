@@ -144,6 +144,94 @@ Keeping translation/depth limits unchanged is not a proof of navigation
 clearance at the existing scale. Review that envelope before treating stronger
 IMU response as physically validated.
 
+### Pearl-jelly native port (2026-10-03)
+
+The user selected concept 08 and explicitly requested the C++ port, release
+build and flash after the host preview. The face-free source lives at
+`assets/cody/experiments/jelly-scanline/jelly-body-master.png`; its README records
+both imagegen prompts and the generation command. The 320 x 233 prepared
+texture occupies 298,240 flash bytes as premultiplied RGBA8 with RGB565-quantized
+source colors. It needs neither an on-device PNG decoder nor removable storage.
+
+`CODY_jelly.cpp` derives 33 row controls from the existing named lobe anchors,
+then prepares Q16 row sampling in the caller-owned PSRAM scene. Integer bilinear
+filtering deforms both painted shading and alpha together. The face remains
+vector artwork, and can now receive the exact forward body warp through a
+runtime preference; navigation always remains independent. Dirty planning retains both previous and
+current sprite footprints. No direct sensor access or snapshot cadence change
+was introduced. The active-motion target is now 40 ms / 25 FPS; the HUD still
+reports measured throughput rather than the target.
+
+The authorized `cody-native` check passed using MSVC x64, including tile/dirty
+reconstruction, alpha samples, invalid-map rejection and a 72-pose full-range
+contour sweep. The first firmware build then found Xtensa's distinct `int32_t`
+and `uint32_t` template deduction against ordinary integer literals. Explicit
+32-bit template arguments fixed that compile error without changing sampling
+arithmetic. The user requested no further tests; native checks were not rerun.
+
+The final `device.ps1 flash -Profile cody-companion -Port COM10 -Jobs 8`
+succeeded using ESP-IDF 6.0.2 and the performance-optimized configuration.
+The application is 2,026,416 bytes (`0x1eebb0`), version `f1970dac-dirty`.
+Esptool verified each written image's hash and issued the hardware reset.
+No erase-all, serial monitor/capture, physical visual inspection or performance
+measurement followed. Device appearance, motion and sustained performance must
+not be inferred from host output or successful flash.
+
+Final log: `artifacts/logs/cody-jelly-release-flash.log`.
+The mandatory transient cleanup was preceded by a recoverable evidence copy at
+`artifacts/build-cody-companion/pearl-jelly-evidence-20261003-214526/`, including
+native reports, prior previews and the first build-failure log. Simulator and
+imagegen previews were restored to their original artifact paths after flashing.
+
+### Default selection, face preference and reported freeze
+
+The user approved the pearl finish and requested a configurable rendering mode,
+then specified that it remain enabled by default for now.
+`CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY=y` selects it; disabling that option
+excludes the sprite data and jelly caches and retains the existing vector body.
+`CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY=y` supplies the current boot default.
+The runtime setter/getter in `CODY_companion.h` lets a future user-preference
+owner switch the face without rebuilding firmware. The choice is session-only,
+uses the display/state lock, and never persists or repairs settings implicitly.
+The simulator has an equivalent checkbox in its Face tab.
+
+Facial cubics are sampled before applying the forward row mapping. Their
+vertices, world-space anchors and handles share the same deformation as the
+painted body; culling bounds are recalculated from the warped vertices. Facial
+expression channels remain independent inputs, and navigation is not warped.
+Paused switching rebuilds the saved pose without advancing clocks or sampling
+new telemetry. Thirty-three retained destination supports cost 396 bytes per
+scene in PSRAM, separate from the existing inverse pixel rows.
+
+The first requested serial capture began after the reported freeze. The MCU
+was still publishing snapshots at uptime 275-365 seconds, with DISPLAY and
+TOUCH in error, low CPU and no allocation failures. The triggering failure
+line was not in that capture, so its original error/call site is unknown.
+After the authorized diagnostic reset, a 120-second boot capture and a later
+240-second capture showed the renderer active through uptime 487 seconds,
+with DISPLAY and TOUCH ready and no recorded consumer stop or panic. The gap
+between captures was not continuously observed. This does not establish a fix
+or exclude an intermittent failure. Logs are `artifacts/serial/cody-jelly-crash*.log`.
+
+The captured older firmware measured roughly 17-18 FPS, 55-56 ms mean frame
+time, 36-40 ms artwork raster, core 0 utilization around 82-84%, and core 1
+around 0%. These measurements precede the new face deformation; the 25 FPS
+period remains a target, not achieved throughput. Optimization is deferred.
+No further test suites or simulator checks were run, as explicitly requested.
+The default/face revision was then built and flashed successfully on COM10 with
+ESP-IDF 6.0.2, performance optimization and at most eight compiler jobs.
+The new application is 2,027,936 bytes (`0x1ef1a0`), still labelled
+`f1970dac-dirty` because the requested commit follows the flash. Esptool verified
+the written hashes and reset the board. No new serial capture, physical visual
+inspection, runtime flag exercise or sustained-performance measurement followed
+this latest flash. Build/flash success is not a stability claim.
+
+Final log: `artifacts/logs/cody-pearl-face-release-flash.log`. Before regenerating
+the profile, previous evidence and all diagnostic captures were copied to
+`artifacts/build-release-evidence/pearl-face-20261003/`. This archive survived
+the mandatory transient cleanup; serial and visual artifacts were restored to
+their original paths afterward. No versioned artwork was deleted.
+
 ### First device candidate (superseded)
 
 The first build/flash succeeded on COM10 (`e6061d76-dirty`, ELF prefix

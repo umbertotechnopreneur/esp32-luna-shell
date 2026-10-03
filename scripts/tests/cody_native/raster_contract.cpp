@@ -2,6 +2,7 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
 #include "cloud_rig_data.hpp"
+#include "cody_jelly_data.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -492,6 +493,80 @@ void check_rig_contract()
             "invalid face channel is rejected");
     require(!scene.valid, "failed evaluation invalidates the previous scene");
 }
+// No parameters: inspect the real packed asset and sample its three alpha cases.
+void check_jelly_texture_contract()
+{
+    std::array<uint32_t, 3> examples{};
+    bool found_transparent = false;
+    bool found_opaque = false;
+    bool found_edge = false;
+    bool valid_premultiplication = true;
+    for (uint32_t index = 0; index < std::size(CODY::JellyData::pixels); ++index) {
+        const uint32_t pixel = CODY::JellyData::pixels[index];
+        const uint32_t alpha = pixel >> 24U;
+        valid_premultiplication = valid_premultiplication &&
+            (pixel & 255U) <= alpha && ((pixel >> 8U) & 255U) <= alpha &&
+            ((pixel >> 16U) & 255U) <= alpha;
+        if (alpha == 0 && !found_transparent) {
+            examples[0] = index;
+            found_transparent = true;
+        }
+        if (alpha == 255 && !found_opaque) {
+            examples[1] = index;
+            found_opaque = true;
+        }
+        if (alpha >= 40 && alpha <= 215 && !found_edge) {
+            examples[2] = index;
+            found_edge = true;
+        }
+    }
+    require(valid_premultiplication, "jelly texture is premultiplied RGBA, without a black matte");
+    require(found_transparent && found_opaque && found_edge, "jelly contains transparent, opaque and AA edge samples");
+    for (uint32_t index : examples) {
+        CODY::JellyFrame frame;
+        frame.valid = true;
+        frame.bounds = {10, 10, 11, 11};
+        auto &row = frame.rows[10];
+        row.left = 10;
+        row.right = 11;
+        row.source_x = static_cast<int32_t>(index % CODY::JellyData::width) * 65536;
+        row.source_y = static_cast<int32_t>(index / CODY::JellyData::width) * 65536;
+        row.source_step = 65536;
+        constexpr uint16_t guard = 0x5a5a;
+        std::array<uint16_t, 3> pixels{0x001f, guard, guard};
+        const CODY2D::Surface tile{pixels.data(), 1, 1, 3, 3};
+        require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_OK, "jelly alpha sample renders in a compact tile");
+        const uint32_t source = CODY::JellyData::pixels[index];
+        const double alpha = static_cast<double>(source >> 24U);
+        const auto red = std::lround((source & 255U) * 31.0 / 255.0);
+        const auto green = std::lround(((source >> 8U) & 255U) * 63.0 / 255.0);
+        const auto blue = std::lround((((source >> 16U) & 255U) + 255.0 - alpha) * 31.0 / 255.0);
+        const uint16_t expected = static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
+        require(pixels[0] == expected, "jelly alpha composites correctly over native blue");
+        require(pixels[1] == guard && pixels[2] == guard, "jelly preserves compact-tile stride guards");
+        frame.valid = false;
+        const auto unchanged = pixels;
+        require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_ERR_INVALID_ARG,
+                "jelly refuses an invalid prepared mapping");
+        require(pixels == unchanged, "invalid jelly draw does not modify the destination");
+    }
+    CODY::RigScene scene;
+    require(CODY::evaluate_rig(CODY::Data::defaults, CODY::Data::placement, scene) == ESP_OK,
+            "jelly controls evaluate with the original face rig");
+    scene.world[CODY::to_index(CODY::PointId::LobeCrown)].y = NAN;
+    require(CODY::prepare_jelly_frame(scene, scene.jelly) == ESP_ERR_INVALID_ARG && !scene.jelly.valid,
+            "invalid lobe motion invalidates the complete jelly mapping");
+    auto contour = CODY::make_contour_state();
+    contour.controls[CODY::ContourControl::Amplitude] = 1.f;
+    for (float fullness : {-1.f, 0.f, 1.f}) {
+        contour.controls[CODY::ContourControl::Fullness] = fullness;
+        for (uint16_t phase = 0; phase < 24; ++phase) {
+            contour.phase = phase * 6.28318530718f / 24.f;
+            require(CODY::evaluate_rig(CODY::Data::defaults, CODY::Data::placement, scene, &contour) == ESP_OK,
+                    "maximum authored lobe sweep preserves ordered jelly scanlines");
+        }
+    }
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -504,6 +579,7 @@ int main()
         check_rig_contract();
         check_compact_raster_contract();
         check_dirty_plan_contract();
+        check_jelly_texture_contract();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

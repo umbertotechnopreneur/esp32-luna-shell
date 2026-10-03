@@ -37,6 +37,7 @@ param(
     [switch]$SafeGuide,
     [switch]$CloudMaterialStudy,
     [switch]$CloudPngMeshStudy,
+    [switch]$CloudJellyStudy,
     [switch]$MeshOverlay,
     [string]$PythonExecutable,
     [string]$Skin,

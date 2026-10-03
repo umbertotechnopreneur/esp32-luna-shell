@@ -46,7 +46,12 @@ constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 // Coverage rows add bounded raster scratch; retain room for the display owner
 // and error paths on this PSRAM-backed worker stack.
 constexpr uint32_t kWorkerStackBytes = 8192;
+// Target the requested 25 FPS cadence; the HUD still reports measured throughput.
+#if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
+constexpr uint32_t kRigFramePeriodMs = 40;
+#else
 constexpr uint32_t kRigFramePeriodMs = 33;
+#endif
 constexpr uint32_t kPausedReadoutPeriodMs = 1000;
 // This is a failure deadline, not an FPS claim; real frame cost still needs measurement.
 constexpr uint32_t kFrameBudgetMs = 500;
@@ -121,6 +126,11 @@ struct CompanionState {
     bool rig_visible = false;
     bool rig_debug = false;
     bool animation_paused = false;
+#if CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY
+    bool face_follows_body = true;
+#else
+    bool face_follows_body = false;
+#endif
     bool touch_pressed = false;
     CODY::PointId selected_point = CODY::kNoPoint;
     std::atomic<bool> frame_dirty{false};
@@ -451,7 +461,8 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         return contour_error;
     }
     const esp_err_t geometry_error = CODY::evaluate_rig(
-        response_frame.face, response_frame.transform, *s_resources.rig, &next_contour
+        response_frame.face, response_frame.transform, *s_resources.rig, &next_contour,
+        s_state.face_follows_body
     );
     if (geometry_error != ESP_OK) {
         return geometry_error;
@@ -732,9 +743,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         // Freeze the evaluated scene as well as the clocks. Fresh sensors keep
         // publishing independently, but cannot deform a paused character.
-        const esp_err_t geometry_error = s_state.animation_paused
-            ? (s_resources.rig->valid ? ESP_OK : ESP_ERR_INVALID_STATE)
-            : evaluate_companion_geometry(timings.started_us, resume_animation);
+        esp_err_t geometry_error = ESP_OK;
+        if (!s_state.animation_paused) {
+            geometry_error = evaluate_companion_geometry(timings.started_us, resume_animation);
+        } else if (!s_resources.rig->valid) {
+            geometry_error = ESP_ERR_INVALID_STATE;
+        } else if (s_resources.rig->face_deformed != s_state.face_follows_body) {
+            // A preference switch must also work while paused. Rebuild only the
+            // saved pose; do not sample sensors or advance expression/motion clocks.
+            geometry_error = CODY::evaluate_rig(
+                s_state.response_frame.face, s_state.response_frame.transform,
+                *s_resources.rig, &s_state.contour, s_state.face_follows_body
+            );
+        }
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
@@ -1388,7 +1409,81 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
     return ESP_OK;
 }
 
+// enabled: Runtime preference applied by the worker under the shared display/state lock.
+extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
+{
+#if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Face deformation lock failed: %s", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Face deformation state rejected: %s", esp_err_to_name(error));
+        return error;
+    }
+    s_state.face_follows_body = enabled;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    ESP_LOGI(kTag, "Face deformation requested: %s (session preference)", enabled ? "FOLLOW BODY" : "FIXED");
+    return ESP_OK;
 #else
+    ESP_LOGE(kTag, "Face deformation=%u rejected: pearl renderer excluded (%s)",
+             static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// enabled: Non-null output populated only after checking the current consumer state.
+extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
+{
+    if (enabled == nullptr) {
+        ESP_LOGE(kTag, "Face deformation output rejected: %s", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+#if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Face preference read lock failed: %s", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Face preference read state rejected: %s", esp_err_to_name(error));
+        return error;
+    }
+    *enabled = s_state.face_follows_body;
+    return ESP_OK;
+#else
+    ESP_LOGE(kTag, "Face preference read rejected: pearl renderer excluded (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+#else
+
+// enabled: Requested preference, unavailable in a profile without the Cody consumer.
+extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
+{
+    ESP_LOGE("CODY_companion", "Face deformation=%u rejected: consumer excluded (%s)",
+             static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// enabled: Output stays untouched because this profile cannot own a face preference.
+extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
+{
+    const esp_err_t error = enabled == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+    ESP_LOGE("CODY_companion", "Face preference read rejected: %s", esp_err_to_name(error));
+    return error;
+}
 
 // The companion is absent from this explicit build profile.
 extern "C" esp_err_t CODY_companion_demo_start(void)

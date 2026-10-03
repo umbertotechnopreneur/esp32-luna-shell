@@ -36,7 +36,7 @@ bool same_point(CODY2D::Vec2 first, CODY2D::Vec2 second)
     return first.x == second.x && first.y == second.y;
 }
 
-// scene: Completed evaluation whose storage extents must be safe to inspect.
+// scene: Completed vector and pearl evaluation whose storage extents must be safe.
 // selected: Stable point identity, or kNoPoint when nothing is highlighted.
 // operation: Identifies the previous/current scene in failure logs.
 esp_err_t validate_scene(const RigScene &scene, PointId selected, const char *operation)
@@ -48,6 +48,13 @@ esp_err_t validate_scene(const RigScene &scene, PointId selected, const char *op
             esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+#if CODY_ENABLE_PEARL_JELLY
+    if (!scene.jelly.valid) {
+        ESP_LOGE(kTag, "%s rejected: invalid jelly mapping (%s)", operation,
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+#endif
     for (uint16_t index = 0; index < std::size(Data::points); ++index) {
         if (!valid_point(scene.world[index])) {
             ESP_LOGE(kTag, "%s point %s rejected (%s)", operation, Data::points[index].name,
@@ -324,7 +331,7 @@ esp_err_t dirty_tile_bounds(const DirtyPlan &plan, uint16_t first_row,
 // current_debug: Whether the next frame includes the skeleton overlay.
 // previous_selected: Stable point ID highlighted in the completed frame, or kNoPoint.
 // current_selected: Stable point ID highlighted in the next frame, or kNoPoint.
-// plan: Reset on entry, then receives conservative old/new changed artwork bounds.
+// plan: Reset on entry, then receives old/new texture, face and overlay damage.
 esp_err_t plan_rig_damage(const RigScene &previous, const RigScene &current,
                           bool previous_debug, bool current_debug,
                           PointId previous_selected, PointId current_selected,
@@ -339,8 +346,27 @@ esp_err_t plan_rig_damage(const RigScene &previous, const RigScene &current,
     if (result != ESP_OK) {
         return result;
     }
+#if CODY_ENABLE_PEARL_JELLY
+    if (!same_jelly_frame(previous.jelly, current.jelly)) {
+        // A row warp moves painted light as well as alpha. Redraw both complete
+        // footprints, even when a vector edge's bounds happen to be unchanged.
+        result = include_damage(plan, previous.jelly.bounds);
+        if (result != ESP_OK) {
+            return result;
+        }
+        result = include_damage(plan, current.jelly.bounds);
+        if (result != ESP_OK) {
+            return result;
+        }
+    }
+#endif
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
         const auto &definition = Data::paths[index];
+#if CODY_ENABLE_PEARL_JELLY
+        if (jelly_replaces_path(definition.id)) {
+            continue;
+        }
+#endif
         const auto &old_path = previous.paths[index];
         const auto &new_path = current.paths[index];
         if (definition.stroke == 0) {

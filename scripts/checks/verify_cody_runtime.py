@@ -144,13 +144,17 @@ def main(argv=None):
         check_boundaries()
         compiler = resolve_compiler(args.compiler)
         includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
-                    "assets/cody/rig/generated", "assets/cody/poc/generated")
+                    "assets/cody/rig/generated", "assets/cody/poc/generated",
+                    "assets/cody/experiments/jelly-scanline/generated")
         sources = ("scripts/tests/cody_native/poc_runtime.cpp", "components/CODY2D/CODY2D.cpp",
                        "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp",
                        "components/CODY_companion/CODY_response.cpp", "components/CODY_companion/CODY_demo.cpp",
-                       "components/CODY_companion/CODY_benchmark.cpp", "components/CODY_companion/CODY_damage.cpp")
+                       "components/CODY_companion/CODY_benchmark.cpp", "components/CODY_companion/CODY_damage.cpp",
+                       "components/CODY_companion/CODY_jelly.cpp",
+                       "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
         executable = output / "poc-runtime.exe"
-        command = compile_command(compiler, includes, sources, executable)
+        command = compile_command(compiler, includes, sources, executable,
+                                  definitions=("CODY_ENABLE_PEARL_JELLY=1",))
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "runtime")
         compare_response(json.loads(native.stdout))

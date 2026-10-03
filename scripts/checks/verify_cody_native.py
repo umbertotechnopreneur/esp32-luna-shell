@@ -43,11 +43,15 @@ def main(argv=None) -> None:
         compiler = resolve_compiler(args.compiler)
         executable = output / "raster-contract.exe"
         include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
-                        "components/CODY_companion/include", "assets/cody/rig/generated")
+                        "components/CODY_companion/include", "assets/cody/rig/generated",
+                        "assets/cody/experiments/jelly-scanline/generated")
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "components/CODY2D/CODY2D.cpp",
                    "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp",
-                   "components/CODY_companion/CODY_dirty_plan.cpp")
-        command = compile_command(compiler, include_dirs, sources, executable)
+                   "components/CODY_companion/CODY_dirty_plan.cpp",
+                   "components/CODY_companion/CODY_jelly.cpp",
+                   "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
+        command = compile_command(compiler, include_dirs, sources, executable,
+                                  definitions=("CODY_ENABLE_PEARL_JELLY=1",))
         report["compiler"] = compiler
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "native")
@@ -58,6 +62,8 @@ def main(argv=None) -> None:
                                "scene invalidation", "culling and strip parity", "native/Python ready geometry",
                                "compact tile parity and sentinels", "dirty reconstruction and unchanged frames",
                                "overlay, selection, pause, opacity, visibility, transform and contour damage"]
+        report["contracts"].extend(["premultiplied jelly texture and transparent/opaque/AA samples",
+                                    "jelly compact-tile guards and invalid mapping rejection"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

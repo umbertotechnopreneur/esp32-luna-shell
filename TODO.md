@@ -6,6 +6,21 @@ authorization.
 
 ## Current integration
 
+- [ ] Identify the intermittent display/touch stop reported after the pearl
+  release. The first capture began after failure and shows DISPLAY/TOUCH in
+  error while the MCU continues snapshots. The triggering error is absent.
+  Boot and later captures did not reproduce it through uptime 487 seconds;
+  the gap between those captures was not continuously observed. Do not claim
+  the issue fixed. Evidence: `docs/architecture/cody-cloud-finish.md` and
+  `artifacts/serial/cody-jelly-crash*.log`.
+- [ ] Review wider rotation/navigation coverage and runtime face-preference
+  behavior on hardware. The user accepted the pearl appearance; the native
+  renderer and face-follow preference are enabled by default but selectable.
+  The latest face revision intentionally has no new test run. The older device
+  capture measured about 17-18 FPS and core 0 at 82-84%; 25 FPS is only the
+  target. Optimize after the visual iteration, not during this delivery.
+  Scope and flags: `assets/cody/experiments/jelly-scanline/README.md`.
+
 - [ ] Review the opt-in PNG/triangle cloud experiment with the user before any
   device port. The previous full workspace is checkpointed at `3b90f25a`;
   the experiment is isolated on `codex/cloud-png-mesh-study`. A painted transparent
@@ -19,8 +34,9 @@ authorization.
 - [ ] Finish the cloud-volume and jelly-like IMU default iteration. Review the
   PNG/mesh direction above; the continuous height-field study
   (`artifacts/simulator/cloud-study-billows-v5.png`) was rejected because its
-  added relief did not sufficiently match the border lobes. Neither host-only
-  experiment is in firmware. Performance
+  added relief did not sufficiently match the border lobes. Those two studies
+  remain host-only; the separately approved pearl scanline renderer is native.
+  Performance
   optimization is explicitly deferred. The second flashed cloud candidate
   sustained roughly 29 FPS but CPU1 60-63%, so low CPU cost is not achieved.
   Current touched-event AA work and the newer artwork/motion defaults postdate

@@ -31,6 +31,7 @@ from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
+from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
@@ -62,9 +63,10 @@ class CodyRenderer:
 
     # root: Active checkout owning the preview sources.
     # skin_path: Selected YAML character; changing the skin does not change the renderer.
+    # jelly_study: Select the isolated pearlescent scanline renderer for this preview.
     # self: Renderer owning immutable authoring tables and optional cached artwork.
     # Raises OSError or ValueError for unreadable artwork or invalid authoring data.
-    def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml"):
+    def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml", *, jelly_study=False):
         self.rig, self.palette = load_contract(root, skin_path)
         self.native_palette = [int(entry["rgb565"], 16) for entry in self.palette["entries"]]
         self.rgb_palette = [rgb565(value) for value in self.native_palette]
@@ -77,6 +79,9 @@ class CodyRenderer:
         self.font = ImageFont.load_default()
         self.root = root
         self.png_mesh = None
+        self.jelly_study_enabled = jelly_study
+        self.jelly_sprite = None
+        self.face_follows_body = True
 
     # color is the initial palette slot of a fresh full logical canvas.
     def indexed(self, color=None):
@@ -187,8 +192,8 @@ class CodyRenderer:
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
     # Raises OSError for unreadable experimental PNG artwork.
     def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False):
-        if material_study and png_mesh_study:
-            raise ValueError('Choose either the height-field study or the PNG mesh study')
+        if sum((material_study, png_mesh_study, self.jelly_study_enabled)) > 1:
+            raise ValueError('Choose only one cloud rendering study')
         if mesh_overlay and not png_mesh_study:
             raise ValueError('Mesh overlay requires the PNG mesh study')
         image = self.indexed()
@@ -197,7 +202,13 @@ class CodyRenderer:
             if not path["visible"]:
                 continue
             definition = path["definition"]
-            if (material_study or png_mesh_study) and definition['name'] in surface_paths:
+            if (material_study or png_mesh_study or self.jelly_study_enabled) and definition['name'] in surface_paths:
+                continue
+            if self.jelly_study_enabled and definition['name'] == self.rig['contour']['path']:
+                if self.jelly_sprite is None:
+                    self.jelly_sprite = JellyScanlineStudy(self.root, self.rig)
+                image = image.convert('RGB')
+                self.jelly_sprite.paint(image, scene)
                 continue
             if png_mesh_study and definition['name'] == self.rig['contour']['path']:
                 if self.png_mesh is None:
@@ -330,6 +341,10 @@ class CodyRenderer:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
         if screen == Screen.RIG:
+            if self.jelly_study_enabled and self.face_follows_body:
+                if self.jelly_sprite is None:
+                    self.jelly_sprite = JellyScanlineStudy(self.root, self.rig)
+                self.jelly_sprite.deform_face(scene)
             image = self.draw_scene(scene, debug, selected, guide,
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
                                     material_study=material_study, png_mesh_study=png_mesh_study,
@@ -345,16 +360,21 @@ class CodyRenderer:
             image.info['cody_material_study'] = True
         if png_mesh_study and screen == Screen.RIG:
             image.info['cody_png_mesh_study'] = True
+        if self.jelly_study_enabled and screen == Screen.RIG:
+            image.info['cody_jelly_study'] = True
         return image, scene
 
     # self: Renderer owning the presentation font.
-    # image: Rendered logical view, optionally marked as a host-only material or PNG mesh study.
+    # image: Rendered logical view, optionally marked as a host-only cloud study.
     # caption: Context shown for the ordinary simulator capture.
     def capture_sheet(self, image, caption):
         sheet = Image.new("RGB", (SIZE, SIZE+42), "#101820")
         sheet.paste(image, (0,0))
         draw = ImageDraw.Draw(sheet)
-        if image.info.get('cody_png_mesh_study', False):
+        if image.info.get('cody_jelly_study', False):
+            draw.text((12, SIZE + 7), 'PEARL JELLY / SCANLINE STUDY / HOST ONLY', fill='#75CBF3', font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill='#C3D0D5', font=self.font)
+        elif image.info.get('cody_png_mesh_study', False):
             draw.text((12, SIZE + 7), 'PNG + TRIANGLE MESH / HOST ONLY', fill='#75CBF3', font=self.font)
             draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill='#C3D0D5', font=self.font)
         elif image.info.get('cody_material_study', False):
@@ -364,16 +384,17 @@ class CodyRenderer:
             draw.text((12,SIZE+12), "SYNTHETIC / " + caption, fill="#75CBF3", font=self.font)
         return sheet
 
-    # self: Renderer with a lazily decoded PNG and shared semantic rig.
+    # self: Renderer with a lazily decoded mesh or jelly PNG and shared semantic rig.
     # destination: GIF output restricted to artifacts; also owns a sibling pose-sheet PNG.
     # rotation: Cardinal orientation applied to artwork and controls together.
-    # mesh_overlay: Include the real triangle edges in every frame.
+    # mesh_overlay: Include triangle edges in mesh mode; unsupported in scanline mode.
     # Raises OSError for a failed artwork read or capture write.
-    # Raises ValueError for an invalid pose or inverted mesh triangle.
-    def capture_mesh_motion(self, destination, rotation, mesh_overlay):
+    # Raises ValueError for an invalid pose, inverted mapping or unsupported overlay.
+    def capture_sprite_motion(self, destination, rotation, mesh_overlay):
         frames = []
         transform = tuple(self.rig['default_transform'][key] for key in ('x', 'y', 'scale'))
-        frame_count = 32
+        frame_count = 80 if self.jelly_study_enabled else 32
+        frame_duration_ms = 40 if self.jelly_study_enabled else 100
         for frame_number in range(frame_count):
             phase = math.tau * frame_number / frame_count
             values = list(self.rig['boot_channels']['ready'])
@@ -384,15 +405,16 @@ class CodyRenderer:
             contour.update(fullness=.8 * math.sin(phase), amplitude=1.0,
                            speed=.3125, phase_spread=1.0, phase=phase)
             image, _ = self.render(Screen.RIG, values, transform, debug=False, rotation=rotation,
-                                   contour=contour, png_mesh_study=True, mesh_overlay=mesh_overlay)
-            frames.append(self.capture_sheet(image, 'PNG mesh / synthetic lobe sweep'))
+                                   contour=contour, png_mesh_study=not self.jelly_study_enabled,
+                                   mesh_overlay=mesh_overlay)
+            frames.append(self.capture_sheet(image, 'Sprite / synthetic lobe sweep'))
         # A shared GIF palette avoids frame-to-frame palette changes. Still PNGs
         # retain RGB565-expanded RGB and are the reference for color inspection.
         palette = frames[0].quantize(colors=256)
         indexed = [frame.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG) for frame in frames]
         destination.parent.mkdir(parents=True, exist_ok=True)
         indexed[0].save(destination, save_all=True, append_images=indexed[1:],
-                        duration=100, loop=0, disposal=2, optimize=False)
+                        duration=frame_duration_ms, loop=0, disposal=2, optimize=False)
         # Retain full-color phase samples alongside the compressed motion loop.
         # These make texture/edge attachment inspectable without a GIF player.
         pose_sheet = Image.new('RGB', (SIZE * 2, (SIZE + 42) * 2), '#101820')
@@ -411,21 +433,24 @@ class CodyWindow:
     # self: New preview controller owning transient animation and synthetic model state.
     # root owns the Tk preview window and its scheduled frame callback.
     # renderer owns immutable authored tables and the shared scene drawing code.
-    # args selects the initial screen, rotation and safe-square overlay.
+    # args selects the initial screen, rotation, safe-square overlay and rendering study.
     # Raises tk.TclError for failed widget construction or lost Tk ownership.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
-        self.root.title(f"{renderer.rig['character']['name']} / Rig PoC / SYNTHETIC")
+        self.jelly_study = renderer.jelly_study_enabled
+        preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Rig PoC'
+        self.root.title(f"{renderer.rig['character']['name']} / {preview_name} / SYNTHETIC")
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
-        self.debug = tk.BooleanVar(value=True)
-        self.names = tk.BooleanVar(value=True)
-        self.outline = tk.BooleanVar(value=True)
-        self.rest_outline = tk.BooleanVar(value=True)
+        self.debug = tk.BooleanVar(value=not self.jelly_study)
+        self.names = tk.BooleanVar(value=not self.jelly_study)
+        self.outline = tk.BooleanVar(value=not self.jelly_study)
+        self.rest_outline = tk.BooleanVar(value=not self.jelly_study)
         self.label_scope = tk.StringVar(value=LabelScope.CONTOUR.value)
         self.label_page = tk.IntVar(value=0)
         self.guide = tk.BooleanVar(value=args.safe_guide)
         self.playing = tk.BooleanVar(value=True)
+        self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
         self.contour_playing = tk.BooleanVar(value=True)
         self.contour_state = make_contour_state(renderer.rig)
         self.entity_name = next(iter(renderer.rig["entities"]))
@@ -437,7 +462,7 @@ class CodyWindow:
         self.poc_settings = load_settings(ROOT / "assets/cody/poc.yaml")
         self.demo_enabled = tk.BooleanVar(value=False)
         self.response_frame = None
-        self.motion_overlay = tk.BooleanVar(value=True)
+        self.motion_overlay = tk.BooleanVar(value=not self.jelly_study)
         self.elapsed_ms = 0.0
         self.last_tick = time.perf_counter()
         self.selected = None
@@ -476,6 +501,8 @@ class CodyWindow:
         self.label_row_height = self.label_font.metrics("linespace")+6
         ttk.Label(controls,text=f"{renderer.rig['character']['name']} / LOCAL RIG",font=(font["family"],12,"bold")).pack(anchor="w")
         ttk.Label(controls,text="SYNTHETIC INPUT / no sensor or PC link").pack(anchor="w")
+        if self.jelly_study:
+            ttk.Label(controls,text="PEARL JELLY / scanlines / ESP32 unmeasured").pack(anchor="w")
         ttk.Combobox(controls,textvariable=self.screen,values=SCREEN_NAMES,state="readonly",width=27).pack(fill="x",pady=6)
         ttk.Combobox(controls,textvariable=self.rotation,values=(0,90,180,270),state="readonly").pack(fill="x")
         tabs = ttk.Notebook(controls)
@@ -493,6 +520,11 @@ class CodyWindow:
         self.build_contour_controls(contour)
         self.build_stimulus_controls(stimuli)
         self.build_debug_controls(overlay)
+        if self.jelly_study:
+            # Artistic host controls only; no firmware defaults or sensor samples change.
+            self.contour_values['amplitude'].set(.9)
+            self.contour_values['speed'].set(.4)
+            tabs.select(contour)
         self.info = ttk.Label(controls,text="Select a point to inspect its stable name.",width=38,font=self.label_font)
         self.info.pack(anchor="w",pady=6)
         self.timing = ttk.Label(root,text="SYNTHETIC / host timings only")
@@ -508,9 +540,12 @@ class CodyWindow:
         self.arrange_panels(width)
         self.tick()
 
+    # self: Preview controller owning runtime appearance preferences.
     # appearance: Face tab owning the named sliders and expression buttons.
     def build_face_controls(self, appearance):
         # Targets belong to the controls; smoothing belongs to the animation state.
+        if self.jelly_study:
+            self.add_toggle(appearance, "Deform face with jelly body", self.face_follows_body)
         self.add_toggle(appearance,"Animate breath and blink",self.playing)
         self.add_toggle(appearance,"Run authored hardware demo cycle",self.demo_enabled)
         phase_row = ttk.Frame(appearance)
@@ -1127,6 +1162,7 @@ class CodyWindow:
             contour, self.debug.get(), self.selected, self.guide.get(),
             self.outline.get(), self.rest_outline.get(), self.names.get(),
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
+            self.face_follows_body.get(),
         )
 
     # self: Preview controller advancing sources, model, geometry and presentation once.
@@ -1164,6 +1200,7 @@ class CodyWindow:
         presentation_key = self.presentation_key(screen, rotation, layout, values, transform)
         changed = presentation_key != self.last_presentation_key
         if changed:
+            self.renderer.face_follows_body = self.face_follows_body.get()
             image, self.scene = self.renderer.render(
                 screen,
                 values,
@@ -1185,14 +1222,15 @@ class CodyWindow:
         self.update_point_inspector()
 
         duration_ms = (time.perf_counter() - started) * 1000
+        target_hz = 25 if self.jelly_study else 60
         self.timing.configure(
             text=f"SYNTHETIC / host tick {duration_ms:.1f} ms / "
                  f"presentation {'UPDATED' if changed else 'UNCHANGED'} / "
                  f"interval {interval_seconds * 1000:.1f} ms / "
-                 "active target 60 Hz / ESP32: UNMEASURED"
+                 f"active target {target_hz} Hz / ESP32: UNMEASURED"
         )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
-        interval_ms = 1000 / 60 if screen == Screen.RIG else 100
+        interval_ms = 1000 / target_hz if screen == Screen.RIG else 100
         delay_ms = max(1, math.ceil(interval_ms - duration_ms))
         self.after_id = self.root.after(delay_ms, self.tick)
 
@@ -1212,6 +1250,8 @@ def main(argv=None):
                         help='Capture a host-only soft cloud material study; not firmware rendering parity')
     parser.add_argument('--cloud-png-mesh-study', action='store_true',
                         help='Capture the painted PNG/triangle experiment; GIF output shows synthetic lobe motion')
+    parser.add_argument('--cloud-jelly-study', action='store_true',
+                        help='Pearlescent scanline experiment: interactive preview, PNG or synthetic GIF')
     parser.add_argument('--mesh-overlay', action='store_true',
                         help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)
@@ -1222,15 +1262,18 @@ def main(argv=None):
         parser.error('--cloud-material-study requires --capture and --screen rig')
     if args.cloud_png_mesh_study and (args.capture is None or args.screen != Screen.RIG):
         parser.error('--cloud-png-mesh-study requires --capture and --screen rig')
-    if args.cloud_material_study and args.cloud_png_mesh_study:
+    if args.cloud_jelly_study and args.screen != Screen.RIG:
+        parser.error('--cloud-jelly-study requires --screen rig')
+    if sum((args.cloud_material_study, args.cloud_png_mesh_study, args.cloud_jelly_study)) > 1:
         parser.error('Select only one cloud study')
     if args.mesh_overlay and not args.cloud_png_mesh_study:
         parser.error('--mesh-overlay requires --cloud-png-mesh-study')
-    if args.capture is not None and args.cloud_png_mesh_study and args.capture.suffix.lower() not in ('.png', '.gif'):
-        parser.error('The PNG mesh study captures PNG stills or a GIF synthetic motion loop')
+    sprite_study = args.cloud_png_mesh_study or args.cloud_jelly_study
+    if args.capture is not None and sprite_study and args.capture.suffix.lower() not in ('.png', '.gif'):
+        parser.error('Sprite studies capture PNG stills or a GIF synthetic motion loop')
     if args.capture is not None and args.capture.suffix.lower() == '.gif':
-        if not args.cloud_png_mesh_study:
-            parser.error('GIF motion capture requires --cloud-png-mesh-study')
+        if not sprite_study:
+            parser.error('GIF motion capture requires --cloud-png-mesh-study or --cloud-jelly-study')
         if args.safe_guide or '--at-ms' in (sys.argv[1:] if argv is None else argv):
             parser.error('GIF motion uses its complete fixed timeline; --safe-guide and --at-ms are not supported')
     if args.capture is not None:
@@ -1238,11 +1281,11 @@ def main(argv=None):
             args.capture = resolve_runtime_output(args.capture)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
-    renderer = CodyRenderer(skin_path=args.skin)
+    renderer = CodyRenderer(skin_path=args.skin, jelly_study=args.cloud_jelly_study)
     if args.capture:
         destination = args.capture
-        if args.cloud_png_mesh_study and destination.suffix.lower() == '.gif':
-            renderer.capture_mesh_motion(destination, args.rotation, args.mesh_overlay)
+        if sprite_study and destination.suffix.lower() == '.gif':
+            renderer.capture_sprite_motion(destination, args.rotation, args.mesh_overlay)
             print(destination)
             return
         values = animate(renderer.rig['boot_channels']['ready'],args.at_ms)
@@ -1259,6 +1302,10 @@ def main(argv=None):
         if renderer.png_mesh is not None:
             study = renderer.png_mesh
             print(f'HOST ONLY: {len(study.vertices)} vertices, {len(study.triangles)} triangles; '
+                  f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
+        if renderer.jelly_sprite is not None:
+            study = renderer.jelly_sprite
+            print(f'HOST ONLY: {len(study.rows)} scanline supports, no triangles; '
                   f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
         return
     root = tk.Tk()

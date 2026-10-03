@@ -21,18 +21,21 @@ def resolve_compiler(requested: str | None) -> str:
 # include_dirs: Literal include directories relative to the repository root.
 # sources: Actual portable source files relative to the repository root.
 # executable: Artifact-owned executable; intermediate objects stay alongside it.
+# definitions: Explicit compile-time features for this portable host target.
 # Raises ValueError for an executable outside the repository artifacts directory.
-def compile_command(compiler, include_dirs, sources, executable):
+def compile_command(compiler, include_dirs, sources, executable, definitions=()):
     executable = Path(executable).resolve()
     if not executable.is_relative_to(ROOT / "artifacts"):
         raise ValueError("Native compiler output must remain under artifacts/")
     if Path(compiler).stem.lower() == "cl":
         command = [compiler, "/nologo", "/std:c++17", "/O2", "/W4", "/EHsc", "/MD"]
+        command += [f"/D{definition}" for definition in definitions]
         command += [f"/I{ROOT / directory}" for directory in include_dirs]
         command += [str(ROOT / source) for source in sources]
         command += [f"/Fo{executable.parent}/", f"/Fe{executable}"]
     else:
         command = [compiler, "-std=c++17", "-O2", "-Wall", "-Wextra"]
+        command += [f"-D{definition}" for definition in definitions]
         command += [f"-I{ROOT / directory}" for directory in include_dirs]
         command += [str(ROOT / source) for source in sources]
         command += ["-o", str(executable)]

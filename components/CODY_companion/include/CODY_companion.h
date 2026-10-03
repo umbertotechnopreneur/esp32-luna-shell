@@ -1,5 +1,6 @@
 #pragma once
 
+#include <stdbool.h>
 #include "esp_err.h"
 
 #ifdef __cplusplus
@@ -20,6 +21,15 @@ esp_err_t CODY_companion_boot_midpoint(void);
 esp_err_t CODY_companion_boot_completed(void);
 // Enter the authored animation demo after the ready frame if autostart is enabled.
 esp_err_t CODY_companion_demo_start(void);
+
+// enabled: Follow the pearl body's row deformation when true; keep the independent face when false.
+// Session-scoped preference: queues geometry for the worker, without advancing paused animation.
+// Returns the real lock/state error, or ESP_ERR_NOT_SUPPORTED when pearl jelly is not compiled in.
+esp_err_t CODY_companion_set_face_deformation(bool enabled);
+
+// enabled: Non-null output receiving the requested session preference on success only.
+// Returns ESP_ERR_INVALID_ARG for null, the real lock/state error, or ESP_ERR_NOT_SUPPORTED.
+esp_err_t CODY_companion_get_face_deformation(bool *enabled);
 
 #ifdef __cplusplus
 }

@@ -1,0 +1,31 @@
+{
+  "source": "assets/cody/experiments/jelly-scanline/jelly-body-master.png",
+  "source_sha256": "3b3c429cdf2a22098a652ff8e7048dfae09d22f47c5bb1cd63afbf5369b43cd3",
+  "skin_sha256": "f2cafacbf7a87ab9079b8be7d78f0ec3b85aba83f411df75c146f9986e98470a",
+  "source_crop": [
+    28,
+    206,
+    1229,
+    1082
+  ],
+  "width": 320,
+  "height": 233,
+  "encoding": "premultiplied RGBA8 in little-endian uint32, RGB565-quantized source",
+  "texture_bytes": 298240,
+  "row_controls": 33,
+  "anchors": [
+    "center",
+    "lobe.left",
+    "lobe.upper_left",
+    "lobe.crown",
+    "lobe.upper_right",
+    "lobe.shoulder",
+    "lobe.right",
+    "lobe.lower_right",
+    "lobe.foot_right",
+    "lobe.belly",
+    "lobe.foot_left",
+    "lobe.lower_left"
+  ],
+  "note": "Asset generation only; not a device performance measurement."
+}
