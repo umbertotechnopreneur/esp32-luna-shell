@@ -282,10 +282,9 @@ as `pre-raster-build-20261003.log` and `pre-raster-flash-20261003.log`.
 
 The 60-second `pre-raster-20261003.log` contains 30 complete artwork reports.
 The later 45-second `pre-raster-skeleton-20261003.log` also contains artwork:
-its filename identifies the intended capture, not the observed mode. No new
-skeleton-stage measurements can be inferred from these files. The user
-separately reports skeleton around 27 FPS with CPU1 70%, and artwork above
-29 FPS with CPU1 around 40%. CPU2 remains 0% in both observed views.
+its filename identifies the intended capture, not the observed mode. The
+subsequent `pre-raster-skeleton-real-20261003.log` contains 18 complete
+skeleton reports. CPU2 remains 0% in both observed views.
 
 The first capture records:
 
@@ -310,11 +309,32 @@ and the removed stages, but conservative geometry rectangles increase transfer
 volume. Transfer is now the largest artwork stage; asynchronous DMA is the
 next planned change.
 
+The matched skeleton capture records median HUD 28.2 FPS and CPU1 68%, with
+34 ms sampled frames. The overlapping windows have median mean 34 ms and
+median p95 38 ms. Raster is about 15 ms: 3 ms links, 3 ms tangents and 2 ms
+markers after whole-millisecond rounding. Conversion costs 3 ms, submission
+3 ms and sleeping DMA wait 11 ms.
+
+An aligned 32-bit RGB565 pair swap then replaced the byte-at-a-time panel
+conversion. `rgb565-word-swap-skeleton-20261003.log` contains 17 complete
+skeleton reports: conversion falls from 3 ms to 2 ms, median sampled frame
+duration from 34 ms to 33 ms, CPU1 from 68% to 66%, and measured sustained
+FPS from 27.9 to 28.7. Median HUD rises from 28.2 to 29.1 FPS; window mean
+falls from 34 ms to 33 ms and p95 from 38 ms to 36 ms. Draw remains 15 ms
+and sleeping DMA wait 11 ms, so the gain does not come from sending less
+content. A constant-size `memcpy` pair trial instead raised conversion to
+14-15 ms and was discarded before commit.
+
+The word-swap binary is 1,708,720 bytes (`0x1a12b0`); SHA256:
+`E01C7F8DA08E91AC5027583CB036067D30CA8507996EB82301D02799B84E0A73`.
+Build and flash logs are `rgb565-word-swap-build-20261003.log` and
+`rgb565-word-swap-flash-20261003.log` in the same evidence directory.
+
 No automated tests, simulator checks, size workflow or validation scans ran.
 The captures contain the existing snapshot-summary truncation warning and
 RTC error state. The first capture has complete performance triplets; the
 second has 22 STAGE/DRAW pairs but only 20 PERF lines, so two samples lack
 their frame-identity/readout record and are excluded from those statistics.
-Physical pixel
-correctness, rotation/power stress and a captured skeleton comparison remain
-open, separate from the compilation and performance observations.
+The user observed no dirty pixels in the checked orientation. Rotation and
+power stress remain open, separate from the compilation and performance
+observations.

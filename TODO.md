@@ -9,14 +9,17 @@ authorization.
 - [ ] Reduce Cody animation CPU usage and meet the sustained frame budget in
   both artwork and skeleton views. The pre-raster candidate is compiled and
   flashed: artwork capture shows around 29 FPS with CPU1 45%, CPU2 0%,
-  frame mean about 26 ms and raster about 7 ms. The user reports skeleton
-  around 27 FPS and CPU1 70%; a new skeleton-stage capture remains open.
+  frame mean about 26 ms and raster about 7 ms. The matched skeleton capture
+  shows 27.9 FPS, CPU1 68%, CPU2 0%, and 15 ms raster. Aligned RGB565 word
+  conversion improves it to 28.7 FPS, CPU1 66%, and 2 ms conversion.
   Pixel comparison/packing are removed, but conservative rectangles increase
-  sent bytes and sleeping DMA wait remains a major cost. Obtain a logged static-route CPU baseline before
+  sent bytes; skeleton drawing and sleeping DMA wait remain the main costs.
+  Obtain a logged static-route CPU baseline before
   attributing the remaining work to hardware services. Evidence:
   `docs/architecture/cody-render-performance.md`.
-  The pre-raster damage/compact-tile and reduced-log candidate has narrow
-  compilation/device timing evidence. On fresh test authorization, check compact/full pixel parity,
+  The pre-raster damage/compact-tile, reduced-log and aligned word-conversion
+  candidates have narrow compilation/device timing evidence. On fresh test
+  authorization, check compact/full pixel parity,
   old/new damage reconstruction and device artwork/skeleton/pause/rotation;
   confirm pixel correctness and measure sent bytes as well as FPS/stage costs. Asynchronous double-buffer
   DMA and multicore raster remain the next implementation stages.

@@ -3882,6 +3882,42 @@ esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+typedef uint32_t bsp_display_rgb565_pair_t __attribute__((__may_alias__));
+
+// destination: Writable DMA bytes; may be the same address as source.
+// source: Native little-endian RGB565 pixels readable for byte_count bytes.
+// byte_count: Even payload size; every adjacent byte pair belongs to one pixel.
+static inline void bsp_display_copy_rgb565_to_panel_order(
+    uint8_t *destination, const uint8_t *source, size_t byte_count
+)
+{
+    size_t byte = 0;
+    if ((((uintptr_t)destination | (uintptr_t)source) & (sizeof(uint32_t) - 1U)) == 0U) {
+        // The alias type makes the intended aligned word access explicit to
+        // Xtensa GCC without violating caller-owned uint16_t surface storage.
+        const bsp_display_rgb565_pair_t *source_pairs =
+            (const bsp_display_rgb565_pair_t *)source;
+        bsp_display_rgb565_pair_t *destination_pairs =
+            (bsp_display_rgb565_pair_t *)destination;
+        const size_t pair_count = byte_count / sizeof(uint32_t);
+        for (size_t pair = 0; pair < pair_count; ++pair) {
+            const uint32_t native_pair = source_pairs[pair];
+            const uint32_t panel_pair =
+                ((native_pair & UINT32_C(0x00FF00FF)) << 8U) |
+                ((native_pair & UINT32_C(0xFF00FF00)) >> 8U);
+            destination_pairs[pair] = panel_pair;
+        }
+        byte = pair_count * sizeof(uint32_t);
+    }
+    for (; byte < byte_count; byte += 2U) {
+        // Load both bytes before writing because conversion is normally in place.
+        const uint8_t low = source[byte];
+        const uint8_t high = source[byte + 1U];
+        destination[byte] = high;
+        destination[byte + 1U] = low;
+    }
+}
+
 // x_start: First column included in the dirty rectangle.
 // y_start: First row included in the dirty rectangle.
 // x_end: Exclusive last column; must remain inside the physical display.
@@ -3952,15 +3988,7 @@ static esp_err_t bsp_display_write_rgb565_internal(
             memset(lease->data, 0, strip_bytes);
         } else {
             const uint8_t *strip_source = source + (size_t)(strip_y - y_start) * source_row_bytes;
-            // The panel reads the big end first; the caller keeps ordinary RGB565.
-            for (size_t byte = 0; byte < strip_bytes; byte += 2U) {
-                // Load both bytes first: the frame owner may have rasterized
-                // directly into this same slot, making the conversion in-place.
-                const uint8_t low = strip_source[byte];
-                const uint8_t high = strip_source[byte + 1U];
-                lease->data[byte] = high;
-                lease->data[byte + 1U] = low;
-            }
+            bsp_display_copy_rgb565_to_panel_order(lease->data, strip_source, strip_bytes);
         }
         if (in_frame) {
             display_frame.conversion_us += (uint32_t)(esp_timer_get_time() - conversion_started_us);

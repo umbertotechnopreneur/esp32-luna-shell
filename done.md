@@ -7,8 +7,13 @@
   reference geometry committed only after successful frame retirement.
   Compiled/flashed on COM10; artwork capture reaches about 29 FPS with CPU1
   45%, CPU2 0%, frame mean 26 ms and report cost 20 ms. Payload increases;
-  DMA remains the next bottleneck. Regression coverage is added but not run;
-  physical pixel correctness and a logged skeleton comparison remain open.
+  DMA remains a bottleneck. Regression coverage is added but not run. The
+  user observed no dirty pixels in the checked orientation.
+- [x] Capture the real skeleton view and replace byte-at-a-time RGB565 panel
+  conversion with aligned 32-bit pair swaps. On COM10, conversion falls from
+  3 ms to 2 ms, CPU1 from 68% to 66%, and sustained FPS from 27.9 to 28.7;
+  CPU2 remains 0%. Skeleton drawing stays at 15 ms and DMA wait at 11 ms.
+  The regressing `memcpy` trial was discarded. No automated tests ran.
 - [x] Add additive skeleton links/tangents/markers probes with two extra clock
   reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
   flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;
