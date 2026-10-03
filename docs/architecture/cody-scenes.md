@@ -129,7 +129,20 @@ The derived coverage is named **Cody Title Mono** and distributed with the
 [upstream SIL Open Font License](https://github.com/JetBrains/JetBrainsMono/blob/master/OFL.txt)
 in `assets/cody/scenes/OFL.txt`.
 
-This implementation has static source review and asset generation only.
-No simulator execution, test suite, firmware compilation, size report, flash,
-or device measurement was run for this revision. Obtain fresh authorization
-for the specific validation or physical operation before running it.
+## Authorized build and flash (2026-10-03)
+
+After implementation checkpoint `1df7ee0a`, the user explicitly requested
+device delivery. The Cody profile was reconfigured through `device.ps1
+set-target`, then `device.ps1 flash -Profile cody-companion -BuildDir
+artifacts/build-cody-companion -Port COM10 -Baud 460800 -Jobs 8` compiled
+and flashed successfully with ESP-IDF 6.0.2. The application written at
+`0x10000` was **2,055,376 bytes**. Esptool verified the written hash and
+completed the hardware RTS reset. The generated configuration enables pearl
+jelly, face-follow and the forced first-boot greeting on the 16 MB board.
+The command evidence is in `artifacts/logs/flash.log` until transient cleanup.
+
+No simulator execution, test suite, separate size report, serial runtime
+capture or physical display/motion observation ran for this revision.
+Successful flashing does not establish the greeting's appearance, measured
+CPU/FPS, stability, rotation or standby behavior. Those checks still require
+fresh authorization for the specific validation or physical operation.

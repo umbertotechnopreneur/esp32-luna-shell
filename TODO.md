@@ -8,7 +8,9 @@ authorization.
 
 - [ ] Review the new first-boot greeting in the Windows simulator and on the
   device after fresh, specific authorization. Implementation and source assets
-  are complete; no simulator, tests, build, size or flash ran for this change.
+  are complete; checkpoint `1df7ee0a` compiled and flashed on COM10 with the
+  forced first-boot flag enabled. No simulator, tests, separate size report
+  or runtime/display observation ran for this change.
   Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.

@@ -10,8 +10,10 @@
   NVS first-boot key and an explicit development override enabled by default.
   Pack printable ASCII coverage into 19,000 flash bytes without runtime font
   decoding, per-frame allocation or another framebuffer. Add the shared
-  Windows preview route and document ownership/failure rules. Source asset
-  generation and static source review only; runtime/size checks remain open.
+  Windows preview route and document ownership/failure rules. Checkpoint
+  `1df7ee0a` subsequently compiled and flashed on COM10 at explicit user
+  request: 2,055,376-byte application, verified flash hash and hardware reset.
+  No automated tests or simulator ran; runtime/size checks remain open.
 
 ## Cody rendering checkpoint (2026-10-03)
 
