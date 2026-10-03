@@ -200,7 +200,25 @@ private:
 };
 
 struct FrameTimings {
+    struct WorkerLoopTrace {
+        bool valid = false;
+        uint32_t requested_wait_ms = 0;
+        int64_t scheduled_us = 0;
+        int64_t loop_started_us = 0;
+        int64_t wait_started_us = 0;
+        int64_t wait_completed_us = 0;
+        int64_t draw_requested_us = 0;
+    } worker;
     int64_t started_us = 0;
+    int64_t frame_begin_started_us = 0;
+    int64_t frame_begin_completed_us = 0;
+    int64_t buffer_ready_us = 0;
+    int64_t geometry_completed_us = 0;
+    int64_t tiles_completed_us = 0;
+    int64_t frame_end_started_us = 0;
+    int64_t frame_end_completed_us = 0;
+    int64_t statistics_completed_us = 0;
+    int64_t state_unlocked_us = 0;
     int64_t geometry_us = 0;
     int64_t raster_us = 0;
     int64_t reuse_us = 0;
@@ -208,10 +226,19 @@ struct FrameTimings {
     int64_t packing_us = 0;
     int64_t transfer_us = 0;
     uint32_t submitted_pixels = 0;
+    uint32_t previous_log_output_us = 0;
     uint16_t dirty_rectangles = 0;
     uint16_t tile_rows = 0;
+    uint16_t visited_tiles = 0;
+    uint16_t skipped_tiles = 0;
+    uint16_t rasterized_tiles = 0;
+    uint16_t unchanged_tiles = 0;
+    uint16_t touch_polls = 0;
     CODY::RigRasterProfile raster_profile{esp_timer_get_time};
 };
+
+// The next sampled frame reports observer cost without logging recursively.
+uint32_t s_previous_log_output_us = 0;
 
 // operation: Consumer stage that has failed and must remain visible in the snapshot.
 // error: Original initialization, decode, display, touch, or task creation failure.
@@ -459,6 +486,25 @@ struct CompletedFrameReport {
     bool ready = false;
 };
 
+// frame_started_us: Application frame timestamp that the driver observation must follow.
+// transfer: Receives the latest completed frame metrics from the canonical snapshot.
+esp_err_t read_completed_transfer_profile(int64_t frame_started_us,
+                                          LUNASHELL::DisplayFrameSnapshot &transfer)
+{
+    const esp_err_t error =
+        LUNASHELL::DeviceSnapshotService::instance().readDisplayFrameObservation(transfer);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!transfer.measured || transfer.last_error != ESP_OK ||
+        transfer.completed_at_us < frame_started_us) {
+        ESP_LOGE(kTag, "Completed transfer profile unavailable for this frame (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
 // timings: Completed frame's measured stages, never an estimated CPU metric.
 // log: Receives bounded copied state only when a timing log is due.
 // should_log: True only after the configured interval and a successful statistics snapshot.
@@ -479,6 +525,7 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     const uint32_t period_ms = s_state.animation_paused ? kPausedReadoutPeriodMs : kRigFramePeriodMs;
     s_state.next_frame_us = timings.started_us + period_ms * 1000LL;
     ++s_state.rig_frame_count;
+    log.frame_count = s_state.rig_frame_count;
     const int64_t completed_us = log.completed_us;
     CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
     if (!CODY::PocData::execution_timings) {
@@ -489,6 +536,11 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
         should_log = s_state.last_timing_log_us == 0 || completed_us - s_state.last_timing_log_us >=
             CODY::PocData::report_interval_ms * 1000LL;
         if (should_log) {
+            const esp_err_t transfer_error =
+                read_completed_transfer_profile(timings.started_us, log.transfer);
+            if (transfer_error != ESP_OK) {
+                return transfer_error;
+            }
             s_state.last_timing_log_us = completed_us;
         }
         return ESP_OK;
@@ -511,24 +563,43 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
         ESP_LOGE(kTag, "Completed frame statistics failed: %s", esp_err_to_name(error));
         return error;
     }
-    error = LUNASHELL::DeviceSnapshotService::instance().readDisplayFrameObservation(log.transfer);
+    error = read_completed_transfer_profile(timings.started_us, log.transfer);
     if (error != ESP_OK) {
         return error;
     }
-    if (!log.transfer.measured || log.transfer.last_error != ESP_OK ||
-        log.transfer.completed_at_us < timings.started_us) {
-        ESP_LOGE(kTag, "Completed transfer profile unavailable for this frame (%s)",
-            esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
     s_state.last_timing_log_us = completed_us;
-    log.frame_count = s_state.rig_frame_count;
     log.debug = s_state.rig_debug;
     log.completed_us = completed_us;
     log.response = s_state.response;
     log.response_frame = s_state.response_frame;
     should_log = true;
     return ESP_OK;
+}
+
+// timings: One sampled completed frame, using one absolute monotonic base tick.
+// log: Copied frame identity used to correlate this sample with the normal report.
+void log_sampled_frame_trace(const FrameTimings &timings, const CompletedFrameLog &log)
+{
+    if (!timings.worker.valid) {
+        return;
+    }
+    const int64_t base_us = timings.worker.loop_started_us;
+    ESP_LOGI(kTag,
+        "TRACE tick f=%lu t0=%lld due=%ld wait=%ld draw=%ld fb=%ld ready=%ld buf=%ld "
+        "geo=%ld tiles=%ld fe=%ld stats=%ld unlock=%ld",
+        static_cast<unsigned long>(log.frame_count),
+        static_cast<long long>(base_us),
+        static_cast<long>(timings.worker.scheduled_us - base_us),
+        static_cast<long>(timings.worker.wait_completed_us - base_us),
+        static_cast<long>(timings.worker.draw_requested_us - base_us),
+        static_cast<long>(timings.frame_begin_started_us - base_us),
+        static_cast<long>(timings.frame_begin_completed_us - base_us),
+        static_cast<long>(timings.buffer_ready_us - base_us),
+        static_cast<long>(timings.geometry_completed_us - base_us),
+        static_cast<long>(timings.tiles_completed_us - base_us),
+        static_cast<long>(timings.frame_end_completed_us - base_us),
+        static_cast<long>(timings.statistics_completed_us - base_us),
+        static_cast<long>(timings.state_unlocked_us - base_us));
 }
 
 // timings: Actual geometry, raster and transfer durations for this completed frame.
@@ -541,10 +612,15 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
             static_cast<long>(timings.transfer_us), static_cast<long>(log.completed_us - timings.started_us));
         return;
     }
+    log_sampled_frame_trace(timings, log);
     if (log.paused) {
-        ESP_LOGI(kTag, "PAUSED geometry=frozen HUD=1Hz draw=%ldus reuse=%ldus transfer=%ldus %s",
+        ESP_LOGI(kTag, "PAUSED geometry=frozen HUD=1Hz draw=%ldus reuse=%ldus transfer=%ldus "
+            "lock=%luus bsp=%luus prev_log=%luus %s",
             static_cast<long>(timings.raster_us - timings.reuse_us),
             static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
+            static_cast<unsigned long>(log.transfer.last_lock_wait_us),
+            static_cast<unsigned long>(log.transfer.last_duration_us),
+            static_cast<unsigned long>(timings.previous_log_output_us),
             log.readout.processors);
         return;
     }
@@ -582,19 +658,29 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         log.response.attention, log.response.speaking, log.response.idle_seconds, log.response.yawn_weight,
         log.response.annoyance, log.response.protective_eye_closure,
         source_health_name(log.response.microphone_status.health), source_health_name(log.response.playback_status.health));
-    ESP_LOGI(kTag, "Damage rectangles=%u submitted_pixels=%lu canvas_pixels=%lu tile_rows=%u cache_bytes=%lu",
+    ESP_LOGI(kTag, "Damage rectangles=%u submitted_pixels=%lu canvas_pixels=%lu tile_rows=%u "
+        "cache_bytes=%lu tiles=%u/%u/%u/%u polls=%u",
         timings.dirty_rectangles, static_cast<unsigned long>(timings.submitted_pixels),
         static_cast<unsigned long>(kFramePixels), timings.tile_rows,
-        static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)));
+        static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)),
+        timings.visited_tiles, timings.skipped_tiles, timings.rasterized_tiles,
+        timings.unchanged_tiles, timings.touch_polls);
     ESP_LOGI(kTag, "Render draw=%ldus reuse=%ldus transfer=%ldus %s %s",
         static_cast<long>(timings.raster_us - timings.reuse_us),
         static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
         log.readout.frame_rate, log.readout.processors);
-    ESP_LOGI(kTag, "Pipeline compare=%ldus pack=%ldus convert=%luus submit=%luus dma_wait=%luus",
+    ESP_LOGI(kTag, "Pipeline compare=%ldus pack=%ldus convert=%luus submit=%luus dma_wait=%luus "
+        "wait=%ldus req=%lums late=%ldus lock=%luus bsp=%luus prev_log=%luus",
         static_cast<long>(timings.comparison_us), static_cast<long>(timings.packing_us),
         static_cast<unsigned long>(log.transfer.last_conversion_us),
         static_cast<unsigned long>(log.transfer.last_submission_us),
-        static_cast<unsigned long>(log.transfer.last_completion_wait_us));
+        static_cast<unsigned long>(log.transfer.last_completion_wait_us),
+        static_cast<long>(timings.worker.wait_completed_us - timings.worker.wait_started_us),
+        static_cast<unsigned long>(timings.worker.requested_wait_ms),
+        static_cast<long>(timings.worker.draw_requested_us - timings.worker.scheduled_us),
+        static_cast<unsigned long>(log.transfer.last_lock_wait_us),
+        static_cast<unsigned long>(log.transfer.last_duration_us),
+        static_cast<unsigned long>(timings.previous_log_output_us));
     ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus",
         static_cast<long>(timings.raster_profile.clear_us),
         static_cast<long>(timings.raster_profile.artwork_us),
@@ -620,12 +706,21 @@ bool tile_intersects_candidates(const CODY::DamageRegions &regions, uint16_t fir
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
 // deferred_log: Startup's outer recursive lock defers output until that owner releases it.
-DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameReport *deferred_log = nullptr)
+// worker_trace: Optional timings captured by the worker before it enters the frame owner.
+DrawResult draw_companion_frame(bool resume_animation = false,
+                                CompletedFrameReport *deferred_log = nullptr,
+                                const FrameTimings::WorkerLoopTrace *worker_trace = nullptr)
 {
+    FrameTimings timings{};
+    if (worker_trace != nullptr) {
+        timings.worker = *worker_trace;
+    }
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         return {ESP_ERR_INVALID_STATE, renderer_is_parked(), 0};
     }
+    timings.frame_begin_started_us = esp_timer_get_time();
     const esp_err_t lock_error = LUNASHELL_display_frame_begin(kFrameBudgetMs);
+    timings.frame_begin_completed_us = esp_timer_get_time();
     if (lock_error != ESP_OK) {
         return {lock_error, renderer_is_parked(), 0};
     }
@@ -653,7 +748,6 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         return frame.finish({ESP_ERR_INVALID_STATE, false, 0});
     }
 
-    FrameTimings timings{};
     void *raster_storage = nullptr;
     size_t raster_capacity_bytes = 0;
     const esp_err_t buffer_error = LUNASHELL_display_frame_buffer(&raster_storage, &raster_capacity_bytes);
@@ -682,7 +776,8 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         s_resources.frame_cache, kPanelWidth, kPanelHeight, kPanelWidth, kFramePixels
     };
     PendingTouchReports pending_touch;
-    timings.started_us = esp_timer_get_time();
+    timings.buffer_ready_us = esp_timer_get_time();
+    timings.started_us = timings.buffer_ready_us;
     CODY::DebugReadout debug_readout;
     CODY::DamageRect current_rig_bounds;
     CODY::DamageRegions candidate_regions;
@@ -734,9 +829,11 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
+    timings.geometry_completed_us = esp_timer_get_time();
     esp_err_t result = ESP_OK;
     uint32_t next_touch_poll_row = kTouchPollRows;
     for (uint32_t row = 0; row < kPanelHeight; row += timings.tile_rows) {
+        ++timings.visited_tiles;
         result = LUNASHELL_display_frame_check_deadline();
         if (result != ESP_OK) {
             break;
@@ -759,8 +856,10 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             // The old and new footprints prove these rows cannot change.
             // Keep both the already displayed pixels and native cache; this
             // also avoids redrawing constant top controls every active frame.
+            ++timings.skipped_tiles;
             continue;
         }
+        ++timings.rasterized_tiles;
         const CODY2D::Surface strip{
             static_cast<uint16_t *>(raster_storage), kPanelWidth, strip_rows, kPanelWidth,
             static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
@@ -814,6 +913,8 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
                 timings.submitted_pixels += static_cast<uint32_t>(packed.width) * packed.height;
                 ++timings.dirty_rectangles;
             }
+        } else if (result == ESP_OK) {
+            ++timings.unchanged_tiles;
         }
         if (result != ESP_OK) {
             // The lock still excludes power transitions here: a returned write
@@ -823,6 +924,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         // Service IRQ reports between strips; the evaluated geometry stays immutable.
         if (s_start_state.load(std::memory_order_acquire) == StartState::Running &&
             (row + strip_rows >= next_touch_poll_row || row + strip_rows == kPanelHeight)) {
+            ++timings.touch_polls;
             next_touch_poll_row = ((row + strip_rows) / kTouchPollRows + 1U) * kTouchPollRows;
             const esp_err_t touch_error = capture_pending_touch(pending_touch);
             if (touch_error != ESP_OK) {
@@ -831,12 +933,15 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             }
         }
     }
+    timings.tiles_completed_us = esp_timer_get_time();
     if (result == ESP_OK &&
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         result = s_terminal_error.load(std::memory_order_acquire);
     }
     const uint32_t completed_revision = result == ESP_OK ? revision : 0;
+    timings.frame_end_started_us = esp_timer_get_time();
     const DrawResult completed = frame.finish({result, false, completed_revision});
+    timings.frame_end_completed_us = esp_timer_get_time();
     s_resources.frame_cache_valid = completed.error == ESP_OK;
     if (completed.error == ESP_OK) {
         s_cached_rig_bounds = current_rig_bounds;
@@ -849,6 +954,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     bool should_log = false;
     if (completed.error == ESP_OK) {
         const esp_err_t statistics_error = record_completed_frame(timings, log, should_log);
+        timings.statistics_completed_us = esp_timer_get_time();
         if (statistics_error != ESP_OK) {
             return {fail_consumer("Completed frame statistics", statistics_error, false), false, 0};
         }
@@ -861,13 +967,17 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     }
     // A slow log sink must not keep rotation or standby waiting behind the renderer.
     state_lock.release();
+    timings.state_unlocked_us = esp_timer_get_time();
+    timings.previous_log_output_us = s_previous_log_output_us;
     if (should_log) {
         if (deferred_log != nullptr) {
             deferred_log->timings = timings;
             deferred_log->log = log;
             deferred_log->ready = true;
         } else {
+            const int64_t log_started_us = esp_timer_get_time();
             log_completed_frame(timings, log);
+            s_previous_log_output_us = static_cast<uint32_t>(esp_timer_get_time() - log_started_us);
         }
     }
     return completed;
@@ -1136,6 +1246,9 @@ void companion_worker(void *context)
     bool parked = false;
     for (;;) {
         const int64_t now_us = esp_timer_get_time();
+        FrameTimings::WorkerLoopTrace worker_trace{};
+        worker_trace.valid = true;
+        worker_trace.loop_started_us = now_us;
         // Only this worker changes rig visibility after startup; boot remains static.
         const int64_t remaining_us = s_state.next_frame_us - now_us;
         uint32_t wait_ms = kSamplePeriodMs;
@@ -1145,7 +1258,10 @@ void companion_worker(void *context)
             wait_ms = remaining_us > 0 ?
                 static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
         }
+        worker_trace.requested_wait_ms = wait_ms;
+        worker_trace.wait_started_us = esp_timer_get_time();
         const esp_err_t wait_error = LUNASHELL_touch_wait_for_report(wait_ms);
+        worker_trace.wait_completed_us = esp_timer_get_time();
         if (wait_error != ESP_OK && wait_error != ESP_ERR_NOT_FOUND) {
             fail_consumer("Touch IRQ wait", wait_error, true);
             break;
@@ -1181,7 +1297,10 @@ void companion_worker(void *context)
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
-        const DrawResult draw = draw_companion_frame(parked);
+        worker_trace.draw_requested_us = esp_timer_get_time();
+        worker_trace.scheduled_us = s_state.rig_visible && s_state.next_frame_us > 0
+            ? s_state.next_frame_us : worker_trace.draw_requested_us;
+        const DrawResult draw = draw_companion_frame(parked, nullptr, &worker_trace);
         if (draw.parked) {
             ESP_LOGW(kTag, "Redraw parked during power transition: %s",
                      esp_err_to_name(draw.error));
