@@ -10,6 +10,8 @@ idf_component_register(
     SRCS
         "CODY_companion.cpp"
         "CODY_scene.cpp"
+        "CODY_lifecycle.cpp"
+        "CODY_expression_catalog.cpp"
         "CODY_settings.cpp"
         "CODY_debug_hud.cpp"
         "CODY_damage.cpp"
@@ -30,7 +32,7 @@ idf_component_register(
         "../../assets/cody/scenes/generated"
         "../../assets/cody/experiments/jelly-scanline/generated"
     REQUIRES CODY2D LUNASHELL_platform heap
-    PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer
+    PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)

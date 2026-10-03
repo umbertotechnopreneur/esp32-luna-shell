@@ -1,5 +1,12 @@
 # Reusable Cody scenes
 
+The current firmware facial behavior is documented in
+[Cody face lifecycle and expression catalog](cody-face-lifecycle.md): animated
+Calm -> Happy -> Calm on each ordinary boot, 35A / Sleep before suspension,
+35B / Wake followed by 16 / Idle. Optional greeting text reuses the scene layer
+without replaying the previous static bitmap introduction. The earlier intro
+implementation and authorized delivery records below describe preceding revisions.
+
 The standalone Cody renderer now supports an immutable scene definition with
 the existing animated cloud above one large monospace title and optional
 caller-owned content below it. This is not an LVGL screen, a new sensor owner,

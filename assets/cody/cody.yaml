@@ -268,6 +268,50 @@ path_opacity:
   cheek.left: cheek_opacity
   cheek.right: cheek_opacity
 expression_presets:
+  calm:
+    eye_left: 1
+    eye_right: 1
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0.04
+    breath: 0
+    mouth_width: 1
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1
+  happy:
+    eye_left: 0.12
+    eye_right: 0.12
+    brow_left: 0.15
+    brow_right: 0.15
+    mouth_open: 0.65
+    breath: 0
+    mouth_width: 1.1
+    nose_size: 1
+    cheek_size: 1.25
+    cheek_opacity: 1
+  sleeping:
+    eye_left: 0
+    eye_right: 0
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0.22
+    breath: 0
+    mouth_width: 0.65
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1
+  drowsy:
+    eye_left: 0.35
+    eye_right: 0.35
+    brow_left: 0
+    brow_right: 0
+    mouth_open: 0.22
+    breath: 0
+    mouth_width: 0.65
+    nose_size: 1
+    cheek_size: 1.2
+    cheek_opacity: 1
   embarrassed:
     eye_left: 0.65
     eye_right: 0.65

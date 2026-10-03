@@ -117,6 +117,15 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Power and standby ownership
 
+- A standalone face consumer must complete its visible Sleep presentation
+  before the power owner closes the write gate. Restore its Wake frame while
+  the panel is dark before exposing it. A completed-frame acknowledgment,
+  rather than evaluated geometry, establishes the transition boundary.
+- Atlas screen IDs and expression combinations are separate identities. Keep
+  breathing/blinking as independent rhythmic channels when changing a base
+  expression; ordinary boot intent must not silently replace Wake after an
+  actual Deep-sleep reset.
+
 - Performance Mode is session-scoped; it must not overwrite saved settings or
   combine high-rate snapshots, diagnostics, verbose logs, and SD mirroring in
   one UI command. Serial capture is the canonical crash source when SD is off.

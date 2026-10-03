@@ -6,6 +6,16 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh specific authorization, compile and observe the current Cody
+  face lifecycle: Calm/Happy/Calm on ordinary boot, continuous breath/blink,
+  35A / Sleep before display suspension, and 35B / Wake -> 16 / Idle while
+  restoring the first frame before panel exposure. Verify runtime expression
+  selection, rejected keys, transitions from diagnostic Pause, and actual frame
+  cost. Check branding retirement with greeting enabled and explicitly disabled,
+  screen-04 Happy/HUD behavior and whitesmoke text. No build, tests, simulator or
+  device operation ran for this change.
+  See `docs/architecture/cody-face-lifecycle.md`.
+
 - [ ] Review the new first-boot greeting in the Windows simulator and on the
   device after fresh, specific authorization. Implementation and source assets
   are complete; checkpoint `1df7ee0a` compiled and flashed on COM10 with the

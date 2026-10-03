@@ -73,6 +73,7 @@ constexpr uint32_t kStandbyTraceVersion = 1U;
 TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
+std::atomic<LUNASHELL_display_lifecycle_callback_t> s_display_lifecycle_callback{nullptr};
 std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
@@ -1057,16 +1058,25 @@ esp_err_t resume_standby_resources(
     step("Standalone wireless services", s_standby_resources.wireless,
          set_standalone_wireless_standby);
 #endif
-    // Keep the panel dark if any data producer failed to become coherent.
-    if (first_error == ESP_OK) {
-        first_error = transition_display_resource(false);
-    }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (first_error == ESP_OK) {
         step("Standalone rectangle writes", s_standby_resources.standalone_display,
              LUNASHELL_display_runtime_set_suspended);
     }
 #endif
+    // Restore the standalone frame while dark, then expose it. A previous sleep
+    // pose must never flash on screen before the consumer can prepare Wake.
+    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+    if (first_error == ESP_OK && display_lifecycle != nullptr) {
+        first_error = display_lifecycle(false);
+        if (first_error != ESP_OK) {
+            ESP_LOGE(kTag, "Display Wake preparation failed (%s)", esp_err_to_name(first_error));
+        }
+    }
+    // Keep the panel dark if any data producer or display consumer failed.
+    if (first_error == ESP_OK) {
+        first_error = transition_display_resource(false);
+    }
     refresh_audio_suspend_flag();
     const bool storage_degraded =
         optional_storage_error != nullptr &&
@@ -1358,7 +1368,22 @@ esp_err_t handle_boot_short_press()
     return ESP_OK;
 }
 
-// Wait for the app-owned GUI producers to stop before pausing their renderer.
+// callback: Registered single display consumer, or nullptr for a profile without one.
+// original_error: Real rejected Sleep operation, preserved even if recovery also fails.
+esp_err_t recover_display_after_rejected_sleep(
+    LUNASHELL_display_lifecycle_callback_t callback, esp_err_t original_error)
+{
+    if (callback != nullptr) {
+        const esp_err_t recovery_error = callback(false);
+        if (recovery_error != ESP_OK) {
+            ESP_LOGE(kTag, "Display recovery after rejected Sleep failed (original=%s recovery=%s)",
+                esp_err_to_name(original_error), esp_err_to_name(recovery_error));
+        }
+    }
+    return original_error;
+}
+
+// transition_sequence: Exact standby generation whose GUI producers must quiesce.
 esp_err_t wait_for_ui_quiescence(uint32_t transition_sequence)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -1405,11 +1430,20 @@ esp_err_t wait_for_ui_quiescence(uint32_t transition_sequence)
     );
 #else
     (void)transition_sequence;
+    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+    if (display_lifecycle != nullptr) {
+        const esp_err_t error = display_lifecycle(true);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Display Sleep preparation failed (%s)", esp_err_to_name(error));
+            return recover_display_after_rejected_sleep(display_lifecycle, error);
+        }
+    }
 #endif
     return ESP_OK;
 }
 
-// Coordinate UI quiescence and every hardware resource as one transaction.
+// standby: Enter or leave the complete device standby transaction.
+// reason: Canonical source of the requested operating-state change.
 esp_err_t set_standby(
     bool standby,
     LUNASHELL::DeviceStateReason reason
@@ -2472,7 +2506,26 @@ void stop_motion_monitor_after_init_failure(const char *stage)
 
 }  // namespace
 
-// Initialize the unified input, workload, display, and ESP-IDF power policy.
+// callback: Single display consumer; publish once before the power owner can transition.
+extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
+    LUNASHELL_display_lifecycle_callback_t callback)
+{
+    if (callback == nullptr || s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = callback == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Display lifecycle registration rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    LUNASHELL_display_lifecycle_callback_t expected = nullptr;
+    if (!s_display_lifecycle_callback.compare_exchange_strong(expected, callback,
+            std::memory_order_release, std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Duplicate display lifecycle owner rejected (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+// Start the single owner after strict restoration of its persisted settings.
 extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 {
     if (s_initialized.exchange(true, std::memory_order_acq_rel)) {
@@ -2853,11 +2906,20 @@ extern "C" esp_err_t LUNASHELL_power_manager_get_timeout(
     return ESP_OK;
 }
 
+// wake_after_us: Optional timer deadline in microseconds; zero uses the configured GPIO wake.
 extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
 {
     esp_err_t result = configure_wakeup(wake_after_us);
     if (result != ESP_OK) {
         return result;
+    }
+    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+    if (display_lifecycle != nullptr) {
+        result = display_lifecycle(true);
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Explicit Light-sleep display preparation failed (%s)", esp_err_to_name(result));
+            return recover_display_after_rejected_sleep(display_lifecycle, result);
+        }
     }
     result = allow_disabled_display(
         "light-sleep-off",
@@ -2867,7 +2929,7 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
         )
     );
     if (result != ESP_OK) {
-        return result;
+        return recover_display_after_rejected_sleep(display_lifecycle, result);
     }
     const esp_err_t sleep_result = esp_light_sleep_start();
     s_pending_wakeup_cause.store(
@@ -2875,6 +2937,17 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
         std::memory_order_relaxed
     );
     s_boot_rearm_requested.store(true, std::memory_order_release);
+    esp_err_t wake_frame_error = ESP_OK;
+    if (display_lifecycle != nullptr) {
+        wake_frame_error = display_lifecycle(false);
+        if (wake_frame_error != ESP_OK) {
+            ESP_LOGE(kTag, "Explicit Light-sleep Wake frame failed (%s)", esp_err_to_name(wake_frame_error));
+        }
+    }
+    if (wake_frame_error != ESP_OK) {
+        // Keep a failed wake presentation dark; never expose a stale sleep frame.
+        return sleep_result != ESP_OK ? sleep_result : wake_frame_error;
+    }
     const esp_err_t resume_error = allow_disabled_display(
         "light-sleep-resume",
         LUNASHELL_display_fade_to_power_mode(
@@ -2888,11 +2961,20 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
     return resume_error;
 }
 
+// wake_after_us: Optional timer deadline in microseconds; zero uses the configured GPIO wake.
 extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
 {
     esp_err_t result = configure_wakeup(wake_after_us);
     if (result != ESP_OK) {
         return result;
+    }
+    const auto display_lifecycle = s_display_lifecycle_callback.load(std::memory_order_acquire);
+    if (display_lifecycle != nullptr) {
+        result = display_lifecycle(true);
+        if (result != ESP_OK) {
+            ESP_LOGE(kTag, "Explicit Deep-sleep display preparation failed (%s)", esp_err_to_name(result));
+            return recover_display_after_rejected_sleep(display_lifecycle, result);
+        }
     }
     result = allow_disabled_display(
         "deep-sleep-off",
@@ -2902,7 +2984,7 @@ extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
         )
     );
     if (result != ESP_OK) {
-        return result;
+        return recover_display_after_rejected_sleep(display_lifecycle, result);
     }
     esp_deep_sleep_start();
     return ESP_OK;

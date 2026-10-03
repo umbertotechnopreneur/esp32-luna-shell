@@ -175,6 +175,14 @@ typedef enum {
 /** Start the single BOOT/PWR, inactivity, display, audio, and IMU service. */
 esp_err_t LUNASHELL_power_manager_init(void);
 
+// sleeping: Prepare a complete visible sleep frame, or the first wake frame while dark.
+// The callback owns its renderer synchronization and returns the original failure.
+typedef esp_err_t (*LUNASHELL_display_lifecycle_callback_t)(bool sleeping);
+// callback: Single display consumer; register once before power-manager startup.
+esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
+    LUNASHELL_display_lifecycle_callback_t callback
+);
+
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
 

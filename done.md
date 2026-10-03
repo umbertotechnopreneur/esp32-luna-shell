@@ -1,5 +1,24 @@
 # Done
 
+## Cody facial lifecycle and expression service implementation (2026-10-04)
+
+- [x] Render Calm/Happy/Calm from the first animated boot frame on ordinary
+  starts, preserve independent breath/blink phases, and use atlas 35A / Sleep,
+  35B / Wake and 16 / Idle through explicit typed identities. Distinguish a
+  real Deep-sleep reset from ordinary startup.
+- [x] Add a single display-consumer power callback: acknowledge complete Sleep
+  frames before suspension and prepare Wake while the panel is still dark.
+  Preserve real transition errors and the existing resource rollback owner.
+- [x] Embed a strict catalog of eight implemented combinations and three atlas
+  lifecycle mappings, plus the authored 01/02/03 preview identities and real
+  04 / Greeting scene, with a runtime named expression-selection API. Generate source
+  assets through the sole dispatcher; no build, tests, checks, simulator or
+  hardware operation was authorized for this implementation.
+- [x] Keep the startup performance HUD hidden, show centered ASCII branding
+  under the animated face, fade the brand before screen 04, and start measured
+  FPS/CPU windows there in whitesmoke. Preserve the saved first-boot opt-out;
+  the branding also retires when that greeting is disabled.
+
 ## Cody intro and tactile response implementation (2026-10-04)
 
 - [x] Add reusable typed scene phases: 400 ms Ready bitmap fade-out, two-second

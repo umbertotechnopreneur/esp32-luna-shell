@@ -12,16 +12,21 @@ extern "C" {
 // Startup or runtime faults are terminal; another call does not restart failed hardware.
 esp_err_t CODY_companion_start(void);
 
-// Render the waking face after local time, power, and storage stages finish.
+// Draw the current animated face after local time, power, and storage stages finish.
 // This reports a real boot checkpoint; it is not a measured percentage of startup.
 esp_err_t CODY_companion_boot_midpoint(void);
 
-// Render the ready face synchronously after every mandatory boot stage and watchdog cleanup.
-// Subsequent rotation/wake redraws retain the completed phase; failures remain terminal.
-// Effective first boot schedules the greeting two seconds after this completed frame.
+// Complete the real startup checkpoint without replacing the animated facial lifecycle.
+// Every ordinary boot uses Calm/Happy/Calm; Deep-sleep reset uses Wake/Idle instead.
+// Effective first boot schedules greeting text two seconds after this frame, excluding wake.
 esp_err_t CODY_companion_boot_completed(void);
-// Request the optional authored demo; the scheduled first-boot greeting has priority.
+// Preserve the existing startup request without replacing the active facial lifecycle.
 esp_err_t CODY_companion_demo_start(void);
+
+// expression_key: Exact implemented catalog key, such as "calm", "happy", or "embarrassed".
+// Select a base combination during Idle without resetting breathing or blinking.
+// Sleep/Wake transitions and unknown keys are rejected with their real error.
+esp_err_t CODY_companion_set_expression(const char *expression_key);
 
 // enabled: Session preference for the existing measured FPS/CPU layer on eligible scenes.
 // Queues old/new HUD damage; it never samples hardware or allocates a framebuffer.

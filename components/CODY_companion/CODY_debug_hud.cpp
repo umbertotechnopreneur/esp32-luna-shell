@@ -20,7 +20,7 @@ constexpr uint16_t kGlyphScale = 2;
 constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = (kGlyphColumns + 1) * kGlyphScale;
-constexpr uint16_t kTextWhite = 0xFFFF;
+constexpr uint16_t kTextWhitesmoke = 0xF7BE; // RGB565 encoding of #F5F5F5.
 
 enum class ProcessorId : uint8_t {
     Cpu1,
@@ -233,7 +233,7 @@ esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
         return ESP_ERR_INVALID_SIZE;
     }
     const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(
-        kTextWhite, strip.byte_order
+        kTextWhitesmoke, strip.byte_order
     );
     const esp_err_t fps_error =
         draw_line_rows(

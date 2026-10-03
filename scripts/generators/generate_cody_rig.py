@@ -92,6 +92,7 @@ def emit_geometry(rig, palette):
 
 
 # rig: Loaded skin containing independent face and outline controls.
+# Raises ValueError for an authored preset name that cannot become a C++ identity.
 def emit_animation(rig):
     lines = []
     for label, field in (("channel_min", "minimum"), ("channel_max", "maximum")):
@@ -101,6 +102,14 @@ def emit_animation(rig):
     for name, values in rig["boot_channels"].items():
         encoded = ", ".join(cpp_float(value) for value in values)
         lines.append(f"inline constexpr Channels {name} = {{{{{encoded}}}}};")
+    # Presets remain authored in the skin; the runtime catalog borrows these values.
+    lines.append("namespace ExpressionPresets {")
+    for name, values in rig["expression_presets"].items():
+        encoded = ", ".join(cpp_float(value) for value in values)
+        identity = enum_identifier(name)
+        lines.append(f"inline constexpr Channels {identity} = {{{{{encoded}}}}};")
+    lines.append("}  // namespace ExpressionPresets")
+    lines.append(f"inline constexpr size_t expression_preset_count = {len(rig['expression_presets'])};")
     defaults = ", ".join(cpp_float(channel["default"]) for channel in rig["channels"])
     lines.append(f"inline constexpr Channels defaults = {{{{{defaults}}}}};")
     lines.append(f"inline constexpr float face_transition_seconds = {cpp_float(rig['face_transition_seconds'])};")
