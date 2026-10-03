@@ -99,6 +99,7 @@ struct CompanionResources {
     CODY::RigScene *previous_rig = nullptr;
     bool previous_frame_valid = false;
     CODY::RigScene *rig = nullptr;
+    CODY::RigDebugStrokeCache *rig_debug_strokes = nullptr;
 };
 CompanionResources s_resources;
 std::atomic<uint32_t> s_rendered_revision{0};
@@ -290,7 +291,7 @@ const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
     }
 }
 
-// Before task creation, only startup owns the PSRAM geometry snapshots.
+// Before task creation, only startup owns these PSRAM rig resources.
 void release_companion_resources()
 {
     s_resources.previous_frame_valid = false;
@@ -304,9 +305,14 @@ void release_companion_resources()
         heap_caps_free(s_resources.rig);
         s_resources.rig = nullptr;
     }
+    if (s_resources.rig_debug_strokes != nullptr) {
+        s_resources.rig_debug_strokes->~RigDebugStrokeCache();
+        heap_caps_free(s_resources.rig_debug_strokes);
+        s_resources.rig_debug_strokes = nullptr;
+    }
 }
 
-// Drain every possible boot-completion writer before releasing the geometry snapshots.
+// Drain every possible boot-completion writer before releasing the rig resources.
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
 esp_err_t release_worker_resources()
 {
@@ -314,7 +320,8 @@ esp_err_t release_worker_resources()
     if (lock_error != ESP_OK) {
         const uint32_t retained_bytes =
             (s_resources.previous_rig != nullptr ? sizeof(CODY::RigScene) : 0) +
-            (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0);
+            (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0) +
+            (s_resources.rig_debug_strokes != nullptr ? sizeof(CODY::RigDebugStrokeCache) : 0);
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
             retained_bytes, lock_error
         );
@@ -729,6 +736,21 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
+        if (frame_debug) {
+            if (s_resources.rig_debug_strokes == nullptr) {
+                ESP_LOGE(kTag, "Debug stroke cache unavailable: %s",
+                         esp_err_to_name(ESP_ERR_INVALID_STATE));
+                return frame.finish({ESP_ERR_INVALID_STATE, false, 0});
+            }
+            const esp_err_t prepare_error = CODY::prepare_rig_debug_strokes(
+                *s_resources.rig, *s_resources.rig_debug_strokes
+            );
+            if (prepare_error != ESP_OK) {
+                ESP_LOGE(kTag, "Frame debug stroke preparation failed: %s",
+                         esp_err_to_name(prepare_error));
+                return frame.finish({prepare_error, false, 0});
+            }
+        }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     timings.geometry_completed_us = esp_timer_get_time();
@@ -800,7 +822,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 result = CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
-                    s_state.animation_paused, damage.left
+                    s_state.animation_paused, damage.left,
+                    frame_debug ? s_resources.rig_debug_strokes : nullptr
                 );
                 if (result == ESP_OK) {
                     result = CODY::draw_debug_readout_rows(
@@ -1288,6 +1311,14 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Rig scene allocation", ESP_ERR_NO_MEM, false);
     }
     s_resources.rig = new (rig_storage) CODY::RigScene{};
+    void *debug_stroke_storage = heap_caps_malloc(
+        sizeof(CODY::RigDebugStrokeCache), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    );
+    if (debug_stroke_storage == nullptr) {
+        release_companion_resources();
+        return fail_consumer("Rig debug stroke cache allocation", ESP_ERR_NO_MEM, false);
+    }
+    s_resources.rig_debug_strokes = new (debug_stroke_storage) CODY::RigDebugStrokeCache{};
     const DrawResult draw = draw_companion_frame();
     if (draw.error != ESP_OK) {
         release_companion_resources();

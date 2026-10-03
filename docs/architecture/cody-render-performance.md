@@ -330,6 +330,31 @@ The word-swap binary is 1,708,720 bytes (`0x1a12b0`); SHA256:
 Build and flash logs are `rgb565-word-swap-build-20261003.log` and
 `rgb565-word-swap-flash-20261003.log` in the same evidence directory.
 
+Prepared debug strokes then move tile-invariant link and tangent setup out of
+the compact-tile loop. A separate PSRAM cache owns opaque validated stroke
+coefficients; preparation commits the complete cache before drawing, while the
+legacy stroke path retains its cheap off-tile rejection. Cached links and
+tangents are submitted in two ordered batches so each tile validates its
+surface once per skeleton substage. Markers retain the generic exact path.
+
+The 40-second `prepared-strokes-skeleton-20261003.log` contains 20 complete
+skeleton reports. Against the word-swap capture, median draw falls from 15 ms
+to 14 ms and skeleton from 7 ms to 6 ms. Links and tangents each fall from
+3 ms to 2 ms; markers remain 2 ms. Median sampled frame duration falls from
+33 ms to 32 ms and CPU1 from 66% to 64%; CPU2 remains 0%. Measured sustained
+FPS changes from 28.7 to 28.9 and median HUD from 29.1 to 29.2 because the
+renderer is already close to its 33 ms schedule. Conversion remains 2 ms,
+sleeping DMA wait 11 ms, and median payload is effectively unchanged at
+143,628 bytes. Window mean remains 33 ms and p95 36 ms.
+
+The prepared-stroke binary is 1,711,872 bytes (`0x1a1f00`); SHA256:
+`50E7346F5BF79283AD7C8095E9DCAA1670ADA48C97125732B434B14E436D9A9F`.
+The final build and verified flash logs are
+`prepared-strokes-build-final-20261003.log` and
+`prepared-strokes-flash-20261003.log`. The capture contains only the existing
+snapshot-summary truncation warning; no allocation, display, touch or cache
+error is recorded.
+
 No automated tests, simulator checks, size workflow or validation scans ran.
 The captures contain the existing snapshot-summary truncation warning and
 RTC error state. The first capture has complete performance triplets; the

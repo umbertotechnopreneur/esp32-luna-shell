@@ -11,14 +11,19 @@ authorization.
   flashed: artwork capture shows around 29 FPS with CPU1 45%, CPU2 0%,
   frame mean about 26 ms and raster about 7 ms. The matched skeleton capture
   shows 27.9 FPS, CPU1 68%, CPU2 0%, and 15 ms raster. Aligned RGB565 word
-  conversion improves it to 28.7 FPS, CPU1 66%, and 2 ms conversion.
+  conversion improves it to 28.7 FPS, CPU1 66%, and 2 ms conversion. Prepared
+  link/tangent batches then reach 28.9 FPS, CPU1 64%, 14 ms raster and 6 ms
+  skeleton; markers still cost 2 ms.
   Pixel comparison/packing are removed, but conservative rectangles increase
-  sent bytes; skeleton drawing and sleeping DMA wait remain the main costs.
+  sent bytes; artwork/skeleton drawing and sleeping DMA wait remain the main
+  costs. Cache or specialize the exact marker disks before considering a more
+  invasive asynchronous DMA pipeline.
   Obtain a logged static-route CPU baseline before
   attributing the remaining work to hardware services. Evidence:
   `docs/architecture/cody-render-performance.md`.
-  The pre-raster damage/compact-tile, reduced-log and aligned word-conversion
-  candidates have narrow compilation/device timing evidence. On fresh test
+  The pre-raster damage/compact-tile, reduced-log, aligned word-conversion and
+  prepared-stroke candidates have narrow compilation/device timing evidence.
+  On fresh test
   authorization, check compact/full pixel parity,
   old/new damage reconstruction and device artwork/skeleton/pause/rotation;
   confirm pixel correctness and measure sent bytes as well as FPS/stage costs. Asynchronous double-buffer

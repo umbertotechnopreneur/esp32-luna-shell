@@ -118,6 +118,212 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
     return ESP_OK;
 }
 
+// from: Validated segment start in canvas coordinates.
+// to: Validated segment end in canvas coordinates.
+// width: Validated positive stroke diameter.
+// color: Native RGB565 stroke color.
+PreparedStroke::PreparedStroke(Vec2 from, Vec2 to, float width, uint16_t color)
+{
+    valid_ = true;
+    from_ = from;
+    color_ = color;
+    const float radius = width * .5f;
+    loose_left_ = std::min(from.x, to.x) - radius;
+    loose_right_ = std::max(from.x, to.x) + radius;
+    loose_top_ = std::min(from.y, to.y) - radius;
+    loose_bottom_ = std::max(from.y, to.y) + radius;
+    raster_left_ = static_cast<int>(std::floor(loose_left_));
+    raster_right_ = static_cast<int>(std::ceil(loose_right_));
+    raster_top_ = static_cast<int>(std::floor(loose_top_));
+    raster_bottom_ = static_cast<int>(std::ceil(loose_bottom_));
+    dx_ = to.x - from.x;
+    dy_ = to.y - from.y;
+    squared_length_ = dx_*dx_ + dy_*dy_;
+    squared_radius_ = radius * radius;
+    // Use the whole supported canvas for this error bound, so the tile shape
+    // cannot change which rounding-sensitive pixels take the exact predicate.
+    const float max_px = std::max(std::abs(.5f - from.x), std::abs(kMaxDimension - .5f - from.x));
+    const float max_py = std::max(std::abs(.5f - from.y), std::abs(kMaxDimension - .5f - from.y));
+    const float displacement_error =
+        (max_px + max_py + std::abs(dx_) + std::abs(dy_)) *
+        (16.f * std::numeric_limits<float>::epsilon());
+    cross_threshold_ = squared_radius_ * squared_length_;
+    cross_guard_ = squared_length_ * displacement_error *
+        (2.f * radius + displacement_error) +
+        cross_threshold_ * (8.f * std::numeric_limits<float>::epsilon());
+    bound_scanline_ = std::abs(dy_) > .001f;
+    band_half_width_ = bound_scanline_ ?
+        radius * std::sqrt(squared_length_) / std::abs(dy_) : 0.f;
+    slope_ = bound_scanline_ ? dx_ / dy_ : 0.f;
+}
+
+// from: Start of the line in canvas coordinates.
+// to: End of the line, equal to from for a round point marker.
+// width: Round stroke diameter in pixels.
+// color: Native RGB565 fill.
+// prepared: Receives a complete value only after every argument is accepted.
+esp_err_t prepare_stroke(Vec2 from, Vec2 to, float width, uint16_t color,
+                         PreparedStroke &prepared)
+{
+    if (!valid_point(from) || !valid_point(to) || !std::isfinite(width) ||
+        width <= 0 || width > kMaxStrokeWidth) {
+        ESP_LOGE(kTag, "Stroke rejected: from=%f,%f to=%f,%f width=%f (%s)",
+                 from.x, from.y, to.x, to.y, width,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    prepared = PreparedStroke(from, to, width, color);
+    return ESP_OK;
+}
+
+// strip: Validated writable destination tile.
+// first_row: Validated canvas row represented by the tile.
+// first_column: Validated canvas column represented by the tile.
+esp_err_t PreparedStroke::raster_rows(
+    Surface strip, uint16_t first_row, uint16_t first_column
+) const
+{
+    // Most debug links miss any particular tile. These loose bounds are
+    // deliberately wider than the pixel-center coverage.
+    if (loose_bottom_ < first_row ||
+        loose_top_ > first_row + strip.height ||
+        loose_right_ < first_column ||
+        loose_left_ > first_column + strip.width) {
+        return ESP_OK;
+    }
+    const int left = std::max(static_cast<int>(first_column),
+                             raster_left_);
+    const int right = std::min(static_cast<int>(first_column + strip.width) - 1,
+                              raster_right_);
+    const int top = std::max(static_cast<int>(first_row),
+                            raster_top_);
+    const int bottom = std::min(static_cast<int>(first_row + strip.height) - 1,
+                               raster_bottom_);
+    if (left > right || top > bottom) {
+        return ESP_OK;
+    }
+    // For interior pixels, compare the squared cross product with r² * |d|².
+    // This avoids software division and closest-point construction. A small
+    // guard repeats the original projection at rounding-sensitive boundaries.
+    // Endpoint caps still use the original direct squared-distance expression.
+    // The old box visits every pixel between diagonal endpoints. Bound each
+    // scanline by the infinite stroke band instead; the original segment test
+    // below still supplies the exact round caps and pixel coverage.
+    for (int row = top; row <= bottom; ++row) {
+        int scan_left = left;
+        int scan_right = right;
+        if (bound_scanline_) {
+            const float center = from_.x +
+                (row + .5f - from_.y) * slope_;
+            // One extra pixel conservatively covers floating-point rounding.
+            // Clip floats before conversion: nearly horizontal lines can have
+            // a very wide band even though their canvas bounds remain small.
+            const float band_margin = 1.f + (std::abs(center) + band_half_width_) *
+                (4.f * std::numeric_limits<float>::epsilon());
+            const float band_left = center - band_half_width_ - band_margin;
+            const float band_right = center + band_half_width_ + band_margin;
+            if (band_right < left || band_left > right) {
+                continue;
+            }
+            scan_left = static_cast<int>(std::floor(std::max(static_cast<float>(left), band_left)));
+            scan_right = static_cast<int>(std::ceil(std::min(static_cast<float>(right), band_right)));
+        }
+        for (int column = scan_left; column <= scan_right; ++column) {
+            const float px = column + .5f - from_.x;
+            const float py = row + .5f - from_.y;
+            const float projection = px*dx_ + py*dy_;
+            bool covered = false;
+            if (squared_length_ == 0 || projection <= 0) {
+                covered = px*px + py*py <= squared_radius_;
+            } else if (projection >= squared_length_) {
+                const float ex = px - dx_;
+                const float ey = py - dy_;
+                covered = ex*ex + ey*ey <= squared_radius_;
+            } else {
+                const float cross = px*dy_ - py*dx_;
+                const float squared_cross = cross * cross;
+                covered = squared_cross <= cross_threshold_;
+                if (std::abs(squared_cross - cross_threshold_) <= cross_guard_) {
+                    const float exact_position = std::max(
+                        0.f, std::min(1.f, projection / squared_length_)
+                    );
+                    const float exact_x = px - exact_position * dx_;
+                    const float exact_y = py - exact_position * dy_;
+                    covered = exact_x*exact_x + exact_y*exact_y <= squared_radius_;
+                }
+            }
+            if (covered) {
+                strip.pixels[(row - first_row)*strip.stride + column - first_column] = color_;
+            }
+        }
+    }
+    return ESP_OK;
+}
+
+// strip: Valid writable tile, checked before any raster work.
+// first_row: Tile origin within the full logical canvas.
+// prepared: Valid immutable stroke produced by prepare_stroke.
+// first_column: Canvas x origin; coverage remains in unchanged absolute coordinates.
+esp_err_t stroke_prepared_rows(Surface strip, uint16_t first_row,
+                               const PreparedStroke &prepared,
+                               uint16_t first_column)
+{
+    const esp_err_t error = validate_surface(strip);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!prepared.valid_ || first_row + strip.height > kMaxDimension ||
+        first_column + strip.width > kMaxDimension) {
+        ESP_LOGE(kTag, "Prepared stroke rejected: valid=%u row=%u column=%u (%s)",
+                 prepared.valid_, first_row, first_column,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return prepared.raster_rows(strip, first_row, first_column);
+}
+
+// strip: Valid writable tile, checked once for the complete ordered batch.
+// first_row: Tile origin within the full logical canvas.
+// prepared: Readable prepared strokes in paint order.
+// count: Number of strokes; zero is accepted without dereferencing prepared.
+// first_column: Canvas x origin; coverage remains in unchanged absolute coordinates.
+esp_err_t stroke_prepared_batch_rows(Surface strip, uint16_t first_row,
+                                     const PreparedStroke *prepared, uint16_t count,
+                                     uint16_t first_column)
+{
+    const esp_err_t error = validate_surface(strip);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if ((count > 0 && prepared == nullptr) ||
+        first_row + strip.height > kMaxDimension ||
+        first_column + strip.width > kMaxDimension) {
+        ESP_LOGE(kTag, "Prepared stroke batch rejected: strokes=%p count=%u row=%u column=%u (%s)",
+                 prepared, count, first_row, first_column,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    // Reject the whole batch before painting, so an invalid entry cannot leave
+    // a partially updated layer behind.
+    for (uint16_t index = 0; index < count; ++index) {
+        if (!prepared[index].valid_) {
+            ESP_LOGE(kTag, "Prepared stroke batch entry %u rejected (%s)",
+                     index, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    for (uint16_t index = 0; index < count; ++index) {
+        const esp_err_t raster_error = prepared[index].raster_rows(
+            strip, first_row, first_column
+        );
+        if (raster_error != ESP_OK) {
+            return raster_error;
+        }
+    }
+    return ESP_OK;
+}
+
 // strip: Valid writable tile, checked before any raster work.
 // first_row: Tile origin within the full logical canvas.
 // from: Start of the line, which may lie outside the tile.
@@ -133,6 +339,7 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
     if (error != ESP_OK) {
         return error;
     }
+    // Keep the original combined rejection and log for existing callers.
     if (!valid_point(from) || !valid_point(to) || !std::isfinite(width) ||
         width <= 0 || width > kMaxStrokeWidth || first_row + strip.height > kMaxDimension ||
         first_column + strip.width > kMaxDimension) {
@@ -141,96 +348,17 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+
     const float radius = width * .5f;
-    // Most debug links miss any particular tile. Reject their loose float
-    // bounds before integer conversion, projection setup and square roots.
-    // These bounds are deliberately wider than the pixel-center coverage.
+    // Preserve the old hot miss: a stroke outside this tile performs no
+    // square root, division or integer bound conversion.
     if (std::max(from.y, to.y) + radius < first_row ||
         std::min(from.y, to.y) - radius > first_row + strip.height ||
         std::max(from.x, to.x) + radius < first_column ||
         std::min(from.x, to.x) - radius > first_column + strip.width) {
         return ESP_OK;
     }
-    const int left = std::max(static_cast<int>(first_column),
-                             static_cast<int>(std::floor(std::min(from.x, to.x) - radius)));
-    const int right = std::min(static_cast<int>(first_column + strip.width) - 1,
-                              static_cast<int>(std::ceil(std::max(from.x, to.x) + radius)));
-    const int top = std::max(static_cast<int>(first_row),
-                            static_cast<int>(std::floor(std::min(from.y, to.y) - radius)));
-    const int bottom = std::min(static_cast<int>(first_row + strip.height) - 1,
-                               static_cast<int>(std::ceil(std::max(from.y, to.y) + radius)));
-    if (left > right || top > bottom) {
-        return ESP_OK;
-    }
-    const float dx = to.x - from.x;
-    const float dy = to.y - from.y;
-    const float squared_length = dx*dx + dy*dy;
-    const float squared_radius = radius * radius;
-    // For interior pixels, compare the squared cross product with r² * |d|².
-    // This avoids software division and closest-point construction. A small
-    // guard repeats the original projection at rounding-sensitive boundaries.
-    // Endpoint caps still use the original direct squared-distance expression.
-    // Use the whole supported canvas for this error bound, so a compact tile
-    // cannot change which rounding-sensitive pixels take the exact predicate.
-    const float max_px = std::max(std::abs(.5f - from.x), std::abs(kMaxDimension - .5f - from.x));
-    const float max_py = std::max(std::abs(.5f - from.y), std::abs(kMaxDimension - .5f - from.y));
-    const float displacement_error = (max_px + max_py + std::abs(dx) + std::abs(dy)) *
-        (16.f * std::numeric_limits<float>::epsilon());
-    const float cross_threshold = squared_radius * squared_length;
-    const float cross_guard = squared_length * displacement_error * (2.f * radius + displacement_error) +
-        cross_threshold * (8.f * std::numeric_limits<float>::epsilon());
-    // The old box visits every pixel between diagonal endpoints. Bound each
-    // scanline by the infinite stroke band instead; the original segment test
-    // below still supplies the exact round caps and pixel coverage.
-    const bool bound_scanline = std::abs(dy) > .001f;
-    const float band_half_width = bound_scanline ?
-        radius * std::sqrt(squared_length) / std::abs(dy) : 0.f;
-    const float slope = bound_scanline ? dx / dy : 0.f;
-    for (int row = top; row <= bottom; ++row) {
-        int scan_left = left;
-        int scan_right = right;
-        if (bound_scanline) {
-            const float center = from.x + (row + .5f - from.y) * slope;
-            // One extra pixel conservatively covers floating-point rounding.
-            // Clip floats before conversion: nearly horizontal lines can have
-            // a very wide band even though their canvas bounds remain small.
-            const float band_margin = 1.f + (std::abs(center) + band_half_width) *
-                (4.f * std::numeric_limits<float>::epsilon());
-            const float band_left = center - band_half_width - band_margin;
-            const float band_right = center + band_half_width + band_margin;
-            if (band_right < left || band_left > right) {
-                continue;
-            }
-            scan_left = static_cast<int>(std::floor(std::max(static_cast<float>(left), band_left)));
-            scan_right = static_cast<int>(std::ceil(std::min(static_cast<float>(right), band_right)));
-        }
-        for (int column = scan_left; column <= scan_right; ++column) {
-            const float px = column + .5f - from.x;
-            const float py = row + .5f - from.y;
-            const float projection = px*dx + py*dy;
-            bool covered = false;
-            if (squared_length == 0 || projection <= 0) {
-                covered = px*px + py*py <= squared_radius;
-            } else if (projection >= squared_length) {
-                const float ex = px - dx;
-                const float ey = py - dy;
-                covered = ex*ex + ey*ey <= squared_radius;
-            } else {
-                const float cross = px*dy - py*dx;
-                const float squared_cross = cross * cross;
-                covered = squared_cross <= cross_threshold;
-                if (std::abs(squared_cross - cross_threshold) <= cross_guard) {
-                    const float exact_position = std::max(0.f, std::min(1.f, projection / squared_length));
-                    const float exact_x = px - exact_position * dx;
-                    const float exact_y = py - exact_position * dy;
-                    covered = exact_x*exact_x + exact_y*exact_y <= squared_radius;
-                }
-            }
-            if (covered) {
-                strip.pixels[(row - first_row)*strip.stride + column - first_column] = color;
-            }
-        }
-    }
-    return ESP_OK;
+    const PreparedStroke prepared(from, to, width, color);
+    return prepared.raster_rows(strip, first_row, first_column);
 }
 }  // namespace CODY2D

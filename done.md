@@ -14,6 +14,12 @@
   3 ms to 2 ms, CPU1 from 68% to 66%, and sustained FPS from 27.9 to 28.7;
   CPU2 remains 0%. Skeleton drawing stays at 15 ms and DMA wait at 11 ms.
   The regressing `memcpy` trial was discarded. No automated tests ran.
+- [x] Prepare skeleton links and tangents once per frame and render them as
+  validated ordered batches from a separate PSRAM cache. On COM10, raster
+  falls from 15 ms to 14 ms, skeleton from 7 ms to 6 ms, CPU1 from 66% to
+  64%, and sustained FPS from 28.7 to 28.9; payload and DMA are unchanged.
+  The cache is opaque and committed only after complete preparation. No
+  automated tests ran.
 - [x] Add additive skeleton links/tangents/markers probes with two extra clock
   reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
   flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;

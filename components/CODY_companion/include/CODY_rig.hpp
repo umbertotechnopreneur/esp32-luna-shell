@@ -13,6 +13,9 @@ constexpr uint16_t kMaxPoints = 192;
 constexpr uint16_t kMaxPaths = 16;
 constexpr uint16_t kSubdivisions = 12;
 constexpr uint16_t kMaxVertices = 64 * kSubdivisions + kMaxPaths;
+// The implementation statically rejects authored tables that outgrow these arrays.
+constexpr uint16_t kRigDebugLinkCapacity = 21;
+constexpr uint16_t kRigDebugTangentCapacity = 88;
 // Domain values are always addressed by enum; integers are confined to table traversal.
 enum class FaceChannel : uint8_t {
     EyeLeft, EyeRight, BrowLeft, BrowRight, MouthOpen, Breath,
@@ -158,6 +161,43 @@ struct RigScene {
     bool valid = false;
 };
 
+struct RigDebugStrokeView {
+    const CODY2D::PreparedStroke *links = nullptr;
+    const CODY2D::PreparedStroke *tangents = nullptr;
+    const RigScene *source_scene = nullptr;
+    uint16_t link_count = 0;
+    uint16_t tangent_count = 0;
+    bool valid = false;
+};
+
+// Allocate this separately from RigScene in caller-owned PSRAM. Preparation
+// is the only writer; rendering receives an immutable view of the coefficients.
+class RigDebugStrokeCache final {
+public:
+    RigDebugStrokeCache() = default;
+
+    // No parameters: expose read-only prepared storage and its commit metadata.
+    RigDebugStrokeView view() const
+    {
+        return {
+            links_.data(), tangents_.data(), source_scene_,
+            link_count_, tangent_count_, valid_
+        };
+    }
+
+private:
+    friend esp_err_t prepare_rig_debug_strokes(
+        const RigScene &scene, RigDebugStrokeCache &cache
+    );
+
+    std::array<CODY2D::PreparedStroke, kRigDebugLinkCapacity> links_{};
+    std::array<CODY2D::PreparedStroke, kRigDebugTangentCapacity> tangents_{};
+    const RigScene *source_scene_ = nullptr;
+    uint16_t link_count_ = 0;
+    uint16_t tangent_count_ = 0;
+    bool valid_ = false;
+};
+
 // Execution clock is supplied by the firmware owner, keeping this renderer
 // portable. These durations are independent of geometry and DMA timings.
 struct RigRasterProfile {
@@ -178,6 +218,10 @@ struct RigRasterProfile {
 // contour: Optional independent shape state; nullptr preserves the authored outline.
 esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
                        const ContourState *contour = nullptr);
+
+// scene: Successfully evaluated geometry that remains unchanged while the cache is used.
+// cache: Separate caller-owned storage, invalidated on entry and committed only on success.
+esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &cache);
 
 // defaults come from the YAML-generated immutable contour table.
 ContourControls contour_defaults();
@@ -211,10 +255,12 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Show Play instead of Pause; scene geometry remains owned by the caller.
 // first_column: Logical x origin of the tile; geometry remains in canvas coordinates.
+// debug_cache: Optional prepared links and tangents for this unchanged scene.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
-                        uint16_t first_column = 0);
+                        uint16_t first_column = 0,
+                        const RigDebugStrokeCache *debug_cache = nullptr);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.

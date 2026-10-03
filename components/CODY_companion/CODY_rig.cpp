@@ -24,6 +24,25 @@ static_assert(std::size(Data::point_face_transforms) == std::size(Data::points))
 static_assert(std::size(Data::channel_min) == std::size(Channels{}.values));
 static_assert(std::size(Data::channel_max) == std::size(Channels{}.values));
 
+// No parameters: count authored parent links without turning table position into identity.
+constexpr size_t authored_debug_link_count()
+{
+    size_t count = 0;
+    for (const auto &point : Data::points) {
+        if (point.role == PointRole::Anchor && point.parent != PointId::None) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+constexpr size_t kAuthoredDebugLinkCount = authored_debug_link_count();
+constexpr size_t kAuthoredDebugTangentCount = std::size(Data::curves) * 2;
+static_assert(kAuthoredDebugLinkCount <= kRigDebugLinkCapacity,
+              "Rig debug link cache is smaller than the authored rig");
+static_assert(kAuthoredDebugTangentCount <= kRigDebugTangentCapacity,
+              "Rig debug tangent cache is smaller than the authored rig");
+
 // channels: Independent facial values, including shape and cheek opacity controls.
 // operation: Identifies the caller that rejected a channel without clamping it.
 esp_err_t validate_face_channels(const Channels &channels, const char *operation)
@@ -97,19 +116,31 @@ CODY2D::Vec2 cubic(const CODY2D::Vec2 (&control)[4], float t)
 // profile: Optional frame-wide accumulator using the caller's execution clock.
 // stage_started_us: Current substage start; advanced after links and tangents.
 // first_column: Logical x origin of the compact destination, never applied to geometry.
+// debug_strokes: Optional immutable prepared links and tangents for this exact scene.
 esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
                           uint16_t first_row, PointId selected, RigRasterProfile *profile,
-                          int64_t &stage_started_us, uint16_t first_column)
+                          int64_t &stage_started_us, uint16_t first_column,
+                          const RigDebugStrokeView *debug_strokes)
 {
     esp_err_t result = ESP_OK;
-    for (uint16_t index = 0; index < std::size(Data::points); ++index) {
-        const auto &point = Data::points[index];
-        if (point.role == PointRole::Anchor && point.parent != PointId::None) {
-            result = CODY2D::stroke_rows(strip, first_row,
-                scene.world[to_index(point.parent)], scene.world[index],
-                Data::debug_link_width, Data::palette[to_index(Data::debug_link)], first_column);
-            if (result != ESP_OK) {
-                return result;
+    if (debug_strokes != nullptr) {
+        result = CODY2D::stroke_prepared_batch_rows(
+            strip, first_row, debug_strokes->links,
+            debug_strokes->link_count, first_column
+        );
+        if (result != ESP_OK) {
+            return result;
+        }
+    } else {
+        for (uint16_t index = 0; index < std::size(Data::points); ++index) {
+            const auto &point = Data::points[index];
+            if (point.role == PointRole::Anchor && point.parent != PointId::None) {
+                result = CODY2D::stroke_rows(strip, first_row,
+                    scene.world[to_index(point.parent)], scene.world[index],
+                    Data::debug_link_width, Data::palette[to_index(Data::debug_link)], first_column);
+                if (result != ESP_OK) {
+                    return result;
+                }
             }
         }
     }
@@ -118,18 +149,28 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
         profile->skeleton_links_us += now_us - stage_started_us;
         stage_started_us = now_us;
     }
-    for (const auto &curve : Data::curves) {
-        // Each tangent joins its own anchor and handle. No mysterious pair offsets.
-        for (const auto &pair : {
-                std::pair{CurvePoint::Start, CurvePoint::OutgoingHandle},
-                std::pair{CurvePoint::End, CurvePoint::IncomingHandle}}) {
-            const PointId anchor = curve.points[to_index(pair.first)];
-            const PointId handle = curve.points[to_index(pair.second)];
-            result = CODY2D::stroke_rows(
-                strip, first_row, scene.world[to_index(anchor)], scene.world[to_index(handle)],
-                Data::debug_handle_width, Data::palette[to_index(Data::debug_handle)], first_column);
-            if (result != ESP_OK) {
-                return result;
+    if (debug_strokes != nullptr) {
+        result = CODY2D::stroke_prepared_batch_rows(
+            strip, first_row, debug_strokes->tangents,
+            debug_strokes->tangent_count, first_column
+        );
+        if (result != ESP_OK) {
+            return result;
+        }
+    } else {
+        for (const auto &curve : Data::curves) {
+            // Each tangent joins its own anchor and handle. No mysterious pair offsets.
+            for (const auto &pair : {
+                    std::pair{CurvePoint::Start, CurvePoint::OutgoingHandle},
+                    std::pair{CurvePoint::End, CurvePoint::IncomingHandle}}) {
+                const PointId anchor = curve.points[to_index(pair.first)];
+                const PointId handle = curve.points[to_index(pair.second)];
+                result = CODY2D::stroke_rows(
+                    strip, first_row, scene.world[to_index(anchor)], scene.world[to_index(handle)],
+                    Data::debug_handle_width, Data::palette[to_index(Data::debug_handle)], first_column);
+                if (result != ESP_OK) {
+                    return result;
+                }
             }
         }
     }
@@ -496,6 +537,71 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
     return ESP_OK;
 }
 
+// scene: Successfully evaluated geometry that remains unchanged while prepared strokes are used.
+// cache: Separate caller-owned storage, invalid until every authored line has been prepared.
+esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &cache)
+{
+    cache.valid_ = false;
+    cache.source_scene_ = nullptr;
+    cache.link_count_ = 0;
+    cache.tangent_count_ = 0;
+    if (!scene.valid) {
+        ESP_LOGE(kTag, "Debug stroke preparation rejected: invalid scene (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    uint16_t prepared_link_count = 0;
+    for (uint16_t point_index = 0; point_index < std::size(Data::points); ++point_index) {
+        const auto &point = Data::points[point_index];
+        if (point.role != PointRole::Anchor || point.parent == PointId::None) {
+            continue;
+        }
+        const esp_err_t prepare_error = CODY2D::prepare_stroke(
+            scene.world[to_index(point.parent)], scene.world[point_index],
+            Data::debug_link_width, Data::palette[to_index(Data::debug_link)],
+            cache.links_[prepared_link_count]
+        );
+        if (prepare_error != ESP_OK) {
+            ESP_LOGE(kTag, "Debug link preparation failed for point=%u: %s",
+                     static_cast<unsigned>(to_index(point.id)), esp_err_to_name(prepare_error));
+            return prepare_error;
+        }
+        ++prepared_link_count;
+    }
+
+    uint16_t prepared_tangent_count = 0;
+    for (const auto &curve : Data::curves) {
+        // Keep the same authored ordering as the generic renderer.
+        for (const auto &pair : {
+                std::pair{CurvePoint::Start, CurvePoint::OutgoingHandle},
+                std::pair{CurvePoint::End, CurvePoint::IncomingHandle}}) {
+            const PointId anchor = curve.points[to_index(pair.first)];
+            const PointId handle = curve.points[to_index(pair.second)];
+            const esp_err_t prepare_error = CODY2D::prepare_stroke(
+                scene.world[to_index(anchor)], scene.world[to_index(handle)],
+                Data::debug_handle_width, Data::palette[to_index(Data::debug_handle)],
+                cache.tangents_[prepared_tangent_count]
+            );
+            if (prepare_error != ESP_OK) {
+                ESP_LOGE(kTag, "Debug tangent preparation failed for anchor=%u handle=%u: %s",
+                         static_cast<unsigned>(to_index(anchor)),
+                         static_cast<unsigned>(to_index(handle)), esp_err_to_name(prepare_error));
+                return prepare_error;
+            }
+            ++prepared_tangent_count;
+        }
+    }
+
+    // Counts and provenance are the commit record. Partially written arrays
+    // remain unreachable after any earlier failure.
+    cache.link_count_ = prepared_link_count;
+    cache.tangent_count_ = prepared_tangent_count;
+    cache.source_scene_ = &scene;
+    cache.valid_ = true;
+    return ESP_OK;
+}
+
 // scene: One completed evaluation used unchanged throughout the frame's strips.
 // strip: RGB565 destination owned by the companion worker.
 // first_row: Tile y origin in the unrotated logical canvas.
@@ -504,9 +610,11 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Draw the Resume action without changing caller-owned geometry.
 // first_column: Logical x origin of the compact tile; absolute raster arithmetic is preserved.
+// debug_cache: Optional prepared links and tangents for this exact unchanged scene.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
-                        bool paused, uint16_t first_column)
+                        bool paused, uint16_t first_column,
+                        const RigDebugStrokeCache *debug_cache)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -514,6 +622,21 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     if (!scene.valid || (selected != kNoPoint && to_index(selected) >= std::size(Data::points))) {
         ESP_LOGE(kTag, "Draw rejected: valid=%u selected=%u (%s)", scene.valid, static_cast<unsigned>(to_index(selected)),
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const RigDebugStrokeView debug_strokes = debug_cache != nullptr
+        ? debug_cache->view() : RigDebugStrokeView{};
+    if (debug && debug_cache != nullptr &&
+        (!debug_strokes.valid || debug_strokes.source_scene != &scene ||
+         debug_strokes.link_count != kAuthoredDebugLinkCount ||
+         debug_strokes.tangent_count != kAuthoredDebugTangentCount)) {
+        ESP_LOGE(kTag,
+                 "Prepared debug cache rejected: valid=%u source=%u links=%u tangents=%u (%s)",
+                 static_cast<unsigned>(debug_strokes.valid),
+                 static_cast<unsigned>(debug_strokes.source_scene == &scene),
+                 static_cast<unsigned>(debug_strokes.link_count),
+                 static_cast<unsigned>(debug_strokes.tangent_count),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -570,7 +693,10 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     const int64_t skeleton_started_us = stage_started_us;
     if (debug) {
-        result = draw_debug_rows(scene, strip, first_row, selected, profile, stage_started_us, first_column);
+        result = draw_debug_rows(
+            scene, strip, first_row, selected, profile, stage_started_us, first_column,
+            debug_cache != nullptr ? &debug_strokes : nullptr
+        );
         if (result != ESP_OK) {
             return result;
         }
