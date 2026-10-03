@@ -996,6 +996,9 @@ void apply_measured_sample_aging(
         age_measured_sample(sensor, now_us, ttl_us);
     }
     age_measured_sample(snapshot.gps, now_us, ttl_us);
+    if (snapshot.voice.state == LUNASHELL::VoiceState::Listening) {
+        age_measured_sample(snapshot.voice, now_us, 1000000);
+    }
     age_measured_sample(snapshot.audio.microphone, now_us, ttl_us);
     age_measured_sample(snapshot.audio.playback, now_us, ttl_us);
     age_measured_sample(snapshot.character_interaction, now_us, ttl_us);
@@ -5104,8 +5107,9 @@ void build_audio_spectrum(AudioSpectrumBands &spectrum, size_t channel_count)
     }
 }
 
-// Capture one selected-microphone window and build the DFT bank only for a
-// caller that owns the explicit spectrum lease.
+// phase: Diagnostic caller name used in error logs.
+// spectrum_requested: Whether the caller owns an explicit spectrum lease.
+// Reuse canonical AFE measurements while its owner has the capture route.
 esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
 {
     const size_t channel_count = LUNASHELL_audio_input_channel_count();
@@ -5143,38 +5147,32 @@ esp_err_t sample_microphone(const char *phase, bool spectrum_requested)
     const size_t frame_count =
         sizeof(s_microphone_samples) / sizeof(s_microphone_samples[0]) / channel_count;
     if (LUNASHELL_voice_afe_capture_active()) {
-        // AFE owns the 16 kHz device while active; publish the real ownership
-        // conflict instead of presenting the previous diagnostic sample as new.
-        constexpr esp_err_t ownership_error = ESP_ERR_NOT_ALLOWED;
-        const esp_err_t publication_error = update_snapshot(
-            [attempted_at_us, spectrum_requested](
-                LUNASHELL::DeviceSnapshot &snapshot
-            ) {
-                mark_sample_failure(
-                    snapshot.audio.microphone,
-                    ESP_ERR_NOT_ALLOWED,
-                    attempted_at_us
-                );
-                if (spectrum_requested) {
-                    mark_sample_failure(
-                        snapshot.audio.spectrum,
-                        ESP_ERR_NOT_ALLOWED,
-                        attempted_at_us
-                    );
-                }
-            }
-        );
-        ESP_LOGD(
-            TAG,
-            "Microphone diagnostics rejected while voice AFE owns capture"
-        );
-        return sample_publication_result(
-            "Microphones ES7210",
-            phase,
-            ownership_error,
-            publication_error
-        );
+        // The AFE owner publishes its real levels. A refresh reads that same
+        // canonical sample without retimestamping it or reopening the codec.
+        if (spectrum_requested) {
+            const esp_err_t publication_error = update_snapshot([attempted_at_us](
+                LUNASHELL::DeviceSnapshot &snapshot) {
+                mark_sample_failure(snapshot.audio.spectrum, ESP_ERR_NOT_ALLOWED, attempted_at_us);
+            });
+            return sample_publication_result("Microphone spectrum", phase,
+                                             ESP_ERR_NOT_ALLOWED, publication_error);
+        }
+        LUNASHELL::MotionPowerObservation observation;
+        const esp_err_t read_error =
+            LUNASHELL::DeviceSnapshotService::instance().readMotionPowerObservation(observation);
+        if (read_error != ESP_OK) {
+            return read_error;
+        }
+        const auto &microphone = observation.audio.microphone;
+        if (component_has_current_data(microphone)) {
+            return ESP_OK;
+        }
+        const esp_err_t sample_error = microphone.last_error != ESP_OK
+            ? microphone.last_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGW(TAG, "Canonical AFE microphone sample unavailable (%s)", esp_err_to_name(sample_error));
+        return sample_error;
     }
+
     if (!s_microphone_ready) {
         const esp_err_t publication_error = update_snapshot(
             [attempted_at_us, spectrum_requested](
@@ -6854,6 +6852,7 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     copy.imu = s_snapshot.imu;
     copy.clock = s_snapshot.clock;
     copy.audio = s_snapshot.audio;
+    copy.voice = s_snapshot.voice;
     copy.character_interaction = s_snapshot.character_interaction;
     copy.character_touch = s_snapshot.character_touch;
     copy.storage_available = s_snapshot.storage.mounted && !s_snapshot.storage.poisoned &&
@@ -6869,6 +6868,9 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     age_measured_sample(copy.battery, now_us, ttl_us);
     age_measured_sample(copy.imu, now_us, ttl_us);
     age_measured_sample(copy.clock, now_us, ttl_us);
+    if (copy.voice.state == VoiceState::Listening) {
+        age_measured_sample(copy.voice, now_us, 1000000);
+    }
     age_measured_sample(copy.audio.microphone, now_us, ttl_us);
     age_measured_sample(copy.audio.playback, now_us, ttl_us);
     age_measured_sample(copy.character_interaction, now_us, ttl_us);
@@ -6896,6 +6898,28 @@ esp_err_t DeviceSnapshotService::readClockObservation(ClockSnapshot &clock) cons
     }
     age_measured_sample(copy, esp_timer_get_time(), ttl_us);
     clock = copy;
+    return ESP_OK;
+}
+
+// voice: Receives the canonical AFE state; this method never acquires audio.
+esp_err_t DeviceSnapshotService::readVoiceObservation(VoiceSnapshot &voice) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "voice snapshot read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Voice snapshot read failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    VoiceSnapshot copy = s_snapshot.voice;
+    const esp_err_t release_error = give_snapshot_mutex("voice snapshot read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Voice snapshot release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    // Service heartbeats are independent of configurable sensor diagnostic cadence.
+    if (copy.state == VoiceState::Listening) {
+        age_measured_sample(copy, esp_timer_get_time(), 1000000);
+    }
+    voice = copy;
     return ESP_OK;
 }
 

@@ -156,6 +156,30 @@ struct AudioSnapshot {
     uint32_t spectrum_sequence = 0;
 };
 
+// Stable identities are independent of a model's position in ESP-SR arrays.
+enum class WakeWordId : uint8_t {
+    None,
+    Sophia,
+};
+
+enum class VoiceState : uint8_t {
+    Disabled,
+    Starting,
+    Listening,
+    Paused,
+    Failed,
+};
+
+struct VoiceSnapshot : ComponentSnapshot {
+    VoiceState state = VoiceState::Disabled;
+    WakeWordId configured_word = WakeWordId::None;
+    WakeWordId detected_word = WakeWordId::None;
+    uint64_t detection_sequence = 0;
+    // Historical event time stays intact when listening pauses or fails.
+    int64_t detected_at_us = 0;
+    char model_name[32] = {};
+};
+
 struct WifiSnapshot : ComponentSnapshot {
     bool started = false;
     bool credentials_configured = false;
@@ -494,6 +518,7 @@ enum class DeviceStateReason : uint8_t {
     PowerButton,
     Touch,
     ImuMotion,
+    WakeWord,
     Inactivity,
 };
 
@@ -598,6 +623,7 @@ struct DeviceSnapshot {
     RtcDriftSnapshot rtc_drift;
     GpsSnapshot gps;
     AudioSnapshot audio;
+    VoiceSnapshot voice;
     CharacterInteractionSnapshot character_interaction;
     CharacterTouchSnapshot character_touch;
     RadioSnapshot radios;
@@ -629,6 +655,7 @@ struct MotionPowerObservation {
     ClockSnapshot clock;
     uint16_t rendering_rotation_degrees = 0;
     AudioSnapshot audio;
+    VoiceSnapshot voice;
     int64_t touch_last_activity_at_us = 0;
     CharacterInteractionSnapshot character_interaction;
     CharacterTouchSnapshot character_touch;
@@ -673,6 +700,20 @@ public:
     esp_err_t readMotionPowerObservation(MotionPowerObservation &observation) const;
     // clock: Receives only the canonical time-owner observation, aged at read time.
     esp_err_t readClockObservation(ClockSnapshot &clock) const;
+
+    // voice: Receives canonical recognition state and the last historical event.
+    esp_err_t readVoiceObservation(VoiceSnapshot &voice) const;
+    // state: Confirmed AFE lifecycle state.
+    // error: Original initialization, capture or inference error.
+    // detected_at_us: Real Sophia detection time, or zero for a status-only update.
+    // Returns publication status; the original operation error remains in the snapshot.
+    esp_err_t reportVoice(VoiceState state, esp_err_t error, int64_t detected_at_us = 0);
+    // audio: Real microphone block statistics acquired by the AFE owner.
+    // sampled_at_us: Original completed capture timestamp, never refresh time.
+    // error: Original hardware capture error; failures invalidate the sample.
+    // Returns publication status, separate from the acquisition result.
+    esp_err_t reportVoiceMicrophones(const AudioSnapshot &audio, int64_t sampled_at_us,
+                                    esp_err_t error);
     /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 

@@ -54,6 +54,13 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapsh
         result.body_touch.rendering_rotation_degrees = body_touch.rendering_rotation_degrees;
         result.body_touch.gesture_started_at_us = body_touch.gesture_started_at_us;
     }
+    // A confirmed historical event remains an interaction after its heartbeat
+    // ages or pauses. Keeping its original time also preserves monotonic input.
+    const auto &voice = observation.voice;
+    if (voice.detected_word == LUNASHELL::WakeWordId::Sophia && voice.detection_sequence != 0 &&
+        voice.detected_at_us > result.last_interaction_at_us) {
+        result.last_interaction_at_us = voice.detected_at_us;
+    }
     result.eye_tap.stamp = published_stamp(observation.character_interaction, true);
     if (result.eye_tap.stamp.health == SampleHealth::Current) {
         using Kind = LUNASHELL::CharacterInteractionSnapshot::Kind;

@@ -500,6 +500,14 @@ pwsh -NoProfile -File .\scripts\device.ps1 set-target -Profile full -Feature dis
 pwsh -NoProfile -File .\scripts\device.ps1 build -Profile full -Feature distance
 ```
 
+Local wake-on-word is an optional shared platform feature for
+`-Profile cody-companion -Feature wake-word` and `-Profile full -Feature wake-word`.
+It requires an enabled supported microphone adapter, ESP32-S3 and PSRAM;
+ordinary variants keep it off. The initial model recognizes **Sophia**.
+Software standby listening keeps the CPU and microphones active. See
+[the architecture and deferred lock/build steps](docs/architecture/wake-on-word.md).
+
+
 With `CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=n`, the UART driver and acquisition
 worker are not compiled, the public entry points return
 `ESP_ERR_NOT_SUPPORTED`, and the staged Brookesia package omits every TOF

@@ -101,6 +101,107 @@ void log_snapshot_publication_failure(
 namespace LUNASHELL {
 using namespace snapshot_detail;
 
+// state: Confirmed AFE state, including optional startup failures.
+// error: Original operation error; a failed state never appears healthy.
+// detected_at_us: Confirmed Sophia event timestamp, zero for a heartbeat.
+esp_err_t DeviceSnapshotService::reportVoice(VoiceState state, esp_err_t error,
+                                           int64_t detected_at_us)
+{
+    const int64_t now_us = esp_timer_get_time();
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    if (detected_at_us != 0) {
+        ESP_LOGE(TAG, "Wake event rejected while the feature is disabled (%s)",
+                 esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+#endif
+    const bool known_state = state == VoiceState::Disabled || state == VoiceState::Starting ||
+        state == VoiceState::Listening || state == VoiceState::Paused || state == VoiceState::Failed;
+    if (!known_state || detected_at_us < 0 || detected_at_us > now_us ||
+        (detected_at_us != 0 && (state != VoiceState::Listening || error != ESP_OK)) ||
+        (state == VoiceState::Failed && error == ESP_OK)) {
+        ESP_LOGE(TAG, "Voice publication rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    esp_err_t event_error = ESP_OK;
+    const esp_err_t publication_error = update_snapshot([&](DeviceSnapshot &snapshot) {
+        VoiceSnapshot &voice = snapshot.voice;
+        if (detected_at_us != 0 && detected_at_us <= voice.detected_at_us) {
+            event_error = ESP_ERR_INVALID_ARG;
+            return;
+        }
+        voice.state = state;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        voice.configured_word = WakeWordId::Sophia;
+        std::strcpy(voice.model_name, "wn9_sophia_tts_v1");
+#endif
+        if (error == ESP_OK) {
+            mark_sample_success(voice, now_us);
+        } else {
+            mark_sample_failure(voice, error, now_us);
+        }
+        if (detected_at_us != 0) {
+            voice.detected_word = WakeWordId::Sophia;
+            voice.detected_at_us = detected_at_us;
+            ++voice.detection_sequence;
+        }
+    });
+    if (publication_error != ESP_OK || event_error != ESP_OK || error != ESP_OK) {
+        ESP_LOGE(TAG, "Voice state publication: operation=%s event=%s publication=%s",
+                 esp_err_to_name(error), esp_err_to_name(event_error), esp_err_to_name(publication_error));
+    }
+    return publication_error != ESP_OK ? publication_error : event_error;
+}
+
+// audio: Statistics computed from one successfully captured real microphone block.
+// sampled_at_us: Original capture completion timestamp.
+// error: Capture failure preserved independently of snapshot publication errors.
+esp_err_t DeviceSnapshotService::reportVoiceMicrophones(const AudioSnapshot &audio,
+                                                       int64_t sampled_at_us,
+                                                       esp_err_t error)
+{
+    if (sampled_at_us <= 0 || sampled_at_us > esp_timer_get_time() ||
+        (error == ESP_OK && (audio.channel_count == 0 || audio.channel_count > 2 ||
+                            audio.sample_rate_hz != 16000))) {
+        ESP_LOGE(TAG, "Voice microphone publication rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (error == ESP_OK) {
+        for (uint8_t channel = 0; channel < audio.channel_count; ++channel) {
+            if (audio.channel_mean_level[channel] > audio.channel_peak_level[channel] ||
+                audio.channel_peak_level[channel] > 32768U) {
+                ESP_LOGE(TAG, "Voice microphone level rejected: channel=%u mean=%lu peak=%lu (%s)",
+                         static_cast<unsigned>(channel),
+                         static_cast<unsigned long>(audio.channel_mean_level[channel]),
+                         static_cast<unsigned long>(audio.channel_peak_level[channel]),
+                         esp_err_to_name(ESP_ERR_INVALID_ARG));
+                return ESP_ERR_INVALID_ARG;
+            }
+        }
+    }
+    const esp_err_t publication_error = update_snapshot([&](DeviceSnapshot &snapshot) {
+        AudioSnapshot &target = snapshot.audio;
+        if (error != ESP_OK) {
+            mark_sample_failure(target.microphone, error, sampled_at_us);
+            return;
+        }
+        target.channel_count = audio.channel_count;
+        target.sample_rate_hz = audio.sample_rate_hz;
+        target.microphone_mean_level = audio.microphone_mean_level;
+        target.microphone_peak_level = audio.microphone_peak_level;
+        for (uint8_t channel = 0; channel < audio.channel_count; ++channel) {
+            target.channel_mean_level[channel] = audio.channel_mean_level[channel];
+            target.channel_peak_level[channel] = audio.channel_peak_level[channel];
+        }
+        mark_sample_success(target.microphone, sampled_at_us);
+    });
+    if (error != ESP_OK || publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Voice microphone publication: capture=%s publication=%s",
+                 esp_err_to_name(error), esp_err_to_name(publication_error));
+    }
+    return publication_error;
+}
+
 // report: Hardware owner result, including partial cleanup and its real errors.
 void DeviceSnapshotService::reportStorage(
     const StorageMountReport &report

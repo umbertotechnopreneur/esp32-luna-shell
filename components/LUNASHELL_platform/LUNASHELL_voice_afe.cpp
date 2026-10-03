@@ -3,6 +3,13 @@
  */
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_snapshot_internal.hpp"
+#include "esp_timer.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+#include "model_path.h"
+#include "esp_partition.h"
+#endif
 
 #include <atomic>
 #include <cstdint>
@@ -30,12 +37,30 @@ constexpr size_t kFetchTaskStackWords = 3072;
 constexpr TickType_t kReferenceLockTimeout = pdMS_TO_TICKS(20);
 constexpr TickType_t kTaskCancellationTimeout = pdMS_TO_TICKS(1000);
 
-#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
-constexpr char kAfeInputFormat[] = "MMNR";
+#if CONFIG_LUNASHELL_BUILD_VOICE_MICROPHONE_CHANNELS == 2
 constexpr uint8_t kMicrophoneChannels = 2;
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+constexpr char kAfeInputFormat[] = "MMNR";
 #else
-constexpr char kAfeInputFormat[] = "MR";
+constexpr char kAfeInputFormat[] = "MM";
+#endif
+#elif CONFIG_LUNASHELL_BUILD_VOICE_MICROPHONE_CHANNELS == 1
 constexpr uint8_t kMicrophoneChannels = 1;
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+constexpr char kAfeInputFormat[] = "MR";
+#else
+constexpr char kAfeInputFormat[] = "M";
+#endif
+#else
+#error "Voice capture requires an explicit supported microphone channel count"
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+constexpr char kWakeModelName[] = "wn9_sophia_tts_v1";
+constexpr int kSoleWakeModelApiIndex = 1;
+constexpr int kSophiaWordApiIndex = 1;
+constexpr int64_t kDetectionCooldownUs = 1500000;
+srmodel_list_t *s_models;
+char *s_wake_model_name;
 #endif
 
 #if CONFIG_LUNASHELL_BUILD_VOICE_AFE_SR_PROFILE_HIGH_PERF
@@ -59,6 +84,8 @@ StaticTask_t s_fetch_task_control;
 StackType_t *s_feed_task_stack;
 StackType_t *s_fetch_task_stack;
 std::atomic_bool s_running{false};
+std::atomic_bool s_start_released{false};
+std::atomic_bool s_fetch_paused{false};
 std::atomic_bool s_start_cancelled{false};
 std::atomic_bool s_feed_start_cancelled_ack{false};
 std::atomic_bool s_standby_requested{false};
@@ -66,10 +93,120 @@ bool s_power_standby_requested;
 bool s_performance_suspended;
 bool s_diagnostic_suspended;
 std::mutex s_standby_mutex;
+std::mutex s_publication_mutex;
 std::atomic_bool s_feed_paused{false};
 std::atomic<TaskHandle_t> s_feed_task_handle{nullptr};
 std::atomic_bool s_initialization_attempted{false};
 std::atomic<esp_err_t> s_initialization_result{ESP_ERR_INVALID_STATE};
+
+// state: Actual AFE lifecycle state.
+// error: Original operation error, retained in the canonical snapshot.
+// detected_at_us: Confirmed detection time; zero publishes status only.
+void publish_voice(LUNASHELL::VoiceState state, esp_err_t error, int64_t detected_at_us = 0)
+{
+    // A terminal failure wins over a fetch result already in flight.
+    std::lock_guard<std::mutex> lock(s_publication_mutex);
+    if (state == LUNASHELL::VoiceState::Listening &&
+        s_initialization_result.load(std::memory_order_acquire) != ESP_OK) {
+        return;
+    }
+    if (state == LUNASHELL::VoiceState::Failed) {
+        s_initialization_result.store(error, std::memory_order_release);
+        s_running.store(false, std::memory_order_release);
+    }
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportVoice(
+        state, error, detected_at_us);
+    LUNASHELL::snapshot_detail::log_snapshot_publication_failure("voice AFE", publication_error);
+}
+
+// samples: Real interleaved capture block; unused only when capture failed.
+// frames: Number of acquired PCM frames per channel.
+// sampled_at_us: Time the hardware read completed.
+// error: Original capture error.
+void publish_microphones(const int16_t *samples, size_t frames, int64_t sampled_at_us,
+                         esp_err_t error)
+{
+    LUNASHELL::AudioSnapshot audio;
+    audio.channel_count = kMicrophoneChannels;
+    audio.sample_rate_hz = kVoiceSampleRateHz;
+    if (error == ESP_OK) {
+        uint64_t combined_sum = 0;
+        for (uint8_t channel = 0; channel < kMicrophoneChannels; ++channel) {
+            uint64_t sum = 0;
+            uint32_t peak = 0;
+            for (size_t frame = 0; frame < frames; ++frame) {
+                const int32_t sample = samples[frame * kMicrophoneChannels + channel];
+                const uint32_t magnitude = static_cast<uint32_t>(sample < 0 ? -sample : sample);
+                sum += magnitude;
+                if (magnitude > peak) {
+                    peak = magnitude;
+                }
+            }
+            audio.channel_mean_level[channel] = static_cast<uint32_t>(sum / frames);
+            audio.channel_peak_level[channel] = peak;
+            combined_sum += sum;
+            if (peak > audio.microphone_peak_level) {
+                audio.microphone_peak_level = peak;
+            }
+        }
+        audio.microphone_mean_level = static_cast<uint32_t>(combined_sum / (frames * kMicrophoneChannels));
+    }
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportVoiceMicrophones(
+        audio, sampled_at_us, error);
+    LUNASHELL::snapshot_detail::log_snapshot_publication_failure("voice microphones", publication_error);
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// Load exactly the reviewed model; ESP-SR indices remain at this API boundary.
+esp_err_t load_wake_model()
+{
+    if (esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "model") == nullptr) {
+        ESP_LOGE(kTag, "Wake model partition missing (%s)", esp_err_to_name(ESP_ERR_NOT_FOUND));
+        return ESP_ERR_NOT_FOUND;
+    }
+    s_models = esp_srmodel_init("model");
+    if (s_models == nullptr) {
+        ESP_LOGE(kTag, "Wake model load failed (%s)", esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    if (s_models->num != 1 || s_models->model_name == nullptr ||
+        s_models->model_name[0] == nullptr || std::strcmp(s_models->model_name[0], kWakeModelName) != 0) {
+        ESP_LOGE(kTag, "Wake model inventory rejected; expected only %s (%s)",
+                 kWakeModelName, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    s_wake_model_name = s_models->model_name[0];
+    // Unlike the borrowed model name, ESP-SR allocates this metadata string.
+    char *words = esp_srmodel_get_wake_words(s_models, s_wake_model_name);
+    if (words == nullptr || std::strcmp(words, "Sophia") != 0) {
+        ESP_LOGE(kTag, "Wake word identity rejected: %s (%s)", words != nullptr ? words : "unavailable",
+                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        free(words);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    free(words);
+    return ESP_OK;
+}
+#endif
+
+// Publish failed optional startup and release models only after AFE teardown.
+struct InitializationPublication final {
+    ~InitializationPublication()
+    {
+        const esp_err_t error = s_initialization_result.load(std::memory_order_acquire);
+        if (error != ESP_OK) {
+            publish_voice(LUNASHELL::VoiceState::Failed, error);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+            if (s_models != nullptr && s_afe_data == nullptr &&
+                s_feed_task_handle.load(std::memory_order_acquire) == nullptr) {
+                esp_srmodel_deinit(s_models);
+                s_models = nullptr;
+                s_wake_model_name = nullptr;
+            }
+#endif
+        }
+    }
+};
 
 SemaphoreHandle_t reference_mutex()
 {
@@ -79,7 +216,8 @@ SemaphoreHandle_t reference_mutex()
     return s_reference_mutex;
 }
 
-// Wake the feed worker while the standby lock protects its published handle.
+// operation: Name of the lifecycle transition needing a feed notification.
+// The standby lock protects the published handle until notification completes.
 esp_err_t notify_feed_task_locked(const char *operation)
 {
     TaskHandle_t feed_task = s_feed_task_handle.load(std::memory_order_acquire);
@@ -104,11 +242,12 @@ void finish_feed_task()
     vTaskDelete(nullptr);
 }
 
-// Feed ESP-SR continuously while active and block without polling in standby.
+// arg: Unused FreeRTOS task context.
+// The only voice capture owner also publishes real microphone levels.
 void voice_feed_task(void *arg)
 {
     (void)arg;
-    while (!s_running.load(std::memory_order_acquire)) {
+    while (!s_start_released.load(std::memory_order_acquire)) {
         if (s_start_cancelled.load(std::memory_order_acquire)) {
             s_feed_start_cancelled_ack.store(true, std::memory_order_release);
             // Initialization owns deletion after observing this parked state.
@@ -129,6 +268,7 @@ void voice_feed_task(void *arg)
             feed_channels,
             kAfeInputFormat
         );
+        publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_INVALID_RESPONSE);
         s_running.store(false, std::memory_order_release);
         finish_feed_task();
         return;
@@ -153,6 +293,7 @@ void voice_feed_task(void *arg)
         free(microphones);
         free(feed);
         s_running.store(false, std::memory_order_release);
+        publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_NO_MEM);
         finish_feed_task();
         return;
     }
@@ -178,14 +319,18 @@ void voice_feed_task(void *arg)
                 "16 kHz microphone capture failed (%s)",
                 esp_err_to_name(capture_error)
             );
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
+            publish_microphones(nullptr, 0, esp_timer_get_time(), capture_error);
+            publish_voice(LUNASHELL::VoiceState::Failed, capture_error);
+            s_running.store(false, std::memory_order_release);
+            break;
         }
+        publish_microphones(microphones, static_cast<size_t>(feed_frames), esp_timer_get_time(), ESP_OK);
 
         if (xSemaphoreTake(reference_mutex(), kReferenceLockTimeout) != pdTRUE) {
             ESP_LOGE(kTag, "AEC reference ring lock timed out");
-            vTaskDelay(pdMS_TO_TICKS(5));
-            continue;
+            publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_TIMEOUT);
+            s_running.store(false, std::memory_order_release);
+            break;
         }
         for (int frame = 0; frame < feed_frames; ++frame) {
             const int16_t reference = s_reference_count > 0
@@ -195,16 +340,19 @@ void voice_feed_task(void *arg)
                 s_reference_read = (s_reference_read + 1U) % kReferenceRingFrames;
                 --s_reference_count;
             }
-#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
-            feed[frame * feed_channels] = microphones[frame * kMicrophoneChannels];
-            feed[frame * feed_channels + 1] =
-                microphones[frame * kMicrophoneChannels + 1];
-            feed[frame * feed_channels + 2] = 0;
-            feed[frame * feed_channels + 3] = reference;
-#else
-            feed[frame * feed_channels] = microphones[frame];
-            feed[frame * feed_channels + 1] = reference;
-#endif
+            uint8_t microphone_channel = 0;
+            for (int channel = 0; channel < feed_channels; ++channel) {
+                const char role = kAfeInputFormat[channel];
+                if (role == 'M') {
+                    feed[frame * feed_channels + channel] =
+                        microphones[frame * kMicrophoneChannels + microphone_channel];
+                    ++microphone_channel;
+                } else {
+                    // N is an intentionally unused AFE slot. R is actual playback
+                    // reference, or silence when no speaker samples were written.
+                    feed[frame * feed_channels + channel] = role == 'R' ? reference : 0;
+                }
+            }
         }
         if (xSemaphoreGive(reference_mutex()) != pdTRUE) {
             ESP_LOGE(kTag, "AEC reference ring unlock failed");
@@ -212,7 +360,9 @@ void voice_feed_task(void *arg)
         }
         const int feed_result = s_afe_handle->feed(s_afe_data, feed);
         if (feed_result < 0) {
-            ESP_LOGE(kTag, "AFE feed rejected a %d-frame input block", feed_frames);
+            ESP_LOGE(kTag, "AFE feed rejected a %d-frame input block (%s)",
+                     feed_frames, esp_err_to_name(ESP_FAIL));
+            publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
             s_running.store(false, std::memory_order_release);
         }
     }
@@ -223,21 +373,38 @@ void voice_feed_task(void *arg)
     finish_feed_task();
 }
 
-// Fetch AFE results and release a feed worker blocked during a terminal failure.
+// arg: Unused FreeRTOS task context.
+// Consume inference results; never read hardware from this consumer.
 void voice_fetch_task(void *arg)
 {
     (void)arg;
-    while (!s_running.load(std::memory_order_acquire)) {
+    while (!s_start_released.load(std::memory_order_acquire)) {
         if (s_start_cancelled.load(std::memory_order_acquire)) {
             vTaskDelete(nullptr);
             return;
         }
         vTaskDelay(1);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    int64_t last_detection_at_us = 0;
+#endif
     while (s_running.load(std::memory_order_acquire)) {
-        afe_fetch_result_t *result = s_afe_handle->fetch(s_afe_data);
+        if (s_standby_requested.load(std::memory_order_acquire)) {
+            s_fetch_paused.store(true, std::memory_order_release);
+            vTaskDelay(pdMS_TO_TICKS(20));
+            continue;
+        }
+        s_fetch_paused.store(false, std::memory_order_release);
+        afe_fetch_result_t *result = s_afe_handle->fetch_with_delay(s_afe_data, pdMS_TO_TICKS(200));
+        // A suspended feed has no results. Pausing must never invent a failure
+        // or turn a buffered detection into a fresh standby wake.
+        if (s_standby_requested.load(std::memory_order_acquire) ||
+            !s_running.load(std::memory_order_acquire)) {
+            continue;
+        }
         if (result == nullptr) {
-            ESP_LOGE(kTag, "AFE fetch returned null");
+            ESP_LOGE(kTag, "AFE fetch returned null (%s)", esp_err_to_name(ESP_FAIL));
+            publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
             s_running.store(false, std::memory_order_release);
             esp_err_t notification_error = ESP_OK;
             {
@@ -255,22 +422,67 @@ void voice_fetch_task(void *arg)
             break;
         }
         if (result->ret_value != ESP_OK) {
-            ESP_LOGW(
-                kTag,
-                "AFE fetch reported %s",
-                esp_err_to_name(result->ret_value)
-            );
+            ESP_LOGE(kTag, "AFE fetch failed (%s)", esp_err_to_name(result->ret_value));
+            publish_voice(LUNASHELL::VoiceState::Failed, result->ret_value);
+            s_running.store(false, std::memory_order_release);
+            std::lock_guard<std::mutex> lock(s_standby_mutex);
+            const esp_err_t notification_error = notify_feed_task_locked("inference-failure");
+            if (notification_error != ESP_OK) {
+                ESP_LOGE(kTag, "Feed failure notification failed (%s)", esp_err_to_name(notification_error));
+            }
+            break;
         }
-        // WakeNet, VAD, and command recognition intentionally attach here later.
+        int64_t detected_at_us = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        if (result->wakeup_state == WAKENET_DETECTED) {
+            if (result->wakenet_model_index != kSoleWakeModelApiIndex ||
+                result->wake_word_index != kSophiaWordApiIndex) {
+                ESP_LOGE(kTag, "Wake identity rejected: model=%d word=%d (%s)",
+                         result->wakenet_model_index, result->wake_word_index,
+                         esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+                publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_INVALID_RESPONSE);
+                s_running.store(false, std::memory_order_release);
+                break;
+            }
+            const int64_t now_us = esp_timer_get_time();
+            if (last_detection_at_us == 0 || now_us - last_detection_at_us >= kDetectionCooldownUs) {
+                detected_at_us = now_us;
+                last_detection_at_us = now_us;
+                ESP_LOGI(kTag, "Wake word detected: Sophia model=%s", kWakeModelName);
+            }
+        }
+#endif
+        publish_voice(LUNASHELL::VoiceState::Listening, ESP_OK, detected_at_us);
+    }
+    s_fetch_paused.store(false, std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(s_standby_mutex);
+        if (s_feed_task_handle.load(std::memory_order_acquire) != nullptr) {
+            const esp_err_t notification_error = notify_feed_task_locked("fetch-exit");
+            if (notification_error != ESP_OK) {
+                ESP_LOGE(kTag, "Feed exit notification failed (%s)", esp_err_to_name(notification_error));
+            }
+        }
     }
     vTaskDelete(nullptr);
 }
 
-// Transition the AFE and its audio route without releasing capture prematurely.
+// standby: Whether all microphone acquisition must pause.
+// Keep the capture lease until the audio route has completed its transition.
 esp_err_t apply_afe_standby_locked(bool standby)
 {
     if (!s_running.load(std::memory_order_acquire)) {
         s_standby_requested.store(standby, std::memory_order_release);
+        const esp_err_t error = s_initialization_result.load(std::memory_order_acquire);
+        if (s_initialization_attempted.load(std::memory_order_acquire) && error != ESP_OK) {
+            ESP_LOGE(kTag, "AFE transition rejected after failure (%s)", esp_err_to_name(error));
+            return error;
+        }
+        return ESP_OK;
+    }
+    if (s_standby_requested.load(std::memory_order_acquire) == standby &&
+        s_feed_paused.load(std::memory_order_acquire) == standby &&
+        s_fetch_paused.load(std::memory_order_acquire) == standby) {
         return ESP_OK;
     }
 
@@ -278,11 +490,13 @@ esp_err_t apply_afe_standby_locked(bool standby)
     if (standby) {
         s_standby_requested.store(true, std::memory_order_release);
         const TickType_t started_at = xTaskGetTickCount();
-        while (!s_feed_paused.load(std::memory_order_acquire)) {
+        while (!s_feed_paused.load(std::memory_order_acquire) ||
+               !s_fetch_paused.load(std::memory_order_acquire)) {
             if (!s_running.load(std::memory_order_acquire)) {
-                ESP_LOGE(kTag, "AFE feed stopped while a pause was pending");
+                const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
+                ESP_LOGE(kTag, "AFE feed stopped while a pause was pending (%s)", esp_err_to_name(stopped_error));
                 s_standby_requested.store(false, std::memory_order_release);
-                return ESP_ERR_INVALID_STATE;
+                return stopped_error != ESP_OK ? stopped_error : ESP_ERR_INVALID_STATE;
             }
             if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
                 ESP_LOGE(kTag, "AFE feed pause timed out");
@@ -315,6 +529,8 @@ esp_err_t apply_afe_standby_locked(bool standby)
             }
             return audio_error;
         }
+        publish_microphones(nullptr, 0, esp_timer_get_time(), ESP_ERR_NOT_ALLOWED);
+        publish_voice(LUNASHELL::VoiceState::Paused, ESP_OK);
         ESP_LOGI(kTag, "AFE capture loop suspended");
         return ESP_OK;
     }
@@ -324,6 +540,24 @@ esp_err_t apply_afe_standby_locked(bool standby)
     const esp_err_t audio_error = LUNASHELL_audio_set_standby(false);
     if (audio_error != ESP_OK) {
         return audio_error;
+    }
+    // Discard inference buffers from before the pause before capture resumes.
+    if (s_afe_handle->reset_buffer(s_afe_data) < 0) {
+        ESP_LOGE(kTag, "AFE buffer reset failed (%s)", esp_err_to_name(ESP_FAIL));
+        publish_voice(LUNASHELL::VoiceState::Failed, ESP_FAIL);
+        return ESP_FAIL;
+    }
+    if (xSemaphoreTake(reference_mutex(), kReferenceLockTimeout) != pdTRUE) {
+        ESP_LOGE(kTag, "AEC reference reset lock timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+        publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_TIMEOUT);
+        return ESP_ERR_TIMEOUT;
+    }
+    s_reference_read = 0;
+    s_reference_write = 0;
+    s_reference_count = 0;
+    if (xSemaphoreGive(reference_mutex()) != pdTRUE) {
+        ESP_LOGE(kTag, "AEC reference reset unlock failed");
+        std::abort();
     }
     s_standby_requested.store(false, std::memory_order_release);
     const esp_err_t notification_error = notify_feed_task_locked("resume");
@@ -340,9 +574,11 @@ esp_err_t apply_afe_standby_locked(bool standby)
         return notification_error;
     }
     const TickType_t started_at = xTaskGetTickCount();
-    while (s_feed_paused.load(std::memory_order_acquire)) {
+    while (s_feed_paused.load(std::memory_order_acquire) ||
+           s_fetch_paused.load(std::memory_order_acquire)) {
         if (!s_running.load(std::memory_order_acquire)) {
-            ESP_LOGE(kTag, "AFE feed stopped while a resume was pending");
+            const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
+            ESP_LOGE(kTag, "AFE feed stopped while a resume was pending (%s)", esp_err_to_name(stopped_error));
             s_standby_requested.store(true, std::memory_order_release);
             const esp_err_t rollback_error = LUNASHELL_audio_set_standby(true);
             if (rollback_error != ESP_OK) {
@@ -352,7 +588,7 @@ esp_err_t apply_afe_standby_locked(bool standby)
                     esp_err_to_name(rollback_error)
                 );
             }
-            return ESP_ERR_INVALID_STATE;
+            return stopped_error != ESP_OK ? stopped_error : ESP_ERR_INVALID_STATE;
         }
         if (xTaskGetTickCount() - started_at >= kPauseTimeout) {
             ESP_LOGE(kTag, "AFE feed resume timed out");
@@ -370,9 +606,11 @@ esp_err_t apply_afe_standby_locked(bool standby)
         vTaskDelay(1);
     }
     if (!s_running.load(std::memory_order_acquire)) {
-        ESP_LOGE(kTag, "AFE feed stopped during resume completion");
-        return ESP_ERR_INVALID_STATE;
+        const esp_err_t stopped_error = s_initialization_result.load(std::memory_order_acquire);
+        ESP_LOGE(kTag, "AFE feed stopped during resume completion (%s)", esp_err_to_name(stopped_error));
+        return stopped_error != ESP_OK ? stopped_error : ESP_ERR_INVALID_STATE;
     }
+    publish_voice(LUNASHELL::VoiceState::Listening, ESP_OK);
     ESP_LOGI(kTag, "AFE capture loop resumed");
     return ESP_OK;
 }
@@ -383,11 +621,13 @@ esp_err_t apply_afe_standby_locked(bool standby)
 extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
 {
     if (s_running.load(std::memory_order_acquire)) {
-        return ESP_OK;
+        return s_initialization_result.load(std::memory_order_acquire);
     }
     if (s_initialization_attempted.exchange(true, std::memory_order_acq_rel)) {
         return s_initialization_result.load(std::memory_order_acquire);
     }
+    InitializationPublication publication;
+    publish_voice(LUNASHELL::VoiceState::Starting, ESP_OK);
     if (LUNASHELL_audio_input_channel_count() != kMicrophoneChannels) {
         ESP_LOGE(kTag, "Selected microphone topology does not match AFE layout");
         s_initialization_result.store(ESP_ERR_INVALID_STATE, std::memory_order_release);
@@ -404,6 +644,13 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         return route_error;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    const esp_err_t model_error = load_wake_model();
+    if (model_error != ESP_OK) {
+        s_initialization_result.store(model_error, std::memory_order_release);
+        return model_error;
+    }
+#endif
     s_reference_ring = static_cast<int16_t *>(heap_caps_aligned_alloc(
         16,
         kReferenceRingFrames * sizeof(int16_t),
@@ -415,10 +662,22 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         return ESP_ERR_NO_MEM;
     }
     std::memset(s_reference_ring, 0, kReferenceRingFrames * sizeof(int16_t));
+    // Publish the mutex before playback and capture can race to initialize it.
+    if (reference_mutex() == nullptr) {
+        ESP_LOGE(kTag, "AEC reference mutex creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        free(s_reference_ring);
+        s_reference_ring = nullptr;
+        s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
+        return ESP_ERR_NO_MEM;
+    }
 
     afe_config_t *config = afe_config_init(
         kAfeInputFormat,
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        s_models,
+#else
         nullptr,
+#endif
         AFE_TYPE_SR,
         kAfeMode
     );
@@ -429,9 +688,20 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         s_initialization_result.store(ESP_ERR_NO_MEM, std::memory_order_release);
         return ESP_ERR_NO_MEM;
     }
-    // This first integration is AEC-only. WebRTC NS/VAD defaults need no
-    // model partition; WakeNet and command models attach in a later feature.
+    // A speaker reference exists only when an output adapter is enabled.
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
     config->aec_init = true;
+#else
+    config->aec_init = false;
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    config->wakenet_init = true;
+    config->wakenet_model_name = s_wake_model_name;
+    config->wakenet_model_name_2 = nullptr;
+    config->wakenet_mode = kMicrophoneChannels == 2 ? DET_MODE_2CH_90 : DET_MODE_90;
+#else
+    config->wakenet_init = false;
+#endif
     config->aec_mode = kAecMode;
     config->memory_alloc_mode = AFE_MEMORY_ALLOC_MORE_PSRAM;
     s_afe_handle = esp_afe_handle_from_config(config);
@@ -553,7 +823,9 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
         return ESP_ERR_NO_MEM;
     }
 
+    s_initialization_result.store(ESP_OK, std::memory_order_release);
     s_running.store(true, std::memory_order_release);
+    s_start_released.store(true, std::memory_order_release);
     {
         std::lock_guard<std::mutex> lock(s_standby_mutex);
         const bool standby =
@@ -576,7 +848,10 @@ extern "C" esp_err_t LUNASHELL_voice_afe_init(void)
             return standby_error;
         }
     }
-    s_initialization_result.store(ESP_OK, std::memory_order_release);
+    const esp_err_t startup_result = s_initialization_result.load(std::memory_order_acquire);
+    if (startup_result != ESP_OK) {
+        return startup_result;
+    }
     ESP_LOGI(
         kTag,
         "ESP-SR AFE ready: 16kHz format=%s type=SR profile=%s",
@@ -597,6 +872,7 @@ extern "C" bool LUNASHELL_voice_afe_capture_active(void)
            !s_standby_requested.load(std::memory_order_acquire);
 }
 
+// standby: Requested power-policy pause; software wake-word standby keeps this false.
 extern "C" esp_err_t LUNASHELL_voice_afe_set_standby(bool standby)
 {
     std::lock_guard<std::mutex> lock(s_standby_mutex);
@@ -622,9 +898,13 @@ extern "C" esp_err_t LUNASHELL_voice_afe_set_standby(bool standby)
             );
         }
     }
+    if (error != ESP_OK) {
+        publish_voice(LUNASHELL::VoiceState::Failed, error);
+    }
     return error;
 }
 
+// suspended: Independent Performance Mode request to pause recognition.
 extern "C" esp_err_t LUNASHELL_voice_afe_set_performance_suspended(bool suspended)
 {
     std::lock_guard<std::mutex> lock(s_standby_mutex);
@@ -649,6 +929,7 @@ extern "C" esp_err_t LUNASHELL_voice_afe_set_performance_suspended(bool suspende
                 esp_err_to_name(rollback_error)
             );
         }
+        publish_voice(LUNASHELL::VoiceState::Failed, error);
         return error;
     }
     ESP_LOGI(
@@ -659,10 +940,16 @@ extern "C" esp_err_t LUNASHELL_voice_afe_set_performance_suspended(bool suspende
     return ESP_OK;
 }
 
+// suspended: Exclusive audio diagnostic lease, which pauses recognition.
 extern "C" esp_err_t LUNASHELL_voice_afe_set_diagnostic_suspended(bool suspended)
 {
     std::lock_guard<std::mutex> lock(s_standby_mutex);
     if (s_diagnostic_suspended == suspended) {
+        const esp_err_t error = s_initialization_result.load(std::memory_order_acquire);
+        if (s_initialization_attempted.load(std::memory_order_acquire) && error != ESP_OK) {
+            ESP_LOGE(kTag, "AFE diagnostic handoff rejected after failure (%s)", esp_err_to_name(error));
+            return error;
+        }
         return ESP_OK;
     }
 
@@ -687,6 +974,7 @@ extern "C" esp_err_t LUNASHELL_voice_afe_set_diagnostic_suspended(bool suspended
                 esp_err_to_name(rollback_error)
             );
         }
+        publish_voice(LUNASHELL::VoiceState::Failed, error);
         return error;
     }
     ESP_LOGI(

@@ -44,6 +44,18 @@ authorization.
   device operation ran for this change.
   See `docs/architecture/cody-face-lifecycle.md`.
 
+- [ ] After fresh explicit authorization, resolve the `cody-companion-wake-word`
+  and `full-wake-word` dependency locks through `scripts/device.ps1 update-lock`,
+  then run the requested final build/validation package. No configure, build,
+  test, simulator, size, diff/check, dependency/secret scan or device operation
+  ran for this implementation. Announce exact test commands and obtain fresh
+  approval before each test run. See `docs/architecture/wake-on-word.md`.
+- [ ] After separate physical-device authorization, measure Sophia detection,
+  false positives, AEC during Cody audio, standby wake, diagnostic/performance
+  suspension/resume, CPU/PSRAM cost and standby current. Test missing/incorrect
+  model state and real capture failure visibility. Rectangular 1.8-inch board
+  integration remains deferred until its ES8311 input adapter is implemented.
+
 - [ ] Review the new first-boot greeting in the Windows simulator and on the
   device after fresh, specific authorization. Implementation and source assets
   are complete; checkpoint `1df7ee0a` compiled and flashed on COM10 with the

@@ -114,6 +114,18 @@
   a verified hash. The later live capture showed frames and rotation, no reset
   cycle in its 45-second window; long-run behavior remains unverified.
 
+## Optional wake-on-word implementation (2026-10-04)
+
+- [x] Add shared compile-time CPU/PSRAM/codec/input capability gates and isolated
+  Cody/full wake-word variants with the official pinned Sophia v1 model in
+  internal flash. Publish real voice-owned microphone levels and recognition
+  state/events through the canonical snapshot; connect software standby wake
+  and Cody interaction without another hardware read path. Keep mono/dual and
+  output-free topology explicit, surface failures and pause recognition during
+  exclusive diagnostics/Performance Mode. Document future-board integration.
+  Source review only; dependency locks and all validation/hardware checks remain
+  open in `TODO.md`.
+
 ## Cody first-boot scene implementation (2026-10-03)
 
 - [x] Implement the atlas page 05 / screen 04 greeting through a reusable

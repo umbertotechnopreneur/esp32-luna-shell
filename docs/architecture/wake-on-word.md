@@ -1,0 +1,188 @@
+# Optional wake-on-word
+
+The shared Luna platform can recognize **Sophia** locally with ESP-SR 2.4.6
+and `wn9_sophia_tts_v1`. Cody consumes the published event as an interaction;
+the power owner wakes software standby or restores the active display policy.
+The model does not recognize **Cody**, transcribe speech or accept commands.
+
+## Build selection and hardware capabilities
+
+Ordinary firmware variants retain their existing defaults with wake word off.
+Use `-Feature wake-word` with `-Profile cody-companion` or `-Profile full` through
+`scripts/device.ps1`. Each variant has an isolated SDK configuration, build
+folder and canonical dependency lock. Other profile/feature combinations fail
+at the catalog boundary instead of silently selecting another product.
+
+`CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD` is available only when both
+`LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE` and
+`LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE` are true. Enabling the feature
+selects the dedicated AFE, without selecting audio or a disabled codec behind
+the hardware configuration's back.
+
+The reviewed engine capability is ESP32-S3 with PSRAM enabled. The reviewed
+capture capability requires enabled audio, enabled ES7210 codec support and
+a selected ES7210 mono or dual input adapter. CPU model and audio adapter are
+separate decisions; neither capability depends on a product/board name.
+`LUNASHELL_BUILD_VOICE_MICROPHONE_CHANNELS` declares the adapter topology and
+startup checks the actual driver's channel count before admitting capture.
+
+| Enabled input | Enabled output | AFE layout | AEC |
+| --- | --- | --- | --- |
+| One microphone | ES8311 | `MR` | Speaker PCM reference |
+| Two microphones | ES8311 | `MMNR` | Speaker PCM reference |
+| One microphone | None | `M` | Disabled |
+| Two microphones | None | `MM` | Disabled |
+| None / disabled codec / unsupported CPU / no PSRAM | Any | Feature unavailable | No voice worker |
+
+`N` is an unused ESP-SR input slot. `R` contains successfully written 16 kHz
+speaker samples, or silence while there is no playback. These internal AFE
+inputs are never published as sensor measurements. Cody's existing audio
+assets already use 16 kHz.
+
+## Model storage and identity
+
+The official, unmodified model is versioned under `assets/wake-word/models/`.
+Its source is pinned to the ESP-SR 2.4.6 source snapshot, with SHA-256 provenance
+and the original ESPRESSIF MIT License in the parent folder. The feature's
+partition table reserves 512 KiB for the internal `model` partition. It reduces
+the factory application from 14,476 KiB to 13,964 KiB and leaves the existing
+NVS, PHY and LittleFS placements unchanged. The packed image must be included
+in the authorized firmware flash; an application-only update cannot install
+the new partition contents.
+
+The wrapper writes the checkout's absolute external-model path to a generated
+defaults overlay under `artifacts/wake-word/`, so spaces and different worktree
+locations do not become hardcoded source paths. ESP-SR builds `srmodels.bin`
+and adds it to the normal flash target. Stock WakeNet/MultiNet/NSNet/VadNet
+model selections must remain off; WebRTC NS/VAD add no model assets. Replacing
+weights requires an authorized clean feature build because the upstream
+packer tracks sdkconfig rather than every external weight file.
+
+Startup admits exactly one model with the exact name `wn9_sophia_tts_v1` and
+wake-word metadata `Sophia`. Missing/extra/incorrect models fail initialization
+and publish the original error. ESP-SR's one-based model and word indices are
+checked only at its API boundary, then mapped to `WakeWordId::Sophia`. Domain
+consumers never infer identity from array order. Detection events carry an
+original timestamp and a monotonically increasing sequence; a 1.5-second
+cooldown rejects repeated detections from the same utterance.
+
+## Acquisition and publication
+
+```mermaid
+flowchart LR
+    Mic[Enabled microphone adapter] --> Feed[Single 16 kHz capture owner]
+    Feed --> AFE[ESP-SR AFE and WakeNet]
+    Feed --> Snapshot[DeviceSnapshotService]
+    AFE --> Snapshot
+    Snapshot --> Power[Power policy and standby wake]
+    Snapshot --> Cody[Cody response inputs]
+    Snapshot --> Diagnostics[Existing snapshot diagnostics]
+```
+
+The feed task publishes real per-channel PCM mean/peak levels and the original
+capture completion timestamp. Full snapshot and ordinary diagnostics reuse
+those canonical measurements while the AFE owns capture, without reopening
+the microphone or inventing another sampling time. Spectrum diagnostics keep
+the existing explicit exclusive lease; recognition is paused during that lease.
+
+`DeviceSnapshot.voice` exposes `Disabled`, `Starting`, `Listening`, `Paused`
+and `Failed`, with health, validity, the real error, configured model, detected
+word, event sequence and historical detection time. Listening heartbeats age
+after one second independently of the sensor diagnostic cadence. The last
+event time is preserved across pauses and failures; it is not a fresh reading.
+HTTP snapshot/status diagnostics expose this data when HTTP is compiled.
+
+Capture/inference errors stop recognition and publish failed state. Workers
+use a one-shot startup gate; partial task creation releases model resources
+only when no live task can still own them. Suspend waits for both feed and
+fetch acknowledgment before changing the route; resume clears old inference
+and speaker-reference buffers before admitting capture. A terminal failure
+wins over an inference result already in flight. Runtime restart/repair is
+not attempted silently; the failed component remains visible.
+
+## Native acceleration and SIMD
+
+Inference and AFE processing are delegated to ESP-SR's target-specific
+ESP32-S3 native libraries (`libwakenet`, `libesp_audio_front_end` and their
+native DSP/neural kernels). The [ESP32-S3 technical reference](https://www.espressif.com/sites/default/files/documentation/esp32-s3_technical_reference_manual_en.pdf)
+documents its SIMD instruction extensions; [Espressif's AI solution guide](https://docs.espressif.com/projects/esp-techpedia/en/latest/esp-friends/solution-introduction/ai/ai-solution.html)
+describes AFE optimization for the S3 accelerator. The feature integrates
+that vendor engine rather than reimplementing its neural inference.
+
+This change adds no authored assembly. The microphone mean/peak statistics
+and buffer interleaving are readable C++ loops over real 16 kHz blocks, using
+startup-allocated, 16-byte-aligned buffers. Compiler optimization alone is
+not evidence that those loops use the proprietary SIMD instructions. The
+exact linked instruction path, our loop overhead, total recognition cost and
+any value from an additional assembly kernel remain unmeasured until an
+explicitly authorized build/disassembly and device performance review.
+Future processors require their own reviewed engine capability and vendor
+kernels; display shape never selects an instruction set.
+
+## Software standby
+
+With `CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING=y`, software standby
+turns off the screen and applies other existing standby policies while leaving
+the voice worker and shared audio transport active. The power owner's resource
+consistency checks use this explicit audio target. Fresh confirmed detections
+are consumed once, with a maximum event age of two seconds, and route through
+the normal rollback-capable wake transition with reason `WakeWord`.
+
+Cody reads the same historical event through `MotionPowerObservation`; it
+resets idle/yawn interaction state through the existing response path. It does
+not synthesize a touch or read the microphone directly. Performance Mode and
+exclusive microphone diagnostics still pause recognition. With standby
+listening disabled, recognition operates only while the AFE is active.
+
+This recognizer runs on the main CPU. It cannot wake the ESP32 from silicon
+light/deep sleep. The explicit sleep APIs reject those requests while standby
+listening is configured. Standby current, recognition accuracy, false positives,
+AEC effectiveness, response latency and CPU/PSRAM cost require device evidence.
+
+## Future boards
+
+The rectangular Waveshare ESP32-S3-Touch-AMOLED-1.8 is not added to the current
+board catalog by this feature. Its ES8311 microphone input requires its own
+reviewed acquisition adapter and board integration. When implementing it:
+
+1. Provide enabled 16 kHz PCM16 input capture and explicit mono/dual topology.
+2. Extend the hidden capture capability only for that implemented input driver
+   and its enabled codec. An output-only ES8311 selection is not a microphone.
+3. Keep the shared canonical publication and voice/power consumers unchanged.
+4. Review processor/PSRAM engine compatibility, flash partition capacity and
+   board-specific pins independently of display shape and product name.
+5. Resolve that board's isolated dependency lock and validate it with explicit
+   authorization. Do not introduce legacy compatibility paths or guessed pins.
+
+The current ES7210 dual, mono and no-output selections exercise these topology
+boundaries in code; no rectangular-board hardware behavior is claimed.
+
+## Delivery and deferred validation (2026-10-04)
+
+Implementation and static source review were performed in the
+`feat/wake-on-word` worktree. Configure, dependency resolution, builds, tests,
+simulator, size/scans and physical hardware operations were not authorized
+and have not been run. The two new canonical dependency locks must be resolved
+before either variant is buildable; they are deliberately not fabricated or
+copied from a profile with a different dependency closure.
+
+The first explicitly authorized configuration step for each selected variant is:
+
+```powershell
+pwsh -NoProfile -File .\scripts\device.ps1 update-lock -Profile cody-companion -Feature wake-word
+pwsh -NoProfile -File .\scripts\device.ps1 update-lock -Profile full -Feature wake-word
+```
+
+Then run only the freshly authorized build/validation package through the same
+public wrapper, at most eight compiler jobs and at least a 240-second build
+timeout. Review feature-on/off behavior, mono/dual/no-output capture, disabled
+codec/CPU/PSRAM gating, model failures, standby/performance/diagnostic handoffs,
+Cody interaction, existing UI-off dependency isolation and model packing. No
+host-only result proves physical wake behavior. Tests require their own fresh,
+explicit approval after the exact commands have been announced.
+
+## Primary references
+
+- [Espressif AFE initialization and fetch contract](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/audio_front_end/README.html).
+- [Espressif model partition and packing workflow](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/flash_model/README.html).
+- [Pinned ESP-SR 2.4.6 model source](https://github.com/espressif/esp-sr/tree/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/model/wakenet_model/wn9_sophia_tts_v1).

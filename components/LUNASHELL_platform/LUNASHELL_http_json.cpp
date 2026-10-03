@@ -448,6 +448,54 @@ void writeAudio(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::AudioSnapshot 
     );
 }
 
+// state: Confirmed recognition service lifecycle, independent of event history.
+const char *voiceStateName(LUNASHELL::VoiceState state)
+{
+    switch (state) {
+    case LUNASHELL::VoiceState::Disabled:
+        return "disabled";
+    case LUNASHELL::VoiceState::Starting:
+        return "starting";
+    case LUNASHELL::VoiceState::Listening:
+        return "listening";
+    case LUNASHELL::VoiceState::Paused:
+        return "paused";
+    case LUNASHELL::VoiceState::Failed:
+        return "failed";
+    }
+    return "invalid";
+}
+
+// word: Stable domain identity, never an ESP-SR array position.
+const char *wakeWordName(LUNASHELL::WakeWordId word)
+{
+    switch (word) {
+    case LUNASHELL::WakeWordId::None:
+        return "none";
+    case LUNASHELL::WakeWordId::Sophia:
+        return "Sophia";
+    }
+    return "invalid";
+}
+
+// json: Existing bounded JSON writer, preserving any earlier writer failure.
+// voice: Canonical state and original historical event time.
+void writeVoice(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::VoiceSnapshot &voice)
+{
+    writeComponentStart(json, voice);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(voiceStateName(voice.state));
+    (void)json.raw(",\"configured_word\":");
+    (void)json.quoted(wakeWordName(voice.configured_word));
+    (void)json.raw(",\"detected_word\":");
+    (void)json.quoted(wakeWordName(voice.detected_word));
+    (void)json.raw(",\"model_name\":");
+    (void)json.quoted(voice.model_name);
+    (void)json.format(",\"detection_sequence\":%llu,\"detected_at_us\":%lld}",
+                      static_cast<unsigned long long>(voice.detection_sequence),
+                      static_cast<long long>(voice.detected_at_us));
+}
+
 void writeWifi(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::WifiSnapshot &wifi,
@@ -874,6 +922,7 @@ const char *operatingStateName(LUNASHELL::DeviceOperatingState state)
     return "unknown";
 }
 
+// reason: Typed power-policy transition cause.
 const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
 {
     switch (reason) {
@@ -887,6 +936,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
         return "touch";
     case LUNASHELL::DeviceStateReason::ImuMotion:
         return "imu-motion";
+    case LUNASHELL::DeviceStateReason::WakeWord:
+        return "wake-word";
     case LUNASHELL::DeviceStateReason::Inactivity:
         return "inactivity";
     }
@@ -1236,6 +1287,8 @@ void writeSnapshotData(
     writeGpsData(json, snapshot.gps, complete_diagnostics);
     (void)json.raw(",\"audio\":");
     writeAudio(json, snapshot.audio);
+    (void)json.raw(",\"voice\":");
+    writeVoice(json, snapshot.voice);
     (void)json.raw(",\"radios\":{\"wifi\":");
     writeWifi(json, snapshot.radios.wifi, complete_diagnostics);
     (void)json.raw(",\"ble\":");
@@ -1488,6 +1541,10 @@ void httpJsonWriteGps(HttpJsonWriter &json, const DeviceSnapshot &snapshot)
     (void)json.raw("}");
 }
 
+// json: Bounded status output writer.
+// snapshot: Canonical component state with original sample/event timestamps.
+// metrics: Measured HTTP service counters.
+// lifecycle: Confirmed HTTP server ownership and cleanup state.
 void httpJsonWriteStatus(
     HttpJsonWriter &json,
     const DeviceSnapshot &snapshot,
@@ -1516,7 +1573,7 @@ void httpJsonWriteStatus(
         {"imu", &snapshot.imu}, {"sensor_fusion", &snapshot.sensor_fusion},
         {"gps", &snapshot.gps},
         {"speaker", &snapshot.audio.speaker}, {"microphone", &snapshot.audio.microphone},
-        {"spectrum", &snapshot.audio.spectrum},
+        {"spectrum", &snapshot.audio.spectrum}, {"voice", &snapshot.voice},
         {"wifi", &snapshot.radios.wifi}, {"ble", &snapshot.radios.ble},
         {"storage", &snapshot.storage}, {"display", &snapshot.ui.display},
         {"touch", &snapshot.ui.touch}, {"io_expander", &snapshot.input.io_expander},

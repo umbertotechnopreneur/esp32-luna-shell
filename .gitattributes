@@ -1,1 +1,4 @@
 *.patch -whitespace
+
+# Preserve the upstream model protocol and weights byte for byte on Windows.
+assets/wake-word/models/** -text

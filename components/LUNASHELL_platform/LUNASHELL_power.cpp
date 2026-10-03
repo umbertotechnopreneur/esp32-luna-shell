@@ -93,6 +93,9 @@ TaskHandle_t s_leg_audio_task;
 int16_t *s_leg_audio_buffer;
 #endif
 std::atomic<int64_t> s_activity_at_us{0};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+uint64_t s_consumed_wake_word_sequence;
+#endif
 std::atomic<LUNASHELL::DeviceStateReason> s_activity_reason{
     LUNASHELL::DeviceStateReason::Touch
 };
@@ -274,6 +277,19 @@ const char *standby_trace_phase_name(StandbyTracePhase phase)
     }
 }
 
+// standby: Overall software standby target.
+// Listening owns the audio transport even with the display and radios asleep.
+bool audio_standby_target(bool standby)
+{
+#if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
+    (void)standby;
+    return false;
+#else
+    return standby;
+#endif
+}
+
+// reason: Typed cause of the most recent power transition.
 const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
 {
     switch (reason) {
@@ -287,6 +303,8 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "touch";
     case LUNASHELL::DeviceStateReason::ImuMotion:
         return "imu-motion";
+    case LUNASHELL::DeviceStateReason::WakeWord:
+        return "wake-word";
     case LUNASHELL::DeviceStateReason::Inactivity:
         return "inactivity";
     }
@@ -858,6 +876,10 @@ bool standby_resources_match_target(
     };
     const bool storage_matches =
         allow_storage_degraded || matches(s_standby_resources.storage);
+    const bool audio_target = audio_standby_target(target);
+    const auto audio_matches = [audio_target](const StandbyResourceStatus &status) {
+        return status.unsupported || (status.consistent && status.applied == audio_target);
+    };
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     const bool display_matches =
         s_standby_resources.display_consistent &&
@@ -872,8 +894,8 @@ bool standby_resources_match_target(
            storage_matches &&
            matches(s_standby_resources.imu_low_power) &&
            matches(s_standby_resources.motion_wake_cadence) &&
-           matches(s_standby_resources.voice_afe) &&
-           matches(s_standby_resources.base_audio) &&
+           audio_matches(s_standby_resources.voice_afe) &&
+           audio_matches(s_standby_resources.base_audio) &&
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
            matches(s_standby_resources.lvgl_paused) &&
 #else
@@ -894,13 +916,14 @@ esp_err_t suspend_standby_resources(bool best_effort)
     esp_err_t first_error = ESP_OK;
     const auto step = [&](const char *name,
                           StandbyResourceStatus &state,
-                          StandbyTransition transition) {
+                          StandbyTransition transition,
+                          bool requested = true) {
         if (!best_effort && first_error != ESP_OK) {
             return;
         }
         const esp_err_t error = transition_standby_resource(
             name,
-            true,
+            requested,
             state,
             transition
         );
@@ -947,12 +970,14 @@ esp_err_t suspend_standby_resources(bool best_effort)
     step(
         "Voice AFE",
         s_standby_resources.voice_afe,
-        LUNASHELL_voice_afe_set_standby
+        LUNASHELL_voice_afe_set_standby,
+        audio_standby_target(true)
     );
     step(
         "Base audio transport",
         s_standby_resources.base_audio,
-        LUNASHELL_audio_set_standby
+        LUNASHELL_audio_set_standby,
+        audio_standby_target(true)
     );
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
     if (best_effort || first_error == ESP_OK) {
@@ -2525,6 +2550,35 @@ void power_task(void *argument)
             }
         }
 #endif
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        const auto &voice = snapshot.voice;
+        if (voice.detection_sequence != s_consumed_wake_word_sequence) {
+            // Consume historical events once, including expired or failed ones.
+            // Resuming the display later must never replay an old detection.
+            s_consumed_wake_word_sequence = voice.detection_sequence;
+            const int64_t now_us = esp_timer_get_time();
+            const bool current_detection = voice.detected_word == LUNASHELL::WakeWordId::Sophia &&
+                voice.state == LUNASHELL::VoiceState::Listening && voice.data_valid &&
+                !voice.data_stale && voice.health == LUNASHELL::DeviceHealth::Ready &&
+                voice.last_error == ESP_OK && voice.detected_at_us > 0 &&
+                now_us >= voice.detected_at_us && now_us - voice.detected_at_us <= 2000000;
+            if (current_detection) {
+                esp_err_t wake_error = ESP_OK;
+                if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
+                    wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
+                } else if (s_state == LUNASHELL::DeviceOperatingState::Active) {
+                    s_last_activity_at_us = voice.detected_at_us;
+                    wake_error = restore_active_policy(LUNASHELL::DeviceStateReason::WakeWord,
+                                                       active_display_snapshot_diverged());
+                }
+                if (wake_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Wake word power transition failed (%s)", esp_err_to_name(wake_error));
+                }
+            }
+        }
+#endif
+
         const uint32_t activity_sequence =
             s_activity_sequence.load(std::memory_order_acquire);
         if (activity_sequence != s_consumed_activity_sequence) {
@@ -3083,6 +3137,11 @@ extern "C" esp_err_t LUNASHELL_power_manager_get_timeout(
 // wake_after_us: Optional timer deadline in microseconds; zero uses the configured GPIO wake.
 extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
 {
+#if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
+    ESP_LOGE(kTag, "Silicon sleep rejected while standby wake-word listening is enabled (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     esp_err_t result = configure_wakeup(wake_after_us);
     if (result != ESP_OK) {
         return result;
@@ -3147,6 +3206,11 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
 // wake_after_us: Optional timer in addition to touch/motion; zero adds no periodic wake.
 extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
 {
+#if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
+    ESP_LOGE(kTag, "Deep-sleep rejected while wake-word standby listening is enabled (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
     if (!LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled ||
         s_state != LUNASHELL::DeviceOperatingState::Standby ||
         xTaskGetCurrentTaskHandle() != s_task ||

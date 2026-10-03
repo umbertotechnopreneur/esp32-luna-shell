@@ -4657,6 +4657,7 @@ std::expected<void, std::string> App::refresh_welcome(AppContext &context)
     );
 }
 
+// context: Brookesia binding context receiving canonical battery and power state.
 std::expected<void, std::string> App::refresh_battery(AppContext &context)
 {
     const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
@@ -5086,6 +5087,9 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
             break;
         case DeviceStateReason::ImuMotion:
             reason = "IMU MOTION";
+            break;
+        case DeviceStateReason::WakeWord:
+            reason = "WAKE WORD";
             break;
         case DeviceStateReason::Inactivity:
             reason = "INACTIVITY";
