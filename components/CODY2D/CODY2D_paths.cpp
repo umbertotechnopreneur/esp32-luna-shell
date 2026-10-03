@@ -38,19 +38,21 @@ uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
 // first_color: Top slot, also the solid slot for a constant-color polygon.
 // last_color: Bottom slot in the same ordered ramp.
 // opacity: Source coverage; zero still checks the supplied geometry before returning without writes.
+// first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
                         const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                        uint8_t opacity)
+                        uint8_t opacity, uint16_t first_column)
 {
     const esp_err_t error = validate_surface(strip);
     if (error != ESP_OK) {
         return error;
     }
     if (!vertices || !palette || count < 3 || count > kMaxPathVertices ||
-        first_color > last_color || first_row + strip.height > kMaxDimension) {
-        ESP_LOGE(kTag, "Fill rejected: vertices=%p count=%u palette=%p slots=%u..%u row=%u (%s)",
-                 vertices, count, palette, first_color, last_color, first_row,
+        first_color > last_color || first_row + strip.height > kMaxDimension ||
+        first_column + strip.width > kMaxDimension) {
+        ESP_LOGE(kTag, "Fill rejected: vertices=%p count=%u palette=%p slots=%u..%u row=%u column=%u (%s)",
+                 vertices, count, palette, first_color, last_color, first_row, first_column,
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
@@ -93,8 +95,9 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
             std::floor(ratio * (last_color - first_color) + .5f));
         const uint16_t color = palette[slot];
         for (uint16_t hit = 0; hit < hits; hit += 2) {
-            const int left = std::max(0, static_cast<int>(std::ceil(intersections[hit] - .5f)));
-            const int right = std::min(static_cast<int>(strip.width),
+            const int left = std::max(static_cast<int>(first_column),
+                                     static_cast<int>(std::ceil(intersections[hit] - .5f)));
+            const int right = std::min(static_cast<int>(first_column + strip.width),
                                       static_cast<int>(std::ceil(intersections[hit + 1] - .5f)));
             if (left >= right) {
                 continue;
@@ -102,11 +105,11 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
             if (opacity == 255) {
                 // The common opaque span needs neither a destination read nor
                 // a per-pixel palette lookup/coverage branch.
-                std::fill(strip.pixels + row * strip.stride + left,
-                          strip.pixels + row * strip.stride + right, color);
+                std::fill(strip.pixels + row * strip.stride + (left - first_column),
+                          strip.pixels + row * strip.stride + (right - first_column), color);
             } else {
                 for (int column = left; column < right; ++column) {
-                    auto &destination = strip.pixels[row * strip.stride + column];
+                    auto &destination = strip.pixels[row * strip.stride + column - first_column];
                     destination = blend_rgb565(color, destination, opacity);
                 }
             }
@@ -121,17 +124,21 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
 // to: End of the line, equal to from for a round point marker.
 // width: Round stroke diameter in pixels.
 // color: Native RGB565 fill.
+// first_column: Canvas x origin; coverage remains in unchanged absolute coordinates.
 esp_err_t stroke_rows(Surface strip, uint16_t first_row,
-                      Vec2 from, Vec2 to, float width, uint16_t color)
+                      Vec2 from, Vec2 to, float width, uint16_t color,
+                      uint16_t first_column)
 {
     const esp_err_t error = validate_surface(strip);
     if (error != ESP_OK) {
         return error;
     }
     if (!valid_point(from) || !valid_point(to) || !std::isfinite(width) ||
-        width <= 0 || width > kMaxStrokeWidth || first_row + strip.height > kMaxDimension) {
-        ESP_LOGE(kTag, "Stroke rejected: from=%f,%f to=%f,%f width=%f row=%u (%s)",
-                 from.x, from.y, to.x, to.y, width, first_row, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        width <= 0 || width > kMaxStrokeWidth || first_row + strip.height > kMaxDimension ||
+        first_column + strip.width > kMaxDimension) {
+        ESP_LOGE(kTag, "Stroke rejected: from=%f,%f to=%f,%f width=%f row=%u column=%u (%s)",
+                 from.x, from.y, to.x, to.y, width, first_row, first_column,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     const float radius = width * .5f;
@@ -140,12 +147,13 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
     // These bounds are deliberately wider than the pixel-center coverage.
     if (std::max(from.y, to.y) + radius < first_row ||
         std::min(from.y, to.y) - radius > first_row + strip.height ||
-        std::max(from.x, to.x) + radius < 0 ||
-        std::min(from.x, to.x) - radius > strip.width) {
+        std::max(from.x, to.x) + radius < first_column ||
+        std::min(from.x, to.x) - radius > first_column + strip.width) {
         return ESP_OK;
     }
-    const int left = std::max(0, static_cast<int>(std::floor(std::min(from.x, to.x) - radius)));
-    const int right = std::min(static_cast<int>(strip.width) - 1,
+    const int left = std::max(static_cast<int>(first_column),
+                             static_cast<int>(std::floor(std::min(from.x, to.x) - radius)));
+    const int right = std::min(static_cast<int>(first_column + strip.width) - 1,
                               static_cast<int>(std::ceil(std::max(from.x, to.x) + radius)));
     const int top = std::max(static_cast<int>(first_row),
                             static_cast<int>(std::floor(std::min(from.y, to.y) - radius)));
@@ -162,7 +170,9 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
     // This avoids software division and closest-point construction. A small
     // guard repeats the original projection at rounding-sensitive boundaries.
     // Endpoint caps still use the original direct squared-distance expression.
-    const float max_px = std::max(std::abs(.5f - from.x), std::abs(strip.width - .5f - from.x));
+    // Use the whole supported canvas for this error bound, so a compact tile
+    // cannot change which rounding-sensitive pixels take the exact predicate.
+    const float max_px = std::max(std::abs(.5f - from.x), std::abs(kMaxDimension - .5f - from.x));
     const float max_py = std::max(std::abs(.5f - from.y), std::abs(kMaxDimension - .5f - from.y));
     const float displacement_error = (max_px + max_py + std::abs(dx) + std::abs(dy)) *
         (16.f * std::numeric_limits<float>::epsilon());
@@ -217,7 +227,7 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                 }
             }
             if (covered) {
-                strip.pixels[(row - first_row)*strip.stride + column] = color;
+                strip.pixels[(row - first_row)*strip.stride + column - first_column] = color;
             }
         }
     }

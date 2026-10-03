@@ -7,12 +7,13 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <new>
 
 #include "CODY2D.hpp"
 #include "CODY_rig.hpp"
 #include "CODY_debug_hud.hpp"
-#include "CODY_damage.hpp"
+#include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_benchmark.hpp"
@@ -39,7 +40,6 @@ constexpr uint16_t kPanelHeight = 466;
 // comes from the lease; touch polling stays bounded even on an emergency row.
 constexpr uint16_t kTouchPollRows = 32;
 constexpr uint16_t kPaletteLimit = 64;
-constexpr uint32_t kFramePixels = static_cast<uint32_t>(kPanelWidth) * kPanelHeight;
 constexpr uint32_t kSamplePeriodMs = 50;
 constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
@@ -96,8 +96,8 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
 struct CompanionResources {
-    uint16_t *frame_cache = nullptr;
-    bool frame_cache_valid = false;
+    CODY::RigScene *previous_rig = nullptr;
+    bool previous_frame_valid = false;
     CODY::RigScene *rig = nullptr;
 };
 CompanionResources s_resources;
@@ -105,12 +105,13 @@ std::atomic<uint32_t> s_rendered_revision{0};
 std::atomic<bool> s_demo_requested{false};
 // This bounded collector shares the display/state lock with completed frame publication.
 CODY::FrameBenchmark s_benchmark;
-// Completed-frame footprints share the display lock with the pixel cache.
+// Completed-frame geometry and controls share the display lock.
 // They are never advanced by a failed frame or a deferred touch event.
-CODY::DamageRect s_cached_rig_bounds;
 bool s_cache_was_rig = false;
 bool s_cached_rig_debug = false;
 bool s_cached_rig_paused = false;
+CODY::PointId s_cached_selected_point = CODY::kNoPoint;
+CODY::DebugReadout s_cached_readout;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
@@ -221,9 +222,7 @@ struct FrameTimings {
     int64_t state_unlocked_us = 0;
     int64_t geometry_us = 0;
     int64_t raster_us = 0;
-    int64_t reuse_us = 0;
-    int64_t comparison_us = 0;
-    int64_t packing_us = 0;
+    int64_t damage_us = 0;
     int64_t transfer_us = 0;
     uint32_t submitted_pixels = 0;
     uint32_t previous_log_output_us = 0;
@@ -232,7 +231,6 @@ struct FrameTimings {
     uint16_t visited_tiles = 0;
     uint16_t skipped_tiles = 0;
     uint16_t rasterized_tiles = 0;
-    uint16_t unchanged_tiles = 0;
     uint16_t touch_polls = 0;
     CODY::RigRasterProfile raster_profile{esp_timer_get_time};
 };
@@ -292,13 +290,14 @@ const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
     }
 }
 
-// Before task creation, only startup owns the PSRAM cache and scene.
+// Before task creation, only startup owns the PSRAM geometry snapshots.
 void release_companion_resources()
 {
-    s_resources.frame_cache_valid = false;
-    if (s_resources.frame_cache != nullptr) {
-        heap_caps_free(s_resources.frame_cache);
-        s_resources.frame_cache = nullptr;
+    s_resources.previous_frame_valid = false;
+    if (s_resources.previous_rig != nullptr) {
+        s_resources.previous_rig->~RigScene();
+        heap_caps_free(s_resources.previous_rig);
+        s_resources.previous_rig = nullptr;
     }
     if (s_resources.rig != nullptr) {
         s_resources.rig->~RigScene();
@@ -307,14 +306,14 @@ void release_companion_resources()
     }
 }
 
-// Drain every possible boot-completion writer before releasing the worker's cache and scene.
+// Drain every possible boot-completion writer before releasing the geometry snapshots.
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
 esp_err_t release_worker_resources()
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
         const uint32_t retained_bytes =
-            (s_resources.frame_cache != nullptr ? kFramePixels * sizeof(uint16_t) : 0) +
+            (s_resources.previous_rig != nullptr ? sizeof(CODY::RigScene) : 0) +
             (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0);
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
             retained_bytes, lock_error
@@ -476,8 +475,6 @@ struct CompletedFrameLog {
     uint32_t frame_count = 0;
     bool debug = false;
     int64_t completed_us = 0;
-    CODY::ResponseState response{};
-    CODY::ResponseFrame response_frame{};
 };
 
 struct CompletedFrameReport {
@@ -570,140 +567,68 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     s_state.last_timing_log_us = completed_us;
     log.debug = s_state.rig_debug;
     log.completed_us = completed_us;
-    log.response = s_state.response;
-    log.response_frame = s_state.response_frame;
     should_log = true;
     return ESP_OK;
 }
 
-// timings: One sampled completed frame, using one absolute monotonic base tick.
-// log: Copied frame identity used to correlate this sample with the normal report.
-void log_sampled_frame_trace(const FrameTimings &timings, const CompletedFrameLog &log)
+// elapsed_us: Nonnegative measured duration; round only the displayed value.
+long rounded_ms(int64_t elapsed_us)
 {
-    if (!timings.worker.valid) {
-        return;
-    }
-    const int64_t base_us = timings.worker.loop_started_us;
-    ESP_LOGI(kTag,
-        "TRACE tick f=%lu t0=%lld due=%ld wait=%ld draw=%ld fb=%ld ready=%ld buf=%ld "
-        "geo=%ld tiles=%ld fe=%ld stats=%ld unlock=%ld",
-        static_cast<unsigned long>(log.frame_count),
-        static_cast<long long>(base_us),
-        static_cast<long>(timings.worker.scheduled_us - base_us),
-        static_cast<long>(timings.worker.wait_completed_us - base_us),
-        static_cast<long>(timings.worker.draw_requested_us - base_us),
-        static_cast<long>(timings.frame_begin_started_us - base_us),
-        static_cast<long>(timings.frame_begin_completed_us - base_us),
-        static_cast<long>(timings.buffer_ready_us - base_us),
-        static_cast<long>(timings.geometry_completed_us - base_us),
-        static_cast<long>(timings.tiles_completed_us - base_us),
-        static_cast<long>(timings.frame_end_completed_us - base_us),
-        static_cast<long>(timings.statistics_completed_us - base_us),
-        static_cast<long>(timings.state_unlocked_us - base_us));
+    return static_cast<long>((elapsed_us + 500) / 1000);
 }
 
-// timings: Actual geometry, raster and transfer durations for this completed frame.
-// log: Copied state; output runs after releasing the panel lock.
+// timings: Actual frame-stage durations; no timing is inferred from CPU usage.
+// log: Bounded copied state; these three compact records run outside the panel lock.
 void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &log)
 {
     if (!log.rig) {
-        ESP_LOGI(kTag, "TIMING boot_buffer geometry=%ldus raster=%ldus transfer=%ldus total=%ldus",
-            static_cast<long>(timings.geometry_us), static_cast<long>(timings.raster_us),
-            static_cast<long>(timings.transfer_us), static_cast<long>(log.completed_us - timings.started_us));
-        return;
-    }
-    log_sampled_frame_trace(timings, log);
-    if (log.paused) {
-        ESP_LOGI(kTag, "PAUSED geometry=frozen HUD=1Hz draw=%ldus reuse=%ldus transfer=%ldus "
-            "lock=%luus bsp=%luus prev_log=%luus %s",
-            static_cast<long>(timings.raster_us - timings.reuse_us),
-            static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
-            static_cast<unsigned long>(log.transfer.last_lock_wait_us),
-            static_cast<unsigned long>(log.transfer.last_duration_us),
-            static_cast<unsigned long>(timings.previous_log_output_us),
-            log.readout.processors);
+        ESP_LOGI(kTag, "BOOT tick=%lld total=%ldms",
+            static_cast<long long>(timings.started_us),
+            rounded_ms(log.completed_us - timings.started_us));
         return;
     }
     const auto &statistics = log.distribution;
-    ESP_LOGI(kTag, "TIMING window mode=%s n=%lu geometry_mean=%luus raster_mean=%luus "
-        "transfer_mean=%luus total_mean=%luus median=%luus p95=%luus max=%luus sd=%.1fus missed=%lu budget=%dus",
-        log.debug ? "skeleton" : "artwork", static_cast<unsigned long>(statistics.count),
-        static_cast<unsigned long>(statistics.mean.geometry_us), static_cast<unsigned long>(statistics.mean.raster_us),
-        static_cast<unsigned long>(statistics.mean.transfer_us), static_cast<unsigned long>(statistics.mean.total_us),
-        static_cast<unsigned long>(statistics.median_us), static_cast<unsigned long>(statistics.p95_us),
-        static_cast<unsigned long>(statistics.maximum_us), statistics.standard_deviation_us,
-        static_cast<unsigned long>(statistics.missed_deadlines), CODY::PocData::frame_budget_us);
-    ESP_LOGI(
-        kTag,
-        "Rig frame=%lu debug=%u geometry=%ldus raster=%ldus transfer=%ldus total=%ldus scene=%uB strip=%luB",
-        static_cast<unsigned long>(log.frame_count),
-        log.debug,
-        static_cast<long>(timings.geometry_us),
-        static_cast<long>(timings.raster_us),
-        static_cast<long>(timings.transfer_us),
-        static_cast<long>(log.completed_us - timings.started_us),
-        static_cast<unsigned>(sizeof(CODY::RigScene)),
-        static_cast<unsigned long>(timings.tile_rows * kPanelWidth * sizeof(uint16_t))
-    );
-    ESP_LOGI(kTag,
-             "Response MODEL stress=%.3f fatigue=%.3f fatigue_known=%u root_offset=(%.2f,%.2f)px depth=%.4f "
-             "motion=%s(%s) power=%s(%s)",
-             log.response.stress, log.response.fatigue, static_cast<unsigned>(log.response.fatigue_known),
-             log.response_frame.current_root.x - log.response_frame.resting_root.x,
-             log.response_frame.current_root.y - log.response_frame.resting_root.y,
-             log.response_frame.depth_scale,
-             source_health_name(log.response.motion_status.health), esp_err_to_name(log.response.motion_status.error),
-             source_health_name(log.response.power_status.health), esp_err_to_name(log.response.power_status.error));
-    ESP_LOGI(kTag, "Response MODEL attention=%.3f speaking=%.3f idle=%.2fs yawn=%.3f annoyance=%.3f closure=%.3f microphone=%s playback=%s",
-        log.response.attention, log.response.speaking, log.response.idle_seconds, log.response.yawn_weight,
-        log.response.annoyance, log.response.protective_eye_closure,
-        source_health_name(log.response.microphone_status.health), source_health_name(log.response.playback_status.health));
-    ESP_LOGI(kTag, "Damage rectangles=%u submitted_pixels=%lu canvas_pixels=%lu tile_rows=%u "
-        "cache_bytes=%lu tiles=%u/%u/%u/%u polls=%u",
-        timings.dirty_rectangles, static_cast<unsigned long>(timings.submitted_pixels),
-        static_cast<unsigned long>(kFramePixels), timings.tile_rows,
-        static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)),
-        timings.visited_tiles, timings.skipped_tiles, timings.rasterized_tiles,
-        timings.unchanged_tiles, timings.touch_polls);
-    ESP_LOGI(kTag, "Render draw=%ldus reuse=%ldus transfer=%ldus %s %s",
-        static_cast<long>(timings.raster_us - timings.reuse_us),
-        static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
-        log.readout.frame_rate, log.readout.processors);
-    ESP_LOGI(kTag, "Pipeline compare=%ldus pack=%ldus convert=%luus submit=%luus dma_wait=%luus "
-        "wait=%ldus req=%lums late=%ldus lock=%luus bsp=%luus prev_log=%luus",
-        static_cast<long>(timings.comparison_us), static_cast<long>(timings.packing_us),
-        static_cast<unsigned long>(log.transfer.last_conversion_us),
-        static_cast<unsigned long>(log.transfer.last_submission_us),
-        static_cast<unsigned long>(log.transfer.last_completion_wait_us),
-        static_cast<long>(timings.worker.wait_completed_us - timings.worker.wait_started_us),
-        static_cast<unsigned long>(timings.worker.requested_wait_ms),
-        static_cast<long>(timings.worker.draw_requested_us - timings.worker.scheduled_us),
-        static_cast<unsigned long>(log.transfer.last_lock_wait_us),
-        static_cast<unsigned long>(log.transfer.last_duration_us),
-        static_cast<unsigned long>(timings.previous_log_output_us));
-    ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus "
-        "links=%ldus tangents=%ldus markers=%ldus",
-        static_cast<long>(timings.raster_profile.clear_us),
-        static_cast<long>(timings.raster_profile.artwork_us),
-        static_cast<long>(timings.raster_profile.skeleton_us),
-        static_cast<long>(timings.raster_profile.navigation_us),
-        static_cast<long>(timings.raster_profile.skeleton_links_us),
-        static_cast<long>(timings.raster_profile.skeleton_tangents_us),
-        static_cast<long>(timings.raster_profile.skeleton_markers_us));
+    // Keep each line below the sink's 255-byte limit. Source-health changes and
+    // real failures still have their own event logs; no recurring model dump.
+    if (log.paused) {
+        ESP_LOGI(kTag, "PERF tick=%lld f=%lu mode=paused %s",
+            static_cast<long long>(timings.started_us),
+            static_cast<unsigned long>(log.frame_count), log.readout.processors);
+    } else {
+        ESP_LOGI(kTag, "PERF tick=%lld f=%lu mode=%s n=%lu mean=%ldms p95=%ldms missed=%lu %s %s",
+            static_cast<long long>(timings.started_us),
+            static_cast<unsigned long>(log.frame_count), log.debug ? "skeleton" : "artwork",
+            static_cast<unsigned long>(statistics.count),
+            rounded_ms(statistics.mean.total_us), rounded_ms(statistics.p95_us),
+            static_cast<unsigned long>(statistics.missed_deadlines),
+            log.readout.frame_rate, log.readout.processors);
+    }
+    ESP_LOGI(kTag, "STAGE ms geo=%ld dirty=%ld draw=%ld convert=%ld submit=%ld dma=%ld total=%ld prev_log=%ld",
+        rounded_ms(timings.geometry_us), rounded_ms(timings.damage_us),
+        rounded_ms(timings.raster_us), rounded_ms(log.transfer.last_conversion_us),
+        rounded_ms(log.transfer.last_submission_us), rounded_ms(log.transfer.last_completion_wait_us),
+        rounded_ms(log.completed_us - timings.started_us), rounded_ms(timings.previous_log_output_us));
+    ESP_LOGI(kTag, "DRAW ms clear=%ld art=%ld skel=%ld nav=%ld links=%ld tangents=%ld markers=%ld px=%lu bytes=%lu rects=%u tiles=%u/%u",
+        rounded_ms(timings.raster_profile.clear_us), rounded_ms(timings.raster_profile.artwork_us),
+        rounded_ms(timings.raster_profile.skeleton_us), rounded_ms(timings.raster_profile.navigation_us),
+        rounded_ms(timings.raster_profile.skeleton_links_us),
+        rounded_ms(timings.raster_profile.skeleton_tangents_us),
+        rounded_ms(timings.raster_profile.skeleton_markers_us),
+        static_cast<unsigned long>(timings.submitted_pixels),
+        static_cast<unsigned long>(timings.submitted_pixels * sizeof(uint16_t)),
+        timings.dirty_rectangles, timings.rasterized_tiles, timings.visited_tiles);
 }
 
-// regions: Bounded candidates constructed from successful rig/HUD geometry above.
-// first_row: First logical row in this tile.
-// row_count: Actual owned tile height, including a shortened final tile.
-bool tile_intersects_candidates(const CODY::DamageRegions &regions, uint16_t first_row, uint16_t row_count)
+// plan: Frame-local damage coverage, before any tile is rasterized.
+// control: Typed navigation identity whose visible state changed.
+esp_err_t include_control_damage(CODY::DirtyPlan &plan, CODY::RigControl control)
 {
-    for (uint16_t index = 0; index < regions.count; ++index) {
-        const auto &region = regions.rectangles[index];
-        if (!region.empty() && first_row < region.bottom && first_row + row_count > region.top) {
-            return true;
-        }
+    CODY::DamageRect bounds;
+    const esp_err_t error = CODY::rig_control_damage_bounds(control, bounds);
+    if (error != ESP_OK) {
+        return error;
     }
-    return false;
+    return CODY::include_damage(plan, bounds);
 }
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
@@ -770,26 +695,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // boundaries even too, so expanding vertical damage never reads outside
     // the rasterized tile. An odd-sized lease can leave its last row unused.
     timings.tile_rows = static_cast<uint16_t>((raster_capacity_bytes / row_bytes) & ~size_t{1});
-    const bool compare_previous = s_resources.frame_cache_valid && !resume_animation &&
+    const bool reuse_previous = s_resources.previous_frame_valid && !resume_animation &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig;
-    // A partial cache is never trusted after an error. Only completed frame
-    // retirement below makes these candidate pixels eligible for comparison.
-    s_resources.frame_cache_valid = false;
-    const CODY2D::Surface frame_cache{
-        s_resources.frame_cache, kPanelWidth, kPanelHeight, kPanelWidth, kFramePixels
-    };
+    // A failed partial update never becomes the reference for the next frame.
+    s_resources.previous_frame_valid = false;
     PendingTouchReports pending_touch;
     timings.buffer_ready_us = esp_timer_get_time();
     timings.started_us = timings.buffer_ready_us;
     CODY::DebugReadout debug_readout;
-    CODY::DamageRect current_rig_bounds;
-    CODY::DamageRegions candidate_regions;
+    CODY::DirtyPlan dirty_plan;
     const bool frame_was_rig = s_state.rig_visible;
     const bool frame_debug = s_state.rig_debug;
-    const bool paused_readout_only = compare_previous && s_state.animation_paused &&
-        s_cached_rig_paused && !s_state.frame_dirty.load(std::memory_order_acquire);
-    const auto readout_bounds = CODY::debug_readout_damage_bounds();
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -812,28 +729,33 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
-        const esp_err_t bounds_error = CODY::rig_damage_bounds(
-            *s_resources.rig, frame_debug, current_rig_bounds);
-        if (bounds_error != ESP_OK) {
-            return frame.finish({bounds_error, false, 0});
-        }
-        candidate_regions.rectangles[0] = s_cached_rig_bounds;
-        candidate_regions.rectangles[1] = current_rig_bounds;
-        candidate_regions.rectangles[2] = CODY::debug_readout_damage_bounds();
-        candidate_regions.count = 3;
-        if (s_cached_rig_debug != frame_debug || s_cached_rig_paused != s_state.animation_paused) {
-            // The right control's marker changes with the overlay. Its fixed
-            // layout is outside the artwork; comparing the whole control band
-            // also keeps future left-control styling inside the same owner.
-            candidate_regions.rectangles[candidate_regions.count++] = CODY::rig_navigation_damage_bounds();
-        }
-        if (paused_readout_only) {
-            candidate_regions.rectangles[0] = readout_bounds;
-            candidate_regions.count = 1;
-        }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     timings.geometry_completed_us = esp_timer_get_time();
+    const int64_t damage_started_us = timings.geometry_completed_us;
+    esp_err_t plan_error = ESP_OK;
+    if (!reuse_previous) {
+        plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
+    } else {
+        plan_error = CODY::plan_rig_damage(*s_resources.previous_rig, *s_resources.rig,
+            s_cached_rig_debug, frame_debug, s_cached_selected_point, s_state.selected_point,
+            dirty_plan);
+        if (plan_error == ESP_OK &&
+            (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
+             std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0)) {
+            plan_error = CODY::include_damage(dirty_plan, CODY::debug_readout_damage_bounds());
+        }
+        if (plan_error == ESP_OK && s_cached_rig_debug != frame_debug) {
+            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Overlay);
+        }
+        if (plan_error == ESP_OK && s_cached_rig_paused != s_state.animation_paused) {
+            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Pause);
+        }
+    }
+    timings.damage_us = esp_timer_get_time() - damage_started_us;
+    if (plan_error != ESP_OK) {
+        return frame.finish({plan_error, false, 0});
+    }
     esp_err_t result = ESP_OK;
     uint32_t next_touch_poll_row = kTouchPollRows;
     for (uint32_t row = 0; row < kPanelHeight; row += timings.tile_rows) {
@@ -856,70 +778,52 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         const uint16_t strip_rows = static_cast<uint16_t>(
             remaining_rows < timings.tile_rows ? remaining_rows : timings.tile_rows
         );
-        if (compare_previous && !tile_intersects_candidates(candidate_regions, row, strip_rows)) {
-            // The old and new footprints prove these rows cannot change.
-            // Keep both the already displayed pixels and native cache; this
-            // also avoids redrawing constant top controls every active frame.
-            ++timings.skipped_tiles;
-            continue;
-        }
-        ++timings.rasterized_tiles;
-        const CODY2D::Surface strip{
-            static_cast<uint16_t *>(raster_storage), kPanelWidth, strip_rows, kPanelWidth,
-            static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
-        };
-        const int64_t raster_started_us = esp_timer_get_time();
-        if (s_state.rig_visible) {
-            result = CODY::draw_rig_rows(
-                *s_resources.rig, strip, static_cast<uint16_t>(row),
-                s_state.rig_debug, s_state.selected_point,
-                CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
-                s_state.animation_paused
-            );
-            if (result == ESP_OK) {
-                result = CODY::draw_debug_readout_rows(
-                    debug_readout, strip, static_cast<uint16_t>(row)
-                );
-            }
-        } else {
-            result = CODY2D::decode_rows(*image, row, strip);
-        }
         CODY::DamageRect damage;
-        CODY2D::Surface packed;
-        const int64_t reuse_started_us = esp_timer_get_time();
-        if (result == ESP_OK) {
-            result = CODY::measure_and_cache_damage_rows(strip, static_cast<uint16_t>(row),
-                frame_cache, compare_previous, candidate_regions, damage);
+        result = CODY::dirty_tile_bounds(dirty_plan, static_cast<uint16_t>(row), strip_rows, damage);
+        if (result != ESP_OK) {
+            break;
         }
-        const int64_t packing_started_us = esp_timer_get_time();
-        timings.comparison_us += packing_started_us - reuse_started_us;
-        if (result == ESP_OK && !damage.empty()) {
-            // Match Luna's Y alignment as well as the damage stage's X
-            // alignment. Neighboring pixels are already equal in a valid cache
-            // (or were fully staged after invalidation), so only the packed
-            // panel payload needs the expanded rows here.
-            damage.top = static_cast<uint16_t>(damage.top & ~1U);
-            damage.bottom = static_cast<uint16_t>((damage.bottom + 1U) & ~1U);
-            result = CODY::pack_damage_rows(strip, static_cast<uint16_t>(row),
-                frame_cache, damage, packed);
-        }
-        // Raster cost includes cache comparison and transfer-payload packing.
-        const int64_t reuse_completed_us = esp_timer_get_time();
-        timings.packing_us += reuse_completed_us - packing_started_us;
-        timings.reuse_us += reuse_completed_us - reuse_started_us;
-        timings.raster_us += esp_timer_get_time() - raster_started_us;
-        if (result == ESP_OK && !damage.empty()) {
-            const int64_t transfer_started_us = esp_timer_get_time();
-            result = LUNASHELL_display_write_rgb565(
-                damage.left, damage.top, damage.right, damage.bottom, packed.pixels
-            );
-            timings.transfer_us += esp_timer_get_time() - transfer_started_us;
-            if (result == ESP_OK) {
-                timings.submitted_pixels += static_cast<uint32_t>(packed.width) * packed.height;
-                ++timings.dirty_rectangles;
+        if (damage.empty()) {
+            ++timings.skipped_tiles;
+        } else {
+            ++timings.rasterized_tiles;
+            const uint16_t width = damage.right - damage.left;
+            const uint16_t height = damage.bottom - damage.top;
+            // Raster directly into the leased DMA base with a compact stride.
+            // All current layers are recomposed, including unchanged overlaps.
+            const CODY2D::Surface strip{
+                static_cast<uint16_t *>(raster_storage), width, height, width,
+                static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
+            };
+            const int64_t raster_started_us = esp_timer_get_time();
+            if (s_state.rig_visible) {
+                result = CODY::draw_rig_rows(
+                    *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
+                    CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
+                    s_state.animation_paused, damage.left
+                );
+                if (result == ESP_OK) {
+                    result = CODY::draw_debug_readout_rows(
+                        debug_readout, strip, damage.top, damage.left
+                    );
+                }
+            } else {
+                // Boot assets invalidate the entire canvas, so their decoder
+                // still receives full-width rows with no horizontal crop.
+                result = CODY2D::decode_rows(*image, damage.top, strip);
             }
-        } else if (result == ESP_OK) {
-            ++timings.unchanged_tiles;
+            timings.raster_us += esp_timer_get_time() - raster_started_us;
+            if (result == ESP_OK) {
+                const int64_t transfer_started_us = esp_timer_get_time();
+                result = LUNASHELL_display_write_rgb565(
+                    damage.left, damage.top, damage.right, damage.bottom, strip.pixels
+                );
+                timings.transfer_us += esp_timer_get_time() - transfer_started_us;
+                if (result == ESP_OK) {
+                    timings.submitted_pixels += static_cast<uint32_t>(width) * height;
+                    ++timings.dirty_rectangles;
+                }
+            }
         }
         if (result != ESP_OK) {
             // The lock still excludes power transitions here: a returned write
@@ -947,12 +851,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     timings.frame_end_started_us = esp_timer_get_time();
     const DrawResult completed = frame.finish({result, false, completed_revision});
     timings.frame_end_completed_us = esp_timer_get_time();
-    s_resources.frame_cache_valid = completed.error == ESP_OK;
+    s_resources.previous_frame_valid = completed.error == ESP_OK;
     if (completed.error == ESP_OK) {
-        s_cached_rig_bounds = current_rig_bounds;
+        // Commit geometry only after every panel write and frame retirement.
+        // The panel byte swap touched only the DMA tile, never this reference.
+        if (frame_was_rig) {
+            *s_resources.previous_rig = *s_resources.rig;
+        }
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
         s_cached_rig_paused = s_state.animation_paused;
+        s_cached_selected_point = s_state.selected_point;
+        s_cached_readout = debug_readout;
     }
     CompletedFrameLog log{};
     log.readout = debug_readout;
@@ -1365,13 +1275,13 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Response configuration", response_config_error, false);
     }
     s_state.response = CODY::make_response_state(CODY::Data::response);
-    s_resources.frame_cache = static_cast<uint16_t *>(heap_caps_malloc(
-        kFramePixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
-    ));
-    if (s_resources.frame_cache == nullptr) {
+    void *previous_rig_storage = heap_caps_malloc(
+        sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (previous_rig_storage == nullptr) {
         release_companion_resources();
-        return fail_consumer("PSRAM frame cache allocation", ESP_ERR_NO_MEM, false);
+        return fail_consumer("Previous rig allocation", ESP_ERR_NO_MEM, false);
     }
+    s_resources.previous_rig = new (previous_rig_storage) CODY::RigScene{};
     void *rig_storage = heap_caps_malloc(sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rig_storage == nullptr) {
         release_companion_resources();

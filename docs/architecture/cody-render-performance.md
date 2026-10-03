@@ -223,3 +223,98 @@ The synchronous diagnostic bundle itself costs about 113 ms every two seconds.
 These are sampled elapsed stage costs, not active CPU measurements or proof
 of an FPS improvement. Snapshot truncation warnings remain separate from the
 complete skeleton probe records. Sustained performance work stays open.
+
+### Pre-raster damage candidate
+
+The next candidate implements the first two performance-plan steps without
+changing the standalone CODY2D dependency boundary or the physical layout:
+
+- Replace the recurring trace/model dump with three compact `PERF`, `STAGE`
+  and `DRAW` records. Keep the monotonic microsecond tick, measured FPS/CPU,
+  frame-window mean/p95/misses, stage durations, skeleton substages, payload
+  pixels/bytes and the previous report's measured cost. Durations are rounded
+  to whole milliseconds only when formatted; internal measurements stay in
+  microseconds. Source-health transitions and operation errors remain logged.
+- Compare current geometry with the last completely displayed `RigScene`.
+  Filled paths invalidate their complete old/new bounds, including gradient
+  changes and opacity. Strokes, skeleton links, tangents and markers track
+  old/new primitive bounds and selection style. No geometry fingerprint or
+  pixel approximation decides whether a change can be skipped.
+- Accumulate coverage into 233 paired-row spans, then take one conservative
+  compact rectangle per leased tile band. Align both axes before rasterization.
+  Draw every current layer in its original order inside the dirty rectangle,
+  including unchanged overlapping artwork, controls and HUD. Pixel coverage
+  and gradient arithmetic keep absolute canvas coordinates; only destination
+  addresses subtract the tile's horizontal origin.
+- Submit the compact DMA surface directly. The live renderer no longer calls
+  pixel comparison, PSRAM framebuffer copying or in-place payload packing.
+  Replace the 434,312-byte pixel cache with one previous-geometry snapshot.
+  The standalone BSP remains synchronous and still owns one DMA slot.
+- Invalidate the HUD when its rendered strings change and obtain overlay and
+  pause control bounds from their existing typed navigation table. First frame,
+  route changes, content revision changes and wake from standby require a full
+  redraw. Commit reference geometry and UI state only after successful frame
+  retirement; retain the existing deadline, errors and DMA quarantine behavior.
+  Touch polling also runs across skipped bands, and reports remain deferred
+  until the complete frame has retired.
+
+The stroke rounding guard now uses the same supported canvas extent for every
+compact tile. The exact coverage predicate is unchanged. Regression cases are
+added for compact/full raster parity and reconstructing frames from planned
+damage, but have not been executed.
+
+Automated regression checks remain unexecuted at the user's request. Moving
+the gradient-filled body can dirty most of
+its bounding rectangle, so sent bytes may increase compared with exact pixel
+comparison. Inspect `dirty`, `draw`, `dma`, `bytes` and `prev_log` together in
+the next authorized capture before claiming an improvement. Historical raster
+costs included compare/packing; the new `draw` field does not. Double-buffered
+asynchronous DMA and the second raster worker remain subsequent steps.
+
+### Pre-raster device capture
+
+The integrated candidate compiled successfully with ESP-IDF 6.0.2 and eight
+jobs, then flashed on COM10 with verified write hashes. The binary is
+1,708,672 bytes (`0x1a1280`), built as `ef48bd7a-dirty`; SHA256:
+`48BBB40D913A24FFF0564B2521BDF1D7284816B37AE109B74DBEE5BDEDFD05EC`.
+Build/flash logs are in `artifacts/build-cody-companion/device-evidence/`
+as `pre-raster-build-20261003.log` and `pre-raster-flash-20261003.log`.
+
+The 60-second `pre-raster-20261003.log` contains 30 complete artwork reports.
+The later 45-second `pre-raster-skeleton-20261003.log` also contains artwork:
+its filename identifies the intended capture, not the observed mode. No new
+skeleton-stage measurements can be inferred from these files. The user
+separately reports skeleton around 27 FPS with CPU1 70%, and artwork above
+29 FPS with CPU1 around 40%. CPU2 remains 0% in both observed views.
+
+The first capture records:
+
+- Artwork around 29 FPS sustained from frame counters and monotonic ticks.
+  Median HUD is 29.4 FPS and CPU1 45%; CPU2 is 0%.
+- Median sampled frame duration 25 ms; the overlapping 128-frame windows
+  have median mean 26 ms and median p95 28 ms.
+- Raster about 7 ms, geometry about 1 ms, damage planning under 0.5 ms
+  (displayed as 0 ms), conversion 3 ms, submission 3 ms and sleeping DMA
+  wait 11 ms. Individual medians need not add to a frame percentile.
+- Timing-report cost about 20 ms, down from the prior artwork capture's
+  108 ms and the prior skeleton capture's 113 ms.
+- Median payload 130,464 bytes per sampled frame. The previous row-span-cache
+  artwork segments submitted 91,632 bytes, so payload increased about 42%.
+
+The earlier `row-span-cache-main-loop-20261003.log` has only six stable artwork
+reports split across two short active segments. Those samples show about
+34 ms per frame, 10 ms raster plus 10 ms compare/packing, CPU1 75% and
+roughly 27-28 FPS sustained. This is a useful directional comparison, not
+matched animation-phase evidence. The new candidate materially reduces CPU
+and the removed stages, but conservative geometry rectangles increase transfer
+volume. Transfer is now the largest artwork stage; asynchronous DMA is the
+next planned change.
+
+No automated tests, simulator checks, size workflow or validation scans ran.
+The captures contain the existing snapshot-summary truncation warning and
+RTC error state. The first capture has complete performance triplets; the
+second has 22 STAGE/DRAW pairs but only 20 PERF lines, so two samples lack
+their frame-identity/readout record and are excluded from those statistics.
+Physical pixel
+correctness, rotation/power stress and a captured skeleton comparison remain
+open, separate from the compilation and performance observations.

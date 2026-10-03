@@ -37,9 +37,11 @@ esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
                                int64_t now_us, DebugReadout &readout);
 
 // readout: Text prepared once for this whole frame, shared by all strips.
-// strip: Full-width RGB565 destination in the canonical 466-pixel canvas.
+// strip: Compact RGB565 destination inside the canonical 466-pixel canvas.
 // first_row: Logical row of the strip, before the display owner's rotation.
+// first_column: Logical column of the strip's first pixel, before rotation.
 esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
-                                CODY2D::Surface strip, uint16_t first_row);
+                                CODY2D::Surface strip, uint16_t first_row,
+                                uint16_t first_column = 0);
 
 }  // namespace CODY

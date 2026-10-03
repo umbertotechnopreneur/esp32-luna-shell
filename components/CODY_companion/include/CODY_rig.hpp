@@ -204,15 +204,17 @@ esp_err_t advance_face(const Channels &state, const Channels &target,
 Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 
 // scene: Successfully evaluated geometry used by both artwork and debug.
-// strip: Caller-owned full-width RGB565 tile.
+// strip: Caller-owned compact RGB565 tile within the logical canvas.
 // first_row: Logical y origin of the tile.
 // debug: Draw skeleton links, curve handles and point markers from scene.
 // selected: Optional stable point ID to emphasize; kNoPoint selects none.
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Show Play instead of Pause; scene geometry remains owned by the caller.
+// first_column: Logical x origin of the tile; geometry remains in canvas coordinates.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
-                        RigRasterProfile *profile = nullptr, bool paused = false);
+                        RigRasterProfile *profile = nullptr, bool paused = false,
+                        uint16_t first_column = 0);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.
@@ -221,6 +223,10 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
 
 // No parameters: fixed navigation occupies its own lateral control band.
 DamageRect rig_navigation_damage_bounds();
+
+// control: Named navigation control whose existing visual bounds are requested.
+// bounds: Receives the control's half-open logical rectangle; empty on rejected identity.
+esp_err_t rig_control_damage_bounds(RigControl control, DamageRect &bounds);
 
 // scene: Evaluated, valid geometry in current logical coordinates.
 // point: Logical touch coordinate, already mapped by the display/touch owner.

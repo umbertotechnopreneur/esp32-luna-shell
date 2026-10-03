@@ -2,6 +2,13 @@
 
 ## Cody rendering checkpoint (2026-10-03)
 
+- [x] Implement the reduced timing report and geometry-driven pre-raster damage
+  candidate: compact clipped tiles, no live pixel-cache compare/pack, and
+  reference geometry committed only after successful frame retirement.
+  Compiled/flashed on COM10; artwork capture reaches about 29 FPS with CPU1
+  45%, CPU2 0%, frame mean 26 ms and report cost 20 ms. Payload increases;
+  DMA remains the next bottleneck. Regression coverage is added but not run;
+  physical pixel correctness and a logged skeleton comparison remain open.
 - [x] Add additive skeleton links/tangents/markers probes with two extra clock
   reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
   flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;

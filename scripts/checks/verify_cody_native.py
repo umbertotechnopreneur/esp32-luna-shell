@@ -45,7 +45,8 @@ def main(argv=None) -> None:
         include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
                         "components/CODY_companion/include", "assets/cody/rig/generated")
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "components/CODY2D/CODY2D.cpp",
-                   "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp")
+                   "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp",
+                   "components/CODY_companion/CODY_dirty_plan.cpp")
         command = compile_command(compiler, include_dirs, sources, executable)
         report["compiler"] = compiler
         run_stage(command, output, "compile")
@@ -53,7 +54,9 @@ def main(argv=None) -> None:
         compare_geometry(json.loads(native.stdout))
         report["status"] = "passed"
         report["contracts"] = ["RGB565 alpha rounding", "stride guards", "invalid geometry",
-                               "scene invalidation", "culling and strip parity", "native/Python ready geometry"]
+                               "scene invalidation", "culling and strip parity", "native/Python ready geometry",
+                               "compact tile parity and sentinels", "dirty reconstruction and unchanged frames",
+                               "overlay, selection, pause, opacity, visibility, transform and contour damage"]
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

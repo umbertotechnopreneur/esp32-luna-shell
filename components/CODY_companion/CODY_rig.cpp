@@ -96,15 +96,18 @@ CODY2D::Vec2 cubic(const CODY2D::Vec2 (&control)[4], float t)
 // selected: Stable point ID to highlight, or kNoPoint.
 // profile: Optional frame-wide accumulator using the caller's execution clock.
 // stage_started_us: Current substage start; advanced after links and tangents.
+// first_column: Logical x origin of the compact destination, never applied to geometry.
 esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
                           uint16_t first_row, PointId selected, RigRasterProfile *profile,
-                          int64_t &stage_started_us)
+                          int64_t &stage_started_us, uint16_t first_column)
 {
     esp_err_t result = ESP_OK;
     for (uint16_t index = 0; index < std::size(Data::points); ++index) {
         const auto &point = Data::points[index];
         if (point.role == PointRole::Anchor && point.parent != PointId::None) {
-            result = CODY2D::stroke_rows(strip, first_row, scene.world[to_index(point.parent)], scene.world[index], Data::debug_link_width, Data::palette[to_index(Data::debug_link)]);
+            result = CODY2D::stroke_rows(strip, first_row,
+                scene.world[to_index(point.parent)], scene.world[index],
+                Data::debug_link_width, Data::palette[to_index(Data::debug_link)], first_column);
             if (result != ESP_OK) {
                 return result;
             }
@@ -124,7 +127,7 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
             const PointId handle = curve.points[to_index(pair.second)];
             result = CODY2D::stroke_rows(
                 strip, first_row, scene.world[to_index(anchor)], scene.world[to_index(handle)],
-                Data::debug_handle_width, Data::palette[to_index(Data::debug_handle)]);
+                Data::debug_handle_width, Data::palette[to_index(Data::debug_handle)], first_column);
             if (result != ESP_OK) {
                 return result;
             }
@@ -156,7 +159,7 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
             diameter = Data::debug_handle_diameter;
         }
         result = CODY2D::stroke_rows(strip, first_row, scene.world[index], scene.world[index],
-                                    diameter, Data::palette[to_index(marker_color)]);
+                                    diameter, Data::palette[to_index(marker_color)], first_column);
         if (result != ESP_OK) {
             return result;
         }
@@ -181,7 +184,9 @@ constexpr float kControlRadius = 30;
 // first_row: Logical tile origin in the canonical circular canvas.
 // debug: Current overlay state shown by the toggle icon.
 // paused: Show Play while geometry is frozen, otherwise show Pause.
-esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row, bool debug, bool paused)
+// first_column: Logical x origin used to clip controls into the compact destination.
+esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
+                              bool debug, bool paused, uint16_t first_column)
 {
     esp_err_t result = ESP_OK;
     for (const auto &control : kNavigationControls) {
@@ -195,11 +200,14 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row, bool d
             const int color_span = to_index(Data::back_bottom) - first_color;
             const int slot = first_color + static_cast<int>((dy + kControlRadius) * color_span / 60);
             const uint16_t color = Data::palette[slot];
-            for (int x = static_cast<int>(control.center.x - kControlRadius);
-                 x < control.center.x + kControlRadius && x < strip.width; ++x) {
+            const int first_x = std::max(static_cast<int>(first_column),
+                                        static_cast<int>(control.center.x - kControlRadius));
+            const int last_x = std::min(static_cast<int>(first_column + strip.width),
+                                       static_cast<int>(control.center.x + kControlRadius));
+            for (int x = first_x; x < last_x; ++x) {
                 const float dx = x + .5f - control.center.x;
                 if (dx * dx + dy * dy <= kControlRadius * kControlRadius) {
-                    strip.pixels[row * strip.stride + x] = color;
+                    strip.pixels[row * strip.stride + x - first_column] = color;
                 }
             }
         }
@@ -213,27 +221,31 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row, bool d
     const size_t segment_count = paused ? std::size(play_segments) : std::size(pause_segments);
     for (size_t index = 0; index < segment_count; ++index) {
         result = CODY2D::stroke_rows(strip, first_row, segments[index][0], segments[index][1],
-            Data::back_stroke, Data::palette[to_index(Data::back_ink)]);
+            Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
         if (result != ESP_OK) {
             return result;
         }
     }
-    result = CODY2D::stroke_rows(strip, first_row, {44, 222}, {33, 233}, Data::back_stroke, Data::palette[to_index(Data::back_ink)]);
+    result = CODY2D::stroke_rows(strip, first_row, {44, 222}, {33, 233},
+        Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
     if (result != ESP_OK) {
         return result;
     }
-    result = CODY2D::stroke_rows(strip, first_row, {33, 233}, {44, 244}, Data::back_stroke, Data::palette[to_index(Data::back_ink)]);
+    result = CODY2D::stroke_rows(strip, first_row, {33, 233}, {44, 244},
+        Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
     if (result != ESP_OK) {
         return result;
     }
     const CODY2D::Vec2 nodes[] = {{416, 242}, {426, 222}, {436, 242}};
     for (uint16_t index = 0; index < 3; ++index) {
-        result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[(index + 1) % 3], Data::overlay_stroke, Data::palette[to_index(Data::back_ink)]);
+        result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[(index + 1) % 3],
+            Data::overlay_stroke, Data::palette[to_index(Data::back_ink)], first_column);
         if (result != ESP_OK) {
             return result;
         }
         result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index], Data::overlay_marker_diameter,
-                                   Data::palette[to_index(debug ? Data::debug_selected : Data::back_ink)]);
+                                   Data::palette[to_index(debug ? Data::debug_selected : Data::back_ink)],
+                                   first_column);
         if (result != ESP_OK) {
             return result;
         }
@@ -491,8 +503,10 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
 // selected: Point emphasized by the latest real touch selection.
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Draw the Resume action without changing caller-owned geometry.
+// first_column: Logical x origin of the compact tile; absolute raster arithmetic is preserved.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
-                        uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile, bool paused)
+                        uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
+                        bool paused, uint16_t first_column)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -502,6 +516,12 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         ESP_LOGE(kTag, "Draw rejected: valid=%u selected=%u (%s)", scene.valid, static_cast<unsigned>(to_index(selected)),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
+    }
+    if (first_column + strip.width > 466 || first_row + strip.height > 466) {
+        ESP_LOGE(kTag, "Rig strip rejected: column=%u width=%u row=%u height=%u (%s)",
+                 first_column, strip.width, first_row, strip.height,
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
     }
     int64_t stage_started_us = profile != nullptr ? profile->now_us() : 0;
     esp_err_t result = CODY2D::clear(strip, Data::palette[to_index(Data::background_color)]);
@@ -527,11 +547,13 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         if (definition.stroke == 0) {
             result = CODY2D::fill_path_rows(strip, first_row, vertices, path.count,
                                           Data::palette, static_cast<uint8_t>(to_index(definition.first_color)),
-                                          static_cast<uint8_t>(to_index(definition.last_color)), path.opacity);
+                                          static_cast<uint8_t>(to_index(definition.last_color)),
+                                          path.opacity, first_column);
         } else {
             for (uint16_t segment = 1; segment < path.count; ++segment) {
                 result = CODY2D::stroke_rows(strip, first_row, vertices[segment-1], vertices[segment],
-                                             definition.stroke * scene.scale, Data::palette[to_index(definition.first_color)]);
+                                             definition.stroke * scene.scale,
+                                             Data::palette[to_index(definition.first_color)], first_column);
                 if (result != ESP_OK) {
                     return result;
                 }
@@ -548,7 +570,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     const int64_t skeleton_started_us = stage_started_us;
     if (debug) {
-        result = draw_debug_rows(scene, strip, first_row, selected, profile, stage_started_us);
+        result = draw_debug_rows(scene, strip, first_row, selected, profile, stage_started_us, first_column);
         if (result != ESP_OK) {
             return result;
         }
@@ -561,7 +583,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         }
         stage_started_us = now_us;
     }
-    result = draw_navigation_rows(strip, first_row, debug, paused);
+    result = draw_navigation_rows(strip, first_row, debug, paused, first_column);
     if (profile != nullptr) {
         profile->navigation_us += profile->now_us() - stage_started_us;
     }
@@ -625,6 +647,27 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
 DamageRect rig_navigation_damage_bounds()
 {
     return {0, 10, 466, 263};
+}
+
+// control: Named navigation control; None and unrecognized identities are rejected.
+// bounds: Receives the existing circle's half-open logical bounds, without changing layout.
+esp_err_t rig_control_damage_bounds(RigControl control, DamageRect &bounds)
+{
+    bounds = {};
+    for (const auto &navigation : kNavigationControls) {
+        if (navigation.identity == control) {
+            bounds = {
+                static_cast<uint16_t>(std::floor(navigation.center.x - kControlRadius)),
+                static_cast<uint16_t>(std::floor(navigation.center.y - kControlRadius)),
+                static_cast<uint16_t>(std::ceil(navigation.center.x + kControlRadius)),
+                static_cast<uint16_t>(std::ceil(navigation.center.y + kControlRadius)),
+            };
+            return ESP_OK;
+        }
+    }
+    ESP_LOGE(kTag, "Navigation bounds rejected: control=%u (%s)",
+             static_cast<unsigned>(control), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    return ESP_ERR_INVALID_ARG;
 }
 
 // scene: Valid evaluated geometry from the latest completed frame.

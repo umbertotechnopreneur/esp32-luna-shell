@@ -94,10 +94,11 @@ void format_processor(const LUNASHELL::ProcessorSnapshot &processor,
 
 // text: Bounded, null-terminated diagnostic text, already prepared for this frame.
 // top: First text row, entirely below the [73,393) central safe square.
-// strip: Valid destination tile spanning the logical screen width.
+// strip: Valid compact destination tile with its own width and stride.
 // first_row: Logical origin used to clip glyphs across strip boundaries.
+// first_column: Logical x origin used to clip glyphs without moving their layout.
 esp_err_t draw_line_rows(const char *text, uint16_t top,
-                        CODY2D::Surface strip, uint16_t first_row)
+                        CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
     const uint16_t bottom = top + kGlyphRows * kGlyphScale;
     if (first_row >= bottom || first_row + strip.height <= top) {
@@ -137,8 +138,11 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
                         continue;
                     }
                     for (uint16_t scale_x = 0; scale_x < kGlyphScale; ++scale_x) {
-                        const int destination_x = glyph_left + column * kGlyphScale + scale_x;
-                        strip.pixels[destination_y * strip.stride + destination_x] = kTextWhite;
+                        const int canvas_x = glyph_left + column * kGlyphScale + scale_x;
+                        if (canvas_x < first_column || canvas_x >= first_column + strip.width) {
+                            continue;
+                        }
+                        strip.pixels[destination_y * strip.stride + canvas_x - first_column] = kTextWhite;
                     }
                 }
             }
@@ -211,24 +215,26 @@ esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
 // readout: Shared prepared text, with unavailable measurements visibly labelled N/A.
 // strip: Destination owned by the companion renderer; no font or GUI allocation occurs.
 // first_row: Logical strip origin, mapped through the same cardinal rotation as Cody.
+// first_column: Logical x origin of the compact strip, leaving text positions unchanged.
 esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
-                                CODY2D::Surface strip, uint16_t first_row)
+                                CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
     if (surface_error != ESP_OK) {
         return surface_error;
     }
-    if (strip.width != kPanelSize || first_row >= kPanelSize ||
-        first_row + strip.height > kPanelSize) {
-        ESP_LOGE(kTag, "Diagnostic strip rejected: width=%u row=%u height=%u",
-                 strip.width, first_row, strip.height);
+    if (first_column + strip.width > kPanelSize || first_row + strip.height > kPanelSize) {
+        ESP_LOGE(kTag, "Diagnostic strip rejected: column=%u width=%u row=%u height=%u (%s)",
+                 first_column, strip.width, first_row, strip.height,
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const esp_err_t fps_error = draw_line_rows(readout.frame_rate, kFrameRateTop, strip, first_row);
+    const esp_err_t fps_error =
+        draw_line_rows(readout.frame_rate, kFrameRateTop, strip, first_row, first_column);
     if (fps_error != ESP_OK) {
         return fps_error;
     }
-    return draw_line_rows(readout.processors, kProcessorTop, strip, first_row);
+    return draw_line_rows(readout.processors, kProcessorTop, strip, first_row, first_column);
 }
 
 }  // namespace CODY
