@@ -1,11 +1,12 @@
 # Device HTTP API
 
-The firmware contains a small read-only HTTP API module on port `8080`. It is
-not started during boot: Wi-Fi/BLE startup remains an explicit Settings action
-in the migrated UI, and the HTTP module must be initialized only after its
-required persisted settings are present. When initialized, the server is tied
-to the station lifecycle: it starts after `IP_EVENT_STA_GOT_IP` and stops when
-the lease or station is lost.
+The firmware contains a small read-only HTTP API module on port `8080`.
+Profiles decide when to initialize the module; initialization does not enable
+it implicitly. A genuinely missing `http_enabled` key gets the logged,
+persisted first-boot default `false`. A saved enabled preference binds server
+lifetime to the station: it starts after `IP_EVENT_STA_GOT_IP` and stops when
+the lease or station is lost. Cody compiles this service and initializes it
+at boot while retaining that explicit opt-in preference.
 
 ## Endpoints
 
@@ -39,10 +40,11 @@ The API key is shared by the devices and is read directly from the user setting
 { "ApiKey": "ap-0000000000000000001" }
 ```
 
-The setting is required; the server does not generate or substitute another
-key. The persisted `http_enabled` setting is required as well: the server
-fails initialization when either setting is absent or invalid. Requests must
-send:
+A usable key is required for protected routes; the server never generates or
+substitutes one. A genuinely missing `ApiKey` leaves authentication
+unconfigured. Empty, oversized, wrong-type or corrupt saved values fail
+initialization with their real errors. The same distinction applies to
+`http_enabled`: only absence permits its first-boot default. Requests must send:
 
 ```http
 Authorization: Bearer <api-key>
@@ -53,6 +55,13 @@ action to validate and persist a new key. It writes the setting before updating
 the in-memory credential and never starts or stops the server as a side effect.
 
 The key is never written to logs.
+
+Snapshot responses include typed provisioning and async pairing controller
+state, original errors, cleanup errors, attempt/session identities and change
+timestamps. QR payloads, proof of possession and Wi-Fi passwords never enter
+these snapshots. The controller contract is documented in
+`connectivity-pairing.md`; this diagnostics API is separate from a PC companion
+session or MCP transport.
 
 All data routes serialize one coherent point-in-time copy returned by
 `DeviceSnapshotService::snapshot()`. The HTTP service never owns an acquisition
