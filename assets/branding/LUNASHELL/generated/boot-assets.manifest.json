@@ -11,7 +11,7 @@
   },
   "source": {
     "path": "assets/branding/LUNASHELL/source/LUNASHELL-ai-logo.pdf",
-    "sha256": "97da98de7c6109f80259a938a29473b725b0e48ca5a63a15353809a1c356b33d"
+    "sha256": "45205e2a8ef052cebd91968d0115c90ee899ccc49357489f6251135219f52c44"
   },
   "outputs": [
     {
@@ -19,7 +19,7 @@
       "format": "PNG RGB888",
       "width_px": 466,
       "height_px": 466,
-      "sha256": "cef9c346d7bc4bf2bda9bdc29477be1bf381558a5bbebf89c2cc5b5da29b76ce"
+      "sha256": "f3d19463848ca2dd1307235b4a3c9c3d3cdfedeec440ac13beece0f96ffc3423"
     },
     {
       "path": "assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.rgb565le.bin",
@@ -27,7 +27,7 @@
       "width_px": 466,
       "height_px": 466,
       "bytes": 434312,
-      "sha256": "0100168deba6004195734ee64ba76ada8f07bd29a58d2ecb99e7b43509460968"
+      "sha256": "30c43f6ec8a3c5ef8b0f5c6768968400a54fc81b69b6cb23c1786d1e821cf2fb"
     },
     {
       "path": "assets/branding/LUNASHELL/generated/round-466-safe-area-guide.png",

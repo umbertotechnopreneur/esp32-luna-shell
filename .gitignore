@@ -13,7 +13,9 @@ runtime-logs/
 .vscode/
 .idea/
 *.user
-desktop.ini
+
+# Windows folder metadata at any directory depth
+**/desktop.ini
 
 # PowerShell runtime logs
 scripts/logs/
