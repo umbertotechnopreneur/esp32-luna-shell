@@ -280,20 +280,18 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             if (last_x <= first_x) {
                 continue;
             }
-            const int first_color = to_index(Data::back_top);
-            const int color_span = to_index(Data::back_bottom) - first_color;
-            const int slot = first_color + (first_row + row - control.bounds.top) * color_span /
+            const int slot = (first_row + row - control.bounds.top) * 31 /
                 (control.bounds.bottom - control.bounds.top);
             result = CODY2D::fill_rect(strip,
                 {static_cast<uint16_t>(first_x - first_column), static_cast<uint16_t>(row),
                  static_cast<uint16_t>(last_x - first_x), 1},
-                CODY2D::fade_rgb565_to_black(Data::palette[slot], opacity));
+                CODY2D::fade_rgb565_to_black(NavigationData::shades[slot], opacity));
             if (result != ESP_OK) {
                 return result;
             }
         }
         const auto center = control.icon_center;
-        const uint16_t ink = CODY2D::fade_rgb565_to_black(Data::palette[to_index(Data::back_ink)], opacity);
+        const uint16_t ink = CODY2D::fade_rgb565_to_black(NavigationData::ink, opacity);
         if (control.identity == RigControl::Overlay) {
             const CODY2D::Vec2 nodes[] = {{center.x-10, center.y+9}, {center.x, center.y-11}, {center.x+10, center.y+9}};
             for (uint16_t index = 0; index < 3; ++index) {
@@ -301,7 +299,7 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
                     Data::overlay_stroke, ink, first_column);
                 if (result == ESP_OK) {
                     const uint16_t marker = CODY2D::fade_rgb565_to_black(
-                        Data::palette[to_index(debug ? Data::debug_selected : Data::back_ink)], opacity);
+                        debug ? NavigationData::selected : NavigationData::ink, opacity);
                     result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index],
                         Data::overlay_marker_diameter, marker, first_column);
                 }

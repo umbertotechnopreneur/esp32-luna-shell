@@ -264,7 +264,20 @@ def main(argv=None):
         "#pragma once", '#include "CODY_rig.hpp"', "namespace CODY::NavigationData {",
         f"inline constexpr uint32_t auto_hide_ms = {navigation['auto_hide_ms']}U;",
         f"inline constexpr uint32_t fade_ms = {navigation['fade_ms']}U;",
-        "inline constexpr RigControlGeometry controls[] = {"]
+    ]
+    colors = navigation["colors_rgb565"]
+    for name in ("top", "bottom", "ink", "selected"):
+        navigation_header.append(f"inline constexpr uint16_t {name} = 0x{colors[name]:04X};")
+    shades = []
+    for step in range(32):
+        channels = []
+        for shift, mask in ((11, 31), (5, 63), (0, 31)):
+            start = (colors["top"] >> shift) & mask
+            end = (colors["bottom"] >> shift) & mask
+            channels.append(((start*(31-step) + end*step + 15)//31) << shift)
+        shades.append(f"0x{sum(channels):04X}")
+    navigation_header.append("inline constexpr uint16_t shades[] = {" + ", ".join(shades) + "};")
+    navigation_header.append("inline constexpr RigControlGeometry controls[] = {")
     for control in navigation["controls"]:
         name = CONTROL_IDENTITIES[control["id"]][1]
         center = ", ".join(cpp_float(value) for value in control["center"])

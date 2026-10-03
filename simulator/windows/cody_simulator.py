@@ -287,6 +287,7 @@ class CodyRenderer:
         if response_frame is not None:
             self.draw_response_roots(image, response_frame, colors)
         if navigation_visible:
+            image = image.convert("RGB")
             self.draw_navigation(image, debug, colors)
         if guide:
             draw.rectangle((73,73,392,392), outline=colors["selected"])
@@ -311,22 +312,27 @@ class CodyRenderer:
     def draw_navigation(self, image, debug, colors):
         if not self.debug_controls_enabled or self.navigation_opacity == 0:
             return
-        layer = image.copy()
+        layer = image.convert("RGB")
         draw = ImageDraw.Draw(layer)
         mask = Image.new("L", image.size, 0)
         coverage = mask.load()
         back = self.rig["style"]["back"]
-        back_ink = self.paint(image, back["ink"])
-        first, last = back["fill"]
+        material = self.navigation["colors_rgb565"]
+        back_ink = rgb565(material["ink"])
         for control in self.navigation["controls"]:
             if not control["visible_by_default"]:
                 continue
             left, top, right, bottom = control["bounds"]
             for row in range(top, bottom):
-                slot = first + (row-top)*(last-first)//(bottom-top)
+                step = (row-top)*31//(bottom-top)
+                shade = 0
+                for shift, channel_mask in ((11, 31), (5, 63), (0, 31)):
+                    start = (material["top"] >> shift) & channel_mask
+                    end = (material["bottom"] >> shift) & channel_mask
+                    shade |= ((start*(31-step) + end*step + 15)//31) << shift
                 for column in range(left, right):
                     if control_contains(control, column+.5, row+.5):
-                        draw.point((column, row), fill=self.paint(image, slot))
+                        draw.point((column, row), fill=rgb565(shade))
                         coverage[column, row] = self.navigation_opacity
             x, y = control["icon_center"]
             stroke = max(1, round(back["stroke"]))
@@ -345,7 +351,7 @@ class CodyRenderer:
                 radius = (self.rig["style"]["overlay_toggle"]["marker_diameter"]-1)/2
                 for node_x, node_y in nodes:
                     draw.ellipse((node_x-radius,node_y-radius,node_x+radius,node_y+radius),
-                        fill=colors["selected"] if debug else back_ink)
+                        fill=rgb565(material["selected"]) if debug else back_ink)
         image.paste(layer, (0, 0), mask)
 
     # self: Renderer whose evaluated scene is shared by all visible overlays.
@@ -382,8 +388,7 @@ class CodyRenderer:
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
                                     material_study=material_study, png_mesh_study=png_mesh_study,
                                     mesh_overlay=mesh_overlay,
-                                    navigation_visible=screen != Screen.GREETING or content_visible and
-                                    self.scene_painter.definition("greeting")["navigation_visible"])
+                                    navigation_visible=not boot_visible)
             if screen == Screen.GREETING:
                 image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
                 image = image.convert("RGB")
@@ -509,7 +514,7 @@ class CodyWindow:
         self.previous_animation_screen = None
         self.last_tick = time.perf_counter()
         self.navigation_visibility = NavigationVisibility(renderer.navigation)
-        self.navigation_visibility.interact(int(self.last_tick * 1_000_000))
+        self.renderer.navigation_opacity = 0  # Touch, not startup, reveals Debug tools.
         self.selected = None
         self.scene = None
         self.after_id = None
@@ -1078,12 +1083,10 @@ class CodyWindow:
             self.renderer.scene_painter.presentation("greeting", self.scene_elapsed_ms)[2])
         if not content_visible:
             return
-        navigation_visible = (self.display_screen != Screen.GREETING or
-            self.renderer.scene_painter.definition("greeting")["navigation_visible"])
         now_us = int(time.perf_counter() * 1_000_000)
         previous_opacity = self.navigation_visibility.opacity(now_us)
         self.navigation_visibility.interact(now_us)
-        if navigation_visible and self.renderer.debug_controls_enabled:
+        if self.renderer.debug_controls_enabled:
             control = next((control for control in self.renderer.navigation["controls"]
                 if control_contains(control, x, y)), None)
             if control is not None:

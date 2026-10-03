@@ -1054,8 +1054,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle);
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
     const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
-        lifecycle_navigation_allowed && presentation.content_visible &&
-        (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
+        lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const uint8_t branding_opacity = startup_branding_opacity();
     const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
         s_state.debug_readout_enabled && presentation.content_visible &&
@@ -1373,10 +1372,6 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
     if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
         return TouchAction::None;
     }
-    if (s_state.scene.valid && (s_state.scene.intro_phase != CODY::SceneIntroPhase::Complete ||
-        !s_state.scene.definition->navigation_visible)) {
-        return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
-    }
     if (s_state.navigation_visibility.opacity(esp_timer_get_time()) != 255) {
         return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
     }
@@ -1428,11 +1423,7 @@ esp_err_t apply_scene_requests()
         const DisplayUnlockOnExit route_lock;
         if constexpr (kRenderDiagnosticsEnabled) {
             const int64_t now_us = esp_timer_get_time();
-            const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
-                (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
-            if (eligible && !s_state.navigation_visibility.primed) {
-                s_state.navigation_visibility.interact(now_us);
-            }
+            // No startup priming: only a real touch may reveal these controls.
             s_state.navigation_visibility.update(now_us);
             if (s_state.navigation_visibility.opacity(now_us) != s_cached_navigation_opacity) {
                 s_state.frame_dirty.store(true, std::memory_order_release);
@@ -1663,8 +1654,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
     bool reveal_only = false;
     if constexpr (kRenderDiagnosticsEnabled) {
-        const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
-            (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
+        const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle);
         const uint8_t previous_opacity = s_state.navigation_visibility.opacity(point.sample_timestamp_us);
         reveal_only = eligible && pressed_edge && previous_opacity != 255 &&
             CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;

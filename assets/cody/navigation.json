@@ -2,14 +2,13 @@
   "schema": "cody.navigation.v1",
   "auto_hide_ms": 5000,
   "fade_ms": 330,
+  "colors_rgb565": {"top": 6339, "bottom": 2113, "ink": 44373, "selected": 65535},
   "controls": [
     {"id": "back", "identity": 1, "visible_by_default": false,
      "shape": "circle", "center": [40, 233], "radius": 30},
     {"id": "pause", "identity": 3, "visible_by_default": true,
-     "shape": "top-arc", "side": "left", "inner_radius": 167,
-     "outer_radius": 223, "start_degrees": 13, "end_degrees": 31},
+     "shape": "circle", "center": [158, 47], "radius": 22},
     {"id": "overlay", "identity": 2, "visible_by_default": true,
-     "shape": "top-arc", "side": "right", "inner_radius": 167,
-     "outer_radius": 223, "start_degrees": 13, "end_degrees": 31}
+     "shape": "circle", "center": [308, 47], "radius": 22}
   ]
 }

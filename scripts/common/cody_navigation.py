@@ -11,8 +11,13 @@ CONTROL_IDENTITIES = {"back": (1, "Back"), "overlay": (2, "Overlay"), "pause": (
 # Raises ValueError for ambiguous controls, unsupported geometry or invalid timing.
 def load_navigation(root):
     document = read_json(Path(root) / "assets/cody/navigation.json")
-    if set(document) != {"schema", "auto_hide_ms", "fade_ms", "controls"} or document["schema"] != "cody.navigation.v1":
+    if set(document) != {"schema", "auto_hide_ms", "fade_ms", "colors_rgb565", "controls"} or document["schema"] != "cody.navigation.v1":
         raise ValueError("Invalid Cody navigation schema")
+    colors = document["colors_rgb565"]
+    if not isinstance(colors, dict) or set(colors) != {"top", "bottom", "ink", "selected"}:
+        raise ValueError("Navigation requires explicit neutral material colors")
+    if any(type(value) is not int or not 0 <= value <= 65535 for value in colors.values()):
+        raise ValueError("Invalid navigation RGB565 color")
     for key in ("auto_hide_ms", "fade_ms"):
         if type(document[key]) is not int or not 1 <= document[key] <= 60000:
             raise ValueError(f"Invalid navigation timing: {key}")
@@ -27,10 +32,20 @@ def load_navigation(root):
             raise ValueError(f"Navigation visibility must be explicit: {identity}")
         common = {"id", "identity", "visible_by_default", "shape"}
         if control["shape"] == "circle":
-            if set(control) != common | {"center", "radius"} or control["center"] != [40, 233] or control["radius"] != 30:
+            if set(control) != common | {"center", "radius"}:
+                raise ValueError(f"Invalid circle fields: {identity}")
+            if (not isinstance(control["center"], list) or len(control["center"]) != 2
+                    or any(type(value) is not int for value in control["center"])
+                    or type(control["radius"]) is not int or not 1 <= control["radius"] <= 30):
+                raise ValueError(f"Invalid circular target: {identity}")
+            if identity == "back" and (control["center"] != [40, 233] or control["radius"] != 30):
                 raise ValueError("Back must retain its canonical circular target")
             center_x, center_y = control["center"]
             radius = control["radius"]
+            if math.hypot(center_x-233, center_y-233) + radius > 223:
+                raise ValueError(f"Circular target leaves the inset display rim: {identity}")
+            if identity != "back" and center_y + radius > 73:
+                raise ValueError(f"Debug target must remain above the safe square: {identity}")
             control.update(center=(center_x, center_y), icon_center=(center_x, center_y),
                 inner_radius=0, outer_radius=radius, side_sign=0, slope_min=0, slope_max=0,
                 bounds=(center_x-radius, center_y-radius, center_x+radius, center_y+radius))
@@ -98,7 +113,7 @@ class NavigationVisibility:
         elapsed = min(max(now_us-self.fade_started_us, 0), self.fade_us)
         return (self.start_opacity*(self.fade_us-elapsed) + self.target_opacity*elapsed + self.fade_us//2)//self.fade_us
 
-    # now_us: Successful touch report or first eligible presentation timestamp.
+    # now_us: Successful touch report; startup alone never reveals the toolbar.
     def interact(self, now_us):
         current = self.opacity(now_us)
         if not self.primed or self.target_opacity != 255:
