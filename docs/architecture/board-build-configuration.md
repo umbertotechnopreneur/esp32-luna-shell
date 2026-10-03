@@ -18,6 +18,16 @@ unused TS-pin measurement disabled while battery telemetry is off.
 ES8311 audio output and ES7210 microphones are independent. Only this BSP is
 accepted by the YAML validator.
 
+The validated YAML adapter owns the module-to-library mapping in
+`scripts/common/board_config.py`. Setting `sd: {driver: sdmmc, mode: service}`
+automatically admits `fatfs`, `sdmmc`, and `esp_driver_sdmmc` before Kconfig
+discovery; no extra library switches are required in the YAML. The wrapper
+merges those roots for every supported YAML profile, not just `ui-minimal`.
+The BSP exports the SD/FAT headers and rejects a missing required component
+during configuration, before compilation. Audio, IMU, and PMU use the same
+dependency mapping. `off` adds no module-specific roots, but another required
+component can still bring a library into the graph transitively.
+
 Run the selected YAML through the repository wrapper:
 
 ```powershell

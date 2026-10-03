@@ -16,6 +16,7 @@ modules:
   gnss: {driver: lc76g, mode: service}
   audio_output: {driver: es8311, mode: service}
   microphones: {driver: es7210-dual, mode: service}
+  # service automatically admits FatFS, SDMMC protocol and the SDMMC host driver.
   sd: {driver: sdmmc, mode: service}
   wifi: {driver: esp32s3, mode: "off"}
   bluetooth: {driver: esp32s3-ble, mode: "off"}

@@ -273,13 +273,15 @@ if ($null -ne $BoardModules) {
         }
         $SelectedProfileVariant.generated_sdkconfig = "artifacts/sdkconfig/v1/$ProfileBuildKey"
         $SelectedProfileVariant.default_build_dir = "artifacts/build-$ProfileBuildKey"
-        $extraRoots = @()
-        if ($audioEnabled) { $extraRoots += "espressif__esp_codec_dev" }
-        if ($BoardModules.imu -eq "service") { $extraRoots += "waveshare__qmi8658" }
-        if ($BoardModules.pmu -eq "service") { $extraRoots += "cube32esp__xpowerslib"; $extraRoots += "esp_pm" }
-        if ($BoardModules.sd -eq "service") { $extraRoots += "fatfs" }
-        $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + $extraRoots
     }
+    # The validated YAML adapter owns service dependency closure for every supported profile.
+    if ($boardSelection.component_roots -isnot [array]) {
+        throw 'Board YAML adapter must declare its module component roots.'
+    }
+    $SelectedProfileVariant.component_roots = @(
+        (@($SelectedProfileVariant.component_roots) + @($boardSelection.component_roots)) |
+            Select-Object -Unique
+    )
     $env:LUNASHELL_BOARD_ENABLE_AUDIO = if ($audioEnabled) { "1" } else { "0" }
     $env:LUNASHELL_BOARD_ENABLE_SD = if ($BoardModules.sd -eq "service") { "1" } else { "0" }
 } else {

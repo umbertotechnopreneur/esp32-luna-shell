@@ -31,6 +31,23 @@ EXPECTED_MODULES = {
 OPTIONAL_MODULES = frozenset({
     "pmu", "battery", "imu", "gnss", "audio_output", "microphones", "sd"
 })
+MODULE_COMPONENT_ROOTS = {
+    "pmu": ("cube32esp__xpowerslib", "esp_pm"),
+    "imu": ("waveshare__qmi8658",),
+    "audio_output": ("espressif__esp_codec_dev", "esp_driver_i2s"),
+    "microphones": ("espressif__esp_codec_dev", "esp_driver_i2s"),
+    "sd": ("fatfs", "sdmmc", "esp_driver_sdmmc"),
+}
+
+
+# modes: Validated YAML module modes, not raw or default-filled input.
+def module_component_roots(modes: dict[str, str]) -> list[str]:
+    """Admit enabled services before ESP-IDF's Kconfig discovery pass."""
+    roots: set[str] = set()
+    for module, dependencies in MODULE_COMPONENT_ROOTS.items():
+        if modes.get(module) == "service":
+            roots.update(dependencies)
+    return sorted(roots)
 
 
 class UniqueKeyLoader(yaml.SafeLoader):
@@ -55,7 +72,9 @@ UniqueKeyLoader.add_constructor(
 )
 
 
-def load_board_config(path: Path) -> dict[str, str]:
+# path: Existing repository-owned board YAML, validated before selecting its build graph.
+# Raises: ValueError for an unsupported location or invalid board/module contract.
+def load_board_config(path: Path) -> dict[str, object]:
     resolved = path.resolve(strict=True)
     if not resolved.is_relative_to(ROOT / "config" / "boards"):
         raise ValueError("board YAML must be under config/boards/")
@@ -63,7 +82,9 @@ def load_board_config(path: Path) -> dict[str, str]:
     return validate_board_config_data(data)
 
 
-def validate_board_config_data(data: object) -> dict[str, str]:
+# data: Parsed board YAML or simulator bundle using the same strict schema.
+# Raises: ValueError for unknown identities, duplicate or unsupported module configuration.
+def validate_board_config_data(data: object) -> dict[str, object]:
     """Validate the reviewed build contract, including bundled simulator input."""
     if not isinstance(data, dict) or set(data) != {
         "schema_version", "name", "board", "variant", "modules", "ui"
@@ -99,11 +120,13 @@ def validate_board_config_data(data: object) -> dict[str, str]:
             ],
         }:
             raise ValueError("Leg Edition UI must declare its five views")
+        modes = {name: modules[name]["mode"] for name in modules}
         return {
             "board": data["board"],
             "profile": "leg-edition",
             "feature": "none",
-            "modules": {name: modules[name]["mode"] for name in modules},
+            "modules": modes,
+            "component_roots": module_component_roots(modes),
         }
     if data["name"] != "ui-bootstrap":
         raise ValueError("unsupported board build name")
@@ -132,6 +155,7 @@ def validate_board_config_data(data: object) -> dict[str, str]:
         "profile": "ui-minimal",
         "feature": "none",
         "modules": modes,
+        "component_roots": module_component_roots(modes),
     }
 
 

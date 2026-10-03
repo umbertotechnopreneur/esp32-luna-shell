@@ -120,6 +120,13 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
     # The catalog admits FAT/SD before Kconfig; expose the BSP's SD types publicly.
+    foreach(_sd_component IN ITEMS fatfs sdmmc esp_driver_sdmmc)
+        if(NOT _sd_component IN_LIST _build_components)
+            message(FATAL_ERROR
+                "SD service requires ${_sd_component}; enable its component root in the YAML/profile graph"
+            )
+        endif()
+    endforeach()
     idf_component_optional_requires(PUBLIC esp_driver_sdmmc fatfs)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
