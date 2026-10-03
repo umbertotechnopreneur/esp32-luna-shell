@@ -943,7 +943,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             error = enter_route(Route::Online09, scene);
             s_online_link = online;
             if (error == ESP_OK && !online) {
-                constexpr char title[] = "No connection";
+                // TextSpan is borrowed by later frames, not copied by set_scene_title.
+                static constexpr char title[] = "No connection";
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
                 if (error == ESP_OK) {
                     error = prepare_caption(wifi.data_valid && !wifi.data_stale ? "Wi-Fi disconnected" : "UNAVAILABLE",
