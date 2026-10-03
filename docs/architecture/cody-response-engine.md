@@ -12,18 +12,40 @@ limits: [Cody offline PoC](cody-offline-poc.md).
 ## Pronounced jelly response
 
 The current shared YAML tuning sets motion sensitivity to 4, translation gain
-to 0.075 and excursion limit to 0.22 of the resting character scale. Depth uses
-gain 0.018 with limit 0.085. The board/panel axis mapping, baseline filtering,
-timestamp deduplication and stale/error handling remain unchanged.
+to 0.095 and excursion limit to 0.22 of the resting character scale. Depth uses
+gain 0.026 with limit 0.1. The IMU spring is 1.8 Hz with damping ratio 0.23;
+the baseline time constant is 1.2 seconds. Lower damping keeps a visible elastic
+rebound after motion. The stress reference is 3.5 m/s2, with 45-ms attack and
+1.9-second release, so smaller impulses excite the lobes sooner and longer.
+Board/panel axis mapping, timestamp deduplication and stale/error handling remain
+unchanged; these are artistic dynamics, not additional sensor sampling.
 
-Touch drag uses gain 1.35, a 60-pixel soft limit and an underdamped spring
-(3.5 Hz, damping ratio 0.42). Press depth is 0.14. Touch displacement is already
+Upstream acquisition separately applies the persisted `imu_smooth` low-pass
+setting to calibrated acceleration and angular velocity before publishing the
+canonical snapshot. Its first-boot default is 70 percent: 70 percent previous
+filtered sample plus 30 percent newly acquired sample. Higher values suppress
+short impulses; a 20-percent setting would retain 80 percent of each new sample.
+This is shared with other snapshot consumers, including sensor fusion. The Cody
+tuning does not overwrite an existing setting or bypass that filter. The current
+device value must be confirmed through `diagnostics.imu_smoothing_percent` with
+its validity/error status; the source default is not evidence of the live value.
+
+Touch drag uses gain 1.65, a 60-pixel soft limit and an underdamped spring
+(3 Hz, damping ratio 0.28). Press depth is 0.15. Touch displacement is already
 logical and must not be rotated a second time. The existing pressure/drag
 springs also excite contour amplitude/speed and reduce fullness, so the lobes
 and the optional body-following face deform with the gesture. Release retains
 spring inertia before returning to rest; it does not invent sensor samples.
 Pressure here means the acquired pressed state, not measured force: the touch
 controller supplies no physical pressure value.
+
+The side-lobe wave distance increases from 0.025 to 0.06 normalized units
+(2.4 times the authored excursion). Upper, shoulder, lower-right and belly lobes
+also have larger waves, while the crown and small feet retain their previous
+limits. Every lobe remains inside the existing authoring envelope. The contour
+still uses the same anchors and phase offsets; no extra tessellation, framebuffer
+or simulation steps are introduced. Larger deformations can increase dirty
+pixel area; device FPS/CPU have not been measured for this tuning.
 
 Firmware and Windows use matching composer equations and the same generated
 configuration. No sensor reader, framebuffer, task or per-frame allocation is
@@ -114,8 +136,8 @@ adapter reads that projection; it does not acquire sensors or refresh hardware.
 Navigation is excluded before the evaluated body-polygon hit test. The existing
 named eye hit test still publishes protective closure and annoyance.
 
-`response.touch` authors a 0.85 drag gain, a 42-pixel artistic excursion limit,
-an 0.08 press-depth contribution and a 3.5 Hz, 0.55-damping spring. Pressure
+`response.touch` authors a 1.65 drag gain, a 60-pixel artistic excursion limit,
+a 0.15 press-depth contribution and a 3 Hz, 0.28-damping spring. Pressure
 adds one small pulse per real gesture, including a press/release between frames.
 Movement follows the finger a little and settles elastically on release. This
 adds three fixed-size artistic springs, not an input cache or framebuffer.

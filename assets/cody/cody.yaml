@@ -194,11 +194,11 @@ response:
     annoyance_release_seconds: 3
     stress_gain: 0.7
     brow_gain: 0.9
-    drag_gain: 1.35
+    drag_gain: 1.65
     drag_limit_px: 60
-    press_depth: 0.14
-    spring_hz: 3.5
-    damping_ratio: 0.42
+    press_depth: 0.15
+    spring_hz: 3
+    damping_ratio: 0.28
   audio:
     sample_timeout_seconds: 2.5
     microphone_reference: 0.08
@@ -223,26 +223,27 @@ response:
       x: {axis: y, sign: 1}
       y: {axis: x, sign: 1}
       z: {axis: z, sign: 1}
-    # Small real IMU impulses drive a soft, underdamped response; excursion limits stay bounded.
+    # Strong blob response: retain the impulse longer and settle with visible wobble.
+    # Sensitivity and translation limits stay inside the existing reviewed envelope.
     sensitivity: 4
-    baseline_seconds: 1
+    baseline_seconds: 1.2
     sample_timeout_seconds: 0.75
     # Translation is a fraction of the resting body scale; Z changes scale only.
-    translation_gain: 0.075
+    translation_gain: 0.095
     translation_limit: 0.22
-    depth_gain: 0.018
-    depth_limit: 0.085
-    spring_hz: 2
-    damping_ratio: 0.32
-    stress_reference_mps2: 5
+    depth_gain: 0.026
+    depth_limit: 0.1
+    spring_hz: 1.8
+    damping_ratio: 0.23
+    stress_reference_mps2: 3.5
   power:
     source: power.charge
     unit: percent
     sample_timeout_seconds: 8
     fatigue_curve: 1.6
   state:
-    stress_attack_seconds: 0.06
-    stress_release_seconds: 1.4
+    stress_attack_seconds: 0.045
+    stress_release_seconds: 1.9
     fatigue_attack_seconds: 1.6
     fatigue_release_seconds: 3
   expression:
@@ -251,8 +252,8 @@ response:
     fatigue_cheek_fade: 0.35
     stress_mouth_open: 0.2
     stress_mouth_narrowing: 0.15
-    stress_wave_gain: 0.95
-    stress_wave_speed_gain: 0.7
+    stress_wave_gain: 0.98
+    stress_wave_speed_gain: 0.6
     fatigue_wave_slowdown: 0.6
     fatigue_fullness: 0.1
     base_breath_hz: 0.25
@@ -337,16 +338,18 @@ contour:
   - {name: phase_spread, label: Phase spread, minimum: 0, maximum: 1, default: 1}
   # Unit directions follow the authored perimeter. Small feet get smaller excursions.
   # Fullness and wave are maximum normalized distances, not sensor measurements.
+  # Wider side-lobe excursions make the pearl warp visibly gelatinous. Keep the
+  # crown and small feet at their existing limits to protect the vertical row map.
   lobes:
-  - {point: lobe.left, direction: [-1, 0], fullness: 0.025, wave: 0.025, limit: 0.12, phase_turns: 0.0}
-  - {point: lobe.upper_left, direction: [-0.6, -0.8], fullness: 0.035, wave: 0.045, limit: 0.12, phase_turns: 0.091}
+  - {point: lobe.left, direction: [-1, 0], fullness: 0.025, wave: 0.06, limit: 0.12, phase_turns: 0.0}
+  - {point: lobe.upper_left, direction: [-0.6, -0.8], fullness: 0.035, wave: 0.06, limit: 0.12, phase_turns: 0.091}
   - {point: lobe.crown, direction: [0, -1], fullness: 0.05, wave: 0.06, limit: 0.12, phase_turns: 0.182}
-  - {point: lobe.upper_right, direction: [0.6, -0.8], fullness: 0.035, wave: 0.04, limit: 0.12, phase_turns: 0.273}
-  - {point: lobe.shoulder, direction: [0.8, -0.6], fullness: 0.035, wave: 0.035, limit: 0.12, phase_turns: 0.364}
-  - {point: lobe.right, direction: [1, 0], fullness: 0.025, wave: 0.025, limit: 0.12, phase_turns: 0.455}
-  - {point: lobe.lower_right, direction: [0.6, 0.8], fullness: 0.02, wave: 0.02, limit: 0.12, phase_turns: 0.545}
+  - {point: lobe.upper_right, direction: [0.6, -0.8], fullness: 0.035, wave: 0.06, limit: 0.12, phase_turns: 0.273}
+  - {point: lobe.shoulder, direction: [0.8, -0.6], fullness: 0.035, wave: 0.055, limit: 0.12, phase_turns: 0.364}
+  - {point: lobe.right, direction: [1, 0], fullness: 0.025, wave: 0.06, limit: 0.12, phase_turns: 0.455}
+  - {point: lobe.lower_right, direction: [0.6, 0.8], fullness: 0.02, wave: 0.04, limit: 0.12, phase_turns: 0.545}
   - {point: lobe.foot_right, direction: [0, 1], fullness: 0.014, wave: 0.014, limit: 0.03, phase_turns: 0.636}
-  - {point: lobe.belly, direction: [0, 1], fullness: 0.018, wave: 0.018, limit: 0.12, phase_turns: 0.727}
+  - {point: lobe.belly, direction: [0, 1], fullness: 0.018, wave: 0.03, limit: 0.12, phase_turns: 0.727}
   - {point: lobe.foot_left, direction: [0, 1], fullness: 0.012, wave: 0.012, limit: 0.03, phase_turns: 0.818}
   - {point: lobe.lower_left, direction: [-0.6, 0.8], fullness: 0.014, wave: 0.014, limit: 0.03, phase_turns: 0.909}
 points:

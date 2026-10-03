@@ -1070,15 +1070,15 @@ inline constexpr float contour_max[] = {1.000000000f, 1.000000000f, 2.000000000f
 inline constexpr const char *contour_names[] = {"fullness", "amplitude", "speed", "phase_spread"};
 inline constexpr float contour_transition_seconds = 0.160000000f;
 inline constexpr ContourLobeDefinition contour_lobes[] = {
-    {PointId::LobeLeft, -1.000000000f, 0.000000000f, 0.025000000f, 0.025000000f, 0.000000000f},
-    {PointId::LobeUpperLeft, -0.600000000f, -0.800000000f, 0.035000000f, 0.045000000f, 0.091000000f},
+    {PointId::LobeLeft, -1.000000000f, 0.000000000f, 0.025000000f, 0.060000000f, 0.000000000f},
+    {PointId::LobeUpperLeft, -0.600000000f, -0.800000000f, 0.035000000f, 0.060000000f, 0.091000000f},
     {PointId::LobeCrown, 0.000000000f, -1.000000000f, 0.050000000f, 0.060000000f, 0.182000000f},
-    {PointId::LobeUpperRight, 0.600000000f, -0.800000000f, 0.035000000f, 0.040000000f, 0.273000000f},
-    {PointId::LobeShoulder, 0.800000000f, -0.600000000f, 0.035000000f, 0.035000000f, 0.364000000f},
-    {PointId::LobeRight, 1.000000000f, 0.000000000f, 0.025000000f, 0.025000000f, 0.455000000f},
-    {PointId::LobeLowerRight, 0.600000000f, 0.800000000f, 0.020000000f, 0.020000000f, 0.545000000f},
+    {PointId::LobeUpperRight, 0.600000000f, -0.800000000f, 0.035000000f, 0.060000000f, 0.273000000f},
+    {PointId::LobeShoulder, 0.800000000f, -0.600000000f, 0.035000000f, 0.055000000f, 0.364000000f},
+    {PointId::LobeRight, 1.000000000f, 0.000000000f, 0.025000000f, 0.060000000f, 0.455000000f},
+    {PointId::LobeLowerRight, 0.600000000f, 0.800000000f, 0.020000000f, 0.040000000f, 0.545000000f},
     {PointId::LobeFootRight, 0.000000000f, 1.000000000f, 0.014000000f, 0.014000000f, 0.636000000f},
-    {PointId::LobeBelly, 0.000000000f, 1.000000000f, 0.018000000f, 0.018000000f, 0.727000000f},
+    {PointId::LobeBelly, 0.000000000f, 1.000000000f, 0.018000000f, 0.030000000f, 0.727000000f},
     {PointId::LobeFootLeft, 0.000000000f, 1.000000000f, 0.012000000f, 0.012000000f, 0.818000000f},
     {PointId::LobeLowerLeft, -0.600000000f, 0.800000000f, 0.014000000f, 0.014000000f, 0.909000000f},
 };
@@ -1341,11 +1341,11 @@ inline constexpr ResponseConfig response = [] {
     config.touch.annoyance_release_seconds = 3.000000000f;
     config.touch.stress_gain = 0.700000000f;
     config.touch.brow_gain = 0.900000000f;
-    config.touch.drag_gain = 1.350000000f;
+    config.touch.drag_gain = 1.650000000f;
     config.touch.drag_limit_px = 60.000000000f;
-    config.touch.press_depth = 0.140000000f;
-    config.touch.spring_hz = 3.500000000f;
-    config.touch.damping_ratio = 0.420000000f;
+    config.touch.press_depth = 0.150000000f;
+    config.touch.spring_hz = 3.000000000f;
+    config.touch.damping_ratio = 0.280000000f;
     config.audio.sample_timeout_seconds = 2.500000000f;
     config.audio.microphone_reference = 0.080000000f;
     config.audio.playback_reference = 0.180000000f;
@@ -1361,19 +1361,19 @@ inline constexpr ResponseConfig response = [] {
     config.idle.mouth_open = 0.850000000f;
     config.idle.eye_closure = 0.750000000f;
     config.motion.sensitivity = 4.000000000f;
-    config.motion.baseline_seconds = 1.000000000f;
+    config.motion.baseline_seconds = 1.200000000f;
     config.motion.sample_timeout_seconds = 0.750000000f;
-    config.motion.translation_gain = 0.075000000f;
+    config.motion.translation_gain = 0.095000000f;
     config.motion.translation_limit = 0.220000000f;
-    config.motion.depth_gain = 0.018000000f;
-    config.motion.depth_limit = 0.085000000f;
-    config.motion.spring_hz = 2.000000000f;
-    config.motion.damping_ratio = 0.320000000f;
-    config.motion.stress_reference_mps2 = 5.000000000f;
+    config.motion.depth_gain = 0.026000000f;
+    config.motion.depth_limit = 0.100000000f;
+    config.motion.spring_hz = 1.800000000f;
+    config.motion.damping_ratio = 0.230000000f;
+    config.motion.stress_reference_mps2 = 3.500000000f;
     config.power.sample_timeout_seconds = 8.000000000f;
     config.power.fatigue_curve = 1.600000000f;
-    config.state.stress_attack_seconds = 0.060000000f;
-    config.state.stress_release_seconds = 1.400000000f;
+    config.state.stress_attack_seconds = 0.045000000f;
+    config.state.stress_release_seconds = 1.900000000f;
     config.state.fatigue_attack_seconds = 1.600000000f;
     config.state.fatigue_release_seconds = 3.000000000f;
     config.expression.stress_brow = 0.750000000f;
@@ -1381,8 +1381,8 @@ inline constexpr ResponseConfig response = [] {
     config.expression.fatigue_cheek_fade = 0.350000000f;
     config.expression.stress_mouth_open = 0.200000000f;
     config.expression.stress_mouth_narrowing = 0.150000000f;
-    config.expression.stress_wave_gain = 0.950000000f;
-    config.expression.stress_wave_speed_gain = 0.700000000f;
+    config.expression.stress_wave_gain = 0.980000000f;
+    config.expression.stress_wave_speed_gain = 0.600000000f;
     config.expression.fatigue_wave_slowdown = 0.600000000f;
     config.expression.fatigue_fullness = 0.100000000f;
     config.expression.base_breath_hz = 0.250000000f;

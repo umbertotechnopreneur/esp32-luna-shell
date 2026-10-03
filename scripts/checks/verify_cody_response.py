@@ -58,6 +58,31 @@ class ResponseChecks(unittest.TestCase):
         self.assertLess(abs(frame.current_root[0] - frame.resting_root[0]),
                         self.config["motion"]["translation_limit"] * self.placement[2])
 
+    # self: A small synthetic acceleration must deform the side lobes more than the previous tuning.
+    def test_small_motion_drives_larger_blob_lobes(self):
+        previous_rig = deepcopy(self.rig)
+        previous_config = previous_rig["response"]
+        previous_config["motion"].update(baseline_seconds=1, translation_gain=.075,
+            depth_gain=.018, depth_limit=.085, spring_hz=2, damping_ratio=.32, stress_reference_mps2=5)
+        previous_config["state"].update(stress_attack_seconds=.06, stress_release_seconds=1.4)
+        previous_config["expression"].update(stress_wave_gain=.95, stress_wave_speed_gain=.7)
+        strong_primed = advance_response(self.config, self.initial, samples(1_000_000), 0, 1_000_000)
+        previous_primed = advance_response(previous_config, make_response_state(previous_config),
+            samples(1_000_000), 0, 1_000_000)
+        impulse = samples(1_100_000, {Axis.X: 0, Axis.Y: .5, Axis.Z: 9.80665})
+        strong = advance_response(self.config, strong_primed, impulse, 100, 1_100_000)
+        gentle = advance_response(previous_config, previous_primed, impulse, 100, 1_100_000)
+        face = self.rig["boot_channels"]["ready"]
+        strong_frame = compose_response(self.rig, strong, face,
+            contour_defaults(self.rig), self.placement, 0, False)
+        gentle_frame = compose_response(previous_rig, gentle, face,
+            contour_defaults(previous_rig), self.placement, 0, False)
+        side_lobe = next(lobe for lobe in self.rig["contour"]["lobes"] if lobe["point"] == "lobe.left")
+        strong_excursion = strong_frame.contour[ContourControl.AMPLITUDE] * side_lobe["wave"]
+        previous_excursion = gentle_frame.contour[ContourControl.AMPLITUDE] * .025
+        self.assertGreater(strong_excursion, previous_excursion * 2)
+        self.assertEqual(strong.consumed_motion_at_us, gentle.consumed_motion_at_us)
+
     # self: A press and drag must excite lobe deformation and spring back after release.
     def test_touch_deforms_lobes_and_keeps_release_inertia(self):
         state = advance_response(self.config, self.initial, samples(1_000_000), 100, 1_000_000)
