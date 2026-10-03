@@ -442,6 +442,24 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms)
     return result;
 }
 
+// channels: Independent finite controls, each inside its authored range.
+// transform: Finite logical position and scale accepted by the shared renderer.
+esp_err_t validate_rig_pose(const Channels &channels, Transform transform)
+{
+    const esp_err_t face_error = validate_face_channels(channels, "Rig pose");
+    if (face_error != ESP_OK) {
+        return face_error;
+    }
+    if (!std::isfinite(transform.x) || !std::isfinite(transform.y) || !std::isfinite(transform.scale) ||
+        transform.x < 0 || transform.x >= 466 || transform.y < 0 || transform.y >= 466 ||
+        transform.scale < 20 || transform.scale > 200) {
+        ESP_LOGE(kTag, "Transform rejected: %f,%f scale=%f (%s)", transform.x, transform.y,
+                 transform.scale, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return ESP_OK;
+}
+
 // channels: Authored independent facial controls; invalid values stop evaluation.
 // transform: Logical translation and scale, shared by every feature and debug marker.
 // scene: Caller-owned geometry and pearl row mappings, never valid after failure.
@@ -461,16 +479,9 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
             return contour_error;
         }
     }
-    const esp_err_t face_error = validate_face_channels(channels, "Rig evaluation");
-    if (face_error != ESP_OK) {
-        return face_error;
-    }
-    if (!std::isfinite(transform.x) || !std::isfinite(transform.y) || !std::isfinite(transform.scale) ||
-        transform.x < 0 || transform.x >= 466 || transform.y < 0 || transform.y >= 466 ||
-        transform.scale < 20 || transform.scale > 200) {
-        ESP_LOGE(kTag, "Transform rejected: %f,%f scale=%f (%s)", transform.x, transform.y,
-                 transform.scale, esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
+    const esp_err_t pose_error = validate_rig_pose(channels, transform);
+    if (pose_error != ESP_OK) {
+        return pose_error;
     }
     // One breathing scale carries every feature; no wandering eyes.
     scene.scale = transform.scale * (1 + .018f * channels[FaceChannel::Breath]);
@@ -684,10 +695,11 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // paused: Draw the Resume action without changing caller-owned geometry.
 // first_column: Logical x origin of the compact tile; absolute raster arithmetic is preserved.
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
+// navigation_visible: Hidden scene controls have no raster footprint.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
-                        const RigDebugStrokeCache *debug_cache)
+                        const RigDebugStrokeCache *debug_cache, bool navigation_visible)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -801,7 +813,9 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         }
         stage_started_us = now_us;
     }
-    result = draw_navigation_rows(strip, first_row, debug, paused, first_column);
+    if (navigation_visible) {
+        result = draw_navigation_rows(strip, first_row, debug, paused, first_column);
+    }
     if (profile != nullptr) {
         profile->navigation_us += profile->now_us() - stage_started_us;
     }

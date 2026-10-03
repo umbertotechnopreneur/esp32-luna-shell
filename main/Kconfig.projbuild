@@ -73,6 +73,16 @@ config LUNASHELL_CODY_FACE_FOLLOWS_BODY
         at runtime without restarting the renderer. The runtime flag is not
         persisted; this setting supplies the initial choice on each boot.
 
+config LUNASHELL_CODY_FORCE_FIRST_BOOT
+    bool "Force Cody first-boot greeting for development"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Keep the effective first-boot setting at one during the current
+        onboarding iteration. Still read and validate the real persisted
+        setting; never overwrite a user's stored zero or hide an NVS failure.
+        Disable to honor the persisted cody_firstboot preference alone.
+
 choice LUNASHELL_BUILD_DISPLAY_DRIVER
     prompt "Display and touch board driver"
     default LUNASHELL_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED

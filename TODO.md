@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] Review the new first-boot greeting in the Windows simulator and on the
+  device after fresh, specific authorization. Implementation and source assets
+  are complete; no simulator, tests, build, size or flash ran for this change.
+  Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
+  motion, rotations and pause/standby timing; measure real frame/CPU and memory
+  cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
 - [ ] Identify the intermittent display/touch stop reported after the pearl
   release. The first capture began after failure and shows DISPLAY/TOUCH in
   error while the MCU continues snapshots. The triggering error is absent.
@@ -23,7 +29,8 @@ authorization.
 
 - [ ] Review the opt-in PNG/triangle cloud experiment with the user before any
   device port. The previous full workspace is checkpointed at `3b90f25a`;
-  the experiment is isolated on `codex/cloud-png-mesh-study`. A painted transparent
+  the experimental source is retained on `main` after branch consolidation.
+  A painted transparent
   body now follows the existing lobe anchors through 99 vertices/138 triangles,
   with the face separate. Static PNG, mesh overlay and synthetic GIF previews
   are under `artifacts/simulator/cloud-png-mesh-*`. No new tests or hardware

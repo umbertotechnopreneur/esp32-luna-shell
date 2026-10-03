@@ -43,6 +43,8 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Code clarity and identities
 
+- Cody currently supports English only. Use bounded printable-ASCII fonts and
+  text; do not add Unicode font ranges or localization infrastructure.
 - Prefer readable steps and clear variable/method names over fewer lines.
   Do not compress branches or unrelated statements onto one line.
 - Address domain controls and identities with enums and unique names/IDs.
@@ -143,6 +145,8 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Work Tracking
 
+- Make focused checkpoint commits after coherent implementation steps. Do not
+  leave completed work only in the worktree; push still needs user authorization.
 - Keep `AGENTS.md` as the single repository instruction file. Do not add
   parallel Copilot instruction files or duplicate agent contracts.
 - Keep generated firmware and simulator build output under `artifacts/`; do not

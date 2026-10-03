@@ -23,13 +23,19 @@ the shared palette has 256 slots. No fake-device HTTP server is started.
 pwsh -NoProfile -File .\scripts\device.ps1 simulator -PythonExecutable 'E:\ESP32 Cody Companion\artifacts\python\simulator\Scripts\python.exe'
 ```
 
-Use `-Screen boot-sleep|boot-waking|boot-ready|rig`, `-Rotation 180`,
+Use `-Screen boot-sleep|boot-waking|boot-ready|rig|greeting`, `-Rotation 180`,
 `-SafeGuide`, or `-OutputPath .\artifacts\simulator\preview.png`. Select a Python
 interpreter with Pillow and PyYAML using `-PythonExecutable`, or prepare the
 local `artifacts/python/simulator` environment with the packaging action.
 Cody options cannot be mixed with device-twin scenarios.
 The legacy packaged EXE remains a Luna target; Cody currently launches from source.
 See `docs/architecture/cody-rig-poc.md` for controls, limits and validation scope.
+
+`greeting` uses the shared cloud/title scene definition, happy expression and
+packed English-only monospace font. Add `-CloudJellyStudy` for the pearl renderer;
+`-AtMs` selects active typewriter time in a PNG capture. It keeps synthetic
+snapshot motion and face deformation, without hidden navigation hit targets.
+See `docs/architecture/cody-scenes.md` for ownership and pending validation.
 
 The debug view can show stable point names attached to evaluated positions,
 the current contour and the undeformed reference outline. Name filters keep

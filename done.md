@@ -1,5 +1,18 @@
 # Done
 
+## Cody first-boot scene implementation (2026-10-03)
+
+- [x] Implement the atlas page 05 / screen 04 greeting through a reusable
+  standalone cloud/title/optional-content compositor. Keep the existing
+  snapshot response and pearl face warp; move Cody ten pixels higher, use
+  scale 130, and reveal `Hi, I'm Cody!` in a 70 ms-per-character typewriter.
+  Schedule it two seconds after the Ready frame with a logged, strictly read
+  NVS first-boot key and an explicit development override enabled by default.
+  Pack printable ASCII coverage into 19,000 flash bytes without runtime font
+  decoding, per-frame allocation or another framebuffer. Add the shared
+  Windows preview route and document ownership/failure rules. Source asset
+  generation and static source review only; runtime/size checks remain open.
+
 ## Cody rendering checkpoint (2026-10-03)
 
 - [x] Port the approved concept-08 pearl texture to native scanline deformation,

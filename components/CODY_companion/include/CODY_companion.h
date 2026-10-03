@@ -18,8 +18,9 @@ esp_err_t CODY_companion_boot_midpoint(void);
 
 // Render the ready face synchronously after every mandatory boot stage and watchdog cleanup.
 // Subsequent rotation/wake redraws retain the completed phase; failures remain terminal.
+// Effective first boot schedules the greeting two seconds after this completed frame.
 esp_err_t CODY_companion_boot_completed(void);
-// Enter the authored animation demo after the ready frame if autostart is enabled.
+// Request the optional authored demo; the scheduled first-boot greeting has priority.
 esp_err_t CODY_companion_demo_start(void);
 
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.

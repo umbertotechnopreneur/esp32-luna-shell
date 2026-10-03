@@ -31,7 +31,7 @@ param(
     [string]$ToolsPath,
     [string]$PythonExe,
     [ValidateRange(0,8)][int]$Jobs = 0,
-    [ValidateSet('rig','boot-sleep','boot-waking','boot-ready')][string]$Screen = 'rig',
+    [ValidateSet('rig','greeting','boot-sleep','boot-waking','boot-ready')][string]$Screen = 'rig',
     [ValidateSet(0,90,180,270)][int]$Rotation = 0,
     [ValidateRange(0,2147483647)][int]$AtMs = 1000,
     [switch]$SafeGuide,
