@@ -118,6 +118,10 @@ endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
     idf_component_optional_requires(PUBLIC esp_driver_i2s esp_codec_dev)
 endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+    # The catalog admits FAT/SD before Kconfig; expose the BSP's SD types publicly.
+    idf_component_optional_requires(PUBLIC esp_driver_sdmmc fatfs)
+endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH)
     # bsp/touch.h exposes the core driver's handle. Use the admitted managed
     # component names: optional_requires compares against BUILD_COMPONENTS exactly.

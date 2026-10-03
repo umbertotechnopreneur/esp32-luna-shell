@@ -60,6 +60,7 @@
         "espressif__esp_codec_dev",
         "waveshare__qmi8658",
         "cube32esp__xpowerslib",
+        "fatfs",
         "esp_http_server"
       ],
       "component_dirs": [
@@ -359,6 +360,7 @@
         "espressif__esp_codec_dev",
         "waveshare__qmi8658",
         "cube32esp__xpowerslib",
+        "fatfs",
         "espressif__esp-sr"
       ],
       "component_dirs": [
