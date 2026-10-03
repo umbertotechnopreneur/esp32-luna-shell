@@ -6,6 +6,17 @@ authorization.
 
 ## Current integration
 
+- [ ] Integrate the Welcome/OOBE agent's screens with the checkpointed async
+  pairing controller: routes 05/06/06-bis/07/08/09, copied session QR, reusable
+  semantic action button, and navigation only after confirmed Cancelled.
+  Contract: `docs/architecture/cody-pairing-integration.md`.
+- [ ] Obtain explicit authorization for the final connectivity validation
+  package and device checks. No configure/build/size, tests, simulator checks,
+  dependency resolution, validation scans or hardware operation ran for this
+  implementation. Cover first pairing, failure reasons, Retry/new QR, Back,
+  Cancel while starting/connecting, timeout, DHCP, telemetry handoff, standby,
+  persisted-profile reboot and opt-in authenticated HTTP over the actual LAN.
+
 - [ ] Identify the intermittent display/touch stop reported after the pearl
   release. The first capture began after failure and shows DISPLAY/TOUCH in
   error while the MCU continues snapshots. The triggering error is absent.

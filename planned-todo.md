@@ -5,8 +5,9 @@ priority. Promote an item to `TODO.md` when it becomes active.
 
 ## Cody product increments
 
-- [ ] Add English circular OOBE with real provisioning QR, explicit failure
-  reasons, saved preferences and optional user-selected Cody gradient color.
+- [ ] Finish English circular OOBE preferences and optional user-selected Cody
+  gradient color. Pairing backend and the UI integration contract are now
+  active in `TODO.md`; presentation is owned by the Welcome/OOBE agent.
   Blue is the initial accent. Keep manual 0/180 orientation, auto-rotation,
   shake-to-wake and sound preferences separate and validity-aware.
 - [ ] After the local cloud-rig PoC, select antialiasing/tessellation and

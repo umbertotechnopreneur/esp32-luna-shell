@@ -1,0 +1,3 @@
+# Cody's HTTP/Wi-Fi increment, layered after the original local-rig profile.
+CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=y
+CONFIG_LUNASHELL_PROVISIONING_START_ON_BOOT=n

@@ -1,5 +1,20 @@
 # Done
 
+## Connectivity implementation checkpoint (2026-10-04)
+
+- [x] Implement shared Wi-Fi credential-event adoption, single retry ownership,
+  explicit telemetry/provisioning handoff, per-attempt proof of possession,
+  copied QR/session identities and canonical lifecycle publication in Luna,
+  then carry focused commits to Cody's `feat/http-and-wifi` worktree.
+- [x] Implement an internal-stack async Start/Retry/Cancel controller, bounded
+  session timeout, power-state interruption and Online gated by successful
+  provisioning plus a valid acquired Wi-Fi IP. Retain cleanup failures.
+- [x] Admit the existing HTTP diagnostics service in Cody's profile, keep it
+  opt-in with a persisted absent-key default of false, and initialize the
+  pairing controller without automatic first-boot advertising. Provide the
+  OOBE integration contract. Source review only; validation and UI/hardware
+  evidence remain open in `TODO.md`.
+
 ## Cody rendering checkpoint (2026-10-03)
 
 - [x] Port the approved concept-08 pearl texture to native scanline deformation,

@@ -86,6 +86,16 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Display, rendering, and radios
 
+- `network_provisioning` 1.2.4 emits SET before its Wi-Fi configuration write;
+  CRED_RECV follows the accepted write and delayed connect timer. Adopt Wi-Fi
+  connection intent from CRED_RECV, so first-boot GOT_IP is not discarded.
+  Leave provisioning retries to its manager and suppress the station owner's
+  reconnect timer until ownership is released. Never issue a second connect.
+- Request admission is not pairing completion. Keep Start/Retry/Cancel away
+  from the display worker, bind requests and QR copies to typed attempt/session
+  identities, and navigate after observed cleanup. A stored SSID or credential
+  event does not prove a current Wi-Fi lease.
+
 - Display/touch selection and the Luna GUI are separate compile-time owners.
   UI-off consumers keep the mandatory physical devices through the standalone
   BSP path. Their frame and input lifecycle must use hardware APIs rather than
