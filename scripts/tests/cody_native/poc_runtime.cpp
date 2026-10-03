@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <initializer_list>
 #include <vector>
+#include <algorithm>
+#include "CODY2D_paths.hpp"
 
 namespace {
 // condition: Contract that must hold for the actual portable firmware implementation.
@@ -61,6 +63,87 @@ void benchmark_contracts()
     collector.reset();
     require(collector.summarize(CODY::OverlayMode::Artwork, 250, output) == ESP_ERR_NOT_FOUND,
             "explicit reset must clear retained observations");
+}
+
+// surface: Guarded reference destination with ordinary RGB565 pixels.
+// first_row: Canvas origin of this reference tile.
+// from: Segment start, including deliberately off-screen endpoints.
+// to: Segment end; identical endpoints exercise round markers.
+// width: Positive stroke diameter shared with the production raster.
+// color: Exact RGB565 output value.
+void reference_stroke(CODY2D::Surface surface, uint16_t first_row,
+                      CODY2D::Vec2 from, CODY2D::Vec2 to, float width, uint16_t color)
+{
+    // Keep the previous exhaustive algorithm independent of the optimized
+    // scanline bounds. Comparing two calls to the new raster would prove little.
+    const float radius = width * .5f;
+    const float dx = to.x - from.x;
+    const float dy = to.y - from.y;
+    const float squared_length = dx * dx + dy * dy;
+    const int left = std::max(0, static_cast<int>(std::floor(std::min(from.x, to.x) - radius)));
+    const int right = std::min(static_cast<int>(surface.width) - 1,
+        static_cast<int>(std::ceil(std::max(from.x, to.x) + radius)));
+    const int top = std::max(static_cast<int>(first_row),
+        static_cast<int>(std::floor(std::min(from.y, to.y) - radius)));
+    const int bottom = std::min(static_cast<int>(first_row + surface.height) - 1,
+        static_cast<int>(std::ceil(std::max(from.y, to.y) + radius)));
+    for (int row = top; row <= bottom; ++row) {
+        for (int column = left; column <= right; ++column) {
+            const float px = column + .5f - from.x;
+            const float py = row + .5f - from.y;
+            const float position = squared_length == 0 ? 0 :
+                std::max(0.f, std::min(1.f, (px * dx + py * dy) / squared_length));
+            const float ex = px - position * dx;
+            const float ey = py - position * dy;
+            if (ex * ex + ey * ey <= radius * radius) {
+                surface.pixels[(row - first_row) * surface.stride + column] = color;
+            }
+        }
+    }
+}
+
+// Compare exact stroke pixels, round caps, row padding and guards across tiles.
+// Exceptions: std::bad_alloc if a host fixture allocation fails.
+void stroke_contracts()
+{
+    constexpr uint16_t size = 466;
+    constexpr uint16_t stride = size + 3;
+    struct Segment { CODY2D::Vec2 from; CODY2D::Vec2 to; };
+    const Segment segments[] = {
+        {{12.25f, 20.5f}, {451.75f, 445.25f}},
+        {{451.75f, 20.5f}, {12.25f, 445.25f}},
+        {{12.25f, 445.25f}, {451.75f, 20.5f}},
+        {{451.75f, 445.25f}, {12.25f, 20.5f}},
+        {{0.f, 233.f}, {466.f, 233.f}},
+        {{233.f, 0.f}, {233.f, 466.f}},
+        {{-.25f, -.75f}, {465.5f, 465.5f}},
+        {{-2048.f, 210.f}, {2048.f, 212.f}},
+        {{210.f, -2048.f}, {212.f, 2048.f}},
+        {{-2048.f, -2048.f}, {2048.f, 2048.f}},
+        {{1.f, 233.f}, {465.f, 233.0005f}},
+        {{1.f, 233.f}, {465.f, 233.0015f}},
+        {{232.5f, 233.5f}, {232.5f, 233.5f}},
+        {{-5.f, -5.f}, {-2.f, -2.f}},
+    };
+    for (const Segment &segment : segments) {
+        for (float width : {.001f, .5f, 1.f, 2.75f, 7.f, CODY2D::kMaxStrokeWidth}) {
+            for (uint16_t rows : {uint16_t{8}, uint16_t{64}}) {
+                std::vector<uint16_t> expected(size * stride + 2, 0x35ad);
+                auto actual = expected;
+                for (uint16_t first = 0; first < size; first += rows) {
+                    const uint16_t height = std::min<uint16_t>(rows, size - first);
+                    const CODY2D::Surface reference{expected.data() + 1 + first * stride,
+                        size, height, stride, static_cast<uint32_t>(height * stride)};
+                    const CODY2D::Surface optimized{actual.data() + 1 + first * stride,
+                        size, height, stride, static_cast<uint32_t>(height * stride)};
+                    reference_stroke(reference, first, segment.from, segment.to, width, 0xffff);
+                    require(CODY2D::stroke_rows(optimized, first, segment.from, segment.to,
+                        width, 0xffff) == ESP_OK, "optimized stroke rejected valid geometry");
+                }
+                require(actual == expected, "scanline stroke changed reference pixels or guards");
+            }
+        }
+    }
 }
 
 // Check every authored phase boundary using the same generated settings used on the device.
@@ -176,6 +259,7 @@ int main()
     benchmark_contracts();
     demo_contracts();
     damage_contracts();
+    stroke_contracts();
     require(CODY::validate_response_config(CODY::Data::response) == ESP_OK, "generated response rejected");
     auto state = CODY::make_response_state(CODY::Data::response);
     CODY::RigScene scene;

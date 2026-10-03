@@ -153,6 +153,7 @@ struct FrameTimings {
     int64_t started_us = 0;
     int64_t geometry_us = 0;
     int64_t raster_us = 0;
+    int64_t reuse_us = 0;
     int64_t transfer_us = 0;
     uint32_t submitted_pixels = 0;
     uint16_t dirty_rectangles = 0;
@@ -366,6 +367,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
 }
 
 struct CompletedFrameLog {
+    CODY::DebugReadout readout{};
     bool rig = false;
     CODY::FrameDistribution distribution{};
     uint32_t frame_count = 0;
@@ -480,6 +482,10 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         timings.dirty_rectangles, static_cast<unsigned long>(timings.submitted_pixels),
         static_cast<unsigned long>(kFramePixels), kStripRows,
         static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)));
+    ESP_LOGI(kTag, "Render draw=%ldus reuse=%ldus transfer=%ldus %s %s",
+        static_cast<long>(timings.raster_us - timings.reuse_us),
+        static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
+        log.readout.frame_rate, log.readout.processors);
 }
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
@@ -574,6 +580,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         }
         CODY::DamageRect damage;
         CODY2D::Surface packed;
+        const int64_t reuse_started_us = esp_timer_get_time();
         if (result == ESP_OK) {
             result = CODY::measure_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, compare_previous, damage);
@@ -583,6 +590,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
                 frame_cache, damage, packed);
         }
         // Raster cost includes cache comparison and transfer-payload packing.
+        timings.reuse_us += esp_timer_get_time() - reuse_started_us;
         timings.raster_us += esp_timer_get_time() - raster_started_us;
         if (result == ESP_OK && !damage.empty()) {
             const int64_t transfer_started_us = esp_timer_get_time();
@@ -615,6 +623,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     }
     s_frame_cache_valid = result == ESP_OK;
     CompletedFrameLog log{};
+    log.readout = debug_readout;
     bool should_log = false;
     if (result == ESP_OK) {
         const esp_err_t statistics_error = record_completed_frame(timings, log, should_log);

@@ -106,15 +106,18 @@ esp_err_t prepare_damage_rows(CODY2D::Surface tile, uint16_t first_row,
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    // Preserve the ordinary full-width rows before packing overwrites the tile.
-    // A transfer failure invalidates the entire cache in the frame owner.
-    for (uint16_t row = 0; row < tile.height; ++row) {
-        std::memcpy(previous.pixels + (first_row + row) * previous.stride,
-                    tile.pixels + row * tile.stride, tile.width * sizeof(uint16_t));
-    }
     const uint16_t width = damage.right - damage.left;
     const uint16_t height = damage.bottom - damage.top;
     const uint16_t local_top = damage.top - first_row;
+    // measure_damage_rows already proved every pixel outside these bounds
+    // unchanged. Preserve only this region before packing overwrites the tile.
+    // An invalid cache produces full-tile bounds; a failed transfer keeps the
+    // whole candidate cache invalid in the frame owner.
+    for (uint16_t row = 0; row < height; ++row) {
+        std::memcpy(previous.pixels + (damage.top + row) * previous.stride + damage.left,
+                    tile.pixels + (local_top + row) * tile.stride + damage.left,
+                    width * sizeof(uint16_t));
+    }
     for (uint16_t row = 0; row < height; ++row) {
         // Destination precedes this source and every future row. memmove also
         // handles the first row's overlapping left-edge crop safely.

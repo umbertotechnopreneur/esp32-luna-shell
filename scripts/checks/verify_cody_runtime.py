@@ -158,7 +158,8 @@ def main(argv=None):
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
                        "exact original cue duration", "256-color palette", "authored demo boundaries",
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
-                       "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity"])
+                       "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",
+                       "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

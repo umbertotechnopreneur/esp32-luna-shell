@@ -122,8 +122,29 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
     const float dx = to.x - from.x;
     const float dy = to.y - from.y;
     const float squared_length = dx*dx + dy*dy;
+    // The old box visits every pixel between diagonal endpoints. Bound each
+    // scanline by the infinite stroke band instead; the original segment test
+    // below still supplies the exact round caps and pixel coverage.
+    const bool bound_scanline = std::abs(dy) > .001f;
+    const float band_half_width = bound_scanline ?
+        radius * std::sqrt(squared_length) / std::abs(dy) : 0.f;
     for (int row = top; row <= bottom; ++row) {
-        for (int column = left; column <= right; ++column) {
+        int scan_left = left;
+        int scan_right = right;
+        if (bound_scanline) {
+            const float center = from.x + (row + .5f - from.y) * dx / dy;
+            // One extra pixel conservatively covers floating-point rounding.
+            // Clip floats before conversion: nearly horizontal lines can have
+            // a very wide band even though their canvas bounds remain small.
+            const float band_left = center - band_half_width - 1.f;
+            const float band_right = center + band_half_width + 1.f;
+            if (band_right < left || band_left > right) {
+                continue;
+            }
+            scan_left = static_cast<int>(std::floor(std::max(static_cast<float>(left), band_left)));
+            scan_right = static_cast<int>(std::ceil(std::min(static_cast<float>(right), band_right)));
+        }
+        for (int column = scan_left; column <= scan_right; ++column) {
             const float px = column + .5f - from.x;
             const float py = row + .5f - from.y;
             const float position = squared_length == 0 ? 0 :
