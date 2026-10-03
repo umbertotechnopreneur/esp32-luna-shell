@@ -157,4 +157,19 @@ The subsequent `device.ps1 reset` attempt also failed before opening COM10,
 although Windows listed the port as present. The PnP restart was denied as
 described above; neither attempt reset the board.
 
+## Subsequent device checkpoint (2026-10-03)
+
+USB recovered and the newer standalone firmware was built/flashed successfully.
+The user confirmed continuous animation and tap response. Serial captures record
+the three boot artwork transfers, both successful codec cue writes, live IMU/audio
+observations and absent battery with charge data explicitly unavailable. This
+supersedes the earlier USB-blocked state above, not its historical evidence.
+
+The initial working animation showed about 11 FPS without the skeleton. Further
+cache/DMA/stroke optimization and CPU timing evidence is maintained in
+[Cody rendering performance](cody-render-performance.md). This does not establish
+audio quality, cardinal touch/rotation stress, battery interaction or long-run
+stability. The integrated hardware builds still contain the parallel review's
+unstaged changes; focused performance commits preserve that work separately.
+
 Copyright umbertogiacobbi.biz 2026 - confidential

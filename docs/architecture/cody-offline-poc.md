@@ -2,8 +2,10 @@
 
 Copyright umbertogiacobbi.biz 2026 - confidential
 
-This checkpoint prepares the next hardware test. It does not establish device
-fluidity, audio quality, DMA reliability or touch behavior on the board.
+The PoC has now been built, flashed and observed on the board. The user confirmed
+continuous animation and tap response. FPS/CPU optimization remains under measured
+review; audio quality, all physical rotations and long-run DMA reliability are
+not established by that confirmation. See [rendering evidence](cody-render-performance.md).
 
 ## Configuration and startup
 
@@ -122,10 +124,11 @@ absent charge, idle yawn and interruption, comparing native and Python results.
 This does not compile the ESP-IDF driver integration or validate a physical
 microphone, speaker, SD card, touch panel, USB recovery or firmware stack margin.
 
-Pending on the board: new firmware compile/flash, all three boot artworks and two
-audio cues, continuous demo, repeated touch release, 0/90/180/270 mapping, measured
-frame distributions with overlays off/on, stack high-water marks, radio headroom,
-and real battery/microphone/playback responsiveness.
+Firmware build/flash, three startup transfers, two successful codec cue writes,
+automatic demo and frame distributions have serial evidence. The user confirmed
+animation and taps. Pending physical checks include acoustic quality, repeated
+touch/standby/0/90/180/270 mapping, sustained performance with overlays off/on,
+stack margins, network coexistence and real battery/microphone responsiveness.
 
 ## Host evidence (2026-10-03)
 
@@ -148,8 +151,9 @@ geometry and label assertions remain intact.
 Reports are under `artifacts/cody-poc/host-review.json`,
 `artifacts/checks/cody-native/report.json` and
 `artifacts/checks/cody-runtime/report.json`. No ESP-IDF configure/build/size,
-serial access, flash, SD access or physical hardware validation ran in this
-offline checkpoint. Hardware frame costs and fluidity remain unmeasured.
+serial access, flash, SD access or physical hardware validation ran in that
+offline checkpoint. Subsequent narrow hardware evidence is recorded in
+`cody-render-performance.md`; the broader final validation package remains deferred.
 
 Checkpoint commits keep the pre-existing display/DMA/module refactors separate.
 The portable raster check also exercised that pending work in the integrated

@@ -6,23 +6,26 @@ authorization.
 
 ## Current integration
 
-- [ ] Validate the new Cody offline PoC on explicitly authorized firmware/device
-  work: compile/flash its automatic demo, two original boot cues, snapshot-backed
-  microphone/playback response, battery validity, 20-second idle yawn and eye-tap
-  protection/annoyance. Measure complete-frame stage distributions, overlay cost,
-  stack, radios and physical touch at all cardinal rotations. The authorized
-  host checks passed; ESP-IDF integration, sound quality and device fluidity remain
-  unverified. Evidence: `docs/architecture/cody-offline-poc.md`.
+- [ ] Reduce Cody animation CPU usage and meet the sustained frame budget in
+  both artwork and skeleton views. Current physical evidence is about 27 FPS
+  without lines and CPU1 around 80%; obtain a logged static-route CPU baseline
+  before attributing the remaining work to hardware services. Latest raster
+  source still needs its own physical measurements. Evidence:
+  `docs/architecture/cody-render-performance.md`.
 
-- [ ] Finish the Cody device debug checkpoint when USB access is restored:
-  flash the compiled Luna-transport/IRQ candidate, capture all three boot
-  checkpoints, then verify repeated press/release, Back, overlay toggle,
-  continuous breathing/contour/motion response and the white FPS/CPU readout.
-  Check physical 0/90/180/270 touch alignment, frame distributions and stack.
-  The previous flashed image completed boot and measured CPU correctly but
-  stopped on invalid touch data; the newest candidate has not been flashed.
-  Narrow Cody build/flash/capture work was authorized; broader host/simulator
-  validation and the Luna ports remain deferred. Details and evidence:
+- [ ] Finish the Cody offline PoC's physical checks: acoustic quality of both
+  boot cues, real charge/microphone response, repeated eye taps, standby and
+  0/90/180/270 input alignment, sustained FPS/CPU distributions, stack margins
+  and Wi-Fi/BLE coexistence under load. Compile/flash, startup transfers, cue
+  writes and continuous animation/taps now have narrow hardware evidence;
+  host response/raster contracts passed. Evidence:
+  `docs/architecture/cody-render-performance.md`.
+
+- [ ] Complete repeated physical Back/overlay/press-release checks, rotation
+  and power transitions for the restored Luna touch/IRQ path. USB access,
+  flash and continuous demo/tap response were recovered and measured. The
+  older invalid-touch freeze remains historical evidence. Long-run stability
+  and hardware validation of the separate Luna ports remain open. Details:
   `docs/architecture/cody-device-debug.md`.
 
 - [ ] Validate real Cody snapshot cadence, board-axis signs, charge/microphone

@@ -1,5 +1,14 @@
 # Done
 
+## Cody rendering checkpoint (2026-10-03)
+
+- [x] Checkpoint shared bounded frame ownership separately from Cody rendering.
+  Rasterize in the frame-owned DMA slot, compare conservative old/new coverage,
+  retain exact pixel reference checks, and report individual layer durations.
+- [x] Record narrow physical evidence: artwork about 27 FPS with CPU1 around
+  80%; skeleton about 19-21 FPS. This is progress, not completion of the CPU
+  performance target. The newest stroke/fill candidate needs separate results.
+
 ## Cody measured diagnostics and shared input integration (2026-10-03)
 
 - [x] Add the white FPS/CPU1/CPU2 readout below the circular safe square,

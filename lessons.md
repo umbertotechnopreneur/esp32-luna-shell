@@ -176,3 +176,17 @@ not substitutes for authorized device validation. Open work belongs in
   below Task-WDT with explicit margin; a wedged call remains armed until reset.
 - A watchdog proves progress, not success. Fast repeated errors stay visible
   in component snapshots and logs rather than being reclassified as a hang.
+
+## Cody raster performance evidence (2026-10-03)
+
+- Measure complete frames and layer costs separately. Removing debug can raise
+  FPS while CPU usage stays high because more frames are drawn per second.
+- Reuse a proven idle DMA slot for native raster work only inside its owned
+  frame. Endian conversion consumes its pixels; redraw before native reuse.
+  A partial frame invalidates the entire comparison cache.
+- Conservative dirty candidates need both previous and current artwork bounds;
+  movement, shrinking and overlay changes must erase old pixels too.
+- Allocation degradation must not increase deferred touch storage unboundedly.
+  Poll by logical rows rather than once per possibly one-row DMA tile.
+- A user-reported static screen is not sufficient idle CPU evidence when the
+  capture still logs active frames. Confirm the route transition in the log.
