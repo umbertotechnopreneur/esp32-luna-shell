@@ -86,9 +86,16 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
         }
         const uint16_t *current_row = tile.pixels + row * tile.stride;
         const uint16_t *cached_row = previous.pixels + (first_row + row) * previous.stride;
-        // Find the first and last differences directly in RGB565 units. A
-        // byte-wise memcmp followed by these same scans reads the prefix twice.
+        // Skip equal blocks once, then locate the exact pixel only inside
+        // the first differing block. Unlike a whole-row precomparison this
+        // never rereads the entire equal prefix before searching its edge.
+        constexpr uint16_t block_pixels = 32;
+        constexpr size_t block_bytes = block_pixels * sizeof(uint16_t);
         uint16_t first_changed = candidate_left;
+        while (candidate_right - first_changed >= block_pixels &&
+               std::memcmp(current_row + first_changed, cached_row + first_changed, block_bytes) == 0) {
+            first_changed += block_pixels;
+        }
         while (first_changed < candidate_right && current_row[first_changed] == cached_row[first_changed]) {
             ++first_changed;
         }
@@ -96,6 +103,11 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
             continue;
         }
         uint16_t after_last_changed = candidate_right;
+        while (after_last_changed - first_changed > block_pixels &&
+               std::memcmp(current_row + after_last_changed - block_pixels,
+                           cached_row + after_last_changed - block_pixels, block_bytes) == 0) {
+            after_last_changed -= block_pixels;
+        }
         while (current_row[after_last_changed - 1U] == cached_row[after_last_changed - 1U]) {
             --after_last_changed;
         }

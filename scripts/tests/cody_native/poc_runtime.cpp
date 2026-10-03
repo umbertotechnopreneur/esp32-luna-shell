@@ -263,6 +263,30 @@ void damage_contracts()
     require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_SIZE,
             "candidate array overflow accepted");
 
+    // Exercise every block boundary and two-byte-aligned rows. One changed
+    // pixel must produce exactly its paired columns, including the final tail.
+    for (uint16_t changed_column = 0; changed_column <= 140; ++changed_column) {
+        uint16_t block_cache[142]{};
+        uint16_t block_tile[142]{};
+        block_cache[0] = block_tile[0] = 0x35ad;
+        block_cache[141] = block_tile[141] = 0x35ad;
+        if (changed_column < 140) {
+            block_tile[changed_column + 1] = 0xffff;
+        }
+        const CODY2D::Surface block_current{block_tile + 1, 140, 1, 140, 140};
+        const CODY2D::Surface block_previous{block_cache + 1, 140, 1, 140, 140};
+        const CODY::DamageRegions block_regions{{{0, 0, 140, 1}}, 1};
+        require(CODY::measure_damage_rows(block_current, 0, block_previous, true, block_regions, damage) == ESP_OK,
+            "block comparison rejected an aligned RGB565 row");
+        if (changed_column < 140) {
+            require(damage.left == (changed_column & ~1U) && damage.right == (changed_column | 1U) + 1 &&
+                    damage.top == 0 && damage.bottom == 1, "block comparison lost a boundary pixel");
+        } else {
+            require(damage.empty(), "equal block row generated damage");
+        }
+        require(block_tile[0] == 0x35ad && block_tile[141] == 0x35ad &&
+                block_cache[0] == 0x35ad && block_cache[141] == 0x35ad, "comparison overwrote row guards");
+    }
     constexpr uint16_t panel_width = 466;
     constexpr uint16_t panel_height = 466;
     constexpr uint32_t frame_pixels = static_cast<uint32_t>(panel_width) * panel_height;
@@ -317,6 +341,14 @@ void damage_contracts()
             const bool compare_previous = cache_valid && scenario != Scenario::Invalidate;
             for (uint16_t row = 0; row < panel_height; row += tile_rows) {
                 const uint16_t height = panel_height - row < tile_rows ? panel_height - row : tile_rows;
+                bool candidate_row = !compare_previous;
+                for (uint16_t index = 0; index < regions.count; ++index) {
+                    const auto &region = regions.rectangles[index];
+                    candidate_row |= !region.empty() && row < region.bottom && row + height > region.top;
+                }
+                if (!candidate_row) {
+                    continue; // Reference remains a full redraw; the candidate skips proven-static tiles.
+                }
                 const CODY2D::Surface rendered{rendered_tile.data(), panel_width, height, panel_width,
                     static_cast<uint32_t>(rendered_tile.size())};
                 require(CODY::draw_rig_rows(scene, rendered, row, current_debug, selected, nullptr, paused) == ESP_OK &&

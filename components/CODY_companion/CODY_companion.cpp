@@ -602,6 +602,20 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         static_cast<long>(timings.raster_profile.navigation_us));
 }
 
+// regions: Bounded candidates constructed from successful rig/HUD geometry above.
+// first_row: First logical row in this tile.
+// row_count: Actual owned tile height, including a shortened final tile.
+bool tile_intersects_candidates(const CODY::DamageRegions &regions, uint16_t first_row, uint16_t row_count)
+{
+    for (uint16_t index = 0; index < regions.count; ++index) {
+        const auto &region = regions.rectangles[index];
+        if (!region.empty() && first_row < region.bottom && first_row + row_count > region.top) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -738,9 +752,10 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         const uint16_t strip_rows = static_cast<uint16_t>(
             remaining_rows < timings.tile_rows ? remaining_rows : timings.tile_rows
         );
-        if (paused_readout_only && (row >= readout_bounds.bottom || row + strip_rows <= readout_bounds.top)) {
-            // Untouched geometry is already on the panel and in the native
-            // cache. Only the one-Hz HUD needs drawing while paused.
+        if (compare_previous && !tile_intersects_candidates(candidate_regions, row, strip_rows)) {
+            // The old and new footprints prove these rows cannot change.
+            // Keep both the already displayed pixels and native cache; this
+            // also avoids redrawing constant top controls every active frame.
             continue;
         }
         const CODY2D::Surface strip{
