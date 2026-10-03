@@ -173,3 +173,23 @@ rows is reported as insufficient capacity rather than sending an unaligned
 rectangle. No managed panel driver or Luna UI dependency is introduced.
 This corrects a transport-contract discrepancy; physical observation is still
 needed to establish whether it removes the reported artifacts.
+
+### Cream theme and paired-row device capture
+
+Candidate `17e6de0a` compiled and flashed successfully on COM10. Firmware size
+is 1,707,056 bytes; SHA256 is
+`9296722BFA33E0799614ABC22B9A7FE291F35153148D0265F4BE820C79C5476F`.
+It includes the scalar comparison restoration and paired Y damage, plus the
+user-requested cream/pale-blue animated cloud. Controls stay blue. Boot image
+assets are unchanged. Like previous candidates, this was an integrated build
+with the user's separate uncommitted work present; only owned changes were
+included in these checkpoint commits.
+
+The 90-second `poc-cream-paired-demo-20261003.log` contains 44 readouts, all in
+skeleton mode. Sample medians: 21.6 FPS, CPU1 79%, CPU2 0%; draw 17.774 ms,
+comparison 5.508 ms, packing 5.671 ms, conversion 2.161 ms, submission
+2.923 ms and sleeping DMA wait 8.599 ms. These are individual sampled-stage
+medians, not additive frame percentiles. CPU remains unresolved. No
+artwork-only transition was captured and artifact disappearance has not been
+visually confirmed. The user reported that the previous candidate's dirty
+pixels persisted in pause. No automated checks were run for these changes.
