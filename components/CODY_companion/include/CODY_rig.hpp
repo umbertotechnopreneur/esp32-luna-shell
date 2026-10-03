@@ -15,7 +15,7 @@ constexpr uint16_t kSubdivisions = 12;
 constexpr uint16_t kMaxVertices = 64 * kSubdivisions + kMaxPaths;
 // The implementation statically rejects authored tables that outgrow these arrays.
 constexpr uint16_t kRigDebugLinkCapacity = 21;
-constexpr uint16_t kRigDebugTangentCapacity = 88;
+constexpr uint16_t kRigDebugTangentCapacity = 118;
 // Domain values are always addressed by enum; integers are confined to table traversal.
 enum class FaceChannel : uint8_t {
     EyeLeft, EyeRight, BrowLeft, BrowRight, MouthOpen, Breath,
@@ -140,6 +140,7 @@ struct PathDefinition {
     float stroke;
     FaceChannel visible_channel;
     FaceChannel opacity_channel;
+    CODY2D::FillAntialiasing antialiasing = CODY2D::FillAntialiasing::Disabled;
 };
 
 struct EvaluatedPath {

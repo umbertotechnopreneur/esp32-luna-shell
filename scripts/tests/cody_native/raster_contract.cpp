@@ -55,6 +55,184 @@ void check_fill_contract()
     require(pixels == before, "rejected stroke preserves all pixels");
 }
 
+struct AnalyticRectangle {
+    double left;
+    double top;
+    double right;
+    double bottom;
+};
+
+// rectangle: Axis-aligned geometric region whose pixel intersection has an exact area.
+// column: Absolute canvas pixel x coordinate.
+// row: Absolute canvas pixel y coordinate.
+double rectangle_pixel_area(AnalyticRectangle rectangle, uint16_t column, uint16_t row)
+{
+    const double width = std::max(0., std::min(column + 1., rectangle.right) -
+                                     std::max(static_cast<double>(column), rectangle.left));
+    const double height = std::max(0., std::min(row + 1., rectangle.bottom) -
+                                      std::max(static_cast<double>(row), rectangle.top));
+    return width * height;
+}
+
+// source: Native RGB565 color of the independently specified analytic shape.
+// destination: Unmodified background pixel.
+// opacity: Authored source opacity before geometric coverage.
+// area: Exact fraction of the pixel occupied by the analytic region.
+uint16_t analytic_coverage_color(uint16_t source, uint16_t destination,
+                                 uint8_t opacity, double area)
+{
+    const long alpha = std::lround(opacity * area);
+    const double source_weight = alpha / 255.;
+    const double destination_weight = 1. - source_weight;
+    const long red = std::lround(((source >> 11) & 31) * source_weight +
+                                ((destination >> 11) & 31) * destination_weight);
+    const long green = std::lround(((source >> 5) & 63) * source_weight +
+                                  ((destination >> 5) & 63) * destination_weight);
+    const long blue = std::lround((source & 31) * source_weight +
+                                 (destination & 31) * destination_weight);
+    return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+}
+
+// No parameters: exact quarter-pixel rectangles expose coverage and gradient-cap mistakes.
+void check_coverage_rectangle_contract()
+{
+    constexpr uint16_t width = 8;
+    constexpr uint16_t height = 8;
+    constexpr uint16_t stride = 11;
+    constexpr uint16_t guard = 0x35ad;
+    constexpr uint16_t background = 0x001f;
+    constexpr size_t outer_guard = 4;
+    std::array<uint16_t, stride * height + 2 * outer_guard> pixels;
+    pixels.fill(guard);
+    const CODY2D::Surface surface{pixels.data() + outer_guard, width, height, stride,
+                                stride * height};
+    require(CODY2D::clear(surface, background) == ESP_OK, "coverage rectangle clear succeeds");
+    std::array<uint16_t, 256> palette{};
+    palette[10] = 0xf800;
+    palette[11] = 0x07e0;
+    const CODY2D::Vec2 rectangle[] = {{2.25f, 2.25f}, {5.5f, 2.25f},
+                                     {5.5f, 4.75f}, {2.25f, 4.75f}};
+    require(CODY2D::fill_path_rows(surface, 0, rectangle, 4, palette.data(), 10, 10,
+            128, 0, CODY2D::FillAntialiasing::Coverage) == ESP_OK,
+            "fractional coverage rectangle succeeds");
+    const AnalyticRectangle exact_rectangle{2.25, 2.25, 5.5, 4.75};
+    for (uint16_t row = 0; row < height; ++row) {
+        for (uint16_t column = 0; column < width; ++column) {
+            const double area = rectangle_pixel_area(exact_rectangle, column, row);
+            require(surface.pixels[row * stride + column] ==
+                    analytic_coverage_color(palette[10], background, 128, area),
+                    "coverage rectangle matches exact area including corners and opacity");
+        }
+        for (uint16_t column = width; column < stride; ++column) {
+            require(surface.pixels[row * stride + column] == guard,
+                    "coverage rectangle preserves padded row sentinels");
+        }
+    }
+    require(surface.pixels[3 * stride + 3] == 0x800f,
+            "full coverage retains the established 128-alpha RGB565 result");
+    for (size_t index = 0; index < outer_guard; ++index) {
+        require(pixels[index] == guard && pixels[pixels.size() - 1 - index] == guard,
+                "coverage rectangle preserves both outer sentinels");
+    }
+
+    require(CODY2D::clear(surface, background) == ESP_OK, "gradient cap clear succeeds");
+    const CODY2D::Vec2 shallow_caps[] = {{1.25f, 1.75f}, {4.75f, 1.75f},
+                                        {4.75f, 2.25f}, {1.25f, 2.25f}};
+    require(CODY2D::fill_path_rows(surface, 0, shallow_caps, 4, palette.data(), 10, 11,
+            255, 0, CODY2D::FillAntialiasing::Coverage) == ESP_OK,
+            "horizontal caps without a center-sample crossing remain visible");
+    require(surface.pixels[1 * stride + 2] == 0x4017,
+            "upper cap clamps gradient to the first slot with quarter coverage");
+    require(surface.pixels[2 * stride + 2] == 0x0217,
+            "lower cap clamps gradient to the last slot with quarter coverage");
+
+    const auto before = pixels;
+    require(CODY2D::fill_path_rows(surface, 0, rectangle, 4, palette.data(), 10, 10,
+            0, 0, static_cast<CODY2D::FillAntialiasing>(255)) == ESP_ERR_INVALID_ARG,
+            "unknown antialiasing policy is rejected even for transparent geometry");
+    require(pixels == before, "rejected antialiasing policy leaves all pixels untouched");
+}
+
+// No parameters: an analytic U shape exercises disjoint spans and exact odd tile seams.
+void check_coverage_concave_tiles_contract()
+{
+    constexpr uint16_t size = 16;
+    constexpr uint16_t background = 0x39e7;
+    constexpr uint16_t guard = 0x35ad;
+    constexpr size_t outer_guard = 8;
+    const CODY2D::Vec2 concave[] = {
+        {1.25f, 1.75f}, {13.75f, 1.75f}, {13.75f, 12.25f}, {9.5f, 12.25f},
+        {9.5f, 5.25f}, {5.5f, 5.25f}, {5.5f, 12.25f}, {1.25f, 12.25f},
+    };
+    const AnalyticRectangle pieces[] = {
+        {1.25, 1.75, 13.75, 5.25},
+        {1.25, 5.25, 5.5, 12.25},
+        {9.5, 5.25, 13.75, 12.25},
+    };
+    std::array<uint16_t, 256> palette{};
+    palette[10] = 0xf800;
+    palette[11] = 0x07e0;
+    constexpr uint16_t columns[] = {0, 1, 2, 5, 6, 9, 10, 13, 14, 16};
+    constexpr uint16_t rows[] = {0, 1, 2, 5, 6, 12, 13, 16};
+    for (const uint8_t opacity : {uint8_t{255}, uint8_t{173}}) {
+        std::array<uint16_t, size * size> reference;
+        reference.fill(background);
+        const CODY2D::Surface full_surface{reference.data(), size, size, size,
+                                          static_cast<uint32_t>(reference.size())};
+        require(CODY2D::fill_path_rows(full_surface, 0, concave, std::size(concave),
+                palette.data(), 10, 11, opacity, 0, CODY2D::FillAntialiasing::Coverage) == ESP_OK,
+                "concave full-surface coverage fill succeeds");
+        for (uint16_t row = 0; row < size; ++row) {
+            // The two-slot ramp switches at its geometric midpoint y = 7.
+            const uint16_t color = palette[row < 7 ? 10 : 11];
+            for (uint16_t column = 0; column < size; ++column) {
+                double exact_area = 0;
+                for (const AnalyticRectangle piece : pieces) {
+                    exact_area += rectangle_pixel_area(piece, column, row);
+                }
+                require(reference[row * size + column] ==
+                        analytic_coverage_color(color, background, opacity, exact_area),
+                        "concave spans composite each analytic pixel exactly once");
+            }
+        }
+
+        for (size_t tile_row = 1; tile_row < std::size(rows); ++tile_row) {
+            for (size_t tile_column = 1; tile_column < std::size(columns); ++tile_column) {
+                const uint16_t first_row = rows[tile_row - 1];
+                const uint16_t first_column = columns[tile_column - 1];
+                const uint16_t width = columns[tile_column] - first_column;
+                const uint16_t height = rows[tile_row] - first_row;
+                const uint16_t stride = width + 3;
+                const uint32_t capacity = stride * height;
+                std::array<uint16_t, (size + 3) * size + 2 * outer_guard> storage;
+                storage.fill(guard);
+                const CODY2D::Surface tile{storage.data() + outer_guard, width, height, stride,
+                                          capacity};
+                require(CODY2D::clear(tile, background) == ESP_OK, "coverage tile clear succeeds");
+                require(CODY2D::fill_path_rows(tile, first_row, concave, std::size(concave),
+                        palette.data(), 10, 11, opacity, first_column,
+                        CODY2D::FillAntialiasing::Coverage) == ESP_OK,
+                        "odd compact coverage tile succeeds");
+                for (uint16_t row = 0; row < height; ++row) {
+                    for (uint16_t column = 0; column < width; ++column) {
+                        require(tile.pixels[row * stride + column] ==
+                                reference[(first_row + row) * size + first_column + column],
+                                "coverage is identical across vertical and horizontal tile seams");
+                    }
+                    for (uint16_t column = width; column < stride; ++column) {
+                        require(tile.pixels[row * stride + column] == guard,
+                                "coverage compact tiles preserve padded row sentinels");
+                    }
+                }
+                for (size_t index = 0; index < outer_guard; ++index) {
+                    require(storage[index] == guard && storage[outer_guard + capacity + index] == guard,
+                            "coverage compact tiles preserve both outer sentinels");
+                }
+            }
+        }
+    }
+}
+
 // scene: One immutable evaluated frame, reused by all destination partitions.
 // strip_rows: Partition size, including sizes that leave an incomplete final strip.
 // debug: Whether bone/point overlays and navigation are included.
@@ -316,11 +494,13 @@ void check_rig_contract()
 }
 }  // namespace
 
-// Host-only portable contracts; this executable never touches a driver or serial port.
+// No parameters: host-only portable contracts never touch a driver or serial port.
 int main()
 {
     try {
         check_fill_contract();
+        check_coverage_rectangle_contract();
+        check_coverage_concave_tiles_contract();
         check_rig_contract();
         check_compact_raster_contract();
         check_dirty_plan_contract();

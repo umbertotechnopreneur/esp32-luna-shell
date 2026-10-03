@@ -73,6 +73,14 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
 
 ## Sensor and runtime data
 
+- The canonical `DeviceSnapshotService` snapshot is the only sensor-data source
+  for Cody, UI, animations and other consumers. Always read its published
+  values, validity/health, real errors and original sample timestamps; never
+  perform direct sensor, BSP or I2C reads from a consumer, including temporary
+  diagnostics, animation shortcuts and freshness fallbacks.
+- Only the hardware acquisition owner that publishes the canonical snapshot
+  may read sensors. If a consumer needs another field or a faster cadence,
+  extend that snapshot owner explicitly instead of opening a second read path.
 - Publish a measurement only after a successful hardware read.
 - Never manufacture, interpolate, zero-fill, or reuse a stale value as if it
   were a current sensor reading.

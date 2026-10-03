@@ -1,6 +1,7 @@
 # Cody identity, entities, normalized rig and indexed style.
 # Point offsets are relative to their parent anchor; curve handles follow their knots.
-# Cloud paint uses warm cream to pale sky blue; navigation retains its blue ramp.
+# Cloud paint keeps a warm ivory crown and a cool blue-grey underside.
+# Rounded lobe undersides carry cool depth beneath warm crowns; the face stays front-facing.
 schema: cody.rig.v2
 character:
   id: cody
@@ -12,10 +13,19 @@ style:
   paints:
     cloud:
     - cloud.level.00
+    - cloud.level.31
+    cloud.shadow:
+    - cloud.level.24
+    - cloud.level.31
+    cloud.fold.warm:
+    - cloud.shadow.level.00
+    - cloud.fold.cool.level.07
+    cloud.fold.cool:
+    - cloud.level.32
     - cloud.level.63
     cheek:
-    - coral.level.11
-    - coral.level.11
+    - coral.level.00
+    - coral.level.00
     ink:
     - fixed.ink
     - fixed.ink
@@ -55,6 +65,26 @@ entities:
     anchor: center
     paths:
     - body
+  body.shadow.lower:
+    label: Lower Cloud Relief
+    anchor: lobe.belly
+    paths:
+    - body.shadow.lower
+  body.shadow.crown:
+    label: Crown Cloud Volume
+    anchor: lobe.crown
+    paths:
+    - body.shadow.crown
+  body.shadow.left:
+    label: Left Cloud Volume
+    anchor: lobe.upper_left
+    paths:
+    - body.shadow.left
+  body.shadow.right:
+    label: Right Cloud Volume
+    anchor: lobe.shoulder
+    paths:
+    - body.shadow.right
   cheek.left:
     label: Cheek Left
     anchor: cheek.left
@@ -187,16 +217,17 @@ response:
       x: {axis: x, sign: 1}
       y: {axis: y, sign: 1}
       z: {axis: z, sign: 1}
-    sensitivity: 1
-    baseline_seconds: 0.7
+    # Small real IMU impulses drive a soft, underdamped response; excursion limits stay bounded.
+    sensitivity: 3.2
+    baseline_seconds: 1
     sample_timeout_seconds: 0.75
     # Translation is a fraction of the resting body scale; Z changes scale only.
-    translation_gain: 0.028
+    translation_gain: 0.045
     translation_limit: 0.14
-    depth_gain: 0.005
+    depth_gain: 0.009
     depth_limit: 0.05
-    spring_hz: 2.8
-    damping_ratio: 0.78
+    spring_hz: 2
+    damping_ratio: 0.32
     stress_reference_mps2: 5
   power:
     source: power.charge
@@ -204,8 +235,8 @@ response:
     sample_timeout_seconds: 8
     fatigue_curve: 1.6
   state:
-    stress_attack_seconds: 0.18
-    stress_release_seconds: 2.8
+    stress_attack_seconds: 0.06
+    stress_release_seconds: 1.4
     fatigue_attack_seconds: 1.6
     fatigue_release_seconds: 3
   expression:
@@ -214,8 +245,8 @@ response:
     fatigue_cheek_fade: 0.35
     stress_mouth_open: 0.2
     stress_mouth_narrowing: 0.15
-    stress_wave_gain: 0.5
-    stress_wave_speed_gain: 0.4
+    stress_wave_gain: 0.95
+    stress_wave_speed_gain: 0.7
     fatigue_wave_slowdown: 0.6
     fatigue_fullness: 0.1
     base_breath_hz: 0.25
@@ -246,7 +277,9 @@ expression_presets:
 # Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
 contour:
   path: body
-  transition_seconds: 0.35
+  # Surface paint shares the contour motion; facial points remain independent.
+  surface_paths: [body.shadow.lower, body.shadow.crown, body.shadow.left, body.shadow.right]
+  transition_seconds: 0.16
   controls:
   - {name: fullness, label: Fullness, minimum: -1, maximum: 1, default: 0}
   - {name: amplitude, label: Wave amplitude, minimum: 0, maximum: 1, default: 0.35}
@@ -1717,6 +1750,279 @@ points:
   delta:
   - 0
   - 0.055
+# Broad rounded volumes carry light on top and blue-grey shade underneath.
+# They follow their named lobe as a unit, leaving the central eyes and mouth clear.
+# The lower region shares the main body ramp rather than adding a parallel stripe.
+- name: body.shadow.lower.left_tip
+  position: [0.2, 0.225]
+  parent: lobe.left
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.left_tip.in
+  position: [-0.1, 0.08]
+  parent: body.shadow.lower.left_tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.left_tip.out
+  position: [0.5, 0.155]
+  parent: body.shadow.lower.left_tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_tip
+  position: [-0.22, 0.1]
+  parent: lobe.right
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_tip.in
+  position: [-0.48, 0.15]
+  parent: body.shadow.lower.right_tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_tip.out
+  position: [-0.01, 0.14]
+  parent: body.shadow.lower.right_tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_base
+  position: [-0.00318, -0.00282]
+  parent: lobe.lower_right
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_base.in
+  position: [0.2485, 0.07952]
+  parent: body.shadow.lower.right_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.right_base.out
+  position: [-0.00994, 0.15904]
+  parent: body.shadow.lower.right_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.belly_base
+  position: [-0.00174, -0.00366]
+  parent: lobe.foot_right
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.belly_base.in
+  position: [0.07952, 0.07952]
+  parent: body.shadow.lower.belly_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.belly_base.out
+  position: [-0.1988, -0.03976]
+  parent: body.shadow.lower.belly_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.left_base
+  position: [0.00228, -0.00264]
+  parent: lobe.belly
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.left_base.in
+  position: [0.16898, 0.16898]
+  parent: body.shadow.lower.left_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.left_base.out
+  position: [-0.11928, 0.16898]
+  parent: body.shadow.lower.left_base
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.foot_left
+  position: [0.00378, -0.003]
+  parent: lobe.foot_left
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.foot_left.in
+  position: [-0.01988, 0.16898]
+  parent: body.shadow.lower.foot_left
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.lower.foot_left.out
+  position: [-0.07378, -0.012]
+  parent: body.shadow.lower.foot_left
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.tip
+  position: [-0.12, 0.09]
+  parent: lobe.crown
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.tip.in
+  position: [-0.21, 0]
+  parent: body.shadow.crown.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.tip.out
+  position: [0.21, -0.01]
+  parent: body.shadow.crown.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.belly
+  position: [0.23, 0.33]
+  parent: lobe.crown
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.belly.in
+  position: [0.02, -0.17]
+  parent: body.shadow.crown.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.belly.out
+  position: [-0.09, 0.19]
+  parent: body.shadow.crown.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.inner
+  position: [-0.43, 0.34]
+  parent: lobe.crown
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.inner.in
+  position: [0.05, 0.16]
+  parent: body.shadow.crown.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.crown.inner.out
+  position: [-0.05, -0.15]
+  parent: body.shadow.crown.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.tip
+  position: [-0.15, 0.13]
+  parent: lobe.upper_left
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.tip.in
+  position: [-0.19, 0.02]
+  parent: body.shadow.left.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.tip.out
+  position: [0.22, -0.01]
+  parent: body.shadow.left.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.belly
+  position: [0.07, 0.515]
+  parent: lobe.upper_left
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.belly.in
+  position: [0.05, -0.135]
+  parent: body.shadow.left.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.belly.out
+  position: [-0.15, 0.13]
+  parent: body.shadow.left.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.inner
+  position: [-0.39, 0.5]
+  parent: lobe.upper_left
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.inner.in
+  position: [0.02, 0.11]
+  parent: body.shadow.left.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.left.inner.out
+  position: [-0.05, -0.12]
+  parent: body.shadow.left.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.tip
+  position: [0.02, 0.115]
+  parent: lobe.shoulder
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.tip.in
+  position: [-0.21, 0.09]
+  parent: body.shadow.right.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.tip.out
+  position: [0.17, 0.03]
+  parent: body.shadow.right.tip
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.belly
+  position: [0.2, 0.47]
+  parent: lobe.shoulder
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.belly.in
+  position: [0.08, -0.13]
+  parent: body.shadow.right.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.belly.out
+  position: [-0.09, 0.17]
+  parent: body.shadow.right.belly
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.inner
+  position: [-0.12, 0.45]
+  parent: lobe.shoulder
+  role: knot
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.inner.in
+  position: [-0.04, 0.17]
+  parent: body.shadow.right.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
+- name: body.shadow.right.inner.out
+  position: [-0.09, -0.1]
+  parent: body.shadow.right.inner
+  role: handle
+  channel: null
+  delta: [0, 0]
 curves:
 - name: body.curve.0
   points:
@@ -1982,10 +2288,41 @@ curves:
   - mouth.p7
   - mouth.p8
   - mouth.p0
+- name: body.shadow.lower.right_tip
+  points: [body.shadow.lower.left_tip, body.shadow.lower.left_tip.out, body.shadow.lower.right_tip.in, body.shadow.lower.right_tip]
+- name: body.shadow.lower.right_base
+  points: [body.shadow.lower.right_tip, body.shadow.lower.right_tip.out, body.shadow.lower.right_base.in, body.shadow.lower.right_base]
+- name: body.shadow.lower.belly_base
+  points: [body.shadow.lower.right_base, body.shadow.lower.right_base.out, body.shadow.lower.belly_base.in, body.shadow.lower.belly_base]
+- name: body.shadow.lower.left_base
+  points: [body.shadow.lower.belly_base, body.shadow.lower.belly_base.out, body.shadow.lower.left_base.in, body.shadow.lower.left_base]
+- name: body.shadow.lower.foot_left
+  points: [body.shadow.lower.left_base, body.shadow.lower.left_base.out, body.shadow.lower.foot_left.in, body.shadow.lower.foot_left]
+- name: body.shadow.lower.close
+  points: [body.shadow.lower.foot_left, body.shadow.lower.foot_left.out, body.shadow.lower.left_tip.in, body.shadow.lower.left_tip]
+- name: body.shadow.crown.sweep
+  points: [body.shadow.crown.tip, body.shadow.crown.tip.out, body.shadow.crown.belly.in, body.shadow.crown.belly]
+- name: body.shadow.crown.turn
+  points: [body.shadow.crown.belly, body.shadow.crown.belly.out, body.shadow.crown.inner.in, body.shadow.crown.inner]
+- name: body.shadow.crown.close
+  points: [body.shadow.crown.inner, body.shadow.crown.inner.out, body.shadow.crown.tip.in, body.shadow.crown.tip]
+- name: body.shadow.left.sweep
+  points: [body.shadow.left.tip, body.shadow.left.tip.out, body.shadow.left.belly.in, body.shadow.left.belly]
+- name: body.shadow.left.turn
+  points: [body.shadow.left.belly, body.shadow.left.belly.out, body.shadow.left.inner.in, body.shadow.left.inner]
+- name: body.shadow.left.close
+  points: [body.shadow.left.inner, body.shadow.left.inner.out, body.shadow.left.tip.in, body.shadow.left.tip]
+- name: body.shadow.right.sweep
+  points: [body.shadow.right.tip, body.shadow.right.tip.out, body.shadow.right.belly.in, body.shadow.right.belly]
+- name: body.shadow.right.turn
+  points: [body.shadow.right.belly, body.shadow.right.belly.out, body.shadow.right.inner.in, body.shadow.right.inner]
+- name: body.shadow.right.close
+  points: [body.shadow.right.inner, body.shadow.right.inner.out, body.shadow.right.tip.in, body.shadow.right.tip]
 # Each path owns an explicit ordered list of named curves.
 paths:
 - name: body
   paint: cloud
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
@@ -2000,6 +2337,45 @@ paths:
   - body.curve.8
   - body.curve.9
   - body.curve.10
+- name: body.shadow.lower
+  paint: cloud.shadow
+  antialiasing: coverage
+  stroke: 0
+  visible: null
+  curves:
+  - body.shadow.lower.right_tip
+  - body.shadow.lower.right_base
+  - body.shadow.lower.belly_base
+  - body.shadow.lower.left_base
+  - body.shadow.lower.foot_left
+  - body.shadow.lower.close
+- name: body.shadow.crown
+  paint: cloud.fold.warm
+  antialiasing: coverage
+  stroke: 0
+  visible: null
+  curves:
+  - body.shadow.crown.sweep
+  - body.shadow.crown.turn
+  - body.shadow.crown.close
+- name: body.shadow.left
+  paint: cloud.fold.cool
+  antialiasing: coverage
+  stroke: 0
+  visible: null
+  curves:
+  - body.shadow.left.sweep
+  - body.shadow.left.turn
+  - body.shadow.left.close
+- name: body.shadow.right
+  paint: cloud.fold.cool
+  antialiasing: coverage
+  stroke: 0
+  visible: null
+  curves:
+  - body.shadow.right.sweep
+  - body.shadow.right.turn
+  - body.shadow.right.close
 - name: cheek.left
   paint: cheek
   stroke: 0

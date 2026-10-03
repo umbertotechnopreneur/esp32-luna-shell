@@ -35,6 +35,7 @@ param(
     [ValidateSet(0,90,180,270)][int]$Rotation = 0,
     [ValidateRange(0,2147483647)][int]$AtMs = 1000,
     [switch]$SafeGuide,
+    [switch]$CloudMaterialStudy,
     [string]$PythonExecutable,
     [string]$Skin,
     [string]$Check = 'cody-poc',

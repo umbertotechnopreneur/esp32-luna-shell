@@ -31,6 +31,11 @@ class PointRole(str, Enum):
     HANDLE = "handle"
 
 
+class FillAntialiasing(str, Enum):
+    DISABLED = "disabled"
+    COVERAGE = "coverage"
+
+
 class CurvePoint(IntEnum):
     START = 0
     OUTGOING_HANDLE = 1

@@ -9,7 +9,7 @@ from pathlib import Path
 import yaml
 
 from scripts.common.cody_rig_types import (
-    ContourControl, CurvePoint, FaceChannel, PointRole, channel_name, face_channel,
+    ContourControl, CurvePoint, FaceChannel, FillAntialiasing, PointRole, channel_name, face_channel,
 )
 from scripts.common.cody_response_contract import validate_response_config
 
@@ -292,6 +292,12 @@ def compile_geometry(rig):
         width = finite(path["stroke"], path["name"])
         if not 0 <= width <= .1 or width * 200 * 1.018 > 21:
             raise ValueError(f"Unsupported stroke width: {path['name']}")
+        try:
+            path["antialiasing"] = FillAntialiasing(path.get("antialiasing", "disabled"))
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"Invalid fill antialiasing: {path['name']}") from error
+        if width != 0 and path["antialiasing"] != FillAntialiasing.DISABLED:
+            raise ValueError(f"Coverage antialiasing requires a filled path: {path['name']}")
         first_point = segments[0]["points"][CurvePoint.START]
         last_point = segments[-1]["points"][CurvePoint.END]
         if width == 0 and first_point != last_point:
@@ -367,7 +373,52 @@ def validate_face_definition(rig):
 
 
 
-# rig supplies authored outline metadata and the already checked parent/path graph.
+# rig: Validated named geometry with compiled facial transforms and opacity bindings.
+# contour: Explicit outline and surface path declarations.
+# points: Point definitions keyed by their stable authored identities.
+# body_points: Controls belonging to the outline, kept separate from its surface art.
+# Raises ValueError for shared, animated facial, or ambiguous surface geometry.
+def contour_surface_points(rig, contour, points, body_points):
+    surface_names = contour.get("surface_paths", [])
+    if not isinstance(surface_names, list):
+        raise ValueError("Contour surface_paths must be an explicit list of path IDs")
+    validate_identifiers(surface_names, "contour surface path")
+    paths_by_name = {path["name"]: path for path in rig["paths"]}
+    surface_points = set()
+    for name in surface_names:
+        if name == contour["path"] or name not in paths_by_name:
+            raise ValueError(f"Invalid contour surface path: {name!r}")
+        path = paths_by_name[name]
+        if path["stroke"] != 0 or path["visible"] is not None or path["opacity_channel"] is not None:
+            raise ValueError(f"Contour surface must be an opaque independent fill: {name}")
+        first_curve = path["first_curve"]
+        curves = rig["curves"][first_curve:first_curve + path["curve_count"]]
+        surface_points.update(point_name for curve in curves for point_name in curve["points"])
+
+    # Decoration can inherit a lobe's motion, but cannot borrow facial geometry
+    # or move the outline by sharing its curve controls.
+    other_points = set(body_points)
+    for path in rig["paths"]:
+        if path["name"] in surface_names:
+            continue
+        first_curve = path["first_curve"]
+        curves = rig["curves"][first_curve:first_curve + path["curve_count"]]
+        other_points.update(point_name for curve in curves for point_name in curve["points"])
+    shared_points = surface_points & other_points
+    if shared_points:
+        raise ValueError(f"Surface geometry shares another path's controls: {sorted(shared_points)}")
+    for name in surface_points:
+        ancestor = name
+        while ancestor is not None:
+            point = points[ancestor]
+            transforms = rig["point_face_transforms"][ancestor]
+            if point["channel"] is not None or any(channel is not None for channel in transforms):
+                raise ValueError(f"Contour surface cannot inherit a facial channel: {name}")
+            ancestor = point["parent"]
+    return surface_points
+
+
+# rig: Authored outline metadata and the already checked parent/path graph.
 # Raises ValueError when contour controls could move a facial point or exceed PoC bounds.
 def validate_contour_definition(rig):
     contour = rig["contour"]
@@ -401,10 +452,12 @@ def validate_contour_definition(rig):
     for name in body_points:
         if points[name]["channel"] is not None:
             raise ValueError(f"Contour point cannot use a facial channel: {name}")
+    surface_points = contour_surface_points(rig, contour, points, body_points)
+    movable_points = body_points | surface_points
     for point in rig["points"]:
         ancestor = point["parent"]
         while ancestor is not None:
-            if ancestor in lobe_names and point["name"] not in body_points:
+            if ancestor in lobe_names and point["name"] not in movable_points:
                 raise ValueError(f"Facial geometry cannot descend from a contour lobe: {point['name']}")
             ancestor = points[ancestor]["parent"]
     previous_phase = -1

@@ -43,7 +43,9 @@ constexpr uint16_t kPaletteLimit = 64;
 constexpr uint32_t kSamplePeriodMs = 50;
 constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
-constexpr uint32_t kWorkerStackBytes = 6144;
+// Coverage rows add bounded raster scratch; retain room for the display owner
+// and error paths on this PSRAM-backed worker stack.
+constexpr uint32_t kWorkerStackBytes = 8192;
 constexpr uint32_t kRigFramePeriodMs = 33;
 constexpr uint32_t kPausedReadoutPeriodMs = 1000;
 // This is a failure deadline, not an FPS claim; real frame cost still needs measurement.
@@ -117,7 +119,7 @@ struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
     bool rig_visible = false;
-    bool rig_debug = true;
+    bool rig_debug = false;
     bool animation_paused = false;
     bool touch_pressed = false;
     CODY::PointId selected_point = CODY::kNoPoint;
@@ -993,12 +995,14 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
     return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
 }
 
-// Shared route entry: touch and automatic demo use the same clocks, buffers and model.
+// No parameters: touch and automatic demo share the same clocks, buffers and model.
 // Caller owns the display/state lock; entering does not draw while another frame is active.
 void enter_animation_demo()
 {
     s_state.rig_visible = true;
-    s_state.rig_debug = true;
+    // Start with the character artwork; the lateral overlay control still
+    // exposes the complete rig when the user wants to inspect its geometry.
+    s_state.rig_debug = false;
     s_state.animation_paused = false;
     s_state.animation_elapsed_us = 0;
     s_state.contour = CODY::make_contour_state();

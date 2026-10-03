@@ -10,6 +10,9 @@ struct Vec2 { float x = 0; float y = 0; };
 constexpr uint16_t kMaxPathVertices = 256;
 constexpr float kMaxStrokeWidth = 21;
 
+// Coverage is opt-in: existing fills keep their exact pixel-center raster rule.
+enum class FillAntialiasing : uint8_t { Disabled, Coverage };
+
 // Default construction creates an invalid destination for prepare_stroke.
 // Successful preparation is the only way to create raster-ready coefficients.
 class PreparedStroke {
@@ -75,10 +78,12 @@ private:
 // last_color: Bottom gradient slot, equal to first_color for a solid fill.
 // opacity: Source coverage from transparent zero to opaque 255, composited in native RGB565.
 // first_column: Canvas column represented by the strip's first pixel column.
+// antialiasing: Disabled preserves pixel-center fills; Coverage smooths the polygon boundary.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
                         const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                        uint8_t opacity = 255, uint16_t first_column = 0);
+                        uint8_t opacity = 255, uint16_t first_column = 0,
+                        FillAntialiasing antialiasing = FillAntialiasing::Disabled);
 
 // from: Segment start in canvas coordinates.
 // to: Segment end in canvas coordinates; an equal endpoint prepares a dot.

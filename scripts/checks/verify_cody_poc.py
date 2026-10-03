@@ -21,12 +21,14 @@ ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'simulator/windows'))
 from scripts.common.cody_rig_contract import (
     advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract,
-    make_contour_state, unique_object, validate_channels,
+    make_contour_state, unique_object, validate_channels, validate_contour_definition,
+    validate_face_definition,
 )
-from scripts.common.cody_rig_types import FaceChannel, face_channel
+from scripts.common.cody_rig_types import FaceChannel, FillAntialiasing, face_channel
+from cody_coverage import FULL_COVERAGE, coverage_mask
 from cody_preview_layout import PreviewLayout
 from cody_simulator import (
-    CodyRenderer, CodyWindow, logical_touch, orient, physical_point,
+    CodyRenderer, CodyWindow, logical_touch, orient, physical_point, rgb565,
 )
 from PIL import Image
 import tkinter as tk
@@ -48,6 +50,19 @@ class RigContractTests(unittest.TestCase):
         for name, value in overrides.items():
             values[face_channel(name)] = value
         return values
+
+    # self: Test context owning the compiled path and curve identities.
+    # path_names: Explicit path IDs whose authored controls are required.
+    # Raises KeyError for a path missing from the fixture.
+    def path_points(self, path_names):
+        paths = {path['name']: path for path in self.rig['paths']}
+        points = set()
+        for name in path_names:
+            path = paths[name]
+            first_curve = path['first_curve']
+            for curve in self.rig['curves'][first_curve:first_curve + path['curve_count']]:
+                points.update(curve['points'])
+        return points
 
     # window owns the viewport and scheduled callback used by a manually requested test frame.
     # Raises tk.TclError if the preview has already been destroyed.
@@ -188,11 +203,8 @@ class RigContractTests(unittest.TestCase):
                 expected = opacity if path['definition']['name'].startswith('cheek.') else 1
                 self.assertEqual(path['opacity'], expected)
             image = renderer.draw_scene(scene, debug=False)
-            if opacity == 1:
-                self.assertEqual(image.mode, 'P')
-                self.assertEqual(len(image.getpalette()), 768)
-            elif opacity == .5:
-                self.assertEqual(image.mode, 'RGB')
+            # The body's edge coverage requires derived native colors at every cheek opacity.
+            self.assertEqual(image.mode, 'RGB')
             pixels[opacity] = image.convert('RGB').getpixel(sample)
         self.assertNotEqual(pixels[0], pixels[1])
         self.assertNotEqual(pixels[.5], pixels[0])
@@ -231,6 +243,8 @@ class RigContractTests(unittest.TestCase):
     def test_contour_keeps_face_and_center_independent(self):
         state = make_contour_state(self.rig)
         state.update(fullness=.6, amplitude=.8, phase=1.2, phase_spread=.7)
+        contour_paths = {self.rig['contour']['path'], *self.rig['contour']['surface_paths']}
+        contour_points = self.path_points(contour_paths)
         for channels in (self.ready,
                          self.face_channels(eye_left=0, eye_right=1, brow_left=-.5, brow_right=.4, mouth_open=.8, breath=-.5),
                          self.face_channels(eye_left=1, eye_right=0, brow_left=.7, brow_right=-.6, mouth_open=0, breath=1)):
@@ -238,15 +252,85 @@ class RigContractTests(unittest.TestCase):
                 original = evaluate(self.rig, channels, self.transform)
                 scene = evaluate(self.rig, channels, self.transform, contour=state)
                 for name in original['world']:
-                    if not name.startswith('lobe.'):
+                    if name not in contour_points:
                         self.assertEqual(scene['local'][name], original['local'][name], name)
                         self.assertEqual(scene['world'][name], original['world'][name], name)
                 for before, after in zip(original['paths'], scene['paths']):
-                    if before['definition']['name'] != 'body':
+                    if before['definition']['name'] not in contour_paths:
                         self.assertEqual(after, before)
                 self.assertEqual(scene['scale'], original['scale'])
                 self.assertTrue(any(scene['world'][name] != original['world'][name]
                                     for name in original['world'] if name.startswith('lobe.')))
+
+    # self: Test context whose surface controls must inherit their named lobe exactly once.
+    def test_contour_surface_controls_follow_lobes_without_facial_transforms(self):
+        original = evaluate(self.rig, self.ready, self.transform)
+        state = make_contour_state(self.rig)
+        state.update(fullness=.8, amplitude=1, phase=2.1)
+        deformed = evaluate(self.rig, self.ready, self.transform, contour=state)
+        points = {point['name']: point for point in self.rig['points']}
+        lobes = {lobe['point'] for lobe in self.rig['contour']['lobes']}
+        surface_points = self.path_points(self.rig['contour']['surface_paths'])
+        self.assertTrue(surface_points)
+        for name in surface_points:
+            ancestor = points[name]['parent']
+            while ancestor is not None and ancestor not in lobes:
+                ancestor = points[ancestor]['parent']
+            self.assertIn(ancestor, lobes, name)
+            self.assertEqual(self.rig['point_face_transforms'][name], (None, None))
+            for axis in (0, 1):
+                actual = deformed['local'][name][axis] - original['local'][name][axis]
+                expected = deformed['local'][ancestor][axis] - original['local'][ancestor][axis]
+                self.assertAlmostEqual(actual, expected, msg=name)
+        for path in deformed['paths']:
+            if path['definition']['name'] in self.rig['contour']['surface_paths']:
+                self.assertEqual(path['opacity'], 1)
+                self.assertTrue(path['visible'])
+
+    # self: Test context proving that surface declarations cannot admit facial animation or ambiguous ownership.
+    def test_contour_surface_contract_rejects_unsafe_declarations(self):
+        for declared in ('body', ['body'], ['missing.surface'], ['body.shadow.lower', 'body.shadow.lower'], ['cheek.left']):
+            with self.subTest(surface_paths=declared):
+                changed = copy.deepcopy(self.rig)
+                changed['contour']['surface_paths'] = declared
+                with self.assertRaises(ValueError):
+                    validate_contour_definition(changed)
+
+        surface_name = 'body.shadow.lower'
+        surface_point = 'body.shadow.lower.left_tip'
+        for field, value in (('stroke', .02), ('visible', 'eye_left'), ('opacity_channel', 'cheek_opacity')):
+            with self.subTest(surface_field=field):
+                changed = copy.deepcopy(self.rig)
+                path = next(path for path in changed['paths'] if path['name'] == surface_name)
+                path[field] = value
+                with self.assertRaises(ValueError):
+                    validate_contour_definition(changed)
+
+        changed = copy.deepcopy(self.rig)
+        point = next(point for point in changed['points'] if point['name'] == surface_point)
+        point['channel'] = 'mouth_open'
+        with self.assertRaises(ValueError):
+            validate_contour_definition(changed)
+
+        changed = copy.deepcopy(self.rig)
+        point = next(point for point in changed['points'] if point['name'] == surface_point)
+        point['parent'] = 'cheek.left'
+        validate_face_definition(changed)
+        with self.assertRaises(ValueError):
+            validate_contour_definition(changed)
+
+        changed = copy.deepcopy(self.rig)
+        point = next(point for point in changed['points'] if point['name'] == 'eye.left')
+        point['parent'] = 'lobe.crown'
+        with self.assertRaises(ValueError):
+            validate_contour_definition(changed)
+
+        changed = copy.deepcopy(self.rig)
+        path = next(path for path in changed['paths'] if path['name'] == surface_name)
+        curve = changed['curves'][path['first_curve']]
+        curve['points'][1] = 'lobe.crown.out'
+        with self.assertRaises(ValueError):
+            validate_contour_definition(changed)
 
     # self receives the test context: fullness changes the static body even when waves are disabled.
     def test_contour_fullness_changes_body_without_time_or_face_motion(self):
@@ -444,16 +528,54 @@ class RigContractTests(unittest.TestCase):
         with self.assertRaises(ValueError): unique_object([('name','Cody'),('name','Other')])
         with self.assertRaises(ValueError): animate(self.ready,-1)
 
-    # No parameters beyond the test instance: the renderer uses at most the prepared 256 RGB565 slots.
+    # self: Test context checking immutable palette sources and quantized derived boundary colors.
     def test_palette_and_debug_colors(self):
-        renderer=CodyRenderer()
-        scene=evaluate(self.rig,self.ready,self.transform)
-        image=renderer.draw_scene(scene,True)
-        self.assertEqual(image.mode,'P')
-        self.assertEqual(len(image.getpalette()),768)
-        used=set(image.getdata())
-        self.assertLessEqual(len(used),256)
-        self.assertTrue(set(self.rig['style']['debug'].values())- {self.rig['style']['debug']['selected']} <= used)
+        renderer = CodyRenderer()
+        original_palette = list(renderer.native_palette)
+        scene = evaluate(self.rig, self.ready, self.transform)
+        image = renderer.draw_scene(scene, True)
+        self.assertEqual(image.mode, 'RGB')
+        self.assertEqual(len(renderer.native_palette), 256)
+        self.assertEqual(renderer.native_palette, original_palette)
+        used = set(image.getdata())
+        debug_slots = set(self.rig['style']['debug'].values()) - {self.rig['style']['debug']['selected']}
+        self.assertTrue({renderer.rgb_palette[slot] for slot in debug_slots} <= used)
+        for color in used:
+            red, green, blue = color
+            native = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+            self.assertEqual(color, rgb565(native))
+
+    # self: Test context checking analytic rectangle coverage, Q8 boundaries and thin horizontal caps.
+    def test_coverage_tracks_fractional_edges_and_caps(self):
+        rectangle = [(0.25, 0.25), (2.75, 0.25), (2.75, 2.75), (0.25, 2.75)]
+        mask = coverage_mask(rectangle, (4, 4))
+        self.assertEqual(mask.mode, 'I')
+        self.assertEqual(mask.getpixel((0, 0)), 576)
+        self.assertEqual(mask.getpixel((1, 0)), 768)
+        self.assertEqual(mask.getpixel((1, 1)), FULL_COVERAGE)
+        self.assertEqual(mask.getpixel((3, 1)), 0)
+        self.assertEqual(sum(mask.getdata()), 6400)
+        cap = coverage_mask([(0, .1), (2, .1), (2, .4), (0, .4)], (3, 2))
+        self.assertEqual(cap.getpixel((0, 0)), FULL_COVERAGE // 2)
+        quantized = coverage_mask([(1 / 512, 0), (1, 0), (1, 1), (1 / 512, 1)], (2, 2))
+        self.assertEqual(quantized.getpixel((0, 0)), 1020)
+
+    # self: Test context checking one rounded native RGB565 blend after opacity and coverage combine.
+    def test_coverage_composes_opacity_once_in_native_rgb565(self):
+        renderer = CodyRenderer()
+        white = next(entry['index'] for entry in self.palette['entries'] if entry['id'] == 'fixed.highlight')
+        image = renderer.indexed().convert('RGB')
+        rectangle = [(0.25, 0.25), (2.75, 0.25), (2.75, 2.75), (0.25, 2.75)]
+        renderer.fill(image, rectangle, (white, white), 128, FillAntialiasing.COVERAGE)
+        self.assertEqual(image.getpixel((0, 0)), (74, 72, 74))
+        self.assertEqual(image.getpixel((1, 0)), (98, 97, 98))
+        self.assertEqual(image.getpixel((1, 1)), (131, 129, 131))
+        self.assertEqual(image.getpixel((3, 1)), (0, 0, 0))
+
+        legacy = renderer.indexed()
+        renderer.fill(legacy, rectangle, (white, white), 255, FillAntialiasing.DISABLED)
+        self.assertEqual(legacy.mode, 'P')
+        self.assertEqual(legacy.getpixel((1, 1)), white)
 
     # self receives the test context: navigation must hit the controls in the last displayed viewport.
     def test_tk_boot_back_and_point_inspection(self):

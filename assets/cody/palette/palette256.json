@@ -80,35 +80,97 @@
     {
       "name": "cloud",
       "first": 172,
-      "last": 235,
-      "count": 64,
+      "last": 203,
+      "count": 32,
       "availability": "current",
+      "usage": "Main cloud body; broad light remains behind the front-facing face.",
       "anchors": [
         {
           "index": 172,
-          "rgb888": "#FFF4DE",
-          "role": "top"
+          "rgb888": "#FFF2D9",
+          "role": "warm_crown"
         },
         {
-          "index": 204,
-          "rgb888": "#F2F5F1",
-          "role": "middle"
+          "index": 180,
+          "rgb888": "#FDF7E9",
+          "role": "ivory_light"
         },
         {
-          "index": 235,
-          "rgb888": "#C8E2EF",
-          "role": "bottom"
+          "index": 190,
+          "rgb888": "#F5F4E9",
+          "role": "soft_neutral"
+        },
+        {
+          "index": 198,
+          "rgb888": "#DEE7E6",
+          "role": "cool_lower_body"
+        },
+        {
+          "index": 203,
+          "rgb888": "#C6D7E0",
+          "role": "blue_grey_underside"
         }
       ]
     },
     {
-      "name": "reserved",
+      "name": "cloud_volume",
+      "first": 204,
+      "last": 235,
+      "count": 32,
+      "availability": "current",
+      "usage": "Rounded side-lobe volumes, warm-lit above and blue-grey underneath; stable cloud color IDs retained.",
+      "anchors": [
+        {
+          "index": 204,
+          "rgb888": "#FAF5E7",
+          "role": "lit_cap"
+        },
+        {
+          "index": 212,
+          "rgb888": "#EFF1E8",
+          "role": "soft_light"
+        },
+        {
+          "index": 224,
+          "rgb888": "#CFDEE1",
+          "role": "turning_surface"
+        },
+        {
+          "index": 235,
+          "rgb888": "#9FB8CA",
+          "role": "cool_underside"
+        }
+      ]
+    },
+    {
+      "name": "cloud_crown",
       "first": 236,
       "last": 255,
       "count": 20,
-      "availability": "reserved",
-      "deterministic_color": "#000000",
-      "usage": "Unallocated; must not be referenced by current artwork, typography, or controls."
+      "availability": "current",
+      "usage": "Rounded crown volume, warm-lit above and cool below; previously allocated color IDs retained.",
+      "anchors": [
+        {
+          "index": 236,
+          "rgb888": "#FFF1D7",
+          "role": "warm_cap"
+        },
+        {
+          "index": 243,
+          "rgb888": "#FAF3E1",
+          "role": "ivory_light"
+        },
+        {
+          "index": 250,
+          "rgb888": "#D6DFDC",
+          "role": "turning_surface"
+        },
+        {
+          "index": 255,
+          "rgb888": "#A8BDCB",
+          "role": "cool_underside"
+        }
+      ]
     }
   ],
   "existing_boot_packaging": {
@@ -2538,10 +2600,10 @@
       "role": "cloud_gradient_level_00",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FFF4DE",
-      "rgb565": "0xFFBB",
+      "rgb888": "#FFF2D9",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        187,
+        155,
         255
       ],
       "id": "cloud.level.00"
@@ -2552,10 +2614,10 @@
       "role": "cloud_gradient_level_01",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FFF4DF",
-      "rgb565": "0xFFBB",
+      "rgb888": "#FFF3DB",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        187,
+        155,
         255
       ],
       "id": "cloud.level.01"
@@ -2566,10 +2628,10 @@
       "role": "cloud_gradient_level_02",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FEF4DF",
-      "rgb565": "0xFFBB",
+      "rgb888": "#FFF3DD",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        187,
+        155,
         255
       ],
       "id": "cloud.level.02"
@@ -2580,10 +2642,10 @@
       "role": "cloud_gradient_level_03",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FEF4E0",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FEF4DF",
+      "rgb565": "0xFFBB",
       "rgb565_little_endian": [
-        188,
+        187,
         255
       ],
       "id": "cloud.level.03"
@@ -2594,7 +2656,7 @@
       "role": "cloud_gradient_level_04",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FDF4E0",
+      "rgb888": "#FEF5E1",
       "rgb565": "0xFFBC",
       "rgb565_little_endian": [
         188,
@@ -2608,7 +2670,7 @@
       "role": "cloud_gradient_level_05",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FDF4E1",
+      "rgb888": "#FEF5E3",
       "rgb565": "0xFFBC",
       "rgb565_little_endian": [
         188,
@@ -2622,7 +2684,7 @@
       "role": "cloud_gradient_level_06",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FDF4E2",
+      "rgb888": "#FEF6E5",
       "rgb565": "0xFFBC",
       "rgb565_little_endian": [
         188,
@@ -2636,7 +2698,7 @@
       "role": "cloud_gradient_level_07",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FCF4E2",
+      "rgb888": "#FDF6E7",
       "rgb565": "0xFFBC",
       "rgb565_little_endian": [
         188,
@@ -2650,10 +2712,10 @@
       "role": "cloud_gradient_level_08",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FCF4E3",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FDF7E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.08"
@@ -2664,10 +2726,10 @@
       "role": "cloud_gradient_level_09",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FBF4E3",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FCF7E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.09"
@@ -2678,10 +2740,10 @@
       "role": "cloud_gradient_level_10",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FBF4E4",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FBF6E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.10"
@@ -2692,10 +2754,10 @@
       "role": "cloud_gradient_level_11",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FBF4E5",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FBF6E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.11"
@@ -2706,10 +2768,10 @@
       "role": "cloud_gradient_level_12",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FAF4E5",
-      "rgb565": "0xFFBC",
+      "rgb888": "#FAF6E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.12"
@@ -2720,10 +2782,10 @@
       "role": "cloud_gradient_level_13",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#FAF4E6",
-      "rgb565": "0xFFBC",
+      "rgb888": "#F9F6E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.13"
@@ -2734,10 +2796,10 @@
       "role": "cloud_gradient_level_14",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F9F4E6",
-      "rgb565": "0xFFBC",
+      "rgb888": "#F8F5E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        188,
+        189,
         255
       ],
       "id": "cloud.level.14"
@@ -2748,11 +2810,11 @@
       "role": "cloud_gradient_level_15",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F9F4E7",
-      "rgb565": "0xFFBC",
+      "rgb888": "#F7F5E9",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        188,
-        255
+        189,
+        247
       ],
       "id": "cloud.level.15"
     },
@@ -2762,11 +2824,11 @@
       "role": "cloud_gradient_level_16",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F9F5E8",
-      "rgb565": "0xFFBD",
+      "rgb888": "#F7F5E9",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
         189,
-        255
+        247
       ],
       "id": "cloud.level.16"
     },
@@ -2776,11 +2838,11 @@
       "role": "cloud_gradient_level_17",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F8F5E8",
-      "rgb565": "0xFFBD",
+      "rgb888": "#F6F4E9",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
         189,
-        255
+        247
       ],
       "id": "cloud.level.17"
     },
@@ -2790,11 +2852,11 @@
       "role": "cloud_gradient_level_18",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F8F5E9",
-      "rgb565": "0xFFBD",
+      "rgb888": "#F5F4E9",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
         189,
-        255
+        247
       ],
       "id": "cloud.level.18"
     },
@@ -2804,10 +2866,10 @@
       "role": "cloud_gradient_level_19",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F7F5E9",
-      "rgb565": "0xF7BD",
+      "rgb888": "#F2F2E9",
+      "rgb565": "0xF79D",
       "rgb565_little_endian": [
-        189,
+        157,
         247
       ],
       "id": "cloud.level.19"
@@ -2818,11 +2880,11 @@
       "role": "cloud_gradient_level_20",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F7F5EA",
-      "rgb565": "0xF7BD",
+      "rgb888": "#EFF1E8",
+      "rgb565": "0xEF9D",
       "rgb565_little_endian": [
-        189,
-        247
+        157,
+        239
       ],
       "id": "cloud.level.20"
     },
@@ -2832,11 +2894,11 @@
       "role": "cloud_gradient_level_21",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F6F5EA",
-      "rgb565": "0xF7BD",
+      "rgb888": "#ECEFE8",
+      "rgb565": "0xEF7D",
       "rgb565_little_endian": [
-        189,
-        247
+        125,
+        239
       ],
       "id": "cloud.level.21"
     },
@@ -2846,11 +2908,11 @@
       "role": "cloud_gradient_level_22",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F6F5EB",
-      "rgb565": "0xF7BD",
+      "rgb888": "#EAEEE8",
+      "rgb565": "0xEF7D",
       "rgb565_little_endian": [
-        189,
-        247
+        125,
+        239
       ],
       "id": "cloud.level.22"
     },
@@ -2860,11 +2922,11 @@
       "role": "cloud_gradient_level_23",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F6F5EC",
-      "rgb565": "0xF7BD",
+      "rgb888": "#E7ECE7",
+      "rgb565": "0xE77C",
       "rgb565_little_endian": [
-        189,
-        247
+        124,
+        231
       ],
       "id": "cloud.level.23"
     },
@@ -2874,11 +2936,11 @@
       "role": "cloud_gradient_level_24",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F5F5EC",
-      "rgb565": "0xF7BD",
+      "rgb888": "#E4EAE7",
+      "rgb565": "0xE75C",
       "rgb565_little_endian": [
-        189,
-        247
+        92,
+        231
       ],
       "id": "cloud.level.24"
     },
@@ -2888,11 +2950,11 @@
       "role": "cloud_gradient_level_25",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F5F5ED",
-      "rgb565": "0xF7BD",
+      "rgb888": "#E1E9E6",
+      "rgb565": "0xE75C",
       "rgb565_little_endian": [
-        189,
-        247
+        92,
+        231
       ],
       "id": "cloud.level.25"
     },
@@ -2902,11 +2964,11 @@
       "role": "cloud_gradient_level_26",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F4F5ED",
-      "rgb565": "0xF7BD",
+      "rgb888": "#DEE7E6",
+      "rgb565": "0xDF3C",
       "rgb565_little_endian": [
-        189,
-        247
+        60,
+        223
       ],
       "id": "cloud.level.26"
     },
@@ -2916,11 +2978,11 @@
       "role": "cloud_gradient_level_27",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F4F5EE",
-      "rgb565": "0xF7BD",
+      "rgb888": "#D9E4E5",
+      "rgb565": "0xDF3C",
       "rgb565_little_endian": [
-        189,
-        247
+        60,
+        223
       ],
       "id": "cloud.level.27"
     },
@@ -2930,11 +2992,11 @@
       "role": "cloud_gradient_level_28",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F4F5EF",
-      "rgb565": "0xF7BD",
+      "rgb888": "#D4E1E4",
+      "rgb565": "0xD71C",
       "rgb565_little_endian": [
-        189,
-        247
+        28,
+        215
       ],
       "id": "cloud.level.28"
     },
@@ -2944,11 +3006,11 @@
       "role": "cloud_gradient_level_29",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F3F5EF",
-      "rgb565": "0xF7BD",
+      "rgb888": "#D0DDE2",
+      "rgb565": "0xD6FC",
       "rgb565_little_endian": [
-        189,
-        247
+        252,
+        214
       ],
       "id": "cloud.level.29"
     },
@@ -2958,11 +3020,11 @@
       "role": "cloud_gradient_level_30",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F3F5F0",
-      "rgb565": "0xF7BE",
+      "rgb888": "#CBDAE1",
+      "rgb565": "0xCEDC",
       "rgb565_little_endian": [
-        190,
-        247
+        220,
+        206
       ],
       "id": "cloud.level.30"
     },
@@ -2972,741 +3034,741 @@
       "role": "cloud_gradient_level_31",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F2F5F0",
-      "rgb565": "0xF7BE",
+      "rgb888": "#C6D7E0",
+      "rgb565": "0xC6BC",
       "rgb565_little_endian": [
-        190,
-        247
+        188,
+        198
       ],
       "id": "cloud.level.31"
     },
     {
       "index": 204,
-      "group": "cloud",
-      "role": "cloud_gradient_level_32",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_00",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F2F5F1",
-      "rgb565": "0xF7BE",
+      "rgb888": "#FAF5E7",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        190,
-        247
+        188,
+        255
       ],
       "id": "cloud.level.32"
     },
     {
       "index": 205,
-      "group": "cloud",
-      "role": "cloud_gradient_level_33",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_01",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#F1F4F1",
-      "rgb565": "0xF7BE",
+      "rgb888": "#F9F5E7",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        190,
-        247
+        188,
+        255
       ],
       "id": "cloud.level.33"
     },
     {
       "index": 206,
-      "group": "cloud",
-      "role": "cloud_gradient_level_34",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_02",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#EFF4F1",
-      "rgb565": "0xEFBE",
+      "rgb888": "#F7F4E7",
+      "rgb565": "0xF7BC",
       "rgb565_little_endian": [
-        190,
-        239
+        188,
+        247
       ],
       "id": "cloud.level.34"
     },
     {
       "index": 207,
-      "group": "cloud",
-      "role": "cloud_gradient_level_35",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_03",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#EEF3F1",
-      "rgb565": "0xEF9E",
+      "rgb888": "#F6F4E7",
+      "rgb565": "0xF7BC",
       "rgb565_little_endian": [
-        158,
-        239
+        188,
+        247
       ],
       "id": "cloud.level.35"
     },
     {
       "index": 208,
-      "group": "cloud",
-      "role": "cloud_gradient_level_36",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_04",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#EDF3F1",
-      "rgb565": "0xEF9E",
+      "rgb888": "#F5F3E8",
+      "rgb565": "0xF79D",
       "rgb565_little_endian": [
-        158,
-        239
+        157,
+        247
       ],
       "id": "cloud.level.36"
     },
     {
       "index": 209,
-      "group": "cloud",
-      "role": "cloud_gradient_level_37",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_05",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#EBF2F1",
-      "rgb565": "0xEF9E",
+      "rgb888": "#F3F3E8",
+      "rgb565": "0xF79D",
       "rgb565_little_endian": [
-        158,
-        239
+        157,
+        247
       ],
       "id": "cloud.level.37"
     },
     {
       "index": 210,
-      "group": "cloud",
-      "role": "cloud_gradient_level_38",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_06",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#EAF1F1",
-      "rgb565": "0xEF9E",
+      "rgb888": "#F2F2E8",
+      "rgb565": "0xF79D",
       "rgb565_little_endian": [
-        158,
-        239
+        157,
+        247
       ],
       "id": "cloud.level.38"
     },
     {
       "index": 211,
-      "group": "cloud",
-      "role": "cloud_gradient_level_39",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_07",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E9F1F1",
-      "rgb565": "0xEF9E",
+      "rgb888": "#F0F2E8",
+      "rgb565": "0xF79D",
       "rgb565_little_endian": [
-        158,
-        239
+        157,
+        247
       ],
       "id": "cloud.level.39"
     },
     {
       "index": 212,
-      "group": "cloud",
-      "role": "cloud_gradient_level_40",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_08",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E7F0F0",
-      "rgb565": "0xE79E",
+      "rgb888": "#EFF1E8",
+      "rgb565": "0xEF9D",
       "rgb565_little_endian": [
-        158,
-        231
+        157,
+        239
       ],
       "id": "cloud.level.40"
     },
     {
       "index": 213,
-      "group": "cloud",
-      "role": "cloud_gradient_level_41",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_09",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E6EFF0",
-      "rgb565": "0xE77E",
+      "rgb888": "#ECEFE7",
+      "rgb565": "0xEF7C",
       "rgb565_little_endian": [
-        126,
-        231
+        124,
+        239
       ],
       "id": "cloud.level.41"
     },
     {
       "index": 214,
-      "group": "cloud",
-      "role": "cloud_gradient_level_42",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_10",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E4EFF0",
-      "rgb565": "0xE77E",
+      "rgb888": "#EAEEE7",
+      "rgb565": "0xEF7C",
       "rgb565_little_endian": [
-        126,
-        231
+        124,
+        239
       ],
       "id": "cloud.level.42"
     },
     {
       "index": 215,
-      "group": "cloud",
-      "role": "cloud_gradient_level_43",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_11",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E3EEF0",
-      "rgb565": "0xE77E",
+      "rgb888": "#E7ECE6",
+      "rgb565": "0xE77C",
       "rgb565_little_endian": [
-        126,
+        124,
         231
       ],
       "id": "cloud.level.43"
     },
     {
       "index": 216,
-      "group": "cloud",
-      "role": "cloud_gradient_level_44",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_12",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E2EEF0",
-      "rgb565": "0xE77E",
+      "rgb888": "#E4EBE6",
+      "rgb565": "0xE75C",
       "rgb565_little_endian": [
-        126,
+        92,
         231
       ],
       "id": "cloud.level.44"
     },
     {
       "index": 217,
-      "group": "cloud",
-      "role": "cloud_gradient_level_45",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_13",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#E0EDF0",
-      "rgb565": "0xE77E",
+      "rgb888": "#E2E9E5",
+      "rgb565": "0xE75C",
       "rgb565_little_endian": [
-        126,
+        92,
         231
       ],
       "id": "cloud.level.45"
     },
     {
       "index": 218,
-      "group": "cloud",
-      "role": "cloud_gradient_level_46",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_14",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#DFECF0",
-      "rgb565": "0xDF7E",
+      "rgb888": "#DFE8E5",
+      "rgb565": "0xDF5C",
       "rgb565_little_endian": [
-        126,
+        92,
         223
       ],
       "id": "cloud.level.46"
     },
     {
       "index": 219,
-      "group": "cloud",
-      "role": "cloud_gradient_level_47",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_15",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#DEECF0",
-      "rgb565": "0xDF7E",
+      "rgb888": "#DCE6E4",
+      "rgb565": "0xDF3C",
       "rgb565_little_endian": [
-        126,
+        60,
         223
       ],
       "id": "cloud.level.47"
     },
     {
       "index": 220,
-      "group": "cloud",
-      "role": "cloud_gradient_level_48",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_16",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#DCEBF0",
-      "rgb565": "0xDF5E",
+      "rgb888": "#DAE4E3",
+      "rgb565": "0xDF3C",
       "rgb565_little_endian": [
-        94,
+        60,
         223
       ],
       "id": "cloud.level.48"
     },
     {
       "index": 221,
-      "group": "cloud",
-      "role": "cloud_gradient_level_49",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_17",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#DBEBF0",
-      "rgb565": "0xDF5E",
+      "rgb888": "#D7E3E3",
+      "rgb565": "0xD71C",
       "rgb565_little_endian": [
-        94,
-        223
+        28,
+        215
       ],
       "id": "cloud.level.49"
     },
     {
       "index": 222,
-      "group": "cloud",
-      "role": "cloud_gradient_level_50",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_18",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#DAEAF0",
-      "rgb565": "0xDF5E",
+      "rgb888": "#D4E1E2",
+      "rgb565": "0xD71C",
       "rgb565_little_endian": [
-        94,
-        223
+        28,
+        215
       ],
       "id": "cloud.level.50"
     },
     {
       "index": 223,
-      "group": "cloud",
-      "role": "cloud_gradient_level_51",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_19",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D8E9F0",
-      "rgb565": "0xDF5E",
+      "rgb888": "#D2E0E2",
+      "rgb565": "0xD71C",
       "rgb565_little_endian": [
-        94,
-        223
+        28,
+        215
       ],
       "id": "cloud.level.51"
     },
     {
       "index": 224,
-      "group": "cloud",
-      "role": "cloud_gradient_level_52",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_20",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D7E9F0",
-      "rgb565": "0xD75E",
+      "rgb888": "#CFDEE1",
+      "rgb565": "0xCEFC",
       "rgb565_little_endian": [
-        94,
-        215
+        252,
+        206
       ],
       "id": "cloud.level.52"
     },
     {
       "index": 225,
-      "group": "cloud",
-      "role": "cloud_gradient_level_53",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_21",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D6E8F0",
-      "rgb565": "0xD75E",
+      "rgb888": "#CBDBDF",
+      "rgb565": "0xCEDB",
       "rgb565_little_endian": [
-        94,
-        215
+        219,
+        206
       ],
       "id": "cloud.level.53"
     },
     {
       "index": 226,
-      "group": "cloud",
-      "role": "cloud_gradient_level_54",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_22",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D4E8F0",
-      "rgb565": "0xD75E",
+      "rgb888": "#C6D7DD",
+      "rgb565": "0xC6BB",
       "rgb565_little_endian": [
-        94,
-        215
+        187,
+        198
       ],
       "id": "cloud.level.54"
     },
     {
       "index": 227,
-      "group": "cloud",
-      "role": "cloud_gradient_level_55",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_23",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D3E7F0",
-      "rgb565": "0xD73E",
+      "rgb888": "#C2D4DB",
+      "rgb565": "0xC6BB",
       "rgb565_little_endian": [
-        62,
-        215
+        187,
+        198
       ],
       "id": "cloud.level.55"
     },
     {
       "index": 228,
-      "group": "cloud",
-      "role": "cloud_gradient_level_56",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_24",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D1E6EF",
-      "rgb565": "0xD73D",
+      "rgb888": "#BED0D9",
+      "rgb565": "0xBE9B",
       "rgb565_little_endian": [
-        61,
-        215
+        155,
+        190
       ],
       "id": "cloud.level.56"
     },
     {
       "index": 229,
-      "group": "cloud",
-      "role": "cloud_gradient_level_57",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_25",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#D0E6EF",
-      "rgb565": "0xD73D",
+      "rgb888": "#B9CDD7",
+      "rgb565": "0xBE7A",
       "rgb565_little_endian": [
-        61,
-        215
+        122,
+        190
       ],
       "id": "cloud.level.57"
     },
     {
       "index": 230,
-      "group": "cloud",
-      "role": "cloud_gradient_level_58",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_26",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#CFE5EF",
-      "rgb565": "0xCF3D",
+      "rgb888": "#B5C9D4",
+      "rgb565": "0xB65A",
       "rgb565_little_endian": [
-        61,
-        207
+        90,
+        182
       ],
       "id": "cloud.level.58"
     },
     {
       "index": 231,
-      "group": "cloud",
-      "role": "cloud_gradient_level_59",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_27",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#CDE4EF",
-      "rgb565": "0xCF3D",
+      "rgb888": "#B0C6D2",
+      "rgb565": "0xB63A",
       "rgb565_little_endian": [
-        61,
-        207
+        58,
+        182
       ],
       "id": "cloud.level.59"
     },
     {
       "index": 232,
-      "group": "cloud",
-      "role": "cloud_gradient_level_60",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_28",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#CCE4EF",
-      "rgb565": "0xCF3D",
+      "rgb888": "#ACC2D0",
+      "rgb565": "0xAE1A",
       "rgb565_little_endian": [
-        61,
-        207
+        26,
+        174
       ],
       "id": "cloud.level.60"
     },
     {
       "index": 233,
-      "group": "cloud",
-      "role": "cloud_gradient_level_61",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_29",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#CBE3EF",
-      "rgb565": "0xCF1D",
+      "rgb888": "#A8BFCE",
+      "rgb565": "0xADF9",
       "rgb565_little_endian": [
-        29,
-        207
+        249,
+        173
       ],
       "id": "cloud.level.61"
     },
     {
       "index": 234,
-      "group": "cloud",
-      "role": "cloud_gradient_level_62",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_30",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#C9E3EF",
-      "rgb565": "0xCF1D",
+      "rgb888": "#A3BBCC",
+      "rgb565": "0xA5D9",
       "rgb565_little_endian": [
-        29,
-        207
+        217,
+        165
       ],
       "id": "cloud.level.62"
     },
     {
       "index": 235,
-      "group": "cloud",
-      "role": "cloud_gradient_level_63",
+      "group": "cloud_volume",
+      "role": "cloud_volume_gradient_level_31",
       "availability": "current",
       "reserved": false,
-      "rgb888": "#C8E2EF",
-      "rgb565": "0xCF1D",
+      "rgb888": "#9FB8CA",
+      "rgb565": "0x9DD9",
       "rgb565_little_endian": [
-        29,
-        207
+        217,
+        157
       ],
       "id": "cloud.level.63"
     },
     {
       "index": 236,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_236",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_00",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FFF1D7",
+      "rgb565": "0xFF9A",
       "rgb565_little_endian": [
-        0,
-        0
+        154,
+        255
       ],
-      "id": "reserved.level.64"
+      "id": "cloud.shadow.level.00"
     },
     {
       "index": 237,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_237",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_01",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FEF1D8",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        0,
-        0
+        155,
+        255
       ],
-      "id": "reserved.level.65"
+      "id": "cloud.shadow.level.01"
     },
     {
       "index": 238,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_238",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_02",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FEF2DA",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        0,
-        0
+        155,
+        255
       ],
-      "id": "reserved.level.66"
+      "id": "cloud.shadow.level.02"
     },
     {
       "index": 239,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_239",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_03",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FDF2DB",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        0,
-        0
+        155,
+        255
       ],
-      "id": "reserved.level.67"
+      "id": "cloud.shadow.level.03"
     },
     {
       "index": 240,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_240",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_04",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FCF2DD",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        0,
-        0
+        155,
+        255
       ],
-      "id": "reserved.level.68"
+      "id": "cloud.shadow.level.04"
     },
     {
       "index": 241,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_241",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_05",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FBF2DE",
+      "rgb565": "0xFF9B",
       "rgb565_little_endian": [
-        0,
-        0
+        155,
+        255
       ],
-      "id": "reserved.level.69"
+      "id": "cloud.shadow.level.05"
     },
     {
       "index": 242,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_242",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_06",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FBF3E0",
+      "rgb565": "0xFF9C",
       "rgb565_little_endian": [
-        0,
-        0
+        156,
+        255
       ],
-      "id": "reserved.level.70"
+      "id": "cloud.shadow.level.06"
     },
     {
       "index": 243,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_243",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_07",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FAF3E1",
+      "rgb565": "0xFF9C",
       "rgb565_little_endian": [
-        0,
-        0
+        156,
+        255
       ],
-      "id": "reserved.level.71"
+      "id": "cloud.shadow.level.07"
     },
     {
       "index": 244,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_244",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_08",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F5F0E0",
+      "rgb565": "0xF79C",
       "rgb565_little_endian": [
-        0,
-        0
+        156,
+        247
       ],
-      "id": "reserved.level.72"
+      "id": "cloud.light.level.00"
     },
     {
       "index": 245,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_245",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_09",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F0EDE0",
+      "rgb565": "0xF77C",
       "rgb565_little_endian": [
-        0,
-        0
+        124,
+        247
       ],
-      "id": "reserved.level.73"
+      "id": "cloud.light.level.01"
     },
     {
       "index": 246,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_246",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_10",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EBEADF",
+      "rgb565": "0xEF5B",
       "rgb565_little_endian": [
-        0,
-        0
+        91,
+        239
       ],
-      "id": "reserved.level.74"
+      "id": "cloud.light.level.02"
     },
     {
       "index": 247,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_247",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_11",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E5E8DE",
+      "rgb565": "0xE75B",
       "rgb565_little_endian": [
-        0,
-        0
+        91,
+        231
       ],
-      "id": "reserved.level.75"
+      "id": "cloud.light.level.03"
     },
     {
       "index": 248,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_248",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_12",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E0E5DD",
+      "rgb565": "0xE73B",
       "rgb565_little_endian": [
-        0,
-        0
+        59,
+        231
       ],
-      "id": "reserved.level.76"
+      "id": "cloud.fold.cool.level.00"
     },
     {
       "index": 249,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_249",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_13",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DBE2DD",
+      "rgb565": "0xDF1B",
       "rgb565_little_endian": [
-        0,
-        0
+        27,
+        223
       ],
-      "id": "reserved.level.77"
+      "id": "cloud.fold.cool.level.01"
     },
     {
       "index": 250,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_250",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_14",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D6DFDC",
+      "rgb565": "0xD6FB",
       "rgb565_little_endian": [
-        0,
-        0
+        251,
+        214
       ],
-      "id": "reserved.level.78"
+      "id": "cloud.fold.cool.level.02"
     },
     {
       "index": 251,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_251",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_15",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CDD8D9",
+      "rgb565": "0xCEDB",
       "rgb565_little_endian": [
-        0,
-        0
+        219,
+        206
       ],
-      "id": "reserved.level.79"
+      "id": "cloud.fold.cool.level.03"
     },
     {
       "index": 252,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_252",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_16",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#C4D1D5",
+      "rgb565": "0xC69A",
       "rgb565_little_endian": [
-        0,
-        0
+        154,
+        198
       ],
-      "id": "reserved.level.80"
+      "id": "cloud.fold.cool.level.04"
     },
     {
       "index": 253,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_253",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_17",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#BACBD2",
+      "rgb565": "0xBE5A",
       "rgb565_little_endian": [
-        0,
-        0
+        90,
+        190
       ],
-      "id": "reserved.level.81"
+      "id": "cloud.fold.cool.level.05"
     },
     {
       "index": 254,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_254",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_18",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#B1C4CE",
+      "rgb565": "0xB639",
       "rgb565_little_endian": [
-        0,
-        0
+        57,
+        182
       ],
-      "id": "reserved.level.82"
+      "id": "cloud.fold.cool.level.06"
     },
     {
       "index": 255,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_255",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud_crown",
+      "role": "cloud_crown_gradient_level_19",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#A8BDCB",
+      "rgb565": "0xADF9",
       "rgb565_little_endian": [
-        0,
-        0
+        249,
+        173
       ],
-      "id": "reserved.level.83"
+      "id": "cloud.fold.cool.level.07"
     }
   ]
 }

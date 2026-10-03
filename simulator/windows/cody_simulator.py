@@ -19,7 +19,7 @@ from scripts.common.cody_rig_contract import (  # noqa: E402
     advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract, make_contour_state,
 )
 from scripts.common.cody_rig_types import (  # noqa: E402
-    CurvePoint, LabelScope, PointRole, Screen,
+    CurvePoint, FillAntialiasing, LabelScope, PointRole, Screen,
 )
 from scripts.common.cody_response import (  # noqa: E402
     SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
@@ -28,6 +28,8 @@ from scripts.common.cody_response import (  # noqa: E402
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
 from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
+from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
+from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
@@ -79,22 +81,29 @@ class CodyRenderer:
         image.putpalette(self.flat_palette)
         return image
 
-    # image receives the polygon in indexed mode or native-color RGB presentation mode.
-    # vertices are the already evaluated curve samples in logical coordinates.
-    # slots identifies the ordered inclusive palette ramp.
-    # opacity is the quantized source-over coverage, from zero through 255.
-    # Raises ValueError for opacity outside the explicit byte contract.
-    def fill(self, image, vertices, slots, opacity=255):
+    # self: Renderer owning the immutable native palette.
+    # image: Polygon destination in indexed mode or RGB565-quantized RGB mode.
+    # vertices: Already evaluated curve samples in logical coordinates.
+    # slots: Ordered inclusive palette ramp.
+    # opacity: Quantized source-over opacity, from zero through 255.
+    # antialiasing: Explicit coverage policy; disabled keeps the original Pillow fill.
+    # Raises ValueError for an invalid opacity, coverage policy or polygon.
+    def fill(self, image, vertices, slots, opacity=255, antialiasing=FillAntialiasing.DISABLED):
         if type(opacity) is not int or not 0 <= opacity <= 255:
             raise ValueError(f"Invalid polygon opacity: {opacity}")
+        antialiasing = FillAntialiasing(antialiasing)
         if opacity == 0:
             return
+        uses_coverage = antialiasing == FillAntialiasing.COVERAGE
         first, last = slots
-        if first == last and opacity == 255:
+        if first == last and opacity == 255 and not uses_coverage:
             ImageDraw.Draw(image).polygon(vertices, fill=self.paint(image, first))
             return
-        mask = Image.new("L", (SIZE, SIZE))
-        ImageDraw.Draw(mask).polygon(vertices, fill=255)
+        if uses_coverage:
+            mask = coverage_mask(vertices, (SIZE, SIZE))
+        else:
+            mask = Image.new("L", (SIZE, SIZE))
+            ImageDraw.Draw(mask).polygon(vertices, fill=255)
         top = min(y for _, y in vertices)
         bottom = max(y for _, y in vertices)
         ramp = self.indexed(first)
@@ -104,7 +113,7 @@ class CodyRenderer:
             ratio = max(0, min(1, (row + .5 - top) / (bottom - top))) if bottom > top else 0
             slot = first + math.floor(ratio * (last - first) + .5)
             draw.line((0, row, SIZE - 1, row), fill=slot)
-        if opacity == 255:
+        if opacity == 255 and not uses_coverage:
             image.paste(ramp if image.mode == "P" else ramp.convert("RGB"), (0, 0), mask)
             return
         self.composite_fill(image, ramp, mask, opacity)
@@ -114,25 +123,38 @@ class CodyRenderer:
     def paint(self, image, slot):
         return slot if image.mode == "P" else self.rgb_palette[slot]
 
-    # image is the RGB destination whose pixels are already quantized to RGB565.
-    # source contains indexed source colors for the current polygon.
-    # mask selects covered logical pixels without altering the authored polygon.
-    # opacity is the previously validated byte coverage, strictly between zero and 255.
-    # Raises ValueError when a partial-alpha destination has not been expanded to RGB.
+    # self: Renderer owning immutable RGB565 source colors.
+    # image: RGB destination whose pixels are already quantized to RGB565.
+    # source: Indexed source colors for the current polygon.
+    # mask: Binary L mask or integer I geometric coverage in the range 0..1024.
+    # opacity: Previously validated source opacity, from one through 255.
+    # Raises ValueError for an unsupported mask or a destination not expanded to RGB.
     def composite_fill(self, image, source, mask, opacity):
         if image.mode != "RGB":
-            raise ValueError("Partial opacity requires an RGB565-quantized RGB destination")
+            raise ValueError("Coverage and partial opacity require an RGB565-quantized RGB destination")
+        if mask.mode not in ("L", "I"):
+            raise ValueError(f"Unsupported polygon coverage mask: {mask.mode}")
         bounds = mask.getbbox()
         if bounds is None:
             return
-        pixels, sources, coverage = image.load(), source.load(), mask.load()
+        coverage_limit = FULL_COVERAGE if mask.mode == "I" else 255
+        pixels = image.load()
+        sources = source.load()
+        coverage = mask.load()
         mixed_colors = {}
         for y in range(bounds[1], bounds[3]):
             for x in range(bounds[0], bounds[2]):
-                if not coverage[x, y]:
+                # Combine opacity with the full-precision geometric mask once.
+                # Reducing the mask to a byte first would double-round edge pixels.
+                effective_opacity = (opacity * coverage[x, y] + coverage_limit // 2) // coverage_limit
+                if effective_opacity == 0:
                     continue
-                slot, background = sources[x, y], pixels[x, y]
-                key = (slot, background)
+                slot = sources[x, y]
+                if effective_opacity == 255:
+                    pixels[x, y] = self.rgb_palette[slot]
+                    continue
+                background = pixels[x, y]
+                key = (slot, background, effective_opacity)
                 if key not in mixed_colors:
                     red, green, blue = background
                     destination = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
@@ -142,7 +164,7 @@ class CodyRenderer:
                     for shift, mask_bits in ((11, 31), (5, 63), (0, 31)):
                         foreground = (source_word >> shift) & mask_bits
                         beneath = (destination >> shift) & mask_bits
-                        mixed = (foreground * opacity + beneath * (255 - opacity) + 127) // 255
+                        mixed = (foreground * effective_opacity + beneath * (255 - effective_opacity) + 127) // 255
                         word |= mixed << shift
                     mixed_colors[key] = rgb565(word)
                 pixels[x, y] = mixed_colors[key]
@@ -155,18 +177,27 @@ class CodyRenderer:
     # outline shows the evaluated body contour without recomputing its curves.
     # rest_outline shows the undeformed contour with the same placement and breathing scale.
     # response_frame optionally shows the actual resting/current root and inertia vector.
-    # Raises ValueError for an invalid evaluated opacity or unsupported partial-alpha target.
-    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None):
+    # material_study: Opt-in host-only continuous cloud shading, not firmware parity.
+    # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
+    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False):
         image = self.indexed()
+        surface_paths = set(self.rig['contour'].get('surface_paths', []))
         for path in scene["paths"]:
             if not path["visible"]:
                 continue
             definition = path["definition"]
+            if material_study and definition['name'] in surface_paths:
+                continue
+            if material_study and definition['name'] == self.rig['contour']['path']:
+                image = image.convert('RGB')
+                paint_cloud_material(image, path['vertices'], scene)
+                continue
+            antialiasing = definition["antialiasing"]
             opacity = math.floor(path["opacity"] * 255 + .5)
             if opacity == 0:
                 continue
-            if opacity < 255 and image.mode == "P":
-                # The source palette stays fixed; true translucency needs derived framebuffer colors.
+            if image.mode == "P" and (opacity < 255 or antialiasing == FillAntialiasing.COVERAGE):
+                # Boundary coverage creates derived RGB565 colors even for opaque artwork.
                 image = image.convert("RGB")
             if definition["stroke"]:
                 # Pillow wants whole pixels; the device keeps fractional widths.
@@ -178,7 +209,7 @@ class CodyRenderer:
                 for x, y in (path["vertices"][0], path["vertices"][-1]):
                     draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=color)
             else:
-                self.fill(image, path["vertices"], definition["paint"], opacity)
+                self.fill(image, path["vertices"], definition["paint"], opacity, antialiasing)
         draw = ImageDraw.Draw(image)
         metrics = self.rig["style"]["debug_metrics"]
         colors = {name: self.paint(image, slot) for name, slot in self.rig["style"]["debug"].items()}
@@ -272,27 +303,39 @@ class CodyRenderer:
     # outline enables the evaluated body contour overlay.
     # rest_outline enables the original body contour overlay.
     # response_frame enables resting/current root overlays without recomputing geometry.
+    # material_study: Opt-in host-only material study; default rendering is unchanged.
     # Raises ValueError for an unknown screen or invalid rig values.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None):
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
         if screen == Screen.RIG:
             image = self.draw_scene(scene, debug, selected, guide,
-                                    outline=outline, rest_outline=rest_outline, response_frame=response_frame)
+                                    outline=outline, rest_outline=rest_outline, response_frame=response_frame,
+                                    material_study=material_study)
         else:
             image = self.boot[screen].copy()
         circular = Image.new("L", (SIZE, SIZE))
         ImageDraw.Draw(circular).ellipse((0,0,SIZE-1,SIZE-1), fill=255)
         image = image.convert("RGB")
         image.paste((0,0,0), (0,0,SIZE,SIZE), Image.eval(circular, lambda v:255-v))
-        return orient(image, rotation), scene
+        image = orient(image, rotation)
+        if material_study and screen == Screen.RIG:
+            image.info['cody_material_study'] = True
+        return image, scene
 
-    # image is a rendered device view; caption identifies the synthetic desktop context.
+    # self: Renderer owning the presentation font.
+    # image: Rendered logical view, optionally marked as a host-only material study.
+    # caption: Context shown for the ordinary simulator capture.
     def capture_sheet(self, image, caption):
         sheet = Image.new("RGB", (SIZE, SIZE+42), "#101820")
         sheet.paste(image, (0,0))
-        ImageDraw.Draw(sheet).text((12,SIZE+12), "SYNTHETIC / " + caption, fill="#75CBF3", font=self.font)
+        draw = ImageDraw.Draw(sheet)
+        if image.info.get('cody_material_study', False):
+            draw.text((12, SIZE + 7), 'MATERIAL STUDY / HOST ONLY', fill='#75CBF3', font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / Not the firmware renderer', fill='#C3D0D5', font=self.font)
+        else:
+            draw.text((12,SIZE+12), "SYNTHETIC / " + caption, fill="#75CBF3", font=self.font)
         return sheet
 
 
@@ -1086,7 +1129,9 @@ class CodyWindow:
         self.after_id = self.root.after(delay_ms, self.tick)
 
 
-# argv is the explicit Cody argument list from the common Windows launcher.
+# argv: Explicit Cody argument list from the common Windows launcher.
+# Raises ValueError for an invalid authored rig or evaluated scene.
+# Raises OSError for a failed capture write and tk.TclError for unavailable window resources.
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skin", default="assets/cody/cody.yaml")
@@ -1095,10 +1140,14 @@ def main(argv=None):
     parser.add_argument('--capture',type=Path,
                         help = 'Output PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts')
     parser.add_argument('--safe-guide',action='store_true')
+    parser.add_argument('--cloud-material-study', action='store_true',
+                        help='Capture a host-only soft cloud material study; not firmware rendering parity')
     parser.add_argument('--at-ms',type=int,default=1000)
     args = parser.parse_args(argv)
     if args.at_ms<0:
         parser.error('--at-ms must be non-negative')
+    if args.cloud_material_study and (args.capture is None or args.screen != Screen.RIG):
+        parser.error('--cloud-material-study requires --capture and --screen rig')
     if args.capture is not None:
         try:
             args.capture = resolve_runtime_output(args.capture)
@@ -1109,8 +1158,11 @@ def main(argv=None):
         destination = args.capture
         values = animate(renderer.rig['boot_channels']['ready'],args.at_ms)
         contour = advance_contour(renderer.rig,make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
+        # Captures show the same clean artwork as the device's initial view.
+        # Interactive inspection still exposes its separate debug controls.
         image,_ = renderer.render(args.screen,values,tuple(renderer.rig['default_transform'][key] for key in ('x','y','scale')),
-                                guide = args.safe_guide,rotation=args.rotation,contour=contour)
+                                debug=False,guide=args.safe_guide,rotation=args.rotation,contour=contour,
+                                material_study=args.cloud_material_study)
         destination.parent.mkdir(parents=True,exist_ok=True)
         renderer.capture_sheet(image,f"{args.screen} / {args.rotation} deg / HOST PREVIEW").save(destination)
         print(destination)

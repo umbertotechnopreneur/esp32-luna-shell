@@ -8,8 +8,15 @@
 namespace CODY2D {
 namespace {
 constexpr char kTag[] = "CODY2D_paths";
+constexpr uint16_t kCoverageSamples = 4;
+constexpr uint16_t kHorizontalCoverageUnits = 256;
+constexpr uint16_t kFullCoverage = kCoverageSamples * kHorizontalCoverageUnits;
+constexpr uint16_t kCoverageWordBits = 32;
+constexpr uint16_t kCoverageEventWords = kMaxDimension / kCoverageWordBits + 1;
 static_assert(kMaxPathVertices <= std::numeric_limits<uint8_t>::max() + 1U,
               "Fill edge indices no longer fit in the compact shortlist");
+static_assert(kFullCoverage <= std::numeric_limits<int16_t>::max(),
+              "Coverage differences no longer fit in the bounded row scratch");
 
 // point: Canvas coordinate whose bounded extent makes integer raster conversion safe.
 bool valid_point(Vec2 point)
@@ -30,49 +37,284 @@ uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
     const uint32_t blue = ((source & 31U) * alpha + (destination & 31U) * inverse + 127U) / 255U;
     return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
 }
-}  // namespace
 
-// strip: Caller-owned destination; no row padding is touched.
-// first_row: Canvas origin of this tile, making gradient and clipping strip-independent.
-// vertices: Readable evaluated polygon; all inputs are checked before writing.
-// count: Number of supplied vertices, including an optional repeated closure.
-// palette: Readable table of 256 native RGB565 entries.
-// first_color: Top slot, also the solid slot for a constant-color polygon.
-// last_color: Bottom slot in the same ordered ramp.
-// opacity: Source coverage; zero still checks the supplied geometry before returning without writes.
-// first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
-esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
-                        const Vec2 *vertices, uint16_t count,
-                        const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                        uint8_t opacity, uint16_t first_column)
+// differences: Bounded row scratch, initialized only where an event is first touched.
+// events: Zero-initialized bitset recording which coverage changes are readable this row.
+// column: Tile-local change position, including the one-past-width sentinel.
+// change: Signed coverage contribution to accumulate at this position.
+void add_coverage_change(int16_t *differences, uint32_t *events, int column, int change)
 {
-    const esp_err_t error = validate_surface(strip);
-    if (error != ESP_OK) {
-        return error;
+    if (change == 0) {
+        return;
     }
-    if (!vertices || !palette || count < 3 || count > kMaxPathVertices ||
-        first_color > last_color || first_row + strip.height > kMaxDimension ||
-        first_column + strip.width > kMaxDimension) {
-        ESP_LOGE(kTag, "Fill rejected: vertices=%p count=%u palette=%p slots=%u..%u row=%u column=%u (%s)",
-                 vertices, count, palette, first_color, last_color, first_row, first_column,
-                 esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
+    const uint32_t mask = uint32_t{1} << (column % kCoverageWordBits);
+    uint32_t &word = events[column / kCoverageWordBits];
+    if ((word & mask) == 0) {
+        // The bitset owns initialization, so untouched scratch is never read.
+        differences[column] = change;
+        word |= mask;
+    } else {
+        differences[column] += change;
     }
-    float top = vertices[0].y;
-    float bottom = vertices[0].y;
-    for (uint16_t index = 0; index < count; ++index) {
-        if (!valid_point(vertices[index])) {
-            ESP_LOGE(kTag, "Fill point %u rejected: %f,%f (%s)", index,
-                     vertices[index].x, vertices[index].y, esp_err_to_name(ESP_ERR_INVALID_ARG));
-            return ESP_ERR_INVALID_ARG;
+}
+
+// events: Readable row bitset of touched coverage changes, including its terminal sentinel.
+// first: First tile-local change position to consider.
+// limit: Exclusive search limit, returned when no earlier event exists.
+int next_coverage_event(const uint32_t *events, int first, int limit)
+{
+    if (first >= limit) {
+        return limit;
+    }
+    int word_index = first / kCoverageWordBits;
+    const int bit_offset = first % kCoverageWordBits;
+    uint32_t remaining = events[word_index] &
+        (std::numeric_limits<uint32_t>::max() << bit_offset);
+    while (remaining == 0) {
+        ++word_index;
+        if (word_index * kCoverageWordBits >= limit) {
+            return limit;
         }
-        top = std::min(top, vertices[index].y);
-        bottom = std::max(bottom, vertices[index].y);
+        remaining = events[word_index];
     }
-    if (opacity == 0) {
+
+    // Find the first set bit with bounded integer steps on both host and ESP32.
+    // Long opaque spans skip entire words instead of inspecting every pixel.
+    int offset = 0;
+    if ((remaining & 0xffffU) == 0) {
+        remaining >>= 16;
+        offset += 16;
+    }
+    if ((remaining & 0xffU) == 0) {
+        remaining >>= 8;
+        offset += 8;
+    }
+    if ((remaining & 0xfU) == 0) {
+        remaining >>= 4;
+        offset += 4;
+    }
+    if ((remaining & 0x3U) == 0) {
+        remaining >>= 2;
+        offset += 2;
+    }
+    if ((remaining & 0x1U) == 0) {
+        ++offset;
+    }
+    return std::min(limit, word_index * kCoverageWordBits + offset);
+}
+
+// differences: Bounded coverage changes whose initialized positions are recorded by events.
+// events: Row bitset receiving every touched coverage boundary.
+// left: Clipped tile-local span start in fixed 1/256-pixel units.
+// right: Clipped tile-local exclusive span end in the same fixed units, greater than left.
+void add_coverage_span(int16_t *differences, uint32_t *events, int left, int right)
+{
+    const int first_pixel = left / kHorizontalCoverageUnits;
+    const int last_pixel = (right - 1) / kHorizontalCoverageUnits;
+    if (first_pixel == last_pixel) {
+        const int length = right - left;
+        add_coverage_change(differences, events, first_pixel, length);
+        add_coverage_change(differences, events, first_pixel + 1, -length);
+        return;
+    }
+
+    const int first_coverage = kHorizontalCoverageUnits - left % kHorizontalCoverageUnits;
+    const int last_coverage = right - last_pixel * kHorizontalCoverageUnits;
+    // Only four changes describe an arbitrarily long span. The prefix sum
+    // later combines all four subscanlines before any destination is blended.
+    add_coverage_change(differences, events, first_pixel, first_coverage);
+    add_coverage_change(differences, events, first_pixel + 1,
+                        kHorizontalCoverageUnits - first_coverage);
+    add_coverage_change(differences, events, last_pixel, last_coverage - kHorizontalCoverageUnits);
+    add_coverage_change(differences, events, last_pixel + 1, -last_coverage);
+}
+
+// strip: Validated writable RGB565 tile with no padding writes.
+// first_row: Absolute canvas y origin shared by every tile of this polygon.
+// vertices: Validated readable polygon coordinates.
+// count: Validated polygon size bounded by kMaxPathVertices.
+// palette: Validated readable RGB565 color table.
+// first_color: First slot of the ordered gradient, or the solid color slot.
+// last_color: Last slot of the ordered gradient.
+// opacity: Nonzero source opacity, combined with geometric coverage once per pixel.
+// first_column: Absolute canvas x origin shared by every tile of this polygon.
+// top: Minimum polygon y used for the common gradient origin.
+// bottom: Maximum polygon y used for the common gradient extent.
+esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
+                             const Vec2 *vertices, uint16_t count,
+                             const uint16_t *palette, uint8_t first_color, uint8_t last_color,
+                             uint8_t opacity, uint16_t first_column, float top, float bottom)
+{
+    if (bottom <= first_row || top >= first_row + strip.height || top == bottom) {
         return ESP_OK;
     }
 
+    // The shortlist covers the complete subscanline domain, including caps
+    // which do not cross the old center sample at y + 0.5.
+    constexpr float first_sample_offset = .5f / kCoverageSamples;
+    const float first_sample_y = first_row + first_sample_offset;
+    const float last_sample_y = first_row + strip.height - first_sample_offset;
+    uint8_t candidate_edges[kMaxPathVertices];
+    uint16_t candidate_edge_count = 0;
+    for (uint16_t index = 0; index < count; ++index) {
+        const uint16_t next_index = index + 1 < count ? index + 1 : 0;
+        const Vec2 a = vertices[index];
+        const Vec2 b = vertices[next_index];
+        const float edge_top = std::min(a.y, b.y);
+        const float edge_bottom = std::max(a.y, b.y);
+        if (edge_top <= last_sample_y && edge_bottom > first_sample_y) {
+            candidate_edges[candidate_edge_count++] = static_cast<uint8_t>(index);
+        }
+    }
+
+    // One bounded row and an intersection list are enough; no frame-sized
+    // mask, runtime allocation, or shared mutable scratch is needed.
+    int16_t coverage_differences[kMaxDimension + 1];
+    uint32_t coverage_events[kCoverageEventWords];
+    float intersections[kMaxPathVertices];
+    uint8_t row_candidate_edges[kMaxPathVertices];
+    const float tile_right = first_column + strip.width;
+    const bool is_solid_color = first_color == last_color;
+    const uint16_t solid_color = palette[first_color];
+    for (uint16_t row = 0; row < strip.height; ++row) {
+        const uint16_t canvas_row = first_row + row;
+        if (canvas_row + 1 <= top || canvas_row >= bottom) {
+            continue;
+        }
+        // A tile can contain many contour edges, but only a few can cross any
+        // of this row's four samples. Reject the others once, preserving the
+        // original edge order and the exact intersection arithmetic below.
+        const float row_first_sample_y = canvas_row + first_sample_offset;
+        const float row_last_sample_y = canvas_row + 1 - first_sample_offset;
+        uint16_t row_candidate_count = 0;
+        for (uint16_t candidate = 0; candidate < candidate_edge_count; ++candidate) {
+            const uint16_t index = candidate_edges[candidate];
+            const uint16_t next_index = index + 1 < count ? index + 1 : 0;
+            const Vec2 a = vertices[index];
+            const Vec2 b = vertices[next_index];
+            const float edge_top = std::min(a.y, b.y);
+            const float edge_bottom = std::max(a.y, b.y);
+            if (edge_top <= row_last_sample_y && edge_bottom > row_first_sample_y) {
+                row_candidate_edges[row_candidate_count++] = static_cast<uint8_t>(index);
+            }
+        }
+        if (row_candidate_count == 0) {
+            continue;
+        }
+        const uint16_t event_words = strip.width / kCoverageWordBits + 1;
+        std::fill(coverage_events, coverage_events + event_words, uint32_t{0});
+        int first_covered_pixel = strip.width;
+        int past_last_covered_pixel = 0;
+        for (uint16_t sample = 0; sample < kCoverageSamples; ++sample) {
+            const float scan_y = canvas_row + (sample + .5f) / kCoverageSamples;
+            uint16_t hits = 0;
+            for (uint16_t candidate = 0; candidate < row_candidate_count; ++candidate) {
+                const uint16_t index = row_candidate_edges[candidate];
+                const uint16_t next_index = index + 1 < count ? index + 1 : 0;
+                const Vec2 a = vertices[index];
+                const Vec2 b = vertices[next_index];
+                if ((a.y <= scan_y && b.y > scan_y) || (b.y <= scan_y && a.y > scan_y)) {
+                    intersections[hits++] = a.x + (scan_y - a.y) * (b.x - a.x) / (b.y - a.y);
+                }
+            }
+            if (hits % 2 != 0) {
+                ESP_LOGE(kTag, "Coverage fill row=%u sample=%u has odd intersection count %u (%s)",
+                         canvas_row, sample, hits, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+                return ESP_ERR_INVALID_RESPONSE;
+            }
+            std::sort(intersections, intersections + hits);
+            for (uint16_t hit = 0; hit < hits; hit += 2) {
+                const float left = std::max(static_cast<float>(first_column), intersections[hit]);
+                const float right = std::min(tile_right, intersections[hit + 1]);
+                if (left >= right) {
+                    continue;
+                }
+                // Quantize absolute positions before removing the tile origin.
+                // This keeps horizontal coverage identical across tile seams.
+                // Clipping makes both values nonnegative and bounded; integer
+                // truncation is exactly floor here, without a libm call.
+                const int fixed_origin = first_column * kHorizontalCoverageUnits;
+                const int fixed_left = static_cast<int>(left * kHorizontalCoverageUnits + .5f) -
+                    fixed_origin;
+                const int fixed_right = static_cast<int>(right * kHorizontalCoverageUnits + .5f) -
+                    fixed_origin;
+                if (fixed_left == fixed_right) {
+                    continue;
+                }
+                add_coverage_span(coverage_differences, coverage_events, fixed_left, fixed_right);
+                first_covered_pixel = std::min(
+                    first_covered_pixel, fixed_left / kHorizontalCoverageUnits
+                );
+                past_last_covered_pixel = std::max(
+                    past_last_covered_pixel,
+                    (fixed_right + kHorizontalCoverageUnits - 1) / kHorizontalCoverageUnits
+                );
+            }
+        }
+
+        uint16_t color = solid_color;
+        if (!is_solid_color) {
+            // A partially covered cap can have its center outside the polygon.
+            // Clamp only this raster lookup domain, never authored settings.
+            const float ratio = std::max(0.f, std::min(
+                1.f, (canvas_row + .5f - top) / (bottom - top)
+            ));
+            const uint16_t slot = first_color + static_cast<uint16_t>(
+                ratio * (last_color - first_color) + .5f
+            );
+            color = palette[slot];
+        }
+
+        int coverage = 0;
+        int column = first_covered_pixel;
+        while (column < past_last_covered_pixel) {
+            coverage += coverage_differences[column];
+            if (coverage < 0 || coverage > kFullCoverage) {
+                ESP_LOGE(kTag, "Coverage fill row=%u column=%u rejected coverage=%d (%s)",
+                         canvas_row, first_column + column, coverage,
+                         esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+                return ESP_ERR_INVALID_RESPONSE;
+            }
+            const int past_run = next_coverage_event(
+                coverage_events, column + 1, past_last_covered_pixel
+            );
+            const uint8_t effective_opacity = static_cast<uint8_t>(
+                (static_cast<uint32_t>(opacity) * coverage + kFullCoverage / 2) / kFullCoverage
+            );
+            if (effective_opacity != 0) {
+                uint16_t *destination = strip.pixels + row * strip.stride + column;
+                uint16_t *past_destination = strip.pixels + row * strip.stride + past_run;
+                if (effective_opacity == 255) {
+                    std::fill(destination, past_destination, color);
+                } else {
+                    while (destination != past_destination) {
+                        *destination = blend_rgb565(color, *destination, effective_opacity);
+                        ++destination;
+                    }
+                }
+            }
+            column = past_run;
+        }
+    }
+    return ESP_OK;
+}
+
+// strip: Validated caller-owned destination; no row padding is touched.
+// first_row: Canvas origin of this tile, making gradient and clipping strip-independent.
+// vertices: Validated readable evaluated polygon.
+// count: Validated vertex count, including an optional repeated closure.
+// palette: Readable table of 256 native RGB565 entries.
+// first_color: Top slot, also the solid slot for a constant-color polygon.
+// last_color: Bottom slot in the same ordered ramp.
+// opacity: Nonzero source opacity, composited using the original pixel-center rule.
+// first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
+// top: Minimum polygon y used for the original gradient origin.
+// bottom: Maximum polygon y used for the original gradient extent.
+esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
+                                 const Vec2 *vertices, uint16_t count,
+                                 const uint16_t *palette, uint8_t first_color, uint8_t last_color,
+                                 uint8_t opacity, uint16_t first_column, float top, float bottom)
+{
     // Keep the original edge order, but do not revisit edges that cannot cross
     // any pixel-center scanline in this tile. The row loop still applies the
     // original crossing predicate, so this shortlist is only a conservative
@@ -143,6 +385,60 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
         }
     }
     return ESP_OK;
+}
+}  // namespace
+
+// strip: Caller-owned destination; no row padding is touched.
+// first_row: Canvas origin of this tile, making gradient and clipping strip-independent.
+// vertices: Readable evaluated polygon; all inputs are checked before writing.
+// count: Number of supplied vertices, including an optional repeated closure.
+// palette: Readable table of 256 native RGB565 entries.
+// first_color: Top slot, also the solid slot for a constant-color polygon.
+// last_color: Bottom slot in the same ordered ramp.
+// opacity: Source coverage; zero still checks the supplied geometry before returning without writes.
+// first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
+// antialiasing: Explicit boundary sampling policy; Disabled preserves the original raster output.
+esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
+                        const Vec2 *vertices, uint16_t count,
+                        const uint16_t *palette, uint8_t first_color, uint8_t last_color,
+                        uint8_t opacity, uint16_t first_column, FillAntialiasing antialiasing)
+{
+    const esp_err_t error = validate_surface(strip);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!vertices || !palette || count < 3 || count > kMaxPathVertices ||
+        first_color > last_color || first_row + strip.height > kMaxDimension ||
+        first_column + strip.width > kMaxDimension ||
+        (antialiasing != FillAntialiasing::Disabled && antialiasing != FillAntialiasing::Coverage)) {
+        ESP_LOGE(kTag, "Fill rejected: vertices=%p count=%u palette=%p slots=%u..%u row=%u column=%u aa=%u (%s)",
+                 vertices, count, palette, first_color, last_color, first_row, first_column,
+                 static_cast<unsigned int>(antialiasing),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    float top = vertices[0].y;
+    float bottom = vertices[0].y;
+    for (uint16_t index = 0; index < count; ++index) {
+        if (!valid_point(vertices[index])) {
+            ESP_LOGE(kTag, "Fill point %u rejected: %f,%f (%s)", index,
+                     vertices[index].x, vertices[index].y, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        top = std::min(top, vertices[index].y);
+        bottom = std::max(bottom, vertices[index].y);
+    }
+    if (opacity == 0) {
+        return ESP_OK;
+    }
+    // Each sampling policy owns its scratch in a separate raster routine;
+    // coverage does not need the pixel-center intersection storage as well.
+    if (antialiasing == FillAntialiasing::Coverage) {
+        return fill_coverage_rows(strip, first_row, vertices, count, palette,
+                                  first_color, last_color, opacity, first_column, top, bottom);
+    }
+    return fill_pixel_center_rows(strip, first_row, vertices, count, palette,
+                                  first_color, last_color, opacity, first_column, top, bottom);
 }
 
 // from: Validated segment start in canvas coordinates.

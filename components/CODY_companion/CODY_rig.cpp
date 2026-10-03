@@ -531,7 +531,10 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
                      definition.name, stroke_width, path.count, esp_err_to_name(ESP_ERR_INVALID_ARG));
             return ESP_ERR_INVALID_ARG;
         }
-        const float stroke_margin = stroke_width * .5f;
+        // Coverage includes a pixel even when its center is just outside the
+        // polygon. Culling must consider the complete pixel footprint.
+        const float coverage_margin = definition.antialiasing == CODY2D::FillAntialiasing::Coverage ? .5f : 0.f;
+        const float stroke_margin = stroke_width * .5f + coverage_margin;
         path.first_scan_y = scene.vertices[path.first_vertex].y - stroke_margin;
         path.last_scan_y = scene.vertices[path.first_vertex].y + stroke_margin;
         for (uint16_t path_vertex = path.first_vertex; path_vertex < vertex; ++path_vertex) {
@@ -728,7 +731,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
             result = CODY2D::fill_path_rows(strip, first_row, vertices, path.count,
                                           Data::palette, static_cast<uint8_t>(to_index(definition.first_color)),
                                           static_cast<uint8_t>(to_index(definition.last_color)),
-                                          path.opacity, first_column);
+                                          path.opacity, first_column, definition.antialiasing);
         } else {
             for (uint16_t segment = 1; segment < path.count; ++segment) {
                 result = CODY2D::stroke_rows(strip, first_row, vertices[segment-1], vertices[segment],

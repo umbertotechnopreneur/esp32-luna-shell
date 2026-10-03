@@ -6,6 +6,18 @@ authorization.
 
 ## Current integration
 
+- [ ] Finish the cloud-volume and jelly-like IMU default iteration. Review the
+  continuous host material study (`artifacts/simulator/cloud-study-billows-v5.png`) with
+  the user first; this visual-only shader is not in firmware. Performance
+  optimization is explicitly deferred. The second flashed cloud candidate
+  sustained roughly 29 FPS but CPU1 60-63%, so low CPU cost is not achieved.
+  Current touched-event AA work and the newer artwork/motion defaults postdate
+  the passing 27 PoC checks and native raster package. Before final delivery,
+  obtain fresh test authorization, review motion/navigation clearance, regenerate
+  the final assets and measure the approved firmware. All sensor consumers must
+  use the canonical snapshot; no direct sensor-read path may be introduced.
+  Evidence and revision boundaries: `docs/architecture/cody-cloud-finish.md`.
+
 - [ ] Reduce Cody animation CPU usage and meet the sustained frame budget in
   both artwork and skeleton views. The pre-raster candidate is compiled and
   flashed: artwork capture shows around 29 FPS with CPU1 45%, CPU2 0%,

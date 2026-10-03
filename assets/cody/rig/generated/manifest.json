@@ -2,9 +2,9 @@
   "schema": "cody.rig.generated.v2",
   "skin_id": "cody",
   "source_path": "assets/cody/cody.yaml",
-  "points": 145,
-  "curves": 44,
-  "paths": 11,
+  "points": 190,
+  "curves": 59,
+  "paths": 15,
   "subdivisions": 12,
   "palette_slots": 256,
   "contour_controls": 4,
@@ -16,6 +16,6 @@
     "motion.acceleration",
     "power.charge"
   ],
-  "source_sha256": "169facf059a73caefdef1d801cfb21e7fc022831584262ed84a69540659f5026",
-  "palette_sha256": "87c5236b5b35f5700811f58b28802747f34ec45f8e5a18e5cb5816987f8b9050"
+  "source_sha256": "f2cafacbf7a87ab9079b8be7d78f0ec3b85aba83f411df75c146f9986e98470a",
+  "palette_sha256": "3dc97a4ef4a4554192a5020f0725e2b82af82f5da211c286d4f055717ac8cfb9"
 }

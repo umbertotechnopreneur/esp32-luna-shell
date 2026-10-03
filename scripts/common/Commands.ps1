@@ -10,7 +10,7 @@ function Get-FirmwareActions {
 function Get-DeviceActionParameters {
     $idf = @('Profile','Feature','BoardConfig','BuildDir','IdfPath','ToolsPath','PythonExe')
     $serial = @('Port','Baud','WaitSeconds')
-    $preview = @('Screen','Rotation','AtMs','SafeGuide','PythonExecutable','Skin')
+    $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','PythonExecutable','Skin')
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
@@ -120,6 +120,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 if ($Options.ContainsKey('Rotation')) { $arguments += @('--rotation',[string]$Options.Rotation) }
                 if ($Options.ContainsKey('AtMs')) { $arguments += @('--at-ms',[string]$Options.AtMs) }
                 if ($Options.SafeGuide) { $arguments += '--safe-guide' }
+                if ($Options.CloudMaterialStudy) { $arguments += '--cloud-material-study' }
                 $capture = if ($RequestedAction -eq 'boot-screens') {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }
@@ -154,6 +155,7 @@ CODY COMPANION / DEVICE CONSOLE
   device.ps1 simulator -Skin assets/characters/example.yaml
   device.ps1 simulator -Screen boot-ready -Rotation 180
   device.ps1 simulator -OutputPath artifacts/simulator/rig.png
+  device.ps1 simulator -CloudMaterialStudy -OutputPath artifacts/simulator/cloud-study.png
   device.ps1 boot-screens                  Capture all three boot stages
   device.ps1 check -Check cody-poc          Explicit host checks
   device.ps1 generate -Generator cody-rig  Regenerate authored firmware tables

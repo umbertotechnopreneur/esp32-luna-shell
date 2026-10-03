@@ -69,10 +69,11 @@ def emit_geometry(rig, palette):
         ]
         visible = cpp_identity("FaceChannel", path["visible"])
         opacity = cpp_identity("FaceChannel", path["opacity_channel"])
+        antialiasing = cpp_identity("CODY2D::FillAntialiasing", path["antialiasing"].value)
         fields = (
             identity, json.dumps(path["name"]), cpp_identity("CurveId", first_curve),
             str(path["curve_count"]), first_color, last_color, cpp_float(path["stroke"]),
-            visible, opacity,
+            visible, opacity, antialiasing,
         )
         lines.append("    {" + ", ".join(fields) + "},")
     lines.extend(["};", "inline constexpr PointFaceTransform point_face_transforms[] = {"])
