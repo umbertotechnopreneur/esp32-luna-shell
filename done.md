@@ -1,5 +1,14 @@
 # Done
 
+## Device-console menu and help presentation (2026-10-04)
+
+- [x] Restore operation-specific emoji throughout the public device menu and
+  submenus, with Exit on the main page and Back on nested pages. Organize help
+  into colored categories/subsections with dividers, readable command examples,
+  width-aware wrapping and descriptions for firmware/device commands, checks
+  and generators. Review source only; no CLI preview, tests, build, simulator
+  or physical-device operation ran.
+
 ## HTTP and Wi-Fi pairing integration (2026-10-04)
 
 - [x] Integrate the shared Wi-Fi credential-event adoption, explicit

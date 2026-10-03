@@ -5,6 +5,13 @@ interactive menu. Opening the menu/help does not load ESP-IDF, start a simulator
 run checks or probe a serial port. Select an operation to run it explicitly.
 All labels and command help are English.
 
+Menu items use operation-specific emoji, including settings and tool submenus.
+`help` and `list` show a colored guide with category dividers, subsections,
+complete command examples and descriptions for the current check/generator
+catalogs. Wide terminals align commands and descriptions in columns; narrower
+terminals wrap them onto separate lines without truncating the command text.
+Firmware recovery, dependency-lock updates and cleanup explain their effects.
+
 Firmware mode defaults to `Debug` on every CLI invocation. Release requires
 explicit `-BuildMode Release`, including for later flash/size/configuration
 commands. Session settings can explicitly select Release for the current menu
@@ -64,6 +71,7 @@ resolve dependencies or prove that the firmware builds.
 | `device.ps1` | Sole public console and CLI dispatcher |
 | `commands/` | Firmware engine, menu, executable packaging and banner maintenance |
 | `common/` | Shared parameter routing, artifact policy and Python contracts |
+| `common/Console.ps1`, `common/Help.ps1` | Shared menu icons/descriptions and categorized CLI help |
 | `common/MenuManager/` | Owned menu module copied from `E:\tools\scripts\modules\MenuManager` |
 | `generators/` | Canonical asset generators and build-time resource transformations |
 | `checks/` | Explicit checks and their budget data |

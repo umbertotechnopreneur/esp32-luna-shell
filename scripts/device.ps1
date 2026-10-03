@@ -52,6 +52,8 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'common/Artifacts.ps1')
 . (Join-Path $PSScriptRoot 'common/Commands.ps1')
+. (Join-Path $PSScriptRoot 'common/Console.ps1')
+. (Join-Path $PSScriptRoot 'common/Help.ps1')
 $contract = Get-DeviceActionParameters
 Assert-DeviceActionParameters -RequestedAction $Action -BoundParameters $PSBoundParameters -Contract $contract
 

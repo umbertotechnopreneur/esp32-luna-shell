@@ -2,12 +2,18 @@
 
 # Title labels the current menu page.
 # Choices maps short selection keys to English descriptions and literal command values.
+# IsMainMenu shows Exit for the root page and Back for submenus.
 # Throws when the console cannot read input; choosing zero or Escape returns no selection.
-function Select-DeviceMenuItem([string]$Title, [System.Collections.IDictionary]$Choices) {
+function Select-DeviceMenuItem([string]$Title, [System.Collections.IDictionary]$Choices, [switch]$IsMainMenu) {
     $items = foreach ($key in $Choices.Keys) {
-        [pscustomobject]@{ Number = $key; Emoji = ''; Label = $Choices[$key].Label; Desc = $Choices[$key].Description }
+        [pscustomobject]@{
+            Number = $key
+            Emoji = $Choices[$key].Emoji
+            Label = $Choices[$key].Label
+            Desc = $Choices[$key].Description
+        }
     }
-    Write-MenuPage -Title $Title -Items $items -ShowBack
+    Write-MenuPage -Title $Title -Items $items -ShowExit:$IsMainMenu -ShowBack:(-not $IsMainMenu)
     while ($true) {
         $choice = Read-MenuChoice -Prompt 'Select' -AllowedChoices (@($Choices.Keys) + @('0')) -IgnoreEmptyInput
         if ($null -eq $choice -or $choice -eq '0') { return $null }
@@ -20,19 +26,19 @@ function Select-DeviceMenuItem([string]$Title, [System.Collections.IDictionary]$
 # Throws for an invalid edited value; the caller keeps the previous setting.
 function Edit-DeviceMenuSettings([hashtable]$Settings) {
     $options = [ordered]@{
-        '1' = @{ Label = 'Serial port'; Description = $Settings.Port; Value = 'Port' }
-        '2' = @{ Label = 'Screen rotation'; Description = [string]$Settings.Rotation; Value = 'Rotation' }
-        '3' = @{ Label = 'Host Python executable'; Description = $Settings.PythonExecutable; Value = 'PythonExecutable' }
-        '4' = @{ Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
-        '5' = @{ Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
-        '6' = @{ Label = 'Firmware build mode'; Description = $Settings.BuildMode; Value = 'BuildMode' }
+        '1' = @{ Emoji = '🔌'; Label = 'Serial port'; Description = $Settings.Port; Value = 'Port' }
+        '2' = @{ Emoji = '🔄'; Label = 'Screen rotation'; Description = [string]$Settings.Rotation; Value = 'Rotation' }
+        '3' = @{ Emoji = '🐍'; Label = 'Host Python executable'; Description = $Settings.PythonExecutable; Value = 'PythonExecutable' }
+        '4' = @{ Emoji = '🎯'; Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
+        '5' = @{ Emoji = '📋'; Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
+        '6' = @{ Emoji = '⚙️'; Label = 'Firmware build mode'; Description = $Settings.BuildMode; Value = 'BuildMode' }
     }
     $key = Select-DeviceMenuItem 'SESSION SETTINGS' $options
     if (-not $key) { return }
     if ($key -eq 'BuildMode') {
         $modes = [ordered]@{
-            '1' = @{ Label = 'Debug'; Description = 'Diagnostic logs; automatic Light-sleep disabled for USB debugging'; Value = 'Debug' }
-            '2' = @{ Label = 'Release'; Description = 'Warnings/errors; rendering diagnostics off; automatic Light-sleep allowed'; Value = 'Release' }
+            '1' = @{ Emoji = '🐞'; Label = 'Debug'; Description = 'Diagnostic logs; automatic Light-sleep disabled for USB debugging'; Value = 'Debug' }
+            '2' = @{ Emoji = '🚀'; Label = 'Release'; Description = 'Warnings/errors; rendering diagnostics off; automatic Light-sleep allowed'; Value = 'Release' }
         }
         $mode = Select-DeviceMenuItem 'FIRMWARE BUILD MODE (EXPLICIT SELECTION)' $modes
         if ($mode) { $Settings.BuildMode = $mode }
@@ -73,36 +79,36 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
         Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Port: $($settings.Port)    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{
-            '1' = @{ Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }
-            '2' = @{ Label = 'Boot previews'; Description = 'Sleep, waking, ready or PNG captures'; Value = 'boot' }
-            '3' = @{ Label = 'Firmware and device'; Description = 'Configure, build, flash, serial and size'; Value = 'firmware' }
-            '4' = @{ Label = 'Checks'; Description = 'Run one explicitly selected check'; Value = 'check' }
-            '5' = @{ Label = 'Asset generators'; Description = 'Regenerate canonical source assets'; Value = 'generate' }
-            '6' = @{ Label = 'Clean artifacts'; Description = 'Remove transient output; keep build/config/Python caches'; Value = 'clean-artifacts' }
-            '7' = @{ Label = 'Session settings'; Description = 'Port, rotation, Python and board/profile'; Value = 'settings' }
-            '8' = @{ Label = 'Luna reference simulator'; Description = 'Existing reference UI'; Value = 'simulator-luna' }
-            '9' = @{ Label = 'Command help'; Description = 'Complete CLI and tool catalog'; Value = 'help' }
-            'm' = @{ Label = 'Maintenance'; Description = 'Package the Luna EXE or preview source banners'; Value = 'maintenance' }
+            '1' = @{ Emoji = '🤖'; Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }
+            '2' = @{ Emoji = '🌅'; Label = 'Boot previews'; Description = 'Sleep, waking, ready or PNG captures'; Value = 'boot' }
+            '3' = @{ Emoji = '🔧'; Label = 'Firmware and device'; Description = 'Configure, build, flash, serial and size'; Value = 'firmware' }
+            '4' = @{ Emoji = '🧪'; Label = 'Checks'; Description = 'Run one explicitly selected check'; Value = 'check' }
+            '5' = @{ Emoji = '🎨'; Label = 'Asset generators'; Description = 'Regenerate canonical source assets'; Value = 'generate' }
+            '6' = @{ Emoji = '🧹'; Label = 'Clean artifacts'; Description = 'Remove transient output; keep build/config/Python caches'; Value = 'clean-artifacts' }
+            '7' = @{ Emoji = '⚙️'; Label = 'Session settings'; Description = 'Port, rotation, Python and board/profile'; Value = 'settings' }
+            '8' = @{ Emoji = '🌙'; Label = 'Luna reference simulator'; Description = 'Existing reference UI'; Value = 'simulator-luna' }
+            '9' = @{ Emoji = '📖'; Label = 'Command help'; Description = 'Categorized CLI guide, examples and tool descriptions'; Value = 'help' }
+            'm' = @{ Emoji = '🧰'; Label = 'Maintenance'; Description = 'Package the Luna EXE or preview source banners'; Value = 'maintenance' }
         }
-        $selected = Select-DeviceMenuItem 'MAIN MENU' $main
+        $selected = Select-DeviceMenuItem 'MAIN MENU' $main -IsMainMenu
         if (-not $selected) { return }
         try {
             if ($selected -eq 'settings') { Edit-DeviceMenuSettings $settings; continue }
             $extra = @{}
             if ($selected -eq 'maintenance') {
                 $maintenance = [ordered]@{
-                    '1' = @{ Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }
-                    '2' = @{ Label = 'Preview source banners'; Description = 'Read-only banner maintenance preview'; Value = 'banner' }
+                    '1' = @{ Emoji = '📦'; Label = 'Package Luna simulator'; Description = 'Prepare Python dependencies and build the reference EXE'; Value = 'package-simulator' }
+                    '2' = @{ Emoji = '🏷️'; Label = 'Preview source banners'; Description = 'Read-only banner maintenance preview'; Value = 'banner' }
                 }
                 $selected = Select-DeviceMenuItem 'MAINTENANCE' $maintenance
                 if (-not $selected) { continue }
             }
             if ($selected -eq 'boot') {
                 $boot = [ordered]@{
-                    '1' = @{ Label = 'Sleeping'; Description = 'Start of boot'; Value = 'boot-sleep' }
-                    '2' = @{ Label = 'Waking'; Description = 'Intermediate boot stage'; Value = 'boot-waking' }
-                    '3' = @{ Label = 'Ready'; Description = 'Boot complete'; Value = 'boot-ready' }
-                    '4' = @{ Label = 'Capture all three'; Description = 'artifacts/simulator/*.png'; Value = 'boot-screens' }
+                    '1' = @{ Emoji = '💤'; Label = 'Sleeping'; Description = 'Start of boot'; Value = 'boot-sleep' }
+                    '2' = @{ Emoji = '🌤️'; Label = 'Waking'; Description = 'Intermediate boot stage'; Value = 'boot-waking' }
+                    '3' = @{ Emoji = '✅'; Label = 'Ready'; Description = 'Boot complete'; Value = 'boot-ready' }
+                    '4' = @{ Emoji = '📸'; Label = 'Capture all three'; Description = 'artifacts/simulator/*.png'; Value = 'boot-screens' }
                 }
                 $screenChoice = Select-DeviceMenuItem 'BOOT PREVIEWS' $boot
                 if (-not $screenChoice) { continue }
@@ -110,22 +116,33 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                 else { $selected = 'simulator'; $extra.Screen = $screenChoice }
             }
             if ($selected -eq 'firmware') {
-                $firmware = [ordered]@{}; $index = 0
+                $firmware = [ordered]@{}
+                $index = 0
+                $presentation = Get-DeviceFirmwarePresentation
                 foreach ($name in (Get-FirmwareActions)) {
                     $index++
-                    $physical = $name -in @('flash','reset','monitor','capture','erase','combo','recover','ports','discovery','port-status')
-                    $description = if ($physical) { "DEVICE / $($settings.Port)" } else { 'FIRMWARE / selected profile' }
-                    $firmware[[string]$index] = @{ Label = $name; Description = $description; Value = $name }
+                    $firmware[[string]$index] = @{
+                        Emoji = $presentation[$name].Emoji
+                        Label = $name
+                        Description = $presentation[$name].Description
+                        Value = $name
+                    }
                 }
                 $selected = Select-DeviceMenuItem 'FIRMWARE AND DEVICE' $firmware
                 if (-not $selected) { continue }
             }
             if ($selected -in @('check','generate')) {
                 $group = if ($selected -eq 'check') { 'checks' } else { 'generators' }
-                $catalog = [ordered]@{}; $index = 0
-                foreach ($tool in (Get-DeviceTools $group)) {
+                $catalog = [ordered]@{}
+                $index = 0
+                foreach ($tool in (Get-DeviceToolCatalog $group)) {
                     $index++
-                    $catalog[[string]$index] = @{ Label = $tool.Name; Description = $tool.Extension; Value = $tool.Name }
+                    $catalog[[string]$index] = @{
+                        Emoji = $tool.Emoji
+                        Label = $tool.Name
+                        Description = $tool.Description
+                        Value = $tool.Name
+                    }
                 }
                 $toolName = Select-DeviceMenuItem ($group.ToUpperInvariant()) $catalog
                 if (-not $toolName) { continue }
