@@ -1,5 +1,34 @@
 # Done
 
+## Offline SD logging and native USB readback (2026-10-04)
+
+- [x] Enable the existing SD owner and FAT long filenames for Cody. Capture
+  before zero-wait USB output; replay the bounded internal boot backlog after
+  mount and retain the previous boot/rotated segment in LUNASHELL.log.1.
+  Preserve saved mirroring policy independently of Cody timing diagnostics.
+- [x] Add the native USB request receiver and host-only `device.ps1 sd-log`
+  route/menu entry. Use storage and logger ownership for 128-byte reads, pin
+  file revision/initial size, preserve original errors, verify every block's
+  CRC32 and replace local output only after a complete successful transfer.
+- [x] Attach monitor/combo with explicit baud and --no-reset by default;
+  -ResetBeforeMonitor opts into ESP-IDF's reset. Monitor attach uses only PNP
+  inventory waiting, without probing/opening or terminating existing owners.
+  Static review only; no test, build, configure, simulator, flash, monitor,
+  download or physical SD operation ran. Hardware validation remains in TODO.
+
+## Wake-on-word main integration (2026-10-04)
+
+- [x] Merge the optional Sophia implementation with current clock/quiet-hours,
+  body-touch, connectivity and console work. Retain Cody HTTP services in both
+  feature variants. Disable Release's automatic silicon sleep while standby
+  listening is enabled; embed generated 16 kHz boot cues in AFE builds while
+  ordinary builds retain 22.05 kHz.
+  Build-mode, power-policy, snapshot-integrity and 13 console host checks passed,
+  as did cue/model provenance and limited ESP32-S3 syntax checks of the actual
+  build-mode and Cody adapters. The complete native runtime test could not find
+  a host C++ compiler; no firmware link, dependency resolution or hardware check
+  ran. The isolated feature locks and device evidence remain open in `TODO.md`.
+
 ## Device-console port selection and shared exception formatter (2026-10-04)
 
 - [x] Remove the implicit COM8 identity from the CLI and menu. Before ESP-IDF

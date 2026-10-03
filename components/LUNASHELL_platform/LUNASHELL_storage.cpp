@@ -694,6 +694,7 @@ void publish_failed_mount(
 }
 
 // Mount once and apply only the currently effective logger preference.
+// No parameters: perform one storage-owned mount and publish every real failure.
 esp_err_t mount_once()
 {
     const MountAttempt attempt = begin_mount_attempt();
@@ -810,10 +811,18 @@ esp_err_t mount_once()
             power_suspended = s_power_suspended;
             performance_suspended = s_performance_suspended;
 
-            const esp_err_t logger_operation =
-                logger_mirror_requested
-                    ? LUNASHELL_logger_enable_sd(BSP_SD_MOUNT_POINT)
-                    : LUNASHELL_logger_disable_sd();
+            // Bind reads even when the user's saved mirror preference is off.
+            // A new card/mount invalidates any download's old file revision.
+            const esp_err_t read_binding_error =
+                LUNASHELL_logger_bind_sd(BSP_SD_MOUNT_POINT);
+            esp_err_t logger_operation = read_binding_error;
+            if (logger_operation == ESP_OK) {
+                if (logger_mirror_requested) {
+                    logger_operation = LUNASHELL_logger_enable_sd(BSP_SD_MOUNT_POINT);
+                } else {
+                    logger_operation = LUNASHELL_logger_disable_sd();
+                }
+            }
             if (logger_operation != ESP_OK) {
                 ESP_LOGE(
                     TAG,
@@ -1236,9 +1245,42 @@ void storage_task(void *argument)
     }
 }
 
+// file selects only a logger-owned current/previous file.
+// offset is the requested byte position.
+// expected_revision pins the identity after the first block.
+// buffer receives bounded raw bytes without any sensor acquisition.
+// buffer_size is the available capacity (at most the protocol's 128 bytes).
+// bytes_read receives the successful read length.
+// total_size receives the persisted length observed under logger I/O ownership.
+// revision receives the current file identity.
+// system_errno receives the original filesystem error if one occurs.
+// Returns the actual storage or logger read error, with no implicit wake/mount.
+esp_err_t read_stored_log(
+    LUNASHELL_logger_log_file_t file, uint32_t offset,
+    uint32_t expected_revision, void *buffer, size_t buffer_size,
+    size_t *bytes_read, uint32_t *total_size, uint32_t *revision,
+    int *system_errno
+)
+{
+    // Lock order is always storage -> logger I/O. The writer never enters the
+    // storage mutex, and no mount lease survives into USB response transmission.
+    std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_terminal_failure || !s_mounted || s_power_suspended) {
+        const esp_err_t error = !s_mounted && s_last_mount_report.error != ESP_OK
+            ? s_last_mount_report.error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(TAG, "SD log read rejected: mounted=%u standby=%u terminal=%u error=%s",
+            static_cast<unsigned>(s_mounted), static_cast<unsigned>(s_power_suspended),
+            static_cast<unsigned>(s_terminal_failure), esp_err_to_name(error));
+        return error;
+    }
+    return LUNASHELL_logger_read_sd_log(file, offset, expected_revision,
+        buffer, buffer_size, bytes_read, total_size, revision, system_errno);
+}
+
 }  // namespace
 
-// Initialize storage ownership while respecting a pre-existing power reason.
+// No parameters: register SD readback and start the existing asynchronous owner.
+// Returns real reader/settings/task failures while respecting a pre-existing power reason.
 extern "C" esp_err_t LUNASHELL_storage_init(void)
 {
     std::lock_guard<std::mutex> lock(s_storage_mutex);
@@ -1252,6 +1294,14 @@ extern "C" esp_err_t LUNASHELL_storage_init(void)
     if (s_mounted) {
         ESP_LOGE(TAG, "SD service has a mount without an owner task");
         return ESP_ERR_INVALID_STATE;
+    }
+
+    const esp_err_t reader_error = LUNASHELL_logger_set_sd_reader(read_stored_log);
+    if (reader_error != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportStorageMirror(
+            s_logger_mirror_requested, false, reader_error, 0, esp_timer_get_time(), 0);
+        ESP_LOGE(TAG, "SD log reader registration failed (%s)", esp_err_to_name(reader_error));
+        return reader_error;
     }
 
     const esp_err_t logger_watch_error =

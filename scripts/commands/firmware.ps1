@@ -35,6 +35,9 @@ param(
 
     [string]$SizeOutputFile,
 
+    # Opt in to ESP-IDF resetting the device when the monitor attaches.
+    [switch]$ResetBeforeMonitor,
+
     [switch]$ResetBeforeCapture,
 
     # Explicit parameters take precedence over the dedicated LUNASHELL_IDF_*
@@ -1458,6 +1461,30 @@ function Invoke-ProjectFlash([string]$RequestedBuildDir, [bool]$WaitForReconnect
     Save-SdkconfigDefaultsState $RequestedBuildDir
 }
 
+# RequestedPort is the selected COM identity; ESP-IDF owns its single serial open.
+# RequestedBaud is the explicit monitor baud rate, independent of flash or environment defaults.
+# TimeoutSeconds bounds the wait for Windows to report the selected port present and healthy.
+# ResetOnAttach allows ESP-IDF's startup reset only after the caller explicitly requests it.
+# Throws the real ESP-IDF monitor failure with its native exit code; existing owners are never stopped here.
+function Invoke-ProjectMonitor([string]$RequestedPort, [int]$RequestedBaud, [int]$TimeoutSeconds, [bool]$ResetOnAttach = $false) {
+    $normalizedPort = Normalize-PortName $RequestedPort
+    # Windows inventory is safe to wait for here; it never opens or probes the serial handle.
+    $normalizedPort = Wait-ForPort -RequestedPort $normalizedPort -TimeoutSeconds $TimeoutSeconds
+    $monitorArguments = @('-p', $normalizedPort, 'monitor', '--monitor-baud', [string]$RequestedBaud)
+    if ($ResetOnAttach) {
+        Write-Host "Monitor: $normalizedPort at $RequestedBaud baud; startup reset explicitly requested."
+    } else {
+        # A temporary SerialPort probe can toggle control lines too, so let IDF open the port once.
+        $monitorArguments += '--no-reset'
+        Write-Host "Monitor: $normalizedPort at $RequestedBaud baud; attaching without a startup reset."
+    }
+
+    & $PythonExe $IdfPy @commonArgs @monitorArguments
+    if ($LASTEXITCODE -ne 0) {
+        throw "Monitor failed (ESP-IDF exit code $LASTEXITCODE)"
+    }
+}
+
 Push-Location $ProjectRoot
 try {
     $commonArgs = @(
@@ -1544,13 +1571,7 @@ try {
             Invoke-DeviceReset $Port $Baud
         }
         "monitor" {
-            $Port = Normalize-PortName $Port
-            Stop-StaleMonitorProcesses $Port
-            Wait-ForExclusiveSerialPort $Port $WaitSeconds
-            & $PythonExe $IdfPy @commonArgs -p $Port monitor
-            if ($LASTEXITCODE -ne 0) {
-                throw "Monitor failed (ESP-IDF exit code $LASTEXITCODE)"
-            }
+            Invoke-ProjectMonitor -RequestedPort $Port -RequestedBaud $Baud -TimeoutSeconds $WaitSeconds -ResetOnAttach ([bool]$ResetBeforeMonitor)
         }
         "capture" {
             $Port = Normalize-PortName $Port
@@ -1564,10 +1585,7 @@ try {
         "combo" {
             Invoke-ProjectFlash $BuildDir
             # Keep monitor in this terminal and the same artifact operation lock.
-            & $PythonExe $IdfPy @commonArgs -p $Port monitor
-            if ($LASTEXITCODE -ne 0) {
-                throw "Monitor failed (ESP-IDF exit code $LASTEXITCODE)"
-            }
+            Invoke-ProjectMonitor -RequestedPort $Port -RequestedBaud $Baud -TimeoutSeconds $WaitSeconds -ResetOnAttach ([bool]$ResetBeforeMonitor)
         }
         "recover" {
             Invoke-ProjectFlash $BuildDir $true

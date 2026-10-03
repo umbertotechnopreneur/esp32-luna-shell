@@ -6,6 +6,17 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Device-console errors and port identity
 
+- A cable that stays connected does not prevent ESP-IDF monitor from resetting
+  the MCU through USB control lines. Attach with --no-reset and avoid temporary
+  serial probes when observing an existing failure; explicit startup reset
+  remains available for a deliberate new boot. A flashed/ELF checksum mismatch
+  invalidates symbol-based assumptions about the running firmware.
+- Capture diagnostics before best-effort USB output. A connected USB host need
+  not consume serial data. Keep SD reads under storage lifetime and shared
+  logger I/O ownership, then release both before transmitting a USB response.
+  Transfer revisions and CRCs protect download identity/integrity; they do not
+  establish the cause of a physical boot or display freeze.
+
 - A COM number from an earlier connection is not a device identity. When no
   port is supplied, show present Windows devices and require a user choice;
   never select by list order or retain an implicit workstation COM default.

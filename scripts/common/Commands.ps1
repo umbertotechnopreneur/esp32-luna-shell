@@ -23,10 +23,11 @@ function Get-DeviceActionParameters {
         banner = @('ToolArguments')
         build = $idf + @('Jobs'); clean = $idf; fullclean = $idf
         flash = $idf + $serial + @('Jobs'); reset = $idf + $serial
-        monitor = $idf + $serial; capture = $idf + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
+        monitor = $idf + $serial + @('ResetBeforeMonitor'); capture = $idf + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
+        'sd-log' = $serial + @('StoredLog','OutputPath')
         erase = $idf + $serial; reconfigure = $idf; 'set-target' = $idf; 'update-lock' = $idf
         size = $idf + @('SizeOutputFormat','SizeOutputFile')
-        combo = $idf + $serial + @('Jobs'); recover = $idf + $serial + @('Jobs')
+        combo = $idf + $serial + @('Jobs','ResetBeforeMonitor'); recover = $idf + $serial + @('Jobs')
         ports = $idf; discovery = @(); 'port-status' = $idf + @('Port')
     }
 }
@@ -111,6 +112,14 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         return
     }
     switch ($RequestedAction) {
+        'sd-log' {
+            . (Join-Path $ProjectRoot 'scripts/common/StoredLogs.ps1')
+            $storedLog = if ($Options.ContainsKey('StoredLog')) { $Options.StoredLog } else { 'current' }
+            $serialBaud = if ($Options.ContainsKey('Baud')) { $Options.Baud } else { 115200 }
+            $responseTimeout = if ($Options.ContainsKey('WaitSeconds')) { $Options.WaitSeconds } else { 30 }
+            Invoke-DeviceStoredLog -RequestedPort $Options.Port -RequestedBaud $serialBaud `
+                -StoredLog $storedLog -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
+        }
         { $_ -in @('simulator','boot-screens') } {
             $screens = if ($RequestedAction -eq 'boot-screens') { @('boot-sleep','boot-waking','boot-ready') }
                 elseif ($Options.ContainsKey('Screen')) { @($Options.Screen) } else { @('rig') }

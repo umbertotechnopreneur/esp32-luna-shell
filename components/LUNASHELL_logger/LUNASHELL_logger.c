@@ -8,6 +8,8 @@
 // Serializes log output and protects early-boot initialization ordering.
 
 #include "LUNASHELL_logger.h"
+#include "LUNASHELL_logger_usb.h"
+#include "sdkconfig.h"
 
 #include <errno.h>
 #include <stdarg.h>
@@ -21,6 +23,9 @@
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_app_desc.h"
+#include "esp_system.h"
+#include "esp_random.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/queue.h"
@@ -31,6 +36,11 @@
 #define LUNASHELL_LOG_LINE_BYTES 256
 #define LUNASHELL_LOG_QUEUE_LINES 48
 #define LUNASHELL_LOG_FORMAT_SLOTS 4
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
+#define LUNASHELL_BOOT_LOG_LINES 128U
+#else
+#define LUNASHELL_BOOT_LOG_LINES 1U
+#endif
 #define LUNASHELL_LOG_FILE_LIMIT_BYTES (2U * 1024U * 1024U)
 #define LUNASHELL_LOG_FLUSH_DEADLINE_MS 100U
 #define LUNASHELL_LOG_IO_BATCH_LINES 8U
@@ -61,11 +71,12 @@ static SemaphoreHandle_t s_snapshot_mutex;
 static StaticSemaphore_t s_snapshot_mutex_control;
 static SemaphoreHandle_t s_writer_idle;
 static StaticSemaphore_t s_writer_idle_control;
+static SemaphoreHandle_t s_io_mutex;
+static StaticSemaphore_t s_io_mutex_control;
 static QueueHandle_t s_write_queue;
 static StaticQueue_t s_write_queue_control;
 static uint8_t s_write_queue_storage[LUNASHELL_LOG_QUEUE_LINES * sizeof(LUNASHELL_log_line_t)];
 static TaskHandle_t s_writer_task;
-static vprintf_like_t s_serial_vprintf;
 static char s_log_path[160];
 static LUNASHELL_logger_sd_status_t s_sd_status;
 static uint32_t s_sd_generation;
@@ -76,14 +87,39 @@ static atomic_bool s_sd_enqueue_open;
 static atomic_uint s_sd_enqueue_inflight;
 static LUNASHELL_logger_io_watch_t s_io_watch;
 static atomic_bool s_io_watch_configured;
+// The boot buffer stays internal, like the live ring, so logging remains safe
+// when another core temporarily disables the flash/PSRAM cache for NVS.
+static LUNASHELL_ram_log_line_t s_boot_lines[LUNASHELL_BOOT_LOG_LINES];
+static portMUX_TYPE s_boot_lock = portMUX_INITIALIZER_UNLOCKED;
+static size_t s_boot_count;
+static size_t s_boot_written;
+static uint32_t s_boot_dropped;
+static uint32_t s_boot_dropped_total;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
+static bool s_boot_collecting = true;
+#else
+static bool s_boot_collecting;
+#endif
+static bool s_boot_file_prepared;
+// Protected by s_io_mutex: appends retain identity; rename/remount changes it.
+static uint32_t s_log_revision = 1U;
 
+// No parameters: keep zero reserved for the first, unpinned host read.
+static void advance_log_revision(void)
+{
+    s_log_revision++;
+    if (s_log_revision == 0U) {
+        s_log_revision = 1U;
+    }
+}
+
+// format describes a diagnostic emitted outside the recursive log callback.
+// args are supplied by this function's variadic caller.
 static int serial_printf(const char *format, ...)
 {
     va_list args;
     va_start(args, format);
-    const int result = s_serial_vprintf != NULL
-        ? s_serial_vprintf(format, args)
-        : vprintf(format, args);
+    const int result = LUNASHELL_logger_usb_vprintf(format, args);
     va_end(args);
     return result;
 }
@@ -125,8 +161,15 @@ static esp_err_t notify_writer_state_change(const char *operation)
     return ESP_OK;
 }
 
+// operation labels real SD I/O, serialized against reads, rotation and close.
+// Returns the original liveness error or a bounded ownership timeout.
 static esp_err_t begin_watched_io(const char *operation)
 {
+    if (xSemaphoreTake(s_io_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        serial_printf("E (%lld) %s: SD %s I/O ownership timed out\n",
+            (long long)(esp_timer_get_time() / 1000), TAG, operation);
+        return ESP_ERR_TIMEOUT;
+    }
     if (!atomic_load_explicit(
             &s_io_watch_configured,
             memory_order_acquire
@@ -137,6 +180,9 @@ static esp_err_t begin_watched_io(const char *operation)
             TAG,
             operation
         );
+        if (xSemaphoreGive(s_io_mutex) != pdTRUE) {
+            abort();
+        }
         return ESP_ERR_INVALID_STATE;
     }
     const esp_err_t error = s_io_watch.begin();
@@ -148,10 +194,16 @@ static esp_err_t begin_watched_io(const char *operation)
             operation,
             esp_err_to_name(error)
         );
+        if (xSemaphoreGive(s_io_mutex) != pdTRUE) {
+            abort();
+        }
     }
     return error;
 }
 
+// operation identifies the completed filesystem operation.
+// operation_result retains its original I/O error.
+// Returns the liveness completion result and releases I/O ownership.
 static esp_err_t end_watched_io(
     const char *operation,
     esp_err_t operation_result
@@ -167,6 +219,9 @@ static esp_err_t end_watched_io(
             esp_err_to_name(operation_result),
             esp_err_to_name(error)
         );
+    }
+    if (xSemaphoreGive(s_io_mutex) != pdTRUE) {
+        abort();
     }
     return error;
 }
@@ -290,15 +345,10 @@ static esp_err_t set_sd_enabled(void)
     s_sd_status.changed_at_us = changed_at_us;
     s_sd_generation++;
     portEXIT_CRITICAL(&s_sd_lock);
+    // Publish producer admission before waking the writer that closes boot capture.
+    atomic_store_explicit(&s_sd_enqueue_open, true, memory_order_seq_cst);
     const esp_err_t notification_error =
         notify_writer_state_change("enable");
-    if (notification_error == ESP_OK) {
-        atomic_store_explicit(
-            &s_sd_enqueue_open,
-            true,
-            memory_order_seq_cst
-        );
-    }
     return notification_error;
 }
 
@@ -456,23 +506,48 @@ static void release_format_slot(LUNASHELL_log_line_t *slot)
     portEXIT_CRITICAL(&s_format_lock);
 }
 
+// text contains one captured boot line; storage starts before display startup.
+// Returns whether this line belongs to the bounded early-boot backlog.
+static bool capture_boot_line(const char *text)
+{
+    portENTER_CRITICAL(&s_boot_lock);
+    const bool collecting = s_boot_collecting;
+    if (collecting) {
+        if (s_boot_count < LUNASHELL_BOOT_LOG_LINES) {
+            strlcpy(s_boot_lines[s_boot_count++].text, text, LUNASHELL_LOG_LINE_BYTES);
+        } else {
+            s_boot_dropped++;
+            s_boot_dropped_total++;
+        }
+    }
+    portEXIT_CRITICAL(&s_boot_lock);
+    return collecting;
+}
+
+// No parameters: retain early capture loss even when no serial host can see it.
+static void note_boot_capture_loss(void)
+{
+    portENTER_CRITICAL(&s_boot_lock);
+    if (s_boot_collecting) {
+        s_boot_dropped++;
+        s_boot_dropped_total++;
+    }
+    portEXIT_CRITICAL(&s_boot_lock);
+}
+
+// format is the original ESP-IDF log format.
+// args contains caller-owned arguments, copied separately for each sink.
 static int LUNASHELL_log_vprintf(const char *format, va_list args)
 {
-    va_list serial_args;
     va_list capture_args;
 
-    va_copy(serial_args, args);
-    const int serial_result = s_serial_vprintf != NULL
-        ? s_serial_vprintf(format, serial_args)
-        : vprintf(format, serial_args);
-    va_end(serial_args);
-
     if (atomic_load_explicit(&s_capture_suspended, memory_order_relaxed)) {
-        return serial_result;
+        return LUNASHELL_logger_usb_vprintf(format, args);
     }
 
     LUNASHELL_log_line_t *line = acquire_format_slot();
     if (line == NULL) {
+        note_boot_capture_loss();
         LUNASHELL_logger_sd_status_t sd_status;
         uint32_t sd_generation;
         if (begin_sd_enqueue(&sd_status, &sd_generation)) {
@@ -490,7 +565,7 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
                 TAG
             );
         }
-        return serial_result;
+        return LUNASHELL_logger_usb_vprintf(format, args);
     }
 
     va_copy(capture_args, args);
@@ -498,13 +573,14 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
         vsnprintf(line->text, sizeof(line->text), format, capture_args);
     va_end(capture_args);
     if (capture_result < 0) {
+        note_boot_capture_loss();
         serial_printf(
             "E (%lld) %s: Log capture formatting failed; serial output only\n",
             (long long)(esp_timer_get_time() / 1000),
             TAG
         );
         release_format_slot(line);
-        return serial_result;
+        return LUNASHELL_logger_usb_vprintf(format, args);
     }
     if ((size_t)capture_result >= sizeof(line->text)) {
         static const char truncated_suffix[] = " [TRUNCATED]\n";
@@ -523,11 +599,12 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
     }
 
     ring_push(line->text);
+    const bool boot_captured = capture_boot_line(line->text);
     LUNASHELL_logger_sd_status_t sd_status;
     uint32_t sd_generation;
     bool enqueue_failed = false;
     esp_err_t notification_error = ESP_OK;
-    if (s_write_queue != NULL &&
+    if (!boot_captured && s_write_queue != NULL &&
         begin_sd_enqueue(&sd_status, &sd_generation)) {
         line->sd_generation = sd_generation;
         if (xQueueSend(s_write_queue, line, 0) != pdTRUE) {
@@ -557,7 +634,32 @@ static int LUNASHELL_log_vprintf(const char *format, va_list args)
     }
     release_format_slot(line);
 
-    return serial_result;
+    // Capturing first makes SD independent of host USB receive progress.
+    return LUNASHELL_logger_usb_vprintf(format, args);
+}
+
+// No parameters: rotate only the two logger-owned files, preserving the last boot.
+// Returns false and records the real filesystem error on failed rotation.
+static bool rotate_log_path(void)
+{
+    char previous_path[sizeof(s_log_path) + 4U];
+    const int length = snprintf(previous_path, sizeof(previous_path), "%s.1", s_log_path);
+    if (length < 0 || (size_t)length >= sizeof(previous_path)) {
+        record_sd_failure("rotation path", ESP_ERR_INVALID_SIZE, 0);
+        return false;
+    }
+    if (remove(previous_path) != 0 && errno != ENOENT) {
+        const int saved_errno = errno;
+        record_sd_failure("rotation remove", ESP_FAIL, saved_errno);
+        return false;
+    }
+    if (rename(s_log_path, previous_path) != 0) {
+        const int saved_errno = errno;
+        record_sd_failure("rotation rename", ESP_FAIL, saved_errno);
+        return false;
+    }
+    advance_log_revision();
+    return true;
 }
 
 static bool close_log_file(FILE **file, const char *operation)
@@ -576,6 +678,8 @@ static bool close_log_file(FILE **file, const char *operation)
     return true;
 }
 
+// file is the writer's open current log, already flushed before rotation.
+// Returns false with the original rotation error retained in SD status.
 static bool rotate_log_if_needed(FILE **file)
 {
     const long position = ftell(*file);
@@ -592,24 +696,7 @@ static bool rotate_log_if_needed(FILE **file)
         return false;
     }
 
-    char rotated_path[sizeof(s_log_path) + 4];
-    const int rotated_length =
-        snprintf(rotated_path, sizeof(rotated_path), "%s.1", s_log_path);
-    if (rotated_length < 0 || (size_t)rotated_length >= sizeof(rotated_path)) {
-        record_sd_failure("rotation path", ESP_ERR_INVALID_SIZE, 0);
-        return false;
-    }
-    if (remove(rotated_path) != 0 && errno != ENOENT) {
-        const int remove_errno = errno;
-        record_sd_failure("rotation remove", ESP_FAIL, remove_errno);
-        return false;
-    }
-    if (rename(s_log_path, rotated_path) != 0) {
-        const int rename_errno = errno;
-        record_sd_failure("rotation rename", ESP_FAIL, rename_errno);
-        return false;
-    }
-    return true;
+    return rotate_log_path();
 }
 
 static bool flush_log_file(
@@ -786,6 +873,67 @@ static bool flush_log_file_watched(
     return flushed;
 }
 
+// file is the current SD writer handle.
+// lines_since_flush tracks buffered writes, including early boot records.
+// Returns false with a structured SD failure when replay cannot be persisted.
+static bool replay_boot_log(FILE **file, unsigned int *lines_since_flush)
+{
+    portENTER_CRITICAL(&s_boot_lock);
+    s_boot_collecting = false;
+    const size_t count = s_boot_count;
+    const uint32_t dropped = s_boot_dropped;
+    portEXIT_CRITICAL(&s_boot_lock);
+
+    while (s_boot_written < count) {
+        esp_err_t result = begin_watched_io("boot replay");
+        if (result != ESP_OK) {
+            record_sd_failure("boot replay liveness", result, 0);
+            return false;
+        }
+        size_t batch = 0U;
+        while (s_boot_written < count && batch < LUNASHELL_LOG_IO_BATCH_LINES) {
+            LUNASHELL_log_line_t line = {0};
+            strlcpy(line.text, s_boot_lines[s_boot_written].text, sizeof(line.text));
+            if (!write_log_line(file, lines_since_flush, &line)) {
+                result = current_sd_error();
+                break;
+            }
+            s_boot_written++;
+            batch++;
+        }
+        result = end_watched_io("boot replay", result);
+        if (result != ESP_OK) {
+            record_sd_failure("boot replay", result, 0);
+            return false;
+        }
+    }
+    if (dropped != 0U) {
+        LUNASHELL_log_line_t marker = {0};
+        snprintf(marker.text, sizeof(marker.text),
+            "E (%lld) %s: BOOT LOG INCOMPLETE: dropped=%lu capacity=%u\n",
+            (long long)(esp_timer_get_time() / 1000), TAG,
+            (unsigned long)dropped, (unsigned int)LUNASHELL_BOOT_LOG_LINES);
+        esp_err_t result = begin_watched_io("boot overflow marker");
+        if (result != ESP_OK) {
+            record_sd_failure("boot overflow marker liveness", result, 0);
+            return false;
+        }
+        const bool written = write_log_line(file, lines_since_flush, &marker);
+        result = end_watched_io("boot overflow marker", written ? ESP_OK : current_sd_error());
+        if (result != ESP_OK) {
+            record_sd_failure("boot overflow marker", result, 0);
+            return false;
+        }
+        serial_printf("%s", marker.text);
+        // This count remains visible in status; only the persisted marker is single-use.
+        portENTER_CRITICAL(&s_boot_lock);
+        s_boot_dropped = 0U;
+        portEXIT_CRITICAL(&s_boot_lock);
+    }
+    return flush_log_file_watched(file, lines_since_flush, "boot replay flush");
+}
+
+// arg is unused; this task alone owns the open SD writer handle.
 // Persist enabled SD logs and park indefinitely once the mirror is disabled.
 static void writer_task(void *arg)
 {
@@ -866,6 +1014,16 @@ static void writer_task(void *arg)
             continue;
         }
 
+        portENTER_CRITICAL(&s_boot_lock);
+        const bool boot_replay_pending = s_boot_collecting ||
+            s_boot_written < s_boot_count || s_boot_dropped != 0U;
+        portEXIT_CRITICAL(&s_boot_lock);
+        if (boot_replay_pending) {
+            if (!replay_boot_log(&file, &lines_since_flush)) {
+                continue;
+            }
+        }
+
         if (xQueueReceive(s_write_queue, &line, 0) != pdTRUE) {
             const TickType_t wait_ticks = lines_since_flush == 0U
                 ? portMAX_DELAY
@@ -916,6 +1074,43 @@ static esp_err_t stop_sd_writer(void)
     return ESP_OK;
 }
 
+// mount_point is the just-mounted card root, with the writer already stopped.
+// Returns the actual ownership/path error; this read binding never writes media.
+esp_err_t LUNASHELL_logger_bind_sd(const char *mount_point)
+{
+    if (!s_initialized || mount_point == NULL || mount_point[0] == '\0') {
+        serial_printf("E (%lld) %s: SD read binding rejected: invalid state/path\n",
+            (long long)(esp_timer_get_time() / 1000), TAG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (xSemaphoreTake(s_io_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
+        record_sd_failure("read binding ownership", ESP_ERR_TIMEOUT, 0);
+        return ESP_ERR_TIMEOUT;
+    }
+    LUNASHELL_logger_sd_status_t status;
+    read_sd_state(&status, NULL);
+    esp_err_t result = ESP_OK;
+    char path[sizeof(s_log_path)];
+    const int length = snprintf(path, sizeof(path), "%s/LUNASHELL/logs/LUNASHELL.log", mount_point);
+    if (status.enabled) {
+        result = ESP_ERR_INVALID_STATE;
+    } else if (length < 0 || (size_t)length >= sizeof(path)) {
+        result = ESP_ERR_INVALID_SIZE;
+    } else {
+        strlcpy(s_log_path, path, sizeof(s_log_path));
+        advance_log_revision();
+    }
+    if (xSemaphoreGive(s_io_mutex) != pdTRUE) {
+        abort();
+    }
+    if (result != ESP_OK) {
+        record_sd_failure("read binding", result, 0);
+    }
+    return result;
+}
+
+// mount_point is the storage owner's verified mount, never a logger-owned mount.
+// Returns the real directory, rotation or file creation error.
 static esp_err_t prepare_sd_mirror_path(const char *mount_point)
 {
     char app_dir[128];
@@ -949,6 +1144,18 @@ static esp_err_t prepare_sd_mirror_path(const char *mount_point)
         record_sd_failure("log path", ESP_ERR_INVALID_SIZE, 0);
         return ESP_ERR_INVALID_SIZE;
     }
+    if (!s_boot_file_prepared) {
+        struct stat previous_boot;
+        if (stat(s_log_path, &previous_boot) == 0) {
+            if (previous_boot.st_size > 0 && !rotate_log_path()) {
+                return current_sd_error();
+            }
+        } else if (errno != ENOENT) {
+            const int stat_errno = errno;
+            record_sd_failure("boot file stat", ESP_FAIL, stat_errno);
+            return ESP_FAIL;
+        }
+    }
     FILE *probe = fopen(s_log_path, "ab");
     if (probe == NULL) {
         const int open_errno = errno;
@@ -960,9 +1167,13 @@ static esp_err_t prepare_sd_mirror_path(const char *mount_point)
         record_sd_failure("probe close", ESP_FAIL, close_errno);
         return ESP_FAIL;
     }
+    s_boot_file_prepared = true;
+    advance_log_revision();
     return ESP_OK;
 }
 
+// No parameters: establish capture, SD ownership primitives and native USB logging.
+// Returns the actual initialization error; startup must stop if this owner fails.
 esp_err_t LUNASHELL_logger_init(void)
 {
     if (s_initialized) {
@@ -977,6 +1188,21 @@ esp_err_t LUNASHELL_logger_init(void)
     s_writer_idle = xSemaphoreCreateBinaryStatic(&s_writer_idle_control);
     if (s_writer_idle == NULL) {
         return ESP_ERR_NO_MEM;
+    }
+
+    s_io_mutex = xSemaphoreCreateMutexStatic(&s_io_mutex_control);
+    if (s_io_mutex == NULL) {
+        return ESP_ERR_NO_MEM;
+    }
+    // Seed the opaque identity per boot: restarting mid-download must not reuse
+    // the same small counter merely because the mount order stayed identical.
+    s_log_revision = esp_random();
+    if (s_log_revision == 0U) {
+        s_log_revision = 1U;
+    }
+    const esp_err_t usb_error = LUNASHELL_logger_usb_init();
+    if (usb_error != ESP_OK) {
+        return usb_error;
     }
 
     s_write_queue = xQueueCreateStatic(
@@ -1002,7 +1228,7 @@ esp_err_t LUNASHELL_logger_init(void)
         return ESP_ERR_NO_MEM;
     }
 
-    s_serial_vprintf = esp_log_set_vprintf(LUNASHELL_log_vprintf);
+    (void)esp_log_set_vprintf(LUNASHELL_log_vprintf);
     const int64_t initialized_at_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_sd_lock);
     s_sd_status = (LUNASHELL_logger_sd_status_t){
@@ -1027,7 +1253,10 @@ esp_err_t LUNASHELL_logger_init(void)
     );
     s_initialized = true;
     atomic_store_explicit(&s_capture_suspended, false, memory_order_relaxed);
-    ESP_LOGI(TAG, "Canonical logger online: serial + RAM ring");
+    // Keep this identity even in Release's warning-only log policy.
+    ESP_LOGW(TAG, "BOOT START reset=%d version=%s; capture before non-blocking USB; early-lines=%u",
+        (int)esp_reset_reason(), esp_app_get_description()->version,
+        (unsigned int)LUNASHELL_BOOT_LOG_LINES);
     return ESP_OK;
 }
 
@@ -1086,6 +1315,8 @@ esp_err_t LUNASHELL_logger_set_io_watch(
     return ESP_OK;
 }
 
+// mount_point identifies the card already mounted by the storage owner.
+// Returns the real stop, filesystem or liveness failure; no card is formatted here.
 esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point)
 {
     if (!s_initialized) {
@@ -1242,6 +1473,110 @@ esp_err_t LUNASHELL_logger_snapshot(
     return result;
 }
 
+// file selects current or previous; no arbitrary filesystem paths are accepted.
+// offset is the requested byte position.
+// expected_revision pins the file identity after the initial zero-revision read.
+// buffer receives a raw byte block, bounded by buffer_size.
+// buffer_size is the caller's available capacity, at most 128 bytes.
+// bytes_read receives the successful byte count, zero on failure.
+// total_size receives this read's persisted file size.
+// revision receives the identity protected by the logger I/O mutex.
+// system_errno receives the original filesystem errno when applicable.
+// Returns real argument, identity, filesystem or liveness errors.
+esp_err_t LUNASHELL_logger_read_sd_log(
+    LUNASHELL_logger_log_file_t file, uint32_t offset,
+    uint32_t expected_revision, void *buffer, size_t buffer_size,
+    size_t *bytes_read, uint32_t *total_size, uint32_t *revision,
+    int *system_errno
+)
+{
+    if (!s_initialized || buffer == NULL || buffer_size == 0U ||
+        buffer_size > 128U || bytes_read == NULL || total_size == NULL ||
+        revision == NULL || system_errno == NULL ||
+        (file != LUNASHELL_LOG_FILE_CURRENT && file != LUNASHELL_LOG_FILE_PREVIOUS)) {
+        serial_printf("E (%lld) %s: SD read arguments/state rejected\n",
+            (long long)(esp_timer_get_time() / 1000), TAG);
+        return ESP_ERR_INVALID_ARG;
+    }
+    *bytes_read = 0U;
+    *total_size = 0U;
+    *revision = 0U;
+    *system_errno = 0;
+    esp_err_t result = begin_watched_io("download read");
+    if (result != ESP_OK) {
+        return result;
+    }
+    *revision = s_log_revision;
+    FILE *input = NULL;
+    char path[sizeof(s_log_path) + 4U];
+    if (expected_revision != 0U && expected_revision != s_log_revision) {
+        result = ESP_ERR_INVALID_STATE;
+    } else if (s_log_path[0] == '\0') {
+        result = ESP_ERR_INVALID_STATE;
+    } else {
+        const int length = snprintf(path, sizeof(path), "%s%s", s_log_path,
+            file == LUNASHELL_LOG_FILE_PREVIOUS ? ".1" : "");
+        if (length < 0 || (size_t)length >= sizeof(path)) {
+            result = ESP_ERR_INVALID_SIZE;
+        } else {
+            input = fopen(path, "rb");
+            if (input == NULL) {
+                *system_errno = errno;
+                result = *system_errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+            }
+        }
+    }
+    if (result == ESP_OK && fseek(input, 0L, SEEK_END) != 0) {
+        *system_errno = errno;
+        result = ESP_FAIL;
+    }
+    if (result == ESP_OK) {
+        const long length = ftell(input);
+        if (length < 0L) {
+            *system_errno = errno;
+            result = ESP_FAIL;
+        } else if ((unsigned long)length > LUNASHELL_LOG_FILE_LIMIT_BYTES + 4096U) {
+            result = ESP_ERR_INVALID_SIZE;
+        } else {
+            *total_size = (uint32_t)length;
+            if (offset > *total_size) {
+                result = ESP_ERR_INVALID_ARG;
+            } else if (fseek(input, (long)offset, SEEK_SET) != 0) {
+                *system_errno = errno;
+                result = ESP_FAIL;
+            }
+        }
+    }
+    if (result == ESP_OK) {
+        const size_t remaining = *total_size - offset;
+        const size_t requested = remaining < buffer_size ? remaining : buffer_size;
+        *bytes_read = fread(buffer, 1U, requested, input);
+        if (*bytes_read != requested || ferror(input)) {
+            *system_errno = errno;
+            result = ESP_FAIL;
+        }
+    }
+    if (input != NULL && fclose(input) != 0) {
+        const int close_errno = errno;
+        serial_printf("E (%lld) %s: SD download close failed: errno=%d\n",
+            (long long)(esp_timer_get_time() / 1000), TAG, close_errno);
+        if (result == ESP_OK) {
+            *system_errno = close_errno;
+            result = ESP_FAIL;
+        }
+    }
+    result = end_watched_io("download read", result);
+    if (result != ESP_OK) {
+        *bytes_read = 0U;
+        serial_printf("E (%lld) %s: SD download read failed: %s errno=%d\n",
+            (long long)(esp_timer_get_time() / 1000), TAG,
+            esp_err_to_name(result), *system_errno);
+    }
+    return result;
+}
+
+// status receives the real asynchronous writer state and retained capture loss.
+// Returns an argument/state error if the logger cannot publish status.
 esp_err_t LUNASHELL_logger_get_sd_status(LUNASHELL_logger_sd_status_t *status)
 {
     if (status == NULL) {
@@ -1252,5 +1587,9 @@ esp_err_t LUNASHELL_logger_get_sd_status(LUNASHELL_logger_sd_status_t *status)
     }
 
     read_sd_state(status, NULL);
+    portENTER_CRITICAL(&s_boot_lock);
+    status->boot_dropped_lines = s_boot_dropped_total;
+    portEXIT_CRITICAL(&s_boot_lock);
+    status->usb_dropped_lines = LUNASHELL_logger_usb_dropped_lines();
     return ESP_OK;
 }

@@ -6,6 +6,16 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh explicit authorization, validate offline SD logging and native
+  USB readback: build the updated Cody profile; observe boot with the cable
+  connected and monitor closed; compare current/previous downloads and CRCs;
+  cover absent/unformatted/removed/full SD, saved mirror off, boot-buffer loss,
+  rotation/remount during transfer, interrupted USB, busy COM and standby/wake.
+  Also verify passive monitor attach and opt-in ResetBeforeMonitor on COM10.
+  Source review only; no build, suite, flash or physical operation ran. The
+  reported boot/display loop remains unproven as fixed. See
+  `docs/architecture/offline-logging-usb.md`.
+
 - [ ] Integrate the Welcome/OOBE screens with the async pairing controller:
   routes 05/06/06-bis/07/08/09, copied session QR, reusable semantic action
   button, and navigation only after confirmed Cancelled. Contract:

@@ -58,15 +58,18 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'DEVICE AND SERIAL' -Icon '🔌' -Width $width -Color Yellow
     Write-DeviceHelpSection -Title 'Connection and serial output' -Icon '📟' -Width $width -Color Yellow -Subsection
-    foreach ($name in @('discovery','ports','port-status','monitor','capture')) {
+    foreach ($name in @('discovery','ports','port-status','monitor','capture','sd-log')) {
         $syntax = switch ($name) {
             { $_ -in @('discovery','ports') } { "Device.ps1 $name" }
             monitor { 'Device.ps1 monitor' }
             capture { 'Device.ps1 capture -Port COM8 -DurationSeconds 30' }
+            'sd-log' { 'Device.ps1 sd-log -Port COM10 -StoredLog current' }
             default { "Device.ps1 $name -Port COM8" }
         }
         Write-DeviceHelpEntry -Syntax $syntax -Description $firmware[$name].Description -Width $width
     }
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 monitor -Port COM10 -Baud 115200 -ResetBeforeMonitor' -Description 'Explicitly reset the device when the monitor starts so the new boot is visible.' -Detail 'Ordinary monitor attach uses --no-reset and opens the port only through ESP-IDF; it does not stop an existing monitor. Close the application using that port yourself before retrying a busy-port failure.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 sd-log -Port COM10 -StoredLog previous' -Description 'Download the retained previous SD log over native USB into artifacts/serial/sd-log-previous.log.' -Detail 'Requires the updated firmware, an awake device and a mounted SD. Close the monitor first. No reset or format is requested; each block is checked before replacing the local output file.' -Width $width
     Write-DeviceHelpSection -Title 'Programming and recovery' -Icon '⚡' -Width $width -Color Yellow -Subsection
     foreach ($name in @('flash','reset','combo','recover','erase')) {
         Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port COM8" -Description $firmware[$name].Description -Width $width
@@ -102,7 +105,9 @@ function Show-DeviceHelp {
     Write-DeviceHelpSection -Title 'Preview and connection options' -Icon '📐' -Width $width -Subsection
     Write-DeviceHelpEntry -Syntax '-Screen / -Rotation / -AtMs / -SafeGuide' -Description 'Screens: rig, greeting, boot-sleep, boot-waking, boot-ready. Rotation: 0/90/180/270; AtMs: 1000 by default; SafeGuide shows the circular layout guide.' -Width $width
     Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Without Port, device actions ask you to choose a detected COM port. COM10 and 10 select the same port; explicit Port skips the prompt. Non-interactive calls require Port. Defaults: 115200 baud and a 30-second port wait.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-ResetBeforeMonitor' -Description 'For monitor and combo only: opt in to the monitor startup reset. By default, monitor attachment uses --no-reset; Baud is passed explicitly through --monitor-baud.' -Width $width
     Write-DeviceHelpEntry -Syntax '-DurationSeconds / -ResetBeforeCapture' -Description 'Capture defaults to 30 seconds; opt in to a reset before capture.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-StoredLog current|previous' -Description 'sd-log defaults to current; OutputPath overrides artifacts/serial/sd-log-<name>.log and WaitSeconds bounds each USB response.' -Width $width
 
     Write-DeviceHelpSection -Title 'Output, Python and tool arguments' -Icon '📁' -Width $width -Subsection
     Write-DeviceHelpEntry -Syntax '-OutputPath / -LogPath / -SizeOutputFile' -Description 'Output, logs and build paths must stay inside artifacts/; relative paths start at the repository root.' -Width $width

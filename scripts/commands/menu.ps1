@@ -159,6 +159,12 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                         Value = $name
                     }
                 }
+                $firmware['l'] = @{
+                    Emoji = '📄'
+                    Label = 'Download SD log'
+                    Description = 'Copy the current stored SD log over USB without starting ESP-IDF'
+                    Value = 'sd-log'
+                }
                 $selected = Select-DeviceMenuItem 'FIRMWARE AND DEVICE' $firmware
                 if (-not $selected) { continue }
             }

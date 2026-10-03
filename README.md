@@ -637,6 +637,15 @@ Monitor it:
 pwsh -NoProfile -File .\scripts\device.ps1 monitor -Profile full -Port COM12
 ```
 
+Monitor attachment uses ESP-IDF 6.0.2 `--no-reset` by default and passes `-Baud`
+through `--monitor-baud` (115200 by default). It does not request a startup
+reset and opens the COM port directly through ESP-IDF, with no temporary
+serial-open probe or automatic termination of another monitor. If the port is
+busy, close its owner yourself and retry. Exit the monitor with `Ctrl+]`.
+To deliberately start a new boot while attaching, add `-ResetBeforeMonitor`.
+This switch is supported by `monitor` and `combo`; the flash stage of `combo`
+still writes and resets the device as before.
+
 Without `-Port`, device actions list the serial ports currently present in
 Windows and ask which COM identity to use, before loading ESP-IDF. This also
 applies when only one port is detected. Enter the COM name or its number
@@ -667,6 +676,47 @@ pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM12 -DurationSeconds 
 The `capture` action owns bounded serial recording directly and does not build
 firmware implicitly. Use `-ResetBeforeCapture` only when a device reset is intended.
 
+### Offline SD logs and USB download
+
+The `cody-companion` profile enables the existing removable-storage owner and
+FAT long filenames. With a healthy formatted card and the saved SD mirror
+preference enabled (the first-boot default), runtime logs go to
+`/sdcard/LUNASHELL/logs/LUNASHELL.log`. The logger captures before best-effort
+USB output, so opening a monitor is not a condition for saving diagnostics.
+Ordinary USB logging uses a zero-wait driver write; dropped USB output is
+counted separately from SD errors.
+
+At the first SD mirror activation of a boot, the previous nonempty log is kept
+as `LUNASHELL.log.1`. Runtime rotation at 2 MiB uses that same previous file,
+so it may contain the preceding segment of a long session. The bounded boot
+buffer retains up to 128 records before SD starts; overflow is explicitly marked
+`BOOT LOG INCOMPLETE`. Records above 255 bytes retain the logger's explicit
+`[TRUNCATED]` marker. Capture starts at application logger initialization; ROM,
+bootloader output and the final unflushed bytes before sudden power loss are
+outside this guarantee. No card is automatically formatted.
+
+After installing the updated firmware, close the serial monitor, wake Cody if
+it is in standby, and run from `scripts`:
+
+```powershell
+.\device.ps1 sd-log -Port COM10
+.\device.ps1 sd-log -Port COM10 -StoredLog previous
+```
+
+The files are saved as `artifacts/serial/sd-log-current.log` and
+`artifacts/serial/sd-log-previous.log`. Use `-OutputPath` for another destination
+inside `artifacts/`. `-WaitSeconds` bounds each complete response. This command
+uses native USB directly without loading ESP-IDF or requesting a reset. Every
+128-byte block has a request identity, file revision, offset and CRC32. The
+first response pins the persisted file length; later appends are excluded.
+Rotation/remount, a firmware error, missing media, timeout or checksum mismatch
+fails the download and preserves the previous local output. Reads remain
+available when mirroring is disabled; a previous file that does not exist is
+reported as `ESP_ERR_NOT_FOUND`.
+
+Implementation and protocol details:
+[offline logging and USB readback](docs/architecture/offline-logging-usb.md).
+
 ### PowerShell quoting on Windows
 
 Run every PowerShell command with `pwsh -NoProfile`. Prefer `-File` for
@@ -688,9 +738,10 @@ Avoid nested `-Command "..."` invocations containing PowerShell variables.
 If the program becomes long or needs another quoting layer, put it in a `.ps1`
 file and invoke it with `pwsh -NoProfile -File`.
 
-Pass the port explicitly for non-interactive device actions. The helper terminates
-stale monitor and capture processes scoped to that port before checking whether
-it is openable, then fails the command if flashing, erasing, or capture fails.
+Pass the port explicitly for non-interactive device actions. Flash, erase, reset
+and capture retain their port-owner cleanup and exclusive-open preflight.
+Monitor attachment does not run that cleanup or probe; ESP-IDF reports the actual
+serial-open error if the port is unavailable. Every failed operation fails the command.
 Build success is not hardware proof; keep serial evidence separate from
 compiler evidence.
 

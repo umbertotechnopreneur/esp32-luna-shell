@@ -148,6 +148,10 @@ extern "C" void app_main(void)
     // optional observations with real errors. NTP can establish UTC later.
     report_optional_startup_failure("initial hardware snapshot", LUNASHELL_hardware_refresh("boot"));
     startup_watch.progress("initial hardware snapshot");
+    // Start the optional SD owner before display/Cody startup can fail. Its
+    // worker mounts asynchronously and replays the logger's bounded boot buffer.
+    report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
+    startup_watch.progress("removable storage");
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     ESP_ERROR_CHECK(LUNASHELL_display_runtime_init());
     startup_watch.progress("standalone display and touch");
@@ -198,8 +202,6 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(LUNASHELL_power_manager_init());
     startup_watch.progress("power-management service");
 #endif
-    report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
-    startup_watch.progress("removable storage");
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     report_optional_startup_failure("diagnostics SD mirror", CODY_poc_configure_diagnostics());
     ESP_ERROR_CHECK(CODY_companion_boot_midpoint());

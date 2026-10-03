@@ -1,6 +1,6 @@
 # Presentation metadata is shared by the menu and help; command routing stays in Commands.ps1.
 
-# No parameters: describe each supported firmware action by its public command identity.
+# No parameters: describe firmware/device actions by their public command identity.
 function Get-DeviceFirmwarePresentation {
     return [ordered]@{
         build = @{ Emoji = '🔨'; Description = 'Compile the selected firmware; use -Jobs 8 to limit parallel work.' }
@@ -13,11 +13,12 @@ function Get-DeviceFirmwarePresentation {
         discovery = @{ Emoji = '🔎'; Description = 'List Windows serial devices and USB identities without loading ESP-IDF.' }
         ports = @{ Emoji = '🔌'; Description = 'List serial ports through the configured ESP-IDF toolchain.' }
         'port-status' = @{ Emoji = '🩺'; Description = 'Probe the selected port and report availability and candidate owner processes.' }
-        monitor = @{ Emoji = '📟'; Description = 'Open the live ESP-IDF serial monitor; exit with Ctrl+].' }
+        monitor = @{ Emoji = '📟'; Description = 'Attach the live ESP-IDF monitor without a startup reset; exit with Ctrl+].' }
         capture = @{ Emoji = '📝'; Description = 'Save serial output for a bounded duration; reset first only with -ResetBeforeCapture.' }
+        'sd-log' = @{ Emoji = '📥'; Description = 'Download a stored SD log over USB with checked blocks; close the monitor first.' }
         flash = @{ Emoji = '⚡'; Description = 'Build and write the selected firmware to the device, then reset it.' }
         reset = @{ Emoji = '🔄'; Description = 'Reset the device through serial control lines without writing firmware.' }
-        combo = @{ Emoji = '🚀'; Description = 'Build, flash and immediately open the live monitor in this terminal.' }
+        combo = @{ Emoji = '🚀'; Description = 'Build, flash and attach the live monitor without an additional startup reset.' }
         recover = @{ Emoji = '🛟'; Description = 'Build and flash using the bounded USB reconnect and port-owner recovery flow.' }
         erase = @{ Emoji = '💥'; Description = 'Erase the entire device flash, including firmware and persisted device settings.' }
     }

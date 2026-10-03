@@ -69,7 +69,8 @@ extern "C" void CODY_poc_boot_checkpoint(const char *stage)
     s_stage_started_us = now_us;
 }
 
-// SD ownership remains in Luna. An absent card never causes a mount or format here.
+// No parameters: report published SD availability without changing saved log policy.
+// Returns the original canonical snapshot error if this observation fails.
 extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
 {
     LUNASHELL::MotionPowerObservation observation;
@@ -79,17 +80,12 @@ extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
         ESP_LOGE(kTag, "Diagnostics snapshot read failed: %s", esp_err_to_name(read_error));
         return read_error;
     }
-    const bool requested = CODY::PocData::execution_timings && CODY::PocData::mirror_to_sd_when_available;
-    if (!observation.storage_available) {
-        ESP_LOGI(kTag, "Diagnostics console active=%u; SD mirror unavailable (card not mounted/healthy)",
-                 CODY::PocData::execution_timings);
-        return ESP_OK; // The optional sink is explicitly unavailable; console is authoritative.
-    }
-    const esp_err_t error = LUNASHELL_storage_set_logger_mirror(requested);
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Existing SD logger mirror configuration failed: %s", esp_err_to_name(error));
-    }
-    return error;
+    // Timing diagnostics are independent of the user's saved SD preference.
+    // In particular, Release must not persistently turn logging off at boot.
+    ESP_LOGI(kTag, "Diagnostics timings=%u; published SD availability=%u; saved storage log policy retained",
+        static_cast<unsigned>(CODY::PocData::execution_timings),
+        static_cast<unsigned>(observation.storage_available));
+    return ESP_OK; // The snapshot read completed; no filesystem operation was attempted.
 }
 
 // No parameters: completed boot plays bounded cues only when canonical quiet policy permits.

@@ -10,7 +10,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
         'check','generate','banner','package-simulator','clean-artifacts',
-        'build','clean','fullclean','flash','reset','monitor','capture','erase',
+        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
     [string]$Port,
@@ -25,9 +25,13 @@ param(
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,
     [string]$OutputPath,
+    # Select the current or previous persisted SD log for the host-only USB download.
+    [ValidateSet('current','previous')][string]$StoredLog = 'current',
     [ValidateSet('default','text','csv','json2','tree','raw')][string]$SizeOutputFormat = 'default',
     [string]$SizeOutputFile,
     [string]$LogPath,
+    # Opt in to ESP-IDF resetting the device when monitor/combo attaches the monitor.
+    [switch]$ResetBeforeMonitor,
     [switch]$ResetBeforeCapture,
     [string]$IdfPath,
     [string]$ToolsPath,
@@ -87,8 +91,14 @@ try {
         if ($BuildDir) {
             $dispatch.BuildDir = Resolve-ArtifactPath $BuildDir ''
         }
-        if ($OutputPath -or $Action -eq 'capture') {
-            $dispatch.OutputPath = Resolve-ArtifactPath $OutputPath 'artifacts/serial/capture.log'
+        if ($OutputPath -or $Action -in @('capture','sd-log')) {
+            $defaultOutput = if ($Action -eq 'sd-log') {
+                $dispatch.StoredLog = $StoredLog.ToLowerInvariant()
+                "artifacts/serial/sd-log-$($dispatch.StoredLog).log"
+            } else {
+                'artifacts/serial/capture.log'
+            }
+            $dispatch.OutputPath = Resolve-ArtifactPath $OutputPath $defaultOutput
             if ($dispatch.OutputPath -eq $resolvedLog) {
                 throw 'OutputPath and LogPath must be different files.'
             }
@@ -118,7 +128,7 @@ try {
         }
 
         $failureStage = 'selecting serial port'
-        if ($Action -in @('flash','reset','monitor','capture','erase','combo','port-status','recover')) {
+        if ($Action -in @('flash','reset','monitor','capture','sd-log','erase','combo','port-status','recover')) {
             if ($PSBoundParameters.ContainsKey('Port')) {
                 $dispatch.Port = Normalize-PortName -RequestedPort $Port
             } else {

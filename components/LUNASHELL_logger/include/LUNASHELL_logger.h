@@ -22,8 +22,8 @@ extern "C" {
 /**
  * Install the canonical logger before any other subsystem is initialized.
  *
- * Serial output remains authoritative. The same formatted lines are copied to
- * a bounded in-memory ring and, once enabled, to a low-priority SD writer.
+ * Capture precedes best-effort USB output. A bounded boot backlog and the UI
+ * ring retain diagnostics before the removable-storage owner enables SD.
  */
 esp_err_t LUNASHELL_logger_init(void);
 
@@ -40,7 +40,7 @@ esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point);
 esp_err_t LUNASHELL_logger_disable_sd(void);
 
 /**
- * Suspend or resume RAM-ring capture while keeping authoritative serial output.
+ * Suspend or resume RAM-ring capture while keeping best-effort USB output.
  *
  * Performance Mode uses this to avoid the second formatting pass and ring
  * synchronization on every log line. SD mirroring is controlled separately.
@@ -72,12 +72,53 @@ typedef struct {
     uint32_t failure_count;
     /** Advances only after buffered SD data is flushed successfully. */
     uint32_t persisted_write_sequence;
+    uint32_t boot_dropped_lines;
+    uint32_t usb_dropped_lines;
 } LUNASHELL_logger_sd_status_t;
 
 /**
  * Return the current SD writer state, including asynchronous write failures.
  */
+// status receives writer health and the separately counted boot/USB capture losses.
+// Returns an argument/state error when status cannot be supplied.
 esp_err_t LUNASHELL_logger_get_sd_status(LUNASHELL_logger_sd_status_t *status);
+
+typedef enum {
+    LUNASHELL_LOG_FILE_CURRENT,
+    LUNASHELL_LOG_FILE_PREVIOUS,
+} LUNASHELL_logger_log_file_t;
+
+// mount_point is the verified card root supplied by the storage owner after mount.
+// Returns the real ownership/path error; binding never creates or formats files.
+esp_err_t LUNASHELL_logger_bind_sd(const char *mount_point);
+
+// file identifies one of the logger's two owned files; arbitrary paths are rejected.
+// offset is the requested byte position within that file.
+// expected_revision is zero on the first read, then pins the original file identity.
+// buffer receives a bounded block without text conversion.
+// buffer_size is the capacity of buffer.
+// bytes_read receives the exact successful read length.
+// total_size receives the flushed file size at this read.
+// revision receives the current identity, which changes on rotation or mirror restart.
+// system_errno receives the original filesystem errno, or zero for policy failures.
+// Returns the real I/O or argument error; callers must retain storage ownership.
+esp_err_t LUNASHELL_logger_read_sd_log(
+    LUNASHELL_logger_log_file_t file, uint32_t offset,
+    uint32_t expected_revision, void *buffer, size_t buffer_size,
+    size_t *bytes_read, uint32_t *total_size, uint32_t *revision,
+    int *system_errno
+);
+
+typedef esp_err_t (*LUNASHELL_logger_sd_reader_t)(
+    LUNASHELL_logger_log_file_t file, uint32_t offset,
+    uint32_t expected_revision, void *buffer, size_t buffer_size,
+    size_t *bytes_read, uint32_t *total_size, uint32_t *revision,
+    int *system_errno
+);
+
+// reader is the immutable storage-owner callback that protects mount/power lifetime.
+// Returns an argument/state error if ownership cannot be established.
+esp_err_t LUNASHELL_logger_set_sd_reader(LUNASHELL_logger_sd_reader_t reader);
 
 #define LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES 15U
 
