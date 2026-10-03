@@ -6278,6 +6278,7 @@ DeviceSnapshotService &DeviceSnapshotService::instance()
     return service;
 }
 
+// No parameters: initialize owners/drivers only; orchestrators explicitly acquire the first snapshot.
 esp_err_t DeviceSnapshotService::initialize()
 {
     const esp_err_t telemetry_error = LUNASHELL_memory_telemetry_init();
@@ -6482,15 +6483,16 @@ esp_err_t DeviceSnapshotService::initialize()
         s_initialization_result = error;
         return error;
     }
-    error = refresh("boot");
-    record_first_error(error, &aggregate);
+    // An unset RTC is a failed clock observation, not a failed chip startup.
+    // Keep acquisition separate so the orchestrator can reach the first NTP sync
+    // with unavailable time, without converting a sample error into ESP_OK here.
     s_initialization_result = aggregate;
     if (aggregate != ESP_OK) {
         return aggregate;
     }
     ESP_LOGI(
         TAG,
-        "Hardware initialization: PMU + RTC + IMU + GPS + microphone ready"
+        "Selected hardware owners initialized; initial snapshot is an explicit startup stage"
     );
     return ESP_OK;
 }
@@ -6666,6 +6668,9 @@ esp_err_t DeviceSnapshotService::refresh(
     if (LUNASHELL_time_is_initialized()) {
         const esp_err_t clock_error = LUNASHELL_time_refresh_snapshot();
         record_first_error(clock_error, &aggregate);
+        if (clock_error != ESP_OK) {
+            record_first_error(publish_update_result(phase, aggregate), &aggregate);
+        }
     }
     bool should_log_summary =
         summary_available && std::strcmp(phase, "diagnostic-ui") != 0;
@@ -8370,9 +8375,11 @@ extern "C" void LUNASHELL_hardware_report_speaker(bool ready, esp_err_t error)
     LUNASHELL::DeviceSnapshotService::instance().reportSpeaker(ready, error);
 }
 
-extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time)
+// time: Acquired UTC calendar, returned only after successful read and publication.
+// sampled_at_us: Original hardware-attempt timestamp, identical to the canonical sample.
+extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time, int64_t *sampled_at_us)
 {
-    if (time == nullptr) {
+    if (time == nullptr || sampled_at_us == nullptr) {
         ESP_LOGE(TAG, "RTC read rejected: output is null");
         return ESP_ERR_INVALID_ARG;
     }
@@ -8406,6 +8413,7 @@ extern "C" esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time)
         return result;
     }
     *time = sample;
+    *sampled_at_us = attempted_at_us;
     return ESP_OK;
 }
 

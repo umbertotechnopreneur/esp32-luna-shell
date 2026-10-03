@@ -466,6 +466,8 @@ def verify_gps_sync_model() -> None:
     )
 
 
+# No parameters: verify the repository's published RTC ownership and UTC contracts.
+# Raises AssertionError for contract drift and preserves real source/model failures.
 def main() -> int:
     hardware = read_component_source(HARDWARE)
     time_source = TIME.read_text(encoding="utf-8")
@@ -717,6 +719,11 @@ def main() -> int:
         "apply_rtc_latch_observation_locked(observation);",
         "direct RTC latch application under the existing operation lock",
     )
+    require_contains(
+        direct_read,
+        "*sampled_at_us = attempted_at_us;",
+        "RTC read preserves the exact acquisition timestamp for the time owner",
+    )
     recovery_at = rtc_write.index("if (recovery_readback_required)")
     readback_at = rtc_write.index("read_rtc_calendar(&published)", recovery_at)
     publish_at = rtc_write.index("publish_rtc_read(published, error", readback_at)
@@ -771,12 +778,19 @@ def main() -> int:
         "std::lock_guard<std::mutex> sync_lock(s_sync_mutex)"
     )
     sntp_validation_at = sntp_callback.find(
-        "if (time_value == nullptr || !epoch_valid(time_value->tv_sec))"
+        "if (time_value == nullptr || !epoch_valid(time_value->tv_sec) ||"
     )
     require(
         0 <= sntp_lock_at < sntp_validation_at,
         "SNTP success and invalid-sample publications must share the UTC sync "
         "transaction",
+    )
+    require_contains(sntp_callback, "time_value->tv_usec >= 1000000", "SNTP subsecond validation")
+    drift_read_at = sntp_callback.find("measure_drift_before_correction()")
+    rtc_correction_at = sntp_callback.find("persist_epoch_to_rtc(time_value->tv_sec)")
+    require(
+        0 <= drift_read_at < rtc_correction_at,
+        "RTC drift must be measured before correction, never from the rewritten calendar",
     )
     sntp_invalid_end = sntp_callback.find(
         "const esp_err_t rtc_result",

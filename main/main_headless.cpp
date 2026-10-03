@@ -144,6 +144,10 @@ extern "C" void app_main(void)
 
     ESP_ERROR_CHECK(LUNASHELL_hardware_init());
     startup_watch.progress("hardware inventory");
+    // Driver startup is mandatory; sensor values (notably an unset RTC) are
+    // optional observations with real errors. NTP can establish UTC later.
+    report_optional_startup_failure("initial hardware snapshot", LUNASHELL_hardware_refresh("boot"));
+    startup_watch.progress("initial hardware snapshot");
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY || CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH
     ESP_ERROR_CHECK(LUNASHELL_display_runtime_init());
     startup_watch.progress("standalone display and touch");

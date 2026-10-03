@@ -31,8 +31,10 @@ No build date, invented epoch, default alarm or corrupt-setting repair is
 written. A trusted SNTP/GNSS update uses the existing recovery/readback path.
 Offline operation therefore requires a previously valid RTC and maintained
 backup power; first boot without trusted time does not promise a usable clock.
-RTC storage is UTC. Current standalone startup uses `UTC0`; the chat's timezone
-does not automatically configure the device's future local-time schedules.
+RTC storage is UTC. The persisted clock preferences default to `UTC0`; the
+chat's timezone does not automatically configure the device. Offline routines,
+quiet hours and measured drift are now implemented in source; see
+[trusted clock and routine policy](cody-clock.md) for runtime APIs and limits.
 
 ## Chip and schematic facts
 
@@ -74,7 +76,7 @@ until a scheduler explicitly supplies one.
 
 ## Product uses worth considering
 
-1. **Offline routine companion:** greetings, softer evening animation and
+1. **Offline routine companion (implemented in source):** greetings, softer evening animation and
    configurable quiet hours based on trusted local time. Keep UTC storage and
    timezone conversion separate; invalid time must not pick a plausible routine.
 2. **Gentle wake/reminder:** a pearl face wakes gradually, shows one short
@@ -89,13 +91,13 @@ until a scheduler explicitly supplies one.
 4. **Small persistent rituals:** remember the last successful daily activity
    or show an overdue reminder after restart, with an explicit missed-event
    policy instead of replaying every missed alert.
-5. **Lower-connectivity clock:** preserve useful time between Wi-Fi sessions
+5. **Lower-connectivity clock (implemented in source):** preserve useful time between Wi-Fi sessions
    and measure drift across trusted synchronizations. Later decide whether
    less frequent network synchronization is appropriate; no power saving or
    automatic frequency correction is claimed from this source-only change.
 
-Recommended next increment: one reusable fixed-capacity deadline service with
-typed alarm IDs, explicit timezone/quiet-hour preferences, next-deadline
+Deferred next increment: one reusable fixed-capacity deadline service with
+typed alarm IDs, the shared timezone/quiet-hour preferences, next-deadline
 selection and canonical alarm snapshots. Route sound/display/power actions
 through their current owners. Agree on snooze, offline validity and missed
 events before implementing or scheduling anything automatically.

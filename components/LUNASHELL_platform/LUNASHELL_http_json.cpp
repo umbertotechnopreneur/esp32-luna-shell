@@ -206,11 +206,16 @@ const char *routinePeriodName(LUNASHELL::RoutinePeriod period)
 {
     using LUNASHELL::RoutinePeriod;
     switch (period) {
-    case RoutinePeriod::Morning: return "morning";
-    case RoutinePeriod::Afternoon: return "afternoon";
-    case RoutinePeriod::Evening: return "evening";
-    case RoutinePeriod::Night: return "night";
-    case RoutinePeriod::Unavailable: return "unavailable";
+    case RoutinePeriod::Morning:
+        return "morning";
+    case RoutinePeriod::Afternoon:
+        return "afternoon";
+    case RoutinePeriod::Evening:
+        return "evening";
+    case RoutinePeriod::Night:
+        return "night";
+    case RoutinePeriod::Unavailable:
+        return "unavailable";
     }
     return "unavailable";
 }
@@ -271,8 +276,12 @@ void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::DeviceSnapsh
     (void)json.boolean(clock.routines_enabled);
     (void)json.raw(",\"quiet_hours_enabled\":");
     (void)json.boolean(clock.quiet_hours_enabled);
-    (void)json.format(",\"quiet_start_minute\":%u,\"quiet_end_minute\":%u}",
-        clock.quiet_start_minute, clock.quiet_end_minute);
+    if (clock.preferences_valid) {
+        (void)json.format(",\"quiet_start_minute\":%u,\"quiet_end_minute\":%u}",
+            clock.quiet_start_minute, clock.quiet_end_minute);
+    } else {
+        (void)json.raw(",\"quiet_start_minute\":null,\"quiet_end_minute\":null}");
+    }
     const auto &drift = snapshot.rtc_drift;
     (void)json.raw(",\"drift\":");
     writeComponentStart(json, drift);
@@ -296,9 +305,19 @@ void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::DeviceSnapsh
     } else {
         (void)json.raw("null");
     }
-    (void)json.format(",\"interval_seconds\":%lu,\"offset_uncertainty_seconds\":%lu,\"rtc_sampled_at_us\":%lld,\"source\":",
-        static_cast<unsigned long>(drift.interval_seconds),
-        static_cast<unsigned long>(drift.offset_uncertainty_seconds), static_cast<long long>(drift.rtc_sampled_at_us));
+    (void)json.raw(",\"interval_seconds\":");
+    if (drift.data_valid && drift.rate_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%lu", static_cast<unsigned long>(drift.interval_seconds));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"offset_uncertainty_seconds\":");
+    if (drift.data_valid && drift.offset_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%lu", static_cast<unsigned long>(drift.offset_uncertainty_seconds));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.format(",\"rtc_sampled_at_us\":%lld,\"source\":", static_cast<long long>(drift.rtc_sampled_at_us));
     (void)json.quoted(drift.source);
     (void)json.raw(",\"reference_utc_seconds\":");
     if (drift.data_valid && drift.offset_valid && drift.last_error == ESP_OK) {

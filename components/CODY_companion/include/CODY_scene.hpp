@@ -74,6 +74,10 @@ esp_err_t find_scene(SceneId identity, const SceneDefinition *&definition);
 // frame: Receives a fresh typewriter and prepared text only after validation succeeds.
 esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame);
 
+// frame: Prepared reusable layout; geometry and optional content stay owned by it.
+// title: Immutable ASCII text retained until all frames referencing it retire.
+esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title);
+
 // frame: Current prepared scene; unchanged if the request is invalid.
 // active_delta_us: Nonnegative animation time, excluding pause and standby intervals.
 esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us);

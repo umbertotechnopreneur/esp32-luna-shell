@@ -450,6 +450,11 @@ extern "C" void app_main(void)
     const esp_err_t hardware_result = LUNASHELL_hardware_init();
     report_optional_startup_failure("hardware inventory", hardware_result);
     startup_watch.progress("hardware inventory");
+    if (hardware_result == ESP_OK) {
+        // An unavailable calendar must not prevent the later first network sync.
+        report_optional_startup_failure("initial hardware snapshot", LUNASHELL_hardware_refresh("boot"));
+        startup_watch.progress("initial hardware snapshot");
+    }
 
     const esp_err_t brightness_result = LUNASHELL_display_apply_saved_brightness();
     if (brightness_result != ESP_OK) {

@@ -124,6 +124,42 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
     return ESP_OK;
 }
 
+// frame: Existing valid scene; no definition pointer or layout identity is replaced.
+// title: Caller-owned immutable ASCII text, retained through frame retirement.
+esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title)
+{
+    if (!frame.valid || frame.definition == nullptr || frame.definition->font == nullptr ||
+        !frame.title.valid || title.length == 0) {
+        ESP_LOGE(kTag, "Scene title replacement rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const auto &definition = *frame.definition;
+    const uint32_t width = static_cast<uint32_t>(title.length - 1U) *
+        definition.font->advance + definition.font->width;
+    if (width > 320) {
+        ESP_LOGE(kTag, "Replacement scene title too wide: %lu (%s)",
+            static_cast<unsigned long>(width), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    CODY2D::TextLine prepared;
+    const CODY2D::Point origin{static_cast<int16_t>((466U - width) / 2U),
+        static_cast<int16_t>(definition.title_top)};
+    const esp_err_t error = CODY2D::prepare_text_line(*definition.font, title,
+        origin, definition.title_color, prepared);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!inside_circle(text_bounds(prepared))) {
+        ESP_LOGE(kTag, "Replacement title leaves circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    frame.title = prepared;
+    frame.visible_characters = frame.intro_phase == SceneIntroPhase::Complete &&
+        definition.character_interval_ms == 0 ? title.length : 0;
+    frame.character_remainder_us = 0;
+    return ESP_OK;
+}
+
 // frame: Prepared scene with a bounded, explicitly named introduction phase.
 // presentation: Updated only after all phase and duration invariants hold.
 esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation &presentation)
@@ -257,7 +293,19 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         ESP_LOGE(kTag, "Scene damage state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    if (previous.visible_characters != current.visible_characters) {
+    const bool title_changed = previous.title.text.characters != current.title.text.characters ||
+        previous.title.text.length != current.title.text.length;
+    if (title_changed) {
+        // Retitling can re-center or shrink. Clear the entire old extent, not
+        // just the new prefix; the last completed frame still borrows old text.
+        esp_err_t error = include_damage(plan, text_bounds(previous.title));
+        if (error == ESP_OK) {
+            error = include_damage(plan, text_bounds(current.title));
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+    } else if (previous.visible_characters != current.visible_characters) {
         const uint16_t first = std::min(previous.visible_characters, current.visible_characters);
         const uint16_t last = std::max(previous.visible_characters, current.visible_characters);
         const auto &font = *current.title.font;

@@ -20,6 +20,14 @@ authorization.
   dark Wake frame before the 300-ms fade, and recovery after a rejected sleep.
   The branch integration has static source review only.
 
+- [ ] After fresh specific authorization, validate the offline routine/clock
+  increment: atomic preferences, overnight quiet window and Rome DST, missing/
+  corrupt settings, unavailable/stale neutral state, onboarding versus Wake
+  greetings, old/new title damage, bounded boot cue gating, first-IP NTP
+  failure/recovery and measured RTC offset/rate before correction. Verify an
+  unset RTC reaches NTP without aborting driver startup. No build, tests,
+  simulator or hardware operations ran. See `docs/architecture/cody-clock.md`.
+
 - [ ] After fresh explicit authorization, build/deploy the enabled Cody RTC
   profile and observe trusted SNTP -> RTC persistence, offline restart,
   oscillator-stop invalidity and backup retention. No build, checks or hardware

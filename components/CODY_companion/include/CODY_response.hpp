@@ -2,6 +2,8 @@
 
 #include "CODY_rig.hpp"
 
+namespace LUNASHELL { struct ClockSnapshot; }
+
 namespace CODY {
 
 enum class StimulusId : uint8_t { MotionAcceleration, PowerCharge, MicrophoneLevel, SpeakerPlayback };
@@ -264,6 +266,7 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
                           Transform placement, uint16_t rotation, bool animate_rhythm,
                           ResponseFrame &frame);
 // inputs: Receives hardware-only observations; no driver refresh occurs here.
-esp_err_t observe_response_inputs(ResponseInputs &inputs);
+// clock: Optional caller-owned routine observation from the same canonical read.
+esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapshot *clock = nullptr);
 
 } // namespace CODY

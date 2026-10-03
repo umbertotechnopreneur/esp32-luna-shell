@@ -37,7 +37,7 @@ esp_err_t pcm_view(const uint8_t *first, const uint8_t *last,
 }
 } // namespace
 
-// Begin real boot timings and register the cue without touching a hardware driver.
+// No parameters: validate flash-owned boot sound; defer playback until trusted time is published.
 extern "C" esp_err_t CODY_poc_prepare_boot(void)
 {
     if (s_boot_started_us != 0) {
@@ -49,13 +49,11 @@ extern "C" esp_err_t CODY_poc_prepare_boot(void)
     const int16_t *samples = nullptr;
     size_t count = 0;
     esp_err_t error = pcm_view(audio_ready_start, audio_ready_end, samples, count);
-    if (error == ESP_OK) {
-        error = LUNASHELL_audio_set_startup_cue(samples, count,
-            CODY::PocData::sample_rate_hz, CODY::PocData::ready_volume_percent);
-    }
     if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Audio-ready cue registration failed: %s", esp_err_to_name(error));
+        ESP_LOGE(kTag, "Audio-ready cue preparation failed: %s", esp_err_to_name(error));
     }
+    // Codec initialization happens before the time service. Playing there would
+    // bypass quiet hours; Cody's existing completed-boot stage owns both cues now.
     return error;
 }
 
@@ -94,12 +92,36 @@ extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
     return error;
 }
 
-// The ready artwork completes its panel transfer before this owner plays the second cue.
+// No parameters: completed boot plays bounded cues only when canonical quiet policy permits.
 extern "C" esp_err_t CODY_poc_play_eyes_open(void)
 {
+    LUNASHELL::ClockSnapshot clock;
+    const esp_err_t observation_error =
+        LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+    if (observation_error != ESP_OK) {
+        ESP_LOGE(kTag, "Boot cue clock observation failed (%s)", esp_err_to_name(observation_error));
+        return observation_error;
+    }
+    const auto policy = LUNASHELL::clock_cue_policy(clock);
+    if (policy != LUNASHELL::ClockCuePolicy::Allowed) {
+        const char *reason = policy == LUNASHELL::ClockCuePolicy::QuietHours ? "quiet hours" :
+            policy == LUNASHELL::ClockCuePolicy::TimeUnavailable ? "time unavailable/stale" : "settings unavailable";
+        ESP_LOGI(kTag, "Boot cues deliberately suppressed: %s; saved codec volume unchanged", reason);
+        CODY_poc_boot_checkpoint("boot cues suppressed by routine policy");
+        return ESP_OK;
+    }
     const int16_t *samples = nullptr;
     size_t count = 0;
-    esp_err_t error = pcm_view(eyes_open_start, eyes_open_end, samples, count);
+    esp_err_t error = pcm_view(audio_ready_start, audio_ready_end, samples, count);
+    if (error == ESP_OK) {
+        error = LUNASHELL_audio_play_pcm16(samples, count,
+            CODY::PocData::sample_rate_hz, CODY::PocData::ready_volume_percent);
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Audio-ready cue failed: %s", esp_err_to_name(error));
+        return error;
+    }
+    error = pcm_view(eyes_open_start, eyes_open_end, samples, count);
     if (error == ESP_OK) {
         error = LUNASHELL_audio_play_pcm16(samples, count,
             CODY::PocData::sample_rate_hz, CODY::PocData::eyes_open_volume_percent);

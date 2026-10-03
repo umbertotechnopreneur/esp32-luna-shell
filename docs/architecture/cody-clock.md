@@ -73,8 +73,8 @@ an explicitly optional diagnostic, with original error in the drift snapshot.
 A successful RTC correction is followed by a measured readback baseline.
 The next SNTP comparison can publish signed ppm when both endpoints are valid
 and their trusted UTC interval is at least 600 seconds. Positive offset/rate
-means RTC is ahead/gaining. Baselines are session-local: boot, any new RTC
-write, GPS synchronization or failed correction breaks the interval. The
+means RTC is ahead/gaining. Baselines are session-local: boot, any time-owner
+RTC write, GPS synchronization or failed correction breaks the interval. The
 first synchronization after restart reports offset only and starts a baseline;
 no extra NVS writes are introduced for drift history.
 
@@ -92,3 +92,62 @@ by the Cody profile; this increment does not enable it.
 
 Alarms, snooze, reminders, countdown registers and scheduled Deep-sleep wake
 remain out of scope. See [RTC wiring and capabilities](cody-rtc.md).
+
+## Cody presentation and cue integration
+
+First-boot onboarding retains **Hi, I'm Cody!**. After an ordinary non-onboarding
+boot or a genuine power-owner Wake finishes, the existing generic cloud/title
+scene selects Good morning!, Good afternoon!, Good evening! or Hello, night owl!
+from valid published local time. Unknown/stale time selects the neutral Hello!
+instead. The scene can retitle when the period changes while already awake;
+there is no daily wake timer or replay of missed greetings.
+
+`set_scene_title()` borrows immutable ASCII text, centers it within the existing
+320-pixel title budget and reuses the existing font/typewriter. Dirty planning
+clears both old and new title bounds when text shrinks or re-centers. Frame-cache
+reuse is decided after geometry, so entering/leaving a routine scene cannot
+reuse an incompatible cached scene. No new bitmap, font, framebuffer or task
+is allocated for routines.
+
+Morning idle uses Happy, night uses Drowsy and other periods use Calm, while
+an explicitly selected expression and boot/Sleep/Wake/onboarding keep priority.
+Evening, night or quiet hours reduce the authored contour amplitude/speed and
+slow breathing to 0.20 Hz without resetting phase. IMU/touch gains, springs,
+gesture closure, blinking and hardware sample cadence are unchanged.
+Configured brightness, codec volume, radio state and power policy are untouched.
+
+Cody's audio-ready cue formerly played inside codec initialization, before time
+was known. Both existing bounded boot cues now play at the completed-boot stage,
+after the clock can be observed. Quiet hours or unknown time/configuration
+explicitly suppress them and log the reason; skipped sounds are deliberate
+policy, not concealed playback failures. Actual snapshot/playback errors still
+propagate. Non-Cody playback APIs are not globally muted, and alarm/error-dialog
+cue policy is not implemented by this change.
+
+Driver initialization and initial acquisition are separate startup stages.
+`DeviceSnapshotService::initialize()` returns genuine driver/owner initialization
+errors. The main orchestrators then call the initial Full Snapshot refresh as
+an explicitly optional observation stage, logging its original result. Thus an
+unset RTC can remain unavailable until NTP arrives without causing a boot loop
+before Wi-Fi starts. This policy does not turn a failed component call into
+ESP_OK or admit unmeasured numeric telemetry.
+
+Runtime preferences are available through the typed C++ API, not a newly added
+settings screen. Example for a caller already authorized to change settings:
+
+```cpp
+LUNASHELL::ClockPreferences preferences;
+ESP_ERROR_CHECK(LUNASHELL::read_clock_preferences(preferences));
+preferences.timezone = LUNASHELL::ClockTimezone::HoChiMinh;
+preferences.quiet_start_minute = 22 * 60;
+preferences.quiet_end_minute = 7 * 60;
+const esp_err_t result = LUNASHELL::configure_clock_preferences(preferences);
+// Handle the original result visibly. Persistence may succeed while the clock
+// observation is unavailable; do not silently retry or overwrite stored values.
+```
+
+Deferred verification requires fresh authorization: firmware compilation, clock
+and native scene checks, invalid/wrong-type settings, quiet windows crossing
+midnight, Rome DST, unknown/stale time, cached title shrink/re-centering,
+first-IP/NTP failure/recovery, oscillator-stop repair, offline restart and
+physical frame timing/power. Source inspection cannot establish device behavior.

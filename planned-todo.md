@@ -6,10 +6,10 @@ priority. Promote an item to `TODO.md` when it becomes active.
 ## Cody product increments
 
 - [ ] After choosing the UX, add a reusable fixed-capacity reminder/deadline
-  service with typed IDs, explicit timezone/quiet hours, snooze and missed-event
+  service with typed IDs, shared clock timezone/quiet preferences, snooze and missed-event
   policy. Consume canonical trusted time and arm the existing ESP sleep timer
   through the power owner for scheduled Deep-sleep wake; external RTC INT is
-  not connected directly to the ESP. Use cases: offline routines, gentle alarms,
+  not connected directly to the ESP. Use cases: gentle alarms,
   focus/break sessions. See `docs/architecture/cody-rtc.md`.
 
 - [ ] Finish English circular OOBE preferences and optional user-selected Cody

@@ -32,6 +32,22 @@
   panel output enabled at zero brightness before exposing the 300-ms fade.
   Static source review only; build, tests and physical behavior remain unverified.
 
+## Offline routines and RTC drift implementation (2026-10-04)
+
+- [x] Publish real trusted UTC/local time on the canonical Full Snapshot cadence,
+  with atomic typed timezone/quiet preferences and neutral unavailable behavior.
+  Reuse Cody's cloud/title/typewriter scene for awake-session greetings, softer
+  evening/night rhythm and quiet-controlled boot cues without changing IMU/touch,
+  saved brightness, codec volume, radios or standby. Separate mandatory drivers
+  from the explicitly optional first sample so an unset RTC can reach NTP.
+- [x] Request deferred SNTP once on the first IP connection; only its valid
+  callback confirms Internet time. Compare RTC before correction, publish signed
+  offset and session-baseline ppm with quantization uncertainty and real errors.
+  No new timer/task/framebuffer or drift-history NVS writes, no alarms,
+  automatic calibration, network duty cycling or claimed power savings.
+  Source-only checkpoint; validation and deployment remain deferred.
+  See `docs/architecture/cody-clock.md`.
+
 ## Cody RTC activation and capability review (2026-10-04)
 
 - [x] Enable the existing PCF85063 calendar/UTC/snapshot pipeline in the Cody

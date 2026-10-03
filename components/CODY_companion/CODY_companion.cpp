@@ -188,6 +188,9 @@ struct CompanionState {
     uint32_t branding_fade_elapsed_us = 0;
     CODY2D::TextLine branding{};
     bool greeting_entered = false;
+    bool routine_greeting_pending = true;
+    bool routine_scene = false;
+    LUNASHELL::RoutinePeriod routine_period = LUNASHELL::RoutinePeriod::Unavailable;
     CODY::ResponseState response{};
     CODY::ResponseFrame response_frame{};
     bool response_sources_logged = false;
@@ -489,6 +492,87 @@ void log_response_source(CODY::StimulusId source, const CODY::SampleStamp &previ
              static_cast<long long>(current.sampled_at_us));
 }
 
+// period: Canonical local-time period or explicit unavailable/disabled state.
+// title: Receives immutable English text only after the identity is accepted.
+esp_err_t routine_greeting_title(LUNASHELL::RoutinePeriod period, CODY2D::TextSpan &title)
+{
+    using LUNASHELL::RoutinePeriod;
+    switch (period) {
+    case RoutinePeriod::Morning:
+        title = {"Good morning!", 13};
+        return ESP_OK;
+    case RoutinePeriod::Afternoon:
+        title = {"Good afternoon!", 15};
+        return ESP_OK;
+    case RoutinePeriod::Evening:
+        title = {"Good evening!", 13};
+        return ESP_OK;
+    case RoutinePeriod::Night:
+        title = {"Hello, night owl!", 16};
+        return ESP_OK;
+    case RoutinePeriod::Unavailable:
+        title = {"Hello!", 6};
+        return ESP_OK;
+    }
+    ESP_LOGE(kTag, "Routine period identity rejected: %u (%s)",
+        static_cast<unsigned>(period), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+    return ESP_ERR_INVALID_RESPONSE;
+}
+
+// clock: Canonical time and validated configuration, never a direct sensor read.
+// lifecycle: Existing phase; routines cannot wake the device or interrupt boot/Sleep/Wake.
+// scene: Caller-owned next frame; the immutable generic layout is reused, not cloned.
+esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
+                                 const CODY::LifecycleState &lifecycle, CODY::SceneFrame &scene)
+{
+    if (s_state.boot_phase != BootPhase::Ready || lifecycle.phase != CODY::LifecyclePhase::Idle ||
+        s_state.branding_phase != BrandingPhase::Hidden || s_greeting_scheduled.load(std::memory_order_acquire)) {
+        return ESP_OK;
+    }
+    if (!clock.preferences_valid || !clock.routines_enabled) {
+        if (s_state.routine_scene) {
+            scene = {};
+            s_state.routine_scene = false;
+        }
+        return ESP_OK;
+    }
+    const auto period = LUNASHELL::clock_observation_current(clock)
+        ? clock.period : LUNASHELL::RoutinePeriod::Unavailable;
+    if (!s_state.routine_scene) {
+        if (!s_state.routine_greeting_pending || scene.valid) {
+            return ESP_OK;
+        }
+        const CODY::SceneDefinition *definition = nullptr;
+        esp_err_t error = CODY::find_scene(CODY::SceneId::Greeting, definition);
+        if (error == ESP_OK) {
+            error = CODY::begin_scene(*definition, scene);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+        // Wake/boot already owns its presentation. Only start the English title.
+        scene.intro_phase = CODY::SceneIntroPhase::Complete;
+        scene.intro_elapsed_us = 0;
+    } else if (period == s_state.routine_period) {
+        return ESP_OK;
+    }
+    CODY2D::TextSpan title;
+    esp_err_t error = routine_greeting_title(period, title);
+    if (error == ESP_OK) {
+        error = CODY::set_scene_title(scene, title);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_state.routine_period = period;
+    s_state.routine_greeting_pending = false;
+    s_state.routine_scene = true;
+    ESP_LOGI(kTag, "Routine greeting selected: period=%u clock=%s sample_at=%lld us; no wake scheduled",
+        static_cast<unsigned>(period), esp_err_to_name(clock.last_error),
+        static_cast<long long>(clock.last_success_at_us));
+    return ESP_OK;
+}
+
 // frame_started_us: Real timestamp sampled while the display lock is held.
 // resume_animation: Exclude standby time from both independent animation clocks.
 esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_animation)
@@ -499,6 +583,15 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     const int64_t animation_delta_us = resume_animation || s_state.animation_sampled_us == 0
         ? 0 : frame_started_us - s_state.animation_sampled_us;
     const float animation_delta_ms = static_cast<float>(animation_delta_us) / 1000.f;
+    CODY::ResponseInputs inputs{};
+    LUNASHELL::ClockSnapshot clock;
+    const esp_err_t observation_error = CODY::observe_response_inputs(inputs, &clock);
+    if (observation_error != ESP_OK) {
+        return observation_error;
+    }
+    const bool routine_current = LUNASHELL::clock_observation_current(clock) && clock.routines_enabled;
+    const bool softer_routine = routine_current && (clock.quiet ||
+        clock.period == LUNASHELL::RoutinePeriod::Evening || clock.period == LUNASHELL::RoutinePeriod::Night);
     CODY::Channels target_face{};
     CODY::ContourControls target_contour{};
     CODY::Transform base_transform = CODY::Data::placement;
@@ -512,11 +605,27 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (lifecycle_error != ESP_OK) {
         return lifecycle_error;
     }
+    const esp_err_t routine_error = update_routine_greeting(clock, next_lifecycle, next_scene);
+    if (routine_error != ESP_OK) {
+        return routine_error;
+    }
     if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && next_scene.valid) {
         target_face = next_scene.definition->face;
     }
     if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && s_state.expression_override) {
         const esp_err_t expression_error = CODY::expression_channels(s_state.requested_expression, target_face);
+        if (expression_error != ESP_OK) {
+            return expression_error;
+        }
+    } else if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && (routine_current || s_state.routine_scene) &&
+               (!next_scene.valid || s_state.routine_scene)) {
+        CODY::ExpressionId expression = CODY::ExpressionId::Calm;
+        if (routine_current && clock.period == LUNASHELL::RoutinePeriod::Night) {
+            expression = CODY::ExpressionId::Drowsy;
+        } else if (routine_current && clock.period == LUNASHELL::RoutinePeriod::Morning && !clock.quiet) {
+            expression = CODY::ExpressionId::Happy;
+        }
+        const esp_err_t expression_error = CODY::expression_channels(expression, target_face);
         if (expression_error != ESP_OK) {
             return expression_error;
         }
@@ -542,11 +651,6 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (face_error != ESP_OK) {
         return face_error;
     }
-    CODY::ResponseInputs inputs{};
-    const esp_err_t observation_error = CODY::observe_response_inputs(inputs);
-    if (observation_error != ESP_OK) {
-        return observation_error;
-    }
     CODY::ResponseState previous_response = s_state.response;
     if (resume_animation) {
         CODY::rebase_response_motion(previous_response);
@@ -555,6 +659,13 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     // A publication can occur after frame_started_us while we wait for the snapshot.
     // Freshness uses the later observation time, not a potentially earlier frame clock.
     CODY::ResponseConfig rhythm_config = CODY::Data::response;
+    if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && softer_routine) {
+        // Calm the authored idle rhythm, not the IMU/touch spring or sampled data.
+        rhythm_config.expression.base_breath_hz = .20f;
+        rhythm_config.expression.stress_breath_gain *= .5f;
+        target_contour[CODY::ContourControl::Amplitude] *= .55f;
+        target_contour[CODY::ContourControl::Speed] *= .55f;
+    }
     if (next_lifecycle.phase == CODY::LifecyclePhase::Sleep) {
         // Artistic breathing has its own clock; sleep slows it without
         // resetting phase or changing any real published sensor values.
@@ -861,11 +972,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     // boundaries even too, so expanding vertical damage never reads outside
     // the rasterized tile. An odd-sized lease can leave its last row unused.
     timings.tile_rows = static_cast<uint16_t>((raster_capacity_bytes / row_bytes) & ~size_t{1});
-    const bool reuse_previous = s_resources.previous_frame_valid && !resume_animation &&
-        s_rendered_revision.load(std::memory_order_acquire) == revision &&
-        s_state.rig_visible && s_cache_was_rig &&
-        s_cached_scene.valid == s_state.scene.valid &&
-        s_cached_scene.definition == s_state.scene.definition;
+    const bool previous_frame_available = s_resources.previous_frame_valid;
     // A failed partial update never becomes the reference for the next frame.
     s_resources.previous_frame_valid = false;
     PendingTouchReports pending_touch;
@@ -954,6 +1061,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         boot_image.palette = faded_palette;
     }
     const int64_t damage_started_us = timings.geometry_completed_us;
+    // Geometry can enter/leave the reusable routine scene. Decide reuse after
+    // that transition, or old title pixels would survive (or damage would fail).
+    const bool reuse_previous = previous_frame_available && !resume_animation &&
+        s_rendered_revision.load(std::memory_order_acquire) == revision &&
+        s_state.rig_visible && s_cache_was_rig &&
+        s_cached_scene.valid == s_state.scene.valid &&
+        s_cached_scene.definition == s_state.scene.definition;
     esp_err_t plan_error = ESP_OK;
     if (!reuse_previous || presentation.boot_bitmap_visible) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
@@ -1340,6 +1454,8 @@ esp_err_t apply_scene_requests()
         // Text and placement share the scene; facial lifecycle keeps its own owner.
         s_state.scene = prepared;
         s_state.greeting_entered = true;
+        s_state.routine_greeting_pending = false;
+        s_state.routine_scene = false;
         // Start measurement windows with screen 04, excluding completed boot frames.
         s_state.frame_rate = {};
         s_state.rig_frame_count = 0;
@@ -1423,6 +1539,8 @@ esp_err_t apply_lifecycle_requests()
     s_state.branding_phase = BrandingPhase::Hidden;
     s_state.scene = {};
     s_state.rig_visible = true;
+    s_state.routine_scene = false;
+    s_state.routine_greeting_pending = !sleeping;
     s_state.rig_debug = false;
     s_state.animation_paused = false;
     s_state.animation_sampled_us = 0;
@@ -1485,6 +1603,8 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.rig_visible = true;
                 s_state.scene = {};
                 s_state.lifecycle = {CODY::LifecyclePhase::Idle, 0};
+                s_state.routine_scene = false;
+                s_state.routine_greeting_pending = false;
                 s_state.requested_expression = CODY::ExpressionId::Calm;
                 s_state.expression_override = false;
                 s_state.selected_point = CODY::kNoPoint;

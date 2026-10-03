@@ -46,6 +46,7 @@ uint32_t s_rtc_persistence_retry_delay_seconds;
 esp_err_t s_rtc_persistence_error = ESP_OK;
 LUNASHELL::ClockPreferences s_clock_preferences;
 bool s_clock_preferences_ready;
+esp_err_t s_clock_preferences_error = ESP_ERR_INVALID_STATE;
 constexpr char kClockPreferencesKey[] = "clock_routine";
 struct DriftBaseline {
     bool valid = false;
@@ -53,8 +54,10 @@ struct DriftBaseline {
     int64_t reference_seconds = 0;
 };
 DriftBaseline s_drift_baseline;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 constexpr uint32_t kMinimumDriftIntervalSeconds = 600;
 constexpr uint32_t kOffsetUncertaintySeconds = 2;
+#endif
 
 constexpr int64_t kGpsSystemResyncDriftUs = 2LL * 1000LL * 1000LL;
 constexpr time_t kGpsRtcPersistenceIntervalSeconds = 6 * 60 * 60;
@@ -140,6 +143,7 @@ esp_err_t load_clock_preferences(const char *default_timezone)
     }
     s_clock_preferences = loaded;
     s_clock_preferences_ready = true;
+    s_clock_preferences_error = ESP_OK;
     return ESP_OK;
 }
 
@@ -174,7 +178,7 @@ esp_err_t publish_clock_observation()
     }
     struct timeval current = {};
     struct tm local = {};
-    esp_err_t error = ESP_ERR_INVALID_STATE;
+    esp_err_t error = s_clock_preferences_ready ? ESP_ERR_INVALID_STATE : s_clock_preferences_error;
     if (s_clock_preferences_ready && s_reported_system_time_valid) {
         if (gettimeofday(&current, nullptr) != 0) {
             error = ESP_FAIL;
@@ -208,10 +212,12 @@ esp_err_t publish_clock_observation()
     if (publication_error != ESP_OK) {
         return publication_error;
     }
-    // Not-yet-trusted time is an explicit observation, not an acquisition failure.
-    // Actual clock/conversion failures still propagate to the refresh orchestrator.
-    if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "System clock observation failed (%s)", esp_err_to_name(error));
+    // Publish unavailability and propagate it. The startup orchestrator, not
+    // this component, decides whether to continue until trusted NTP arrives.
+    if (error != ESP_OK) {
+        if (error != ESP_ERR_INVALID_STATE) {
+            ESP_LOGE(TAG, "System clock observation failed (%s)", esp_err_to_name(error));
+        }
         return error;
     }
     return ESP_OK;
@@ -465,7 +471,8 @@ esp_err_t measure_rtc_offset(LUNASHELL::RtcDriftSnapshot &measurement)
     using namespace LUNASHELL;
     const int64_t attempted_at_us = esp_timer_get_time();
     LUNASHELL_calendar_time_t rtc = {};
-    esp_err_t error = LUNASHELL_rtc_read(&rtc);
+    int64_t rtc_sampled_at_us = 0;
+    esp_err_t error = LUNASHELL_rtc_read(&rtc, &rtc_sampled_at_us);
     const int64_t rtc_completed_at_us = esp_timer_get_time();
     struct timeval reference = {};
     if (error == ESP_OK && gettimeofday(&reference, nullptr) != 0) {
@@ -498,7 +505,7 @@ esp_err_t measure_rtc_offset(LUNASHELL::RtcDriftSnapshot &measurement)
     measurement.offset_valid = true;
     measurement.rtc_minus_reference_seconds = static_cast<int32_t>(offset_seconds);
     measurement.reference_utc_seconds = reference.tv_sec;
-    measurement.rtc_sampled_at_us = attempted_at_us;
+    measurement.rtc_sampled_at_us = rtc_sampled_at_us;
     measurement.offset_uncertainty_seconds = kOffsetUncertaintySeconds;
     strlcpy(measurement.source, "sntp", sizeof(measurement.source));
     return ESP_OK;
@@ -567,7 +574,8 @@ void establish_drift_baseline(LUNASHELL::RtcDriftSnapshot &measurement, esp_err_
 void sntp_sync_callback(struct timeval *time_value)
 {
     std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
-    if (time_value == nullptr || !epoch_valid(time_value->tv_sec)) {
+    if (time_value == nullptr || !epoch_valid(time_value->tv_sec) ||
+        time_value->tv_usec < 0 || time_value->tv_usec >= 1000000) {
         ESP_LOGE(
             TAG,
             "SNTP callback rejected an invalid epoch (%s)",
@@ -577,6 +585,17 @@ void sntp_sync_callback(struct timeval *time_value)
         // RTC/GPS/SNTP clock became invalid. Preserve that clock state while
         // publishing the real synchronization failure.
         report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_RESPONSE);
+        s_drift_baseline.valid = false;
+        LUNASHELL::RtcDriftSnapshot failed_drift;
+        LUNASHELL::snapshot_detail::mark_sample_failure(failed_drift, ESP_ERR_INVALID_RESPONSE, esp_timer_get_time());
+        const esp_err_t drift_publication_error = LUNASHELL::DeviceSnapshotService::instance().reportRtcDrift(failed_drift);
+        if (drift_publication_error != ESP_OK) {
+            ESP_LOGE(TAG, "Rejected SNTP drift publication failed (%s)", esp_err_to_name(drift_publication_error));
+        }
+        const esp_err_t clock_error = publish_clock_observation();
+        if (clock_error != ESP_OK) {
+            ESP_LOGE(TAG, "Rejected SNTP clock publication failed (%s)", esp_err_to_name(clock_error));
+        }
         return;
     }
 
@@ -693,6 +712,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     }
     if (timezone_result != ESP_OK) {
         s_clock_preferences_ready = false;
+        s_clock_preferences_error = timezone_result;
         LUNASHELL::DeviceSnapshotService::instance().reportTime(
             false,
             false,
@@ -712,7 +732,8 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     bool restored = false;
     esp_err_t restore_result = ESP_OK;
     LUNASHELL_calendar_time_t rtc = {};
-    const esp_err_t rtc_result = LUNASHELL_rtc_read(&rtc);
+    int64_t rtc_sampled_at_us = 0;
+    const esp_err_t rtc_result = LUNASHELL_rtc_read(&rtc, &rtc_sampled_at_us);
     if (rtc_result == ESP_OK) {
         const time_t epoch = utc_epoch(
             rtc.year,
@@ -799,6 +820,8 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
     return ESP_ERR_NOT_SUPPORTED;
 #else
     if (!s_initialized) {
+        ESP_LOGE(TAG, "NTP start before time initialization (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_STATE);
         return ESP_ERR_INVALID_STATE;
     }
     if (s_sntp_started) {
@@ -810,6 +833,7 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
         ESP_LOGI(TAG, "First network connection: NTP requested after DHCP; Internet/time not yet verified");
     } else {
         ESP_LOGW(TAG, "SNTP start failed: %s", esp_err_to_name(result));
+        report_time_failure_preserving_valid_clock(result);
     }
     return result;
 #endif
@@ -891,6 +915,7 @@ esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
         const esp_err_t rollback_error = apply_timezone(clock_timezone_spec(previous.timezone));
         if (rollback_error != ESP_OK) {
             s_clock_preferences_ready = false;
+            s_clock_preferences_error = rollback_error;
             ESP_LOGE(TAG, "Clock timezone rollback failed (%s); routine unavailable", esp_err_to_name(rollback_error));
         }
         ClockSnapshot failed;

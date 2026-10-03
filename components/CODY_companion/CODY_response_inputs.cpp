@@ -31,8 +31,9 @@ SampleStamp published_stamp(const LUNASHELL::ComponentSnapshot &component, bool 
 } // namespace
 
 // inputs: Receives a hardware-only projection; failures preserve the caller's state.
+// clock: Optional caller-owned clock projection from that same locked snapshot.
 // Luna services are the only samplers. This adapter never calls refresh or a driver.
-esp_err_t observe_response_inputs(ResponseInputs &inputs)
+esp_err_t observe_response_inputs(ResponseInputs &inputs, LUNASHELL::ClockSnapshot *clock)
 {
     LUNASHELL::MotionPowerObservation observation;
     const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readMotionPowerObservation(observation);
@@ -114,6 +115,9 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs)
         }
     }
     inputs = result;
+    if (clock != nullptr) {
+        *clock = observation.clock;
+    }
     return ESP_OK;
 }
 } // namespace CODY

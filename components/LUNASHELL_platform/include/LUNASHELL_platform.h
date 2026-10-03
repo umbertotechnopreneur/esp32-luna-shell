@@ -148,7 +148,9 @@ esp_err_t LUNASHELL_distance_set_reference_mm(uint16_t reference_mm);
 esp_err_t LUNASHELL_distance_set_power_suspended(bool suspended);
 
 /** Read or write the board PCF85063. The RTC is maintained in UTC. */
-esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time);
+// time: Receives an acquired calendar on success; only the acquisition/time owner calls this.
+// sampled_at_us: Receives the exact original acquisition timestamp published in the snapshot.
+esp_err_t LUNASHELL_rtc_read(LUNASHELL_calendar_time_t *time, int64_t *sampled_at_us);
 esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time);
 
 /** Restore system time from RTC and prepare deferred SNTP synchronization. */
