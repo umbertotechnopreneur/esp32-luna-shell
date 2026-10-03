@@ -30,7 +30,10 @@ and the entire Biagio component are not copied.
 
 Display, touch, Wi-Fi and BLE are required in this profile. The selected IMU,
 PMU/battery and codec routes remain available for subsequent companion work.
-GNSS, RTC, SD, distance and speech AFE are disabled. This excludes the GPS
+RTC is now enabled in the Cody profile through the existing canonical UTC/time
+and snapshot owners. See [RTC capabilities and scheduling](cody-rtc.md) for
+alarm limits, actual interrupt wiring and deferred product uses.
+GNSS, SD, distance and speech AFE are disabled. This excludes the GPS
 firmware path; the board's fixed GPS power rail is not physically disconnected
 by a Kconfig flag. No physical operation was performed.
 

@@ -27,8 +27,12 @@ CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE=n
 CONFIG_XPOWERS_CHIP_AXP2101=y
 CONFIG_XPOWERS_ESP_IDF_NEW_API=y
 
+# Reuse the canonical UTC clock/snapshot owner and existing deferred SNTP sync.
+# The board's RTC alarm interrupt is not a direct ESP Deep-sleep wake source.
+CONFIG_LUNASHELL_BUILD_RTC_DRIVER_PCF85063=y
+CONFIG_LUNASHELL_BUILD_ENABLE_RTC=y
+
 # Firmware exclusion does not physically disconnect the board's GPS power rail.
 CONFIG_LUNASHELL_BUILD_ENABLE_GNSS=n
-CONFIG_LUNASHELL_BUILD_ENABLE_RTC=n
 CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE=n
 CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE=n

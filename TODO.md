@@ -20,6 +20,12 @@ authorization.
   dark Wake frame before the 300-ms fade, and recovery after a rejected sleep.
   The branch integration has static source review only.
 
+- [ ] After fresh explicit authorization, build/deploy the enabled Cody RTC
+  profile and observe trusted SNTP -> RTC persistence, offline restart,
+  oscillator-stop invalidity and backup retention. No build, checks or hardware
+  operation ran for this activation. See `docs/architecture/cody-rtc.md`;
+  external RTC INT is not a direct Deep-sleep wake route on this PCB.
+
 - [ ] After fresh specific authorization, compile and observe the current Cody
   face lifecycle: Calm/Happy/Calm on ordinary boot, continuous breath/blink,
   35A / Sleep before display suspension, and 35B / Wake -> 16 / Idle while

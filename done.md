@@ -32,6 +32,15 @@
   panel output enabled at zero brightness before exposing the 300-ms fade.
   Static source review only; build, tests and physical behavior remain unverified.
 
+## Cody RTC activation and capability review (2026-10-04)
+
+- [x] Enable the existing PCF85063 calendar/UTC/snapshot pipeline in the Cody
+  profile without adding a sensor owner or task. Review the official schematic
+  and NXP alarm/countdown specifications, and document product uses plus the
+  expander interrupt's lack of a direct ESP Deep-sleep route. No alarm UI,
+  scheduler or automatic wake is implemented; build, tests and hardware remain
+  unverified. See `docs/architecture/cody-rtc.md`.
+
 ## Cody facial lifecycle and expression service implementation (2026-10-04)
 
 - [x] Render Calm/Happy/Calm from the first animated boot frame on ordinary
