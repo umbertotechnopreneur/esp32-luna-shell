@@ -2,8 +2,12 @@
 from pathlib import Path
 
 _SOURCE_PARTS = {
-    "LUNASHELL_hardware.cpp": ("LUNASHELL_snapshot_reports.cpp",),
+    "LUNASHELL_hardware.cpp": (
+        "LUNASHELL_snapshot_reports.cpp",
+        "LUNASHELL_snapshot_internal.hpp",
+    ),
     "LUNASHELL_app.cpp": ("LUNASHELL_app_logs.cpp", "LUNASHELL_app_pairing.cpp"),
+    "LUNASHELL_provisioning.hpp": ("LUNASHELL_provisioning_state.hpp",),
     "esp32_s3_touch_amoled_1_75.c": ("bsp_display_dma.c", "bsp_display_dma.h"),
 }
 

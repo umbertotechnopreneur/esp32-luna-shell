@@ -18,6 +18,7 @@ from scripts.common.cody_response import (
 )
 from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_contract
 from scripts.common.cody_rig_types import FaceChannel
+from scripts.common.asset_provenance import text_source_hash
 
 
 # Validate failure visibility and parked time independently from the parity fixture.
@@ -109,7 +110,7 @@ def check_assets(settings):
     sample_rate_hz = settings["audio"]["sample_rate_hz"]
     generated = ROOT / "assets/cody/poc/generated"
     manifest = json.loads((generated / "manifest.json").read_text())
-    assert manifest["source_sha256"] == hashlib.sha256((ROOT / "assets/cody/poc.yaml").read_bytes()).hexdigest()
+    assert manifest["source_sha256"] == text_source_hash(ROOT / "assets/cody/poc.yaml")
     hashes = []
     for cue, duration_key in (("audio_ready", "ready_duration_seconds"), ("eyes_open", "eyes_open_duration_seconds")):
         raw = (generated / f"cody-{cue}.pcm16le").read_bytes()

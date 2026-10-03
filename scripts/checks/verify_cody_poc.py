@@ -9,11 +9,11 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 import argparse
 import copy
-import hashlib
 import json
 import math
 import statistics
 import time
+import tempfile
 import unittest
 from types import SimpleNamespace
 
@@ -25,6 +25,7 @@ from scripts.common.cody_rig_contract import (
     validate_face_definition,
 )
 from scripts.common.cody_rig_types import FaceChannel, FillAntialiasing, face_channel
+from scripts.common.asset_provenance import text_source_hash
 from cody_coverage import FULL_COVERAGE, coverage_mask
 from cody_preview_layout import PreviewLayout
 from cody_simulator import (
@@ -77,11 +78,24 @@ class RigContractTests(unittest.TestCase):
         window.root.update_idletasks()
         window.render_tick()
 
-    # No parameters beyond the test instance: generated tables must match the current authoring inputs.
+    # self: Generated tables must match the current authoring inputs, regardless of Git line endings.
+    # Raises AssertionError or source-load errors for mismatched provenance.
     def test_generated_provenance(self):
         manifest=json.loads((ROOT/'assets/cody/rig/generated/manifest.json').read_text())
-        self.assertEqual(manifest['source_sha256'],hashlib.sha256((ROOT/'assets/cody/cody.yaml').read_bytes()).hexdigest())
-        self.assertEqual(manifest['palette_sha256'],hashlib.sha256((ROOT/'assets/cody/palette/palette256.json').read_bytes()).hexdigest())
+        self.assertEqual(manifest['source_sha256'], text_source_hash(ROOT/'assets/cody/cody.yaml'))
+        self.assertEqual(manifest['palette_sha256'], text_source_hash(ROOT/'assets/cody/palette/palette256.json'))
+
+    # self: LF and CRLF are equivalent, but meaningful changes must invalidate provenance.
+    # Raises AssertionError or filesystem errors when the shared hash contract is incorrect.
+    def test_text_provenance_normalizes_only_line_endings(self):
+        with tempfile.TemporaryDirectory(dir=ROOT/'artifacts/tmp') as directory:
+            source = Path(directory)/'source.yaml'
+            source.write_bytes(b'name: Cody\nscale: 1\n')
+            original_hash = text_source_hash(source)
+            source.write_bytes(b'name: Cody\r\nscale: 1\r\n')
+            self.assertEqual(text_source_hash(source), original_hash)
+            source.write_bytes(b'name: Cody\nscale: 2\n')
+            self.assertNotEqual(text_source_hash(source), original_hash)
 
     # No parameters beyond the test instance: the local schema preserves every required stable anchor.
     def test_named_anchors_and_curve_ownership(self):

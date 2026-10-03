@@ -52,22 +52,33 @@ class ResponseChecks(unittest.TestCase):
             self.assertEqual(state.transient_mps2[axis], 0)
             self.assertEqual(state.body[axis], SpringState())
 
-    # self: Acceleration on every semantic axis must oppose body inertia and increase stress.
+    # self: Every board axis must drive its authored panel axis with opposing inertia.
+    # Raises AssertionError when mapping, sign or independent-axis response is incorrect.
     def test_each_axis_drives_inertia_and_stress(self):
         primed = advance_response(self.config, self.initial, samples(1_000_000), 0, 1_000_000)
-        for axis in Axis:
-            with self.subTest(axis=axis):
+        mapping = self.config["motion"]["board_to_panel"]
+        for panel_axis in Axis:
+            board_axis = Axis(mapping[panel_axis]["axis"])
+            sign = mapping[panel_axis]["sign"]
+            with self.subTest(board_axis=board_axis, panel_axis=panel_axis, sign=sign):
                 acceleration = {Axis.X: 0.0, Axis.Y: 0.0, Axis.Z: 9.80665}
-                acceleration[axis] += 8
+                acceleration[board_axis] += 8
                 state = advance_response(self.config, primed, samples(1_020_000, acceleration), 20, 1_020_000)
-                self.assertLess(state.body[axis].position, 0)
-                self.assertLess(state.body[axis].velocity, 0)
+                self.assertLess(state.body[panel_axis].position * sign, 0)
+                self.assertLess(state.body[panel_axis].velocity * sign, 0)
+                for other_axis in Axis:
+                    if other_axis != panel_axis:
+                        self.assertEqual(state.body[other_axis], SpringState())
                 self.assertGreater(state.stress, 0)
 
     # self: Re-rendering one published sample must not re-prime or re-filter its acceleration.
+    # Raises AssertionError when a reused sample is consumed twice or its spring stops advancing.
     def test_duplicate_sample_is_consumed_only_once(self):
         primed = advance_response(self.config, self.initial, samples(1_000_000), 0, 1_000_000)
-        impulse = samples(1_020_000, {Axis.X: 8.0, Axis.Y: 0.0, Axis.Z: 9.80665})
+        board_axis = Axis(self.config["motion"]["board_to_panel"][Axis.X]["axis"])
+        acceleration = {Axis.X: 0.0, Axis.Y: 0.0, Axis.Z: 9.80665}
+        acceleration[board_axis] += 8
+        impulse = samples(1_020_000, acceleration)
         state = advance_response(self.config, primed, impulse, 20, 1_020_000)
         repeated = advance_response(self.config, state, impulse, 20, 1_040_000)
         self.assertEqual(repeated.consumed_motion_at_us, state.consumed_motion_at_us)
@@ -183,6 +194,7 @@ class ResponseChecks(unittest.TestCase):
         self.assertEqual(rebased.fatigue, state.fatigue)
 
     # self: Ambiguous authoring and invalid current samples fail without mutating committed state.
+    # Raises AssertionError when malformed authoring or invalid samples are accepted.
     def test_invalid_inputs_and_authoring_fail_without_repair(self):
         for invalid in (-1, 101, float("nan")):
             with self.subTest(percentage=invalid):
@@ -191,7 +203,9 @@ class ResponseChecks(unittest.TestCase):
                     advance_response(self.config, self.initial, samples(1_000_000, percentage=invalid), 20, 1_000_000)
                 self.assertEqual(self.initial, before)
         bad_axis = deepcopy(self.config)
-        bad_axis["motion"]["board_to_panel"][Axis.Y]["axis"] = Axis.X.value
+        bad_axis["motion"]["board_to_panel"][Axis.Y]["axis"] = (
+            bad_axis["motion"]["board_to_panel"][Axis.X]["axis"]
+        )
         with self.assertRaises(ValueError):
             validate_response_config(bad_axis)
         unknown_field = deepcopy(self.config)

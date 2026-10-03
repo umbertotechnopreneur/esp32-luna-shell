@@ -297,6 +297,8 @@ def commit_snapshot_stage(store: SnapshotStoreModel, kind: str = "full") -> Devi
     return committed
 
 
+# No parameters: verify snapshot ownership and dynamic telemetry against the split firmware sources.
+# Raises AssertionError, OSError or ValueError when a required source invariant is absent.
 def verify_source_contract() -> None:
     source = read_component_source(SOURCE)
     main_source = MAIN_SOURCE.read_text(encoding="utf-8")
@@ -465,7 +467,6 @@ def verify_source_contract() -> None:
     )
     for dynamic_call in (
         "esp_cpu_get_core_id()",
-        "ulTaskGetIdleRunTimeCounterForCore(core)",
         "xTaskGetCurrentTaskHandle()",
     ):
         require(
@@ -477,6 +478,48 @@ def verify_source_contract() -> None:
             dynamic_call,
             "per-sample dynamic CPU telemetry",
         )
+
+    # Idle accounting must run on the measured core, not read a remote idle task
+    # that may still be accumulating its current time slice.
+    runtime_capture = function_text(
+        source,
+        "void capture_processor_runtime_on_core(",
+        "per-core CPU runtime capture",
+    )
+    require_order(
+        runtime_capture,
+        "const int running_core = esp_cpu_get_core_id();",
+        "sample.idle_runtime = ulTaskGetIdleRunTimeCounterForCore(running_core);",
+        "per-core CPU runtime capture",
+    )
+    for fragment in (
+        "if (running_core != sample.requested_core)",
+        "sample.error = ESP_ERR_INVALID_STATE;",
+        "sample.sampled_at = static_cast<configRUN_TIME_COUNTER_TYPE>(esp_timer_get_time());",
+        "sample.error = ESP_OK;",
+    ):
+        require_contains(runtime_capture, fragment, "per-core CPU runtime capture")
+    cpu_dynamic = system_sample[cpu_dynamic_at:]
+    for fragment in (
+        "sample.requested_core = core;",
+        "esp_ipc_call_blocking(",
+        "core, capture_processor_runtime_on_core, &sample",
+        "ipc_error != ESP_OK ? ipc_error : sample.error",
+        "record_first_error(capture_error, &processor_error);",
+        "sample.sampled_at - s_processor_usage.sampled_at[core]",
+        "s_processor_usage.idle_runtime[core]",
+        "if (elapsed == 0)",
+        "if (idle_elapsed > elapsed)",
+        "s_processor_usage.sampled_at[core] = runtime_samples[core].sampled_at;",
+        "s_processor_usage.idle_runtime[core] = runtime_samples[core].idle_runtime;",
+    ):
+        require(fragment not in processor_cache,
+                f"dynamic CPU runtime was incorrectly placed in the cache: {fragment}")
+        require_contains(cpu_dynamic, fragment, "per-sample per-core CPU telemetry")
+    require(
+        "ulTaskGetIdleRunTimeCounterForCore(" not in cpu_dynamic,
+        "CPU samples must use the owning-core callback rather than remote idle reads",
+    )
 
     require_contains(source, "apply_measured_sample_aging(copy, esp_timer_get_time());", "snapshot()")
     require_contains(source, "apply_measured_sample_aging(summary, esp_timer_get_time());", "refresh()")

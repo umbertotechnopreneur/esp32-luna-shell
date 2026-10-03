@@ -983,7 +983,8 @@ def verify_transaction_fault_injection() -> None:
     )
 
 
-# Tie the executable model to every firmware and scheduler lifecycle invariant.
+# No parameters: tie the executable model to every firmware and scheduler lifecycle invariant.
+# Raises AssertionError, OSError or ValueError when a required contract is missing or invalid.
 def verify_source_contracts() -> None:
     power = read(POWER_SOURCE)
     hardware = read(HARDWARE_SOURCE)
@@ -1577,9 +1578,20 @@ def verify_source_contracts() -> None:
         )
     require_regex(
         power_task,
-        r"if\s*\(\s*s_motion_monitor_started\s*&&\s*"
-        r"qualified_motion_detected\s*\(\s*snapshot\.imu\s*\)\s*\)",
+        r"const\s+bool\s+qualified_motion\s*=\s*s_motion_monitor_started\s*&&\s*"
+        r"qualified_motion_detected\s*\(\s*snapshot\.imu\s*\)\s*;",
         "qualified-motion power integration",
+    )
+    require_regex(
+        power_task,
+        r"if\s*\(\s*\(leg_mode\s*&&\s*wake_on_leg_motion\s*&&\s*leg_motion\.level\s*>\s*0\)\s*\|\|\s*"
+        r"\(!leg_mode\s*&&\s*qualified_motion\)\s*\)",
+        "Leg wake preference and non-Leg qualified-motion isolation",
+    )
+    require_contains(
+        power_task,
+        "s_leg_wake_enabled.load(std::memory_order_acquire)",
+        "persisted Leg motion wake preference",
     )
 
     require_regex(
@@ -2262,14 +2274,19 @@ def verify_source_contracts() -> None:
 
     require_regex(
         bsp_display_cmake,
-        r"set\s*\(\s*_adapter_patches.*?"
-        r"esp_lvgl_adapter_pause_recovery\.patch.*?\).*?"
-        r"foreach\s*\(\s*_adapter_patch\s+IN\s+LISTS\s+"
-        r"_adapter_patches\s*\).*?"
+        r"function\s*\(\s*bsp_apply_required_patches\s+component\s*\).*?"
+        r"foreach\s*\(\s*_component_patch\s+IN\s+LISTS\s+ARGN\s*\).*?"
         r"\$\{GIT_EXECUTABLE\}\s+apply\s+--reverse\s+--check.*?"
         r"\$\{GIT_EXECUTABLE\}\s+apply\s+--check.*?"
         r"\$\{GIT_EXECUTABLE\}\s+apply\b",
-        "idempotent application of the pinned adapter pause-recovery patch",
+        "reusable idempotent application of required pinned-component patches",
+    )
+    require_regex(
+        bsp_display_cmake,
+        r"bsp_apply_required_patches\s*\(\s*espressif__esp_lvgl_adapter\b.*?"
+        r"esp_lvgl_adapter_synchronous_custom_draw\.patch.*?"
+        r"esp_lvgl_adapter_pause_recovery\.patch.*?\)",
+        "pinned adapter synchronous-draw and pause-recovery patch registration",
     )
 
     patched_pause_signature = "esp_err_t esp_lv_adapter_pause(int32_t timeout_ms)"

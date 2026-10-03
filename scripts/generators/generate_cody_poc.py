@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_rig_contract import load_contract
 from scripts.common.cody_poc_contract import load_settings
+from scripts.common.asset_provenance import text_source_hash
 
 
 # settings: Validated explicit cue format and durations.
@@ -74,7 +75,7 @@ def main():
         lines.append(f"    {{DemoPhase::{names[step['id']]}, {round(step['duration_seconds'] * 1000)}U, {{{{{channels}}}}}, {float(step['amplitude'])}f, {float(step['speed'])}f}},")
     lines.extend(['};', '} // namespace CODY::PocData', ''])
     (generated / "poc_settings.hpp").write_text('\n'.join(lines), encoding="utf-8")
-    manifest = {"schema": settings["schema"], "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "cues": {}}
+    manifest = {"schema": settings["schema"], "source_sha256": text_source_hash(source), "cues": {}}
     for cue in ("audio_ready", "eyes_open"):
         pcm = synthesize(settings, cue)
         raw = generated / f"cody-{cue}.pcm16le"

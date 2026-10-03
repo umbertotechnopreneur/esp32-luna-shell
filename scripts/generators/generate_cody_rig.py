@@ -2,13 +2,13 @@
 
 from pathlib import Path
 import argparse
-import hashlib
 import json
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts.common.cody_rig_contract import ROOT, enum_identifier, load_contract
+from scripts.common.asset_provenance import text_source_hash
 from scripts.common.cody_rig_types import FaceChannel, channel_name
 from scripts.common.cody_response_contract import Axis, RESPONSE_RANGES
 
@@ -252,8 +252,8 @@ def main(argv=None):
         "face_transforms": len(rig["face_transforms"]),
         "response_schema": rig["response"]["schema"],
         "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
-        "source_sha256": hashlib.sha256((ROOT / rig["source_path"]).read_bytes()).hexdigest(),
-        "palette_sha256": hashlib.sha256((ROOT / rig["palette_file"]).read_bytes()).hexdigest(),
+        "source_sha256": text_source_hash(ROOT / rig["source_path"]),
+        "palette_sha256": text_source_hash(ROOT / rig["palette_file"]),
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "cloud_rig_data.hpp").write_text(content, encoding="utf-8")

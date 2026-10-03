@@ -1,20 +1,19 @@
 """Strict shared authoring contract for reusable cloud/title/content scenes."""
 
-import hashlib
 import math
 from pathlib import Path
 
 from scripts.common.cody_rig_contract import load_contract, read_json, validate_channels
 from scripts.common.cody_rig_types import FaceChannel
+from scripts.common.asset_provenance import text_source_hash
 
 SCENE_IDENTITIES = {"greeting": (1, "Greeting")}
 
 
 # root: Checkout containing the current scene source.
-# Raises OSError for unreadable authoring; Git's LF/CRLF conversion is not source drift.
+# Raises OSError or UnicodeError for unreadable authoring; LF/CRLF is not source drift.
 def scene_source_hash(root: Path):
-    source = (root / "assets/cody/scenes/scenes.json").read_text(encoding="utf-8")
-    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+    return text_source_hash(root / "assets/cody/scenes/scenes.json")
 
 
 # value: Authored JSON object for one named part of the scene.

@@ -1521,7 +1521,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             const bool interactive_scene = !s_state.scene.valid ||
                 s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete;
             if (interactive_scene && !s_state.animation_paused && s_state.rig_frame_count != 0 &&
-                action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay &&
+                action != TouchAction::ReturnToIdle && action != TouchAction::ToggleOverlay &&
                 action != TouchAction::TogglePause) {
                 CODY::EyeId eye = CODY::EyeId::None;
                 const esp_err_t hit_error = CODY::hit_test_eye(*s_resources.rig,

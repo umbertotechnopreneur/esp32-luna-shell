@@ -31,6 +31,7 @@ EXPECTED_LAZY_SCREEN_DOCUMENTS = {
     "screen_audio_fft.json": "LUNASHELL_audio_fft",
     "screen_audio_detail.json": "LUNASHELL_audio_detail",
     "screen_imu.json": "LUNASHELL_imu",
+    "screen_leg.json": "LUNASHELL_leg",
     "screen_gps.json": "LUNASHELL_gps",
     "screen_tof.json": "LUNASHELL_tof",
     "screen_tof_settings.json": "LUNASHELL_tof_settings",
@@ -50,6 +51,7 @@ EXPECTED_ROUTE_SCREENS = {
     "LUNASHELL_audio_detail",
     "LUNASHELL_audio_fft",
     "LUNASHELL_imu",
+    "LUNASHELL_leg",
     "LUNASHELL_gps",
     "LUNASHELL_tof",
     "LUNASHELL_tof_settings",
@@ -168,7 +170,7 @@ def verify_asset_references(
                 )
 
 
-# Read the app modules together so moving a handler does not hide its contract.
+# No parameters: read the app modules together so moving a handler does not hide its contract.
 # Raises OSError or AssertionError for missing sources or rejected pairing contracts.
 def main() -> None:
     provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
@@ -230,7 +232,11 @@ def main() -> None:
     require(provisioning_header, "class ProvisioningService final", "provisioning header")
     require(provisioning, "network_prov_scheme_ble", "provisioning implementation")
     require(provisioning, "NETWORK_PROV_SECURITY_1", "provisioning implementation")
-    require(provisioning, '\\"pop\\":\\"\\"', "provisioning QR payload")
+    require(provisioning, '\\"pop\\":\\"%s\\"', "provisioning QR payload")
+    forbid(provisioning, '\\"pop\\":\\"\\"', "nonempty provisioning proof")
+    require(provisioning, "esp_fill_random(random_bytes, sizeof(random_bytes));", "per-attempt provisioning proof")
+    require(provisioning_header, "char _pop[17]{};", "bounded provisioning proof storage")
+    require(provisioning, "_service_name, _pop", "proof-bearing provisioning QR")
     require(provisioning, '\\"transport\\":\\"ble\\"', "provisioning QR payload")
     require(provisioning, '\\"security\\":1', "provisioning QR payload")
     require(
@@ -428,15 +434,18 @@ def main() -> None:
     result_start = app.index("App::show_pairing_result")
     result_end = app.index("App::pairing_next", result_start)
     result_source = app[result_start:result_end]
-    active_check = result_source.find("LUNASHELL_provisioning_active()")
-    stop_call = result_source.find("LUNASHELL_provisioning_stop()")
+    initialized_check = result_source.find("LUNASHELL_provisioning_initialized()")
+    cleanup_call = result_source.find("LUNASHELL_radios_end_pairing(success)")
+    cleanup_error_check = result_source.find("if (stop_result != ESP_OK)", cleanup_call)
+    cleanup_error_return = result_source.find("return std::unexpected(", cleanup_error_check)
     result_transition = result_source.find("Screen::PairResult")
     if not (
-        0 <= active_check < stop_call < result_transition
+        0 <= initialized_check < cleanup_call < cleanup_error_check
+        < cleanup_error_return < result_transition
     ):
         raise AssertionError(
-            "pairing result must stop an active provisioning session before "
-            "entering PairResult"
+            "pairing result must close an initialized provisioning manager through "
+            "the radio owner and propagate cleanup failure before entering PairResult"
         )
     require(
         edge_navigation,
