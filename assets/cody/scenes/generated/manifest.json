@@ -4,7 +4,7 @@
   "source_family": "JetBrains Mono",
   "license": "SIL-OFL-1.1",
   "font_source_sha256": "f01031f40e48dc29e1112e6b0b0450a2c6cd097f3f35cfff05c55cb311f8034c",
-  "scenes_sha256": "affdfdf26731c60342ca3bab028f022845bcf6df7799c448654b418edd7f7df6",
+  "scenes_sha256": "5f6ddc9d293f28137c18e62e459bd22da0133b02932dfdba3d60328a14bdbb37",
   "first_character": 32,
   "character_count": 95,
   "width": 19,
@@ -13,5 +13,14 @@
   "row_bytes": 5,
   "coverage_bytes": 19000,
   "coverage_sha256": "1e6ed9137698d2b92e4477415bc5c2d7fe70bd893756b96fbdf640e542faba64",
-  "note": "Source asset generation only; no firmware or simulator validation."
+  "note": "Source asset generation only; no firmware or simulator validation.",
+  "body_font": {
+    "pixel_size": 18,
+    "width": 12,
+    "height": 25,
+    "advance": 11,
+    "row_bytes": 3,
+    "coverage_bytes": 7125,
+    "coverage_sha256": "f841296abf2f03c80a9fdfe6473328a8a64a3ec2219814765bda546a85aca255"
+  }
 }

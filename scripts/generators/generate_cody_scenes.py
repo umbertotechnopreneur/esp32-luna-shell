@@ -79,6 +79,7 @@ def main(argv=None):
         "namespace CODY::SceneData {",
         f"inline constexpr uint32_t boot_delay_ms = {document['boot_delay_ms']}U;",
         "extern const CODY2D::MonoFont title_font;",
+        "extern const CODY2D::MonoFont body_font;",
         "inline constexpr SceneDefinition definitions[] = {",
     ]
     for scene in document["scenes"]:
@@ -102,7 +103,7 @@ def main(argv=None):
             f"        {{{intro['bitmap_fade_out_ms']}, {intro['cloud_fade_in_ms']}}},",
             f"        {{{{{channels}}}}}, &title_font,",
             f'        {{{json.dumps(title["text"])}, {len(title["text"])}}},',
-            f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}",
+            f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()}",
             "    },",
         ])
     header.extend(["};", "} // namespace CODY::SceneData"])
@@ -130,6 +131,27 @@ def main(argv=None):
     OUTPUT.mkdir(parents=True, exist_ok=True)
     (OUTPUT / "scene_data.hpp").write_text("\n".join(header) + "\n", encoding="utf-8")
     (OUTPUT / "scene_font.cpp").write_text("\n".join(source) + "\n", encoding="utf-8")
+    # A second, small ASCII face lives in flash for reusable captions/actions.
+    # It reuses the same licensed source, never a runtime glyph cache.
+    body_document = {"font": {"pixel_size": 18, "first_character": 32, "last_character": 126}}
+    body_coverage, body_width, body_height, body_advance, body_row_bytes = bake_font(args.font_path, body_document)
+    body_source = [
+        "// JetBrains Mono caption coverage; SIL OFL 1.1. See ../OFL.txt.",
+        '#include "scene_data.hpp"', "namespace CODY::SceneData {", "namespace {",
+        f"alignas(4) const uint8_t coverage[{len(body_coverage)}] = {{",
+    ]
+    for offset in range(0, len(body_coverage), 24):
+        body_source.append("    " + ", ".join(f"0x{value:02x}" for value in body_coverage[offset:offset + 24]) + ",")
+    body_source.extend(["};", "} // namespace",
+        f"const CODY2D::MonoFont body_font{{coverage, sizeof(coverage), 32, {count}, {body_width}, {body_height}, {body_advance}, {body_row_bytes}}};",
+        "} // namespace CODY::SceneData"])
+    (OUTPUT / "scene_body_font.cpp").write_text("\n".join(body_source) + "\n", encoding="utf-8")
+    manifest["body_font"] = {
+        "pixel_size": 18, "width": body_width, "height": body_height,
+        "advance": body_advance, "row_bytes": body_row_bytes,
+        "coverage_bytes": len(body_coverage),
+        "coverage_sha256": hashlib.sha256(body_coverage).hexdigest(),
+    }
     (OUTPUT / "scene_font.2bpp.bin").write_bytes(coverage)
     (OUTPUT / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Scene asset packaged: {len(document['scenes'])} scene(s), {width}x{height} glyphs, {len(coverage)} flash bytes")

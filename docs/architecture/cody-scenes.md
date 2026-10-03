@@ -35,10 +35,14 @@ The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
   optionally deformed face geometry. Admit the existing measured FPS/CPU readout
   below the title; its visibility remains a session preference.
 
+After its last character is fully displayed, first-setup Hello holds for one
+second of active animation time, then enters 05 / Let's pair. The network journey
+uses addendum A01 and is documented in [Cody onboarding](cody-onboarding.md).
+
 The title's prepared bounds are `[115, 350) x [348, 388)`, inside the central
 safe square. All rendering and input retain the existing logical canvas and
-cardinal rotation owner. Pairing, QR routes and onboarding progression are
-not implemented by this change.
+cardinal rotation owner. The same generic scene/content slot now supports the
+05/06/06-bis/07/08/09 network routes, without admitting LVGL.
 
 The generic scene frame owns a typed intro phase and a bounded phase clock.
 The boot fade adjusts at most 64 palette entries on the worker stack; the cloud

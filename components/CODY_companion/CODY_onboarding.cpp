@@ -1,0 +1,775 @@
+#include "CODY_onboarding.hpp"
+
+#include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
+#include "CODY2D_controls.hpp"
+#include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_platform.h"
+#include "scene_data.hpp"
+#include "esp_log.h"
+#include "qrcode.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+namespace CODY {
+namespace {
+constexpr char kTag[] = "CODY_onboarding";
+constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=com.espressif.provble";
+constexpr uint16_t kQrModulesMax = 57; // Version 10; bounded independently of the framebuffer.
+constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
+constexpr uint16_t kQrSide = 210;
+constexpr uint16_t kQrLeft = 128;
+constexpr uint16_t kQrTop = 151;
+constexpr uint16_t kBlueTop = 0x765E; // Authored #75CBF3 anchor.
+constexpr uint16_t kBlueBottom = 0x34FC; // Authored #359FE7 anchor.
+constexpr CODY2D::Rect kActionBounds{117, 380, 232, 48};
+constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
+constexpr int64_t kHelloReadableHoldUs = 1000000;
+using PairState = LUNASHELL::PairingSessionState;
+
+enum class Route : uint8_t { None, Hello04, Invitation05, Install06, Scan06Bis, Pairing07, Failed08, Online09 };
+enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel };
+
+struct QrModules {
+    uint8_t bits[kQrBytes]{};
+    uint16_t side = 0;
+};
+struct Command {
+    Work work = Work::InstallQr;
+    uint32_t generation = 0;
+    uint32_t attempt = 0;
+    uint32_t session = 0;
+};
+struct Result {
+    Command command{};
+    esp_err_t error = ESP_OK;
+    QrModules qr{};
+};
+struct ContentView {
+    CODY2D::TextLine lines[3]{};
+    uint8_t line_count = 0;
+    CODY2D::CapsuleControl action{};
+    bool action_visible = false;
+    QrModules qr{};
+    char error_text[32]{};
+};
+ContentView s_view;
+Route s_route = Route::None;
+uint32_t s_generation = 1;
+uint32_t s_revision = 0;
+uint32_t s_attempt = 0;
+uint32_t s_session = 0;
+bool s_command_pending = false;
+bool s_cancel_to_install = false;
+bool s_pairing_owned = false;
+bool s_online_link = false;
+int64_t s_hello_completed_at_us = -1;
+int64_t s_last_pairing_change_us = -1;
+esp_err_t s_visible_error = ESP_OK;
+Work s_failed_work = Work::Start;
+bool s_local_failure = false;
+
+// A single-slot mailbox keeps blocking radio admission and QR encoding off the
+// display worker. Release/acquire transfers ownership; no per-frame queue allocation.
+TaskHandle_t s_worker = nullptr;
+StaticTask_t s_worker_control{};
+StackType_t s_worker_stack[4096]{};
+std::atomic<bool> s_work_busy{false};
+std::atomic<bool> s_result_ready{false};
+Command s_command{};
+Result s_result{};
+QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
+
+// bytes: Owned storage that may contain a proof-of-possession-derived QR.
+// size: Exact writable byte count; volatile stores are not optimized away.
+void wipe(void *bytes, size_t size)
+{
+    volatile uint8_t *cursor = static_cast<volatile uint8_t *>(bytes);
+    while (size-- != 0) {
+        *cursor++ = 0;
+    }
+}
+
+// handle: Library-owned QR, borrowed only for this synchronous callback.
+void copy_qr_modules(esp_qrcode_handle_t handle)
+{
+    if (handle == nullptr || s_encoding_target == nullptr) {
+        return;
+    }
+    const int side = esp_qrcode_get_size(handle);
+    if (side < 21 || side > kQrModulesMax) {
+        return;
+    }
+    s_encoding_target->side = static_cast<uint16_t>(side);
+    for (uint16_t row = 0; row < side; ++row) {
+        for (uint16_t column = 0; column < side; ++column) {
+            if (esp_qrcode_get_module(handle, column, row)) {
+                const uint32_t bit = row * side + column;
+                s_encoding_target->bits[bit / 8U] |= 1U << (bit % 8U);
+            }
+        }
+    }
+}
+
+// payload: Counted by the underlying library; never logged or published in snapshots.
+// qr: Receives compact modules, never a full RGB framebuffer.
+esp_err_t encode_qr(const char *payload, QrModules &qr)
+{
+    wipe(&qr, sizeof(qr));
+    esp_qrcode_config_t config = ESP_QRCODE_CONFIG_DEFAULT();
+    config.max_qrcode_version = 10;
+    config.qrcode_ecc_level = ESP_QRCODE_ECC_MED;
+    config.display_func = copy_qr_modules; // Never use the console QR callback.
+    s_encoding_target = &qr;
+    const esp_err_t error = esp_qrcode_generate(&config, payload);
+    s_encoding_target = nullptr;
+    if (error != ESP_OK) {
+        return error;
+    }
+    return qr.side != 0 ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
+// command: Typed action and attempt/session identities acquired by the route owner.
+// result: Original operation result and optional bounded QR modules.
+void execute_command(const Command &command, Result &result)
+{
+    result.command = command;
+    if (command.work == Work::InstallQr) {
+        result.error = encode_qr(kInstallUrl, result.qr);
+        return;
+    }
+    if (command.work == Work::SessionQr) {
+        LUNASHELL::ConnectivityObservation observation;
+        result.error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+        if (result.error != ESP_OK) {
+            return;
+        }
+        const auto &pairing = observation.radios.pairing;
+        if (!pairing.data_valid || pairing.data_stale || pairing.state != PairState::ReadyToScan ||
+            pairing.attempt_id != command.attempt || pairing.provisioning_session_id != command.session) {
+            result.error = ESP_ERR_INVALID_STATE;
+            return;
+        }
+        char payload[192]{};
+        result.error = LUNASHELL_provisioning_copy_qr(payload, sizeof(payload), command.session);
+        if (result.error == ESP_OK) {
+            result.error = encode_qr(payload, result.qr);
+        }
+        wipe(payload, sizeof(payload));
+        return;
+    }
+    LUNASHELL_pairing_action_t action;
+    switch (command.work) {
+    case Work::Start:
+        action = LUNASHELL_PAIRING_ACTION_START;
+        break;
+    case Work::Retry:
+        action = LUNASHELL_PAIRING_ACTION_RETRY;
+        break;
+    case Work::Cancel:
+        action = LUNASHELL_PAIRING_ACTION_CANCEL;
+        break;
+    default:
+        result.error = ESP_ERR_INVALID_ARG;
+        return;
+    }
+    result.error = LUNASHELL_pairing_request(action, command.attempt);
+}
+
+// context: Unused; one worker exclusively owns library callbacks and mailbox results.
+void action_worker(void *context)
+{
+    (void)context;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        // The acquire pairs with enqueue's release, before reading its mailbox.
+        if (!s_work_busy.load(std::memory_order_acquire)) {
+            continue;
+        }
+        Result completed{};
+        execute_command(s_command, completed);
+        if (completed.error != ESP_OK) {
+            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
+                to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
+                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
+        }
+        s_result = completed;
+        wipe(&completed, sizeof(completed));
+        s_result_ready.store(true, std::memory_order_release);
+    }
+}
+
+// work: Explicit radio or QR preparation action.
+// attempt: Current canonical attempt identity; never an inferred UI list position.
+// session: Current canonical provisioning-session identity, or zero for non-QR actions.
+esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
+{
+    if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Action mailbox unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_command = {work, s_generation, attempt, session};
+    s_command_pending = true;
+    s_work_busy.store(true, std::memory_order_release);
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
+// text: Bounded immutable English text, retained through frame retirement.
+// top: Logical caption baseline container, entirely inside the shared content chord.
+// line: Receives the prepared flash-font layout.
+esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line)
+{
+    const auto &font = SceneData::body_font;
+    const size_t length = std::strlen(text);
+    const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
+    if (length == 0 || length > 31 || width > kActionBounds.width || top + font.height > 428) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return CODY2D::prepare_text_line(font, {text, static_cast<uint16_t>(length)},
+        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
+}
+
+// text: Immutable action label, or nullptr to hide the action entirely.
+// enabled: True only when the route has an admissible backend or navigation action.
+esp_err_t prepare_action(const char *text, bool enabled)
+{
+    s_view.action_visible = text != nullptr;
+    s_view.action = {kActionBounds, {}, kBlueTop, kBlueBottom, enabled};
+    if (text == nullptr) {
+        return ESP_OK;
+    }
+    const uint16_t top = kActionBounds.y + (kActionBounds.height - SceneData::body_font.height) / 2U;
+    const esp_err_t error = prepare_caption(text, top, s_view.action.caption);
+    s_view.action.caption.color = 0x0001;
+    return error;
+}
+
+// qr: Compact immutable module map from the encoder.
+// strip: Already clipped caller-owned content tile.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
+                       uint16_t first_row, uint16_t first_column)
+{
+    if (qr.side == 0) {
+        return ESP_OK;
+    }
+    const uint16_t scale = kQrSide / (qr.side + 8U);
+    if (qr.side > kQrModulesMax || scale == 0) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const uint16_t inset = (kQrSide - (qr.side + 8U) * scale) / 2U;
+    const uint16_t top = std::max(first_row, kQrTop);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, kQrTop + kQrSide);
+    const uint16_t left = std::max(first_column, kQrLeft);
+    const uint16_t right = std::min<uint16_t>(first_column + strip.width, kQrLeft + kQrSide);
+    for (uint16_t row = top; row < bottom; ++row) {
+        for (uint16_t column = left; column < right; ++column) {
+            const int module_x = (static_cast<int>(column) - kQrLeft - inset) / scale - 4;
+            const int module_y = (static_cast<int>(row) - kQrTop - inset) / scale - 4;
+            const bool inside = column >= kQrLeft + inset && row >= kQrTop + inset &&
+                module_x >= 0 && module_y >= 0 && module_x < qr.side && module_y < qr.side;
+            const uint32_t bit = inside ? module_y * qr.side + module_x : 0;
+            const bool dark = inside && (qr.bits[bit / 8U] & (1U << (bit % 8U))) != 0;
+            strip.pixels[(row - first_row) * strip.stride + column - first_column] =
+                CODY2D::rgb565_native_to_stored(dark ? 0 : 0xFFFF, strip.byte_order);
+        }
+    }
+    return ESP_OK;
+}
+
+// state: Immutable content owned by this route through frame retirement.
+// strip: Valid content-clipped tile with its original stride and byte order.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+esp_err_t draw_content(const void *state, CODY2D::Surface strip,
+                       uint16_t first_row, uint16_t first_column)
+{
+    const auto &view = *static_cast<const ContentView *>(state);
+    esp_err_t error = draw_qr_rows(view.qr, strip, first_row, first_column);
+    for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
+        error = CODY2D::draw_text_rows(view.lines[index], view.lines[index].text.length,
+            strip, first_row, first_column);
+    }
+    if (error == ESP_OK && view.action_visible) {
+        error = CODY2D::draw_capsule_rows(view.action, strip, first_row, first_column);
+    }
+    return error;
+}
+
+// scene: Valid route receiving the current content revision.
+esp_err_t attach_content(SceneFrame &scene)
+{
+    const uint16_t top = s_route == Route::Install06 || s_route == Route::Scan06Bis ? 150 :
+        s_route == Route::Invitation05 ? 230 : 346;
+    SceneContent content;
+    content.bounds = {117, top, 349, 428};
+    content.state = &s_view;
+    content.revision = ++s_revision;
+    content.draw_rows = draw_content;
+    return set_scene_content(scene, content);
+}
+
+// route: Explicit atlas identity; no navigation is inferred from array position.
+// scene: Receives a fully validated immutable layout and caller-owned content.
+esp_err_t enter_route(Route route, SceneFrame &scene)
+{
+    SceneId identity;
+    switch (route) {
+    case Route::Invitation05:
+        identity = SceneId::PairInvitation;
+        break;
+    case Route::Install06:
+        identity = SceneId::InstallApp;
+        break;
+    case Route::Scan06Bis:
+        identity = SceneId::ScanToPair;
+        break;
+    case Route::Pairing07:
+        identity = SceneId::Pairing;
+        break;
+    case Route::Failed08:
+        identity = SceneId::PairingFailed;
+        break;
+    case Route::Online09:
+        identity = SceneId::Online;
+        break;
+    default:
+        ESP_LOGE(kTag, "Unknown content route %u (%s)", to_index(route), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const SceneDefinition *definition = nullptr;
+    esp_err_t error = find_scene(identity, definition);
+    SceneFrame prepared;
+    if (error == ESP_OK) {
+        error = begin_scene(*definition, prepared);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    // QR state is retired on every departure, including cancellation and failure.
+    wipe(&s_view, sizeof(s_view));
+    s_route = route;
+    if (route == Route::Invitation05) {
+        constexpr const char *captions[] = {"We'll show a QR code.", "Scan it to install", "the pairing app."};
+        for (const char *text : captions) {
+            error = prepare_caption(text, 242 + s_view.line_count * 26U, s_view.lines[s_view.line_count]);
+            if (error != ESP_OK) {
+                return error;
+            }
+            ++s_view.line_count;
+        }
+        error = prepare_action("Show QR", true);
+    } else if (route == Route::Install06) {
+        error = prepare_action("Pair Cody", !s_command_pending);
+    } else if (route == Route::Scan06Bis) {
+        error = prepare_caption("Scan inside the", 372, s_view.lines[0]);
+        if (error == ESP_OK) {
+            error = prepare_caption("provisioning app.", 398, s_view.lines[1]);
+        }
+        s_view.line_count = 2;
+    } else if (route == Route::Pairing07) {
+        error = prepare_action("Cancel", s_pairing_owned && !s_command_pending);
+    } else if (route == Route::Failed08) {
+        std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
+            static_cast<unsigned long>(s_visible_error));
+        error = prepare_caption(s_view.error_text, 348, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK) {
+            error = prepare_action(nullptr, false); // A current observation enables Retry/Cancel separately.
+        }
+    } else if (route == Route::Online09) {
+        error = prepare_caption("Wi-Fi connected", 350, s_view.lines[0]);
+        s_view.line_count = 1;
+    }
+    if (error == ESP_OK) {
+        error = attach_content(prepared);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    scene = prepared;
+    ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
+    return ESP_OK;
+}
+
+// scene: Current route that displays a real local action/preparation error.
+// error: Original operation error, not substituted by a successful presentation.
+esp_err_t show_error(SceneFrame &scene, esp_err_t error)
+{
+    s_visible_error = error;
+    return enter_route(Route::Failed08, scene);
+}
+
+} // namespace
+
+// No parameters: all action storage is static; no framebuffer or per-frame allocation.
+esp_err_t onboarding_service_init()
+{
+    if (s_worker != nullptr) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_worker = xTaskCreateStatic(action_worker, "CODY_actions", sizeof(s_worker_stack), nullptr,
+        3, s_worker_stack, &s_worker_control);
+    if (s_worker == nullptr) {
+        ESP_LOGE(kTag, "Action worker creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    return ESP_OK;
+}
+
+// No parameters: reset route ownership without stopping or inventing a radio session.
+void reset_onboarding()
+{
+    ++s_generation;
+    s_route = Route::None;
+    s_command_pending = false;
+    s_pairing_owned = false;
+    s_cancel_to_install = false;
+    s_attempt = 0;
+    s_session = 0;
+    s_last_pairing_change_us = -1;
+    s_hello_completed_at_us = -1;
+    s_local_failure = false;
+    s_online_link = false;
+    wipe(&s_view, sizeof(s_view));
+}
+
+// No parameters: this is first setup, not a clock routine greeting.
+void begin_onboarding()
+{
+    reset_onboarding();
+    s_route = Route::Hello04;
+}
+
+// scene: Current first-setup scene, always owned by the existing display worker.
+// completed_scene: Last fully retired text; never advance from a failed/partial frame.
+// active_time_us: Existing animation time, excluding standby and pause.
+// changed: Receives whether scene geometry or content needs a new frame.
+esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene,
+                            int64_t active_time_us, bool &changed)
+{
+    changed = false;
+    Result result;
+    const bool have_result = s_result_ready.load(std::memory_order_acquire);
+    if (have_result) {
+        result = s_result;
+        wipe(&s_result, sizeof(s_result));
+        s_result_ready.store(false, std::memory_order_release);
+        s_work_busy.store(false, std::memory_order_release);
+    }
+    if (s_route == Route::None) {
+        wipe(&result, sizeof(result));
+        return ESP_OK;
+    }
+    if (s_route == Route::Hello04) {
+        wipe(&result, sizeof(result));
+        const bool hello_retired = scene.valid && scene.definition != nullptr &&
+            scene.visible_characters == scene.title.text.length &&
+            completed_scene.valid && completed_scene.definition == scene.definition &&
+            completed_scene.definition->id == SceneId::Greeting &&
+            completed_scene.visible_characters == completed_scene.title.text.length;
+        if (!hello_retired) {
+            return ESP_OK;
+        }
+        if (s_hello_completed_at_us < 0) {
+            s_hello_completed_at_us = active_time_us;
+        }
+        if (active_time_us - s_hello_completed_at_us < kHelloReadableHoldUs) {
+            return ESP_OK;
+        }
+        changed = true;
+        return enter_route(Route::Invitation05, scene);
+    }
+    LUNASHELL::ConnectivityObservation observation;
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    if (error != ESP_OK) {
+        wipe(&result, sizeof(result));
+        return error;
+    }
+    const auto &pairing = observation.radios.pairing;
+    if (have_result && result.command.generation == s_generation) {
+        s_command_pending = false;
+        changed = true;
+        if (result.error != ESP_OK) {
+            // A QR copy can race credentials/cancellation: follow the newer real
+            // state instead of treating an expired session as a renderer crash.
+            const bool expired_qr = result.command.work == Work::SessionQr &&
+                result.error == ESP_ERR_INVALID_STATE && pairing.data_valid &&
+                (pairing.state != PairState::ReadyToScan || pairing.attempt_id != result.command.attempt ||
+                 pairing.provisioning_session_id != result.command.session);
+            if (!expired_qr) {
+                s_failed_work = result.command.work;
+                s_local_failure = true;
+                error = show_error(scene, result.error);
+                if (error == ESP_OK) {
+                    error = prepare_action("Retry", true);
+                    if (error == ESP_OK) {
+                        error = attach_content(scene);
+                    }
+                }
+            }
+        } else if (result.command.work == Work::InstallQr && s_route == Route::Install06) {
+            s_local_failure = false;
+            s_view.qr = result.qr;
+            error = prepare_action("Pair Cody", true);
+            if (error == ESP_OK) {
+                error = attach_content(scene);
+            }
+        } else if (result.command.work == Work::SessionQr && s_pairing_owned && pairing.data_valid &&
+                   pairing.attempt_id == s_attempt && pairing.state == PairState::ReadyToScan &&
+                   pairing.provisioning_session_id == result.command.session) {
+            error = enter_route(Route::Scan06Bis, scene);
+            if (error == ESP_OK) {
+                s_local_failure = false;
+                s_view.qr = result.qr;
+                s_session = result.command.session;
+                error = attach_content(scene);
+            }
+        } else if (result.command.work == Work::Start || result.command.work == Work::Retry) {
+            s_local_failure = false;
+            s_attempt = result.command.attempt + 1U; // Backend admission increments exactly once.
+            s_pairing_owned = true;
+            s_last_pairing_change_us = -1;
+        }
+        wipe(&result, sizeof(result));
+        if (error != ESP_OK) {
+            return error;
+        }
+    } else {
+        wipe(&result, sizeof(result));
+    }
+    if (!s_pairing_owned) {
+        return ESP_OK;
+    }
+    if (!pairing.data_valid || pairing.data_stale || pairing.attempt_id != s_attempt) {
+        if (s_route != Route::Failed08) {
+            changed = true;
+            return show_error(scene, pairing.last_error != ESP_OK ? pairing.last_error : ESP_ERR_INVALID_STATE);
+        }
+        return ESP_OK;
+    }
+    if (pairing.changed_at_us != s_last_pairing_change_us) {
+        changed = true;
+        s_last_pairing_change_us = pairing.changed_at_us;
+        if (pairing.state == PairState::Cancelled) {
+            s_pairing_owned = false;
+            s_cancel_to_install = false;
+            error = enter_route(Route::Install06, scene);
+            if (error == ESP_OK) {
+                error = enqueue(Work::InstallQr, 0);
+            }
+        } else if ((pairing.state == PairState::Failed || pairing.state == PairState::TimedOut) &&
+                   !s_command_pending) {
+            s_local_failure = false;
+            error = show_error(scene, pairing.cleanup_error != ESP_OK ? pairing.cleanup_error : pairing.last_error);
+            if (error == ESP_OK) {
+                const bool can_retry = pairing.cleanup_error == ESP_OK;
+                const bool can_cancel = pairing.state == PairState::Failed && !can_retry;
+                error = prepare_action(can_retry ? "Retry" : can_cancel ? "Cancel" : nullptr,
+                    (can_retry || can_cancel) && !s_command_pending);
+                if (error == ESP_OK) {
+                    error = attach_content(scene);
+                }
+            }
+        } else if (pairing.state == PairState::Connecting || pairing.state == PairState::Completing ||
+                   pairing.state == PairState::Cancelling || pairing.state == PairState::Starting) {
+            if (s_route != Route::Pairing07) {
+                error = enter_route(Route::Pairing07, scene);
+            }
+            if (error == ESP_OK) {
+                error = prepare_action("Cancel", !s_command_pending &&
+                    pairing.state != PairState::Cancelling && pairing.state != PairState::Completing);
+                if (error == ESP_OK) {
+                    error = attach_content(scene);
+                }
+            }
+        } else if (pairing.state == PairState::Idle) {
+            // A confirmed closed session may follow owner-controlled standby.
+            // Never keep rendering the previous attempt's device QR.
+            s_pairing_owned = false;
+            s_cancel_to_install = false;
+            error = enter_route(Route::Install06, scene);
+            if (error == ESP_OK) {
+                error = enqueue(Work::InstallQr, 0);
+            }
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    if (s_route != Route::Failed08 && pairing.state == PairState::ReadyToScan &&
+        pairing.provisioning_session_id != s_session &&
+        !s_command_pending && !s_cancel_to_install) {
+        if (s_route == Route::Scan06Bis) {
+            // Never leave an old session QR visible while a replacement encodes.
+            changed = true;
+            error = enter_route(Route::Pairing07, scene);
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        error = enqueue(Work::SessionQr, s_attempt, pairing.provisioning_session_id);
+        if (error != ESP_OK) {
+            changed = true;
+            return show_error(scene, error);
+        }
+    }
+    if (pairing.state == PairState::Online) {
+        const auto &wifi = observation.radios.wifi;
+        const bool online = wifi.data_valid && !wifi.data_stale && wifi.health == LUNASHELL::DeviceHealth::Ready &&
+            wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired;
+        if (!online && s_route != Route::Online09) {
+            // Manager completion alone is not an online route. Keep the pending
+            // presentation until the same canonical observation has a live IP.
+            if (s_route != Route::Pairing07 || s_view.line_count == 0 || s_view.action_visible) {
+                changed = true;
+                error = enter_route(Route::Pairing07, scene);
+                if (error == ESP_OK) {
+                    error = prepare_action(nullptr, false);
+                }
+                if (error == ESP_OK) {
+                    error = prepare_caption("Waiting for Wi-Fi", 350, s_view.lines[0]);
+                    s_view.line_count = 1;
+                }
+                if (error == ESP_OK) {
+                    error = attach_content(scene);
+                }
+            }
+        } else if (s_route != Route::Online09 || online != s_online_link) {
+            changed = true;
+            error = enter_route(Route::Online09, scene);
+            s_online_link = online;
+            if (error == ESP_OK && !online) {
+                constexpr char title[] = "No connection";
+                error = set_scene_title(scene, {title, sizeof(title) - 1U});
+                if (error == ESP_OK) {
+                    error = prepare_caption(wifi.data_valid && !wifi.data_stale ? "Wi-Fi disconnected" : "UNAVAILABLE",
+                        350, s_view.lines[0]);
+                }
+            }
+            if (error == ESP_OK) {
+                error = attach_content(scene);
+            }
+        }
+    }
+    return error;
+}
+
+// scene: Current route, never advanced on unconfirmed cancellation/cleanup.
+// point: Real logical press edge; the generic capsule owns its full target.
+// consumed: True if an OOBE control handled or deliberately gated the press.
+esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point, bool &consumed)
+{
+    consumed = false;
+    CODY2D::CapsuleControl back{kBackBounds, {}, kBlueTop, kBlueBottom, true};
+    const bool back_visible = s_route == Route::Install06 || s_route == Route::Scan06Bis;
+    const bool back_hit = back_visible && CODY2D::capsule_contains(back, point);
+    CODY2D::CapsuleControl action_target = s_view.action;
+    action_target.enabled = true; // A gated control still owns the gesture, not the cloud.
+    const bool action_hit = s_view.action_visible && CODY2D::capsule_contains(action_target, point);
+    if (!back_hit && !action_hit) {
+        return ESP_OK;
+    }
+    consumed = true;
+    if (s_command_pending || (action_hit && !s_view.action.enabled)) {
+        return ESP_OK;
+    }
+    if (back_hit && s_route == Route::Install06) {
+        return enter_route(Route::Invitation05, scene);
+    }
+    if (action_hit && s_route == Route::Invitation05) {
+        esp_err_t error = enter_route(Route::Install06, scene);
+        if (error == ESP_OK) {
+            error = enqueue(Work::InstallQr, 0);
+        }
+        if (error != ESP_OK) {
+            return show_error(scene, error);
+        }
+        return ESP_OK;
+    }
+    LUNASHELL::ConnectivityObservation observation;
+    const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    if (observation_error != ESP_OK) {
+        return observation_error;
+    }
+    const auto &pairing = observation.radios.pairing;
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::InstallQr) {
+        esp_err_t error = enter_route(Route::Install06, scene);
+        if (error == ESP_OK) {
+            error = enqueue(Work::InstallQr, 0);
+        }
+        return error == ESP_OK ? ESP_OK : show_error(scene, error);
+    }
+    if (!pairing.data_valid || pairing.data_stale) {
+        return show_error(scene, pairing.last_error != ESP_OK ? pairing.last_error : ESP_ERR_INVALID_STATE);
+    }
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::SessionQr &&
+        pairing.state == PairState::ReadyToScan && pairing.attempt_id == s_attempt) {
+        const esp_err_t error = enqueue(Work::SessionQr, s_attempt, pairing.provisioning_session_id);
+        return error == ESP_OK ? ESP_OK : show_error(scene, error);
+    }
+    Work work = Work::Cancel;
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::Cancel) {
+        work = Work::Cancel; // Retry a rejected cancellation, not a second Start.
+    } else if (s_route == Route::Install06) {
+        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut ? Work::Retry : Work::Start;
+    } else if (s_route == Route::Failed08 && pairing.cleanup_error == ESP_OK) {
+        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut ? Work::Retry : Work::Start;
+    }
+    if (s_pairing_owned && pairing.attempt_id != s_attempt) {
+        return show_error(scene, ESP_ERR_INVALID_STATE);
+    }
+    s_cancel_to_install = work == Work::Cancel;
+    const esp_err_t request_error = enqueue(work, pairing.attempt_id);
+    if (request_error != ESP_OK) {
+        return show_error(scene, request_error);
+    }
+    if (work != Work::Cancel) {
+        s_session = 0;
+        return enter_route(Route::Pairing07, scene);
+    }
+    if (s_route == Route::Scan06Bis) {
+        // Retire the session's secret immediately; navigation still awaits Cancelled.
+        return enter_route(Route::Pairing07, scene);
+    }
+    const esp_err_t action_error = prepare_action("Cancel", false);
+    return action_error == ESP_OK ? attach_content(scene) : action_error;
+}
+
+// strip: Valid caller-owned logical tile outside the content slot as well.
+// first_row: Logical tile y origin, shared with all cloud/text rendering.
+// first_column: Logical tile x origin, shared with hit testing.
+esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
+                                    uint16_t first_column)
+{
+    if (s_route != Route::Install06 && s_route != Route::Scan06Bis) {
+        return ESP_OK;
+    }
+    const CODY2D::CapsuleControl back{kBackBounds, {}, kBlueTop, kBlueBottom, true};
+    const esp_err_t error = CODY2D::draw_capsule_rows(back, strip, first_row, first_column);
+    if (error != ESP_OK) {
+        return error;
+    }
+    for (int row = std::max<int>(first_row, 223); row < std::min<int>(first_row + strip.height, 244); ++row) {
+        const int center = 35 + std::abs(row - 233);
+        const int left = std::max<int>(first_column, center - 2);
+        const int right = std::min<int>(first_column + strip.width, center + 2);
+        if (right > left) {
+            const esp_err_t fill_error = CODY2D::fill_rect(strip,
+                {static_cast<uint16_t>(left - first_column), static_cast<uint16_t>(row - first_row),
+                 static_cast<uint16_t>(right - left), 1}, 0x0001);
+            if (fill_error != ESP_OK) {
+                return fill_error;
+            }
+        }
+    }
+    return ESP_OK;
+}
+
+} // namespace CODY

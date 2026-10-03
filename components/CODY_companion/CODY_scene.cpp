@@ -352,8 +352,9 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (presentation_error != ESP_OK || !presentation.content_visible) {
         return presentation_error;
     }
-    const esp_err_t error = CODY2D::draw_text_rows(frame.title, frame.visible_characters,
-        strip, first_row, first_column);
+    const esp_err_t error = frame.definition->title_visible
+        ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
+        : ESP_OK;
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;
     }

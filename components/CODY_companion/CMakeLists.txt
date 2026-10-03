@@ -6,6 +6,11 @@ if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)
     )
 endif()
 
+set(cody_onboarding_sources "")
+if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
+    list(APPEND cody_onboarding_sources "CODY_onboarding.cpp")
+endif()
+
 idf_component_register(
     SRCS
         "CODY_companion.cpp"
@@ -26,7 +31,9 @@ idf_component_register(
         "../../assets/cody/boot/generated/cody_waking_blue.cpp"
         "../../assets/cody/boot/generated/cody_ready_blue.cpp"
         "../../assets/cody/scenes/generated/scene_font.cpp"
+        "../../assets/cody/scenes/generated/scene_body_font.cpp"
         ${cody_jelly_sources}
+        ${cody_onboarding_sources}
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/poc/generated"
         "../../assets/cody/scenes/generated"
@@ -34,6 +41,10 @@ idf_component_register(
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )
+
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
+    idf_component_optional_requires(PRIVATE qrcode)
+endif()
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)

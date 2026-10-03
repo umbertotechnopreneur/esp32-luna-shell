@@ -15,9 +15,57 @@
         "mouth_width": 1.1, "nose_size": 1,
         "cheek_size": 1.25, "cheek_opacity": 1
       },
-      "title": { "text": "Hi, I'm Cody!", "top": 348, "color_rgb565": 65535, "character_interval_ms": 70 },
+      "title": { "text": "Hi, I'm Cody!", "top": 348, "color_rgb565": 65535, "character_interval_ms": 70, "visible": true },
       "navigation_visible": false,
       "readout_visible": true
+    },
+    {
+      "id": "pair-invitation", "identity": 2,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 105, "scale": 65 },
+      "face": { "eye_left": 0.12, "eye_right": 0.12, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "title": { "text": "Let's pair", "top": 185, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "navigation_visible": false, "readout_visible": false
+    },
+    {
+      "id": "install-app", "identity": 3,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 70, "scale": 36 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "title": { "text": "Install app", "top": 105, "color_rgb565": 65535, "character_interval_ms": 0, "visible": false },
+      "navigation_visible": false, "readout_visible": false
+    },
+    {
+      "id": "scan-to-pair", "identity": 4,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 70, "scale": 36 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "title": { "text": "Scan to pair", "top": 105, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "navigation_visible": false, "readout_visible": false
+    },
+    {
+      "id": "pairing", "identity": 5,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 160, "scale": 105 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "title": { "text": "Pairing...", "top": 305, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "navigation_visible": false, "readout_visible": false
+    },
+    {
+      "id": "pairing-failed", "identity": 6,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 160, "scale": 105 },
+      "face": { "eye_left": 0.65, "eye_right": 0.65, "brow_left": 0.3, "brow_right": 0.3, "mouth_open": 0.12, "breath": 0, "mouth_width": 0.8, "nose_size": 1, "cheek_size": 1.5, "cheek_opacity": 0.85 },
+      "title": { "text": "Try again", "top": 305, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "navigation_visible": false, "readout_visible": false
+    },
+    {
+      "id": "online", "identity": 7,
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
+      "cloud": { "x": 233, "y": 160, "scale": 105 },
+      "face": { "eye_left": 0.12, "eye_right": 0.12, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "title": { "text": "You're online.", "top": 305, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "navigation_visible": false, "readout_visible": false
     }
   ]
 }

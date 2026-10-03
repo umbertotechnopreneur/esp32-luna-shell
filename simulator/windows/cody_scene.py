@@ -21,7 +21,7 @@ class ScenePainter:
         self.coverage = (generated / "scene_font.2bpp.bin").read_bytes()
         require_keys(self.font, {"schema", "font_name", "source_family", "license", "font_source_sha256",
             "scenes_sha256", "first_character", "character_count", "width", "height", "advance",
-            "row_bytes", "coverage_bytes", "coverage_sha256", "note"}, "generated scene font")
+            "row_bytes", "coverage_bytes", "coverage_sha256", "note", "body_font"}, "generated scene font")
         if self.font["schema"] != "cody.scene-font.v1":
             raise ValueError("Unsupported generated scene-font schema")
         font = self.font
@@ -118,6 +118,8 @@ class ScenePainter:
         if image.mode != "RGB" or image.size != (466, 466):
             raise ValueError("Scene text requires a 466x466 RGB framebuffer")
         title = self.definition(identity)["title"]
+        if not title["visible"]:
+            return
         visible = self.visible_characters(identity, active_ms)
         font = self.font
         width = (len(title["text"]) - 1) * font["advance"] + font["width"]

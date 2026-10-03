@@ -3,8 +3,9 @@
 Implementation started at Umberto Giacobbi's request on 3 October 2026;
 checkpointed on 4 October 2026 in `feat/http-and-wifi`. The shared stack was
 implemented in the Luna worktree first and carried here through focused commits.
-Welcome/OOBE presentation remains owned by the other agent. No scene, renderer,
-palette, layout or welcome asset is changed by this increment.
+The original backend increment did not change scenes or welcome assets. The
+subsequent [standalone OOBE presentation](cody-onboarding.md) now consumes this
+boundary and implements the network routes through 09, following addendum A01.
 
 ## Boot and public boundary
 

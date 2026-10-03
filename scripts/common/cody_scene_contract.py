@@ -7,7 +7,12 @@ from scripts.common.cody_rig_contract import load_contract, read_json, validate_
 from scripts.common.cody_rig_types import FaceChannel
 from scripts.common.asset_provenance import text_source_hash
 
-SCENE_IDENTITIES = {"greeting": (1, "Greeting")}
+SCENE_IDENTITIES = {
+    "greeting": (1, "Greeting"), "pair-invitation": (2, "PairInvitation"),
+    "install-app": (3, "InstallApp"), "scan-to-pair": (4, "ScanToPair"),
+    "pairing": (5, "Pairing"), "pairing-failed": (6, "PairingFailed"),
+    "online": (7, "Online"),
+}
 
 
 # root: Checkout containing the current scene source.
@@ -78,7 +83,9 @@ def load_scenes(root: Path, rig=None):
             raise ValueError(f"{name}.face contains a non-finite channel")
         validate_channels(rig, [face[channel.name.lower()] for channel in FaceChannel])
         title = scene["title"]
-        require_keys(title, {"text", "top", "color_rgb565", "character_interval_ms"}, f"{name}.title")
+        require_keys(title, {"text", "top", "color_rgb565", "character_interval_ms", "visible"}, f"{name}.title")
+        if type(title["visible"]) is not bool:
+            raise ValueError(f"{name}.title.visible must be an explicit boolean")
         text = title["text"]
         if not isinstance(text, str) or not 1 <= len(text) <= 64 or any(not 32 <= ord(c) <= 126 for c in text):
             raise ValueError(f"{name}.title requires bounded printable ASCII, without fallback glyphs")

@@ -6,7 +6,10 @@
 namespace CODY {
 
 // Explicit IDs do not change if authoring declarations are reordered.
-enum class SceneId : uint16_t { AnimationDemo = 0, Greeting = 1 };
+enum class SceneId : uint16_t {
+    AnimationDemo = 0, Greeting = 1, PairInvitation = 2, InstallApp = 3,
+    ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7,
+};
 enum class SceneElementId : uint8_t { Cloud, Title, Content };
 enum class SceneIntroPhase : uint8_t { BitmapFadeOut, CloudFadeIn, Complete };
 
@@ -28,6 +31,7 @@ struct SceneDefinition {
     uint16_t character_interval_ms;
     bool navigation_visible;
     bool readout_visible;
+    bool title_visible = true;
 };
 
 // Optional caller-owned content, e.g. text, a button or a QR in a later scene.

@@ -107,6 +107,12 @@ the catalog. Unknown keys and ambiguous `35` fail explicitly.
 | `02` | `AtlasScreenId::Waking02` | Boot waking preview |
 | `03` | `AtlasScreenId::Ready03` | Boot ready preview |
 | `04` | `AtlasScreenId::Greeting04` | Happy; existing `SceneId::Greeting` route |
+| `05` | `AtlasScreenId::PairInvitation05` | Happy; Let's pair |
+| `06` | `AtlasScreenId::InstallApp06` | Calm; installation QR without a visible title |
+| `06-bis` | `AtlasScreenId::ScanToPair06Bis` | Calm; current session QR |
+| `07` | `AtlasScreenId::Pairing07` | Calm; Pairing... |
+| `08` | `AtlasScreenId::PairingFailed08` | Embarrassed; real error and bounded recovery |
+| `09` | `AtlasScreenId::Online09` | Happy; valid current Wi-Fi association and IP |
 | `16` | `AtlasScreenId::Idle16` | Calm |
 | `35A` | `AtlasScreenId::Sleep35A` | Sleeping |
 | `35B` | `AtlasScreenId::Wake35B` | Drowsy, then Calm |
@@ -115,7 +121,9 @@ the catalog. Unknown keys and ambiguous `35` fail explicitly.
 `find_atlas_screen()` resolve typed identities or exact keys, and
 `expression_channels()` returns validated base channels. Lifecycle selection
 uses the same atlas lookup, so the service index is the actual runtime source.
-Screen 04 resolves its real greeting scene through the catalog. Screen identities
+Screens 04 through 09 resolve their real scenes through the catalog. The QR
+addendum and action ownership are documented in [First-setup journey](cody-onboarding.md).
+Screen identities
 01/02/03 describe the existing authored preview combinations; they do not override
 the ordinary Sleeping/Waking/Ready startup sequence. For example,
 `find_atlas_screen("35A", screen)` resolves the screen mapping, while

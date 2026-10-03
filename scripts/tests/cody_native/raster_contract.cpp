@@ -1,3 +1,4 @@
+#include "CODY2D_controls.hpp"
 #include "CODY2D_paths.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
@@ -569,6 +570,68 @@ void check_jelly_texture_contract()
         }
     }
 }
+// No parameters: capsule geometry, captions and compact tiles share logical bounds.
+void check_capsule_contract()
+{
+    constexpr uint16_t width = 20;
+    constexpr uint16_t height = 12;
+    constexpr uint16_t guard = 0x35ad;
+    CODY2D::CapsuleControl control{{4, 2, 12, 6}, {}, 0xf800, 0x001f, true};
+    std::array<uint16_t, width * height> pixels{};
+    const CODY2D::Surface full{pixels.data(), width, height, width,
+        static_cast<uint32_t>(pixels.size())};
+    require(CODY2D::draw_capsule_rows(control, full, 0, 0) == ESP_OK,
+            "capsule renders without a caption");
+    require(pixels[2 * width + 10] == 0xf800 && pixels[7 * width + 10] == 0x001f,
+            "capsule uses the exact top and bottom gradient anchors");
+    require(pixels[2 * width + 4] == 0 && pixels[4 * width + 10] != 0,
+            "capsule rounds its corners and fills its middle");
+    require(CODY2D::capsule_contains(control, {10, 4}) &&
+            !CODY2D::capsule_contains(control, {4, 2}) &&
+            !CODY2D::capsule_contains(control, {16, 4}),
+            "capsule touch uses the same rounded half-open target");
+    for (uint16_t row = 0; row < height; ++row) {
+        for (uint16_t column = 0; column < width; ++column) {
+            require((pixels[row * width + column] != 0) == CODY2D::capsule_contains(control,
+                {static_cast<int16_t>(column), static_cast<int16_t>(row)}),
+                "every painted capsule pixel belongs to its touch target");
+        }
+    }
+    for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+        std::array<uint16_t, 7 * 4> tile_pixels;
+        tile_pixels.fill(guard);
+        const CODY2D::Surface tile{tile_pixels.data(), 5, 4, 7,
+            static_cast<uint32_t>(tile_pixels.size()), order};
+        require(CODY2D::draw_capsule_rows(control, tile, 3, 8) == ESP_OK,
+                "capsule clips to a compact tile in either storage order");
+        for (uint16_t row = 0; row < 4; ++row) {
+            for (uint16_t column = 0; column < 5; ++column) {
+                require(tile_pixels[row * 7 + column] == CODY2D::rgb565_native_to_stored(
+                    pixels[(row + 3) * width + column + 8], order),
+                    "compact capsule matches the corresponding full-canvas pixels");
+            }
+            require(tile_pixels[row * 7 + 5] == guard && tile_pixels[row * 7 + 6] == guard,
+                    "capsule preserves compact-tile stride guards");
+        }
+    }
+    control.enabled = false;
+    require(!CODY2D::capsule_contains(control, {10, 4}), "disabled capsule cannot admit an action");
+    pixels.fill(0);
+    require(CODY2D::draw_capsule_rows(control, full, 0, 0) == ESP_OK &&
+            pixels[2 * width + 10] == CODY2D::fade_rgb565_to_black(0xf800, 128),
+            "disabled capsule retains its shape with an explicit dim palette");
+    constexpr uint8_t coverage[] = {0xc0};
+    const CODY2D::MonoFont font{coverage, sizeof(coverage), 'A', 1, 1, 1, 1, 1};
+    require(CODY2D::prepare_text_line(font, {"A", 1}, {10, 4}, 0xffff, control.caption) == ESP_OK,
+            "capsule accepts a prepared bounded ASCII caption");
+    require(CODY2D::draw_capsule_rows(control, full, 0, 0) == ESP_OK &&
+            pixels[4 * width + 10] == 0xffff, "caption composites above the capsule fill");
+    const auto unchanged = pixels;
+    control.bounds.width = 5;
+    require(CODY2D::draw_capsule_rows(control, full, 0, 0) == ESP_ERR_INVALID_ARG && pixels == unchanged,
+            "invalid capsule rejects before modifying the destination");
+}
+
 // No parameters: exercise the same allocation-free hold detector used by PWR.
 void check_button_hold_contract()
 {
@@ -646,6 +709,7 @@ int main()
         check_compact_raster_contract();
         check_dirty_plan_contract();
         check_jelly_texture_contract();
+        check_capsule_contract();
         check_button_hold_contract();
         check_lifecycle_contract();
     } catch (const std::exception &error) {

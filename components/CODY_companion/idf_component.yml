@@ -1,0 +1,5 @@
+dependencies:
+  espressif/qrcode:
+    version: "0.1.0~2"
+    rules:
+      - if: "$CONFIG{LUNASHELL_BUILD_PROFILE_CODY_COMPANION} == True"

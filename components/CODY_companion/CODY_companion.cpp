@@ -19,6 +19,7 @@
 #include "CODY_response.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_onboarding.hpp"
 #include "CODY_lifecycle.hpp"
 #include "CODY_settings.hpp"
 #include "scene_data.hpp"
@@ -1181,6 +1182,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 if (result == ESP_OK && s_state.scene.valid) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
+                if (result == ESP_OK && presentation.content_visible) {
+                    result = CODY::draw_onboarding_navigation(strip, damage.top, damage.left);
+                }
                 if (result == ESP_OK && branding_opacity != 0) {
                     CODY2D::TextLine branding = s_state.branding;
                     branding.color = CODY2D::fade_rgb565_to_black(branding.color, branding_opacity);
@@ -1401,6 +1405,22 @@ void enter_animation_demo()
 // No parameters: the existing worker owns both startup intents and the scene transition.
 esp_err_t apply_scene_requests()
 {
+    {
+        const esp_err_t route_lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+        if (route_lock_error != ESP_OK) {
+            return route_lock_error;
+        }
+        const DisplayUnlockOnExit route_lock;
+        bool route_changed = false;
+        const esp_err_t route_error = CODY::update_onboarding(
+            s_state.scene, s_cached_scene, s_state.animation_elapsed_us, route_changed);
+        if (route_error != ESP_OK) {
+            return route_error;
+        }
+        if (route_changed) {
+            s_state.frame_dirty.store(true, std::memory_order_release);
+        }
+    }
     const bool greeting_due = s_greeting_scheduled.load(std::memory_order_acquire) &&
         esp_timer_get_time() >= s_greeting_due_us;
     const bool demo_requested = s_demo_requested.exchange(false, std::memory_order_acq_rel);
@@ -1457,6 +1477,7 @@ esp_err_t apply_scene_requests()
         }
         // Text and placement share the scene; facial lifecycle keeps its own owner.
         s_state.scene = prepared;
+        CODY::begin_onboarding();
         s_state.greeting_entered = true;
         s_state.routine_greeting_pending = false;
         s_state.routine_scene = false;
@@ -1536,6 +1557,7 @@ esp_err_t apply_lifecycle_requests()
     }
     const DisplayUnlockOnExit lock;
     s_state.lifecycle_request = request;
+    CODY::reset_onboarding();
     const bool sleeping = (request & 1U) != 0;
     s_state.lifecycle = {sleeping ? CODY::LifecyclePhase::Sleep : CODY::LifecyclePhase::BootSleeping, 0};
     if (!sleeping) {
@@ -1613,6 +1635,19 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
     s_state.touch_pressed = point.pressed;
     if (pressed_edge && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
+        if (CODY::lifecycle_is_resting(s_state.lifecycle)) {
+            bool consumed = false;
+            const esp_err_t route_error = CODY::handle_onboarding_touch(s_state.scene,
+                {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)}, consumed);
+            if (route_error != ESP_OK) {
+                return route_error;
+            }
+            if (consumed) {
+                s_state.body_drag_active = false;
+                s_state.frame_dirty.store(true, std::memory_order_release);
+                return ESP_OK;
+            }
+        }
         if (!s_state.rig_visible) {
             if (!s_greeting_scheduled.load(std::memory_order_acquire) &&
                 point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
@@ -1898,14 +1933,22 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (settings_error != ESP_OK) {
         return fail_consumer("Onboarding settings", settings_error, false);
     }
-    const CODY::SceneDefinition *greeting_definition = nullptr;
-    esp_err_t scene_error = CODY::find_scene(CODY::SceneId::Greeting, greeting_definition);
-    CODY::SceneFrame preflight_scene{};
-    if (scene_error == ESP_OK) {
-        scene_error = CODY::begin_scene(*greeting_definition, preflight_scene);
+    for (const auto &definition : CODY::SceneData::definitions) {
+        CODY::SceneFrame preflight_scene{};
+        const esp_err_t scene_error = CODY::begin_scene(definition, preflight_scene);
+        if (scene_error != ESP_OK) {
+            return fail_consumer("Scene configuration", scene_error, false);
+        }
     }
-    if (scene_error != ESP_OK) {
-        return fail_consumer("Scene configuration", scene_error, false);
+    const esp_err_t caption_font_error = CODY2D::validate_mono_font(CODY::SceneData::body_font);
+    if (caption_font_error != ESP_OK) {
+        return fail_consumer("Caption font configuration", caption_font_error, false);
+    }
+    if (s_state.onboarding.effective_first_boot) {
+        const esp_err_t action_worker_error = CODY::onboarding_service_init();
+        if (action_worker_error != ESP_OK) {
+            return fail_consumer("Onboarding action worker", action_worker_error, false);
+        }
     }
     s_state.response = CODY::make_response_state(CODY::Data::response);
     void *previous_rig_storage = heap_caps_malloc(
