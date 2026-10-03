@@ -884,18 +884,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         CODY2D::Surface packed;
         const int64_t reuse_started_us = esp_timer_get_time();
         if (result == ESP_OK) {
-            result = CODY::measure_damage_rows(strip, static_cast<uint16_t>(row),
+            result = CODY::measure_and_cache_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, compare_previous, candidate_regions, damage);
         }
         const int64_t packing_started_us = esp_timer_get_time();
         timings.comparison_us += packing_started_us - reuse_started_us;
         if (result == ESP_OK && !damage.empty()) {
-            // Match Luna's Y alignment as well as measure_damage_rows' X
-            // alignment. Include the actual neighboring pixels in BOTH the
-            // cache update and packed payload, not just the panel address.
+            // Match Luna's Y alignment as well as the damage stage's X
+            // alignment. Neighboring pixels are already equal in a valid cache
+            // (or were fully staged after invalidation), so only the packed
+            // panel payload needs the expanded rows here.
             damage.top = static_cast<uint16_t>(damage.top & ~1U);
             damage.bottom = static_cast<uint16_t>((damage.bottom + 1U) & ~1U);
-            result = CODY::prepare_damage_rows(strip, static_cast<uint16_t>(row),
+            result = CODY::pack_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, damage, packed);
         }
         // Raster cost includes cache comparison and transfer-payload packing.

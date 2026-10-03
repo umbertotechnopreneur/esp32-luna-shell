@@ -237,30 +237,33 @@ void damage_contracts()
     const CODY2D::Surface tile{tile_storage, 8, 2, 10, 20};
     CODY::DamageRect damage;
     CODY::DamageRegions regions{{{0, 0, 8, 4}}, 1};
-    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK && damage.empty(),
+    require(CODY::measure_and_cache_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK && damage.empty(),
             "unchanged tile submitted pixels");
     tile_storage[3] = 0x1234;
     tile_storage[17] = 0xabcd;
-    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK &&
+    require(CODY::measure_and_cache_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK &&
             damage.left == 2 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
             "paired-column damage bounds differ");
+    require(cached_storage[12] == 0 && cached_storage[13] == 0x1234 &&
+            cached_storage[26] == 0 && cached_storage[27] == 0xabcd,
+            "damage measurement did not stage only the paired row spans");
     CODY2D::Surface packed;
-    require(CODY::prepare_damage_rows(tile, 1, cache, damage, packed) == ESP_OK &&
+    require(CODY::pack_damage_rows(tile, 1, cache, damage, packed) == ESP_OK &&
             packed.width == 6 && packed.height == 2 && packed.stride == 6 &&
             packed.pixels[1] == 0x1234 && packed.pixels[11] == 0xabcd &&
             cached_storage[13] == 0x1234 && cached_storage[27] == 0xabcd &&
             cached_storage[18] == 0 && cached_storage[28] == 0,
             "packing corrupted candidate cache, cropped rows or stride padding");
-    require(CODY::measure_damage_rows(tile, 3, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
+    require(CODY::measure_and_cache_damage_rows(tile, 3, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
             "out-of-canvas tile accepted");
-    require(CODY::measure_damage_rows(tile, 1, cache, false, regions, damage) == ESP_OK &&
+    require(CODY::measure_and_cache_damage_rows(tile, 1, cache, false, regions, damage) == ESP_OK &&
             damage.left == 0 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
             "invalid cache did not force the complete tile");
     regions.rectangles[0].right = 9;
-    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
+    require(CODY::measure_and_cache_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
             "out-of-canvas candidate accepted");
     regions.count = CODY::DamageRegions::capacity + 1;
-    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_SIZE,
+    require(CODY::measure_and_cache_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_SIZE,
             "candidate array overflow accepted");
 
     // Exercise every block boundary and two-byte-aligned rows. One changed
@@ -276,7 +279,7 @@ void damage_contracts()
         const CODY2D::Surface block_current{block_tile + 1, 140, 1, 140, 140};
         const CODY2D::Surface block_previous{block_cache + 1, 140, 1, 140, 140};
         const CODY::DamageRegions block_regions{{{0, 0, 140, 1}}, 1};
-        require(CODY::measure_damage_rows(block_current, 0, block_previous, true, block_regions, damage) == ESP_OK,
+        require(CODY::measure_and_cache_damage_rows(block_current, 0, block_previous, true, block_regions, damage) == ESP_OK,
             "block comparison rejected an aligned RGB565 row");
         if (changed_column < 140) {
             require(damage.left == (changed_column & ~1U) && damage.right == (changed_column | 1U) + 1 &&
@@ -352,12 +355,12 @@ void damage_contracts()
                 const CODY2D::Surface rendered{rendered_tile.data(), panel_width, height, panel_width,
                     static_cast<uint32_t>(rendered_tile.size())};
                 require(CODY::draw_rig_rows(scene, rendered, row, current_debug, selected, nullptr, paused) == ESP_OK &&
-                        CODY::measure_damage_rows(rendered, row, previous_frame, compare_previous, regions, damage) == ESP_OK,
+                        CODY::measure_and_cache_damage_rows(rendered, row, previous_frame, compare_previous, regions, damage) == ESP_OK,
                         "rendered tile damage failed");
                 if (damage.empty()) {
                     continue;
                 }
-                require(CODY::prepare_damage_rows(rendered, row, previous_frame, damage, packed) == ESP_OK,
+                require(CODY::pack_damage_rows(rendered, row, previous_frame, damage, packed) == ESP_OK,
                         "actual rig payload packing failed");
                 for (uint16_t packed_row = 0; packed_row < packed.height; ++packed_row) {
                     for (uint16_t column = 0; column < packed.width; ++column) {

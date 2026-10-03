@@ -34,14 +34,14 @@ esp_err_t validate_rows(CODY2D::Surface tile, uint16_t first_row,
 
 // tile: Fully rendered ordinary RGB565 rows, before any in-place packing.
 // first_row: Logical origin of the tile in the complete canvas.
-// previous: PSRAM-owned previous frame; never a DMA source.
+// previous: PSRAM-owned candidate frame, updated only where comparison proves changes.
 // compare_previous: False after startup, failed frames, rotation or panel invalidation.
 // regions: Old/new artwork and controls that can change, in logical coordinates.
 // damage: Receives the paired-column bounds of actual changed pixels.
-esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
-                             CODY2D::Surface previous, bool compare_previous,
-                             const DamageRegions &regions,
-                             DamageRect &damage)
+esp_err_t measure_and_cache_damage_rows(CODY2D::Surface tile, uint16_t first_row,
+                                        CODY2D::Surface previous, bool compare_previous,
+                                        const DamageRegions &regions,
+                                        DamageRect &damage)
 {
     damage = {};
     const esp_err_t error = validate_rows(tile, first_row, previous);
@@ -63,6 +63,14 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
         }
     }
     if (!compare_previous) {
+        // An invalid cache has no reusable pixels. Stage the complete rendered
+        // tile now; the frame owner still keeps the cache invalid until every
+        // tile and panel transfer completes successfully.
+        for (uint16_t row = 0; row < tile.height; ++row) {
+            std::memcpy(previous.pixels + (first_row + row) * previous.stride,
+                        tile.pixels + row * tile.stride,
+                        tile.width * sizeof(uint16_t));
+        }
         damage = {0, first_row, tile.width, static_cast<uint16_t>(first_row + tile.height)};
         return ESP_OK;
     }
@@ -100,6 +108,14 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
         while (current_row[after_last_changed - 1U] == cached_row[after_last_changed - 1U]) {
             --after_last_changed;
         }
+        // Stage only this row's paired-pixel span. The aligned edge pixels are
+        // already equal, and keeping the ordinary runtime buffers word-aligned
+        // avoids turning the reduced PSRAM write into an unaligned copy.
+        const uint16_t cache_left = static_cast<uint16_t>(first_changed & ~1U);
+        const uint16_t cache_right = static_cast<uint16_t>((after_last_changed + 1U) & ~1U);
+        std::memcpy(previous.pixels + canvas_row * previous.stride + cache_left,
+                    current_row + cache_left,
+                    (cache_right - cache_left) * sizeof(uint16_t));
         left = std::min(left, first_changed);
         right = std::max(right, after_last_changed);
         top = std::min(top, row);
@@ -117,12 +133,12 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
 
 // tile: Fully rendered tile whose pixels become the candidate cache contents.
 // first_row: Logical row offset into the complete cache.
-// previous: Frame-owned cache; its owner marks it invalid until full-frame completion.
-// damage: Changed region measured before the cache copy.
+// previous: Frame-owned cache already staged above; retained for bounds validation.
+// damage: Changed region measured while staging the candidate cache.
 // packed: Receives a compact transfer view borrowing the tile's storage.
-esp_err_t prepare_damage_rows(CODY2D::Surface tile, uint16_t first_row,
-                             CODY2D::Surface previous, const DamageRect &damage,
-                             CODY2D::Surface &packed)
+esp_err_t pack_damage_rows(CODY2D::Surface tile, uint16_t first_row,
+                           CODY2D::Surface previous, const DamageRect &damage,
+                           CODY2D::Surface &packed)
 {
     packed = {};
     const esp_err_t error = validate_rows(tile, first_row, previous);
@@ -141,15 +157,9 @@ esp_err_t prepare_damage_rows(CODY2D::Surface tile, uint16_t first_row,
     const uint16_t width = damage.right - damage.left;
     const uint16_t height = damage.bottom - damage.top;
     const uint16_t local_top = damage.top - first_row;
-    // measure_damage_rows already proved every pixel outside these bounds
-    // unchanged. Preserve only this region before packing overwrites the tile.
-    // An invalid cache produces full-tile bounds; a failed transfer keeps the
-    // whole candidate cache invalid in the frame owner.
-    for (uint16_t row = 0; row < height; ++row) {
-        std::memcpy(previous.pixels + (damage.top + row) * previous.stride + damage.left,
-                    tile.pixels + (local_top + row) * tile.stride + damage.left,
-                    width * sizeof(uint16_t));
-    }
+    // measure_and_cache_damage_rows staged the candidate cache before this in-place
+    // compaction. A failed transfer keeps that whole cache invalid in the frame
+    // owner, so a later frame will rebuild it rather than trust partial data.
     for (uint16_t row = 0; row < height; ++row) {
         // Destination precedes this source and every future row. memmove also
         // handles the first row's overlapping left-edge crop safely.
