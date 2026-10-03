@@ -435,6 +435,10 @@ void LUNASHELL_performance_mode_get_status(
 esp_err_t LUNASHELL_radios_init(void);
 esp_err_t LUNASHELL_radios_stop(void);
 esp_err_t LUNASHELL_ble_init(void);
+/** Explicit telemetry-to-provisioning handoff; call from a service worker. */
+esp_err_t LUNASHELL_radios_start_pairing(void);
+/** Close provisioning before optionally restoring telemetry on verified Wi-Fi. */
+esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
 
 #define LUNASHELL_WIFI_MAX_NETWORKS 16
 #define LUNASHELL_WIFI_SSID_MAX_LEN 32
@@ -539,6 +543,8 @@ esp_err_t LUNASHELL_provisioning_connection_summary(char *buffer, size_t buffer_
 const char *LUNASHELL_provisioning_service_name(void);
 const char *LUNASHELL_provisioning_qr_payload(void);
 const char *LUNASHELL_provisioning_pop(void);
+/** Copy the active pairing QR without returning shared mutable storage. */
+esp_err_t LUNASHELL_provisioning_copy_qr(char *buffer, size_t buffer_size, uint32_t session_id);
 
 #ifdef __cplusplus
 }

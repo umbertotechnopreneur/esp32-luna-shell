@@ -7,6 +7,7 @@
 #include <cstring>
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_wifi_provisioning.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace {
@@ -67,3 +68,26 @@ extern "C" void LUNASHELL_wifi_get_status(LUNASHELL_wifi_status_t *status)
 {
     fill_disabled_status(status);
 }
+
+namespace LUNASHELL::wifi_provisioning {
+esp_err_t begin()
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// ssid: Unused credential bytes in a profile without Wi-Fi.
+// ssid_capacity: Unused source capacity.
+esp_err_t credentialsReceived(const uint8_t *ssid, size_t ssid_capacity)
+{
+    (void)ssid;
+    (void)ssid_capacity;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// keep_connection: Unused in a profile without Wi-Fi.
+esp_err_t end(bool keep_connection)
+{
+    (void)keep_connection;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+}  // namespace LUNASHELL::wifi_provisioning

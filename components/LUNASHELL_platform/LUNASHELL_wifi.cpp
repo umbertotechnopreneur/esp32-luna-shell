@@ -7,6 +7,7 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
+#include "LUNASHELL_wifi_provisioning.hpp"
 
 #include <cstdlib>
 #include <cstdio>
@@ -50,6 +51,7 @@ bool s_driver_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_scan_watch_active;
 bool s_connect_requested;
+bool s_provisioning_owns_connection;
 uint8_t s_consecutive_disconnects;
 LUNASHELL_wifi_status_t s_status;
 // Scan results are CPU-copied and never used by the Wi-Fi DMA/ISR path.
@@ -400,7 +402,8 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
     }
 
     wifi_lock();
-    if (!s_initialized || !s_status.started || !s_connect_requested) {
+    if (!s_initialized || !s_status.started || !s_connect_requested ||
+        s_provisioning_owns_connection) {
         // A disconnect event may have captured an older intent before an
         // explicit disconnect/stop transaction cancelled it. Revalidate under
         // the same lock as the timer command and treat the newer intent as the
@@ -448,7 +451,8 @@ void reconnect_timer_callback(TimerHandle_t timer)
     if (lifecycle_error != ESP_OK) {
         wifi_lock();
         const bool retry =
-            s_initialized && s_status.started && s_connect_requested;
+            s_initialized && s_status.started && s_connect_requested &&
+            !s_provisioning_owns_connection;
         // A one-shot timer is no longer pending once its callback begins.
         // Clear it before rescheduling so a queue failure cannot leave a false
         // pending latch behind.
@@ -476,7 +480,8 @@ void reconnect_timer_callback(TimerHandle_t timer)
     // State may have changed while this timer was pending. Recheck only after
     // acquiring the lifecycle gate, before calling into the Wi-Fi driver.
     wifi_lock();
-    const bool should_connect = s_initialized && s_status.started && s_connect_requested;
+    const bool should_connect = s_initialized && s_status.started &&
+        s_connect_requested && !s_provisioning_owns_connection;
     s_status.reconnect_pending = false;
     s_status.reconnect_delay_ms = 0;
     if (should_connect) {
@@ -567,6 +572,10 @@ void handle_scan_done()
     log_scan_heap_checkpoint("after-scan");
 }
 
+// arg: Unused event registration context.
+// event_base: ESP-IDF Wi-Fi or IP event family.
+// event_id: Concrete event identifier inside that family.
+// event_data: SDK-owned event payload, valid only during this callback.
 void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data)
 {
     (void)arg;
@@ -618,7 +627,9 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.gateway[0] = '\0';
             ++s_status.disconnect_count;
             s_status.last_disconnect_reason = disconnected != nullptr ? disconnected->reason : 0;
-            reconnect = s_connect_requested;
+            // The provisioning manager owns its five credential retries. A
+            // second timer here would race that state machine and retry twice.
+            reconnect = s_connect_requested && !s_provisioning_owns_connection;
             s_status.last_error =
                 disconnected == nullptr
                     ? ESP_ERR_INVALID_RESPONSE
@@ -1059,6 +1070,11 @@ fail:
 
 static esp_err_t wifi_stop_impl(void)
 {
+    if (s_provisioning_owns_connection) {
+        ESP_LOGE(TAG, "Wi-Fi stop requires provisioning cleanup first (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!s_initialized &&
         s_ip_event_instance == nullptr &&
         s_wifi_event_instance == nullptr &&
@@ -1149,13 +1165,18 @@ static esp_err_t wifi_stop_impl(void)
     return ESP_OK;
 }
 
+// ssid: Explicit network name, validated before touching driver configuration.
+// password: Network secret; null means an open network, never logged.
+// persist: Whether ESP-IDF must write the selected profile to NVS.
 static esp_err_t wifi_connect_impl(
     const char *ssid,
     const char *password,
     bool persist
 )
 {
-    if (!s_initialized) {
+    if (!s_initialized || s_provisioning_owns_connection) {
+        ESP_LOGE(TAG, "Wi-Fi connect rejected during inactive/provisioning lifecycle (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     if (ssid == nullptr || ssid[0] == '\0' || std::strlen(ssid) > LUNASHELL_WIFI_SSID_MAX_LEN) {
@@ -1250,6 +1271,11 @@ static esp_err_t wifi_disconnect_impl(void)
 
 static esp_err_t wifi_start_scan_impl(void)
 {
+    if (s_provisioning_owns_connection) {
+        ESP_LOGE(TAG, "Wi-Fi scan rejected while provisioning owns scanning (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -1399,3 +1425,107 @@ extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
 {
     return run_watched_wifi_operation("scan", wifi_start_scan_impl);
 }
+
+namespace LUNASHELL::wifi_provisioning {
+
+esp_err_t begin()
+{
+    const esp_err_t lock_error = wifi_lifecycle_lock("provisioning begin");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+    wifi_lock();
+    const bool ready = s_initialized && s_status.started;
+    const bool already_owned = s_provisioning_owns_connection;
+    const bool disconnect = s_connect_requested || s_status.connected;
+    wifi_unlock();
+    if (!ready || already_owned) {
+        ESP_LOGE(TAG, "Provisioning Wi-Fi ownership rejected (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t error = disconnect
+        ? wifi_disconnect_impl()
+        : cancel_reconnect(true, false);
+    if (error != ESP_OK) {
+        return error;
+    }
+    wifi_lock();
+    s_provisioning_owns_connection = true;
+    wifi_unlock();
+    return ESP_OK;
+}
+
+// ssid: Credential-event bytes published after the SDK accepted configuration.
+// ssid_capacity: Exact source array capacity; an SSID need not be null terminated.
+esp_err_t credentialsReceived(const uint8_t *ssid, size_t ssid_capacity)
+{
+    if (ssid == nullptr || ssid_capacity != LUNASHELL_WIFI_SSID_MAX_LEN || ssid[0] == 0) {
+        ESP_LOGE(TAG, "Provisioning credential event rejected (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    wifi_lock();
+    if (!s_initialized || !s_status.started || !s_provisioning_owns_connection) {
+        wifi_unlock();
+        ESP_LOGE(TAG, "Provisioning credentials arrived without Wi-Fi ownership (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    // The manager already persisted the profile and scheduled its connect.
+    // Adopt only the intent so the normal Wi-Fi owner accepts the ensuing IP.
+    s_connect_requested = true;
+    s_status.connect_requested = true;
+    s_status.credentials_configured = true;
+    s_status.connected = false;
+    s_status.ip_acquired = false;
+    s_status.ip_address[0] = '\0';
+    copy_ssid(s_status.ssid, sizeof(s_status.ssid), ssid, ssid_capacity);
+    s_status.last_error = ESP_OK;
+    ++s_status.event_sequence;
+    wifi_unlock();
+    publish_snapshot();
+    return ESP_OK;
+}
+
+// keep_connection: Preserve the manager's verified successful connection only.
+esp_err_t end(bool keep_connection)
+{
+    const esp_err_t lock_error = wifi_lifecycle_lock("provisioning end");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    WifiLifecycleGuard lifecycle_guard;
+    wifi_lock();
+    const bool owned = s_provisioning_owns_connection;
+    const bool disconnect = s_connect_requested || s_status.connected;
+    const bool online = s_status.ip_acquired && s_status.last_error == ESP_OK;
+    const esp_err_t observed_error = s_status.last_error;
+    wifi_unlock();
+    if (!owned) {
+        return ESP_OK;
+    }
+    if (keep_connection && !online) {
+        const esp_err_t error = observed_error == ESP_OK
+            ? ESP_ERR_INVALID_STATE : observed_error;
+        ESP_LOGE(TAG, "Provisioning handoff has no verified Wi-Fi lease (%s)",
+                 esp_err_to_name(error));
+        return error;
+    }
+    if (!keep_connection) {
+        const esp_err_t error = disconnect
+            ? wifi_disconnect_impl()
+            : cancel_reconnect(true, false);
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    wifi_lock();
+    s_provisioning_owns_connection = false;
+    wifi_unlock();
+    publish_snapshot();
+    return ESP_OK;
+}
+
+}  // namespace LUNASHELL::wifi_provisioning

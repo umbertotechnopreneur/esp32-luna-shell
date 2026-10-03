@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "LUNASHELL_provisioning_state.hpp"
+
 #include <cstddef>
 #include <cstdint>
 
@@ -152,9 +154,22 @@ struct BleSnapshot : ComponentSnapshot {
     char device_name[20] = {};
 };
 
+struct ProvisioningSnapshot : ComponentSnapshot {
+    ProvisioningState state = ProvisioningState::Idle;
+    ProvisioningFailureReason failure_reason = ProvisioningFailureReason::None;
+    bool initialized = false;
+    bool running = false;
+    uint32_t session_id = 0;
+    uint32_t event_sequence = 0;
+    int64_t changed_at_us = 0;
+    esp_err_t cleanup_error = ESP_OK;
+    // Pairing secrets and credential payloads never enter the public snapshot.
+};
+
 struct RadioSnapshot {
     WifiSnapshot wifi;
     BleSnapshot ble;
+    ProvisioningSnapshot provisioning;
 };
 
 enum class StorageMountOutcome : uint8_t {
@@ -646,6 +661,8 @@ public:
     // sampled_at_us: Original report timestamp; duplicate/backward events are rejected.
     esp_err_t reportCharacterInteraction(CharacterInteractionSnapshot::Kind kind, int64_t sampled_at_us);
     void reportWifi(const WifiSnapshot &wifi);
+    // provisioning: Coherent lifecycle observation published by its sole owner.
+    void reportProvisioning(const ProvisioningSnapshot &provisioning);
     void reportBle(
         bool ready,
         esp_err_t error,
