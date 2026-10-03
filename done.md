@@ -1,5 +1,14 @@
 # Done
 
+## Hardware power census (2026-10-04)
+
+- [x] Add the root hardware consumption census with manufacturer datasheet
+  references, typical/maximum/peak distinctions, rail conditions and explicit
+  unavailable currents. Extend the integration/JSON inventories with schematic
+  flash/amplifier identities and touch, IMU, PMU/RTC interrupt routing. Document
+  Deep-sleep/ULP candidates and current firmware limits. Source/PDF review only;
+  no build, test, hardware or electrical validation performed.
+
 ## Common firmware build modes (2026-10-04)
 
 - [x] Add profile-independent Debug/Release selection to the public firmware CLI

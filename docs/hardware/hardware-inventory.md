@@ -2,16 +2,21 @@
 
 Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
 
+The root [hardware consumption and sleep-wakeup census](../../hardware-inventory.md)
+records datasheet ranges, supply conditions, source revisions and unavailable
+values. Its 2026-10-04 schematic review is source evidence, not a device test.
+
 | Area | Device / capability | Firmware integration |
 | --- | --- | --- |
 | MCU | ESP32-S3R8, dual core up to 240 MHz | ESP-IDF 6.0.2, 8 MB octal PSRAM, 16 MB flash |
-| Display | 1.75-inch round AMOLED, 466 x 466, CO5300, QSPI | Official Waveshare BSP + LVGL 9 |
-| Touch | CST9217, two-point capacitive touch | Initialized by `bsp_display_start()` |
+| Display | 1.75-inch round AMOLED, 466 x 466, CO5300, QSPI | Waveshare BSP; Brookesia/LVGL UI or standalone renderer according to profile |
+| Touch | CST9217, two-point capacitive touch | Shared BSP owner; LVGL or standalone IRQ input according to profile |
 | Power | AXP2101 PMU at I2C `0x34` | Probed; battery presence, charging state, percent, and voltage logged |
 | IMU | QMI8658 at I2C `0x6B` or `0x6A` | Probed and initialized for accelerometer + gyroscope |
 | GPS / GNSS | LC76G GPS variant, external ceramic antenna | Command-gated I2C bridge at control `0x50`, read `0x54`; bounded NMEA chunks, no-fix is allowed |
 | Storage | User-added 8 GB microSD | SDMMC 1-bit; mount only, never auto-format |
-| Audio out | ES8311 codec + speaker amplifier | Embedded 22.05 kHz mono PCM16 boot SFX |
+| Flash | W25Q128JVSIQ, schematic U2 | 16 MB external flash; exact fitted marking not inspected in this review |
+| Audio out | ES8311 codec + NS4150B amplifier, schematic U7 | Embedded 22.05 kHz mono PCM16 boot SFX; amplifier CTRL on GPIO46 |
 | Audio in | Dual microphones / ES7210 path | Shared 22.05 kHz mono PCM16 initialization and bounded level sample |
 | RTC | PCF85063 | Initialized and sampled with clock-integrity reporting |
 | I/O expander | TCA9554 at I2C `0x20` | Managed by the official BSP |
@@ -30,9 +35,18 @@ I2C driver.
 | I2C SCL | 14 |
 | Display CS / PCLK / D0-D3 / reset | 12 / 38 / 4,5,6,7 / 39 |
 | Touch reset / interrupt | 40 / 11 |
+| IMU INT2 | 21 (direct ESP RTC-capable GPIO; hardware WoM wake not implemented) |
 | SDMMC CLK / CMD / D0 | 2 / 1 / 3 |
 | I2S BCLK / MCLK / WS / DOUT / DIN | 9 / 42 / 45 / 8 / 10 |
 | Speaker amplifier enable | 46 |
+
+The published schematic routes PMU IRQ to TCA9554 P5, RTC INT to P3 and IMU
+INT1 to P6. TCA9554 INT has a pull-up but no ESP connection. PWR is AXP2101
+PWRON; GPIO0 is BOOT. Touch GPIO11 and IMU INT2 GPIO21 are direct candidate
+Deep-sleep wake routes. See the root census for conditions and implementation
+status. Common VCC3V3 supplies GNSS VCC, touch, IMU, SD and the amplifier;
+VCC-RTC supplies RTC/GNSS backup, and A3V3 supplies the audio ADC/codec analog
+path. Firmware exclusion does not prove an electrically disabled device.
 
 ## SD preparation
 

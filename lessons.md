@@ -123,6 +123,13 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Power and standby ownership
 
+- The published PCB routes touch IRQ to GPIO11 and QMI8658 INT2 to GPIO21;
+  both are RTC-capable wake candidates. IMU INT1, PMU IRQ and RTC INT go to
+  the TCA9554, whose INT output has no ESP connection. Keep these routes distinct.
+  The QMI8658 six-axis reference changes only from 757-758 uA at 500 Hz to
+  750 uA at 31.25 Hz (1.8 V datasheet conditions). Sensor power reduction needs
+  a gyro-off profile, not only slower host polling. See `hardware-inventory.md`.
+
 - Performance Mode is session-scoped; it must not overwrite saved settings or
   combine high-rate snapshots, diagnostics, verbose logs, and SD mirroring in
   one UI command. Serial capture is the canonical crash source when SD is off.

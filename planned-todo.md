@@ -31,6 +31,17 @@ priority. Promote an item to `TODO.md` when it becomes active.
 
 ## Power management
 
+- [ ] Design an explicit Deep-sleep product state with touch GPIO11 and
+  accelerometer-only QMI8658 WoM on INT2/GPIO21, polarity/latch handling and
+  fresh snapshot/boot restoration. Decide PWR behavior separately: PMU polling
+  stops in Deep-sleep and the expander INT has no ESP route. Use the root
+  `hardware-inventory.md` datasheet/rail census; measure complete board current
+  only under a separately authorized hardware task.
+- [ ] Identify the exact AMOLED module, MIC1/MIC2, speaker, user-added microSD
+  and battery; obtain missing current specifications and enabled-PMU overhead.
+  Review LC76G AB low-power command/rail behavior before assigning a Backup
+  current to the assembled board.
+
 - [ ] After the explicit Debug/Release split receives host/build/device
   validation, evaluate a safe USB-session-aware sleep policy and measure current,
   reconnect and standby/wake behavior. Keep the known ESP-IDF 6.0.2 USB SOF

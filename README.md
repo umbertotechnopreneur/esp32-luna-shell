@@ -300,12 +300,15 @@ The target includes:
 - AXP2101 PMU, PCF85063 RTC, and QMI8658 IMU;
 - LC76G GNSS with external ceramic antenna;
 - user-added 8 GB microSD;
-- ES8311 speaker codec/amplifier and ES7210 dual-microphone ADC;
+- ES8311 output codec, NS4150B speaker amplifier and ES7210 dual-microphone ADC;
 - Wi-Fi and Bluetooth LE through NimBLE.
 
 The complete pin and integration inventory is in
 [hardware-inventory.md](docs/hardware/hardware-inventory.md) and its
 machine-readable counterpart is [inventory.json](hardware/inventory.json).
+The root [hardware consumption census](hardware-inventory.md) adds component
+datasheet ranges, supply conditions and the actual PWR/touch/IMU wake routes.
+Unknown module currents and unmeasured board totals remain explicitly unavailable.
 
 The board has no SD card-detect pin. A failed SDMMC initialization therefore
 means `card/transport unconfirmed`, never a confirmed physical absence. Firmware
