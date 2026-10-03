@@ -13,6 +13,9 @@
   One authorized preceding-firmware 45-second capture showed continuous frames
   and the I2S mismatch, not the reported freeze. This records implementation;
   new device appearance, audible output and rotation are not yet observed.
+  Checkpoint `6f42f84d` compiled successfully (2,074,320-byte application),
+  with HUD/rotation enabled and LVGL excluded. Flash did not run because COM10
+  was disconnected; deployment remains open rather than recorded as success.
 
 ## Cody first-boot scene implementation (2026-10-03)
 

@@ -202,3 +202,21 @@ success. Loudness and physical sound remain unobserved after the change.
 The capture is preserved under
 `artifacts/build-release-evidence/cody-greeting-freeze.log`, outside transient
 cleanup. No automated tests or simulator checks were run for this iteration.
+
+## HUD/audio/rotation checkpoint build (2026-10-04)
+
+Checkpoint `6f42f84d` compiled successfully through the authorized
+`device.ps1 flash` workflow with ESP-IDF 6.0.2 and eight compiler jobs.
+The application is **2,074,320 bytes**. The resulting configuration enables
+the diagnostic readout, shared auto-rotation startup policy, pearl renderer,
+face-follow and forced first boot; the Luna UI remains excluded.
+
+The flash stage did **not** run: COM10 was no longer present. The dispatcher
+port listing showed COM10/COM11 and the older USB ports as `Unknown` and not
+openable, with no connected USB serial replacement. Reconnect the intended
+device before retrying; do not select a Bluetooth or another product's port.
+The preceding firmware therefore remains the last successfully flashed image.
+Build/port evidence is preserved as `greeting-hud-rotation-build.log` and
+`greeting-disconnected-ports.log` under `artifacts/build-release-evidence/`.
+No new serial capture, tests, simulator checks or physical behavior observations
+were performed after this build.

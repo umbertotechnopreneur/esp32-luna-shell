@@ -16,6 +16,9 @@ authorization.
   checkpoint restores its measured HUD, uses 22.05 kHz cues at volume 100 and
   enables shared cardinal auto-rotation; physical sound and orientation remain
   to be observed after deployment.
+  Checkpoint `6f42f84d` compiled (2,074,320 bytes) but was not flashed because
+  COM10 disconnected before the flash stage. Reconnect the intended USB device
+  and retry delivery before reviewing these changes on hardware.
   Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
