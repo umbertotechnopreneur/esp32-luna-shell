@@ -118,7 +118,7 @@ endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
     idf_component_optional_requires(PUBLIC esp_driver_i2s esp_codec_dev)
 endif()
-if(CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
     # The catalog admits FAT/SD before Kconfig; expose the BSP's SD types publicly.
     foreach(_sd_component IN ITEMS fatfs sdmmc esp_driver_sdmmc)
         if(NOT _sd_component IN_LIST _build_components)
