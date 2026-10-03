@@ -66,6 +66,19 @@ installed. Native report: `artifacts/checks/cody-native/report.json`.
 
 ### Current visual iteration and paused optimization
 
+The full state preceding the PNG experiment was committed as `3b90f25a`.
+After rejecting the added billows' weak relationship to the actual outline,
+the user authorized a reversible PNG-plus-triangles experiment. It is isolated
+on `codex/cloud-png-mesh-study` and enabled only with `-CloudPngMeshStudy`.
+The built-in image generator supplied one transparent, face-free painted body;
+the simulator binds its color and alpha to the same lobe-weighted triangle mesh.
+The existing vector shader remains the default and the firmware is untouched.
+See `assets/cody/experiments/png-mesh/README.md` for exact provenance, prompt,
+commands, 99-vertex/138-triangle topology and the 320 x 220 prepared texture.
+Static PNG, wireframe and a 32-frame synthetic motion GIF have been captured.
+This establishes a visible host experiment, not measured device feasibility.
+No new automated tests, firmware build or flash ran for the PNG trial.
+
 The user subsequently prioritized visual quality over optimization, requested
 broader/more numerous-looking cloud volumes and a high-sensitivity inertial
 default, and made snapshot-only consumer access an explicit repository rule.

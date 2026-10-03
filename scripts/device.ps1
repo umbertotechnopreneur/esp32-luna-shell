@@ -36,6 +36,8 @@ param(
     [ValidateRange(0,2147483647)][int]$AtMs = 1000,
     [switch]$SafeGuide,
     [switch]$CloudMaterialStudy,
+    [switch]$CloudPngMeshStudy,
+    [switch]$MeshOverlay,
     [string]$PythonExecutable,
     [string]$Skin,
     [string]$Check = 'cody-poc',

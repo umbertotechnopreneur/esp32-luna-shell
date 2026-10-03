@@ -19,7 +19,7 @@ from scripts.common.cody_rig_contract import (  # noqa: E402
     advance_contour, advance_face, animate, contour_defaults, evaluate, load_contract, make_contour_state,
 )
 from scripts.common.cody_rig_types import (  # noqa: E402
-    CurvePoint, FillAntialiasing, LabelScope, PointRole, Screen,
+    CurvePoint, FaceChannel, FillAntialiasing, LabelScope, PointRole, Screen,
 )
 from scripts.common.cody_response import (  # noqa: E402
     SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
@@ -30,6 +30,7 @@ from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
+from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
@@ -61,6 +62,7 @@ class CodyRenderer:
 
     # root: Active checkout owning the preview sources.
     # skin_path: Selected YAML character; changing the skin does not change the renderer.
+    # self: Renderer owning immutable authoring tables and optional cached artwork.
     # Raises OSError or ValueError for unreadable artwork or invalid authoring data.
     def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml"):
         self.rig, self.palette = load_contract(root, skin_path)
@@ -73,6 +75,8 @@ class CodyRenderer:
                 # Exact source artwork is previewed; firmware's indexed RLE conversion is separate.
                 self.boot[screen] = source.convert("RGB").resize((SIZE, SIZE), Image.Resampling.LANCZOS)
         self.font = ImageFont.load_default()
+        self.root = root
+        self.png_mesh = None
 
     # color is the initial palette slot of a fresh full logical canvas.
     def indexed(self, color=None):
@@ -178,15 +182,28 @@ class CodyRenderer:
     # rest_outline shows the undeformed contour with the same placement and breathing scale.
     # response_frame optionally shows the actual resting/current root and inertia vector.
     # material_study: Opt-in host-only continuous cloud shading, not firmware parity.
+    # png_mesh_study: Opt-in painted texture driven by the same semantic lobe pose.
+    # mesh_overlay: Show the actual triangle edges when the PNG study is selected.
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
-    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False):
+    # Raises OSError for unreadable experimental PNG artwork.
+    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False):
+        if material_study and png_mesh_study:
+            raise ValueError('Choose either the height-field study or the PNG mesh study')
+        if mesh_overlay and not png_mesh_study:
+            raise ValueError('Mesh overlay requires the PNG mesh study')
         image = self.indexed()
         surface_paths = set(self.rig['contour'].get('surface_paths', []))
         for path in scene["paths"]:
             if not path["visible"]:
                 continue
             definition = path["definition"]
-            if material_study and definition['name'] in surface_paths:
+            if (material_study or png_mesh_study) and definition['name'] in surface_paths:
+                continue
+            if png_mesh_study and definition['name'] == self.rig['contour']['path']:
+                if self.png_mesh is None:
+                    self.png_mesh = PngMeshStudy(self.root, self.rig)
+                image = image.convert('RGB')
+                self.png_mesh.paint(image, scene, overlay=mesh_overlay)
                 continue
             if material_study and definition['name'] == self.rig['contour']['path']:
                 image = image.convert('RGB')
@@ -304,15 +321,19 @@ class CodyRenderer:
     # rest_outline enables the original body contour overlay.
     # response_frame enables resting/current root overlays without recomputing geometry.
     # material_study: Opt-in host-only material study; default rendering is unchanged.
+    # png_mesh_study: Opt-in PNG/triangle body; the existing face remains independent.
+    # mesh_overlay: Show triangle topology rather than just the painted result.
     # Raises ValueError for an unknown screen or invalid rig values.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False):
+    # Raises OSError for unreadable experimental PNG artwork.
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
         if screen == Screen.RIG:
             image = self.draw_scene(scene, debug, selected, guide,
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
-                                    material_study=material_study)
+                                    material_study=material_study, png_mesh_study=png_mesh_study,
+                                    mesh_overlay=mesh_overlay)
         else:
             image = self.boot[screen].copy()
         circular = Image.new("L", (SIZE, SIZE))
@@ -322,21 +343,68 @@ class CodyRenderer:
         image = orient(image, rotation)
         if material_study and screen == Screen.RIG:
             image.info['cody_material_study'] = True
+        if png_mesh_study and screen == Screen.RIG:
+            image.info['cody_png_mesh_study'] = True
         return image, scene
 
     # self: Renderer owning the presentation font.
-    # image: Rendered logical view, optionally marked as a host-only material study.
+    # image: Rendered logical view, optionally marked as a host-only material or PNG mesh study.
     # caption: Context shown for the ordinary simulator capture.
     def capture_sheet(self, image, caption):
         sheet = Image.new("RGB", (SIZE, SIZE+42), "#101820")
         sheet.paste(image, (0,0))
         draw = ImageDraw.Draw(sheet)
-        if image.info.get('cody_material_study', False):
+        if image.info.get('cody_png_mesh_study', False):
+            draw.text((12, SIZE + 7), 'PNG + TRIANGLE MESH / HOST ONLY', fill='#75CBF3', font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill='#C3D0D5', font=self.font)
+        elif image.info.get('cody_material_study', False):
             draw.text((12, SIZE + 7), 'MATERIAL STUDY / HOST ONLY', fill='#75CBF3', font=self.font)
             draw.text((12, SIZE + 23), 'SYNTHETIC / Not the firmware renderer', fill='#C3D0D5', font=self.font)
         else:
             draw.text((12,SIZE+12), "SYNTHETIC / " + caption, fill="#75CBF3", font=self.font)
         return sheet
+
+    # self: Renderer with a lazily decoded PNG and shared semantic rig.
+    # destination: GIF output restricted to artifacts; also owns a sibling pose-sheet PNG.
+    # rotation: Cardinal orientation applied to artwork and controls together.
+    # mesh_overlay: Include the real triangle edges in every frame.
+    # Raises OSError for a failed artwork read or capture write.
+    # Raises ValueError for an invalid pose or inverted mesh triangle.
+    def capture_mesh_motion(self, destination, rotation, mesh_overlay):
+        frames = []
+        transform = tuple(self.rig['default_transform'][key] for key in ('x', 'y', 'scale'))
+        frame_count = 32
+        for frame_number in range(frame_count):
+            phase = math.tau * frame_number / frame_count
+            values = list(self.rig['boot_channels']['ready'])
+            values[FaceChannel.BREATH] = .5 * math.sin(phase)
+            contour = make_contour_state(self.rig)
+            # Explicit synthetic artistic sweep, not fabricated IMU telemetry.
+            # All authored lobe excursion limits and the stationary root remain intact.
+            contour.update(fullness=.8 * math.sin(phase), amplitude=1.0,
+                           speed=.3125, phase_spread=1.0, phase=phase)
+            image, _ = self.render(Screen.RIG, values, transform, debug=False, rotation=rotation,
+                                   contour=contour, png_mesh_study=True, mesh_overlay=mesh_overlay)
+            frames.append(self.capture_sheet(image, 'PNG mesh / synthetic lobe sweep'))
+        # A shared GIF palette avoids frame-to-frame palette changes. Still PNGs
+        # retain RGB565-expanded RGB and are the reference for color inspection.
+        palette = frames[0].quantize(colors=256)
+        indexed = [frame.quantize(palette=palette, dither=Image.Dither.FLOYDSTEINBERG) for frame in frames]
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        indexed[0].save(destination, save_all=True, append_images=indexed[1:],
+                        duration=100, loop=0, disposal=2, optimize=False)
+        # Retain full-color phase samples alongside the compressed motion loop.
+        # These make texture/edge attachment inspectable without a GIF player.
+        pose_sheet = Image.new('RGB', (SIZE * 2, (SIZE + 42) * 2), '#101820')
+        phases = {'phase-0': (0.0, 0, 0), 'phase-90': (.25, 1, 0),
+                  'phase-180': (.50, 0, 1), 'phase-270': (.75, 1, 1)}
+        for name, (fraction, column, row) in phases.items():
+            frame = frames[round(fraction * frame_count)].copy()
+            ImageDraw.Draw(frame).text((12, 12), name + ' / SYNTHETIC', fill='#75CBF3', font=self.font)
+            pose_sheet.paste(frame, (column * SIZE, row * (SIZE + 42)))
+        pose_path = destination.with_name(destination.stem + '-poses.png')
+        pose_sheet.save(pose_path)
+        print(pose_path)
 
 
 class CodyWindow:
@@ -1142,12 +1210,29 @@ def main(argv=None):
     parser.add_argument('--safe-guide',action='store_true')
     parser.add_argument('--cloud-material-study', action='store_true',
                         help='Capture a host-only soft cloud material study; not firmware rendering parity')
+    parser.add_argument('--cloud-png-mesh-study', action='store_true',
+                        help='Capture the painted PNG/triangle experiment; GIF output shows synthetic lobe motion')
+    parser.add_argument('--mesh-overlay', action='store_true',
+                        help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)
     args = parser.parse_args(argv)
     if args.at_ms<0:
         parser.error('--at-ms must be non-negative')
     if args.cloud_material_study and (args.capture is None or args.screen != Screen.RIG):
         parser.error('--cloud-material-study requires --capture and --screen rig')
+    if args.cloud_png_mesh_study and (args.capture is None or args.screen != Screen.RIG):
+        parser.error('--cloud-png-mesh-study requires --capture and --screen rig')
+    if args.cloud_material_study and args.cloud_png_mesh_study:
+        parser.error('Select only one cloud study')
+    if args.mesh_overlay and not args.cloud_png_mesh_study:
+        parser.error('--mesh-overlay requires --cloud-png-mesh-study')
+    if args.capture is not None and args.cloud_png_mesh_study and args.capture.suffix.lower() not in ('.png', '.gif'):
+        parser.error('The PNG mesh study captures PNG stills or a GIF synthetic motion loop')
+    if args.capture is not None and args.capture.suffix.lower() == '.gif':
+        if not args.cloud_png_mesh_study:
+            parser.error('GIF motion capture requires --cloud-png-mesh-study')
+        if args.safe_guide or '--at-ms' in (sys.argv[1:] if argv is None else argv):
+            parser.error('GIF motion uses its complete fixed timeline; --safe-guide and --at-ms are not supported')
     if args.capture is not None:
         try:
             args.capture = resolve_runtime_output(args.capture)
@@ -1156,16 +1241,25 @@ def main(argv=None):
     renderer = CodyRenderer(skin_path=args.skin)
     if args.capture:
         destination = args.capture
+        if args.cloud_png_mesh_study and destination.suffix.lower() == '.gif':
+            renderer.capture_mesh_motion(destination, args.rotation, args.mesh_overlay)
+            print(destination)
+            return
         values = animate(renderer.rig['boot_channels']['ready'],args.at_ms)
         contour = advance_contour(renderer.rig,make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
         # Captures show the same clean artwork as the device's initial view.
         # Interactive inspection still exposes its separate debug controls.
         image,_ = renderer.render(args.screen,values,tuple(renderer.rig['default_transform'][key] for key in ('x','y','scale')),
                                 debug=False,guide=args.safe_guide,rotation=args.rotation,contour=contour,
-                                material_study=args.cloud_material_study)
+                                material_study=args.cloud_material_study,
+                                png_mesh_study=args.cloud_png_mesh_study, mesh_overlay=args.mesh_overlay)
         destination.parent.mkdir(parents=True,exist_ok=True)
         renderer.capture_sheet(image,f"{args.screen} / {args.rotation} deg / HOST PREVIEW").save(destination)
         print(destination)
+        if renderer.png_mesh is not None:
+            study = renderer.png_mesh
+            print(f'HOST ONLY: {len(study.vertices)} vertices, {len(study.triangles)} triangles; '
+                  f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
         return
     root = tk.Tk()
     CodyWindow(root,renderer,args)

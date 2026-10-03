@@ -61,6 +61,12 @@ face and navigation, but is not implemented by the firmware rasterizer:
 Its output is explicitly labelled `MATERIAL STUDY / HOST ONLY`; judge the visual
 direction there before planning a device implementation or making CPU claims.
 
+The newer opt-in `-CloudPngMeshStudy` experiment uses a painted transparent body
+instead of procedural height shading. Its texture and alpha deform together
+through triangles bound to the named lobe anchors; the face stays separate.
+PNG stills and synthetic GIF loops are capture-only and are not firmware parity.
+See [the experiment contract and prompt](../experiments/png-mesh/README.md).
+
 The separate `contour` configuration changes the cloud silhouette through its
 eleven lobe anchors. Fullness, wave amplitude, cycles-per-second speed and
 inter-lobe phase spread are continuous controls. Per-lobe coefficients preserve

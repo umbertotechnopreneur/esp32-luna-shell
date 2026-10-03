@@ -6,9 +6,21 @@ authorization.
 
 ## Current integration
 
+- [ ] Review the opt-in PNG/triangle cloud experiment with the user before any
+  device port. The previous full workspace is checkpointed at `3b90f25a`;
+  the experiment is isolated on `codex/cloud-png-mesh-study`. A painted transparent
+  body now follows the existing lobe anchors through 99 vertices/138 triangles,
+  with the face separate. Static PNG, mesh overlay and synthetic GIF previews
+  are under `artifacts/simulator/cloud-png-mesh-*`. No new tests or hardware
+  measurements ran. CPU cost, native texture sampling, device integration,
+  extreme motion/navigation clearance and visual approval remain open.
+  Scope and source prompt: `assets/cody/experiments/png-mesh/README.md`.
+
 - [ ] Finish the cloud-volume and jelly-like IMU default iteration. Review the
-  continuous host material study (`artifacts/simulator/cloud-study-billows-v5.png`) with
-  the user first; this visual-only shader is not in firmware. Performance
+  PNG/mesh direction above; the continuous height-field study
+  (`artifacts/simulator/cloud-study-billows-v5.png`) was rejected because its
+  added relief did not sufficiently match the border lobes. Neither host-only
+  experiment is in firmware. Performance
   optimization is explicitly deferred. The second flashed cloud candidate
   sustained roughly 29 FPS but CPU1 60-63%, so low CPU cost is not achieved.
   Current touched-event AA work and the newer artwork/motion defaults postdate
