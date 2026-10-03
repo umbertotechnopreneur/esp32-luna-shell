@@ -464,15 +464,21 @@ esp_err_t draw_look_list(const ContentView &view, CODY2D::Surface strip,
 // strip: Already clipped caller-owned content tile.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
+// Exception: Rejects unsupported QR geometry before grid arithmetic or pixel writes.
 esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
     if (qr.side == 0) {
         return ESP_OK;
     }
+    if (qr.side < 21 || qr.side > kQrModulesMax || (qr.side - 21U) % 4U != 0) {
+        ESP_LOGE(kTag, "QR module extent rejected: side=%u (%s)", qr.side, esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     const uint16_t grid_side = qr.side + 2U * kQrQuietModules;
     const uint16_t scale = kQrSide / grid_side;
-    if (qr.side > kQrModulesMax || scale == 0) {
+    if (scale == 0) {
+        ESP_LOGE(kTag, "QR viewport cannot fit side=%u (%s)", qr.side, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     const uint16_t inset = (kQrSide - grid_side * scale) / 2U;
@@ -499,7 +505,7 @@ esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
-// Exception: Returns the first real QR, text, list or action drawing error.
+// Exception: Returns the first real QR, text or list drawing error.
 esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
