@@ -166,10 +166,22 @@ struct ProvisioningSnapshot : ComponentSnapshot {
     // Pairing secrets and credential payloads never enter the public snapshot.
 };
 
+struct PairingSessionSnapshot : ComponentSnapshot {
+    PairingSessionState state = PairingSessionState::Idle;
+    ProvisioningFailureReason failure_reason = ProvisioningFailureReason::None;
+    uint32_t attempt_id = 0;
+    uint32_t provisioning_session_id = 0;
+    int64_t changed_at_us = 0;
+    int64_t deadline_at_us = 0;
+    esp_err_t cleanup_error = ESP_OK;
+    bool command_pending = false;
+};
+
 struct RadioSnapshot {
     WifiSnapshot wifi;
     BleSnapshot ble;
     ProvisioningSnapshot provisioning;
+    PairingSessionSnapshot pairing;
 };
 
 enum class StorageMountOutcome : uint8_t {
@@ -556,6 +568,11 @@ struct TouchActivityObservation {
 
 // A coherent view of the same canonical snapshot, not a second sensor cache.
 // Small consumers avoid copying audio spectra and storage inventories on their stack.
+struct ConnectivityObservation {
+    RadioSnapshot radios;
+    DeviceOperatingState operating_state = DeviceOperatingState::Active;
+};
+
 struct MotionPowerObservation {
     bool storage_available = false;
     BatterySnapshot battery;
@@ -592,6 +609,8 @@ public:
     [[nodiscard]]
     TouchActivityObservation touchActivityObservation() const noexcept;
     DeviceSnapshot snapshot() const;
+    // observation: Canonical radio/session state and power state under one lock.
+    esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.
     // This read never samples FreeRTOS directly or starts another telemetry cache.
     esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;
@@ -663,6 +682,8 @@ public:
     void reportWifi(const WifiSnapshot &wifi);
     // provisioning: Coherent lifecycle observation published by its sole owner.
     void reportProvisioning(const ProvisioningSnapshot &provisioning);
+    // pairing: Coherent async controller observation, without any secret payload.
+    void reportPairingSession(const PairingSessionSnapshot &pairing);
     void reportBle(
         bool ready,
         esp_err_t error,

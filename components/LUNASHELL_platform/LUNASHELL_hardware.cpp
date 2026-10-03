@@ -6634,6 +6634,25 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// observation: Coherent projection for the connectivity worker; no driver reads.
+esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &observation) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "connectivity read");
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    const ConnectivityObservation copy{
+        .radios = s_snapshot.radios,
+        .operating_state = s_snapshot.power.state,
+    };
+    const esp_err_t release_error = give_snapshot_mutex("connectivity read");
+    if (release_error != ESP_OK) {
+        return release_error;
+    }
+    observation = copy;
+    return ESP_OK;
+}
+
 // frame: Receives the last completed display operation, never a new driver read.
 // Its measured flag, original error and completion timestamp travel with the values.
 esp_err_t DeviceSnapshotService::readDisplayFrameObservation(DisplayFrameSnapshot &frame) const

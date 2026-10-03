@@ -708,7 +708,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         const esp_err_t access_point_error =
             esp_wifi_sta_get_ap_info(&access_point);
         esp_err_t event_error =
-            got_ip == nullptr
+            got_ip == nullptr || got_ip->ip_info.ip.addr == 0
                 ? ESP_ERR_INVALID_RESPONSE
                 : access_point_error;
         const esp_err_t cancel_error = cancel_reconnect(false, false);
@@ -726,7 +726,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             return;
         }
         s_status.connected = true;
-        s_status.ip_acquired = got_ip != nullptr;
+        s_status.ip_acquired = got_ip != nullptr && got_ip->ip_info.ip.addr != 0;
         s_status.credentials_configured = true;
         s_status.connect_requested = true;
         if (access_point_error == ESP_OK) {
