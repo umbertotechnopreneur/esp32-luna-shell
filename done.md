@@ -6,8 +6,12 @@
   submenus, with Exit on the main page and Back on nested pages. Organize help
   into colored categories/subsections with dividers, readable command examples,
   width-aware wrapping and descriptions for firmware/device commands, checks
-  and generators. Review source only; no CLI preview, tests, build, simulator
-  or physical-device operation ran.
+  and generators. Use only `Device.ps1` in help examples, with an opening note
+  for execution from `scripts`. Show every command/option in bold WhiteSmoke
+  (`#F5F5F5`) with its extended description underneath; use the full terminal
+  width with one blank line between entries instead of two columns.
+  Review source only; no CLI preview, tests, build, simulator or physical-device
+  operation ran.
 
 ## HTTP and Wi-Fi pairing integration (2026-10-04)
 

@@ -12,67 +12,68 @@ function Show-DeviceHelp {
     Write-Host '  🌙  CODY COMPANION / DEVICE CONSOLE' -ForegroundColor Cyan
     Write-DeviceHelpText -Text 'Simulators · Firmware · Device · Checks · Assets' -Width $width
     Write-Host ('  ' + ('═' * ($width - 4))) -ForegroundColor DarkCyan
-    Write-DeviceHelpText -Text 'Run from the repository in PowerShell: .\scripts\device.ps1 <command> [options]' -Width $width -Indent '  '
+    Write-DeviceHelpText -Text 'Usage: Device.ps1 <command> [options]' -Width $width -Indent '  '
+    Write-DeviceHelpText -Text 'Examples use the script name only. Run it from the scripts folder; in PowerShell use .\Device.ps1.' -Width $width -Indent '  '
 
     Write-DeviceHelpSection -Title 'START HERE' -Icon '🧭' -Width $width
-    Write-DeviceHelpEntry -Syntax '.\scripts\device.ps1' -Description 'Open the interactive menu; select an operation or edit session settings.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 help' -Description 'Show this guide, with examples and command descriptions.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 list' -Description 'Show the same guide, including the current check/generator catalogs.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1' -Description 'Open the interactive menu; select an operation or edit session settings.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 help' -Description 'Show this guide, with examples and command descriptions.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 list' -Description 'Show the same guide, including the current check/generator catalogs.' -Width $width
 
     Write-DeviceHelpSection -Title 'SIMULATORS AND PREVIEWS' -Icon '🖥️' -Width $width -Color Magenta
     Write-DeviceHelpSection -Title 'Interactive Cody and boot screens' -Icon '🤖' -Width $width -Color Magenta -Subsection
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator' -Description 'Open Cody with rig, face, contour and debug controls.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -Skin assets/characters/example.yaml' -Description 'Preview an explicitly selected character skin YAML.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -Screen boot-ready -Rotation 180' -Description 'Preview a boot stage in the selected display orientation.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -Screen greeting' -Description 'Open the greeting scene with visibly synthetic host stimuli.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 boot-screens' -Description 'Save sleeping, waking and ready PNG previews in artifacts/simulator/.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -OutputPath artifacts/simulator/rig.png' -Description 'Save a still preview instead of opening the interactive simulator.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator' -Description 'Open Cody with rig, face, contour and debug controls.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Skin assets/characters/example.yaml' -Description 'Preview an explicitly selected character skin YAML.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen boot-ready -Rotation 180' -Description 'Preview a boot stage in the selected display orientation.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen greeting' -Description 'Open the greeting scene with visibly synthetic host stimuli.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 boot-screens' -Description 'Save sleeping, waking and ready PNG previews in artifacts/simulator/.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -OutputPath artifacts/simulator/rig.png' -Description 'Save a still preview instead of opening the interactive simulator.' -Width $width
 
     Write-DeviceHelpSection -Title 'Cloud material studies' -Icon '☁️' -Width $width -Color Magenta -Subsection
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -CloudMaterialStudy -OutputPath artifacts/simulator/cloud-study.png' -Description 'Render the cloud-volume material study to a still image.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-mesh.gif' -Description 'Capture the PNG mesh study as a synthetic motion loop; use .png for a still.' -Detail 'Add -MeshOverlay to show the triangle wireframe. This study requires -OutputPath and the rig screen.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator -CloudJellyStudy' -Description 'Open the interactive pearlescent scanline study.' -Detail 'Add -OutputPath artifacts/simulator/cloud-jelly.gif to export a loop, or use .png for a still. Select only one cloud study at a time.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudMaterialStudy -OutputPath artifacts/simulator/cloud-study.png' -Description 'Render the cloud-volume material study to a still image.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-mesh.gif' -Description 'Capture the PNG mesh study as a synthetic motion loop; use .png for a still.' -Detail 'Add -MeshOverlay to show the triangle wireframe. This study requires -OutputPath and the rig screen.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudJellyStudy' -Description 'Open the interactive pearlescent scanline study.' -Detail 'Add -OutputPath artifacts/simulator/cloud-jelly.gif to export a loop, or use .png for a still. Select only one cloud study at a time.' -Width $width
 
     Write-DeviceHelpSection -Title 'Luna reference tools' -Icon '🌙' -Width $width -Color Magenta -Subsection
-    Write-DeviceHelpEntry -Syntax 'device.ps1 simulator-luna' -Description 'Open the existing Luna reference UI simulator.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'device.ps1 package-simulator' -Description 'Prepare local Python dependencies and package the Luna simulator EXE.' -Detail 'This packages Luna; the Cody simulator remains source-based.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator-luna' -Description 'Open the existing Luna reference UI simulator.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 package-simulator' -Description 'Prepare local Python dependencies and package the Luna simulator EXE.' -Detail 'This packages Luna; the Cody simulator remains source-based.' -Width $width
 
     Write-DeviceHelpSection -Title 'FIRMWARE' -Icon '🔨' -Width $width -Color Cyan
     Write-DeviceHelpSection -Title 'Build and configuration' -Icon '🎯' -Width $width -Subsection
     foreach ($name in @('set-target','build','reconfigure','update-lock','size')) {
         $syntax = switch ($name) {
-            build { 'device.ps1 build -Jobs 8' }
-            size { 'device.ps1 size -SizeOutputFormat json2' }
-            default { "device.ps1 $name" }
+            build { 'Device.ps1 build -Jobs 8' }
+            size { 'Device.ps1 size -SizeOutputFormat json2' }
+            default { "Device.ps1 $name" }
         }
         Write-DeviceHelpEntry -Syntax $syntax -Description $firmware[$name].Description -Width $width
     }
-    Write-DeviceHelpEntry -Syntax 'device.ps1 build -BuildMode Release -Jobs 8' -Description 'Compile Release explicitly; ordinary CLI calls default to Debug.' -Detail 'Use -BuildMode Release again for Release set-target, flash and size. Debug/Release keep separate generated configurations and build directories; menu mode selection lasts for that session.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 build -BuildMode Release -Jobs 8' -Description 'Compile Release explicitly; ordinary CLI calls default to Debug.' -Detail 'Use -BuildMode Release again for Release set-target, flash and size. Debug/Release keep separate generated configurations and build directories; menu mode selection lasts for that session.' -Width $width
 
     Write-DeviceHelpSection -Title 'Cleanup' -Icon '🧹' -Width $width -Subsection
     foreach ($name in @('clean','fullclean')) {
-        Write-DeviceHelpEntry -Syntax "device.ps1 $name" -Description $firmware[$name].Description -Width $width
+        Write-DeviceHelpEntry -Syntax "Device.ps1 $name" -Description $firmware[$name].Description -Width $width
     }
-    Write-DeviceHelpEntry -Syntax 'device.ps1 clean-artifacts' -Description 'Remove transient logs, captures, reports and previews; retain firmware builds, configuration and Python caches.' -Detail 'The same transient cleanup runs before build, flash, combo and recover.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 clean-artifacts' -Description 'Remove transient logs, captures, reports and previews; retain firmware builds, configuration and Python caches.' -Detail 'The same transient cleanup runs before build, flash, combo and recover.' -Width $width
 
     Write-DeviceHelpSection -Title 'DEVICE AND SERIAL' -Icon '🔌' -Width $width -Color Yellow
     Write-DeviceHelpSection -Title 'Connection and serial output' -Icon '📟' -Width $width -Color Yellow -Subsection
     foreach ($name in @('discovery','ports','port-status','monitor','capture')) {
         $syntax = switch ($name) {
-            { $_ -in @('discovery','ports') } { "device.ps1 $name" }
-            capture { 'device.ps1 capture -Port COM8 -DurationSeconds 30' }
-            default { "device.ps1 $name -Port COM8" }
+            { $_ -in @('discovery','ports') } { "Device.ps1 $name" }
+            capture { 'Device.ps1 capture -Port COM8 -DurationSeconds 30' }
+            default { "Device.ps1 $name -Port COM8" }
         }
         Write-DeviceHelpEntry -Syntax $syntax -Description $firmware[$name].Description -Width $width
     }
     Write-DeviceHelpSection -Title 'Programming and recovery' -Icon '⚡' -Width $width -Color Yellow -Subsection
     foreach ($name in @('flash','reset','combo','recover','erase')) {
-        Write-DeviceHelpEntry -Syntax "device.ps1 $name -Port COM8" -Description $firmware[$name].Description -Width $width
+        Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port COM8" -Description $firmware[$name].Description -Width $width
     }
 
     Write-DeviceHelpSection -Title 'CHECKS' -Icon '🧪' -Width $width -Color Green
-    Write-DeviceHelpEntry -Syntax 'device.ps1 check -Check cody-poc' -Description 'Run exactly the selected check. Default identifier: cody-poc.' -Width $width
-    Write-DeviceHelpEntry -Syntax "device.ps1 check -Check cody-poc -ToolArguments @('--previews')" -Description 'Pass literal tool-specific tokens from a PowerShell session.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 check -Check cody-poc' -Description 'Run exactly the selected check. Default identifier: cody-poc.' -Width $width
+    Write-DeviceHelpEntry -Syntax "Device.ps1 check -Check cody-poc -ToolArguments @('--previews')" -Description 'Pass literal tool-specific tokens from a PowerShell session.' -Width $width
     foreach ($category in (Get-DeviceToolCatalog 'checks' | Group-Object Category)) {
         Write-DeviceHelpSection -Title $category.Name -Icon '🧪' -Width $width -Color Green -Subsection
         foreach ($tool in $category.Group) {
@@ -81,14 +82,14 @@ function Show-DeviceHelp {
     }
 
     Write-DeviceHelpSection -Title 'ASSET GENERATORS' -Icon '🎨' -Width $width -Color Magenta
-    Write-DeviceHelpEntry -Syntax 'device.ps1 generate -Generator cody-rig' -Description 'Regenerate the selected canonical source assets. Default identifier: cody-rig.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 generate -Generator cody-rig' -Description 'Regenerate the selected canonical source assets. Default identifier: cody-rig.' -Width $width
     foreach ($category in (Get-DeviceToolCatalog 'generators' | Group-Object Category)) {
         Write-DeviceHelpSection -Title $category.Name -Icon '🎨' -Width $width -Color Magenta -Subsection
         foreach ($tool in $category.Group) {
             Write-DeviceHelpEntry -Syntax $tool.Name -Description $tool.Description -Width $width
         }
     }
-    Write-DeviceHelpEntry -Syntax 'device.ps1 banner' -Description 'Preview source-banner maintenance; forward tool options through -ToolArguments.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 banner' -Description 'Preview source-banner maintenance; forward tool options through -ToolArguments.' -Width $width
 
     Write-DeviceHelpSection -Title 'OPTIONS AND DEFAULTS' -Icon '⚙️' -Width $width
     Write-DeviceHelpSection -Title 'Firmware selection' -Icon '🎯' -Width $width -Subsection

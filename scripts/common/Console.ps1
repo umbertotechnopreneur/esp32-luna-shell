@@ -96,21 +96,53 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
     }
 }
 
+# Text is one already wrapped line, with optional single- or double-dash parameters.
+# Color selects the base text color while parameters use WhiteSmoke.
+# Heading renders the complete command or option in bold WhiteSmoke.
+function Write-DeviceHelpLine([string]$Text, [ConsoleColor]$Color, [switch]$Heading) {
+    if ($Heading) {
+        if ($Host.UI.SupportsVirtualTerminal) {
+            $coloredHeading = '{0}[1;38;2;245;245;245m{1}{0}[0m' -f [char]27, $Text
+            Write-Host $coloredHeading
+        } else {
+            Write-Host $Text -ForegroundColor White
+        }
+        return
+    }
+    $parameters = [regex]::Matches($Text, '(?<![\w-])--?[A-Za-z?][A-Za-z0-9-]*')
+    $position = 0
+    foreach ($parameter in $parameters) {
+        if ($parameter.Index -gt $position) {
+            Write-Host $Text.Substring($position, $parameter.Index - $position) -ForegroundColor $Color -NoNewline
+        }
+        if ($Host.UI.SupportsVirtualTerminal) {
+            # ConsoleColor is theme-dependent; true color preserves the requested #F5F5F5.
+            $coloredParameter = '{0}[1;38;2;245;245;245m{1}{0}[0m' -f [char]27, $parameter.Value
+            Write-Host $coloredParameter -NoNewline
+        } else {
+            Write-Host $parameter.Value -ForegroundColor White -NoNewline
+        }
+        $position = $parameter.Index + $parameter.Length
+    }
+    if ($position -lt $Text.Length) {
+        Write-Host $Text.Substring($position) -ForegroundColor $Color -NoNewline
+    }
+    Write-Host ''
+}
+
 # Text contains one paragraph to wrap without dropping any command or description.
 # Width is the available terminal width, including indentation.
 # Indent is the leading whitespace for every wrapped line.
 # Color selects the paragraph's console color.
-# ContinueLine skips the first indent when the command column has already been printed.
 # Command keeps wrapped PowerShell examples copyable with explicit line-continuation marks.
-function Write-DeviceHelpText([string]$Text, [int]$Width, [string]$Indent = '      ', [ConsoleColor]$Color = 'Gray', [switch]$ContinueLine, [switch]$Command) {
+# Heading gives wrapped command lines the same bold WhiteSmoke style.
+function Write-DeviceHelpText([string]$Text, [int]$Width, [string]$Indent = '      ', [ConsoleColor]$Color = 'Gray', [switch]$Command, [switch]$Heading) {
     $continuation = if ($Command) { ' `' } else { '' }
     $availableWidth = [Math]::Max(20, $Width - $Indent.Length - $continuation.Length - 2)
     $line = ''
-    $currentIndent = if ($ContinueLine) { '' } else { $Indent }
     foreach ($word in ($Text -split '\s+')) {
         if ($line.Length -gt 0 -and ($line.Length + 1 + $word.Length) -gt $availableWidth) {
-            Write-Host "$currentIndent$line$continuation" -ForegroundColor $Color
-            $currentIndent = $Indent
+            Write-DeviceHelpLine -Text "$Indent$line$continuation" -Color $Color -Heading:$Heading
             $line = ''
         }
         if ($line.Length -gt 0) {
@@ -119,7 +151,7 @@ function Write-DeviceHelpText([string]$Text, [int]$Width, [string]$Indent = '   
         $line += $word
     }
     if ($line.Length -gt 0) {
-        Write-Host "$currentIndent$line" -ForegroundColor $Color
+        Write-DeviceHelpLine -Text "$Indent$line" -Color $Color -Heading:$Heading
     }
 }
 
@@ -141,26 +173,16 @@ function Write-DeviceHelpSection([string]$Title, [string]$Icon, [int]$Width, [Co
 
 # Syntax is the exact public command, tool identifier or option being documented.
 # Description explains the operation in plain English.
-# Width controls whether descriptions fit beside the syntax or below it.
-# Detail adds an indented explanation for commands with less obvious behavior.
+# Width wraps command headings and their descriptions to the available terminal space.
+# Detail extends the description for commands with less obvious behavior.
 function Write-DeviceHelpEntry([string]$Syntax, [string]$Description, [int]$Width, [string]$Detail) {
-    # The public examples are directly runnable from the checkout in PowerShell.
-    if ($Syntax.StartsWith('device.ps1 ')) {
-        $Syntax = '.\scripts\' + $Syntax
-    }
-    # Wide terminals get aligned columns. Narrow terminals keep complete syntax
-    # on its own lines instead of truncating commands or squeezing descriptions.
-    $syntaxWidth = 54
-    if ($Width -ge 112 -and $Syntax.Length -le $syntaxWidth) {
-        Write-Host ('    ' + $Syntax.PadRight($syntaxWidth)) -ForegroundColor White -NoNewline
-        Write-Host '  ' -NoNewline
-        $descriptionIndent = ' ' * ($syntaxWidth + 6)
-        Write-DeviceHelpText -Text $Description -Width $Width -Indent $descriptionIndent -Color Gray -ContinueLine
-    } else {
-        Write-DeviceHelpText -Text $Syntax -Width $Width -Indent '    ' -Color White -Command:($Syntax.StartsWith('.\scripts\device.ps1'))
-        Write-DeviceHelpText -Text $Description -Width $Width
-    }
+    # Each entry owns one blank line. Descriptions use the full available width
+    # rather than reserving half of the terminal for a mostly empty column.
+    Write-Host ''
+    Write-DeviceHelpText -Text $Syntax -Width $Width -Indent '    ' -Color White -Command:($Syntax.StartsWith('Device.ps1')) -Heading
+    $extendedDescription = $Description
     if ($Detail) {
-        Write-DeviceHelpText -Text $Detail -Width $Width -Color DarkCyan
+        $extendedDescription += ' ' + $Detail
     }
+    Write-DeviceHelpText -Text $extendedDescription -Width $Width
 }

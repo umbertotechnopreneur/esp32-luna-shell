@@ -8,9 +8,15 @@ All labels and command help are English.
 Menu items use operation-specific emoji, including settings and tool submenus.
 `help` and `list` show a colored guide with category dividers, subsections,
 complete command examples and descriptions for the current check/generator
-catalogs. Wide terminals align commands and descriptions in columns; narrower
-terminals wrap them onto separate lines without truncating the command text.
+catalogs. Every entry starts with a bold WhiteSmoke command or option, followed
+by its extended description underneath. A single blank line separates entries;
+text wraps to the available terminal width without truncating commands or
+reserving space for a second column.
 Firmware recovery, dependency-lock updates and cleanup explain their effects.
+Help examples use only `Device.ps1`; an opening note explains that the script
+is run from the `scripts` folder with `.\Device.ps1` in PowerShell.
+Single- and double-dash parameters also use bold WhiteSmoke (`#F5F5F5`) inside
+descriptions when the terminal supports ANSI color.
 
 Firmware mode defaults to `Debug` on every CLI invocation. Release requires
 explicit `-BuildMode Release`, including for later flash/size/configuration
