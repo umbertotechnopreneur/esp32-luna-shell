@@ -1242,7 +1242,8 @@ static esp_err_t wifi_connect_impl(
     return error;
 }
 
-static esp_err_t wifi_disconnect_impl(void)
+// Called only after the Wi-Fi lifecycle lock is held by a legitimate owner.
+static esp_err_t wifi_disconnect_owned_impl(void)
 {
     if (!s_initialized) {
         return ESP_ERR_INVALID_STATE;
@@ -1416,6 +1417,16 @@ extern "C" esp_err_t LUNASHELL_wifi_connect(
     );
 }
 
+static esp_err_t wifi_disconnect_impl()
+{
+    if (s_provisioning_owns_connection) {
+        ESP_LOGE(TAG, "Wi-Fi disconnect requires provisioning cancellation first (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return wifi_disconnect_owned_impl();
+}
+
 extern "C" esp_err_t LUNASHELL_wifi_disconnect(void)
 {
     return run_watched_wifi_operation("disconnect", wifi_disconnect_impl);
@@ -1446,7 +1457,7 @@ esp_err_t begin()
         return ESP_ERR_INVALID_STATE;
     }
     const esp_err_t error = disconnect
-        ? wifi_disconnect_impl()
+        ? wifi_disconnect_owned_impl()
         : cancel_reconnect(true, false);
     if (error != ESP_OK) {
         return error;
@@ -1515,7 +1526,7 @@ esp_err_t end(bool keep_connection)
     }
     if (!keep_connection) {
         const esp_err_t error = disconnect
-            ? wifi_disconnect_impl()
+            ? wifi_disconnect_owned_impl()
             : cancel_reconnect(true, false);
         if (error != ESP_OK) {
             return error;
