@@ -14,6 +14,8 @@ $sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $ProjectRoot = $sourceRoot
 . (Join-Path $sourceRoot 'scripts/common/Artifacts.ps1')
 . (Join-Path $sourceRoot 'scripts/common/Commands.ps1')
+. (Join-Path $sourceRoot 'scripts/common/SerialPorts.ps1')
+. (Join-Path $sourceRoot 'scripts/common/Errors.ps1')
 $script:checkCount = 0
 $script:hostCalls = [System.Collections.Generic.List[object]]::new()
 $script:rejectHostCall = $false
@@ -145,6 +147,82 @@ try {
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'help' @{ LogPath = 'artifacts/logs/help.log' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ BoardConfig = 'board.yaml'; Profile = 'full' } $contract } 'BoardConfig selects'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'size' @{ DurationSeconds = 1 } $contract } 'not valid'
+    }
+
+    Invoke-ConsoleCheck 'Serial selection uses COM identity across input forms and reordered inventories' {
+        $portTen = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'OK' }
+        $portTwo = [pscustomobject]@{ DeviceID = 'COM2'; Status = 'OK' }
+        foreach ($inventory in @(@($portTen, $portTwo), @($portTwo, $portTen))) {
+            foreach ($selection in @('10', 'COM10', ' com10 ')) {
+                $selectedPort = Resolve-SerialPortSelection -Selection $selection -PresentPorts $inventory
+                Assert-ConsoleCondition ($selectedPort -eq 'COM10') 'Serial selection depended on inventory order or input notation.'
+            }
+        }
+        Assert-ConsoleCondition ((Normalize-PortName '10') -eq 'COM10') 'Explicit numeric Port was not normalized.'
+    }
+
+    Invoke-ConsoleCheck 'Serial selection never substitutes a port after cancellation or invalid device state' {
+        $portTen = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'OK' }
+        $unhealthyPort = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'Error' }
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '' @($portTen) } 'cancelled'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '2' @($portTen) } 'not in the detected list'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @() } 'not in the detected list'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @($portTen, $portTen) } 'ambiguous'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @($unhealthyPort) } "status 'Error'"
+        foreach ($invalidPort in @('0', 'COM0', '-1', 'ttyUSB0')) {
+            Assert-ConsoleRejection { Normalize-PortName $invalidPort } 'Invalid serial port'
+        }
+    }
+
+    Invoke-ConsoleCheck 'Shared formatter preserves the primary cause and writes diagnostic chains under the output lock' {
+        $failure = $null
+        try {
+            throw [System.InvalidOperationException]::new(
+                'Synthetic tool failed (exit code 23)',
+                [System.IO.IOException]::new('Synthetic native cause'))
+        } catch {
+            $failure = $_
+        }
+        $diagnosticPath = Join-Path $fixtureArtifacts 'logs/formatter.log'
+        $diagnosticLock = Open-DeviceArtifactLock
+        try {
+            $presentation = Write-DeviceFailure -FailureRecord $failure -Operation 'fixture' `
+                -Stage 'running host stub' -LogPath $diagnosticPath -LogDetails 6>&1 | Out-String
+        } finally {
+            $diagnosticLock.Dispose()
+        }
+        Assert-ConsoleCondition ($presentation.Contains('Reason: Synthetic tool failed (exit code 23)')) 'Formatter replaced the native failure reason.'
+        $diagnostics = Get-Content -LiteralPath $diagnosticPath -Raw
+        foreach ($detail in @('Synthetic native cause', 'Invocation:', 'Script stack:', 'Error ID:')) {
+            Assert-ConsoleCondition ($diagnostics.Contains($detail)) "Formatter omitted diagnostic detail '$detail'."
+        }
+
+        # Failing to create a log must not erase the primary operation failure.
+        $blockedDirectory = Join-Path $fixtureArtifacts 'blocked-log-directory'
+        New-ConsoleFixtureFile $blockedDirectory
+        $diagnosticLock = Open-DeviceArtifactLock
+        try {
+            $presentation = Write-DeviceFailure -FailureRecord $failure -Operation 'fixture' `
+                -Stage 'running host stub' -LogPath (Join-Path $blockedDirectory 'failure.log') -LogDetails 6>&1 | Out-String
+        } finally {
+            $diagnosticLock.Dispose()
+        }
+        Assert-ConsoleCondition ($presentation.Contains('Reason: Synthetic tool failed (exit code 23)')) 'Log failure masked the primary cause.'
+        Assert-ConsoleCondition ($presentation.Contains('Details not written:')) 'Formatter hid the secondary logging error.'
+    }
+
+    Invoke-ConsoleCheck 'Shared formatter does not write without ownership or invent recovery for unknown errors' {
+        $failure = $null
+        try {
+            throw 'Synthetic unclassified failure.'
+        } catch {
+            $failure = $_
+        }
+        $unownedPath = Join-Path $fixtureArtifacts 'logs/unowned.log'
+        $presentation = Write-DeviceFailure -FailureRecord $failure -Operation 'fixture' `
+            -Stage 'preflight' -LogPath $unownedPath 6>&1 | Out-String
+        Assert-ConsoleCondition (-not (Test-Path -LiteralPath $unownedPath)) 'Formatter wrote without log ownership.'
+        Assert-ConsoleCondition (-not $presentation.Contains('Next:')) 'Formatter invented advice for an unknown error.'
     }
 
     Invoke-ConsoleCheck 'Cody preview routes stay host-only and retain literal capture arguments' {

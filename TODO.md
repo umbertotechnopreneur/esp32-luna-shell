@@ -219,6 +219,9 @@ authorization.
   exercise menu/CLI routing, simulator captures, relocated imports, packaging,
   cleanup and failure logging. Firmware build/flash paths retain separate
   authorization requirements. This tooling reorganization has static review only.
+  Include interactive COM selection before ESP-IDF initialization, numeric/COM
+  input equivalence, cancellation, unavailable or ambiguous port rejection and
+  the shared CLI/menu error presentation. No physical serial behavior is verified.
 
 - [ ] Measure the contour and named-overlay extension on explicitly authorized
   hardware: smooth slow/fast target changes, physical point/touch alignment,

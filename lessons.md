@@ -4,6 +4,18 @@ Concise engineering invariants learned from this board and runtime. These are
 not substitutes for authorized device validation. Open work belongs in
 `TODO.md`, not here.
 
+## Device-console errors and port identity
+
+- A COM number from an earlier connection is not a device identity. When no
+  port is supplied, show present Windows devices and require a user choice;
+  never select by list order or retain an implicit workstation COM default.
+- Normalize COM names and numeric input before ESP-IDF initialization. Preserve
+  real failures, native exit codes and exception chains in the shared formatter;
+  a failed diagnostic log is a separate error, not a successful command.
+- Classify a missing Windows serial port by the native file/path-not-found
+  error code, not localized exception text. Acquire artifact output ownership
+  before writing diagnostic logs, including when command preflight fails.
+
 ## Build profiles and resources
 
 - Debug/Release is a separate axis from the hardware graph. Default to Debug;

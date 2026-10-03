@@ -5,7 +5,7 @@ param(
     [ValidateSet("build", "clean", "fullclean", "flash", "reset", "monitor", "capture", "erase", "reconfigure", "set-target", "update-lock", "size", "combo", "ports", "discovery", "port-status", "recover")]
     [string]$Action = "build",
 
-    [string]$Port = "COM8",
+    [string]$Port,
 
     [int]$Baud = 115200,
 
@@ -51,6 +51,17 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot '../common/SerialPorts.ps1')
+
+# Resolve the user's COM choice before toolchain output, builds or process cleanup.
+if ($Action -in @('flash','reset','monitor','capture','erase','combo','port-status','recover')) {
+    if ($PSBoundParameters.ContainsKey('Port')) {
+        $Port = Normalize-PortName $Port
+    } else {
+        $Port = Select-SerialPort -RequestedAction $Action
+    }
+}
+
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Console]::InputEncoding = [System.Text.Encoding]::UTF8
@@ -199,7 +210,7 @@ if (-not [string]::IsNullOrWhiteSpace($BoardConfig)) {
     $boardSelectionOutput = @(& $boardPython `
         (Join-Path $ProjectRoot "scripts/common/board_config.py") $BoardConfigPath 2>&1)
     if ($LASTEXITCODE -ne 0) {
-        throw "Board configuration rejected: $($boardSelectionOutput -join ' | ')"
+        throw "Board configuration rejected (exit code $LASTEXITCODE): $($boardSelectionOutput -join ' | ')"
     }
     try {
         $boardSelection = ($boardSelectionOutput -join "`n") | ConvertFrom-Json
@@ -509,7 +520,7 @@ $env:IDF_PYTHON_ENV_PATH = $PythonEnvPath
 # of duplicating CMake, Ninja, debugger, and compiler versions in this script.
 $toolExports = & $PythonExe $IdfToolsPy export --format key-value
 if ($LASTEXITCODE -ne 0) {
-    throw "Impossibile esportare la toolchain ESP-IDF da $IdfPath"
+    throw "Impossibile esportare la toolchain ESP-IDF da $IdfPath (exit code $LASTEXITCODE)"
 }
 foreach ($line in $toolExports) {
     if ($line -notmatch '^([A-Z][A-Z0-9_]*)=(.*)$') {
@@ -543,7 +554,7 @@ $IdfVersionOutput = @(& $PythonExe $IdfPy --version 2>&1 | ForEach-Object {
     "$_".Trim()
 })
 if ($LASTEXITCODE -ne 0) {
-    throw "Impossibile determinare la versione ESP-IDF: $($IdfVersionOutput -join ' | ')"
+    throw "Impossibile determinare la versione ESP-IDF (exit code $LASTEXITCODE): $($IdfVersionOutput -join ' | ')"
 }
 $IdfVersionLines = @($IdfVersionOutput | Where-Object {
     $_ -match '^ESP-IDF v\d+\.\d+\.\d+(?:\s|$)'
@@ -591,34 +602,14 @@ Write-Host "Toolchain: $ToolchainVersion ($($ToolchainCommand.Source))"
 
 $PortReleaseGraceMilliseconds = 2000
 
+# No parameters: share the present-device inventory used by interactive selection.
+# Throws when Windows serial discovery fails; a failed query is never an empty list.
 function Get-SerialPorts {
-    $openablePorts = @([System.IO.Ports.SerialPort]::GetPortNames() | ForEach-Object { $_.ToUpperInvariant() })
-
-    $ports = Get-PnpDevice -Class Ports -ErrorAction SilentlyContinue |
-        Where-Object { $_.FriendlyName -match '\(COM\d+\)' } |
-        ForEach-Object {
-            $deviceId = $null
-            if ($_.InstanceId -match '\((COM\d+)\)') {
-                $deviceId = $Matches[1].ToUpperInvariant()
-            } elseif ($_.FriendlyName -match '\((COM\d+)\)') {
-                $deviceId = $Matches[1].ToUpperInvariant()
-            }
-
-            [PSCustomObject]@{
-                DeviceID = $deviceId
-                FriendlyName = $_.FriendlyName
-                InstanceId = $_.InstanceId
-                Status = $_.Status
-                IsEspressif = $_.InstanceId -match 'VID_303A'
-                IsOpenable = $openablePorts -contains $deviceId
-            }
-        } |
-        Where-Object { $_.DeviceID } |
-        Sort-Object DeviceID
-
-    return @($ports)
+    return @(Get-PresentSerialPorts)
 }
 
+# No parameters: display currently present COM identities without opening their handles.
+# Throws when Windows serial discovery fails.
 function Show-SerialPorts {
     $ports = Get-SerialPorts
 
@@ -628,21 +619,7 @@ function Show-SerialPorts {
     }
 
     Write-Host "Detected serial ports:"
-    $ports | Format-Table DeviceID, FriendlyName, Status, IsOpenable -AutoSize
-}
-
-# Validate an explicitly selected COM port without querying USB or PnP state.
-function Normalize-PortName([string]$RequestedPort) {
-    if ([string]::IsNullOrWhiteSpace($RequestedPort)) {
-        throw "Specify the serial port with -Port, for example -Port COM5"
-    }
-
-    $normalizedPort = $RequestedPort.Trim().ToUpperInvariant()
-    if ($normalizedPort -notmatch '^COM\d+$') {
-        throw "Invalid serial port '$RequestedPort'. Use a Windows COM name such as COM5."
-    }
-
-    return $normalizedPort
+    $ports | Format-Table DeviceID, FriendlyName, Status -AutoSize
 }
 
 # Protect this script and its caller chain from any automatic port cleanup.
@@ -791,17 +768,32 @@ function Stop-ProcessTreeById(
 }
 
 # Probe the Windows handle exclusively and always release it before returning.
+# RequestedPort is the COM identity to probe without retaining its handle.
+# ProbeBaud is the baud rate used only for the temporary open attempt.
+# Throws for invalid parameters or handle cleanup failure; an open failure is returned with its real error.
 function Test-ExclusiveSerialPort([string]$RequestedPort, [int]$ProbeBaud = 115200) {
     $normalizedPort = Normalize-PortName $RequestedPort
     $probe = [System.IO.Ports.SerialPort]::new($normalizedPort, $ProbeBaud)
     $openError = $null
     $isAvailable = $false
+    $isMissing = $false
+    $openFailure = $null
 
     try {
         $probe.Open()
         $isAvailable = $true
     } catch {
-        $openError = $_.Exception.Message
+        $openFailure = $_
+        $serialException = $_.Exception
+        while ($null -ne $serialException.InnerException) {
+            $serialException = $serialException.InnerException
+        }
+        $openError = $serialException.Message
+        # Windows file/path-not-found codes do not depend on the system language.
+        # Preserve other failures instead of guessing that their text means absence.
+        $nativeErrorCode = $serialException.HResult -band 0xFFFF
+        $isMissing = ($serialException -is [System.IO.IOException]) -and
+            ($nativeErrorCode -in @(2, 3))
     } finally {
         try {
             if ($probe.IsOpen) {
@@ -815,9 +807,9 @@ function Test-ExclusiveSerialPort([string]$RequestedPort, [int]$ProbeBaud = 1152
     return [PSCustomObject]@{
         Port = $normalizedPort
         IsAvailable = $isAvailable
-        IsMissing = -not $isAvailable -and $openError -match
-            '(?i)could not find file|cannot find|does not exist|no such file'
+        IsMissing = $isMissing
         Error = $openError
+        ErrorRecord = $openFailure
     }
 }
 
@@ -846,15 +838,18 @@ function Show-PortStatus([string]$RequestedPort) {
     }
 }
 
+# RequestedPort is the COM identity that must return after a device reconnect.
+# TimeoutSeconds bounds the Windows inventory wait before the exclusive-open probe.
+# Throws for failed discovery or when the requested healthy device does not return.
 function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-    $normalizedRequestedPort = $RequestedPort.ToUpperInvariant()
+    $normalizedRequestedPort = Normalize-PortName $RequestedPort
 
-    Write-Host "Waiting for an openable ESP serial port for up to $TimeoutSeconds seconds..."
+    Write-Host "Waiting for serial port $normalizedRequestedPort for up to $TimeoutSeconds seconds..."
 
     while ((Get-Date) -lt $deadline) {
         $ports = Get-SerialPorts
-        $requested = @($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.IsOpenable })
+        $requested = @($ports | Where-Object { $_.DeviceID -eq $normalizedRequestedPort -and $_.Status -eq 'OK' })
         if ($requested.Count -gt 0) {
             Write-Host "Using requested port $normalizedRequestedPort."
             return $normalizedRequestedPort
@@ -863,9 +858,9 @@ function Wait-ForPort([string]$RequestedPort, [int]$TimeoutSeconds) {
         Start-Sleep -Milliseconds 750
     }
 
-    Write-Host "No openable ESP serial port became available."
+    Write-Host "Serial port $normalizedRequestedPort did not become present and healthy."
     Show-SerialPorts
-    throw "Timed out waiting for an openable ESP serial port."
+    throw "Timed out after $TimeoutSeconds seconds waiting for serial port $normalizedRequestedPort."
 }
 
 # Stop only known stale monitor processes, never this script or its callers.
@@ -935,6 +930,9 @@ function Stop-SerialPortOwnerProcesses([string]$RequestedPort) {
 
 # Wait for an exclusive handle. Busy ports are cleared decisively instead of
 # burning the full timeout on a known owner.
+# RequestedPort is the normalized COM identity to open exclusively.
+# TimeoutSeconds bounds the short release wait after known owner cleanup.
+# Throws for a missing or busy port and preserves the real serial probe error.
 function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSeconds) {
     $RequestedPort = Normalize-PortName $RequestedPort
     $probe = Test-ExclusiveSerialPort $RequestedPort
@@ -944,10 +942,13 @@ function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSecond
         return
     }
     if ($probe.IsMissing) {
-        throw "Serial port $RequestedPort is not present. Reconnect the device before retrying."
+        throw [System.InvalidOperationException]::new(
+            "Serial port $RequestedPort is not present. Reconnect the device or rerun without -Port to select from detected ports. Probe error: $($probe.Error)",
+            $probe.ErrorRecord.Exception)
     }
 
     $initialError = $probe.Error
+    $initialFailure = $probe.ErrorRecord
     $stoppedCandidates = @(Stop-SerialPortOwnerProcesses $RequestedPort)
     $releaseGraceMilliseconds = [Math]::Max(
         200,
@@ -963,7 +964,9 @@ function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSecond
             return
         }
         if ($probe.IsMissing) {
-            throw "Serial port $RequestedPort disappeared while waiting for release."
+            throw [System.InvalidOperationException]::new(
+                "Serial port $RequestedPort disappeared while waiting for release. Reconnect the device and retry. Probe error: $($probe.Error)",
+                $probe.ErrorRecord.Exception)
         }
     }
 
@@ -975,10 +978,16 @@ function Wait-ForExclusiveSerialPort([string]$RequestedPort, [int]$TimeoutSecond
     }
     $remainingSummary = "Current candidates: $(Format-SerialPortProcessCandidates $remainingCandidates)."
     $lastError = if ($probe.Error) { $probe.Error } else { $initialError }
-    throw "Serial port $RequestedPort stayed busy after direct cleanup. $candidateSummary $remainingSummary Last probe error: $lastError"
+    $lastFailure = if ($probe.ErrorRecord) { $probe.ErrorRecord } else { $initialFailure }
+    throw [System.InvalidOperationException]::new(
+        "Serial port $RequestedPort stayed busy after direct cleanup. $candidateSummary $remainingSummary Last probe error: $lastError",
+        $lastFailure.Exception)
 }
 
 # Reset the target through esptool without changing any flash contents.
+# RequestedPort is the selected Windows COM identity.
+# RequestedBaud is the esptool connection baud rate.
+# Throws if port preparation or esptool fails, including the native exit code.
 function Invoke-DeviceReset([string]$RequestedPort, [int]$RequestedBaud) {
     $normalizedPort = Normalize-PortName $RequestedPort
     Stop-StaleMonitorProcesses $normalizedPort
@@ -992,7 +1001,7 @@ function Invoke-DeviceReset([string]$RequestedPort, [int]$RequestedBaud) {
         --after hard-reset `
         chip-id
     if ($LASTEXITCODE -ne 0) {
-        throw "Device reset failed on $normalizedPort"
+        throw "Device reset failed on $normalizedPort (exit code $LASTEXITCODE)"
     }
 }
 
@@ -1397,7 +1406,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
             "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
             reconfigure
         if ($LASTEXITCODE -ne 0) {
-            throw "Reconfigure failed"
+            throw "Reconfigure failed (ESP-IDF exit code $LASTEXITCODE)"
         }
     } else {
         Write-Host (
@@ -1414,7 +1423,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
     Write-Host "Building with Ninja parallelism: -j $parallelJobs"
     & ninja -C $RequestedBuildDir -j $parallelJobs all
     if ($LASTEXITCODE -ne 0) {
-        throw "Build failed"
+        throw "Build failed (Ninja exit code $LASTEXITCODE)"
     }
     Assert-WorkingDependencyLock $RequestedBuildDir
     Save-SdkconfigDefaultsState $RequestedBuildDir
@@ -1467,7 +1476,7 @@ try {
         "clean" {
             & $PythonExe $IdfPy @commonArgs clean
             if ($LASTEXITCODE -ne 0) {
-                throw "Clean failed"
+                throw "Clean failed (ESP-IDF exit code $LASTEXITCODE)"
             }
         }
         "fullclean" {
@@ -1477,7 +1486,7 @@ try {
             Assert-SdkconfigDefaultsApplied $BuildDir
             & $PythonExe $IdfPy @commonArgs reconfigure
             if ($LASTEXITCODE -ne 0) {
-                throw "Reconfigure failed"
+                throw "Reconfigure failed (ESP-IDF exit code $LASTEXITCODE)"
             }
             Assert-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
@@ -1505,7 +1514,7 @@ try {
             }
             & $PythonExe $IdfPy @commonArgs @sizeArguments
             if ($LASTEXITCODE -ne 0) {
-                throw "Size report failed"
+                throw "Size report failed (ESP-IDF exit code $LASTEXITCODE)"
             }
             Assert-WorkingDependencyLock $BuildDir
             Save-SdkconfigDefaultsState $BuildDir
@@ -1525,7 +1534,7 @@ try {
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port -b $Baud erase-flash
             if ($LASTEXITCODE -ne 0) {
-                throw "Erase failed"
+                throw "Erase failed (ESP-IDF exit code $LASTEXITCODE)"
             }
         }
         "flash" {
@@ -1540,7 +1549,7 @@ try {
             Wait-ForExclusiveSerialPort $Port $WaitSeconds
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
             if ($LASTEXITCODE -ne 0) {
-                throw "Monitor failed"
+                throw "Monitor failed (ESP-IDF exit code $LASTEXITCODE)"
             }
         }
         "capture" {
@@ -1556,7 +1565,9 @@ try {
             Invoke-ProjectFlash $BuildDir
             # Keep monitor in this terminal and the same artifact operation lock.
             & $PythonExe $IdfPy @commonArgs -p $Port monitor
-            if ($LASTEXITCODE -ne 0) { throw "Monitor failed" }
+            if ($LASTEXITCODE -ne 0) {
+                throw "Monitor failed (ESP-IDF exit code $LASTEXITCODE)"
+            }
         }
         "recover" {
             Invoke-ProjectFlash $BuildDir $true

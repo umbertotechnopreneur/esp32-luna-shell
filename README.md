@@ -637,6 +637,27 @@ Monitor it:
 pwsh -NoProfile -File .\scripts\device.ps1 monitor -Profile full -Port COM12
 ```
 
+Without `-Port`, device actions list the serial ports currently present in
+Windows and ask which COM identity to use, before loading ESP-IDF. This also
+applies when only one port is detected. Enter the COM name or its number
+(`COM10` or `10`); Enter cancels without starting the device operation.
+For example, from `scripts`, run `.\device.ps1 monitor` and choose the port.
+An explicit `-Port COM10` or `-Port 10` skips the selection prompt.
+Non-interactive calls require `-Port`. The menu has no default COM identity;
+its Port session setting accepts `ask` to restore selection for each action.
+
+CLI and menu failures share `Write-DeviceFailure` in
+`scripts/common/Errors.ps1`. It presents the operation, failed stage, original
+reason, a next step when the cause is recognized, and the diagnostic log path.
+Errors raised during option/output preflight also use this formatter. Detailed
+error IDs, exception chains, source locations and stacks are retained in the
+artifact log when the output lock can be acquired; an unwritable log is reported
+separately. A failed CLI command returns exit code 1, and the menu stays open
+without presenting the same failure twice. Use `-Verbose` or `-Debug` for
+additional technical details in the terminal.
+PowerShell parameter type and attribute rejections happen before the script body
+starts and retain PowerShell's own error presentation for direct CLI calls.
+
 Capture a bounded diagnostic log:
 
 ```powershell
@@ -667,7 +688,7 @@ Avoid nested `-Command "..."` invocations containing PowerShell variables.
 If the program becomes long or needs another quoting layer, put it in a `.ps1`
 file and invoke it with `pwsh -NoProfile -File`.
 
-Always pass the port explicitly for every device action. The helper terminates
+Pass the port explicitly for non-interactive device actions. The helper terminates
 stale monitor and capture processes scoped to that port before checking whether
 it is openable, then fails the command if flashing, erasing, or capture fails.
 Build success is not hardware proof; keep serial evidence separate from

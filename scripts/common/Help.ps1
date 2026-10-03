@@ -61,6 +61,7 @@ function Show-DeviceHelp {
     foreach ($name in @('discovery','ports','port-status','monitor','capture')) {
         $syntax = switch ($name) {
             { $_ -in @('discovery','ports') } { "Device.ps1 $name" }
+            monitor { 'Device.ps1 monitor' }
             capture { 'Device.ps1 capture -Port COM8 -DurationSeconds 30' }
             default { "Device.ps1 $name -Port COM8" }
         }
@@ -100,7 +101,7 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'Preview and connection options' -Icon '📐' -Width $width -Subsection
     Write-DeviceHelpEntry -Syntax '-Screen / -Rotation / -AtMs / -SafeGuide' -Description 'Screens: rig, greeting, boot-sleep, boot-waking, boot-ready. Rotation: 0/90/180/270; AtMs: 1000 by default; SafeGuide shows the circular layout guide.' -Width $width
-    Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Defaults: COM8, 115200 baud and a 30-second port wait.' -Width $width
+    Write-DeviceHelpEntry -Syntax '-Port / -Baud / -WaitSeconds' -Description 'Without Port, device actions ask you to choose a detected COM port. COM10 and 10 select the same port; explicit Port skips the prompt. Non-interactive calls require Port. Defaults: 115200 baud and a 30-second port wait.' -Width $width
     Write-DeviceHelpEntry -Syntax '-DurationSeconds / -ResetBeforeCapture' -Description 'Capture defaults to 30 seconds; opt in to a reset before capture.' -Width $width
 
     Write-DeviceHelpSection -Title 'Output, Python and tool arguments' -Icon '📁' -Width $width -Subsection

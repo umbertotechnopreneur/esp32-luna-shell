@@ -25,8 +25,13 @@ function Select-DeviceMenuItem([string]$Title, [System.Collections.IDictionary]$
 # Settings contains the current session's explicit connection/preview options.
 # Throws for an invalid edited value; the caller keeps the previous setting.
 function Edit-DeviceMenuSettings([hashtable]$Settings) {
+    $portDescription = if ($Settings.Port) {
+        $Settings.Port
+    } else {
+        'Choose from detected ports when a device action starts'
+    }
     $options = [ordered]@{
-        '1' = @{ Emoji = '🔌'; Label = 'Serial port'; Description = $Settings.Port; Value = 'Port' }
+        '1' = @{ Emoji = '🔌'; Label = 'Serial port'; Description = $portDescription; Value = 'Port' }
         '2' = @{ Emoji = '🔄'; Label = 'Screen rotation'; Description = [string]$Settings.Rotation; Value = 'Rotation' }
         '3' = @{ Emoji = '🐍'; Label = 'Host Python executable'; Description = $Settings.PythonExecutable; Value = 'PythonExecutable' }
         '4' = @{ Emoji = '🎯'; Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
@@ -44,10 +49,22 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
         if ($mode) { $Settings.BuildMode = $mode }
         return
     }
-    $value = Read-Host "  $key (blank keeps the current value)"
+    $prompt = if ($key -eq 'Port') {
+        '  Port (COM10 or 10; ask restores port selection; blank keeps the current value)'
+    } else {
+        "  $key (blank keeps the current value)"
+    }
+    $value = Read-Host $prompt
     if ([string]::IsNullOrWhiteSpace($value)) { return }
     switch ($key) {
-        Port { if ($value -notmatch '^COM\d+$') { throw 'Use a COM port name, for example COM8.' } }
+        Port {
+            if ($value.Trim() -eq 'ask') {
+                $Settings.Remove('Port')
+                return
+            }
+            . (Join-Path $ProjectRoot 'scripts/common/SerialPorts.ps1')
+            $value = Normalize-PortName $value
+        }
         Rotation { if ($value -notin @('0','90','180','270')) { throw 'Rotation must be 0, 90, 180 or 270.' }; $value = [int]$value }
         Profile {
             if ($value -notin @('full','connected','ui-minimal','display-touch','headless','leg-edition','cody-companion')) { throw 'Unknown firmware profile.' }
@@ -66,17 +83,23 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
 # InitialSettings contains explicitly supplied startup preferences for this menu session.
 # Throws for a missing shared menu module; individual command failures stay visible in the menu.
 function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
+    . (Join-Path $ProjectRoot 'scripts/common/Errors.ps1')
     if ([Console]::IsInputRedirected) { throw 'The interactive menu requires a terminal. Use device.ps1 help or an explicit CLI action.' }
     Import-Module (Join-Path $ProjectRoot 'scripts/common/MenuManager/MenuManager.psd1') -Force -ErrorAction Stop
-    $settings = @{ Port = 'COM8'; Rotation = 0; Jobs = 8; BuildMode = 'Debug' }
+    $settings = @{ Rotation = 0; Jobs = 8; BuildMode = 'Debug' }
     foreach ($key in $InitialSettings.Keys) {
         if ($key -notin @('Action')) { $settings[$key] = $InitialSettings[$key] }
     }
     $actions = Get-DeviceActionParameters
     while ($true) {
         $selector = if ($settings.BoardConfig) { $settings.BoardConfig } elseif ($settings.Profile) { $settings.Profile } else { 'cody-companion' }
+        $portDescription = if ($settings.Port) {
+            $settings.Port
+        } else {
+            'Choose when needed'
+        }
         Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
-        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Port: $($settings.Port)    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{
             '1' = @{ Emoji = '🤖'; Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }
@@ -90,10 +113,18 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             '9' = @{ Emoji = '📖'; Label = 'Command help'; Description = 'Categorized CLI guide, examples and tool descriptions'; Value = 'help' }
             'm' = @{ Emoji = '🧰'; Label = 'Maintenance'; Description = 'Package the Luna EXE or preview source banners'; Value = 'maintenance' }
         }
-        $selected = Select-DeviceMenuItem 'MAIN MENU' $main -IsMainMenu
-        if (-not $selected) { return }
+        $menuStage = 'selecting an operation'
         try {
-            if ($selected -eq 'settings') { Edit-DeviceMenuSettings $settings; continue }
+            $selected = Select-DeviceMenuItem 'MAIN MENU' $main -IsMainMenu
+            if (-not $selected) {
+                return
+            }
+            if ($selected -eq 'settings') {
+                $menuStage = 'editing session settings'
+                Edit-DeviceMenuSettings $settings
+                continue
+            }
+            $menuStage = "preparing $selected"
             $extra = @{}
             if ($selected -eq 'maintenance') {
                 $maintenance = [ordered]@{
@@ -167,9 +198,17 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             foreach ($key in $extra.Keys) { $parameters[$key] = $extra[$key] }
             $modeDescription = if ($parameters.ContainsKey('BuildMode')) { " -BuildMode $($parameters.BuildMode)" } else { '' }
             Write-Host "  Running: device.ps1 $selected$modeDescription" -ForegroundColor Cyan
+            $menuStage = "starting $selected"
             & (Join-Path $ProjectRoot 'scripts/device.ps1') @parameters
+            if ($LASTEXITCODE -ne 0) {
+                # The public command already presented and logged its failure.
+                # Keep the menu open without printing the same error twice.
+                Wait-ForEnter
+                continue
+            }
         } catch {
-            Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red
+            Write-DeviceFailure -FailureRecord $_ -Operation 'menu' -Stage $menuStage `
+                -LogUnavailableReason 'Menu selection failed before an operation log was opened.'
         }
         Wait-ForEnter
     }

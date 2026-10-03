@@ -1,5 +1,21 @@
 # Done
 
+## Device-console port selection and shared exception formatter (2026-10-04)
+
+- [x] Remove the implicit COM8 identity from the CLI and menu. Before ESP-IDF
+  initialization, list present Windows COM devices and require a deliberate
+  choice when Port is omitted, including with a single device. Accept COM10/10
+  equivalently; reject cancellation, unknown or ambiguous selections and failed
+  Windows device status without choosing a replacement. Explicit Port bypasses
+  the prompt, and non-interactive calls require it.
+- [x] Share `Write-DeviceFailure` between CLI and menu, retain the real error,
+  native tool exit codes and diagnostic stacks, and format preflight/output
+  failures as well as dispatched command failures. Preserve artifact lock
+  ownership during diagnostic writes and keep the menu open after failure.
+  Add deferred host regression coverage for COM identity, invalid selection,
+  original diagnostic causes, output ownership and secondary logging failures.
+  Static source review only; no tests, builds, monitor or hardware access ran.
+
 ## Device-console menu and help presentation (2026-10-04)
 
 - [x] Restore operation-specific emoji throughout the public device menu and
