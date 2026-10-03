@@ -17,5 +17,6 @@
     "power.charge"
   ],
   "source_sha256": "45903b83fc5fbe90f57442abfb4f69b6aaf8bb084f7e6d59dc48b51c8b45bc04",
-  "palette_sha256": "e893559b833593f1205cd4a75e7fb02ad52d011ff9a486c03c1c629865ca7104"
+  "palette_sha256": "e893559b833593f1205cd4a75e7fb02ad52d011ff9a486c03c1c629865ca7104",
+  "navigation_sha256": "ede4433b849df3db2a5eba937fbac933eeebb1bcd61e7e179f04280bbd8315c0"
 }

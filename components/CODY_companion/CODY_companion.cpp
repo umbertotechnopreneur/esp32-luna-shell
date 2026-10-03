@@ -20,6 +20,7 @@
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
 #include "CODY_onboarding.hpp"
+#include "CODY_navigation_visibility.hpp"
 #include "CODY_lifecycle.hpp"
 #include "CODY_settings.hpp"
 #include "scene_data.hpp"
@@ -146,6 +147,7 @@ CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
 bool s_cached_navigation_visible = false;
+uint8_t s_cached_navigation_opacity = 0;
 uint8_t s_cached_branding_opacity = 0;
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
@@ -161,6 +163,7 @@ struct CompanionState {
     bool rig_visible = false;
     bool rig_debug = false;
     bool animation_paused = false;
+    CODY::NavigationVisibility navigation_visibility{};
 #if CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY
     bool face_follows_body = true;
 #else
@@ -1049,7 +1052,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
     const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle);
-    const bool frame_navigation_visible = lifecycle_navigation_allowed && presentation.content_visible &&
+    const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
+    const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
+        lifecycle_navigation_allowed && presentation.content_visible &&
         (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
     const uint8_t branding_opacity = startup_branding_opacity();
     const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
@@ -1122,6 +1127,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 }
             }
         }
+        if (plan_error == ESP_OK && s_cached_navigation_opacity != navigation_opacity) {
+            plan_error = CODY::include_damage(dirty_plan, CODY::rig_navigation_damage_bounds());
+        }
     }
     timings.damage_us = esp_timer_get_time() - damage_started_us;
     if (plan_error != ESP_OK) {
@@ -1174,7 +1182,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
-                    frame_navigation_visible
+                    frame_navigation_visible, navigation_opacity
                 );
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);
@@ -1256,6 +1264,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_readout_visible = frame_readout_visible;
         s_cached_branding_opacity = branding_opacity;
         s_cached_navigation_visible = frame_navigation_visible;
+        s_cached_navigation_opacity = navigation_opacity;
         s_cached_scene = s_state.scene;
     }
     CompletedFrameLog log{};
@@ -1358,11 +1367,17 @@ enum class TouchAction : uint8_t {
 // point: Real logical touch coordinate already mapped by the display owner.
 TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 {
+    if constexpr (!kRenderDiagnosticsEnabled) {
+        return TouchAction::None;
+    }
     if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
         return TouchAction::None;
     }
     if (s_state.scene.valid && (s_state.scene.intro_phase != CODY::SceneIntroPhase::Complete ||
         !s_state.scene.definition->navigation_visible)) {
+        return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
+    }
+    if (s_state.navigation_visibility.opacity(esp_timer_get_time()) != 255) {
         return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
     }
     switch (CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)})) {
@@ -1411,6 +1426,18 @@ esp_err_t apply_scene_requests()
             return route_lock_error;
         }
         const DisplayUnlockOnExit route_lock;
+        if constexpr (kRenderDiagnosticsEnabled) {
+            const int64_t now_us = esp_timer_get_time();
+            const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
+                (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
+            if (eligible && !s_state.navigation_visibility.primed) {
+                s_state.navigation_visibility.interact(now_us);
+            }
+            s_state.navigation_visibility.update(now_us);
+            if (s_state.navigation_visibility.opacity(now_us) != s_cached_navigation_opacity) {
+                s_state.frame_dirty.store(true, std::memory_order_release);
+            }
+        }
         bool route_changed = false;
         const esp_err_t route_error = CODY::update_onboarding(
             s_state.scene, s_cached_scene, s_state.animation_elapsed_us, route_changed);
@@ -1633,7 +1660,23 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    bool reveal_only = false;
+    if constexpr (kRenderDiagnosticsEnabled) {
+        const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
+            (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
+        const uint8_t previous_opacity = s_state.navigation_visibility.opacity(point.sample_timestamp_us);
+        reveal_only = eligible && pressed_edge && previous_opacity != 255 &&
+            CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;
+        if (point.pressed || s_state.touch_pressed) {
+            s_state.navigation_visibility.interact(point.sample_timestamp_us);
+            s_state.frame_dirty.store(true, std::memory_order_release);
+        }
+    }
     s_state.touch_pressed = point.pressed;
+    if (reveal_only) {
+        s_state.body_drag_active = false;
+        return ESP_OK;
+    }
     if (pressed_edge && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
         if (CODY::lifecycle_is_resting(s_state.lifecycle)) {
             bool consumed = false;

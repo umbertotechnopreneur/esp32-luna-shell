@@ -21,7 +21,8 @@ file or a dependency on the Luna GUI.
 | Left navigation / Back | Origin (10, 203), 60 x 60, circular radius 30 |
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
-| Cody PoC Pause/Play | Origin (203, 10), 60 x 60, circular radius 30, center (233, 40) |
+| Cody Debug Pause/Play | Upper-left annular segment, radii 167–223, 13–31 degrees left of the top |
+| Cody Debug Skeleton | Mirrored upper-right annular segment, same radii and angles |
 
 The 60-pixel Back fits entirely to the left of the square: its right exclusive
 edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
@@ -32,13 +33,26 @@ The right navigation slot records available space in the source UI. A primary
 OOBE action such as Next, Pair Cody, or Setup guide can remain centered in the
 content area; it does not need to move into that slot.
 
-The Cody PoC uses the upper arc for an icon-only Pause/Play control. Its full
-target lies above y=73 and inside the circle. Drawing and hit testing share one
-named control table; the physical owner maps the same logical target through
-all cardinal rotations. Pause freezes the evaluated character and its clocks.
+The Cody Debug view places icon-only Pause/Play and Skeleton controls in two
+annular upper-rim segments. The source `assets/cody/navigation.json` generates
+the native table and supplies the simulator geometry; rendering and hit testing
+share the annulus and angular boundaries. Both targets remain inside radius 223,
+ten pixels inside the nominal rim. Their conservative logical bounds are
+`[118,196) x [15,90)` and `[270,348) x [15,90)`; the actual sector, not its
+rectangular damage box, defines the hit target. The physical owner maps these
+same targets through all cardinal rotations. The debug-view Back remains at
+its canonical position but `visible_by_default` is false, disabling paint and
+touch together. Route-specific OOBE Back/Cancel remains a separate control.
+
+These inspection controls are visible/interactable only in Debug firmware,
+not Release. Five seconds without touch starts a 330-ms fade-out. Touch reveals
+them with a 330-ms fade-in; a press on a hidden/fading button reveals it without
+activating the action. The clock keeps running while the character is paused.
+Pause freezes the evaluated character and its animation clocks.
 The CPU readout remains live at one update per second, displaying `PAUSED` in
 place of animation FPS. Resume excludes the paused interval from animation and
-motion integration. Back and overlay remain available while paused.
+motion integration. A fresh touch reveals the toolbar while paused, so Play
+and Skeleton remain accessible without leaving paused mode.
 
 ## Rounded space
 

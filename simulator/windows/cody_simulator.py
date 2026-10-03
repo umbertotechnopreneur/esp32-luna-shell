@@ -26,6 +26,7 @@ from scripts.common.cody_response import (  # noqa: E402
     EyeId, hit_test_eye, hit_test_body,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
+from scripts.common.cody_navigation import load_navigation, control_contains, NavigationVisibility  # noqa: E402
 from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
@@ -69,6 +70,10 @@ class CodyRenderer:
     # self: Renderer owning immutable authoring tables and optional cached artwork.
     # Raises OSError or ValueError for unreadable artwork or invalid authoring data.
     def __init__(self, root=ROOT, skin_path="assets/cody/cody.yaml", *, jelly_study=False):
+        self.navigation = load_navigation(root)
+        self.navigation_opacity = 255
+        self.navigation_paused = False
+        self.debug_controls_enabled = True  # This desktop preview represents a Debug build.
         self.rig, self.palette = load_contract(root, skin_path)
         self.native_palette = [int(entry["rgb565"], 16) for entry in self.palette["entries"]]
         self.rgb_palette = [rgb565(value) for value in self.native_palette]
@@ -304,25 +309,44 @@ class CodyRenderer:
     # debug: Whether the overlay-toggle icon should appear selected.
     # colors: Resolved named debug colors for this image's pixel mode.
     def draw_navigation(self, image, debug, colors):
-        draw = ImageDraw.Draw(image)
-        # Navigation uses the same exact logical circle for rendering and input.
+        if not self.debug_controls_enabled or self.navigation_opacity == 0:
+            return
+        layer = image.copy()
+        draw = ImageDraw.Draw(layer)
+        mask = Image.new("L", image.size, 0)
+        coverage = mask.load()
         back = self.rig["style"]["back"]
         back_ink = self.paint(image, back["ink"])
         first, last = back["fill"]
-        for row in range(203, 263):
-            dy = row + .5 - 233
-            half = math.sqrt(900 - dy*dy)
-            slot = first + int((dy+30) * (last-first) / 60)
-            for center in (40,426):
-                draw.line((math.ceil(center-half), row, math.floor(center+half), row), fill=self.paint(image, slot))
-        draw.line([(44,222),(33,233),(44,244)], fill=back_ink, width=max(1, round(back["stroke"])))
-        nodes = [(416,242),(426,222),(436,242)]
-        draw.line(nodes + [nodes[0]], fill=back_ink,
-                  width = max(1, round(self.rig["style"]["overlay_toggle"]["stroke"])))
-        marker_radius = (self.rig["style"]["overlay_toggle"]["marker_diameter"] - 1) / 2
-        for x, y in nodes:
-            draw.ellipse((x - marker_radius, y - marker_radius, x + marker_radius, y + marker_radius),
-                         fill = colors["selected"] if debug else back_ink)
+        for control in self.navigation["controls"]:
+            if not control["visible_by_default"]:
+                continue
+            left, top, right, bottom = control["bounds"]
+            for row in range(top, bottom):
+                slot = first + (row-top)*(last-first)//(bottom-top)
+                for column in range(left, right):
+                    if control_contains(control, column+.5, row+.5):
+                        draw.point((column, row), fill=self.paint(image, slot))
+                        coverage[column, row] = self.navigation_opacity
+            x, y = control["icon_center"]
+            stroke = max(1, round(back["stroke"]))
+            if control["id"] == "back":
+                draw.line([(x+4,y-11),(x-7,y),(x+4,y+11)], fill=back_ink, width=stroke)
+            elif control["id"] == "pause":
+                if self.navigation_paused:
+                    draw.line([(x-6,y-11),(x+10,y),(x-6,y+11),(x-6,y-11)], fill=back_ink, width=stroke)
+                else:
+                    for bar in (x-7, x+7):
+                        draw.line([(bar,y-11),(bar,y+11)], fill=back_ink, width=stroke)
+            else:
+                nodes = [(x-10,y+9),(x,y-11),(x+10,y+9)]
+                draw.line(nodes + [nodes[0]], fill=back_ink,
+                    width=max(1, round(self.rig["style"]["overlay_toggle"]["stroke"])))
+                radius = (self.rig["style"]["overlay_toggle"]["marker_diameter"]-1)/2
+                for node_x, node_y in nodes:
+                    draw.ellipse((node_x-radius,node_y-radius,node_x+radius,node_y+radius),
+                        fill=colors["selected"] if debug else back_ink)
+        image.paste(layer, (0, 0), mask)
 
     # self: Renderer whose evaluated scene is shared by all visible overlays.
     # screen selects the rig or one of the existing boot artworks.
@@ -484,6 +508,8 @@ class CodyWindow:
         self.scene_elapsed_ms = 0.0
         self.previous_animation_screen = None
         self.last_tick = time.perf_counter()
+        self.navigation_visibility = NavigationVisibility(renderer.navigation)
+        self.navigation_visibility.interact(int(self.last_tick * 1_000_000))
         self.selected = None
         self.scene = None
         self.after_id = None
@@ -1054,16 +1080,23 @@ class CodyWindow:
             return
         navigation_visible = (self.display_screen != Screen.GREETING or
             self.renderer.scene_painter.definition("greeting")["navigation_visible"])
-        if navigation_visible and (x-40)**2+(y-233)**2<=900:
-            self.back()
-            return
-        if navigation_visible and (x-426)**2+(y-233)**2<=900:
-            self.debug.set(not self.debug.get())
-            self.choose_point(None)
-            return
-        if navigation_visible and (x-233)**2+(y-40)**2<=900:
-            self.playing.set(not self.playing.get())
-            return
+        now_us = int(time.perf_counter() * 1_000_000)
+        previous_opacity = self.navigation_visibility.opacity(now_us)
+        self.navigation_visibility.interact(now_us)
+        if navigation_visible and self.renderer.debug_controls_enabled:
+            control = next((control for control in self.renderer.navigation["controls"]
+                if control_contains(control, x, y)), None)
+            if control is not None:
+                if previous_opacity != 255:
+                    return  # Reveal a hidden/fading toolbar without activating its button.
+                if control["id"] == "back":
+                    self.back()
+                elif control["id"] == "overlay":
+                    self.debug.set(not self.debug.get())
+                    self.choose_point(None)
+                else:
+                    self.playing.set(not self.playing.get())
+                return
         # Debug leaders never override the device's fixed navigation touch targets.
         if self.scene is not None:
             eye = hit_test_eye(self.scene, (x, y), self.response_config["touch"]["eye_hit_radius"])
@@ -1090,6 +1123,7 @@ class CodyWindow:
     # self: Preview controller retaining the gesture's original logical basis.
     # event: Host pointer movement, interpreted using the last displayed layout.
     def drag_body(self, event):
+        self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         if self.body_drag_origin is None:
             return
         point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
@@ -1102,6 +1136,7 @@ class CodyWindow:
     # self: Synthetic preview owner; release lets the shared springs settle.
     # event: Actual host pointer release, including release outside the preview.
     def release_body(self, event):
+        self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
         if self.body_drag_origin is None:
             return
         point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
@@ -1237,7 +1272,7 @@ class CodyWindow:
             contour, self.debug.get(), self.selected, self.guide.get(),
             self.outline.get(), self.rest_outline.get(), self.names.get(),
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
-            self.face_follows_body.get(),
+            self.face_follows_body.get(), self.renderer.navigation_opacity, self.playing.get(),
             self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
             if screen == Screen.GREETING else None,
         )
@@ -1246,6 +1281,9 @@ class CodyWindow:
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
+        self.navigation_visibility.update(int(started * 1_000_000))
+        self.renderer.navigation_opacity = self.navigation_visibility.opacity(int(started * 1_000_000))
+        self.renderer.navigation_paused = not self.playing.get()
         interval_seconds = started - self.last_tick
         self.last_tick = started
         screen = self.screen.get()

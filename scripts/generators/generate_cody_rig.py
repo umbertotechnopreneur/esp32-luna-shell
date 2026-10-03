@@ -11,6 +11,7 @@ from scripts.common.cody_rig_contract import ROOT, enum_identifier, load_contrac
 from scripts.common.asset_provenance import text_source_hash
 from scripts.common.cody_rig_types import FaceChannel, channel_name
 from scripts.common.cody_response_contract import Axis, RESPONSE_RANGES
+from scripts.common.cody_navigation import CONTROL_IDENTITIES, load_navigation
 
 
 # value: Finite authoring coordinate emitted as an unambiguous C++ float.
@@ -235,6 +236,7 @@ def main(argv=None):
                         help="Selected character YAML below this checkout's assets directory")
     args = parser.parse_args(argv)
     rig, palette = load_contract(skin_path=args.skin)
+    navigation = load_navigation(ROOT)
     content = generate_header(rig, palette)
     output = ROOT / "assets/cody/rig/generated"
     manifest = {
@@ -254,9 +256,24 @@ def main(argv=None):
         "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
         "source_sha256": text_source_hash(ROOT / rig["source_path"]),
         "palette_sha256": text_source_hash(ROOT / rig["palette_file"]),
+        "navigation_sha256": text_source_hash(ROOT / "assets/cody/navigation.json"),
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "cloud_rig_data.hpp").write_text(content, encoding="utf-8")
+    navigation_header = ["// Generated from assets/cody/navigation.json; do not edit.",
+        "#pragma once", '#include "CODY_rig.hpp"', "namespace CODY::NavigationData {",
+        f"inline constexpr uint32_t auto_hide_ms = {navigation['auto_hide_ms']}U;",
+        f"inline constexpr uint32_t fade_ms = {navigation['fade_ms']}U;",
+        "inline constexpr RigControlGeometry controls[] = {"]
+    for control in navigation["controls"]:
+        name = CONTROL_IDENTITIES[control["id"]][1]
+        center = ", ".join(cpp_float(value) for value in control["center"])
+        icon = ", ".join(cpp_float(value) for value in control["icon_center"])
+        metrics = ", ".join(cpp_float(control[key]) for key in ("inner_radius", "outer_radius", "slope_min", "slope_max"))
+        bounds = ", ".join(str(value) for value in control["bounds"])
+        navigation_header.append(f"    {{RigControl::{name}, {str(control['visible_by_default']).lower()}, {{{center}}}, {{{icon}}}, {metrics}, {control['side_sign']}, {{{bounds}}}}},")
+    navigation_header.extend(["};", "} // namespace CODY::NavigationData"])
+    (output / "navigation_data.hpp").write_text("\n".join(navigation_header) + "\n", encoding="utf-8")
     (output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Generated skin {rig['character']['id']}: {output / 'cloud_rig_data.hpp'}")
 

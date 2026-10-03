@@ -5,6 +5,7 @@
 #include "cloud_rig_data.hpp"
 #include "cody_jelly_data.hpp"
 #include "CODY_lifecycle.hpp"
+#include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
 #include <algorithm>
 #include <array>
@@ -632,6 +633,36 @@ void check_capsule_contract()
             "invalid capsule rejects before modifying the destination");
 }
 
+// No parameters: hidden targets cannot activate; fade timing keeps running while paused.
+void check_navigation_visibility_contract()
+{
+    require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None,
+            "Back remains defined but hidden and non-interactive by default");
+    require(CODY::rig_control_at({160, 52}) == CODY::RigControl::Pause,
+            "Pause uses its shared upper-left annular target");
+    require(CODY::rig_control_at({306, 52}) == CODY::RigControl::Overlay,
+            "Skeleton toggle uses its shared upper-right annular target");
+    require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
+            "old lateral skeleton target cannot activate");
+    CODY::NavigationVisibility visibility;
+    require(visibility.opacity(1000000) == 0, "unprimed toolbar is hidden");
+    visibility.interact(1000000);
+    require(visibility.opacity(1165000) == 128 && visibility.opacity(1330000) == 255,
+            "toolbar fades in over exactly 330 milliseconds");
+    visibility.update(5999999);
+    require(visibility.opacity(5999999) == 255, "toolbar remains until five seconds without touch");
+    visibility.update(6165000);
+    require(visibility.opacity(6165000) == 128 && visibility.opacity(6330000) == 0,
+            "fade-out starts at the five-second deadline even across a delayed frame");
+    visibility.interact(6330000);
+    require(visibility.opacity(6660000) == 255, "new touch reveals without resetting the character");
+    visibility.update(11495000);
+    const uint8_t partially_hidden = visibility.opacity(11495000);
+    visibility.interact(11495000);
+    require(visibility.opacity(11495000) == partially_hidden && visibility.opacity(11825000) == 255,
+            "touch during fade-out reverses from the existing opacity without a flash");
+}
+
 // No parameters: exercise the same allocation-free hold detector used by PWR.
 void check_button_hold_contract()
 {
@@ -710,6 +741,7 @@ int main()
         check_dirty_plan_contract();
         check_jelly_texture_contract();
         check_capsule_contract();
+        check_navigation_visibility_contract();
         check_button_hold_contract();
         check_lifecycle_contract();
     } catch (const std::exception &error) {

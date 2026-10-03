@@ -29,6 +29,19 @@ enum class PointRole : uint8_t { Anchor, Knot, Handle };
 
 enum class RigControl : uint8_t { None, Back, Overlay, Pause };
 
+struct RigControlGeometry {
+    RigControl identity;
+    bool visible_by_default;
+    CODY2D::Vec2 center;
+    CODY2D::Vec2 icon_center;
+    float inner_radius;
+    float outer_radius;
+    float slope_min;
+    float slope_max;
+    int8_t side;
+    DamageRect bounds;
+};
+
 // point: Logical display coordinate already mapped by the shared rotation owner.
 RigControl rig_control_at(CODY2D::Vec2 point);
 enum class CurvePoint : uint8_t { Start, OutgoingHandle, IncomingHandle, End };
@@ -277,13 +290,14 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // paused: Show Play instead of Pause; scene geometry remains owned by the caller.
 // first_column: Logical x origin of the tile; geometry remains in canvas coordinates.
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
-// navigation_visible: Render the existing controls only when the active scene exposes them.
+// navigation_visible: Render the existing controls only when the active Debug scene exposes them.
+// navigation_opacity: Wall-clock toolbar fade, independent of character/animation pause.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
                         uint16_t first_column = 0,
                         const RigDebugStrokeCache *debug_cache = nullptr,
-                        bool navigation_visible = true);
+                        bool navigation_visible = true, uint8_t navigation_opacity = 255);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.

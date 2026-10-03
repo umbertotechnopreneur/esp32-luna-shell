@@ -5,6 +5,7 @@
 #include <utility>
 #include <iterator>
 #include "cloud_rig_data.hpp"
+#include "navigation_data.hpp"
 #include "esp_log.h"
 
 namespace CODY {
@@ -221,89 +222,109 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
     return ESP_OK;
 }
 
-struct NavigationControl {
-    RigControl identity;
-    CODY2D::Vec2 center;
-};
-
-// One geometry table owns both the drawn circles and their full touch targets.
-constexpr NavigationControl kNavigationControls[] = {
-    {RigControl::Back, {40, 233}},
-    {RigControl::Overlay, {426, 233}},
-    {RigControl::Pause, {233, 40}},
-};
-constexpr float kControlRadius = 30;
+// control: Valid generated circle or annular upper-rim segment.
+// point: Logical point in the same coordinate basis used by raster and rotation.
+bool navigation_contains(const RigControlGeometry &control, CODY2D::Vec2 point)
+{
+    const float dx = point.x - control.center.x;
+    const float dy = point.y - control.center.y;
+    const float squared = dx * dx + dy * dy;
+    if (control.side == 0) {
+        return squared <= control.outer_radius * control.outer_radius;
+    }
+    const float along = dx * control.side;
+    return dy < 0 && squared >= control.inner_radius * control.inner_radius &&
+        squared <= control.outer_radius * control.outer_radius &&
+        along >= -dy * control.slope_min && along <= -dy * control.slope_max;
+}
 
 // strip: Destination tile receiving the controls outside the central safe square.
 // first_row: Logical tile origin in the canonical circular canvas.
 // debug: Current overlay state shown by the toggle icon.
 // paused: Show Play while geometry is frozen, otherwise show Pause.
 // first_column: Logical x origin used to clip controls into the compact destination.
+// opacity: Debug toolbar visibility; geometry and hit targets never move during fading.
 esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
-                              bool debug, bool paused, uint16_t first_column)
+                              bool debug, bool paused, uint16_t first_column, uint8_t opacity)
 {
     esp_err_t result = ESP_OK;
-    for (const auto &control : kNavigationControls) {
-        const int first = std::max(0, static_cast<int>(control.center.y - kControlRadius) - first_row);
-        const int last = std::min(static_cast<int>(strip.height),
-            static_cast<int>(control.center.y + kControlRadius) - first_row);
+    if (opacity == 0) {
+        return ESP_OK;
+    }
+    for (const auto &control : NavigationData::controls) {
+        if (!control.visible_by_default) {
+            continue;
+        }
+        const int first = std::max<int>(0, control.bounds.top - static_cast<int>(first_row));
+        const int last = std::min<int>(strip.height, control.bounds.bottom - static_cast<int>(first_row));
         for (int row = first; row < last; ++row) {
             const float dy = first_row + row + .5f - control.center.y;
-            // Xtensa software division belongs outside the covered-pixel loop.
+            const float outer_squared = control.outer_radius * control.outer_radius - dy * dy;
+            if (outer_squared < 0) {
+                continue;
+            }
+            float left = control.center.x - std::sqrt(outer_squared);
+            float right = control.center.x + std::sqrt(outer_squared);
+            if (control.side != 0) {
+                const float near = std::max(-dy * control.slope_min,
+                    std::sqrt(std::max(0.f, control.inner_radius * control.inner_radius - dy * dy)));
+                const float far = std::min(-dy * control.slope_max, std::sqrt(outer_squared));
+                if (far < near) {
+                    continue;
+                }
+                left = control.center.x + (control.side < 0 ? -far : near);
+                right = control.center.x + (control.side < 0 ? -near : far);
+            }
+            const int first_x = std::max<int>(first_column, static_cast<int>(std::ceil(left - .5f)));
+            const int last_x = std::min<int>(first_column + strip.width, static_cast<int>(std::floor(right - .5f)) + 1);
+            if (last_x <= first_x) {
+                continue;
+            }
             const int first_color = to_index(Data::back_top);
             const int color_span = to_index(Data::back_bottom) - first_color;
-            const int slot = first_color + static_cast<int>((dy + kControlRadius) * color_span / 60);
-            const uint16_t stored_color = CODY2D::rgb565_native_to_stored(
-                Data::palette[slot], strip.byte_order
-            );
-            const int first_x = std::max(static_cast<int>(first_column),
-                                        static_cast<int>(control.center.x - kControlRadius));
-            const int last_x = std::min(static_cast<int>(first_column + strip.width),
-                                       static_cast<int>(control.center.x + kControlRadius));
-            for (int x = first_x; x < last_x; ++x) {
-                const float dx = x + .5f - control.center.x;
-                if (dx * dx + dy * dy <= kControlRadius * kControlRadius) {
-                    strip.pixels[row * strip.stride + x - first_column] = stored_color;
-                }
+            const int slot = first_color + (first_row + row - control.bounds.top) * color_span /
+                (control.bounds.bottom - control.bounds.top);
+            result = CODY2D::fill_rect(strip,
+                {static_cast<uint16_t>(first_x - first_column), static_cast<uint16_t>(row),
+                 static_cast<uint16_t>(last_x - first_x), 1},
+                CODY2D::fade_rgb565_to_black(Data::palette[slot], opacity));
+            if (result != ESP_OK) {
+                return result;
             }
         }
-    }
-    // Two bars while running; the paused triangle is the available Resume action.
-    const CODY2D::Vec2 pause_segments[][2] = {{{226, 29}, {226, 51}}, {{240, 29}, {240, 51}}};
-    const CODY2D::Vec2 play_segments[][2] = {
-        {{227, 29}, {243, 40}}, {{243, 40}, {227, 51}}, {{227, 51}, {227, 29}},
-    };
-    const auto *segments = paused ? play_segments : pause_segments;
-    const size_t segment_count = paused ? std::size(play_segments) : std::size(pause_segments);
-    for (size_t index = 0; index < segment_count; ++index) {
-        result = CODY2D::stroke_rows(strip, first_row, segments[index][0], segments[index][1],
-            Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
-        if (result != ESP_OK) {
-            return result;
-        }
-    }
-    result = CODY2D::stroke_rows(strip, first_row, {44, 222}, {33, 233},
-        Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
-    if (result != ESP_OK) {
-        return result;
-    }
-    result = CODY2D::stroke_rows(strip, first_row, {33, 233}, {44, 244},
-        Data::back_stroke, Data::palette[to_index(Data::back_ink)], first_column);
-    if (result != ESP_OK) {
-        return result;
-    }
-    const CODY2D::Vec2 nodes[] = {{416, 242}, {426, 222}, {436, 242}};
-    for (uint16_t index = 0; index < 3; ++index) {
-        result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[(index + 1) % 3],
-            Data::overlay_stroke, Data::palette[to_index(Data::back_ink)], first_column);
-        if (result != ESP_OK) {
-            return result;
-        }
-        result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index], Data::overlay_marker_diameter,
-                                   Data::palette[to_index(debug ? Data::debug_selected : Data::back_ink)],
-                                   first_column);
-        if (result != ESP_OK) {
-            return result;
+        const auto center = control.icon_center;
+        const uint16_t ink = CODY2D::fade_rgb565_to_black(Data::palette[to_index(Data::back_ink)], opacity);
+        if (control.identity == RigControl::Overlay) {
+            const CODY2D::Vec2 nodes[] = {{center.x-10, center.y+9}, {center.x, center.y-11}, {center.x+10, center.y+9}};
+            for (uint16_t index = 0; index < 3; ++index) {
+                result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[(index+1)%3],
+                    Data::overlay_stroke, ink, first_column);
+                if (result == ESP_OK) {
+                    const uint16_t marker = CODY2D::fade_rgb565_to_black(
+                        Data::palette[to_index(debug ? Data::debug_selected : Data::back_ink)], opacity);
+                    result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index],
+                        Data::overlay_marker_diameter, marker, first_column);
+                }
+                if (result != ESP_OK) {
+                    return result;
+                }
+            }
+        } else {
+            const CODY2D::Vec2 bars[][2] = {{{center.x-7,center.y-11},{center.x-7,center.y+11}},
+                {{center.x+7,center.y-11},{center.x+7,center.y+11}}};
+            const CODY2D::Vec2 triangle[][2] = {{{center.x-6,center.y-11},{center.x+10,center.y}},
+                {{center.x+10,center.y},{center.x-6,center.y+11}},{{center.x-6,center.y+11},{center.x-6,center.y-11}}};
+            const CODY2D::Vec2 chevron[][2] = {{{center.x+4,center.y-11},{center.x-7,center.y}},
+                {{center.x-7,center.y},{center.x+4,center.y+11}}};
+            const auto *segments = control.identity == RigControl::Back ? chevron : paused ? triangle : bars;
+            const size_t count = control.identity != RigControl::Back && paused ? 3 : 2;
+            for (size_t index = 0; index < count; ++index) {
+                result = CODY2D::stroke_rows(strip, first_row, segments[index][0], segments[index][1],
+                    Data::back_stroke, ink, first_column);
+                if (result != ESP_OK) {
+                    return result;
+                }
+            }
         }
     }
     return ESP_OK;
@@ -313,10 +334,8 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
 // point: Logical display coordinate using exactly the rendered controls' geometry.
 RigControl rig_control_at(CODY2D::Vec2 point)
 {
-    for (const auto &control : kNavigationControls) {
-        const float dx = point.x - control.center.x;
-        const float dy = point.y - control.center.y;
-        if (dx * dx + dy * dy <= kControlRadius * kControlRadius) {
+    for (const auto &control : NavigationData::controls) {
+        if (control.visible_by_default && navigation_contains(control, point)) {
             return control.identity;
         }
     }
@@ -696,10 +715,11 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // first_column: Logical x origin of the compact tile; absolute raster arithmetic is preserved.
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
 // navigation_visible: Hidden scene controls have no raster footprint.
+// navigation_opacity: Debug toolbar fade applied without advancing the character clock.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
-                        const RigDebugStrokeCache *debug_cache, bool navigation_visible)
+                        const RigDebugStrokeCache *debug_cache, bool navigation_visible, uint8_t navigation_opacity)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -814,7 +834,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         stage_started_us = now_us;
     }
     if (navigation_visible) {
-        result = draw_navigation_rows(strip, first_row, debug, paused, first_column);
+        result = draw_navigation_rows(strip, first_row, debug, paused, first_column, navigation_opacity);
     }
     if (profile != nullptr) {
         profile->navigation_us += profile->now_us() - stage_started_us;
@@ -893,10 +913,19 @@ esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bound
     return ESP_OK;
 }
 
-// No parameters: fixed navigation occupies its own lateral control band.
+// No parameters: only default-visible controls contribute upper-rim damage.
 DamageRect rig_navigation_damage_bounds()
 {
-    return {0, 10, 466, 263};
+    DamageRect bounds{466, 466, 0, 0};
+    for (const auto &control : NavigationData::controls) {
+        if (control.visible_by_default) {
+            bounds.left = std::min(bounds.left, control.bounds.left);
+            bounds.top = std::min(bounds.top, control.bounds.top);
+            bounds.right = std::max(bounds.right, control.bounds.right);
+            bounds.bottom = std::max(bounds.bottom, control.bounds.bottom);
+        }
+    }
+    return bounds.right == 0 ? DamageRect{} : bounds;
 }
 
 // control: Named navigation control; None and unrecognized identities are rejected.
@@ -904,14 +933,9 @@ DamageRect rig_navigation_damage_bounds()
 esp_err_t rig_control_damage_bounds(RigControl control, DamageRect &bounds)
 {
     bounds = {};
-    for (const auto &navigation : kNavigationControls) {
+    for (const auto &navigation : NavigationData::controls) {
         if (navigation.identity == control) {
-            bounds = {
-                static_cast<uint16_t>(std::floor(navigation.center.x - kControlRadius)),
-                static_cast<uint16_t>(std::floor(navigation.center.y - kControlRadius)),
-                static_cast<uint16_t>(std::ceil(navigation.center.x + kControlRadius)),
-                static_cast<uint16_t>(std::ceil(navigation.center.y + kControlRadius)),
-            };
+            bounds = navigation.bounds;
             return ESP_OK;
         }
     }
