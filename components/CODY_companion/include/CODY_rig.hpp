@@ -166,6 +166,10 @@ struct RigRasterProfile {
     int64_t artwork_us = 0;
     int64_t skeleton_us = 0;
     int64_t navigation_us = 0;
+    // Substages are included in skeleton_us, not additional frame work.
+    int64_t skeleton_links_us = 0;
+    int64_t skeleton_tangents_us = 0;
+    int64_t skeleton_markers_us = 0;
 };
 
 // channels: Independent finite controls, each strictly inside its authored range.

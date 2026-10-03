@@ -681,11 +681,15 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         static_cast<unsigned long>(log.transfer.last_lock_wait_us),
         static_cast<unsigned long>(log.transfer.last_duration_us),
         static_cast<unsigned long>(timings.previous_log_output_us));
-    ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus",
+    ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus "
+        "links=%ldus tangents=%ldus markers=%ldus",
         static_cast<long>(timings.raster_profile.clear_us),
         static_cast<long>(timings.raster_profile.artwork_us),
         static_cast<long>(timings.raster_profile.skeleton_us),
-        static_cast<long>(timings.raster_profile.navigation_us));
+        static_cast<long>(timings.raster_profile.navigation_us),
+        static_cast<long>(timings.raster_profile.skeleton_links_us),
+        static_cast<long>(timings.raster_profile.skeleton_tangents_us),
+        static_cast<long>(timings.raster_profile.skeleton_markers_us));
 }
 
 // regions: Bounded candidates constructed from successful rig/HUD geometry above.

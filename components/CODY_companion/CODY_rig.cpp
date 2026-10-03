@@ -94,8 +94,11 @@ CODY2D::Vec2 cubic(const CODY2D::Vec2 (&control)[4], float t)
 // strip: Destination tile receiving skeleton links and point markers.
 // first_row: Logical tile origin before the display owner's rotation.
 // selected: Stable point ID to highlight, or kNoPoint.
+// profile: Optional frame-wide accumulator using the caller's execution clock.
+// stage_started_us: Current substage start; advanced after links and tangents.
 esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
-                          uint16_t first_row, PointId selected)
+                          uint16_t first_row, PointId selected, RigRasterProfile *profile,
+                          int64_t &stage_started_us)
 {
     esp_err_t result = ESP_OK;
     for (uint16_t index = 0; index < std::size(Data::points); ++index) {
@@ -106,6 +109,11 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
                 return result;
             }
         }
+    }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->skeleton_links_us += now_us - stage_started_us;
+        stage_started_us = now_us;
     }
     for (const auto &curve : Data::curves) {
         // Each tangent joins its own anchor and handle. No mysterious pair offsets.
@@ -122,6 +130,13 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
             }
         }
     }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->skeleton_tangents_us += now_us - stage_started_us;
+        stage_started_us = now_us;
+    }
+    // The caller's existing skeleton-end tick also closes the marker stage.
+    // Only two extra clock reads per tile are needed for this breakdown.
     for (uint16_t index = 0; index < std::size(Data::points); ++index) {
         const auto &point = Data::points[index];
         const bool is_selected = point.id == selected;
@@ -531,15 +546,19 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         profile->artwork_us += now_us - stage_started_us;
         stage_started_us = now_us;
     }
+    const int64_t skeleton_started_us = stage_started_us;
     if (debug) {
-        result = draw_debug_rows(scene, strip, first_row, selected);
+        result = draw_debug_rows(scene, strip, first_row, selected, profile, stage_started_us);
         if (result != ESP_OK) {
             return result;
         }
     }
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
-        profile->skeleton_us += now_us - stage_started_us;
+        profile->skeleton_us += now_us - skeleton_started_us;
+        if (debug) {
+            profile->skeleton_markers_us += now_us - stage_started_us;
+        }
         stage_started_us = now_us;
     }
     result = draw_navigation_rows(strip, first_row, debug, paused);

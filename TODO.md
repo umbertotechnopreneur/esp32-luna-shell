@@ -6,6 +6,11 @@ authorization.
 
 ## Current integration
 
+- [ ] On explicit firmware/device validation request, measure the new skeleton
+  links/tangents/markers probes in the existing `Layers` report. Substages sum
+  to the skeleton layer and use only two extra clock reads per drawn tile.
+  Implementation has static review only; no tests or builds ran for this change.
+
 - [ ] Reduce Cody animation CPU usage and meet the sustained frame budget in
   both artwork and skeleton views. Current physical evidence is about 27 FPS
   without lines and CPU1 around 80%; obtain a logged static-route CPU baseline
