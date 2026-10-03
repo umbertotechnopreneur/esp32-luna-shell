@@ -74,3 +74,17 @@ extern "C" const char *LUNASHELL_provisioning_pop(void)
 {
     return "";
 }
+
+// buffer: Caller-owned destination, cleared when available.
+// buffer_size: Destination capacity including a null byte.
+// session_id: Unused identity in a profile without provisioning.
+extern "C" esp_err_t LUNASHELL_provisioning_copy_qr(
+    char *buffer, size_t buffer_size, uint32_t session_id)
+{
+    (void)session_id;
+    if (buffer == nullptr || buffer_size == 0) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    buffer[0] = '\0';
+    return ESP_ERR_NOT_SUPPORTED;
+}

@@ -3,15 +3,19 @@
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_radio_memory.hpp"
+#include "LUNASHELL_wifi_provisioning.hpp"
 
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_mac.h"
+#include "esp_random.h"
+#include "esp_timer.h"
 #include "esp_netif.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
@@ -349,6 +353,7 @@ esp_err_t ProvisioningService::initialize()
         if (identity_error != ESP_OK) {
             _last_error = identity_error;
             _state = ProvisioningState::Failed;
+            publishSnapshotLocked();
             ESP_LOGE(
                 kTag,
                 "identity initialization failed: %s",
@@ -363,6 +368,7 @@ esp_err_t ProvisioningService::initialize()
             _service_name
         );
         _operation = Operation::Initialize;
+        publishSnapshotLocked();
     }
 
     network_prov_mgr_config_t config = {
@@ -403,6 +409,10 @@ esp_err_t ProvisioningService::initialize()
             _state = ProvisioningState::Failed;
         }
     }
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        publishSnapshotLocked();
+    }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "manager init failed: %s", esp_err_to_name(error));
         return error;
@@ -433,9 +443,13 @@ esp_err_t ProvisioningService::start()
         restart_failed_session = _running;
         _operation = Operation::Start;
         _failure_reason = ProvisioningFailureReason::None;
+        _last_error = ESP_OK;
+        _wifi_handoff_error = ESP_OK;
+        _credentials_succeeded = false;
         _state = restart_failed_session
                      ? ProvisioningState::Stopping
                      : ProvisioningState::Starting;
+        publishSnapshotLocked();
         std::snprintf(
             service_name,
             sizeof(service_name),
@@ -454,6 +468,9 @@ esp_err_t ProvisioningService::start()
         bool poisoned = false;
         {
             std::lock_guard<std::mutex> guard(_mutex);
+            if (stop_error == ESP_OK && _wifi_handoff_error != ESP_OK) {
+                stop_error = _wifi_handoff_error;
+            }
             if (stop_error == ESP_OK && _running) {
                 // A completed manager wait must have emitted NETWORK_PROV_END.
                 // Continuing would reuse resources with indeterminate ownership.
@@ -470,6 +487,7 @@ esp_err_t ProvisioningService::start()
             } else {
                 _state = ProvisioningState::Starting;
             }
+            publishSnapshotLocked();
         }
         if (stop_error != ESP_OK) {
             publish_manager_stop_failure(
@@ -482,8 +500,24 @@ esp_err_t ProvisioningService::start()
         }
     }
 
-    esp_err_t error =
-        LUNASHELL::radio_memory::validateBleControllerDma("BLE provisioning");
+    esp_err_t error = wifi_provisioning::begin();
+    if (error == ESP_OK) {
+        std::lock_guard<std::mutex> guard(_mutex);
+        error = rebuildIdentity();
+        if (error == ESP_OK) {
+            if (_session_id == UINT32_MAX) {
+                error = ESP_ERR_INVALID_STATE;
+                ESP_LOGE(kTag, "Provisioning session identity exhausted (%s)",
+                         esp_err_to_name(error));
+            } else {
+                ++_session_id;
+            }
+        }
+        publishSnapshotLocked();
+    }
+    if (error == ESP_OK) {
+        error = LUNASHELL::radio_memory::validateBleControllerDma("BLE provisioning");
+    }
     if (error == ESP_OK) {
         error = LUNASHELL_liveness_watch_begin(
             LUNASHELL_LIVENESS_PROVISIONING
@@ -492,7 +526,7 @@ esp_err_t ProvisioningService::start()
             const esp_err_t start_error =
                 network_prov_mgr_start_provisioning(
                     NETWORK_PROV_SECURITY_1,
-                    nullptr,
+                    _pop,
                     service_name,
                     nullptr
                 );
@@ -504,7 +538,6 @@ esp_err_t ProvisioningService::start()
     }
     {
         std::lock_guard<std::mutex> guard(_mutex);
-        _operation = Operation::None;
         _last_error = error;
         if (error == ESP_OK) {
             _running = true;
@@ -518,11 +551,23 @@ esp_err_t ProvisioningService::start()
         }
     }
     if (error != ESP_OK) {
+        const esp_err_t cleanup_error = wifi_provisioning::end(false);
+        if (cleanup_error != ESP_OK) {
+            ESP_LOGE(kTag, "Failed-start Wi-Fi cleanup failed (%s)",
+                     esp_err_to_name(cleanup_error));
+            std::lock_guard<std::mutex> guard(_mutex);
+            _wifi_handoff_error = cleanup_error;
+        }
         ESP_LOGE(
             kTag,
             "BLE provisioning start failed: %s",
             esp_err_to_name(error)
         );
+    }
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        _operation = Operation::None;
+        publishSnapshotLocked();
     }
     return error;
 }
@@ -546,10 +591,12 @@ esp_err_t ProvisioningService::stop()
         }
         if (!_running) {
             _state = ProvisioningState::Stopped;
-            return ESP_OK;
+            publishSnapshotLocked();
+            return _wifi_handoff_error;
         }
         _operation = Operation::Stop;
         _state = ProvisioningState::Stopping;
+        publishSnapshotLocked();
         std::snprintf(
             service_name,
             sizeof(service_name),
@@ -571,6 +618,9 @@ esp_err_t ProvisioningService::stop()
         if (error == ESP_OK && _running) {
             error = ESP_ERR_INVALID_STATE;
         }
+        if (error == ESP_OK && _wifi_handoff_error != ESP_OK) {
+            error = _wifi_handoff_error;
+        }
         _operation = Operation::None;
         _last_error = error;
         if (error == ESP_OK) {
@@ -584,6 +634,10 @@ esp_err_t ProvisioningService::stop()
                          ? ProvisioningState::Poisoned
                          : ProvisioningState::Failed;
         }
+    }
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        publishSnapshotLocked();
     }
     if (error != ESP_OK) {
         publish_manager_stop_failure(
@@ -613,14 +667,23 @@ esp_err_t ProvisioningService::deinitializeForBleTelemetry()
         }
         _operation = Operation::Deinitialize;
         _state = ProvisioningState::Deinitializing;
+        publishSnapshotLocked();
     }
 
     // Deinit may wait on manager locks and event-loop delivery. Run it away
     // from the caller with the same bounded ownership policy as stop.
-    const esp_err_t error = run_manager_operation_with_deadline(
+    esp_err_t error = run_manager_operation_with_deadline(
         ManagerOperation::Deinitialize,
         "manager deinitialize"
     );
+    if (error == ESP_OK) {
+        bool keep_connection = false;
+        {
+            std::lock_guard<std::mutex> guard(_mutex);
+            keep_connection = _credentials_succeeded;
+        }
+        error = wifi_provisioning::end(keep_connection);
+    }
     {
         std::lock_guard<std::mutex> guard(_mutex);
         _operation = Operation::None;
@@ -638,6 +701,10 @@ esp_err_t ProvisioningService::deinitializeForBleTelemetry()
         }
     }
 
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        publishSnapshotLocked();
+    }
     if (error != ESP_OK) {
         LUNASHELL::DeviceSnapshotService::instance().reportBle(
             false,
@@ -777,6 +844,9 @@ const char *ProvisioningService::qrPayload() const
     return _qr_payload;
 }
 
+// user_data: Provisioning service registered with the manager.
+// event: Concrete manager lifecycle event.
+// event_data: SDK payload valid only during callback delivery.
 void ProvisioningService::onEvent(void *user_data, network_prov_cb_event_t event, void *event_data)
 {
     auto *service = static_cast<ProvisioningService *>(user_data);
@@ -785,8 +855,18 @@ void ProvisioningService::onEvent(void *user_data, network_prov_cb_event_t event
     }
 }
 
+// event: Manager lifecycle event, delivered outside its control mutex.
+// event_data: Credential bytes are passed only to the Wi-Fi owner.
 void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event_data)
 {
+    esp_err_t credential_error = ESP_OK;
+    if (event == NETWORK_PROV_WIFI_CRED_RECV) {
+        const auto *credentials = static_cast<const wifi_sta_config_t *>(event_data);
+        credential_error = credentials == nullptr
+            ? ESP_ERR_INVALID_RESPONSE
+            : wifi_provisioning::credentialsReceived(
+                  credentials->ssid, sizeof(credentials->ssid));
+    }
     bool publish_active = false;
     bool publish_stopped = false;
     bool ended_after_success = false;
@@ -822,18 +902,32 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
             publish_active = true;
             break;
         case NETWORK_PROV_WIFI_CRED_RECV:
-            _state = ProvisioningState::CredentialsReceived;
+            _state = credential_error == ESP_OK
+                ? ProvisioningState::Connecting : ProvisioningState::Failed;
+            _last_error = credential_error;
             _failure_reason = ProvisioningFailureReason::None;
+            if (credential_error != ESP_OK) {
+                ESP_LOGE(kTag, "Wi-Fi credential adoption failed (%s)",
+                         esp_err_to_name(credential_error));
+            }
             break;
         case NETWORK_PROV_SET_WIFI_STA_CONFIG:
-            _state = ProvisioningState::Connecting;
+            // SET precedes the SDK's write. CRED_RECV follows the accepted
+            // write and connect timer; only that event may adopt the intent.
+            if (_state == ProvisioningState::WaitingForApp) {
+                _state = ProvisioningState::CredentialsReceived;
+            }
             break;
         case NETWORK_PROV_WIFI_CRED_SUCCESS:
-            _state = ProvisioningState::Success;
-            _failure_reason = ProvisioningFailureReason::None;
+            if (_last_error == ESP_OK) {
+                _credentials_succeeded = true;
+                _state = ProvisioningState::Success;
+                _failure_reason = ProvisioningFailureReason::None;
+            }
             break;
         case NETWORK_PROV_WIFI_CRED_FAIL: {
             _state = ProvisioningState::Failed;
+            _last_error = ESP_ERR_WIFI_CONN;
             if (event_data == nullptr) {
                 _failure_reason = ProvisioningFailureReason::Unknown;
                 ESP_LOGE(
@@ -866,9 +960,9 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
             break;
         }
         case NETWORK_PROV_END:
-            ended_after_success = _state == ProvisioningState::Success;
+            ended_after_success = _credentials_succeeded;
             _running = false;
-            if (!ended_after_success &&
+            if (!ended_after_success && _state != ProvisioningState::Failed &&
                 _state != ProvisioningState::Deinitializing) {
                 _state = ProvisioningState::Stopped;
             }
@@ -884,6 +978,20 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
             break;
         default:
             break;
+        }
+        publishSnapshotLocked();
+    }
+
+    if (event == NETWORK_PROV_END) {
+        const esp_err_t handoff_error = wifi_provisioning::end(ended_after_success);
+        if (handoff_error != ESP_OK) {
+            ESP_LOGE(kTag, "Provisioning Wi-Fi handoff failed (%s)",
+                     esp_err_to_name(handoff_error));
+            std::lock_guard<std::mutex> guard(_mutex);
+            _wifi_handoff_error = handoff_error;
+            _last_error = handoff_error;
+            _state = ProvisioningState::Failed;
+            publishSnapshotLocked();
         }
     }
 
@@ -934,15 +1042,82 @@ esp_err_t ProvisioningService::rebuildIdentity()
     std::snprintf(
         _service_name,
         sizeof(_service_name),
-        "PROV_DEVICE-%02X%02X",
-        mac[4],
+        "PROV_%02X%02X%02X",
+        mac[3], mac[4],
         mac[5]
     );
-    std::snprintf(
+    // The start caller has Wi-Fi running, so hardware entropy is available.
+    // This proof is per attempt and never persisted or written to logs.
+    uint8_t random_bytes[8]{};
+    esp_fill_random(random_bytes, sizeof(random_bytes));
+    for (size_t index = 0; index < sizeof(random_bytes); ++index) {
+        std::snprintf(&_pop[index * 2], 3, "%02x", random_bytes[index]);
+    }
+    const int length = std::snprintf(
         _qr_payload,
         sizeof(_qr_payload),
-        "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"\",\"transport\":\"ble\",\"security\":1}",
-        _service_name);
+        "{\"ver\":\"v1\",\"name\":\"%s\",\"pop\":\"%s\",\"transport\":\"ble\",\"security\":1}",
+        _service_name, _pop);
+    if (length < 0 || static_cast<size_t>(length) >= sizeof(_qr_payload)) {
+        ESP_LOGE(kTag, "Provisioning QR capacity exceeded (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+void ProvisioningService::publishSnapshotLocked()
+{
+    ProvisioningSnapshot snapshot{};
+    snapshot.state = _state;
+    snapshot.failure_reason = _failure_reason;
+    snapshot.initialized = _initialized || _operation != Operation::None;
+    snapshot.running = _running;
+    snapshot.session_id = _session_id;
+    snapshot.event_sequence = ++_event_sequence;
+    snapshot.changed_at_us = esp_timer_get_time();
+    snapshot.last_attempt_at_us = snapshot.changed_at_us;
+    snapshot.last_error = _last_error;
+    snapshot.cleanup_error = _wifi_handoff_error;
+    snapshot.data_valid = true;  // A failed lifecycle is still an observed state.
+    snapshot.health = _last_error == ESP_OK ? DeviceHealth::Ready : DeviceHealth::Degraded;
+    if (_last_error == ESP_OK) {
+        _last_success_at_us = snapshot.changed_at_us;
+    }
+    snapshot.last_success_at_us = _last_success_at_us;
+    DeviceSnapshotService::instance().reportProvisioning(snapshot);
+}
+
+const char *ProvisioningService::proofOfPossession() const
+{
+    return _pop;
+}
+
+// buffer: Caller-owned secret buffer; cleared before any rejection.
+// buffer_size: Destination capacity, including the final null byte.
+// session_id: Exact identity observed in the canonical provisioning snapshot.
+esp_err_t ProvisioningService::copyQrPayload(
+    char *buffer, size_t buffer_size, uint32_t session_id) const
+{
+    if (buffer == nullptr || buffer_size == 0) {
+        ESP_LOGE(kTag, "QR copy rejected: invalid destination (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::memset(buffer, 0, buffer_size);
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (!_running || _state != ProvisioningState::WaitingForApp ||
+        _session_id != session_id || _poisoned || _operation != Operation::None) {
+        ESP_LOGE(kTag, "QR copy rejected: stale or inactive session (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (std::strlen(_qr_payload) + 1 > buffer_size) {
+        ESP_LOGE(kTag, "QR copy destination too small (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    std::memcpy(buffer, _qr_payload, std::strlen(_qr_payload) + 1);
     return ESP_OK;
 }
 
@@ -1014,5 +1189,15 @@ extern "C" const char *LUNASHELL_provisioning_qr_payload(void)
 
 extern "C" const char *LUNASHELL_provisioning_pop(void)
 {
-    return "";
+    return LUNASHELL::ProvisioningService::instance().proofOfPossession();
+}
+
+// buffer: Caller-owned destination for the current session QR.
+// buffer_size: Destination capacity including the final null byte.
+// session_id: Expected session identity from the canonical snapshot.
+extern "C" esp_err_t LUNASHELL_provisioning_copy_qr(
+    char *buffer, size_t buffer_size, uint32_t session_id)
+{
+    return LUNASHELL::ProvisioningService::instance().copyQrPayload(
+        buffer, buffer_size, session_id);
 }

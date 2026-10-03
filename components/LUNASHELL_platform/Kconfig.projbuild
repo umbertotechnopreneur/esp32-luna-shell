@@ -1,0 +1,8 @@
+config LUNASHELL_PROVISIONING_START_ON_BOOT
+    bool "Start BLE provisioning automatically without a saved Wi-Fi profile"
+    depends on LUNASHELL_BUILD_ENABLE_PROVISIONING
+    default n if LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Cody starts pairing through an explicit user action. Other connected
+        Luna profiles keep automatic provisioning when no profile is stored.

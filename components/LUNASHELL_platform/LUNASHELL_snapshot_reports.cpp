@@ -745,6 +745,17 @@ void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
     log_snapshot_publication_failure("Wi-Fi report", publication_error);
 }
 
+// provisioning: Original lifecycle state and timestamp, including observed failures.
+void DeviceSnapshotService::reportProvisioning(const ProvisioningSnapshot &provisioning)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.provisioning = provisioning;
+        }
+    );
+    log_snapshot_publication_failure("Provisioning report", publication_error);
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 // advertising: Whether the BLE driver confirmed active advertising.
