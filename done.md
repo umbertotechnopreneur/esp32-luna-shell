@@ -1,5 +1,18 @@
 # Done
 
+## Shared white Cody QR pages (2026-10-04)
+
+- [x] Give installation/session QR routes the same white scene theme, black
+  Get pairing app / Link your phone titles, numbered step captions and tiny
+  live Cody. Expand the symbol viewport from 210 to 270 pixels, retaining four
+  quiet modules, integer scaling and separate real payload ownership.
+- [x] Reuse one inline RGB565 source-over blend for vector coverage and Debug
+  toolbar fades against either background. Keep per-tile clear and existing
+  407-byte QR storage; no additional framebuffer or sensor reader.
+- [x] Include pending-command changes in lateral control damage revisions.
+  Regenerate scene definitions only; add deferred host/native regression cases.
+  Source review/generation only: no build, tests, simulator, flash or actual scan.
+
 ## Rounded Cody controls, swipe and reusable scene entrance (2026-10-04)
 
 - [x] Replace Debug upper-rim sectors with small rounded graphite controls,

@@ -103,7 +103,7 @@ def definition_header(document, width, height, advance):
             f"        {{{{{channels}}}}}, &title_font,",
             f'        {{{json.dumps(title["text"])}, {len(title["text"])}}},',
             f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()},",
-            f"        {{{{{entrance_from}}}, {entrance['move_ms']}, {entrance['text_delay_ms']}}}",
+            f"        {{{{{entrance_from}}}, {entrance['move_ms']}, {entrance['text_delay_ms']}}}, {scene['background_rgb565']}",
             "    },",
         ])
     header.extend(["};", "} // namespace CODY::SceneData"])

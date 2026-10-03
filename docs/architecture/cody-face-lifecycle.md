@@ -113,8 +113,8 @@ the catalog. Unknown keys and ambiguous `35` fail explicitly.
 | `03` | `AtlasScreenId::Ready03` | Boot ready preview |
 | `04` | `AtlasScreenId::Greeting04` | Happy; existing `SceneId::Greeting` route |
 | `05` | `AtlasScreenId::PairInvitation05` | Happy; Let's pair |
-| `06` | `AtlasScreenId::InstallApp06` | Calm; installation QR without a visible title |
-| `06-bis` | `AtlasScreenId::ScanToPair06Bis` | Calm; current session QR |
+| `06` | `AtlasScreenId::InstallApp06` | Calm; white Get pairing app / installation QR |
+| `06-bis` | `AtlasScreenId::ScanToPair06Bis` | Calm; white Link your phone / current session QR |
 | `07` | `AtlasScreenId::Pairing07` | Calm; Pairing... |
 | `08` | `AtlasScreenId::PairingFailed08` | Embarrassed; real error and bounded recovery |
 | `09` | `AtlasScreenId::Online09` | Happy; valid current Wi-Fi association and IP |

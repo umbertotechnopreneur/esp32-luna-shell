@@ -79,6 +79,19 @@ class RigContractTests(unittest.TestCase):
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_LEFT], 1)
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_RIGHT], 1)
 
+    # self: Host context; both QR pages share a white theme and bounded black titles.
+    def test_qr_pages_share_white_layout(self):
+        scenes = ScenePainter(ROOT, self.rig)
+        installation = scenes.definition("install-app")
+        device = scenes.definition("scan-to-pair")
+        for scene in (installation, device):
+            self.assertEqual(scene["background_rgb565"], 65535)
+            self.assertEqual(scene["title"]["color_rgb565"], 0)
+            self.assertTrue(scene["title"]["visible"])
+            self.assertEqual(scene["title"]["top"], 74)
+        self.assertEqual(installation["cloud"], device["cloud"])
+        self.assertEqual(device["title"]["text"], "Link your phone")
+
     # self supplies the authored ready expression and stable channel-name mapping.
     # overrides contains only the facial channels changed by the current scenario.
     # Raises KeyError for a misspelled or unsupported test channel.

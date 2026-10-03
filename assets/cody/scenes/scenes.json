@@ -6,6 +6,7 @@
     {
       "id": "greeting",
       "identity": 1,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 225, "scale": 130 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 225, "scale": 130 },
@@ -22,6 +23,7 @@
     },
     {
       "id": "pair-invitation", "identity": 2,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 225, "scale": 130 }, "move_ms": 1000, "text_delay_ms": 300 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 105, "scale": 65 },
@@ -31,24 +33,27 @@
     },
     {
       "id": "install-app", "identity": 3,
-      "entrance": { "from": { "x": 233, "y": 70, "scale": 36 }, "move_ms": 0, "text_delay_ms": 0 },
+      "background_rgb565": 65535,
+      "entrance": { "from": { "x": 233, "y": 38, "scale": 22 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
-      "cloud": { "x": 233, "y": 70, "scale": 36 },
+      "cloud": { "x": 233, "y": 38, "scale": 22 },
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
-      "title": { "text": "Install app", "top": 105, "color_rgb565": 65535, "character_interval_ms": 0, "visible": false },
+      "title": { "text": "Get pairing app", "top": 74, "color_rgb565": 0, "character_interval_ms": 0, "visible": true },
       "navigation_visible": false, "readout_visible": false
     },
     {
       "id": "scan-to-pair", "identity": 4,
-      "entrance": { "from": { "x": 233, "y": 70, "scale": 36 }, "move_ms": 0, "text_delay_ms": 0 },
+      "background_rgb565": 65535,
+      "entrance": { "from": { "x": 233, "y": 38, "scale": 22 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
-      "cloud": { "x": 233, "y": 70, "scale": 36 },
+      "cloud": { "x": 233, "y": 38, "scale": 22 },
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
-      "title": { "text": "Scan to pair", "top": 105, "color_rgb565": 65535, "character_interval_ms": 0, "visible": true },
+      "title": { "text": "Link your phone", "top": 74, "color_rgb565": 0, "character_interval_ms": 0, "visible": true },
       "navigation_visible": false, "readout_visible": false
     },
     {
       "id": "pairing", "identity": 5,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
@@ -58,6 +63,7 @@
     },
     {
       "id": "pairing-failed", "identity": 6,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
@@ -67,6 +73,7 @@
     },
     {
       "id": "online", "identity": 7,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
@@ -76,6 +83,7 @@
     },
     {
       "id": "cody-look", "identity": 8,
+      "background_rgb565": 0,
       "entrance": { "from": { "x": 233, "y": 172, "scale": 44 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 172, "scale": 44 },

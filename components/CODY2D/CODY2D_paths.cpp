@@ -25,19 +25,6 @@ bool valid_point(Vec2 point)
            std::abs(point.x) <= 2048 && std::abs(point.y) <= 2048;
 }
 
-// source: Native RGB565 source color from the immutable palette.
-// destination: Current native RGB565 pixel below this path.
-// opacity: Source coverage in 0..255; integer rounding is shared with the host renderer.
-uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
-{
-    const uint32_t alpha = opacity;
-    const uint32_t inverse = 255U - alpha;
-    const uint32_t red = (((source >> 11) & 31U) * alpha + ((destination >> 11) & 31U) * inverse + 127U) / 255U;
-    const uint32_t green = (((source >> 5) & 63U) * alpha + ((destination >> 5) & 63U) * inverse + 127U) / 255U;
-    const uint32_t blue = ((source & 31U) * alpha + (destination & 31U) * inverse + 127U) / 255U;
-    return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
-}
-
 // differences: Bounded row scratch, initialized only where an event is first touched.
 // events: Zero-initialized bitset recording which coverage changes are readable this row.
 // column: Tile-local change position, including the one-past-width sentinel.

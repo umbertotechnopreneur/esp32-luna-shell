@@ -244,8 +244,9 @@ bool navigation_contains(const RigControlGeometry &control, CODY2D::Vec2 point)
 // paused: Show Play while geometry is frozen, otherwise show Pause.
 // first_column: Logical x origin used to clip controls into the compact destination.
 // opacity: Debug toolbar visibility; geometry and hit targets never move during fading.
+// background: Authored scene color beneath the toolbar, including white QR pages.
 esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
-                              bool debug, bool paused, uint16_t first_column, uint8_t opacity)
+                              bool debug, bool paused, uint16_t first_column, uint8_t opacity, uint16_t background)
 {
     esp_err_t result = ESP_OK;
     if (opacity == 0) {
@@ -285,21 +286,23 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             result = CODY2D::fill_rect(strip,
                 {static_cast<uint16_t>(first_x - first_column), static_cast<uint16_t>(row),
                  static_cast<uint16_t>(last_x - first_x), 1},
-                CODY2D::fade_rgb565_to_black(NavigationData::shades[slot], opacity));
+                CODY2D::blend_rgb565(NavigationData::shades[slot], background, opacity));
             if (result != ESP_OK) {
                 return result;
             }
         }
         const auto center = control.icon_center;
-        const uint16_t ink = CODY2D::fade_rgb565_to_black(NavigationData::ink, opacity);
+        // Source-over against the authored background makes opacity zero truly
+        // disappear on white too, instead of leaving black ghost icons behind.
+        const uint16_t ink = CODY2D::blend_rgb565(NavigationData::ink, background, opacity);
         if (control.identity == RigControl::Overlay) {
             const CODY2D::Vec2 nodes[] = {{center.x-10, center.y+9}, {center.x, center.y-11}, {center.x+10, center.y+9}};
             for (uint16_t index = 0; index < 3; ++index) {
                 result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[(index+1)%3],
                     Data::overlay_stroke, ink, first_column);
                 if (result == ESP_OK) {
-                    const uint16_t marker = CODY2D::fade_rgb565_to_black(
-                        debug ? NavigationData::selected : NavigationData::ink, opacity);
+                    const uint16_t marker = CODY2D::blend_rgb565(
+                        debug ? NavigationData::selected : NavigationData::ink, background, opacity);
                     result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index],
                         Data::overlay_marker_diameter, marker, first_column);
                 }
@@ -714,10 +717,12 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
 // navigation_visible: Hidden scene controls have no raster footprint.
 // navigation_opacity: Debug toolbar fade applied without advancing the character clock.
+// background_rgb565: Native color for the current logical scene, cleared once per tile.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
-                        const RigDebugStrokeCache *debug_cache, bool navigation_visible, uint8_t navigation_opacity)
+                        const RigDebugStrokeCache *debug_cache, bool navigation_visible, uint8_t navigation_opacity,
+                        uint16_t background_rgb565)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -756,7 +761,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         return ESP_ERR_INVALID_SIZE;
     }
     int64_t stage_started_us = profile != nullptr ? profile->now_us() : 0;
-    esp_err_t result = CODY2D::clear(strip, Data::palette[to_index(Data::background_color)]);
+    esp_err_t result = CODY2D::clear(strip, background_rgb565);
     if (result != ESP_OK) {
         return result;
     }
@@ -832,7 +837,7 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         stage_started_us = now_us;
     }
     if (navigation_visible) {
-        result = draw_navigation_rows(strip, first_row, debug, paused, first_column, navigation_opacity);
+        result = draw_navigation_rows(strip, first_row, debug, paused, first_column, navigation_opacity, background_rgb565);
     }
     if (profile != nullptr) {
         profile->navigation_us += profile->now_us() - stage_started_us;

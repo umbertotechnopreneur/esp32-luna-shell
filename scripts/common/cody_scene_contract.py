@@ -54,7 +54,7 @@ def load_scenes(root: Path, rig=None):
     if rig is None:
         rig, _ = load_contract(root)
     for scene in scenes:
-        require_keys(scene, {"id", "identity", "intro", "entrance", "cloud", "face", "title",
+        require_keys(scene, {"id", "identity", "intro", "entrance", "background_rgb565", "cloud", "face", "title",
                             "navigation_visible", "readout_visible"}, "scene")
         name = scene["id"]
         identity = scene["identity"]
@@ -65,6 +65,8 @@ def load_scenes(root: Path, rig=None):
             raise ValueError(f"Duplicate scene identity: {name!r}/{identity!r}")
         names.add(name)
         identities.add(identity)
+        if type(scene["background_rgb565"]) is not int or not 0 <= scene["background_rgb565"] <= 65535:
+            raise ValueError(f"{name}.background_rgb565: invalid native color")
         intro = scene["intro"]
         require_keys(intro, {"bitmap_fade_out_ms", "cloud_fade_in_ms"}, f"{name}.intro")
         for key, value in intro.items():

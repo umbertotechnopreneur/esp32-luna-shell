@@ -198,14 +198,19 @@ class CodyRenderer:
     # png_mesh_study: Opt-in painted texture driven by the same semantic lobe pose.
     # mesh_overlay: Show the actual triangle edges when the PNG study is selected.
     # navigation_visible: Scene policy; hidden controls have no raster footprint.
+    # background_rgb565: Explicit scene background, or the authored plain-rig palette color.
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
     # Raises OSError for unreadable experimental PNG artwork.
-    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, navigation_visible=True):
+    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, navigation_visible=True, background_rgb565=None):
         if sum((material_study, png_mesh_study, self.jelly_study_enabled)) > 1:
             raise ValueError('Choose only one cloud rendering study')
         if mesh_overlay and not png_mesh_study:
             raise ValueError('Mesh overlay requires the PNG mesh study')
         image = self.indexed()
+        if background_rgb565 is not None:
+            if type(background_rgb565) is not int or not 0 <= background_rgb565 <= 65535:
+                raise ValueError("Invalid scene background RGB565")
+            image = Image.new("RGB", (SIZE, SIZE), rgb565(background_rgb565))
         surface_paths = set(self.rig['contour'].get('surface_paths', []))
         for path in scene["paths"]:
             if not path["visible"]:
@@ -388,7 +393,9 @@ class CodyRenderer:
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
                                     material_study=material_study, png_mesh_study=png_mesh_study,
                                     mesh_overlay=mesh_overlay,
-                                    navigation_visible=not boot_visible)
+                                    navigation_visible=not boot_visible,
+                                    background_rgb565=self.scene_painter.definition("greeting")["background_rgb565"]
+                                    if screen == Screen.GREETING else None)
             if screen == Screen.GREETING:
                 image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
                 image = image.convert("RGB")

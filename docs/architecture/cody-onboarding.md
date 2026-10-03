@@ -49,7 +49,18 @@ catalog preset are changed together, preserving the compile-time identity contra
 | 11, tap a look | Persist its stable ID and update the live Cody preview |
 | 11, Back or Done | Return to 09 without discarding the selected look |
 
-06 deliberately has **no visible title**. Its QR encodes the actual inherited
+06 uses **Get pairing app**; 06-bis uses **Link your phone**. Both have the same
+white background, black title at y=74, tiny live Cody at `(233,38,22)`, and a
+black 18px step caption at y=117. The QR viewport is **270x270 at (98,147)**,
+up from the earlier 210x210. It extends below the safe square but all bounding
+corners remain inside the nominal circle, clear of both lateral touch targets.
+There is no separate white-card border: the whole page is white. Only the
+required four-module quiet zone and centering residual remain around the
+integer-scaled symbol, per [DENSO WAVE's QR margin guidance](https://www.qrcode.com/en/howto/code.html).
+This larger viewport keeps integer modules through version 10; no framebuffer
+or resampled bitmap is introduced, and the two QR payloads remain distinct.
+
+The installation QR encodes the actual inherited
 Android provisioning-app installation URL:
 `https://play.google.com/store/apps/details?id=com.espressif.provble`.
 It does not start BLE. 06-bis encodes only the current device/session payload
@@ -86,8 +97,9 @@ the current caller; future Settings can reuse the same screen and IDs.
 
 - `CODY_lifecycle` owns active-time expression sequencing. One lightweight timing
   header shares the panel fade duration with the power owner.
-- `CODY_scene` still owns cloud/title/optional content. `title_visible` explicitly
-  hides the installation title without an empty/fallback glyph or a special renderer.
+- `CODY_scene` still owns cloud/title/optional content. `title_visible` and the
+  explicit authored `background_rgb565` belong to reusable scene definitions,
+  not special-case screen rendering or a fallback theme.
 - `CODY2D::CapsuleControl` shares full bounds between drawing and hit testing.
   OOBE uses discreet graphite circles with small light chevrons, not blue footer
   buttons. Previous/Cancel occupies `(10,203,60,60)`; Next/Retry/Continue/Done
@@ -113,7 +125,7 @@ the current caller; future Settings can reuse the same screen and IDs.
   existing pairing owner. A single-slot release/acquire mailbox has no per-frame
   allocations or unbounded action queue.
 - Version-10 QR modules fit in **407 bytes**, with a four-module white quiet zone
-  and integer pixel scaling in a 210x210 logical area. No RGB QR framebuffer exists.
+  and integer pixel scaling in a 270x270 logical area. No RGB QR framebuffer exists.
   The pinned `espressif/qrcode` dependency is `0.1.0~2`, as in the existing full UI.
 - The same licensed JetBrains Mono source supplies an additional 18px printable-
   ASCII caption/action font: **7,125 bytes in internal flash**, no runtime glyph cache.
@@ -139,3 +151,8 @@ The scene asset generator completed for eight scenes. This source preparation
 is not firmware, simulator or physical-device validation.
 The rounded navigation/swipe/entrance/open-eye increment likewise has no new
 build, test, simulator run, flash or device observation.
+The subsequent white QR-page increment regenerated definitions only. Its caption
+and symbol quiet-zone readability, actual app scans, white-theme dirty redraw and
+Debug fade still require authorized simulator/device checks. Pending-command
+changes also advance the separate control revision, so dimmed lateral controls
+are repainted when admission/QR work completes.

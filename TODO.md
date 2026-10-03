@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh authorization, validate the shared white QR pages: installation
+  versus live-session payload, larger integer modules, quiet zone, dark title/
+  caption contrast, circle clipping, all cardinal rotations, translucent pearl
+  edge, white-background Debug fades and pending/ready lateral-control repaint.
+  Source and definitions only; no new runtime/device/scan evidence.
+
 - [ ] After fresh explicit authorization, build and review rounded graphite
   navigation and Let's pair's 1-second entrance + 300-ms delayed teletype.
   Observe touch-only Debug reveal, 5-second/330-ms fades, paused layout changes,

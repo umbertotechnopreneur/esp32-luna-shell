@@ -639,11 +639,17 @@ void check_navigation_visibility_contract()
     require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None,
             "Back remains defined but hidden and non-interactive by default");
     require(CODY::rig_control_at({160, 52}) == CODY::RigControl::Pause,
-            "Pause uses its shared upper-left annular target");
+            "Pause uses its shared rounded upper-left target");
     require(CODY::rig_control_at({306, 52}) == CODY::RigControl::Overlay,
-            "Skeleton toggle uses its shared upper-right annular target");
+            "Skeleton toggle uses its shared rounded upper-right target");
     require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
             "old lateral skeleton target cannot activate");
+    require(CODY::rig_control_at({158, 74}) == CODY::RigControl::None &&
+            CODY::rig_control_at({308, 74}) == CODY::RigControl::None,
+            "rounded Debug targets do not intrude into the safe square");
+    require(CODY2D::blend_rgb565(0xAD55, 0xFFFF, 0) == 0xFFFF &&
+            CODY2D::blend_rgb565(0xAD55, 0xFFFF, 255) == 0xAD55,
+            "Debug icon fade respects the white scene background and opaque endpoint");
     CODY::NavigationVisibility visibility;
     require(visibility.opacity(1000000) == 0, "unprimed toolbar is hidden");
     visibility.interact(1000000);

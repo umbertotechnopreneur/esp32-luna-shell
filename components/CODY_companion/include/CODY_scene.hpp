@@ -39,6 +39,7 @@ struct SceneDefinition {
     bool readout_visible;
     bool title_visible = true;
     SceneEntranceDefinition entrance{};
+    uint16_t background_rgb565 = 0;
 };
 
 // Optional caller-owned content, e.g. text, a button or a QR in a later scene.

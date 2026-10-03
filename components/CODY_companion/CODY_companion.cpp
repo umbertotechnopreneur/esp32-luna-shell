@@ -1069,6 +1069,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
     const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle);
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
+    const uint16_t scene_background = s_state.scene.valid ? s_state.scene.definition->background_rgb565 :
+        CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
     const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const uint8_t branding_opacity = startup_branding_opacity();
@@ -1197,7 +1199,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
-                    frame_navigation_visible, navigation_opacity
+                    frame_navigation_visible, navigation_opacity, scene_background
                 );
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);

@@ -24,9 +24,10 @@ constexpr char kTag[] = "CODY_onboarding";
 constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=com.espressif.provble";
 constexpr uint16_t kQrModulesMax = 57; // Version 10; bounded independently of the framebuffer.
 constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
-constexpr uint16_t kQrSide = 210;
-constexpr uint16_t kQrLeft = 128;
-constexpr uint16_t kQrTop = 151;
+constexpr uint16_t kQrSide = 270;
+constexpr uint16_t kQrQuietModules = 4;
+constexpr uint16_t kQrLeft = 98;
+constexpr uint16_t kQrTop = 147;
 constexpr uint16_t kBlueTop = 0x765E; // Authored #75CBF3 anchor.
 constexpr uint16_t kBlueBottom = 0x34FC; // Authored #359FE7 anchor.
 constexpr uint16_t kLookNeutralTop = 0x2946;
@@ -254,6 +255,7 @@ esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
     }
     s_command = {work, s_generation, attempt, session};
     s_command_pending = true;
+    ++s_navigation_revision;
     s_work_busy.store(true, std::memory_order_release);
     xTaskNotifyGive(s_worker);
     return ESP_OK;
@@ -468,19 +470,20 @@ esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
     if (qr.side == 0) {
         return ESP_OK;
     }
-    const uint16_t scale = kQrSide / (qr.side + 8U);
+    const uint16_t grid_side = qr.side + 2U * kQrQuietModules;
+    const uint16_t scale = kQrSide / grid_side;
     if (qr.side > kQrModulesMax || scale == 0) {
         return ESP_ERR_INVALID_SIZE;
     }
-    const uint16_t inset = (kQrSide - (qr.side + 8U) * scale) / 2U;
+    const uint16_t inset = (kQrSide - grid_side * scale) / 2U;
     const uint16_t top = std::max(first_row, kQrTop);
     const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, kQrTop + kQrSide);
     const uint16_t left = std::max(first_column, kQrLeft);
     const uint16_t right = std::min<uint16_t>(first_column + strip.width, kQrLeft + kQrSide);
     for (uint16_t row = top; row < bottom; ++row) {
         for (uint16_t column = left; column < right; ++column) {
-            const int module_x = (static_cast<int>(column) - kQrLeft - inset) / scale - 4;
-            const int module_y = (static_cast<int>(row) - kQrTop - inset) / scale - 4;
+            const int module_x = (static_cast<int>(column) - kQrLeft - inset) / scale - kQrQuietModules;
+            const int module_y = (static_cast<int>(row) - kQrTop - inset) / scale - kQrQuietModules;
             const bool inside = column >= kQrLeft + inset && row >= kQrTop + inset &&
                 module_x >= 0 && module_y >= 0 && module_x < qr.side && module_y < qr.side;
             const uint32_t bit = inside ? module_y * qr.side + module_x : 0;
@@ -535,7 +538,13 @@ esp_err_t attach_content(SceneFrame &scene)
     const uint16_t top = s_route == Route::Install06 || s_route == Route::Scan06Bis ? 150 :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
-    content.bounds = {117, top, 349, 428};
+    if (s_route == Route::Install06 || s_route == Route::Scan06Bis) {
+        // Include the small caption above the QR. Every bounding corner remains
+        // inside the circular display, and the lateral controls stay separate.
+        content.bounds = {kQrLeft, 117, kQrLeft + kQrSide, kQrTop + kQrSide};
+    } else {
+        content.bounds = {117, top, 349, 428};
+    }
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = s_navigation_revision;
@@ -603,13 +612,16 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         error = prepare_action(OnboardingAction::ShowQr, true);
     } else if (route == Route::Install06) {
-        error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
-    } else if (route == Route::Scan06Bis) {
-        error = prepare_caption("Scan inside the", 372, s_view.lines[0]);
+        error = prepare_caption("1. Scan to install", 117, s_view.lines[0]);
+        s_view.lines[0].color = prepared.definition->title_color;
+        s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("provisioning app.", 398, s_view.lines[1]);
+            error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
         }
-        s_view.line_count = 2;
+    } else if (route == Route::Scan06Bis) {
+        error = prepare_caption("2. Scan in the app", 117, s_view.lines[0]);
+        s_view.lines[0].color = prepared.definition->title_color;
+        s_view.line_count = 1;
     } else if (route == Route::Pairing07) {
         error = prepare_action(OnboardingAction::Cancel, s_pairing_owned && !s_command_pending);
     } else if (route == Route::Failed08) {
@@ -742,6 +754,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         ESP_LOGE(kTag, "Active route has no prepared scene (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    if (scene.content.control_revision != s_navigation_revision) {
+        scene.content.control_revision = s_navigation_revision;
+        changed = true;
+    }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     bool caption_changed = false;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
@@ -769,6 +785,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     const auto &pairing = observation.radios.pairing;
     if (have_result && result.command.generation == s_generation) {
         s_command_pending = false;
+        scene.content.control_revision = ++s_navigation_revision;
         changed = true;
         if (result.error != ESP_OK) {
             // A QR copy can race credentials/cancellation: follow the newer real

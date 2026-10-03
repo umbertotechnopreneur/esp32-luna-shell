@@ -12,6 +12,14 @@ the existing animated cloud above one large monospace title and optional
 caller-owned content below it. This is not an LVGL screen, a new sensor owner,
 or a second animation/render task. English is the only supported product language.
 
+Every scene explicitly authors its native `background_rgb565`. The existing
+tile clear uses that color once; no full-screen extra layer/framebuffer is
+allocated. The QR routes use white and dark titles/captions, while ordinary
+Cody scenes stay black. The pearl sampler already composites premultiplied
+RGBA against the tile, keeping its transparent contour clean on either theme.
+The rounded Debug toolbar fades toward the authored background using the same
+inline RGB565 blend as path coverage, so hiding it on white leaves no black ghost.
+
 ## First-boot greeting
 
 The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:

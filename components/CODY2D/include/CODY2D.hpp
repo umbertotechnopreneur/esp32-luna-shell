@@ -94,6 +94,19 @@ esp_err_t validate_indexed_rle_image(const IndexedRleImage &image);
 // color: Native RGB565 color written to every visible pixel.
 esp_err_t clear(Surface surface, uint16_t color);
 
+// source: Native RGB565 foreground color.
+// destination: Native RGB565 background beneath that color.
+// opacity: Source coverage in 0..255, with identical rounding for paths and UI fades.
+inline uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
+{
+    const uint32_t alpha = opacity;
+    const uint32_t inverse = 255U - alpha;
+    const uint32_t red = (((source >> 11) & 31U) * alpha + ((destination >> 11) & 31U) * inverse + 127U) / 255U;
+    const uint32_t green = (((source >> 5) & 63U) * alpha + ((destination >> 5) & 63U) * inverse + 127U) / 255U;
+    const uint32_t blue = ((source & 31U) * alpha + (destination & 31U) * inverse + 127U) / 255U;
+    return static_cast<uint16_t>((red << 11) | (green << 5) | blue);
+}
+
 // color: Native RGB565 source color, including premultiplied antialiased edges.
 // opacity: Global brightness against black, from zero to fully visible 255.
 uint16_t fade_rgb565_to_black(uint16_t color, uint8_t opacity);

@@ -292,12 +292,14 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
 // navigation_visible: Render the existing controls only when the active Debug scene exposes them.
 // navigation_opacity: Wall-clock toolbar fade, independent of character/animation pause.
+// background_rgb565: Logical scene background; the default plain rig is black.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
                         uint16_t first_column = 0,
                         const RigDebugStrokeCache *debug_cache = nullptr,
-                        bool navigation_visible = true, uint8_t navigation_opacity = 255);
+                        bool navigation_visible = true, uint8_t navigation_opacity = 255,
+                        uint16_t background_rgb565 = 0);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.
