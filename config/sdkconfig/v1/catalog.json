@@ -41,7 +41,8 @@
         "config/sdkconfig/v1/boards/waveshare-esp32s3-touch-amoled-1.75.defaults",
         "config/sdkconfig/v1/products/lunashell.defaults",
         "config/sdkconfig/v1/features/connectivity.defaults",
-        "config/sdkconfig/v1/profiles/cody-companion.defaults"
+        "config/sdkconfig/v1/profiles/cody-companion.defaults",
+        "config/sdkconfig/v1/features/cody-connectivity.defaults"
       ],
       "component_roots": [
         "main",
@@ -58,7 +59,8 @@
         "esp_driver_i2s",
         "espressif__esp_codec_dev",
         "waveshare__qmi8658",
-        "cube32esp__xpowerslib"
+        "cube32esp__xpowerslib",
+        "esp_http_server"
       ],
       "component_dirs": [
         "main",

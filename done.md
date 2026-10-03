@@ -1,5 +1,14 @@
 # Done
 
+## HTTP and Wi-Fi pairing integration (2026-10-04)
+
+- [x] Integrate the shared Wi-Fi credential-event adoption, explicit
+  telemetry/provisioning handoff, per-attempt proof of possession, session QR,
+  asynchronous Start/Retry/Cancel controller and canonical lifecycle state into
+  `main`. Enable opt-in HTTP diagnostics in Cody without automatic first-boot
+  advertising, and document the OOBE contract. Source review only; validation,
+  UI integration and device evidence remain open in `TODO.md`.
+
 ## Shared main integration (2026-10-04)
 
 - [x] Merge Luna connectivity, hardware census, Debug/Release and Deep-sleep work

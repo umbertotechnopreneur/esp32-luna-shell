@@ -6,6 +6,15 @@ authorization.
 
 ## Current integration
 
+- [ ] Integrate the Welcome/OOBE screens with the async pairing controller:
+  routes 05/06/06-bis/07/08/09, copied session QR, reusable semantic action
+  button, and navigation only after confirmed Cancelled. Contract:
+  `docs/architecture/cody-pairing-integration.md`.
+- [ ] Obtain explicit authorization for the final connectivity validation and
+  device checks. Cover first pairing, failure reasons, Retry/new QR, Back,
+  Cancel while starting/connecting, timeout, DHCP, telemetry handoff, standby,
+  persisted-profile reboot and opt-in authenticated HTTP over the actual LAN.
+
 - [ ] On fresh explicit authorization, validate the integrated `main` policies
   together: Debug/Release diagnostic gates, Cody Sleep/Wake preparation, first
   dark Wake frame before the 300-ms fade, and recovery after a rejected sleep.
