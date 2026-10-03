@@ -157,14 +157,17 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row, bool d
     // Lateral controls fit outside the safe square. Left is Back; right toggles the overlay.
     for (int row = 0; row < strip.height; ++row) {
         const float dy = first_row + row + .5f - 233;
+        // Both vertical gradients have one color per row. Xtensa divides
+        // floats in software; this belongs outside the covered-pixel loop.
+        const int first_color = to_index(Data::back_top);
+        const int color_span = to_index(Data::back_bottom) - first_color;
+        const int slot = first_color + static_cast<int>((dy + 30) * color_span / 60);
+        const uint16_t color = Data::palette[slot];
         for (int center : {40, 426}) {
             for (int x = center - 30; x < center + 30 && x < strip.width; ++x) {
                 const float dx = x + .5f - center;
                 if (dx*dx + dy*dy <= 900) {
-                    const int first_color = to_index(Data::back_top);
-                    const int color_span = to_index(Data::back_bottom) - first_color;
-                    const int slot = first_color + static_cast<int>((dy + 30) * color_span / 60);
-                    strip.pixels[row * strip.stride + x] = Data::palette[slot];
+                    strip.pixels[row * strip.stride + x] = color;
                 }
             }
         }
@@ -405,17 +408,28 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
 // first_row: Tile y origin in the unrotated logical canvas.
 // debug: Enables bones, Bézier tangents and evaluated point markers.
 // selected: Point emphasized by the latest real touch selection.
+// profile: Optional caller-owned collector with a monotonic execution clock.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
-                        uint16_t first_row, bool debug, PointId selected)
+                        uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile)
 {
+    if (profile != nullptr && profile->now_us == nullptr) {
+        ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!scene.valid || (selected != kNoPoint && to_index(selected) >= std::size(Data::points))) {
         ESP_LOGE(kTag, "Draw rejected: valid=%u selected=%u (%s)", scene.valid, static_cast<unsigned>(to_index(selected)),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    int64_t stage_started_us = profile != nullptr ? profile->now_us() : 0;
     esp_err_t result = CODY2D::clear(strip, Data::palette[to_index(Data::background_color)]);
     if (result != ESP_OK) {
         return result;
+    }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->clear_us += now_us - stage_started_us;
+        stage_started_us = now_us;
     }
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
         const auto &definition = Data::paths[index];
@@ -441,13 +455,86 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
             return result;
         }
     }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->artwork_us += now_us - stage_started_us;
+        stage_started_us = now_us;
+    }
     if (debug) {
         result = draw_debug_rows(scene, strip, first_row, selected);
         if (result != ESP_OK) {
             return result;
         }
     }
-    return draw_navigation_rows(strip, first_row, debug);
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->skeleton_us += now_us - stage_started_us;
+        stage_started_us = now_us;
+    }
+    result = draw_navigation_rows(strip, first_row, debug);
+    if (profile != nullptr) {
+        profile->navigation_us += profile->now_us() - stage_started_us;
+    }
+    return result;
+}
+
+// scene: Successfully evaluated geometry, shared unchanged with the renderer.
+// debug: Include every bone, tangent and selected marker when the overlay is visible.
+// bounds: Receives conservative artwork coverage clipped to the 466-pixel canvas.
+esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bounds)
+{
+    bounds = {};
+    if (!scene.valid) {
+        ESP_LOGE(kTag, "Artwork bounds rejected: invalid scene (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    float left = 466.f;
+    float top = 466.f;
+    float right = 0.f;
+    float bottom = 0.f;
+    for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
+        const auto &definition = Data::paths[index];
+        const auto &path = scene.paths[index];
+        if (!path.visible || (definition.stroke == 0 && path.opacity == 0)) {
+            continue;
+        }
+        const float margin = definition.stroke * scene.scale * .5f + 1.f;
+        for (uint16_t vertex = 0; vertex < path.count; ++vertex) {
+            const auto &point = scene.vertices[path.first_vertex + vertex];
+            left = std::min(left, point.x - margin);
+            right = std::max(right, point.x + margin);
+            top = std::min(top, point.y - margin);
+            bottom = std::max(bottom, point.y + margin);
+        }
+    }
+    if (debug) {
+        // Straight links and tangents lie between their endpoints. The largest
+        // authored marker/line radius also covers selection changes.
+        const float margin = std::max({Data::debug_anchor_diameter, Data::debug_handle_diameter,
+            Data::debug_selected_diameter, Data::debug_link_width, Data::debug_handle_width}) * .5f + 1.f;
+        for (uint16_t index = 0; index < std::size(Data::points); ++index) {
+            const auto &point = scene.world[index];
+            left = std::min(left, point.x - margin);
+            right = std::max(right, point.x + margin);
+            top = std::min(top, point.y - margin);
+            bottom = std::max(bottom, point.y + margin);
+        }
+    }
+    // Clip before integer conversion. Artwork bounds include raster margins,
+    // but static navigation and diagnostic text have separate owners.
+    if (left < right && top < bottom && right > 0 && bottom > 0 && left < 466 && top < 466) {
+        bounds = {static_cast<uint16_t>(std::floor(std::max(0.f, left))),
+            static_cast<uint16_t>(std::floor(std::max(0.f, top))),
+            static_cast<uint16_t>(std::ceil(std::min(466.f, right))),
+            static_cast<uint16_t>(std::ceil(std::min(466.f, bottom)))};
+    }
+    return ESP_OK;
+}
+
+// No parameters: fixed navigation occupies its own lateral control band.
+DamageRect rig_navigation_damage_bounds()
+{
+    return {0, 203, 466, 263};
 }
 
 // scene: Valid evaluated geometry from the latest completed frame.

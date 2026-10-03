@@ -34,11 +34,10 @@ namespace {
 constexpr char kTag[] = "CODY_companion";
 constexpr uint16_t kPanelWidth = 466;
 constexpr uint16_t kPanelHeight = 466;
-// The current and cached tile must fit together in the 64 KiB data cache,
-// leaving room for the evaluated rig. The BSP still owns transient DMA slots.
-constexpr uint16_t kStripRows = 16;
+// Raster borrows the frame owner's internal DMA slot. Its actual row count
+// comes from the lease; touch polling stays bounded even on an emergency row.
+constexpr uint16_t kTouchPollRows = 32;
 constexpr uint16_t kPaletteLimit = 64;
-constexpr uint32_t kStripPixels = static_cast<uint32_t>(kPanelWidth) * kStripRows;
 constexpr uint32_t kFramePixels = static_cast<uint32_t>(kPanelWidth) * kPanelHeight;
 constexpr uint32_t kSamplePeriodMs = 50;
 constexpr uint32_t kStandbySamplePeriodMs = 200;
@@ -78,10 +77,10 @@ struct TouchPollResult {
     esp_err_t error;
 };
 
-// One report per strip fits here. Preserve every press/release until the frame
+// One report per polling band fits here. Preserve every press/release until the frame
 // ends, so a navigation event cannot change half of the displayed image.
 struct PendingTouchReports {
-    LUNASHELL_touch_point_t samples[(kPanelHeight + kStripRows - 1U) / kStripRows]{};
+    LUNASHELL_touch_point_t samples[(kPanelHeight + kTouchPollRows - 1U) / kTouchPollRows]{};
     uint16_t count = 0;
 };
 
@@ -95,7 +94,6 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
 struct CompanionResources {
-    uint16_t *strip = nullptr;
     uint16_t *frame_cache = nullptr;
     bool frame_cache_valid = false;
     CODY::RigScene *rig = nullptr;
@@ -105,6 +103,11 @@ std::atomic<uint32_t> s_rendered_revision{0};
 std::atomic<bool> s_demo_requested{false};
 // This bounded collector shares the display/state lock with completed frame publication.
 CODY::FrameBenchmark s_benchmark;
+// Completed-frame footprints share the display lock with the pixel cache.
+// They are never advanced by a failed frame or a deferred touch event.
+CODY::DamageRect s_cached_rig_bounds;
+bool s_cache_was_rig = false;
+bool s_cached_rig_debug = false;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
@@ -200,6 +203,8 @@ struct FrameTimings {
     int64_t transfer_us = 0;
     uint32_t submitted_pixels = 0;
     uint16_t dirty_rectangles = 0;
+    uint16_t tile_rows = 0;
+    CODY::RigRasterProfile raster_profile{esp_timer_get_time};
 };
 
 // operation: Consumer stage that has failed and must remain visible in the snapshot.
@@ -254,7 +259,7 @@ const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
     }
 }
 
-// Before task creation, only startup owns the strip and no renderer can reference it.
+// Before task creation, only startup owns the PSRAM cache and scene.
 void release_companion_resources()
 {
     s_resources.frame_cache_valid = false;
@@ -267,20 +272,15 @@ void release_companion_resources()
         heap_caps_free(s_resources.rig);
         s_resources.rig = nullptr;
     }
-    if (s_resources.strip != nullptr) {
-        heap_caps_free(s_resources.strip);
-        s_resources.strip = nullptr;
-    }
 }
 
-// Drain every possible boot-completion writer before releasing the worker's strip.
+// Drain every possible boot-completion writer before releasing the worker's cache and scene.
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
 esp_err_t release_worker_resources()
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
         const uint32_t retained_bytes =
-            (s_resources.strip != nullptr ? kStripPixels * sizeof(uint16_t) : 0) +
             (s_resources.frame_cache != nullptr ? kFramePixels * sizeof(uint16_t) : 0) +
             (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0);
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
@@ -531,7 +531,7 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         static_cast<long>(timings.transfer_us),
         static_cast<long>(log.completed_us - timings.started_us),
         static_cast<unsigned>(sizeof(CODY::RigScene)),
-        static_cast<unsigned long>(kStripPixels * sizeof(uint16_t))
+        static_cast<unsigned long>(timings.tile_rows * kPanelWidth * sizeof(uint16_t))
     );
     ESP_LOGI(kTag,
              "Response MODEL stress=%.3f fatigue=%.3f fatigue_known=%u root_offset=(%.2f,%.2f)px depth=%.4f "
@@ -548,12 +548,17 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         source_health_name(log.response.microphone_status.health), source_health_name(log.response.playback_status.health));
     ESP_LOGI(kTag, "Damage rectangles=%u submitted_pixels=%lu canvas_pixels=%lu tile_rows=%u cache_bytes=%lu",
         timings.dirty_rectangles, static_cast<unsigned long>(timings.submitted_pixels),
-        static_cast<unsigned long>(kFramePixels), kStripRows,
+        static_cast<unsigned long>(kFramePixels), timings.tile_rows,
         static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)));
     ESP_LOGI(kTag, "Render draw=%ldus reuse=%ldus transfer=%ldus %s %s",
         static_cast<long>(timings.raster_us - timings.reuse_us),
         static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
         log.readout.frame_rate, log.readout.processors);
+    ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus",
+        static_cast<long>(timings.raster_profile.clear_us),
+        static_cast<long>(timings.raster_profile.artwork_us),
+        static_cast<long>(timings.raster_profile.skeleton_us),
+        static_cast<long>(timings.raster_profile.navigation_us));
 }
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
@@ -594,8 +599,24 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     }
 
     FrameTimings timings{};
+    void *raster_storage = nullptr;
+    size_t raster_capacity_bytes = 0;
+    const esp_err_t buffer_error = LUNASHELL_display_frame_buffer(&raster_storage, &raster_capacity_bytes);
+    if (buffer_error != ESP_OK) {
+        return frame.finish({buffer_error, false, 0});
+    }
+    const size_t row_bytes = kPanelWidth * sizeof(uint16_t);
+    if (raster_storage == nullptr || raster_capacity_bytes < row_bytes ||
+        raster_capacity_bytes / row_bytes > kPanelHeight ||
+        reinterpret_cast<uintptr_t>(raster_storage) % alignof(uint16_t) != 0) {
+        ESP_LOGE(kTag, "Frame raster capacity rejected: pixels=%p bytes=%u (%s)",
+            raster_storage, static_cast<unsigned>(raster_capacity_bytes), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return frame.finish({ESP_ERR_INVALID_SIZE, false, 0});
+    }
+    timings.tile_rows = static_cast<uint16_t>(raster_capacity_bytes / row_bytes);
     const bool compare_previous = s_resources.frame_cache_valid && !resume_animation &&
-        s_rendered_revision.load(std::memory_order_acquire) == revision;
+        s_rendered_revision.load(std::memory_order_acquire) == revision &&
+        s_state.rig_visible && s_cache_was_rig;
     // A partial cache is never trusted after an error. Only completed frame
     // retirement below makes these candidate pixels eligible for comparison.
     s_resources.frame_cache_valid = false;
@@ -605,6 +626,10 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     PendingTouchReports pending_touch;
     timings.started_us = esp_timer_get_time();
     CODY::DebugReadout debug_readout;
+    CODY::DamageRect current_rig_bounds;
+    CODY::DamageRegions candidate_regions;
+    const bool frame_was_rig = s_state.rig_visible;
+    const bool frame_debug = s_state.rig_debug;
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -622,10 +647,26 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
+        const esp_err_t bounds_error = CODY::rig_damage_bounds(
+            *s_resources.rig, frame_debug, current_rig_bounds);
+        if (bounds_error != ESP_OK) {
+            return frame.finish({bounds_error, false, 0});
+        }
+        candidate_regions.rectangles[0] = s_cached_rig_bounds;
+        candidate_regions.rectangles[1] = current_rig_bounds;
+        candidate_regions.rectangles[2] = CODY::debug_readout_damage_bounds();
+        candidate_regions.count = 3;
+        if (s_cached_rig_debug != frame_debug) {
+            // The right control's marker changes with the overlay. Its fixed
+            // layout is outside the artwork; comparing the whole control band
+            // also keeps future left-control styling inside the same owner.
+            candidate_regions.rectangles[candidate_regions.count++] = CODY::rig_navigation_damage_bounds();
+        }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     esp_err_t result = ESP_OK;
-    for (uint32_t row = 0; row < kPanelHeight; row += kStripRows) {
+    uint32_t next_touch_poll_row = kTouchPollRows;
+    for (uint32_t row = 0; row < kPanelHeight; row += timings.tile_rows) {
         result = LUNASHELL_display_frame_check_deadline();
         if (result != ESP_OK) {
             break;
@@ -642,16 +683,18 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         }
         const uint32_t remaining_rows = kPanelHeight - row;
         const uint16_t strip_rows = static_cast<uint16_t>(
-            remaining_rows < kStripRows ? remaining_rows : kStripRows
+            remaining_rows < timings.tile_rows ? remaining_rows : timings.tile_rows
         );
         const CODY2D::Surface strip{
-            s_resources.strip, kPanelWidth, strip_rows, kPanelWidth, kStripPixels
+            static_cast<uint16_t *>(raster_storage), kPanelWidth, strip_rows, kPanelWidth,
+            static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
         };
         const int64_t raster_started_us = esp_timer_get_time();
         if (s_state.rig_visible) {
             result = CODY::draw_rig_rows(
                 *s_resources.rig, strip, static_cast<uint16_t>(row),
-                s_state.rig_debug, s_state.selected_point
+                s_state.rig_debug, s_state.selected_point,
+                CODY::PocData::execution_timings ? &timings.raster_profile : nullptr
             );
             if (result == ESP_OK) {
                 result = CODY::draw_debug_readout_rows(
@@ -666,7 +709,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         const int64_t reuse_started_us = esp_timer_get_time();
         if (result == ESP_OK) {
             result = CODY::measure_damage_rows(strip, static_cast<uint16_t>(row),
-                frame_cache, compare_previous, damage);
+                frame_cache, compare_previous, candidate_regions, damage);
         }
         if (result == ESP_OK && !damage.empty()) {
             result = CODY::prepare_damage_rows(strip, static_cast<uint16_t>(row),
@@ -692,7 +735,9 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             break;
         }
         // Service IRQ reports between strips; the evaluated geometry stays immutable.
-        if (s_start_state.load(std::memory_order_acquire) == StartState::Running) {
+        if (s_start_state.load(std::memory_order_acquire) == StartState::Running &&
+            (row + strip_rows >= next_touch_poll_row || row + strip_rows == kPanelHeight)) {
+            next_touch_poll_row = ((row + strip_rows) / kTouchPollRows + 1U) * kTouchPollRows;
             const esp_err_t touch_error = capture_pending_touch(pending_touch);
             if (touch_error != ESP_OK) {
                 result = fail_consumer("Touch report during frame", touch_error, true);
@@ -707,6 +752,11 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     const uint32_t completed_revision = result == ESP_OK ? revision : 0;
     const DrawResult completed = frame.finish({result, false, completed_revision});
     s_resources.frame_cache_valid = completed.error == ESP_OK;
+    if (completed.error == ESP_OK) {
+        s_cached_rig_bounds = current_rig_bounds;
+        s_cache_was_rig = frame_was_rig;
+        s_cached_rig_debug = frame_debug;
+    }
     CompletedFrameLog log{};
     log.readout = debug_readout;
     bool should_log = false;
@@ -1088,12 +1138,6 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Response configuration", response_config_error, false);
     }
     s_state.response = CODY::make_response_state(CODY::Data::response);
-    s_resources.strip = static_cast<uint16_t *>(heap_caps_malloc(
-        kStripPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
-    ));
-    if (s_resources.strip == nullptr) {
-        return fail_consumer("Boot strip allocation", ESP_ERR_NO_MEM, false);
-    }
     s_resources.frame_cache = static_cast<uint16_t *>(heap_caps_malloc(
         kFramePixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
@@ -1130,8 +1174,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         release_companion_resources();
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
-    ESP_LOGI(kTag, "Blue boot frame and real touch ready; strip=%lu bytes, active=%lu ms standby=%lu ms",
-             static_cast<unsigned long>(kStripPixels * sizeof(uint16_t)),
+    ESP_LOGI(kTag, "Blue boot frame and real touch ready; frame-owned internal raster, active=%lu ms standby=%lu ms",
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));
     return ESP_OK;

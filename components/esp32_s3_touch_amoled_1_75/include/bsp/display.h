@@ -3,6 +3,7 @@
 #pragma once
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #include "esp_lcd_types.h"
 #include "esp_err.h"
 
@@ -59,6 +60,8 @@ uint32_t bsp_display_content_revision(void);
  * Write a packed RGB565 rectangle synchronously, with exclusive end coordinates.
  * Pixels are native little-endian RGB565; the driver converts to panel wire order.
  * Source memory may be PSRAM and can be reused immediately after this call returns.
+ * A slot obtained from bsp_display_frame_buffer is consumed in-place into wire
+ * order; the renderer must redraw that slot before its next native RGB565 use.
  * This API is available only when the legacy UI is disabled. A transfer timeout
  * retains its DMA buffer and rejects later writes until an explicit reset.
  * @param x_start First column included in the rectangle.
@@ -83,6 +86,11 @@ typedef struct {
 esp_err_t bsp_display_frame_begin(uint32_t budget_ms);
 // Check the current owner's aggregate deadline, including geometry and raster work.
 esp_err_t bsp_display_frame_check_deadline(void);
+// pixels: Receives frame-borrowed internal RGB565 storage, never caller-freed.
+// capacity_bytes: Receives usable bytes; raster rows must fit this actual capacity.
+// Borrow expires at frame end. A synchronous write consumes native pixels in
+// place into wire order; redraw them before reusing the same storage.
+esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes);
 // frame_error: Original render/transfer failure; success still checks the deadline.
 // result: Receives measured duration and quarantined DMA bytes before lock release.
 esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result);

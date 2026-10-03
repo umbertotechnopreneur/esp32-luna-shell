@@ -36,15 +36,31 @@ esp_err_t validate_rows(CODY2D::Surface tile, uint16_t first_row,
 // first_row: Logical origin of the tile in the complete canvas.
 // previous: PSRAM-owned previous frame; never a DMA source.
 // compare_previous: False after startup, failed frames, rotation or panel invalidation.
+// regions: Old/new artwork and controls that can change, in logical coordinates.
 // damage: Receives the paired-column bounds of actual changed pixels.
 esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
                              CODY2D::Surface previous, bool compare_previous,
+                             const DamageRegions &regions,
                              DamageRect &damage)
 {
     damage = {};
     const esp_err_t error = validate_rows(tile, first_row, previous);
     if (error != ESP_OK) {
         return error;
+    }
+    if (regions.count > DamageRegions::capacity) {
+        ESP_LOGE(kTag, "Candidate region count rejected: %u (%s)", regions.count,
+            esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    for (uint16_t index = 0; index < regions.count; ++index) {
+        const auto &region = regions.rectangles[index];
+        if (region.left > region.right || region.top > region.bottom ||
+            region.right > previous.width || region.bottom > previous.height) {
+            ESP_LOGE(kTag, "Candidate region %u rejected: [%u,%u,%u,%u] (%s)", index,
+                region.left, region.top, region.right, region.bottom, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
     }
     if (!compare_previous) {
         damage = {0, first_row, tile.width, static_cast<uint16_t>(first_row + tile.height)};
@@ -55,18 +71,31 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
     uint16_t top = tile.height;
     uint16_t bottom = 0;
     for (uint16_t row = 0; row < tile.height; ++row) {
+        uint16_t candidate_left = tile.width;
+        uint16_t candidate_right = 0;
+        const uint16_t canvas_row = first_row + row;
+        for (uint16_t index = 0; index < regions.count; ++index) {
+            const auto &region = regions.rectangles[index];
+            if (!region.empty() && canvas_row >= region.top && canvas_row < region.bottom) {
+                candidate_left = std::min(candidate_left, region.left);
+                candidate_right = std::max(candidate_right, region.right);
+            }
+        }
+        if (candidate_left >= candidate_right) {
+            continue;
+        }
         const uint16_t *current_row = tile.pixels + row * tile.stride;
         const uint16_t *cached_row = previous.pixels + (first_row + row) * previous.stride;
         // Find the first and last differences directly in RGB565 units. A
         // byte-wise memcmp followed by these same scans reads the prefix twice.
-        uint16_t first_changed = 0;
-        while (first_changed < tile.width && current_row[first_changed] == cached_row[first_changed]) {
+        uint16_t first_changed = candidate_left;
+        while (first_changed < candidate_right && current_row[first_changed] == cached_row[first_changed]) {
             ++first_changed;
         }
-        if (first_changed == tile.width) {
+        if (first_changed == candidate_right) {
             continue;
         }
-        uint16_t after_last_changed = tile.width;
+        uint16_t after_last_changed = candidate_right;
         while (current_row[after_last_changed - 1U] == cached_row[after_last_changed - 1U]) {
             --after_last_changed;
         }

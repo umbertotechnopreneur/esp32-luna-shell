@@ -186,6 +186,29 @@ extern "C" esp_err_t LUNASHELL_display_frame_check_deadline(void)
 #endif
 }
 
+// pixels: Receives idle internal raster storage borrowed only by the frame owner.
+// capacity_bytes: Actual capacity, including an explicitly degraded DMA row count.
+extern "C" esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capacity_bytes)
+{
+    if (pixels == nullptr || capacity_bytes == nullptr) {
+        return log_operation_result("Frame buffer outputs", ESP_ERR_INVALID_ARG);
+    }
+    *pixels = nullptr;
+    *capacity_bytes = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (!owns_display_frame()) {
+        return log_operation_result("Frame buffer owner", ESP_ERR_INVALID_STATE);
+    }
+    const esp_err_t error = bsp_display_frame_buffer(pixels, capacity_bytes);
+    if (error != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, error);
+    }
+    return log_operation_result("Frame buffer", error);
+#else
+    return log_operation_result("Frame buffer", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
 // frame_error: Original failure from the renderer, or success after its final strip.
 extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
 {

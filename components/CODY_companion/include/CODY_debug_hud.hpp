@@ -3,6 +3,7 @@
 #include <cstdint>
 
 #include "CODY2D.hpp"
+#include "CODY_damage.hpp"
 
 namespace CODY {
 
@@ -19,6 +20,9 @@ struct DebugReadout {
     char frame_rate[20] = "FPS N/A";
     char processors[32] = "CPU1 N/A CPU2 N/A";
 };
+
+// No parameters: the HUD owns its complete possible footprint below the safe square.
+DamageRect debug_readout_damage_bounds();
 
 // measurement: Completed-frame counters owned by the single rendering worker.
 // started_at_us: Start of the frame that actually reached the panel.

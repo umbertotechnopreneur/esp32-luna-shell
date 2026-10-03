@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <type_traits>
 #include "CODY2D_paths.hpp"
+#include "CODY_damage.hpp"
 
 namespace CODY {
 
@@ -150,6 +151,16 @@ struct RigScene {
     bool valid = false;
 };
 
+// Execution clock is supplied by the firmware owner, keeping this renderer
+// portable. These durations are independent of geometry and DMA timings.
+struct RigRasterProfile {
+    int64_t (*now_us)() = nullptr;
+    int64_t clear_us = 0;
+    int64_t artwork_us = 0;
+    int64_t skeleton_us = 0;
+    int64_t navigation_us = 0;
+};
+
 // channels: Independent finite controls, each strictly inside its authored range.
 // transform: Position and uniform scale in logical display pixels.
 // scene: Caller-owned evaluated geometry, invalidated immediately on entry.
@@ -186,8 +197,18 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // first_row: Logical y origin of the tile.
 // debug: Draw skeleton links, curve handles and point markers from scene.
 // selected: Optional stable point ID to emphasize; kNoPoint selects none.
+// profile: Optional caller-owned collector with a monotonic execution clock.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
-                        uint16_t first_row, bool debug, PointId selected = kNoPoint);
+                        uint16_t first_row, bool debug, PointId selected = kNoPoint,
+                        RigRasterProfile *profile = nullptr);
+
+// scene: Successfully evaluated geometry, shared unchanged with the renderer.
+// debug: Include every bone, tangent and selected marker when the overlay is visible.
+// bounds: Receives conservative artwork coverage clipped to the 466-pixel canvas.
+esp_err_t rig_damage_bounds(const RigScene &scene, bool debug, DamageRect &bounds);
+
+// No parameters: fixed navigation occupies its own lateral control band.
+DamageRect rig_navigation_damage_bounds();
 
 // scene: Evaluated, valid geometry in current logical coordinates.
 // point: Logical touch coordinate, already mapped by the display/touch owner.

@@ -147,6 +147,13 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
 
 }  // namespace
 
+// No parameters: keep invalidation tied to the same layout constants as drawing.
+DamageRect debug_readout_damage_bounds()
+{
+    return {0, kFrameRateTop, kPanelSize,
+        static_cast<uint16_t>(kProcessorTop + kGlyphRows * kGlyphScale)};
+}
+
 // measurement: Counters for successfully completed frames, reset on route entry/resume.
 // started_at_us: Start of this successfully completed frame.
 // completed_at_us: Real panel completion; a failed frame never reaches this function.

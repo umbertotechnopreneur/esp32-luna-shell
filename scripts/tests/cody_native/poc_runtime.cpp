@@ -109,7 +109,7 @@ void stroke_contracts()
     constexpr uint16_t size = 466;
     constexpr uint16_t stride = size + 3;
     struct Segment { CODY2D::Vec2 from; CODY2D::Vec2 to; };
-    const Segment segments[] = {
+    std::vector<Segment> segments = {
         {{12.25f, 20.5f}, {451.75f, 445.25f}},
         {{451.75f, 20.5f}, {12.25f, 445.25f}},
         {{12.25f, 445.25f}, {451.75f, 20.5f}},
@@ -124,10 +124,25 @@ void stroke_contracts()
         {{1.f, 233.f}, {465.f, 233.0015f}},
         {{232.5f, 233.5f}, {232.5f, 233.5f}},
         {{-5.f, -5.f}, {-2.f, -2.f}},
+        {{230.5f, 230.5f}, {230.501f, 230.501f}},
+        {{232.5f, 233.f}, {233.5f, 233.f}},
+        {{210.75f, 222.25f}, {250.125f, 242.625f}},
+        {{-2048.f, -2047.5f}, {2048.f, 2047.5f}},
     };
+    // Deterministic fractional endpoints expose reciprocal-rounding boundaries
+    // without relying on the optimized implementation to generate expectations.
+    uint32_t seed = 0x43ad521U;
+    for (uint16_t sample = 0; sample < 32; ++sample) {
+        float coordinates[4];
+        for (float &coordinate : coordinates) {
+            seed = seed * 1664525U + 1013904223U;
+            coordinate = static_cast<float>(seed & 0xffffU) / 96.f - 100.f;
+        }
+        segments.push_back({{coordinates[0], coordinates[1]}, {coordinates[2], coordinates[3]}});
+    }
     for (const Segment &segment : segments) {
         for (float width : {.001f, .5f, 1.f, 2.75f, 7.f, CODY2D::kMaxStrokeWidth}) {
-            for (uint16_t rows : {uint16_t{8}, uint16_t{16}, uint16_t{64}}) {
+            for (uint16_t rows : {uint16_t{8}, uint16_t{16}, uint16_t{32}, uint16_t{64}}) {
                 std::vector<uint16_t> expected(size * stride + 2, 0x35ad);
                 auto actual = expected;
                 for (uint16_t first = 0; first < size; first += rows) {
@@ -143,6 +158,53 @@ void stroke_contracts()
                 require(actual == expected, "scanline stroke changed reference pixels or guards");
             }
         }
+    }
+}
+
+// Check analytically known RGB565 coverage and gradient slots, including clipped
+// empty spans and padding. Expected colors do not call the implementation's blend.
+void fill_contracts()
+{
+    uint16_t palette[256]{};
+    palette[10] = 0xf800;
+    palette[11] = 0x07e0;
+    palette[12] = 0x001f;
+    palette[13] = 0xffff;
+    const CODY2D::Vec2 rectangle[] = {{0, 0}, {8, 0}, {8, 4}, {0, 4}};
+    struct Coverage { uint8_t opacity; uint16_t expected; };
+    for (const Coverage coverage : {Coverage{0, 0x001f}, Coverage{64, 0x4017},
+            Coverage{128, 0x800f}, Coverage{255, 0xf800}}) {
+        uint16_t pixels[40];
+        std::fill(std::begin(pixels), std::end(pixels), 0x001f);
+        const CODY2D::Surface surface{pixels, 8, 4, 10, 40};
+        require(CODY2D::fill_path_rows(surface, 0, rectangle, 4, palette, 10, 10,
+                coverage.opacity) == ESP_OK, "known alpha fill rejected");
+        for (uint16_t row = 0; row < 4; ++row) {
+            for (uint16_t column = 0; column < 10; ++column) {
+                require(pixels[row * 10 + column] == (column < 8 ? coverage.expected : 0x001f),
+                    "RGB565 alpha rounding or padding changed");
+            }
+        }
+    }
+    for (const uint16_t rows : {uint16_t{1}, uint16_t{3}, uint16_t{4}}) {
+        uint16_t pixels[40]{};
+        for (uint16_t first = 0; first < 4; first += rows) {
+            const uint16_t height = std::min<uint16_t>(rows, 4 - first);
+            const CODY2D::Surface tile{pixels + first * 10, 8, height, 10, uint32_t(height * 10)};
+            require(CODY2D::fill_path_rows(tile, first, rectangle, 4, palette, 10, 13) == ESP_OK,
+                "known gradient fill rejected");
+        }
+        for (uint16_t row = 0; row < 4; ++row) {
+            for (uint16_t column = 0; column < 10; ++column) {
+                require(pixels[row * 10 + column] == (column < 8 ? palette[10 + row] : 0),
+                    "gradient slots or tile/padding coverage changed");
+            }
+        }
+        const auto before = std::vector<uint16_t>(pixels, pixels + 40);
+        const CODY2D::Vec2 clipped[] = {{-12, 0}, {-4, 0}, {-4, 4}, {-12, 4}};
+        const CODY2D::Surface surface{pixels, 8, 4, 10, 40};
+        require(CODY2D::fill_path_rows(surface, 0, clipped, 4, palette, 10, 13) == ESP_OK &&
+            std::equal(before.begin(), before.end(), pixels), "empty clipped span wrote outside its bounds");
     }
 }
 
@@ -174,11 +236,12 @@ void damage_contracts()
     const CODY2D::Surface cache{cached_storage, 8, 4, 10, 40};
     const CODY2D::Surface tile{tile_storage, 8, 2, 10, 20};
     CODY::DamageRect damage;
-    require(CODY::measure_damage_rows(tile, 1, cache, true, damage) == ESP_OK && damage.empty(),
+    CODY::DamageRegions regions{{{0, 0, 8, 4}}, 1};
+    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK && damage.empty(),
             "unchanged tile submitted pixels");
     tile_storage[3] = 0x1234;
     tile_storage[17] = 0xabcd;
-    require(CODY::measure_damage_rows(tile, 1, cache, true, damage) == ESP_OK &&
+    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_OK &&
             damage.left == 2 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
             "paired-column damage bounds differ");
     CODY2D::Surface packed;
@@ -188,17 +251,23 @@ void damage_contracts()
             cached_storage[13] == 0x1234 && cached_storage[27] == 0xabcd &&
             cached_storage[18] == 0 && cached_storage[28] == 0,
             "packing corrupted candidate cache, cropped rows or stride padding");
-    require(CODY::measure_damage_rows(tile, 3, cache, true, damage) == ESP_ERR_INVALID_ARG,
+    require(CODY::measure_damage_rows(tile, 3, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
             "out-of-canvas tile accepted");
-    require(CODY::measure_damage_rows(tile, 1, cache, false, damage) == ESP_OK &&
+    require(CODY::measure_damage_rows(tile, 1, cache, false, regions, damage) == ESP_OK &&
             damage.left == 0 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
             "invalid cache did not force the complete tile");
+    regions.rectangles[0].right = 9;
+    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_ARG,
+            "out-of-canvas candidate accepted");
+    regions.count = CODY::DamageRegions::capacity + 1;
+    require(CODY::measure_damage_rows(tile, 1, cache, true, regions, damage) == ESP_ERR_INVALID_SIZE,
+            "candidate array overflow accepted");
 
     constexpr uint16_t panel_width = 466;
     constexpr uint16_t panel_height = 466;
-    constexpr uint16_t tile_rows = 16;
     constexpr uint32_t frame_pixels = static_cast<uint32_t>(panel_width) * panel_height;
-    for (const bool debug : {false, true}) {
+    for (const uint16_t tile_rows : {uint16_t{1}, uint16_t{8}, uint16_t{16}, uint16_t{32}, uint16_t{64}}) {
+      for (const bool debug : {false, true}) {
         std::vector<uint16_t> previous(frame_pixels);
         std::vector<uint16_t> host_panel(frame_pixels, 0xf81f);
         std::vector<uint16_t> expected(frame_pixels);
@@ -206,24 +275,49 @@ void damage_contracts()
         const CODY2D::Surface previous_frame{previous.data(), panel_width, panel_height, panel_width, frame_pixels};
         const CODY2D::Surface expected_frame{expected.data(), panel_width, panel_height, panel_width, frame_pixels};
         bool cache_valid = false;
-        enum class Scenario { Initial, Unchanged, MouthChange, Invalidate };
-        for (const auto scenario : {Scenario::Initial, Scenario::Unchanged, Scenario::MouthChange, Scenario::Invalidate}) {
+        CODY::DamageRect previous_bounds;
+        bool previous_debug = debug;
+        enum class Scenario { Initial, Unchanged, MouthChange, Translate, Shrink, Clip,
+            SelectedMarker, ToggleOverlay, RestoreOverlay, Invalidate };
+        for (const auto scenario : {Scenario::Initial, Scenario::Unchanged, Scenario::MouthChange,
+                Scenario::Translate, Scenario::Shrink, Scenario::Clip, Scenario::SelectedMarker,
+                Scenario::ToggleOverlay, Scenario::RestoreOverlay, Scenario::Invalidate}) {
             auto channels = CODY::Data::ready;
             if (scenario == Scenario::MouthChange) {
                 channels[CODY::FaceChannel::MouthOpen] = .9f;
             }
+            auto placement = CODY::Data::placement;
+            if (scenario == Scenario::Translate) {
+                placement.x += 24;
+                placement.y -= 35;
+            } else if (scenario == Scenario::Shrink) {
+                placement.scale *= .5f;
+            } else if (scenario == Scenario::Clip) {
+                placement.x = 30;
+                placement.y = 30;
+            }
+            const bool current_debug = scenario == Scenario::ToggleOverlay ? !debug : debug;
+            const auto selected = scenario == Scenario::SelectedMarker ? CODY::PointId::EyeLeft : CODY::kNoPoint;
             CODY::RigScene scene;
-            require(CODY::evaluate_rig(channels, CODY::Data::placement, scene) == ESP_OK &&
-                    CODY::draw_rig_rows(scene, expected_frame, 0, debug, CODY::kNoPoint) == ESP_OK,
+            CODY::DamageRect current_bounds;
+            require(CODY::evaluate_rig(channels, placement, scene) == ESP_OK &&
+                    CODY::draw_rig_rows(scene, expected_frame, 0, current_debug, selected) == ESP_OK &&
+                    CODY::rig_damage_bounds(scene, current_debug, current_bounds) == ESP_OK,
                     "reference geometry/raster failed");
+            regions.rectangles[0] = previous_bounds;
+            regions.rectangles[1] = current_bounds;
+            regions.count = 2;
+            if (current_debug != previous_debug) {
+                regions.rectangles[regions.count++] = CODY::rig_navigation_damage_bounds();
+            }
             uint32_t submitted_pixels = 0;
             const bool compare_previous = cache_valid && scenario != Scenario::Invalidate;
             for (uint16_t row = 0; row < panel_height; row += tile_rows) {
                 const uint16_t height = panel_height - row < tile_rows ? panel_height - row : tile_rows;
                 const CODY2D::Surface rendered{rendered_tile.data(), panel_width, height, panel_width,
                     static_cast<uint32_t>(rendered_tile.size())};
-                require(CODY::draw_rig_rows(scene, rendered, row, debug, CODY::kNoPoint) == ESP_OK &&
-                        CODY::measure_damage_rows(rendered, row, previous_frame, compare_previous, damage) == ESP_OK,
+                require(CODY::draw_rig_rows(scene, rendered, row, current_debug, selected) == ESP_OK &&
+                        CODY::measure_damage_rows(rendered, row, previous_frame, compare_previous, regions, damage) == ESP_OK,
                         "rendered tile damage failed");
                 if (damage.empty()) {
                     continue;
@@ -249,7 +343,10 @@ void damage_contracts()
                         "face update did not use actual changed regions");
             }
             cache_valid = true;
+            previous_bounds = current_bounds;
+            previous_debug = current_debug;
         }
+      }
     }
 }
 } // namespace
@@ -261,6 +358,7 @@ int main()
     demo_contracts();
     damage_contracts();
     stroke_contracts();
+    fill_contracts();
     require(CODY::validate_response_config(CODY::Data::response) == ESP_OK, "generated response rejected");
     auto state = CODY::make_response_state(CODY::Data::response);
     CODY::RigScene scene;

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include "esp_log.h"
 
 namespace CODY2D {
@@ -81,13 +82,24 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
         const float ratio = (scan_y - top) / (bottom - top);
         const uint16_t slot = first_color + static_cast<uint16_t>(
             std::floor(ratio * (last_color - first_color) + .5f));
+        const uint16_t color = palette[slot];
         for (uint16_t hit = 0; hit < hits; hit += 2) {
             const int left = std::max(0, static_cast<int>(std::ceil(intersections[hit] - .5f)));
             const int right = std::min(static_cast<int>(strip.width),
                                       static_cast<int>(std::ceil(intersections[hit + 1] - .5f)));
-            for (int column = left; column < right; ++column) {
-                auto &destination = strip.pixels[row * strip.stride + column];
-                destination = opacity == 255 ? palette[slot] : blend_rgb565(palette[slot], destination, opacity);
+            if (left >= right) {
+                continue;
+            }
+            if (opacity == 255) {
+                // The common opaque span needs neither a destination read nor
+                // a per-pixel palette lookup/coverage branch.
+                std::fill(strip.pixels + row * strip.stride + left,
+                          strip.pixels + row * strip.stride + right, color);
+            } else {
+                for (int column = left; column < right; ++column) {
+                    auto &destination = strip.pixels[row * strip.stride + column];
+                    destination = blend_rgb565(color, destination, opacity);
+                }
             }
         }
     }
@@ -112,6 +124,15 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
         return ESP_ERR_INVALID_ARG;
     }
     const float radius = width * .5f;
+    // Most debug links miss any particular tile. Reject their loose float
+    // bounds before integer conversion, projection setup and square roots.
+    // These bounds are deliberately wider than the pixel-center coverage.
+    if (std::max(from.y, to.y) + radius < first_row ||
+        std::min(from.y, to.y) - radius > first_row + strip.height ||
+        std::max(from.x, to.x) + radius < 0 ||
+        std::min(from.x, to.x) - radius > strip.width) {
+        return ESP_OK;
+    }
     const int left = std::max(0, static_cast<int>(std::floor(std::min(from.x, to.x) - radius)));
     const int right = std::min(static_cast<int>(strip.width) - 1,
                               static_cast<int>(std::ceil(std::max(from.x, to.x) + radius)));
@@ -119,25 +140,43 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                             static_cast<int>(std::floor(std::min(from.y, to.y) - radius)));
     const int bottom = std::min(static_cast<int>(first_row + strip.height) - 1,
                                static_cast<int>(std::ceil(std::max(from.y, to.y) + radius)));
+    if (left > right || top > bottom) {
+        return ESP_OK;
+    }
     const float dx = to.x - from.x;
     const float dy = to.y - from.y;
     const float squared_length = dx*dx + dy*dy;
+    const float squared_radius = radius * radius;
+    // For interior pixels, compare the squared cross product with r² * |d|².
+    // This avoids software division and closest-point construction. A small
+    // guard repeats the original projection at rounding-sensitive boundaries.
+    // Endpoint caps still use the original direct squared-distance expression.
+    const float max_px = std::max(std::abs(.5f - from.x), std::abs(strip.width - .5f - from.x));
+    const float max_py = std::max(std::abs(.5f - from.y), std::abs(kMaxDimension - .5f - from.y));
+    const float displacement_error = (max_px + max_py + std::abs(dx) + std::abs(dy)) *
+        (16.f * std::numeric_limits<float>::epsilon());
+    const float cross_threshold = squared_radius * squared_length;
+    const float cross_guard = squared_length * displacement_error * (2.f * radius + displacement_error) +
+        cross_threshold * (8.f * std::numeric_limits<float>::epsilon());
     // The old box visits every pixel between diagonal endpoints. Bound each
     // scanline by the infinite stroke band instead; the original segment test
     // below still supplies the exact round caps and pixel coverage.
     const bool bound_scanline = std::abs(dy) > .001f;
     const float band_half_width = bound_scanline ?
         radius * std::sqrt(squared_length) / std::abs(dy) : 0.f;
+    const float slope = bound_scanline ? dx / dy : 0.f;
     for (int row = top; row <= bottom; ++row) {
         int scan_left = left;
         int scan_right = right;
         if (bound_scanline) {
-            const float center = from.x + (row + .5f - from.y) * dx / dy;
+            const float center = from.x + (row + .5f - from.y) * slope;
             // One extra pixel conservatively covers floating-point rounding.
             // Clip floats before conversion: nearly horizontal lines can have
             // a very wide band even though their canvas bounds remain small.
-            const float band_left = center - band_half_width - 1.f;
-            const float band_right = center + band_half_width + 1.f;
+            const float band_margin = 1.f + (std::abs(center) + band_half_width) *
+                (4.f * std::numeric_limits<float>::epsilon());
+            const float band_left = center - band_half_width - band_margin;
+            const float band_right = center + band_half_width + band_margin;
             if (band_right < left || band_left > right) {
                 continue;
             }
@@ -147,12 +186,26 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
         for (int column = scan_left; column <= scan_right; ++column) {
             const float px = column + .5f - from.x;
             const float py = row + .5f - from.y;
-            const float position = squared_length == 0 ? 0 :
-                std::max(0.f, std::min(1.f, (px*dx + py*dy) / squared_length));
-            // Distance from the pixel center to the closest position on the segment.
-            const float ex = px - position * dx;
-            const float ey = py - position * dy;
-            if (ex*ex + ey*ey <= radius*radius) {
+            const float projection = px*dx + py*dy;
+            bool covered = false;
+            if (squared_length == 0 || projection <= 0) {
+                covered = px*px + py*py <= squared_radius;
+            } else if (projection >= squared_length) {
+                const float ex = px - dx;
+                const float ey = py - dy;
+                covered = ex*ex + ey*ey <= squared_radius;
+            } else {
+                const float cross = px*dy - py*dx;
+                const float squared_cross = cross * cross;
+                covered = squared_cross <= cross_threshold;
+                if (std::abs(squared_cross - cross_threshold) <= cross_guard) {
+                    const float exact_position = std::max(0.f, std::min(1.f, projection / squared_length));
+                    const float exact_x = px - exact_position * dx;
+                    const float exact_y = py - exact_position * dy;
+                    covered = exact_x*exact_x + exact_y*exact_y <= squared_radius;
+                }
+            }
+            if (covered) {
                 strip.pixels[(row - first_row)*strip.stride + column] = color;
             }
         }

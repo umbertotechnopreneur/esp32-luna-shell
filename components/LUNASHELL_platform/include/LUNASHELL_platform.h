@@ -244,6 +244,9 @@ uint32_t LUNASHELL_display_runtime_content_revision(void);
 esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms);
 /** Check the frame deadline between geometry/raster stages, without resetting it. */
 esp_err_t LUNASHELL_display_frame_check_deadline(void);
+// pixels: Receives idle internal raster storage borrowed only until this frame ends.
+// capacity_bytes: Actual usable capacity; never an assumed preferred tile size.
+esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capacity_bytes);
 // frame_error: First geometry/raster/transfer error; partial frames cannot report success.
 esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error);
 

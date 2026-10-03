@@ -3810,6 +3810,36 @@ esp_err_t bsp_display_frame_check_deadline(void)
 #endif
 }
 
+// pixels: Receives a proven-idle internal slot owned by the current frame.
+// capacity_bytes: Usable row bytes, excluding alignment padding and other slots.
+esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes)
+{
+    if (pixels == NULL || capacity_bytes == NULL) {
+        ESP_LOGE(TAG, "Frame buffer outputs rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    *pixels = NULL;
+    *capacity_bytes = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const esp_err_t error = bsp_display_frame_check_deadline();
+    if (error != ESP_OK) {
+        return error;
+    }
+    // Every write waits for completion before returning. A failed transfer
+    // moves this lease to quarantine, so it can never be borrowed again.
+    if (display_frame.lease.data == NULL || display_frame.lease.transfer_rows == 0) {
+        ESP_LOGE(TAG, "Frame buffer unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    *pixels = display_frame.lease.data;
+    *capacity_bytes = BSP_DISPLAY_DMA_ROW_BYTES * display_frame.lease.transfer_rows;
+    return ESP_OK;
+#else
+    ESP_LOGE(TAG, "Standalone frame buffer unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 // frame_error: First failure from geometry, raster or a completed transfer.
 // result: Nonnull output; a failed completion never becomes a successful frame.
 esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result)
@@ -3892,6 +3922,18 @@ static esp_err_t bsp_display_write_rgb565_internal(
     const int64_t deadline_us = in_frame ? display_frame.deadline_us
         : esp_timer_get_time() + (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
     const uint8_t *source = (const uint8_t *)pixels;
+    const bool source_in_slot = !clear_black &&
+        (uintptr_t)source >= (uintptr_t)lease->data &&
+        (uintptr_t)source < (uintptr_t)lease->data + lease->slot_stride_bytes;
+    if (source_in_slot && (source != lease->data || !in_frame ||
+        (size_t)(y_end - y_start) > lease->transfer_rows)) {
+        if (!in_frame) {
+            bsp_display_release_dma_pipeline(lease);
+        }
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Borrowed DMA raster exceeds one owned slot (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
     for (int strip_y = y_start; strip_y < y_end; strip_y += (int)lease->transfer_rows) {
         const int next_row = strip_y + (int)lease->transfer_rows;
         const int strip_end = next_row < y_end ? next_row : y_end;
@@ -3902,8 +3944,12 @@ static esp_err_t bsp_display_write_rgb565_internal(
             const uint8_t *strip_source = source + (size_t)(strip_y - y_start) * source_row_bytes;
             // The panel reads the big end first; the caller keeps ordinary RGB565.
             for (size_t byte = 0; byte < strip_bytes; byte += 2U) {
-                lease->data[byte] = strip_source[byte + 1U];
-                lease->data[byte + 1U] = strip_source[byte];
+                // Load both bytes first: the frame owner may have rasterized
+                // directly into this same slot, making the conversion in-place.
+                const uint8_t low = strip_source[byte];
+                const uint8_t high = strip_source[byte + 1U];
+                lease->data[byte] = high;
+                lease->data[byte + 1U] = low;
             }
         }
         if (esp_timer_get_time() >= deadline_us) {
