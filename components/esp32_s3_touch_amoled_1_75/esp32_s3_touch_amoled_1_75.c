@@ -107,6 +107,8 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
 #define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
+// Larger transient slots amortize standalone command/completion overhead.
+#define BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT 32U
 #define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
 #define BSP_DISPLAY_DMA_ALIGNMENT          64U
 #define BSP_DISPLAY_DMA_HEADROOM_BYTES     4096U
@@ -3868,7 +3870,7 @@ esp_err_t bsp_display_base_start(void)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     const bsp_display_config_t display_config = {
-        .max_transfer_sz = BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT,
+        .max_transfer_sz = BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT,
     };
     ESP_RETURN_ON_ERROR(
         bsp_display_new(&display_config, &panel_handle, &io_handle),
@@ -4029,8 +4031,8 @@ static esp_err_t bsp_display_write_rgb565_internal(
         return ESP_ERR_INVALID_STATE;
     }
     const size_t source_row_bytes = (size_t)(x_end - x_start) * 2U;
-    const size_t transfer_rows = (size_t)(y_end - y_start) < BSP_DISPLAY_DMA_TRANSFER_HEIGHT
-        ? (size_t)(y_end - y_start) : BSP_DISPLAY_DMA_TRANSFER_HEIGHT;
+    const size_t transfer_rows = (size_t)(y_end - y_start) < BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT
+        ? (size_t)(y_end - y_start) : BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT;
     bsp_display_dma_lease_t lease = {0};
     esp_err_t result = bsp_display_acquire_dma_pipeline(source_row_bytes, transfer_rows, 1U, &lease);
     if (result != ESP_OK) {

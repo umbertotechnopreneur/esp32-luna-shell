@@ -1,12 +1,14 @@
 #include "CODY_benchmark.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_response.hpp"
+#include "CODY_damage.hpp"
 #include "cloud_rig_data.hpp"
 #include "poc_settings.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <initializer_list>
+#include <vector>
 
 namespace {
 // condition: Contract that must hold for the actual portable firmware implementation.
@@ -80,6 +82,92 @@ void demo_contracts()
     require(CODY::demo_targets(-1, face, contour, phase) == ESP_ERR_INVALID_ARG,
             "negative demo time accepted");
 }
+// Cover cache invalidation, paired columns, overlapping packing and pixel parity.
+void damage_contracts()
+{
+    uint16_t cached_storage[40]{};
+    uint16_t tile_storage[20]{};
+    const CODY2D::Surface cache{cached_storage, 8, 4, 10, 40};
+    const CODY2D::Surface tile{tile_storage, 8, 2, 10, 20};
+    CODY::DamageRect damage;
+    require(CODY::measure_damage_rows(tile, 1, cache, true, damage) == ESP_OK && damage.empty(),
+            "unchanged tile submitted pixels");
+    tile_storage[3] = 0x1234;
+    tile_storage[17] = 0xabcd;
+    require(CODY::measure_damage_rows(tile, 1, cache, true, damage) == ESP_OK &&
+            damage.left == 2 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
+            "paired-column damage bounds differ");
+    CODY2D::Surface packed;
+    require(CODY::prepare_damage_rows(tile, 1, cache, damage, packed) == ESP_OK &&
+            packed.width == 6 && packed.height == 2 && packed.stride == 6 &&
+            packed.pixels[1] == 0x1234 && packed.pixels[11] == 0xabcd &&
+            cached_storage[13] == 0x1234 && cached_storage[27] == 0xabcd &&
+            cached_storage[18] == 0 && cached_storage[28] == 0,
+            "packing corrupted candidate cache, cropped rows or stride padding");
+    require(CODY::measure_damage_rows(tile, 3, cache, true, damage) == ESP_ERR_INVALID_ARG,
+            "out-of-canvas tile accepted");
+    require(CODY::measure_damage_rows(tile, 1, cache, false, damage) == ESP_OK &&
+            damage.left == 0 && damage.right == 8 && damage.top == 1 && damage.bottom == 3,
+            "invalid cache did not force the complete tile");
+
+    constexpr uint16_t panel_width = 466;
+    constexpr uint16_t panel_height = 466;
+    constexpr uint16_t tile_rows = 64;
+    constexpr uint32_t frame_pixels = static_cast<uint32_t>(panel_width) * panel_height;
+    for (const bool debug : {false, true}) {
+        std::vector<uint16_t> previous(frame_pixels);
+        std::vector<uint16_t> host_panel(frame_pixels, 0xf81f);
+        std::vector<uint16_t> expected(frame_pixels);
+        std::vector<uint16_t> rendered_tile(panel_width * tile_rows);
+        const CODY2D::Surface previous_frame{previous.data(), panel_width, panel_height, panel_width, frame_pixels};
+        const CODY2D::Surface expected_frame{expected.data(), panel_width, panel_height, panel_width, frame_pixels};
+        bool cache_valid = false;
+        enum class Scenario { Initial, Unchanged, MouthChange, Invalidate };
+        for (const auto scenario : {Scenario::Initial, Scenario::Unchanged, Scenario::MouthChange, Scenario::Invalidate}) {
+            auto channels = CODY::Data::ready;
+            if (scenario == Scenario::MouthChange) {
+                channels[CODY::FaceChannel::MouthOpen] = .9f;
+            }
+            CODY::RigScene scene;
+            require(CODY::evaluate_rig(channels, CODY::Data::placement, scene) == ESP_OK &&
+                    CODY::draw_rig_rows(scene, expected_frame, 0, debug, CODY::kNoPoint) == ESP_OK,
+                    "reference geometry/raster failed");
+            uint32_t submitted_pixels = 0;
+            const bool compare_previous = cache_valid && scenario != Scenario::Invalidate;
+            for (uint16_t row = 0; row < panel_height; row += tile_rows) {
+                const uint16_t height = panel_height - row < tile_rows ? panel_height - row : tile_rows;
+                const CODY2D::Surface rendered{rendered_tile.data(), panel_width, height, panel_width,
+                    static_cast<uint32_t>(rendered_tile.size())};
+                require(CODY::draw_rig_rows(scene, rendered, row, debug, CODY::kNoPoint) == ESP_OK &&
+                        CODY::measure_damage_rows(rendered, row, previous_frame, compare_previous, damage) == ESP_OK,
+                        "rendered tile damage failed");
+                if (damage.empty()) {
+                    continue;
+                }
+                require(CODY::prepare_damage_rows(rendered, row, previous_frame, damage, packed) == ESP_OK,
+                        "actual rig payload packing failed");
+                for (uint16_t packed_row = 0; packed_row < packed.height; ++packed_row) {
+                    for (uint16_t column = 0; column < packed.width; ++column) {
+                        host_panel[(damage.top + packed_row) * panel_width + damage.left + column] =
+                            packed.pixels[packed_row * packed.stride + column];
+                    }
+                }
+                submitted_pixels += static_cast<uint32_t>(packed.width) * packed.height;
+            }
+            require(host_panel == expected && previous == expected,
+                    "partial updates differ from the complete actual rig framebuffer");
+            if (scenario == Scenario::Unchanged) {
+                require(submitted_pixels == 0, "unchanged frame submitted a rectangle");
+            } else if (scenario == Scenario::Initial || scenario == Scenario::Invalidate) {
+                require(submitted_pixels == frame_pixels, "invalid cache skipped canvas pixels");
+            } else {
+                require(submitted_pixels > 0 && submitted_pixels < frame_pixels,
+                        "face update did not use actual changed regions");
+            }
+            cache_valid = true;
+        }
+    }
+}
 } // namespace
 
 // Emit a fifty-second fixture from the actual C++ model for independent Python parity.
@@ -87,6 +175,7 @@ int main()
 {
     benchmark_contracts();
     demo_contracts();
+    damage_contracts();
     require(CODY::validate_response_config(CODY::Data::response) == ESP_OK, "generated response rejected");
     auto state = CODY::make_response_state(CODY::Data::response);
     CODY::RigScene scene;

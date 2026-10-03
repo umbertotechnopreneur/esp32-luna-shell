@@ -11,6 +11,7 @@
 #include "CODY2D.hpp"
 #include "CODY_rig.hpp"
 #include "CODY_debug_hud.hpp"
+#include "CODY_damage.hpp"
 #include "CODY_response.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_benchmark.hpp"
@@ -33,9 +34,11 @@ namespace {
 constexpr char kTag[] = "CODY_companion";
 constexpr uint16_t kPanelWidth = 466;
 constexpr uint16_t kPanelHeight = 466;
-constexpr uint16_t kStripRows = 8;
+// Match Luna's tall PSRAM render tiles; the BSP owns smaller internal DMA slots.
+constexpr uint16_t kStripRows = 64;
 constexpr uint16_t kPaletteLimit = 64;
 constexpr uint32_t kStripPixels = static_cast<uint32_t>(kPanelWidth) * kStripRows;
+constexpr uint32_t kFramePixels = static_cast<uint32_t>(kPanelWidth) * kPanelHeight;
 constexpr uint32_t kSamplePeriodMs = 50;
 constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
@@ -89,6 +92,8 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
 uint16_t *s_strip = nullptr;
+uint16_t *s_frame_cache = nullptr;
+bool s_frame_cache_valid = false;
 std::atomic<uint32_t> s_rendered_revision{0};
 std::atomic<bool> s_demo_requested{false};
 // Bounded collector shares the display lock with completed-frame publication.
@@ -149,6 +154,8 @@ struct FrameTimings {
     int64_t geometry_us = 0;
     int64_t raster_us = 0;
     int64_t transfer_us = 0;
+    uint32_t submitted_pixels = 0;
+    uint16_t dirty_rectangles = 0;
 };
 
 // operation: Consumer stage that has failed and must remain visible in the snapshot.
@@ -188,6 +195,11 @@ esp_err_t validate_boot_asset(const CODY2D::IndexedRleImage &image, const char *
 // Before task creation, only startup owns the strip and no renderer can reference it.
 void release_startup_strip()
 {
+    s_frame_cache_valid = false;
+    if (s_frame_cache != nullptr) {
+        heap_caps_free(s_frame_cache);
+        s_frame_cache = nullptr;
+    }
     if (s_rig != nullptr) {
         s_rig->~RigScene();
         heap_caps_free(s_rig);
@@ -464,6 +476,10 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         log.response.attention, log.response.speaking, log.response.idle_seconds, log.response.yawn_weight,
         log.response.annoyance, log.response.protective_eye_closure,
         source_health_name(log.response.microphone_status.health), source_health_name(log.response.playback_status.health));
+    ESP_LOGI(kTag, "Damage rectangles=%u submitted_pixels=%lu canvas_pixels=%lu tile_rows=%u cache_bytes=%lu",
+        timings.dirty_rectangles, static_cast<unsigned long>(timings.submitted_pixels),
+        static_cast<unsigned long>(kFramePixels), kStripRows,
+        static_cast<unsigned long>(kFramePixels * sizeof(uint16_t)));
 }
 
 // Hold the shared recursive panel lock across every strip so rotation and standby
@@ -498,6 +514,14 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             ? CODY_asset::waking_blue : CODY_asset::sleeping_blue;
 
     FrameTimings timings{};
+    const bool compare_previous = s_frame_cache_valid && !resume_animation &&
+        s_rendered_revision.load(std::memory_order_acquire) == revision;
+    // A partial cache is never trusted after an error. Only completed frame
+    // retirement below makes these candidate pixels eligible for comparison.
+    s_frame_cache_valid = false;
+    const CODY2D::Surface frame_cache{
+        s_frame_cache, kPanelWidth, kPanelHeight, kPanelWidth, kFramePixels
+    };
     PendingTouchReports pending_touch;
     timings.started_us = esp_timer_get_time();
     CODY::DebugReadout debug_readout;
@@ -548,16 +572,29 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
                 debug_readout, strip, static_cast<uint16_t>(row)
             );
         }
-        timings.raster_us += esp_timer_get_time() - raster_started_us;
-        if (result != ESP_OK) {
-            break;
+        CODY::DamageRect damage;
+        CODY2D::Surface packed;
+        if (result == ESP_OK) {
+            result = CODY::measure_damage_rows(strip, static_cast<uint16_t>(row),
+                frame_cache, compare_previous, damage);
         }
-        const int64_t transfer_started_us = esp_timer_get_time();
-        result = LUNASHELL_display_write_rgb565(
-            0, static_cast<int>(row), kPanelWidth,
-            static_cast<int>(row + strip_rows), s_strip
-        );
-        timings.transfer_us += esp_timer_get_time() - transfer_started_us;
+        if (result == ESP_OK && !damage.empty()) {
+            result = CODY::prepare_damage_rows(strip, static_cast<uint16_t>(row),
+                frame_cache, damage, packed);
+        }
+        // Raster cost includes cache comparison and transfer-payload packing.
+        timings.raster_us += esp_timer_get_time() - raster_started_us;
+        if (result == ESP_OK && !damage.empty()) {
+            const int64_t transfer_started_us = esp_timer_get_time();
+            result = LUNASHELL_display_write_rgb565(
+                damage.left, damage.top, damage.right, damage.bottom, packed.pixels
+            );
+            timings.transfer_us += esp_timer_get_time() - transfer_started_us;
+            if (result == ESP_OK) {
+                timings.submitted_pixels += static_cast<uint32_t>(packed.width) * packed.height;
+                ++timings.dirty_rectangles;
+            }
+        }
         if (result != ESP_OK) {
             // The lock still excludes power transitions here: a returned write
             // error is a real driver/watchdog failure, never a successful park.
@@ -576,6 +613,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         result = s_terminal_error.load(std::memory_order_acquire);
     }
+    s_frame_cache_valid = result == ESP_OK;
     CompletedFrameLog log{};
     bool should_log = false;
     if (result == ESP_OK) {
@@ -938,6 +976,13 @@ extern "C" esp_err_t CODY_companion_start(void)
     ));
     if (s_strip == nullptr) {
         return fail_consumer("Boot strip allocation", ESP_ERR_NO_MEM, false);
+    }
+    s_frame_cache = static_cast<uint16_t *>(heap_caps_malloc(
+        kFramePixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+    ));
+    if (s_frame_cache == nullptr) {
+        release_startup_strip();
+        return fail_consumer("PSRAM frame cache allocation", ESP_ERR_NO_MEM, false);
     }
     void *rig_storage = heap_caps_malloc(sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rig_storage == nullptr) {

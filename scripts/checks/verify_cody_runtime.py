@@ -148,7 +148,7 @@ def main(argv=None):
         sources = ("scripts/tests/cody_native/poc_runtime.cpp", "components/CODY2D/CODY2D.cpp",
                        "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp",
                        "components/CODY_companion/CODY_response.cpp", "components/CODY_companion/CODY_demo.cpp",
-                       "components/CODY_companion/CODY_benchmark.cpp")
+                       "components/CODY_companion/CODY_benchmark.cpp", "components/CODY_companion/CODY_damage.cpp")
         executable = output / "poc-runtime.exe"
         command = compile_command(compiler, includes, sources, executable)
         run_stage(command, output, "compile")
@@ -157,7 +157,8 @@ def main(argv=None):
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
                        "exact original cue duration", "256-color palette", "authored demo boundaries",
-                       "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance"])
+                       "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
+                       "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise
