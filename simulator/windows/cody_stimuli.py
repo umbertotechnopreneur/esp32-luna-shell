@@ -6,7 +6,7 @@ import math
 from scripts.common.cody_response import (
     InputOrigin, MotionSample, PowerSample, MicrophoneSample, PlaybackSample,
     ResponseInputs, SampleHealth, SampleStamp,
-    EyeId, EyeTapSample,
+    EyeId, EyeTapSample, BodyTouchSample,
 )
 from scripts.common.cody_response_contract import Axis
 
@@ -21,6 +21,26 @@ class SyntheticStimulusSource:
         self.pulse_until_us = 0
         self.last_interaction_at_us = 0
         self.eye_tap = EyeTapSample()
+        self.body_touch = BodyTouchSample()
+
+    # self: Synthetic owner; gestures have no firmware transport.
+    # pressed: Actual host pointer state for this publication.
+    # origin: Logical press coordinate shared with the displayed body.
+    # point: Logical pointer coordinate for this event.
+    # rotation: Cardinal orientation of the displayed gesture basis.
+    # started_at_us: Original pointer-down timestamp for the whole gesture.
+    # now_us: Original host event time, never refreshed by snapshot().
+    # Raises ValueError for invalid logical geometry or reversed event times.
+    def publish_body_touch(self, pressed, origin, point, rotation, started_at_us, now_us):
+        if (type(pressed) is not bool or rotation not in (0, 90, 180, 270) or
+                len(origin) != 2 or len(point) != 2 or
+                any(not math.isfinite(value) or not 0 <= value < 466 for value in (*origin, *point)) or
+                not 0 < started_at_us <= now_us or now_us <= self.body_touch.stamp.sampled_at_us):
+            raise ValueError("Synthetic body-touch geometry/time rejected")
+        self.interact(now_us)
+        stamp = SampleStamp(SampleHealth.CURRENT, InputOrigin.SYNTHETIC, now_us, 0)
+        displacement = (point[0] - origin[0], point[1] - origin[1])
+        self.body_touch = BodyTouchSample(stamp, pressed, displacement, rotation, started_at_us)
 
     # self: Host-only snapshot owner; this event has no firmware transport.
     # eye: Stable left/right identity from the geometry displayed in the preview.
@@ -121,5 +141,6 @@ class SyntheticStimulusSource:
             microphone = replace(microphone, stamp=self.stamp(microphone.stamp, microphone_health, tick_us))
         if playback_health != SampleHealth.CURRENT:
             playback = replace(playback, stamp=self.stamp(playback.stamp, playback_health, tick_us))
-        self.current = ResponseInputs(motion, power, rotation, microphone, playback, self.last_interaction_at_us, self.eye_tap)
+        self.current = ResponseInputs(motion, power, rotation, microphone, playback,
+            self.last_interaction_at_us, self.eye_tap, self.body_touch)
         return self.current

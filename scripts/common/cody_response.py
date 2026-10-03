@@ -81,6 +81,15 @@ class EyeTapSample:
 
 
 @dataclass(frozen=True)
+class BodyTouchSample:
+    stamp: SampleStamp = field(default_factory=SampleStamp)
+    pressed: bool = False
+    displacement_px: tuple = (0, 0)
+    rendering_rotation_degrees: int = 0
+    gesture_started_at_us: int = 0
+
+
+@dataclass(frozen=True)
 class ResponseInputs:
     motion: MotionSample = field(default_factory=MotionSample)
     power: PowerSample = field(default_factory=PowerSample)
@@ -89,6 +98,7 @@ class ResponseInputs:
     playback: PlaybackSample = field(default_factory=PlaybackSample)
     last_interaction_at_us: int = 0
     eye_tap: EyeTapSample = field(default_factory=EyeTapSample)
+    body_touch: BodyTouchSample = field(default_factory=BodyTouchSample)
 
 
 @dataclass(frozen=True)
@@ -138,6 +148,12 @@ class ResponseState:
     eye_hold_seconds: float = 0.0
     protective_eye_closure: float = 0.0
     annoyance: float = 0.0
+    body_touch_status: SampleStamp = field(default_factory=SampleStamp)
+    consumed_body_touch_at_us: int = 0
+    consumed_body_press_at_us: int = 0
+    drag_x: SpringState = field(default_factory=SpringState)
+    drag_y: SpringState = field(default_factory=SpringState)
+    touch_pressure: SpringState = field(default_factory=SpringState)
 
 
 @dataclass(frozen=True)
@@ -276,8 +292,13 @@ def validate_response_state(state):
         finite_number(state.transient_mps2[axis], f"response.transient.{axis.value}")
         finite_number(state.body[axis].position, f"response.body.{axis.value}.position")
         finite_number(state.body[axis].velocity, f"response.body.{axis.value}.velocity")
+    for name in ("drag_x", "drag_y", "touch_pressure"):
+        spring = getattr(state, name)
+        finite_number(spring.position, f"response.{name}.position")
+        finite_number(spring.velocity, f"response.{name}.velocity")
     for name in ("consumed_motion_at_us", "consumed_power_at_us", "consumed_microphone_at_us",
-                 "consumed_playback_at_us", "consumed_interaction_at_us", "consumed_eye_tap_at_us"):
+                 "consumed_playback_at_us", "consumed_interaction_at_us", "consumed_eye_tap_at_us",
+                 "consumed_body_touch_at_us", "consumed_body_press_at_us"):
         timestamp = getattr(state, name)
         if type(timestamp) is not int or timestamp < 0:
             raise ValueError(f"response.state.{name}: rejected timestamp {timestamp!r}")
@@ -459,6 +480,44 @@ def advance_response(config, state, inputs, delta_ms, now_us, animate_rhythm=Tru
     closure_target = 1 if next_state.eye_hold_seconds > 0 else 0
     next_state.protective_eye_closure = blend_state(state.protective_eye_closure, closure_target,
         active_seconds, touch["close_seconds"], touch["reopen_seconds"])
+    next_state.body_touch_status = effective_stamp(inputs.body_touch.stamp, now_us,
+        touch["event_timeout_seconds"], "touch.body")
+    drag_target = (0, 0)
+    body_pressed = False
+    gesture = inputs.body_touch
+    if next_state.body_touch_status.health == SampleHealth.CURRENT:
+        if len(gesture.displacement_px) != 2:
+            raise ValueError("touch.body: expected two logical displacement components")
+        displacement = tuple(finite_number(value, "touch.body") for value in gesture.displacement_px)
+        if (any(abs(value) > 465 for value in displacement) or
+                type(gesture.pressed) is not bool or
+                type(gesture.gesture_started_at_us) is not int or
+                not 0 < gesture.gesture_started_at_us <= gesture.stamp.sampled_at_us or
+                gesture.rendering_rotation_degrees not in (0, 90, 180, 270)):
+            raise ValueError("touch.body: rejected coordinates, gesture time or rotation")
+        if gesture.stamp.sampled_at_us < state.consumed_body_touch_at_us:
+            raise ValueError("touch.body: sample timestamp went backwards")
+        next_state.consumed_body_touch_at_us = gesture.stamp.sampled_at_us
+        if gesture.rendering_rotation_degrees == inputs.rendering_rotation_degrees:
+            body_pressed = gesture.pressed
+            if body_pressed:
+                drag_target = tuple(soft_limit(value * touch["drag_gain"], touch["drag_limit_px"])
+                    for value in displacement)
+            if gesture.gesture_started_at_us > state.consumed_body_press_at_us:
+                next_state.consumed_body_press_at_us = gesture.gesture_started_at_us
+                # Short clicks still leave an artistic pulse even when release
+                # arrives before the next frame. The published event stays intact.
+                next_state.touch_pressure = replace(next_state.touch_pressure,
+                    velocity=next_state.touch_pressure.velocity + touch["press_depth"] * 12)
+        else:
+            next_state.body_touch_status = replace(next_state.body_touch_status, health=SampleHealth.STALE)
+    next_state.drag_x = advance_spring(state.drag_x, drag_target[0], active_seconds,
+        touch["spring_hz"], touch["damping_ratio"])
+    next_state.drag_y = advance_spring(state.drag_y, drag_target[1], active_seconds,
+        touch["spring_hz"], touch["damping_ratio"])
+    next_state.touch_pressure = advance_spring(next_state.touch_pressure,
+        touch["press_depth"] if body_pressed else 0, active_seconds,
+        touch["spring_hz"], touch["damping_ratio"])
     advance_audio_and_idle(config, state, inputs, active_seconds, now_us, next_state)
 
     if animate_rhythm:
@@ -494,6 +553,30 @@ def hit_test_eye(scene, point, radius):
         if squared <= nearest_squared:
             nearest, nearest_squared = eye, squared
     return nearest
+
+
+# scene: Evaluated body polygon shared with the visible artwork.
+# point: Logical pointer position, with navigation already excluded by the caller.
+# Raises ValueError for missing body geometry or nonfinite coordinates.
+def hit_test_body(scene, point):
+    x, y = (finite_number(value, "body hit point") for value in point)
+    body = next((path for path in scene["paths"] if path["definition"]["name"] == "body"), None)
+    if body is None:
+        raise ValueError("Body hit geometry is missing")
+    vertices = body["vertices"]
+    if len(vertices) < 3 or not 0 <= x < 466 or not 0 <= y < 466:
+        raise ValueError("Body hit geometry rejected")
+    inside = False
+    previous = vertices[-1]
+    for current in vertices:
+        ax, ay = (finite_number(value, "body hit vertex") for value in previous)
+        bx, by = (finite_number(value, "body hit vertex") for value in current)
+        if (ay > y) != (by > y):
+            intersection = ax + (y - ay) * (bx - ax) / (by - ay)
+            if x < intersection:
+                inside = not inside
+        previous = current
+    return inside
 
 
 # x: Physical panel-frame horizontal vector component.
@@ -573,7 +656,13 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
     multiplier = soft_limit(magnitude, motion["translation_limit"]) / magnitude if magnitude > 0 else 1
     offset = logical_vector(horizontal * multiplier * scale, vertical * multiplier * scale, rotation)
     velocity = logical_vector(state.body[Axis.X].velocity * scale, state.body[Axis.Y].velocity * scale, rotation)
-    depth_scale = 1 + soft_limit(state.body[Axis.Z].position, motion["depth_limit"])
+    drag_magnitude = math.hypot(state.drag_x.position, state.drag_y.position)
+    drag_multiplier = soft_limit(drag_magnitude, rig["response"]["touch"]["drag_limit_px"]) / drag_magnitude if drag_magnitude > 0 else 1
+    # Pointer displacement is already logical; only IMU vectors need rotation.
+    offset = (offset[0] + state.drag_x.position * drag_multiplier,
+              offset[1] + state.drag_y.position * drag_multiplier)
+    velocity = (velocity[0] + state.drag_x.velocity, velocity[1] + state.drag_y.velocity)
+    depth_scale = (1 + soft_limit(state.body[Axis.Z].position, motion["depth_limit"])) * (1 - soft_limit(state.touch_pressure.position, .15))
     transform = (x + offset[0], y + offset[1], scale * depth_scale)
     if not 0 <= transform[0] < 466 or not 0 <= transform[1] < 466 or not 20 <= transform[2] <= 200:
         raise ValueError(f"Response root exceeds rig placement bounds: {transform!r}")

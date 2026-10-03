@@ -16,10 +16,10 @@ authorization.
   checkpoint restores its measured HUD, uses 22.05 kHz cues at volume 100 and
   enables shared cardinal auto-rotation; physical sound and orientation remain
   to be observed after deployment.
-  Checkpoint `6f42f84d` compiled (2,074,320 bytes) but was not flashed because
-  COM10 disconnected before the flash stage. Reconnect the intended USB device
-  and retry delivery before reviewing these changes on hardware.
-  Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
+  Checkpoint `b663f2ac` was subsequently flashed successfully on COM10 with a
+  verified 2,074,320-byte application. Review the new 400 ms bitmap fade-out,
+  two-second animated cloud fade-in, then typewriter, eye taps and elastic drag.
+  Check the two-second Ready deadline, happy pearl face, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
 - [ ] Identify the intermittent display/touch stop reported after the pearl
@@ -31,6 +31,11 @@ authorization.
   `artifacts/serial/cody-jelly-crash*.log`. The later 45-second greeting capture
   also did not reproduce a freeze; its evidence is preserved in
   `artifacts/build-release-evidence/cody-greeting-freeze.log`.
+  The later authorized 45-second live capture of `b663f2ac` without reset
+  showed continuing frames and successful rotation, but no panic/reset cycle
+  or preceding failure (`artifacts/build-release-evidence/cody-reboot-loop-live.log`).
+  The user subsequently reports the device is working; retain this item until
+  the original intermittent failure is explained or explicitly closed.
 - [ ] Review wider rotation/navigation coverage and runtime face-preference
   behavior on hardware. The user accepted the pearl appearance; the native
   renderer and face-follow preference are enabled by default but selectable.

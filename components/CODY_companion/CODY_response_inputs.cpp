@@ -43,6 +43,16 @@ esp_err_t observe_response_inputs(ResponseInputs &inputs)
     ResponseInputs result{};
     result.rendering_rotation_degrees = observation.rendering_rotation_degrees;
     result.last_interaction_at_us = observation.touch_last_activity_at_us;
+    const auto &body_touch = observation.character_touch;
+    result.body_touch.stamp = published_stamp(body_touch, true);
+    if (result.body_touch.stamp.health == SampleHealth::Current) {
+        result.body_touch.pressed = body_touch.pressed;
+        result.body_touch.displacement_px = {
+            static_cast<float>(body_touch.x) - body_touch.origin_x,
+            static_cast<float>(body_touch.y) - body_touch.origin_y};
+        result.body_touch.rendering_rotation_degrees = body_touch.rendering_rotation_degrees;
+        result.body_touch.gesture_started_at_us = body_touch.gesture_started_at_us;
+    }
     result.eye_tap.stamp = published_stamp(observation.character_interaction, true);
     if (result.eye_tap.stamp.health == SampleHealth::Current) {
         using Kind = LUNASHELL::CharacterInteractionSnapshot::Kind;

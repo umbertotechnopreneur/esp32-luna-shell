@@ -94,6 +94,14 @@ esp_err_t validate_indexed_rle_image(const IndexedRleImage &image);
 // color: Native RGB565 color written to every visible pixel.
 esp_err_t clear(Surface surface, uint16_t color);
 
+// color: Native RGB565 source color, including premultiplied antialiased edges.
+// opacity: Global brightness against black, from zero to fully visible 255.
+uint16_t fade_rgb565_to_black(uint16_t color, uint8_t opacity);
+
+// surface: Borrowed RGB565 tile; stride padding and storage byte order are preserved.
+// opacity: Global layer visibility; 255 has no pixel traversal or extra allocation.
+esp_err_t fade_to_black(Surface surface, uint8_t opacity);
+
 // surface: Destination RGB565 surface with explicit writable capacity.
 // rect: Nonempty rectangle wholly inside the surface; coordinates are not clipped.
 // color: Native RGB565 fill color.

@@ -325,6 +325,42 @@ esp_err_t dirty_tile_bounds(const DirtyPlan &plan, uint16_t first_row,
     return ESP_OK;
 }
 
+// scene: Valid geometry supplying exactly the texture and visible path footprints.
+// plan: Existing accumulated damage; this helper does not reset it.
+esp_err_t include_rig_artwork_damage(const RigScene &scene, DirtyPlan &plan)
+{
+    esp_err_t error = validate_scene(scene, kNoPoint, "Fading scene");
+    if (error != ESP_OK) {
+        return error;
+    }
+#if CODY_ENABLE_PEARL_JELLY
+    error = include_damage(plan, scene.jelly.bounds);
+    if (error != ESP_OK) {
+        return error;
+    }
+#endif
+    for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
+        const auto &definition = Data::paths[index];
+#if CODY_ENABLE_PEARL_JELLY
+        if (jelly_replaces_path(definition.id)) {
+            continue;
+        }
+#endif
+        const auto &path = scene.paths[index];
+        if (definition.stroke == 0) {
+            error = include_fill(plan, scene, path);
+        } else {
+            for (uint16_t segment = 1; segment < path.count && error == ESP_OK; ++segment) {
+                error = include_stroke(plan, path_segment(scene, path, definition, segment));
+            }
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    return ESP_OK;
+}
+
 // previous: Immutable geometry from the last completely displayed rig frame.
 // current: Successfully evaluated geometry for the next complete frame.
 // previous_debug: Whether the completed frame included the skeleton overlay.

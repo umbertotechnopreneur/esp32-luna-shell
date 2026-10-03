@@ -1,5 +1,20 @@
 # Done
 
+## Cody intro and tactile response implementation (2026-10-04)
+
+- [x] Add reusable typed scene phases: 400 ms Ready bitmap fade-out, two-second
+  animated Cody fade-in, then the existing greeting typewriter. Hide content/HUD
+  and touch targets during the intro, preserve active-time pause/standby rules,
+  and invalidate complete old/new artwork footprints when opacity changes.
+  Reuse the palette and current raster tile, without another framebuffer.
+- [x] Swap board X/Y in the authored panel mapping. Add canonical touch gesture
+  publication and bounded elastic drag/pressure springs in the shared response
+  composer; preserve eye-tap closure/annoyance and avoid double-rotating logical
+  touch vectors. Mirror the implementation in the synthetic Windows preview.
+- [x] Fix review P2: the runtime asset check now takes PCM/WAV sample rate from
+  the explicit authored audio setting instead of assuming 16 kHz. No check or
+  simulator execution was authorized for this iteration.
+
 ## Cody greeting diagnostics, audio and orientation implementation (2026-10-04)
 
 - [x] Restore the measured FPS/CPU HUD on the greeting behind a default-on
@@ -14,8 +29,10 @@
   and the I2S mismatch, not the reported freeze. This records implementation;
   new device appearance, audible output and rotation are not yet observed.
   Checkpoint `6f42f84d` compiled successfully (2,074,320-byte application),
-  with HUD/rotation enabled and LVGL excluded. Flash did not run because COM10
-  was disconnected; deployment remains open rather than recorded as success.
+  with HUD/rotation enabled and LVGL excluded. The first flash was blocked by
+  COM10 disconnection; the subsequent `b663f2ac` retry flashed successfully with
+  a verified hash. The later live capture showed frames and rotation, no reset
+  cycle in its 45-second window; long-run behavior remains unverified.
 
 ## Cody first-boot scene implementation (2026-10-03)
 

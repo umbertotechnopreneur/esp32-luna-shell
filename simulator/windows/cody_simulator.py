@@ -23,7 +23,7 @@ from scripts.common.cody_rig_types import (  # noqa: E402
 )
 from scripts.common.cody_response import (  # noqa: E402
     SampleHealth, advance_response, compose_response, effective_stamp, make_response_state, rebase_response_motion,
-    EyeId, hit_test_eye,
+    EyeId, hit_test_eye, hit_test_body,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
 from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa: E402
@@ -339,13 +339,16 @@ class CodyRenderer:
     # material_study: Opt-in host-only material study; default rendering is unchanged.
     # png_mesh_study: Opt-in PNG/triangle body; the existing face remains independent.
     # mesh_overlay: Show triangle topology rather than just the painted result.
-    # scene_elapsed_ms: Active typewriter time, independent of the shared rig clock.
+    # scene_elapsed_ms: Active intro/typewriter time, independent of the shared rig clock.
     # Raises ValueError for an unknown screen or invalid rig values.
     # Raises OSError for unreadable experimental PNG artwork.
     def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
+        boot_visible, opacity, content_visible = (False, 255, True)
+        if screen == Screen.GREETING:
+            boot_visible, opacity, content_visible = self.scene_painter.presentation("greeting", scene_elapsed_ms)
         if screen in ANIMATED_SCREENS:
             if self.jelly_study_enabled and self.face_follows_body:
                 if self.jelly_sprite is None:
@@ -355,11 +358,14 @@ class CodyRenderer:
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
                                     material_study=material_study, png_mesh_study=png_mesh_study,
                                     mesh_overlay=mesh_overlay,
-                                    navigation_visible=screen != Screen.GREETING or
+                                    navigation_visible=screen != Screen.GREETING or content_visible and
                                     self.scene_painter.definition("greeting")["navigation_visible"])
             if screen == Screen.GREETING:
+                image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
                 image = image.convert("RGB")
-                self.scene_painter.paint_title(image, "greeting", scene_elapsed_ms)
+                self.scene_painter.fade_to_black(image, opacity)
+                if content_visible:
+                    self.scene_painter.paint_title(image, "greeting", scene_elapsed_ms)
         else:
             image = self.boot[screen].copy()
         circular = Image.new("L", (SIZE, SIZE))
@@ -486,6 +492,10 @@ class CodyWindow:
         self.layout = PreviewLayout.fit(1,1,False)
         self.display_rotation = args.rotation
         self.display_screen = args.screen
+        self.body_drag_origin = None
+        self.body_drag_point = None
+        self.body_drag_rotation = args.rotation
+        self.body_drag_started_us = 0
         self.label_text_cache = {}
         self.label_items = {}
         self.last_presentation_key = None
@@ -494,6 +504,8 @@ class CodyWindow:
                                 highlightthickness = 0, bg="#101820")
         self.canvas.grid(row=0,column=0,sticky="nsew")
         self.canvas.bind("<Button-1>", self.touch)
+        self.canvas.bind("<B1-Motion>", self.drag_body)
+        self.canvas.bind("<ButtonRelease-1>", self.release_body)
         self.canvas.bind("<Configure>",self.resize_preview)
         self.image_item = self.canvas.create_image(0,0,anchor="nw")
         self.controls_host = ttk.Frame(root)
@@ -1017,6 +1029,7 @@ class CodyWindow:
     # event: Desktop coordinates projected through the last displayed layout and rotation.
     def touch(self, event):
         self.preview_interaction()
+        self.body_drag_origin = None
         clicked_name = None
         for item in self.canvas.find_withtag("current"):
             for tag in self.canvas.gettags(item):
@@ -1035,6 +1048,10 @@ class CodyWindow:
             return
         if self.display_screen not in ANIMATED_SCREENS:
             return
+        content_visible = (self.display_screen != Screen.GREETING or
+            self.renderer.scene_painter.presentation("greeting", self.scene_elapsed_ms)[2])
+        if not content_visible:
+            return
         navigation_visible = (self.display_screen != Screen.GREETING or
             self.renderer.scene_painter.definition("greeting")["navigation_visible"])
         if navigation_visible and (x-40)**2+(y-233)**2<=900:
@@ -1044,11 +1061,21 @@ class CodyWindow:
             self.debug.set(not self.debug.get())
             self.choose_point(None)
             return
+        if navigation_visible and (x-233)**2+(y-40)**2<=900:
+            self.playing.set(not self.playing.get())
+            return
         # Debug leaders never override the device's fixed navigation touch targets.
         if self.scene is not None:
             eye = hit_test_eye(self.scene, (x, y), self.response_config["touch"]["eye_hit_radius"])
             if eye != EyeId.NONE:
                 self.stimulus_source.tap_eye(eye, int(time.perf_counter() * 1_000_000))
+            if self.playing.get() and hit_test_body(self.scene, (x, y)):
+                self.body_drag_origin = (x, y)
+                self.body_drag_point = (x, y)
+                self.body_drag_rotation = self.display_rotation
+                self.body_drag_started_us = int(time.perf_counter() * 1_000_000)
+                self.stimulus_source.publish_body_touch(True, self.body_drag_origin, (x, y),
+                    self.body_drag_rotation, self.body_drag_started_us, self.body_drag_started_us)
         if clicked_name is not None:
             self.choose_point(clicked_name)
             return
@@ -1059,6 +1086,32 @@ class CodyWindow:
         nearest = min(self.scene['world'],key=lambda name:(x-self.scene['world'][name][0])**2+(y-self.scene['world'][name][1])**2)
         px,py = self.scene['world'][nearest]
         self.choose_point(nearest if (x-px)**2+(y-py)**2<=144 else None)
+
+    # self: Preview controller retaining the gesture's original logical basis.
+    # event: Host pointer movement, interpreted using the last displayed layout.
+    def drag_body(self, event):
+        if self.body_drag_origin is None:
+            return
+        point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
+        if point is None:
+            return
+        self.body_drag_point = point
+        self.stimulus_source.publish_body_touch(True, self.body_drag_origin, point,
+            self.body_drag_rotation, self.body_drag_started_us, int(time.perf_counter() * 1_000_000))
+
+    # self: Synthetic preview owner; release lets the shared springs settle.
+    # event: Actual host pointer release, including release outside the preview.
+    def release_body(self, event):
+        if self.body_drag_origin is None:
+            return
+        point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
+        # Outside the preview there is no logical hit. The host-only release
+        # preserves the last known gesture position rather than clipping it.
+        if point is None:
+            point = self.body_drag_point
+        self.stimulus_source.publish_body_touch(False, self.body_drag_origin, point,
+            self.body_drag_rotation, self.body_drag_started_us, int(time.perf_counter() * 1_000_000))
+        self.body_drag_origin = None
 
     # visible terminal errors stop the preview rather than retaining a false healthy state.
     def tick(self):

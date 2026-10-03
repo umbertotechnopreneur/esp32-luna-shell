@@ -28,6 +28,11 @@ RESPONSE_RANGES = {
         "annoyance_release_seconds": (.1, 10),
         "stress_gain": (0, 1),
         "brow_gain": (0, 1),
+        "drag_gain": (0, 2),
+        "drag_limit_px": (0, 70),
+        "press_depth": (0, .15),
+        "spring_hz": (.2, 10),
+        "damping_ratio": (.2, 2),
     },
     "audio": {
         "sample_timeout_seconds": (.1, 10),

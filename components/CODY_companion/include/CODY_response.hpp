@@ -57,12 +57,21 @@ struct PlaybackSample {
     uint32_t mean_level = 0;
 };
 
+struct BodyTouchSample {
+    SampleStamp stamp{};
+    bool pressed = false;
+    CODY2D::Vec2 displacement_px{};
+    uint16_t rendering_rotation_degrees = 0;
+    int64_t gesture_started_at_us = 0;
+};
+
 struct ResponseInputs {
     MotionSample motion{};
     PowerSample power{};
     uint16_t rendering_rotation_degrees = 0;
     MicrophoneSample microphone{};
     PlaybackSample playback{};
+    BodyTouchSample body_touch{};
     int64_t last_interaction_at_us = 0;
     struct EyeTap {
         SampleStamp stamp{};
@@ -149,6 +158,11 @@ struct ResponseConfig {
         float annoyance_release_seconds;
         float stress_gain;
         float brow_gain;
+        float drag_gain;
+        float drag_limit_px;
+        float press_depth;
+        float spring_hz;
+        float damping_ratio;
     } touch;
 };
 
@@ -192,6 +206,12 @@ struct ResponseState {
     float eye_hold_seconds = 0;
     float protective_eye_closure = 0;
     float annoyance = 0;
+    SampleStamp body_touch_status{};
+    int64_t consumed_body_touch_at_us = 0;
+    int64_t consumed_body_press_at_us = 0;
+    SpringState drag_x{};
+    SpringState drag_y{};
+    SpringState touch_pressure{};
 };
 
 // scene: Exactly the valid geometry currently displayed; no second pose is evaluated.
@@ -199,6 +219,11 @@ struct ResponseState {
 // radius: Authored normalized hit radius scaled with the evaluated character.
 // eye: Receives the hit semantic eye, or None when the touch misses both.
 esp_err_t hit_test_eye(const RigScene &scene, CODY2D::Vec2 point, float radius, EyeId &eye);
+
+// scene: Valid displayed body geometry, shared with raster and existing eye targets.
+// point: Acquired logical coordinate; navigation is excluded by the caller.
+// hit: Receives whether the point lies within the evaluated body on success.
+esp_err_t hit_test_body(const RigScene &scene, CODY2D::Vec2 point, bool &hit);
 
 struct ResponseFrame {
     Channels face{};

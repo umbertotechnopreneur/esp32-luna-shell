@@ -510,6 +510,17 @@ struct CharacterInteractionSnapshot : ComponentSnapshot {
     Kind kind = Kind::None;
 };
 
+// Acquired body gesture in logical display coordinates, not an IMU-frame vector.
+struct CharacterTouchSnapshot : ComponentSnapshot {
+    bool pressed = false;
+    uint16_t origin_x = 0;
+    uint16_t origin_y = 0;
+    uint16_t x = 0;
+    uint16_t y = 0;
+    uint16_t rendering_rotation_degrees = 0;
+    int64_t gesture_started_at_us = 0;
+};
+
 struct DeviceSnapshot {
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
@@ -524,6 +535,7 @@ struct DeviceSnapshot {
     GpsSnapshot gps;
     AudioSnapshot audio;
     CharacterInteractionSnapshot character_interaction;
+    CharacterTouchSnapshot character_touch;
     RadioSnapshot radios;
     StorageSnapshot storage;
     DiagnosticsSettingsSnapshot diagnostics;
@@ -549,6 +561,7 @@ struct MotionPowerObservation {
     AudioSnapshot audio;
     int64_t touch_last_activity_at_us = 0;
     CharacterInteractionSnapshot character_interaction;
+    CharacterTouchSnapshot character_touch;
 };
 
 /**
@@ -645,6 +658,9 @@ public:
     // kind: Semantic target recognized from displayed geometry and an acquired touch.
     // sampled_at_us: Original report timestamp; duplicate/backward events are rejected.
     esp_err_t reportCharacterInteraction(CharacterInteractionSnapshot::Kind kind, int64_t sampled_at_us);
+    // sample: Body gesture derived from an acquired touch and the displayed geometry.
+    // sampled_at_us: Original hardware report time; no synthetic release or freshening.
+    esp_err_t reportCharacterTouch(const CharacterTouchSnapshot &sample, int64_t sampled_at_us);
     void reportWifi(const WifiSnapshot &wifi);
     void reportBle(
         bool ready,

@@ -70,9 +70,44 @@ class ScenePainter:
     def visible_characters(self, identity, active_ms):
         if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
             raise ValueError(f"Invalid scene clock: {active_ms!r}")
-        title = self.definition(identity)["title"]
+        scene = self.definition(identity)
+        intro_ms = sum(scene["intro"].values())
+        if active_ms < intro_ms:
+            return 0
+        title = scene["title"]
         interval = title["character_interval_ms"]
-        return len(title["text"]) if interval == 0 else min(len(title["text"]), int(active_ms / interval))
+        return len(title["text"]) if interval == 0 else min(len(title["text"]), int((active_ms - intro_ms) / interval))
+
+    # self: Shared immutable scene authoring.
+    # identity: Scene selecting the two sequential intro durations.
+    # active_ms: Nonnegative active intro clock; no sensor sample is generated.
+    # Returns the selected boot layer, global opacity and content admission.
+    # Raises ValueError for invalid time or identity.
+    def presentation(self, identity, active_ms):
+        if type(active_ms) not in (int, float) or not math.isfinite(active_ms) or active_ms < 0:
+            raise ValueError(f"Invalid scene intro clock: {active_ms!r}")
+        intro = self.definition(identity)["intro"]
+        fade_out_ms = intro["bitmap_fade_out_ms"]
+        if active_ms < fade_out_ms:
+            return True, 255 - int(active_ms * 255 / fade_out_ms + .5), False
+        fade_in_ms = intro["cloud_fade_in_ms"]
+        elapsed_ms = active_ms - fade_out_ms
+        if elapsed_ms < fade_in_ms:
+            return False, int(elapsed_ms * 255 / fade_in_ms + .5), False
+        return False, 255, True
+
+    # self: Stateless host mirror of the native tile fade.
+    # image: Whole synthetic RGB framebuffer, never a firmware allocation.
+    # opacity: Valid global opacity in 0..255, quantized in native RGB565 channels.
+    # Raises ValueError for unsupported input; padding/rotation happen after this layer.
+    def fade_to_black(self, image, opacity):
+        if image.mode != "RGB" or image.size != (466, 466) or type(opacity) is not int or not 0 <= opacity <= 255:
+            raise ValueError("Scene fade requires a 466x466 RGB image and 0..255 opacity")
+        if opacity == 255:
+            return
+        red = [(((value >> 3) * opacity + 127) // 255) * 255 // 31 for value in range(256)]
+        green = [(((value >> 2) * opacity + 127) // 255) * 255 // 63 for value in range(256)]
+        image.paste(image.point(red + green + red))
 
     # self: Host-only immutable glyph and layout owner.
     # image: RGB framebuffer already containing the same logical cloud scene.

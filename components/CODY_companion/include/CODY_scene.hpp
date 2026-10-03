@@ -8,11 +8,18 @@ namespace CODY {
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t { AnimationDemo = 0, Greeting = 1 };
 enum class SceneElementId : uint8_t { Cloud, Title, Content };
+enum class SceneIntroPhase : uint8_t { BitmapFadeOut, CloudFadeIn, Complete };
+
+struct SceneIntroDefinition {
+    uint16_t bitmap_fade_out_ms;
+    uint16_t cloud_fade_in_ms;
+};
 
 struct SceneDefinition {
     SceneId id;
     const char *name;
     Transform cloud;
+    SceneIntroDefinition intro;
     Channels face;
     const CODY2D::MonoFont *font;
     CODY2D::TextSpan title;
@@ -44,8 +51,20 @@ struct SceneFrame {
     SceneContent content{};
     uint16_t visible_characters = 0;
     uint32_t character_remainder_us = 0;
+    SceneIntroPhase intro_phase = SceneIntroPhase::Complete;
+    uint32_t intro_elapsed_us = 0;
     bool valid = false;
 };
+
+struct ScenePresentation {
+    bool boot_bitmap_visible = false;
+    uint8_t opacity = 255;
+    bool content_visible = true;
+};
+
+// frame: Valid prepared scene whose intro uses only active animation time.
+// presentation: Receives the selected layer, opacity and content gate on success.
+esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation &presentation);
 
 // identity: Named generic scene, not a table position; demo has its own existing route.
 // definition: Receives an immutable flash-owned definition on success only.

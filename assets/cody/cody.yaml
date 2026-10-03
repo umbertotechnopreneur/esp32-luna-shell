@@ -194,6 +194,11 @@ response:
     annoyance_release_seconds: 3
     stress_gain: 0.7
     brow_gain: 0.9
+    drag_gain: 0.85
+    drag_limit_px: 42
+    press_depth: 0.08
+    spring_hz: 3.5
+    damping_ratio: 0.55
   audio:
     sample_timeout_seconds: 2.5
     microphone_reference: 0.08
@@ -214,8 +219,9 @@ response:
     source: motion.acceleration
     unit: m/s2
     board_to_panel:
-      x: {axis: x, sign: 1}
-      y: {axis: y, sign: 1}
+      # Exchange the mounting axes: the user observed screen X/Y reversed.
+      x: {axis: y, sign: 1}
+      y: {axis: x, sign: 1}
       z: {axis: z, sign: 1}
     # Small real IMU impulses drive a soft, underdamped response; excursion limits stay bounded.
     sensitivity: 3.2

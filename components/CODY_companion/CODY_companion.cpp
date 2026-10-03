@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <initializer_list>
 #include <new>
 
 #include "CODY2D.hpp"
@@ -128,6 +129,7 @@ bool s_cached_rig_paused = false;
 CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
+bool s_cached_navigation_visible = false;
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
@@ -148,6 +150,9 @@ struct CompanionState {
     bool face_follows_body = false;
 #endif
     bool touch_pressed = false;
+    bool body_drag_active = false;
+    LUNASHELL::CharacterTouchSnapshot body_drag{};
+    uint16_t rendered_rotation_degrees = 0;
     CODY::PointId selected_point = CODY::kNoPoint;
     std::atomic<bool> frame_dirty{false};
     int64_t animation_elapsed_us = 0;
@@ -509,6 +514,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     s_state.response_sources_logged = true;
     s_state.response = next_response;
     s_state.response_frame = response_frame;
+    s_state.rendered_rotation_degrees = inputs.rendering_rotation_degrees;
     // Parked time never advances the body, breath, blink or contour clocks.
     s_state.animation_elapsed_us += animation_delta_us;
     s_state.animation_sampled_us = frame_started_us;
@@ -756,11 +762,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     timings.started_us = timings.buffer_ready_us;
     CODY::DebugReadout debug_readout;
     CODY::DirtyPlan dirty_plan;
-    const bool frame_was_rig = s_state.rig_visible;
     const bool frame_debug = s_state.rig_debug;
-    const bool frame_navigation_visible = !s_state.scene.valid || s_state.scene.definition->navigation_visible;
-    const bool frame_readout_visible = s_state.debug_readout_enabled &&
-        (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -811,9 +813,31 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     timings.geometry_completed_us = esp_timer_get_time();
+    CODY::ScenePresentation presentation{};
+    if (s_state.scene.valid) {
+        const esp_err_t presentation_error = CODY::prepare_scene_presentation(s_state.scene, presentation);
+        if (presentation_error != ESP_OK) {
+            return frame.finish({presentation_error, false, 0});
+        }
+    }
+    const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
+    const bool frame_navigation_visible = presentation.content_visible &&
+        (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
+    const bool frame_readout_visible = s_state.debug_readout_enabled && presentation.content_visible &&
+        (!s_state.scene.valid || s_state.scene.definition->readout_visible);
+    // Fade a bounded palette once, not 466x466 boot pixels or the physical
+    // backlight setting. The immutable source asset remains untouched.
+    CODY2D::IndexedRleImage boot_image = *image;
+    uint16_t faded_palette[kPaletteLimit];
+    if (presentation.boot_bitmap_visible && presentation.opacity != 255) {
+        for (uint16_t index = 0; index < image->palette_count; ++index) {
+            faded_palette[index] = CODY2D::fade_rgb565_to_black(image->palette[index], presentation.opacity);
+        }
+        boot_image.palette = faded_palette;
+    }
     const int64_t damage_started_us = timings.geometry_completed_us;
     esp_err_t plan_error = ESP_OK;
-    if (!reuse_previous) {
+    if (!reuse_previous || presentation.boot_bitmap_visible) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
     } else {
         plan_error = CODY::plan_rig_damage(*s_resources.previous_rig, *s_resources.rig,
@@ -821,6 +845,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             dirty_plan);
         if (plan_error == ESP_OK && s_state.scene.valid) {
             plan_error = CODY::plan_scene_damage(s_cached_scene, s_state.scene, dirty_plan);
+            CODY::ScenePresentation previous_presentation{};
+            if (plan_error == ESP_OK) {
+                plan_error = CODY::prepare_scene_presentation(s_cached_scene, previous_presentation);
+            }
+            if (plan_error == ESP_OK && previous_presentation.opacity != presentation.opacity) {
+                // Unchanged geometry still needs every painted pixel updated
+                // when layer brightness changes. Retain old/new footprints.
+                plan_error = CODY::include_rig_artwork_damage(*s_resources.previous_rig, dirty_plan);
+                if (plan_error == ESP_OK) {
+                    plan_error = CODY::include_rig_artwork_damage(*s_resources.rig, dirty_plan);
+                }
+            }
         }
         if (plan_error == ESP_OK &&
             (s_cached_readout_visible != frame_readout_visible ||
@@ -834,6 +870,14 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_paused != s_state.animation_paused) {
             plan_error = include_control_damage(dirty_plan, CODY::RigControl::Pause);
+        }
+        if (plan_error == ESP_OK && s_cached_navigation_visible != frame_navigation_visible) {
+            for (const auto control : {CODY::RigControl::Back, CODY::RigControl::Overlay, CODY::RigControl::Pause}) {
+                plan_error = include_control_damage(dirty_plan, control);
+                if (plan_error != ESP_OK) {
+                    break;
+                }
+            }
         }
     }
     timings.damage_us = esp_timer_get_time() - damage_started_us;
@@ -881,7 +925,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 CODY2D::Rgb565ByteOrder::ByteSwapped
             };
             const int64_t raster_started_us = esp_timer_get_time();
-            if (s_state.rig_visible) {
+            if (frame_was_rig) {
                 result = CODY::draw_rig_rows(
                     *s_resources.rig, strip, damage.top, frame_debug, s_state.selected_point,
                     CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
@@ -889,6 +933,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
                     frame_navigation_visible
                 );
+                if (result == ESP_OK && presentation.opacity != 255) {
+                    result = CODY2D::fade_to_black(strip, presentation.opacity);
+                }
                 if (result == ESP_OK && s_state.scene.valid) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
@@ -900,7 +947,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             } else {
                 // Boot assets invalidate the entire canvas, so their decoder
                 // still receives full-width rows with no horizontal crop.
-                result = CODY2D::decode_rows(*image, damage.top, strip);
+                result = CODY2D::decode_rows(boot_image, damage.top, strip);
             }
             timings.raster_us += esp_timer_get_time() - raster_started_us;
             if (result == ESP_OK) {
@@ -955,6 +1002,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_selected_point = s_state.selected_point;
         s_cached_readout = debug_readout;
         s_cached_readout_visible = frame_readout_visible;
+        s_cached_navigation_visible = frame_navigation_visible;
         s_cached_scene = s_state.scene;
     }
     CompletedFrameLog log{};
@@ -1056,7 +1104,8 @@ enum class TouchAction : uint8_t {
 // point: Real logical touch coordinate already mapped by the display owner.
 TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 {
-    if (s_state.scene.valid && !s_state.scene.definition->navigation_visible) {
+    if (s_state.scene.valid && (s_state.scene.intro_phase != CODY::SceneIntroPhase::Complete ||
+        !s_state.scene.definition->navigation_visible)) {
         return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
     }
     switch (CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)})) {
@@ -1134,12 +1183,59 @@ esp_err_t apply_scene_requests()
         s_state.animation_sampled_us = 0;
         s_state.frame_dirty.store(true, std::memory_order_release);
         s_greeting_scheduled.store(false, std::memory_order_release);
-        ESP_LOGI(kTag, "Scene entered: %s; shared snapshot response and typewriter", definition->name);
+        ESP_LOGI(kTag, "Scene entered: %s; bitmap fade=%u ms cloud fade=%u ms then typewriter",
+            definition->name, definition->intro.bitmap_fade_out_ms, definition->intro.cloud_fade_in_ms);
         return ESP_OK;
     }
     if (!s_state.rig_visible) {
         enter_animation_demo();
     }
+    return ESP_OK;
+}
+
+// point: One acquired press, move or release; its original timestamp is retained.
+// pressed_edge: Whether this acquired report starts a new gesture.
+esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool pressed_edge)
+{
+    if (pressed_edge) {
+        s_state.body_drag_active = false;
+        const bool interactive_scene = !s_state.scene.valid ||
+            s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete;
+        const TouchAction action = s_state.rig_visible ? classify_rig_touch(point) : TouchAction::None;
+        if (s_state.rig_visible && interactive_scene && !s_state.animation_paused &&
+            s_state.rig_frame_count != 0 &&
+            (action == TouchAction::None || action == TouchAction::SelectPoint)) {
+            bool hit = false;
+            const esp_err_t hit_error = CODY::hit_test_body(*s_resources.rig,
+                {static_cast<float>(point.x), static_cast<float>(point.y)}, hit);
+            if (hit_error != ESP_OK) {
+                return hit_error;
+            }
+            if (hit) {
+                s_state.body_drag_active = true;
+                s_state.body_drag = {};
+                s_state.body_drag.origin_x = point.x;
+                s_state.body_drag.origin_y = point.y;
+                s_state.body_drag.gesture_started_at_us = point.sample_timestamp_us;
+                s_state.body_drag.rendering_rotation_degrees = s_state.rendered_rotation_degrees;
+            }
+        }
+    }
+    if (!s_state.body_drag_active) {
+        return ESP_OK;
+    }
+    s_state.body_drag.pressed = point.pressed;
+    s_state.body_drag.x = point.x;
+    s_state.body_drag.y = point.y;
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().reportCharacterTouch(
+        s_state.body_drag, point.sample_timestamp_us);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!point.pressed) {
+        s_state.body_drag_active = false;
+    }
+    s_state.frame_dirty.store(true, std::memory_order_release);
     return ESP_OK;
 }
 
@@ -1190,7 +1286,9 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                              CODY::rig_point_name(s_state.selected_point), local.x, local.y, point.x, point.y);
                 }
             }
-            if (!s_state.animation_paused && s_state.rig_frame_count != 0 &&
+            const bool interactive_scene = !s_state.scene.valid ||
+                s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete;
+            if (interactive_scene && !s_state.animation_paused && s_state.rig_frame_count != 0 &&
                 action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay &&
                 action != TouchAction::TogglePause) {
                 CODY::EyeId eye = CODY::EyeId::None;
@@ -1215,7 +1313,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             s_state.frame_dirty.store(true, std::memory_order_release);
         }
     }
-    return ESP_OK;
+    return publish_body_gesture(point, pressed_edge);
 }
 
 // point: Receives a real report, retaining its original timestamp and error.

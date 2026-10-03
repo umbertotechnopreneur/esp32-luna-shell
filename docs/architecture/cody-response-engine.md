@@ -74,12 +74,38 @@ overdamped settings with bounded work per frame, without a catch-up loop or
 per-frame native allocation. Output saturation bounds the artistic excursion;
 raw observed acceleration is never silently clamped.
 
-The signed `board_to_panel` map is authored explicitly. Its initial identity map
-must be checked against the real board mounting. Springs remain in the physical
+The signed `board_to_panel` map is authored explicitly. The current mounting
+maps panel X from board Y and panel Y from board X (both positive); board Z
+is unchanged. This swaps the directions reported inverted on the device.
+Physical direction/sign confirmation after deployment remains necessary.
+Springs remain in the physical
 panel frame. The composer applies the inverse 0/90/180/270 vector rotation; the
 display applies its presentation rotation once. Rotation never restarts a
 spring. Root position and scale transform every anchor, lobe, eye, nose, cheek,
 mouth and Bézier handle together. Navigation and the layout guide remain fixed.
+
+## Body touch, drag and eye taps
+
+Real Luna touch reports publish `CharacterTouchSnapshot` into the existing
+canonical snapshot, retaining the press origin, current logical point, original
+report/gesture timestamps and cardinal coordinate basis. Cody's response
+adapter reads that projection; it does not acquire sensors or refresh hardware.
+Navigation is excluded before the evaluated body-polygon hit test. The existing
+named eye hit test still publishes protective closure and annoyance.
+
+`response.touch` authors a 0.85 drag gain, a 42-pixel artistic excursion limit,
+an 0.08 press-depth contribution and a 3.5 Hz, 0.55-damping spring. Pressure
+adds one small pulse per real gesture, including a press/release between frames.
+Movement follows the finger a little and settles elastically on release. This
+adds three fixed-size artistic springs, not an input cache or framebuffer.
+The face and pearl body share the resulting root transform. Already-logical
+drag vectors are never rotated again as if they were physical IMU vectors.
+
+Unavailable/stale touch or a changed coordinate basis removes gesture drive
+and lets artistic state settle; it does not invent a hardware release or fresh
+sample. Intro phases and paused scenes do not begin body gestures. The Windows
+preview publishes separately labelled synthetic mouse press/move/release input
+through its single synthetic owner and mirrors the same response equations.
 
 ## Continuous internal state and expression
 

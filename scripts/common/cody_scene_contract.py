@@ -50,7 +50,7 @@ def load_scenes(root: Path, rig=None):
     if rig is None:
         rig, _ = load_contract(root)
     for scene in scenes:
-        require_keys(scene, {"id", "identity", "cloud", "face", "title",
+        require_keys(scene, {"id", "identity", "intro", "cloud", "face", "title",
                             "navigation_visible", "readout_visible"}, "scene")
         name = scene["id"]
         identity = scene["identity"]
@@ -61,6 +61,11 @@ def load_scenes(root: Path, rig=None):
             raise ValueError(f"Duplicate scene identity: {name!r}/{identity!r}")
         names.add(name)
         identities.add(identity)
+        intro = scene["intro"]
+        require_keys(intro, {"bitmap_fade_out_ms", "cloud_fade_in_ms"}, f"{name}.intro")
+        for key, value in intro.items():
+            if type(value) is not int or not 0 <= value <= 10000:
+                raise ValueError(f"{name}.intro.{key}: expected integer milliseconds in 0..10000")
         cloud = scene["cloud"]
         require_keys(cloud, {"x", "y", "scale"}, f"{name}.cloud")
         for key, value in cloud.items():

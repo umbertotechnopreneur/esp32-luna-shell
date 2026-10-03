@@ -1333,6 +1333,11 @@ inline constexpr ResponseConfig response = [] {
     config.touch.annoyance_release_seconds = 3.000000000f;
     config.touch.stress_gain = 0.700000000f;
     config.touch.brow_gain = 0.900000000f;
+    config.touch.drag_gain = 0.850000000f;
+    config.touch.drag_limit_px = 42.000000000f;
+    config.touch.press_depth = 0.080000000f;
+    config.touch.spring_hz = 3.500000000f;
+    config.touch.damping_ratio = 0.550000000f;
     config.audio.sample_timeout_seconds = 2.500000000f;
     config.audio.microphone_reference = 0.080000000f;
     config.audio.playback_reference = 0.180000000f;
@@ -1376,14 +1381,14 @@ inline constexpr ResponseConfig response = [] {
     config.expression.stress_breath_gain = 0.800000000f;
     config.expression.fatigue_breath_slowdown = 0.550000000f;
     config.expression.rhythm_blend_seconds = 0.220000000f;
-    config.motion.board_to_panel[to_index(Axis::X)] = {Axis::X, 1.000000000f};
-    config.motion.board_to_panel[to_index(Axis::Y)] = {Axis::Y, 1.000000000f};
+    config.motion.board_to_panel[to_index(Axis::X)] = {Axis::Y, 1.000000000f};
+    config.motion.board_to_panel[to_index(Axis::Y)] = {Axis::X, 1.000000000f};
     config.motion.board_to_panel[to_index(Axis::Z)] = {Axis::Z, 1.000000000f};
     return config;
 }();
 struct ResponseParameter { const char *name; float value; float minimum; float maximum; };
 // config: Runtime settings checked against the same limits as YAML authoring.
-inline std::array<ResponseParameter, 51> response_parameters(const ResponseConfig &config)
+inline std::array<ResponseParameter, 56> response_parameters(const ResponseConfig &config)
 {
     return {{
         {"touch.event_timeout_seconds", config.touch.event_timeout_seconds, 0.100000000f, 10.000000000f},
@@ -1394,6 +1399,11 @@ inline std::array<ResponseParameter, 51> response_parameters(const ResponseConfi
         {"touch.annoyance_release_seconds", config.touch.annoyance_release_seconds, 0.100000000f, 10.000000000f},
         {"touch.stress_gain", config.touch.stress_gain, 0.000000000f, 1.000000000f},
         {"touch.brow_gain", config.touch.brow_gain, 0.000000000f, 1.000000000f},
+        {"touch.drag_gain", config.touch.drag_gain, 0.000000000f, 2.000000000f},
+        {"touch.drag_limit_px", config.touch.drag_limit_px, 0.000000000f, 70.000000000f},
+        {"touch.press_depth", config.touch.press_depth, 0.000000000f, 0.150000000f},
+        {"touch.spring_hz", config.touch.spring_hz, 0.200000000f, 10.000000000f},
+        {"touch.damping_ratio", config.touch.damping_ratio, 0.200000000f, 2.000000000f},
         {"audio.sample_timeout_seconds", config.audio.sample_timeout_seconds, 0.100000000f, 10.000000000f},
         {"audio.microphone_reference", config.audio.microphone_reference, 0.001000000f, 1.000000000f},
         {"audio.playback_reference", config.audio.playback_reference, 0.001000000f, 1.000000000f},

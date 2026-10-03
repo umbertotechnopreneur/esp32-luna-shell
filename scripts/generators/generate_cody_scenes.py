@@ -83,6 +83,7 @@ def main(argv=None):
     ]
     for scene in document["scenes"]:
         cloud = scene["cloud"]
+        intro = scene["intro"]
         title = scene["title"]
         text_width = (len(title["text"]) - 1) * advance + width
         origin_x = (466 - text_width) // 2
@@ -98,6 +99,7 @@ def main(argv=None):
         flags = ", ".join(str(scene[key]).lower() for key in ("navigation_visible", "readout_visible"))
         header.extend([
             "    {", f'        SceneId::{name}, "{scene["id"]}", {{{transform}}},',
+            f"        {{{intro['bitmap_fade_out_ms']}, {intro['cloud_fade_in_ms']}}},",
             f"        {{{{{channels}}}}}, &title_font,",
             f'        {{{json.dumps(title["text"])}, {len(title["text"])}}},',
             f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}",

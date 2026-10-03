@@ -329,6 +329,11 @@ esp_err_t validate_response_state(const ResponseState &state)
             return reject_axis_value("state.transient", axis, state.transient_mps2[axis]);
         }
     }
+    for (const auto &spring : {state.drag_x, state.drag_y, state.touch_pressure}) {
+        if (!std::isfinite(spring.position) || !std::isfinite(spring.velocity)) {
+            return reject_value("state.body_touch spring", spring.position);
+        }
+    }
     if (state.consumed_motion_at_us < 0) {
         return reject_value("state.consumed_motion_at_us", static_cast<double>(state.consumed_motion_at_us));
     }
@@ -336,7 +341,8 @@ esp_err_t validate_response_state(const ResponseState &state)
         return reject_value("state.consumed_power_at_us", static_cast<double>(state.consumed_power_at_us));
     }
     if (state.consumed_microphone_at_us < 0 || state.consumed_playback_at_us < 0 ||
-        state.consumed_interaction_at_us < 0 || state.consumed_eye_tap_at_us < 0) {
+        state.consumed_interaction_at_us < 0 || state.consumed_eye_tap_at_us < 0 ||
+        state.consumed_body_touch_at_us < 0 || state.consumed_body_press_at_us < 0) {
         return reject_value("state.audio/interaction timestamp", -1);
     }
     if (state.breath_phase >= kTau) {
@@ -381,6 +387,35 @@ esp_err_t hit_test_eye(const RigScene &scene, CODY2D::Vec2 point, float radius, 
         }
     }
     eye = nearest;
+    return ESP_OK;
+}
+
+// scene: Exactly the valid displayed rig; no second pose or texture is decoded.
+// point: Logical touch coordinate already mapped through the display owner.
+// hit: Updated only after the polygon extent and input have been accepted.
+esp_err_t hit_test_body(const RigScene &scene, CODY2D::Vec2 point, bool &hit)
+{
+    const auto &body = scene.paths[to_index(PathId::Body)];
+    if (!scene.valid || !std::isfinite(point.x) || !std::isfinite(point.y) ||
+        point.x < 0 || point.x >= 466 || point.y < 0 || point.y >= 466 ||
+        body.count < 3 || body.first_vertex + body.count > scene.vertices.size()) {
+        ESP_LOGE(kTag, "Body hit geometry rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    bool inside = false;
+    uint16_t previous = body.count - 1U;
+    for (uint16_t current = 0; current < body.count; ++current) {
+        const auto first = scene.vertices[body.first_vertex + previous];
+        const auto second = scene.vertices[body.first_vertex + current];
+        if ((first.y > point.y) != (second.y > point.y)) {
+            const float crossing_x = first.x + (point.y - first.y) * (second.x - first.x) / (second.y - first.y);
+            if (point.x < crossing_x) {
+                inside = !inside;
+            }
+        }
+        previous = current;
+    }
+    hit = inside;
     return ESP_OK;
 }
 
@@ -562,6 +597,52 @@ esp_err_t advance_response(const ResponseConfig &config, const ResponseState &st
     const float closure_target = result.eye_hold_seconds > 0 ? 1.f : 0.f;
     result.protective_eye_closure = blend_state(state.protective_eye_closure, closure_target,
         active_seconds, config.touch.close_seconds, config.touch.reopen_seconds);
+    error = effective_stamp(inputs.body_touch.stamp, now_us, config.touch.event_timeout_seconds,
+                            "touch.body", result.body_touch_status);
+    if (error != ESP_OK) {
+        return error;
+    }
+    float drag_x_target = 0;
+    float drag_y_target = 0;
+    bool body_pressed = false;
+    if (result.body_touch_status.health == SampleHealth::Current) {
+        const auto &touch = inputs.body_touch;
+        if (!std::isfinite(touch.displacement_px.x) || !std::isfinite(touch.displacement_px.y) ||
+            std::fabs(touch.displacement_px.x) > 465 || std::fabs(touch.displacement_px.y) > 465 ||
+            touch.gesture_started_at_us <= 0 || touch.gesture_started_at_us > touch.stamp.sampled_at_us ||
+            (touch.rendering_rotation_degrees != 0 && touch.rendering_rotation_degrees != 90 &&
+             touch.rendering_rotation_degrees != 180 && touch.rendering_rotation_degrees != 270)) {
+            return reject_value("touch.body coordinates/basis", touch.displacement_px.x);
+        }
+        if (touch.stamp.sampled_at_us < state.consumed_body_touch_at_us) {
+            return reject_value("touch.body reversed timestamp", static_cast<double>(touch.stamp.sampled_at_us));
+        }
+        result.consumed_body_touch_at_us = touch.stamp.sampled_at_us;
+        if (touch.rendering_rotation_degrees == inputs.rendering_rotation_degrees) {
+            body_pressed = touch.pressed;
+            if (body_pressed) {
+                drag_x_target = soft_limit(touch.displacement_px.x * config.touch.drag_gain, config.touch.drag_limit_px);
+                drag_y_target = soft_limit(touch.displacement_px.y * config.touch.drag_gain, config.touch.drag_limit_px);
+            }
+            if (touch.gesture_started_at_us > state.consumed_body_press_at_us) {
+                result.consumed_body_press_at_us = touch.gesture_started_at_us;
+                // A press/release within one render frame still leaves a tiny
+                // artistic impulse; no sensor sample or release is invented.
+                result.touch_pressure.velocity += config.touch.press_depth * 12.f;
+            }
+        } else {
+            // An older logical basis cannot be interpreted after panel rotation.
+            // Preserve the timestamp but let the artistic springs settle.
+            result.body_touch_status.health = SampleHealth::Stale;
+        }
+    }
+    result.drag_x = advance_spring(state.drag_x, drag_x_target, active_seconds,
+        config.touch.spring_hz, config.touch.damping_ratio);
+    result.drag_y = advance_spring(state.drag_y, drag_y_target, active_seconds,
+        config.touch.spring_hz, config.touch.damping_ratio);
+    result.touch_pressure = advance_spring(result.touch_pressure,
+        body_pressed ? config.touch.press_depth : 0.f, active_seconds,
+        config.touch.spring_hz, config.touch.damping_ratio);
     error = advance_audio_and_idle(config, state, inputs, active_seconds, now_us, result);
     if (error != ESP_OK) {
         return error;
@@ -672,12 +753,22 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
     const auto &vertical = state.body[to_index(Axis::Y)];
     const float magnitude = std::hypot(horizontal.position, vertical.position);
     const float multiplier = magnitude > 0 ? soft_limit(magnitude, config.motion.translation_limit) / magnitude : 1;
-    const CODY2D::Vec2 offset = logical_vector({horizontal.position * multiplier * placement.scale,
+    CODY2D::Vec2 offset = logical_vector({horizontal.position * multiplier * placement.scale,
                                                vertical.position * multiplier * placement.scale}, rotation);
+    // Touch has already been transformed by the display owner. Never rotate
+    // it as an IMU vector a second time, particularly at 90/270 degrees.
+    const float drag_magnitude = std::hypot(state.drag_x.position, state.drag_y.position);
+    const float drag_multiplier = drag_magnitude > 0
+        ? soft_limit(drag_magnitude, config.touch.drag_limit_px) / drag_magnitude : 1.f;
+    offset.x += state.drag_x.position * drag_multiplier;
+    offset.y += state.drag_y.position * drag_multiplier;
     result.spring_velocity_px_per_second = logical_vector(
         {horizontal.velocity * placement.scale, vertical.velocity * placement.scale}, rotation
     );
-    result.depth_scale = 1 + soft_limit(state.body[to_index(Axis::Z)].position, config.motion.depth_limit);
+    result.spring_velocity_px_per_second.x += state.drag_x.velocity;
+    result.spring_velocity_px_per_second.y += state.drag_y.velocity;
+    result.depth_scale = (1 + soft_limit(state.body[to_index(Axis::Z)].position, config.motion.depth_limit)) *
+        (1 - soft_limit(state.touch_pressure.position, .15f));
     result.transform = {placement.x + offset.x, placement.y + offset.y, placement.scale * result.depth_scale};
     result.resting_root = {placement.x, placement.y};
     result.current_root = {result.transform.x, result.transform.y};

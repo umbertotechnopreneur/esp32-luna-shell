@@ -24,6 +24,10 @@ struct DirtyPlan {
 // damage: Half-open logical rectangle inside 466x466, expanded to even boundaries.
 esp_err_t include_damage(DirtyPlan &plan, const DamageRect &damage);
 
+// scene: Valid evaluated artwork; brightness changes dirty its whole footprint.
+// plan: Existing geometry damage retained while texture, face and stroke bounds are added.
+esp_err_t include_rig_artwork_damage(const RigScene &scene, DirtyPlan &plan);
+
 // plan: Immutable paired-row spans accumulated for the current frame.
 // first_row: Even logical origin of the available raster tile.
 // row_count: Positive even row count, wholly inside the 466-row canvas.

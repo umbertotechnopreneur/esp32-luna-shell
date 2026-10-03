@@ -297,6 +297,37 @@ esp_err_t fill_vertical_gradient32(
     return ESP_OK;
 }
 
+// color: Native RGB565 source color with its existing edge coverage already applied.
+// opacity: Visibility against black; endpoints remain exact.
+uint16_t fade_rgb565_to_black(uint16_t color, uint8_t opacity)
+{
+    const uint32_t red = (((color >> 11U) & 31U) * opacity + 127U) / 255U;
+    const uint32_t green = (((color >> 5U) & 63U) * opacity + 127U) / 255U;
+    const uint32_t blue = ((color & 31U) * opacity + 127U) / 255U;
+    return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
+}
+
+// surface: Caller-owned tile, validated before any mutation; row padding is untouched.
+// opacity: Global layer visibility, never a display-backlight preference.
+esp_err_t fade_to_black(Surface surface, uint8_t opacity)
+{
+    const esp_err_t error = validate_surface(surface);
+    if (error != ESP_OK || opacity == 255) {
+        return error;
+    }
+    if (opacity == 0) {
+        return clear(surface, 0);
+    }
+    for (uint32_t row = 0; row < surface.height; ++row) {
+        uint16_t *pixels = surface.pixels + row * surface.stride;
+        for (uint32_t column = 0; column < surface.width; ++column) {
+            const uint16_t native = rgb565_stored_to_native(pixels[column], surface.byte_order);
+            pixels[column] = rgb565_native_to_stored(fade_rgb565_to_black(native, opacity), surface.byte_order);
+        }
+    }
+    return ESP_OK;
+}
+
 // image: Immutable source; its metadata and requested rows are checked before any write.
 // first_row: First image row to decode; destination.height determines the number of rows.
 // destination: RGB565 strip with width equal to image.width; stride and capacity are in pixels.

@@ -11,12 +11,17 @@ The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
 
 - Enter `SceneId::Greeting` 2,000 ms after the completed **Ready** boot frame,
   not two seconds after power-on. The existing worker handles the deadline.
+- Fade the Ready bitmap to black over 400 ms, then fade in animated Cody over
+  2,000 ms. Intro durations are explicit scene fields; zero skips that phase.
+  Motion, face and contour keep their shared active clock during the cloud fade.
 - Place Cody at `(233, 225)` with scale `130`, versus the demo's `(233, 235)`
   and scale `145`: ten pixels higher and about ten percent smaller.
 - Select a happy squint, raised cheeks and an open smile. The same response
   composer still supplies blinking, breathing, motion and valid snapshot input.
 - Reveal `Hi, I'm Cody!` in white, one character every 70 ms. The full line
-  appears after 910 ms of active scene time; pause/standby does not advance it.
+  appears after 910 ms following the completed intro; pause/standby advances
+  neither intro nor typewriter. Text, content, HUD and touch targets remain
+  hidden during the intro.
 - Hide demo navigation. Hidden controls have no touch target; the greeting is
   a root scene with no previous route. Eye interaction still uses the evaluated,
   optionally deformed face geometry. Admit the existing measured FPS/CPU readout
@@ -26,6 +31,13 @@ The title's prepared bounds are `[115, 350) x [348, 388)`, inside the central
 safe square. All rendering and input retain the existing logical canvas and
 cardinal rotation owner. Pairing, QR routes and onboarding progression are
 not implemented by this change.
+
+The generic scene frame owns a typed intro phase and a bounded phase clock.
+The boot fade adjusts at most 64 palette entries on the worker stack; the cloud
+fade multiplies RGB565 in the existing owned raster tile, respecting its byte
+order. Neither changes panel brightness or allocates a framebuffer. Opacity
+changes invalidate both old and new artwork bounds even if geometry is static.
+The Windows mirror follows the same phases; it remains explicitly synthetic.
 
 ## Settings and failure behavior
 
@@ -220,3 +232,16 @@ Build/port evidence is preserved as `greeting-hud-rotation-build.log` and
 `greeting-disconnected-ports.log` under `artifacts/build-release-evidence/`.
 No new serial capture, tests, simulator checks or physical behavior observations
 were performed after this build.
+
+### Subsequent delivery and live capture
+
+The later explicit retry successfully flashed checkpoint `b663f2ac` to COM10:
+2,074,320 application bytes at `0x10000`, verified hash and hardware RTS reset.
+The successful command log is preserved in
+`artifacts/build-release-evidence/greeting-hud-rotation-flash-success.log`.
+A separately authorized 45-second capture without reset then showed continued
+rendering through frame 731 and successful 0/90/0-degree orientation changes.
+No panic or repeated reset occurred in that window; the capture began during
+startup and does not contain a preceding failure/reset reason. Evidence:
+`artifacts/build-release-evidence/cody-reboot-loop-live.log`.
+This does not establish long-run stability or fix the earlier intermittent stop.
