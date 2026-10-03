@@ -125,6 +125,7 @@ void report_optional_startup_failure(
 
 }  // namespace
 
+// No parameters: start the profile's owners in watchdog-tracked, fail-fast stages.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
@@ -155,6 +156,14 @@ extern "C" void app_main(void)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
     ESP_ERROR_CHECK(LUNASHELL_display_apply_saved_brightness());
     ESP_ERROR_CHECK(LUNASHELL_display_apply_saved_auto_rotation());
+#if CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION
+    if (!LUNASHELL_display_get_auto_rotation_enabled()) {
+        // This is an explicit selected Cody startup policy, not a missing-key
+        // default or a repair: saved state has already passed strict validation.
+        ESP_LOGI(kTag, "Cody startup policy: enabling shared cardinal auto-rotation");
+        ESP_ERROR_CHECK(LUNASHELL_display_set_auto_rotation_enabled(true));
+    }
+#endif
     startup_watch.progress("saved display settings");
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION

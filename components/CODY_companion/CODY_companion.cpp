@@ -127,12 +127,18 @@ bool s_cached_rig_debug = false;
 bool s_cached_rig_paused = false;
 CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
+bool s_cached_readout_visible = false;
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
     CODY::OnboardingSettings onboarding{};
     CODY::SceneFrame scene{};
+#if CONFIG_LUNASHELL_CODY_DIAGNOSTICS_READOUT
+    bool debug_readout_enabled = true;
+#else
+    bool debug_readout_enabled = false;
+#endif
     bool rig_visible = false;
     bool rig_debug = false;
     bool animation_paused = false;
@@ -753,7 +759,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool frame_was_rig = s_state.rig_visible;
     const bool frame_debug = s_state.rig_debug;
     const bool frame_navigation_visible = !s_state.scene.valid || s_state.scene.definition->navigation_visible;
-    const bool frame_readout_visible = !s_state.scene.valid || s_state.scene.definition->readout_visible;
+    const bool frame_readout_visible = s_state.debug_readout_enabled &&
+        (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -816,9 +823,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             plan_error = CODY::plan_scene_damage(s_cached_scene, s_state.scene, dirty_plan);
         }
         if (plan_error == ESP_OK &&
-            frame_readout_visible &&
-            (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
-             std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0)) {
+            (s_cached_readout_visible != frame_readout_visible ||
+             (frame_readout_visible &&
+              (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
+               std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0)))) {
             plan_error = CODY::include_damage(dirty_plan, CODY::debug_readout_damage_bounds());
         }
         if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_debug != frame_debug) {
@@ -946,6 +954,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_rig_paused = s_state.animation_paused;
         s_cached_selected_point = s_state.selected_point;
         s_cached_readout = debug_readout;
+        s_cached_readout_visible = frame_readout_visible;
         s_cached_scene = s_state.scene;
     }
     CompletedFrameLog log{};
@@ -1503,6 +1512,54 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
     return ESP_OK;
 }
 
+// enabled: Session preference for the existing measured layer; the worker owns rendering.
+extern "C" esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Readout preference lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Readout preference state rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    if (s_state.debug_readout_enabled != enabled) {
+        s_state.debug_readout_enabled = enabled;
+        s_state.frame_dirty.store(true, std::memory_order_release);
+    }
+    ESP_LOGI(kTag, "Measured FPS/CPU readout requested: %s (session preference)", enabled ? "ON" : "OFF");
+    return ESP_OK;
+}
+
+// enabled: Non-null output populated only after the consumer state has been accepted.
+extern "C" esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled)
+{
+    if (enabled == nullptr) {
+        ESP_LOGE(kTag, "Readout preference output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Readout preference read lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Readout preference read state rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    *enabled = s_state.debug_readout_enabled;
+    return ESP_OK;
+}
+
 // enabled: Runtime preference applied by the worker under the shared display/state lock.
 extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
 {
@@ -1562,6 +1619,22 @@ extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
 }
 
 #else
+
+// enabled: Requested session preference; this profile does not include the Cody consumer.
+extern "C" esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled)
+{
+    ESP_LOGE("CODY_companion", "Readout preference=%u rejected: consumer excluded (%s)",
+        static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// enabled: Non-null output is left unchanged when the consumer is excluded.
+extern "C" esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled)
+{
+    const esp_err_t error = enabled == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+    ESP_LOGE("CODY_companion", "Readout preference read rejected: consumer excluded (%s)", esp_err_to_name(error));
+    return error;
+}
 
 // enabled: Requested preference, unavailable in a profile without the Cody consumer.
 extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)

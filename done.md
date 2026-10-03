@@ -1,5 +1,19 @@
 # Done
 
+## Cody greeting diagnostics, audio and orientation implementation (2026-10-04)
+
+- [x] Restore the measured FPS/CPU HUD on the greeting behind a default-on
+  session flag with a locked runtime setter/getter. Include old HUD damage when
+  hiding it. Reuse Luna's existing cardinal auto-rotation owner and API through
+  a default-on Cody startup policy after strict saved-setting restoration.
+  No new sensor reader, task, framebuffer or LVGL dependency is introduced.
+- [x] Resolve the observed boot cue format mismatch in source: regenerate both
+  original flash-owned PCM cues at the shared 22.05 kHz clock and request codec
+  volume 100. Reject peer stream clock conflicts before changing transport.
+  One authorized preceding-firmware 45-second capture showed continuous frames
+  and the I2S mismatch, not the reported freeze. This records implementation;
+  new device appearance, audible output and rotation are not yet observed.
+
 ## Cody first-boot scene implementation (2026-10-03)
 
 - [x] Implement the atlas page 05 / screen 04 greeting through a reusable

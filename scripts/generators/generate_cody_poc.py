@@ -46,7 +46,7 @@ def synthesize(settings, cue):
     return b"".join(struct.pack("<h", round(value * scale)) for value in values)
 
 
-# Generate core assets in flash-owned source folders; execution reports stay in artifacts.
+# No parameters: generate core assets in flash-owned source folders; reports stay in artifacts.
 # Raises original authoring, contract and filesystem errors.
 def main():
     source = ROOT / "assets/cody/poc.yaml"
@@ -85,7 +85,13 @@ def main():
             output.setsampwidth(2)
             output.setframerate(settings['audio']['sample_rate_hz'])
             output.writeframes(pcm)
-        manifest['cues'][cue] = {"pcm_bytes": len(pcm), "duration_seconds": len(pcm) / 2 / 16000, "sha256": hashlib.sha256(pcm).hexdigest(), "origin": "original procedural synthesis"}
+        manifest['cues'][cue] = {
+            "pcm_bytes": len(pcm),
+            "sample_rate_hz": settings['audio']['sample_rate_hz'],
+            "duration_seconds": len(pcm) / 2 / settings['audio']['sample_rate_hz'],
+            "sha256": hashlib.sha256(pcm).hexdigest(),
+            "origin": "original procedural synthesis",
+        }
     (generated / "manifest.json").write_text(json.dumps(manifest, indent=2) + '\n', encoding="utf-8")
     print(f"Generated PoC settings and original cues: {generated}")
 

@@ -115,6 +115,7 @@ esp_err_t close_streams()
 }
 
 // Configure speaker transport only while the base audio route is active.
+// sample_rate_hz: Requested transport clock, matching any open peer microphone.
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
 {
@@ -127,7 +128,16 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
         return ESP_ERR_INVALID_STATE;
     }
     if (sample_rate_hz == 0) {
+        ESP_LOGE(TAG, "Speaker stream rejected: zero sample rate (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
+    }
+    if (s_microphone_open && sample_rate_hz != s_microphone_sample_rate_hz) {
+        // TX and RX share a clock. Do not let the codec accept PCM against
+        // a peer transport that never changed its real sample rate.
+        ESP_LOGE(TAG, "Speaker clock conflict: requested=%lu microphone=%lu (%s)",
+            static_cast<unsigned long>(sample_rate_hz),
+            static_cast<unsigned long>(s_microphone_sample_rate_hz), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
     }
     if (s_speaker_open && s_speaker_sample_rate_hz == sample_rate_hz) {
         return ESP_OK;
@@ -166,6 +176,8 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
 #endif
 
 // Configure microphone transport only while the base audio route is active.
+// sample_rate_hz: Requested transport clock, matching any open peer speaker.
+// channel_count: Exact channel count owned by the configured ES7210 input.
 #if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
 esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_count)
 {
@@ -180,7 +192,15 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
     }
     if (sample_rate_hz == 0 || channel_count == 0 || channel_count > 2 ||
         channel_count != LUNASHELL_audio_input_channel_count()) {
+        ESP_LOGE(TAG, "Microphone stream rejected: rate=%lu channels=%u (%s)",
+            static_cast<unsigned long>(sample_rate_hz), channel_count, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
+    }
+    if (s_speaker_open && sample_rate_hz != s_speaker_sample_rate_hz) {
+        ESP_LOGE(TAG, "Microphone clock conflict: requested=%lu speaker=%lu (%s)",
+            static_cast<unsigned long>(sample_rate_hz),
+            static_cast<unsigned long>(s_speaker_sample_rate_hz), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
     }
     if (s_microphone_open &&
         s_microphone_sample_rate_hz == sample_rate_hz &&

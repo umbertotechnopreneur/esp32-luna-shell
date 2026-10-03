@@ -16,7 +16,7 @@
       },
       "title": { "text": "Hi, I'm Cody!", "top": 348, "color_rgb565": 65535, "character_interval_ms": 70 },
       "navigation_visible": false,
-      "readout_visible": false
+      "readout_visible": true
     }
   ]
 }

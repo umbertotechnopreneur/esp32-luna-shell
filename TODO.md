@@ -10,7 +10,12 @@ authorization.
   device after fresh, specific authorization. Implementation and source assets
   are complete; checkpoint `1df7ee0a` compiled and flashed on COM10 with the
   forced first-boot flag enabled. No simulator, tests, separate size report
-  or runtime/display observation ran for this change.
+  or physical display observation ran for this change. A later authorized
+  45-second boot capture showed the greeting entering and continuous frames
+  at 19-20 FPS/core 0 around 81-83%, but not the reported freeze. The next
+  checkpoint restores its measured HUD, uses 22.05 kHz cues at volume 100 and
+  enables shared cardinal auto-rotation; physical sound and orientation remain
+  to be observed after deployment.
   Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
@@ -20,7 +25,9 @@ authorization.
   Boot and later captures did not reproduce it through uptime 487 seconds;
   the gap between those captures was not continuously observed. Do not claim
   the issue fixed. Evidence: `docs/architecture/cody-cloud-finish.md` and
-  `artifacts/serial/cody-jelly-crash*.log`.
+  `artifacts/serial/cody-jelly-crash*.log`. The later 45-second greeting capture
+  also did not reproduce a freeze; its evidence is preserved in
+  `artifacts/build-release-evidence/cody-greeting-freeze.log`.
 - [ ] Review wider rotation/navigation coverage and runtime face-preference
   behavior on hardware. The user accepted the pearl appearance; the native
   renderer and face-follow preference are enabled by default but selectable.

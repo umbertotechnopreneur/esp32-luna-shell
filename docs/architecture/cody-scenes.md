@@ -17,9 +17,10 @@ The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
   composer still supplies blinking, breathing, motion and valid snapshot input.
 - Reveal `Hi, I'm Cody!` in white, one character every 70 ms. The full line
   appears after 910 ms of active scene time; pause/standby does not advance it.
-- Hide demo navigation and the FPS/CPU readout. Hidden controls have no touch
-  target; the greeting is a root scene with no previous route. Eye interaction
-  still uses the evaluated, optionally deformed face geometry.
+- Hide demo navigation. Hidden controls have no touch target; the greeting is
+  a root scene with no previous route. Eye interaction still uses the evaluated,
+  optionally deformed face geometry. Admit the existing measured FPS/CPU readout
+  below the title; its visibility remains a session preference.
 
 The title's prepared bounds are `[115, 350) x [348, 388)`, inside the central
 safe square. All rendering and input retain the existing logical canvas and
@@ -42,6 +43,40 @@ a valid persisted false. The real key is still read and validated first.
 Disable this build option later to honor the stored preference alone.
 `persist_first_boot()` is an explicit preference write for future startup;
 finishing the typewriter never clears the key automatically.
+
+### Measured readout and shared auto-rotation
+
+`CONFIG_LUNASHELL_CODY_DIAGNOSTICS_READOUT=y` selects the initial FPS/CPU HUD
+preference. `CODY_companion_set_debug_readout_enabled(bool)` and
+`CODY_companion_get_debug_readout_enabled(bool *)` change/read it at runtime
+under the existing display lock. The flag is session-scoped, not an NVS write;
+scene `readout_visible` must also admit the layer. Hiding it invalidates its old
+bounds, so old digits are erased. Its real snapshot validity/unavailable states
+and completed-frame timing remain unchanged. This adds no framebuffer or task.
+
+`CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION=y` explicitly enables Luna's existing
+cardinal orientation policy after saved display settings have passed strict
+restoration. It uses `LUNASHELL_display_set_auto_rotation_enabled(true)`,
+persisting the existing `auto_rotate` preference only if it is currently off.
+This is a requested startup policy, not a missing-key default or repair of
+invalid settings. Disable the policy to honor a saved off preference across
+boots. Runtime changes continue through the same Luna setter/getter.
+
+The existing acquisition owner, orientation filtering/hysteresis, panel/touch
+rotation transaction, content revision and Cody redraw path are reused for
+0/90/180/270 degrees. Cody adds no IMU reads, sensor loop, frame cache or LVGL
+dependency. Physical rotation, touch alignment and standby still need device
+observation; enabling the policy alone does not prove those behaviors.
+
+### Boot cue clock and loudness
+
+The two original synthesized Cody cues now use mono PCM16 at **22,050 Hz**,
+matching the already-open ES8311/ES7210 shared I2S clock, at codec volume **100**.
+`assets/cody/poc.yaml` remains the source; regeneration updates both embedded
+PCM and host WAV files. The audio owner rejects a stream rate that conflicts
+with an open peer before changing transport state, retaining the real error.
+It does not resample, silently substitute a rate, or suppress codec failures.
+The separately proposed archive SFX are not integrated into this release.
 
 ## Ownership and reuse
 
@@ -146,3 +181,24 @@ capture or physical display/motion observation ran for this revision.
 Successful flashing does not establish the greeting's appearance, measured
 CPU/FPS, stability, rotation or standby behavior. Those checks still require
 fresh authorization for the specific validation or physical operation.
+
+## Authorized 45-second capture (2026-10-04)
+
+After the user reported a static screen and inaudible cues, one explicitly
+authorized COM10 capture with reset observed this preceding firmware for
+45 seconds. The greeting entered at approximately 6.2 seconds uptime; rendering
+continued through frame 749 at 44.9 seconds, typically 19-20 FPS with measured
+core 0 usage around 81-83% and core 1 at 0%. No panic or renderer terminal
+failure appeared in that window. The reported freeze was **not reproduced**,
+not resolved. The HUD was hidden by the scene definition, despite live timing
+reports, and the restored rotation preference was off.
+
+The capture also records the real I2S error: playback requested 16,000 Hz while
+the open microphone used 22,050 Hz. Playback nevertheless reported completion;
+that did not establish audible output. The implementation above aligns cue
+rates and rejects conflicting requests rather than trusting that partial
+success. Loudness and physical sound remain unobserved after the change.
+
+The capture is preserved under
+`artifacts/build-release-evidence/cody-greeting-freeze.log`, outside transient
+cleanup. No automated tests or simulator checks were run for this iteration.

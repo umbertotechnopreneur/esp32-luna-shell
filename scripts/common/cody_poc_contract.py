@@ -61,8 +61,8 @@ def load_settings(path):
         number(diagnostics[name], lower, upper, name)
     audio = settings["audio"]
     fields(audio, ("sample_rate_hz", "ready_duration_seconds", "eyes_open_duration_seconds", "ready_volume_percent", "eyes_open_volume_percent"), "audio")
-    if audio["sample_rate_hz"] != 16000:
-        raise ValueError("PoC cues use the existing 16 kHz mono PCM16 route")
+    if type(audio["sample_rate_hz"]) is not int or audio["sample_rate_hz"] != 22050:
+        raise ValueError("PoC cues must match the shared 22050 Hz codec/diagnostic clock")
     number(audio["ready_duration_seconds"], .05, .5, "audio.ready_duration_seconds")
     number(audio["eyes_open_duration_seconds"], 1, 1.8, "audio.eyes_open_duration_seconds")
     for name in ("ready_volume_percent", "eyes_open_volume_percent"):

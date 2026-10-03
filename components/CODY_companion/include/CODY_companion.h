@@ -23,6 +23,13 @@ esp_err_t CODY_companion_boot_completed(void);
 // Request the optional authored demo; the scheduled first-boot greeting has priority.
 esp_err_t CODY_companion_demo_start(void);
 
+// enabled: Session preference for the existing measured FPS/CPU layer on eligible scenes.
+// Queues old/new HUD damage; it never samples hardware or allocates a framebuffer.
+esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled);
+
+// enabled: Non-null output receiving the current session preference on success only.
+esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled);
+
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.
 // Session-scoped preference: queues geometry for the worker, without advancing paused animation.
 // Returns the real lock/state error, or ESP_ERR_NOT_SUPPORTED when pearl jelly is not compiled in.
