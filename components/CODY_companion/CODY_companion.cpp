@@ -661,14 +661,17 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         return frame.finish({buffer_error, false, 0});
     }
     const size_t row_bytes = kPanelWidth * sizeof(uint16_t);
-    if (raster_storage == nullptr || raster_capacity_bytes < row_bytes ||
+    if (raster_storage == nullptr || raster_capacity_bytes < row_bytes * 2U ||
         raster_capacity_bytes / row_bytes > kPanelHeight ||
         reinterpret_cast<uintptr_t>(raster_storage) % alignof(uint16_t) != 0) {
         ESP_LOGE(kTag, "Frame raster capacity rejected: pixels=%p bytes=%u (%s)",
             raster_storage, static_cast<unsigned>(raster_capacity_bytes), esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return frame.finish({ESP_ERR_INVALID_SIZE, false, 0});
     }
-    timings.tile_rows = static_cast<uint16_t>(raster_capacity_bytes / row_bytes);
+    // Luna's panel rounder aligns both axes to pairs of pixels. Keep tile
+    // boundaries even too, so expanding vertical damage never reads outside
+    // the rasterized tile. An odd-sized lease can leave its last row unused.
+    timings.tile_rows = static_cast<uint16_t>((raster_capacity_bytes / row_bytes) & ~size_t{1});
     const bool compare_previous = s_resources.frame_cache_valid && !resume_animation &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig;
@@ -788,6 +791,11 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         const int64_t packing_started_us = esp_timer_get_time();
         timings.comparison_us += packing_started_us - reuse_started_us;
         if (result == ESP_OK && !damage.empty()) {
+            // Match Luna's Y alignment as well as measure_damage_rows' X
+            // alignment. Include the actual neighboring pixels in BOTH the
+            // cache update and packed payload, not just the panel address.
+            damage.top = static_cast<uint16_t>(damage.top & ~1U);
+            damage.bottom = static_cast<uint16_t>((damage.bottom + 1U) & ~1U);
             result = CODY::prepare_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, damage, packed);
         }

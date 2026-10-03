@@ -160,3 +160,16 @@ pending; do not attribute the earlier measurements to that candidate.
 At the user's request, further validation is limited to compilation, flash
 and physical performance observations. Automated tests and validation scans
 remain deferred unless separately requested or approved.
+
+### Panel rectangle alignment
+
+The user also reported dirty background pixels on candidate `6d5636d4`.
+Direct comparison with Luna's `rounder_event_cb` found that Luna aligns both
+X and Y to even half-open bounds. Cody's damage stage only paired columns,
+allowing odd Y starts/ends. The firmware now expands vertical damage before
+cache copying and packing, and uses even raster tile heights so the expanded
+rows always belong to the rendered tile. Fewer than two available raster
+rows is reported as insufficient capacity rather than sending an unaligned
+rectangle. No managed panel driver or Luna UI dependency is introduced.
+This corrects a transport-contract discrepancy; physical observation is still
+needed to establish whether it removes the reported artifacts.
