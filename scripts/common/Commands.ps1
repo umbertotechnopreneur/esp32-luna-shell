@@ -8,7 +8,7 @@ function Get-FirmwareActions {
 
 # No parameters: describe public options once for CLI rejection and menu forwarding.
 function Get-DeviceActionParameters {
-    $idf = @('Profile','Feature','BoardConfig','BuildDir','IdfPath','ToolsPath','PythonExe')
+    $idf = @('Profile','Feature','BoardConfig','BuildMode','BuildDir','IdfPath','ToolsPath','PythonExe')
     $serial = @('Port','Baud','WaitSeconds')
     $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
     return @{
@@ -168,6 +168,9 @@ CODY COMPANION / DEVICE CONSOLE
   device.ps1 check -Check cody-poc          Explicit host checks
   device.ps1 generate -Generator cody-rig  Regenerate authored firmware tables
   device.ps1 build -Jobs 8                 Firmware compilation
+  device.ps1 set-target                   Configure the default Debug firmware
+  device.ps1 set-target -BuildMode Release Configure explicitly selected Release firmware
+  device.ps1 build -BuildMode Release      Build Release; never selected implicitly
   device.ps1 flash -Port COM8              Build/flash selected firmware
   device.ps1 capture -Port COM8 -DurationSeconds 30
   device.ps1 size                          Save size report
@@ -181,6 +184,9 @@ Tools accept literal -ToolArguments tokens; use '--help' or '-?' for their own o
 Output/log/build paths must be inside artifacts/. No action runs on opening this help/menu.
 Before build/flash/combo/recover, old transient artifacts are removed.
 Build/config/Python caches remain; fullclean explicitly cleans the selected firmware build.
+Firmware defaults to Debug on every CLI invocation. Release requires -BuildMode Release.
+The menu keeps an explicitly selected mode only for its current session.
+Debug/Release have separate generated configurations and build directories.
 '@
     foreach ($group in @('checks','generators')) {
         Write-Host "`n$($group.ToUpperInvariant()):"

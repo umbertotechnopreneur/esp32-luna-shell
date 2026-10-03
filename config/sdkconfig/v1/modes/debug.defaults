@@ -1,0 +1,9 @@
+# Explicit development policy, applied after the hardware/profile layers.
+CONFIG_LUNASHELL_BUILD_MODE_DEBUG=y
+# CONFIG_LUNASHELL_BUILD_MODE_RELEASE is not set
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
+CONFIG_LOG_MAXIMUM_LEVEL_VERBOSE=y
+CONFIG_BOOTLOADER_LOG_LEVEL_INFO=y
+CONFIG_PM_LIGHT_SLEEP_CALLBACKS=y
+# The IDF 6.0.2 USB SOF guard caused cache-error reboots on this board.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n

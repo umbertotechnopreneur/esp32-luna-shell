@@ -47,6 +47,25 @@
   request: 2,055,376-byte application, verified flash hash and hardware reset.
   No automated tests or simulator ran; runtime/size checks remain open.
 
+## Hardware power census (2026-10-04)
+
+- [x] Add the root hardware consumption census with manufacturer datasheet
+  references, typical/maximum/peak distinctions, rail conditions and explicit
+  unavailable currents. Extend the integration/JSON inventories with schematic
+  flash/amplifier identities and touch, IMU, PMU/RTC interrupt routing. Document
+  Deep-sleep/ULP candidates and current firmware limits. Source/PDF review only;
+  no build, test, hardware or electrical validation performed.
+
+## Common firmware build modes (2026-10-04)
+
+- [x] Add profile-independent Debug/Release selection to the public firmware CLI
+  and menu. Debug is the default; Release requires explicit selection. Isolate
+  generated configuration/build output and reject mode/log/power mismatches.
+  Apply Release warning/error logs, automatic Light-sleep eligibility, disabled
+  debug-only residency/frame/HUD work and reduced Cody static/parked polling.
+  Preserve errors, watchdogs and functional wake/acquisition contracts. Source
+  implementation and static review only; validation remains in `TODO.md`.
+
 ## Cody rendering checkpoint (2026-10-03)
 
 - [x] Port the approved concept-08 pearl texture to native scanline deformation,

@@ -34,6 +34,10 @@ set(
 )
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+if(NOT DEFINED LUNASHELL_BUILD_MODE OR
+   NOT LUNASHELL_BUILD_MODE MATCHES "^(Debug|Release)$")
+    message(FATAL_ERROR "Explicit firmware build mode is missing; use scripts/device.ps1")
+endif()
 if(NOT DEFINED LUNASHELL_DEPENDENCIES_LOCK OR
    LUNASHELL_DEPENDENCIES_LOCK STREQUAL "")
     message(FATAL_ERROR
@@ -50,6 +54,16 @@ idf_build_set_property(
     "${LUNASHELL_DEPENDENCIES_LOCK}"
 )
 project(esp32_luna_shell)
+
+if(LUNASHELL_BUILD_MODE STREQUAL "Debug")
+    if(NOT CONFIG_LUNASHELL_BUILD_MODE_DEBUG OR CONFIG_LUNASHELL_BUILD_MODE_RELEASE)
+        message(FATAL_ERROR "Debug command cannot use a Release configuration")
+    endif()
+else()
+    if(NOT CONFIG_LUNASHELL_BUILD_MODE_RELEASE OR CONFIG_LUNASHELL_BUILD_MODE_DEBUG)
+        message(FATAL_ERROR "Release command requires its own Release configuration")
+    endif()
+endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH AND NOT CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
     message(FATAL_ERROR "Touch requires the selected physical display")

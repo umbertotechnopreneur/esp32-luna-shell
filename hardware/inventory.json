@@ -1,6 +1,12 @@
 {
   "schema_version": 1,
   "target": "Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS",
+  "power_reference": {
+    "document": "hardware-inventory.md",
+    "reviewed_on": "2026-10-04",
+    "evidence": "datasheets and published schematic; no electrical measurements",
+    "board_total_current": "unavailable"
+  },
   "display": {
     "controller": "CO5300",
     "width_px": 466,
@@ -14,14 +20,20 @@
     }
   },
   "devices": [
-    {"name": "CST9217", "role": "touch", "owner": "Waveshare BSP"},
-    {"name": "AXP2101", "role": "power management", "i2c_address": "0x34"},
-    {"name": "QMI8658", "role": "IMU", "i2c_addresses": ["0x6B", "0x6A"]},
+    {"name": "ESP32-S3R8", "role": "MCU with integrated Wi-Fi, BLE and 8 MB octal PSRAM"},
+    {"name": "W25Q128JVSIQ", "role": "16 MB external flash", "identification": "published schematic U2"},
+    {"name": "CST9217", "role": "touch", "owner": "Waveshare BSP", "interrupt_gpio": 11},
+    {"name": "AXP2101", "role": "power management", "i2c_address": "0x34", "interrupt_expander_port": "P5"},
+    {"name": "QMI8658", "role": "IMU", "i2c_addresses": ["0x6B", "0x6A"], "int1_expander_port": "P6", "int2_gpio": 21},
     {"name": "LC76G", "role": "GPS/GNSS", "i2c_addresses": ["0x50", "0x54"], "antenna": "external ceramic"},
-    {"name": "PCF85063", "role": "RTC"},
-    {"name": "TCA9554", "role": "I/O expander", "i2c_address": "0x20"},
+    {"name": "PCF85063", "role": "RTC", "identification": "PCF85063ATL in published schematic U4", "interrupt_expander_port": "P3"},
+    {"name": "TCA9554", "role": "I/O expander", "i2c_address": "0x20", "interrupt_gpio": null, "interrupt_route": "pull-up only; no ESP connection in published schematic"},
     {"name": "ES8311", "role": "speaker codec"},
-    {"name": "ES7210", "role": "microphone ADC"}
+    {"name": "ES7210", "role": "microphone ADC"},
+    {"name": "NS4150B", "role": "speaker amplifier", "enable_gpio": 46, "identification": "published schematic U7"},
+    {"name": "MIC1", "role": "analog microphone", "part_number": null},
+    {"name": "MIC2", "role": "analog microphone", "part_number": null},
+    {"name": "H3-speaker", "role": "passive speaker load", "part_number": null}
   ],
   "storage": {
     "type": "microSD",

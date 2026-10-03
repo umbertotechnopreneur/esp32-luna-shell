@@ -89,11 +89,13 @@ artwork without diagnostic text.
 
 ## Power during this PoC
 
-The Cody build profile disables automatic light sleep during this hardware
-debug PoC. Native ESP32-S3 USB Serial/JTAG can disconnect during light sleep;
+The common Debug build mode disables automatic light sleep, including for this
+hardware PoC. Native ESP32-S3 USB Serial/JTAG can disconnect during light sleep;
 keeping it awake also retains diagnostic access after a consumer failure.
-CPU frequency scaling remains 80 to 240 MHz. Luna's regular UI profiles retain
-their existing power policy. This PoC policy is not a battery-life result.
+CPU frequency scaling remains 80 to 240 MHz. Explicit Release permits automatic
+Light-sleep and disables debug-only rendering work for all firmware profiles.
+See [firmware build modes](firmware-build-modes.md); the new mode split has only
+static source review and is not a battery-life result.
 
 ## What remains to assess smoothness
 

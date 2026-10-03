@@ -25,9 +25,19 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
         '3' = @{ Label = 'Host Python executable'; Description = $Settings.PythonExecutable; Value = 'PythonExecutable' }
         '4' = @{ Label = 'Firmware profile'; Description = $Settings.Profile; Value = 'Profile' }
         '5' = @{ Label = 'Board YAML'; Description = $Settings.BoardConfig; Value = 'BoardConfig' }
+        '6' = @{ Label = 'Firmware build mode'; Description = $Settings.BuildMode; Value = 'BuildMode' }
     }
     $key = Select-DeviceMenuItem 'SESSION SETTINGS' $options
     if (-not $key) { return }
+    if ($key -eq 'BuildMode') {
+        $modes = [ordered]@{
+            '1' = @{ Label = 'Debug'; Description = 'Diagnostic logs; automatic Light-sleep disabled for USB debugging'; Value = 'Debug' }
+            '2' = @{ Label = 'Release'; Description = 'Warnings/errors; rendering diagnostics off; automatic Light-sleep allowed'; Value = 'Release' }
+        }
+        $mode = Select-DeviceMenuItem 'FIRMWARE BUILD MODE (EXPLICIT SELECTION)' $modes
+        if ($mode) { $Settings.BuildMode = $mode }
+        return
+    }
     $value = Read-Host "  $key (blank keeps the current value)"
     if ([string]::IsNullOrWhiteSpace($value)) { return }
     switch ($key) {
@@ -52,7 +62,7 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
 function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
     if ([Console]::IsInputRedirected) { throw 'The interactive menu requires a terminal. Use device.ps1 help or an explicit CLI action.' }
     Import-Module (Join-Path $ProjectRoot 'scripts/common/MenuManager/MenuManager.psd1') -Force -ErrorAction Stop
-    $settings = @{ Port = 'COM8'; Rotation = 0; Jobs = 8 }
+    $settings = @{ Port = 'COM8'; Rotation = 0; Jobs = 8; BuildMode = 'Debug' }
     foreach ($key in $InitialSettings.Keys) {
         if ($key -notin @('Action')) { $settings[$key] = $InitialSettings[$key] }
     }
@@ -60,7 +70,7 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
     while ($true) {
         $selector = if ($settings.BoardConfig) { $settings.BoardConfig } elseif ($settings.Profile) { $settings.Profile } else { 'cody-companion' }
         Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
-        Write-Host "  Firmware: $selector    Port: $($settings.Port)    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Port: $($settings.Port)    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{
             '1' = @{ Label = 'Cody simulator'; Description = 'Rig, face, contour and debug overlay'; Value = 'simulator' }
@@ -138,7 +148,8 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
                 if ($key -in $actions[$selected]) { $parameters[$key] = $settings[$key] }
             }
             foreach ($key in $extra.Keys) { $parameters[$key] = $extra[$key] }
-            Write-Host "  Running: device.ps1 $selected" -ForegroundColor Cyan
+            $modeDescription = if ($parameters.ContainsKey('BuildMode')) { " -BuildMode $($parameters.BuildMode)" } else { '' }
+            Write-Host "  Running: device.ps1 $selected$modeDescription" -ForegroundColor Cyan
             & (Join-Path $ProjectRoot 'scripts/device.ps1') @parameters
         } catch {
             Write-Host "FAILED: $($_.Exception.Message)" -ForegroundColor Red

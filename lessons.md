@@ -6,6 +6,12 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Build profiles and resources
 
+- Debug/Release is a separate axis from the hardware graph. Default to Debug;
+  require explicit Release, isolate each mode's sdkconfig/build state and retain
+  the mode in recovery commands. Existing Release artifacts never imply intent.
+  Debug keeps USB awake; Release permits sleep with the unsafe USB SOF hook still
+  disabled. Source policy alone does not establish electrical savings.
+
 - ESP-IDF resolves components before project Kconfig. Each legal
   board/profile/feature variant needs a pre-Kconfig catalog of admitted roots,
   local component directories, defaults, and a reviewed dependency lock.
@@ -126,6 +132,13 @@ not substitutes for authorized device validation. Open work belongs in
   both layers can otherwise repaint on every scrolling dirty region.
 
 ## Power and standby ownership
+
+- The published PCB routes touch IRQ to GPIO11 and QMI8658 INT2 to GPIO21;
+  both are RTC-capable wake candidates. IMU INT1, PMU IRQ and RTC INT go to
+  the TCA9554, whose INT output has no ESP connection. Keep these routes distinct.
+  The QMI8658 six-axis reference changes only from 757-758 uA at 500 Hz to
+  750 uA at 31.25 Hz (1.8 V datasheet conditions). Sensor power reduction needs
+  a gyro-off profile, not only slower host polling. See `hardware-inventory.md`.
 
 - Performance Mode is session-scoped; it must not overwrite saved settings or
   combine high-rate snapshots, diagnostics, verbose logs, and SD mirroring in
