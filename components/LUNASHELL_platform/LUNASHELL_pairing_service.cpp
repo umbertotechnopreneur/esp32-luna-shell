@@ -95,6 +95,21 @@ void startSession()
         error = ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Pairing cannot start outside Active power state (%s)", esp_err_to_name(error));
     }
+    if (error == ESP_OK && observation.radios.provisioning.initialized) {
+        error = ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Pairing controller cannot adopt another caller's manager (%s)", esp_err_to_name(error));
+    }
+    if (error != ESP_OK) {
+        // No radio operation has run yet. Do not cancel a session owned by a
+        // different caller merely because this controller's start was rejected.
+        std::lock_guard<std::mutex> guard(s_mutex);
+        s_busy = false;
+        s_pending = Command::None;
+        s_session.cleanup_error = observation.radios.provisioning.initialized
+            ? ESP_ERR_INVALID_STATE : ESP_OK;
+        publishLocked(State::Failed, error);
+        return;
+    }
     if (error == ESP_OK) {
         error = LUNASHELL_radios_start_pairing();
     }
