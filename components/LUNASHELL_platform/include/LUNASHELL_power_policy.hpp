@@ -9,6 +9,7 @@
 #include <span>
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_display_timing.hpp"
 
 namespace LUNASHELL::power_policy {
 
@@ -25,7 +26,7 @@ inline constexpr std::array<uint32_t, 7> kScreenIdleTimeoutOptions = {
     30, 60, 120, 300, 600, 900, 0,
 };
 inline constexpr uint32_t kDefaultScreenIdleTimeoutSeconds = 60;
-inline constexpr uint32_t kDisplayFadeDurationMs = 300;
+inline constexpr uint32_t kDisplayFadeDurationMs = display_timing::kTransitionFadeMs;
 inline constexpr uint8_t kMotionWakeThresholdMg = 200;
 
 // Hide the command buttons quickly; any touch or motion wakes them again.

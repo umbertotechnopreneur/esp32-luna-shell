@@ -2,7 +2,7 @@
 
 The current inactivity/product policy is documented in
 [Release sleep and Debug observation](release-deep-sleep.md): runtime 60-second
-default, 300-ms fades, Release touch/IMU Deep-sleep and Debug CPU/USB retention.
+default, 800-ms sleep/wake fades, Release touch/IMU Deep-sleep and Debug CPU/USB retention.
 The acquisition optimizations below remain separate from electrical evidence.
 
 This document defines the bounded low-power acquisition changes. They reduce

@@ -20,7 +20,9 @@ esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us
 {
     if (active_delta_us < 0 || active_delta_us > UINT32_MAX ||
         (checkpoint != BootCheckpoint::Sleeping && checkpoint != BootCheckpoint::Waking &&
-         checkpoint != BootCheckpoint::Ready)) {
+         checkpoint != BootCheckpoint::Ready) ||
+        (state.startup_presentation != StartupPresentation::CharacterFade &&
+         state.startup_presentation != StartupPresentation::PanelFade)) {
         ESP_LOGE(kTag, "Lifecycle delta outside active-frame range (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
@@ -32,7 +34,8 @@ esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us
         bool checkpoint_allows_transition = true;
         switch (result.phase) {
         case LifecyclePhase::BootSleeping:
-            duration_us = kBootSleepingUs;
+            duration_us = result.startup_presentation == StartupPresentation::CharacterFade
+                ? kBootSleepingUs : kPanelWakeSleepingUs;
             following = LifecyclePhase::BootWaking;
             checkpoint_allows_transition = checkpoint != BootCheckpoint::Sleeping;
             break;
@@ -88,10 +91,11 @@ esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us
     }
 }
 
-// state: Active-time startup phase; no backlight changes or additional buffers.
+// state: Active-time startup phase; the panel owns the entire software-wake fade.
 uint8_t lifecycle_opacity(const LifecycleState &state)
 {
-    if (state.phase != LifecyclePhase::BootSleeping) {
+    if (state.phase != LifecyclePhase::BootSleeping ||
+        state.startup_presentation == StartupPresentation::PanelFade) {
         return 255;
     }
     const float progress = std::min(state.phase_elapsed_us, kBootSleepingUs) /

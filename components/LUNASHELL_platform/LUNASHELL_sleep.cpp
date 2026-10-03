@@ -123,7 +123,7 @@ extern "C" esp_err_t LUNASHELL_power_prepare_boot(void)
     return ESP_OK;
 }
 
-// No parameters: expose the first rendered boot frame with the requested 300-ms fade.
+// No parameters: expose the first rendered wake frame with the shared 800-ms fade.
 extern "C" esp_err_t LUNASHELL_power_restore_wake_display(void)
 {
     if (esp_reset_reason() != ESP_RST_DEEPSLEEP) {

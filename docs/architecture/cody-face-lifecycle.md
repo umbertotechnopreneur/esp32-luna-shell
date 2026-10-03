@@ -4,7 +4,7 @@ The standalone Cody renderer starts with **01 / Sleeping -> 02 / Waking up ->
 03 / Ready** on every ordinary cold boot, software restart and hardware reset.
 Sleeping fades the animated pearl character in from black over 2 seconds;
 Waking interpolates the authored sleeping/waking face over 4 seconds; Ready
-remains visible for 2 seconds. The sequence uses active animation time, not
+remains visible for 4 seconds. The sequence uses active animation time, not
 blocking startup delays, PNG replacement, or additional framebuffers.
 
 Real startup checkpoints gate these phases: Sleeping cannot end before local
@@ -62,11 +62,13 @@ then suspends producers and display writes and applies its existing panel fade.
 This face change does not change the selected power policy or fade duration.
 
 On software wake from PWR/touch, the power owner restores producers and enables
-standalone writes while the panel is dark. The worker prepares a dark Sleeping01
-frame before the panel fade-in, acknowledges that completed frame, then replays
-the same **Sleeping (2 s fade) -> Waking (4 s) -> Ready (2 s)** sequence. Effective
+standalone writes while the panel is dark. The worker prepares a fully rendered
+Sleeping01 frame before the panel fade-in and acknowledges that completed frame.
+The shared **800-ms panel fade** alone exposes that frame: software wake does
+not stack the cold-boot two-second character fade over it. It then continues
+with **Waking (4 s) -> Ready (4 s)**. Effective
 first setup re-enters Hello04 and its Happy/typewriter presentation. The existing
-worker performs the sequence without blocking the power callback for 8 seconds.
+worker performs the sequence without blocking the power callback for its duration.
 A Deep-sleep reset is distinguished using the real
 ESP reset reason and starts Wake -> Idle rather than replaying the ordinary
 boot greeting. Its rhythm starts a new CPU session; no previous sensor reading
@@ -142,5 +144,5 @@ Release excludes HUD and benchmark instrumentation and rejects runtime HUD
 enable requests with the real unsupported error. Both modes use
 the same face, breathing, blink and branding lifecycle. Release completes the
 Sleep presentation before physical sleep and starts Wake -> Idle after the
-Deep-sleep reset; the first complete Wake frame precedes the 300-ms display fade.
+Deep-sleep reset; the first complete Wake frame precedes the 800-ms display fade.
 See [Release sleep policy](release-deep-sleep.md) for wake wiring and runtime timing.

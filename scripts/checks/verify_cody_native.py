@@ -69,7 +69,7 @@ def main(argv=None) -> None:
         report["contracts"].extend(["premultiplied jelly texture and transparent/opaque/AA samples",
                                     "jelly compact-tile guards and invalid mapping rejection",
                                     "continuous 3-second PWR hold, early release and failed-sample rearming",
-                                    "2/4/2-second boot timeline, startup checkpoint gates and sleeping fade"])
+                                    "2/4/4-second boot timeline, startup checkpoint gates and 800-ms panel wake"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

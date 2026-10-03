@@ -1540,7 +1540,9 @@ esp_err_t apply_lifecycle_requests()
     s_state.lifecycle = {sleeping ? CODY::LifecyclePhase::Sleep : CODY::LifecyclePhase::BootSleeping, 0};
     if (!sleeping) {
         // The first retired dark/closed-eye frame acknowledges restored display
-        // ownership; the complete 2/4/2 sequence continues in this same worker.
+        // ownership. The panel owns the 800-ms wake fade; never multiply it by
+        // another two-second character fade in the same worker.
+        s_state.lifecycle.startup_presentation = CODY::StartupPresentation::PanelFade;
         const esp_err_t face_error = CODY::expression_channels(CODY::ExpressionId::BootSleeping, s_state.face);
         if (face_error != ESP_OK) {
             return face_error;
@@ -1562,7 +1564,7 @@ esp_err_t apply_lifecycle_requests()
     s_greeting_scheduled.store(false, std::memory_order_release);
     if (!sleeping && s_state.onboarding.effective_first_boot) {
         s_greeting_due_us = esp_timer_get_time() +
-            CODY::kBootSleepingUs + CODY::kBootWakingUs + CODY::kBootReadyUs;
+            CODY::kPanelWakeSleepingUs + CODY::kBootWakingUs + CODY::kBootReadyUs;
         s_greeting_scheduled.store(true, std::memory_order_release);
     }
     s_demo_requested.store(false, std::memory_order_release);
@@ -1570,7 +1572,7 @@ esp_err_t apply_lifecycle_requests()
     // The existing face is the starting point for morphing, including closed
     // sleep eyes. Breathing/blink phases keep their owner across the transition.
     ESP_LOGI(kTag, "Atlas lifecycle: %s", sleeping ? "35A / Sleep" :
-        "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (2s); OOBE Hello when first setup");
+        "01 Sleeping (800ms panel fade) -> 02 Waking (4s) -> 03 Ready (4s); OOBE Hello when first setup");
     return ESP_OK;
 }
 
@@ -1973,7 +1975,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
     ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster, active=%lu ms standby=%lu ms",
-             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (2s)",
+             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (4s)",
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));
     return ESP_OK;

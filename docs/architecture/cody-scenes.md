@@ -2,7 +2,7 @@
 
 The current firmware facial behavior is documented in
 [Cody face lifecycle and expression catalog](cody-face-lifecycle.md): animated
-Sleeping (2 s fade-in) -> Waking (4 s) -> Ready (2 s) on each ordinary boot, 35A / Sleep before suspension,
+Sleeping (2 s fade-in) -> Waking (4 s) -> Ready (4 s) on each ordinary boot, 35A / Sleep before suspension,
 35B / Wake followed by 16 / Idle. Optional greeting text reuses the scene layer
 without replaying the previous static bitmap introduction. The earlier intro
 implementation and authorized delivery records below describe preceding revisions.
@@ -16,7 +16,7 @@ or a second animation/render task. English is the only supported product languag
 
 The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
 
-- Enter `SceneId::Greeting` only after the visible 2/4/2-second startup sequence
+- Enter `SceneId::Greeting` only after the visible 2/4/4-second startup sequence
   and successful **Ready** checkpoint. The existing worker handles the deadline;
   a delayed service cannot cause premature OOBE entry.
 - Hello's bitmap/cloud intro durations are both zero. The animated pearl rig

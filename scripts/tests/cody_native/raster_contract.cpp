@@ -608,13 +608,20 @@ void check_lifecycle_contract()
             "waking lasts four seconds and cannot imply complete startup");
     require(CODY::advance_lifecycle(state, 0, BootCheckpoint::Ready, state) == ESP_OK &&
             state.phase == LifecyclePhase::BootReady && state.phase_elapsed_us == 0, "ready starts after actual startup succeeds");
-    require(CODY::advance_lifecycle(state, 1999999, BootCheckpoint::Ready, state) == ESP_OK &&
-            state.phase == LifecyclePhase::BootReady, "ready remains visible for two seconds");
+    require(CODY::advance_lifecycle(state, 3999999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady, "ready remains visible for four seconds");
     require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
             state.phase == LifecyclePhase::Idle, "after ready first setup may enter Hello; otherwise settle at Idle16");
     state = {};
-    require(CODY::advance_lifecycle(state, 8000000, BootCheckpoint::Ready, state) == ESP_OK &&
-            state.phase == LifecyclePhase::Idle, "one large delta preserves the complete 2/4/2 timeline");
+    require(CODY::advance_lifecycle(state, 10000000, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::Idle, "one large delta preserves the complete 2/4/4 timeline");
+    state = {LifecyclePhase::BootSleeping, 0, CODY::StartupPresentation::PanelFade};
+    require(CODY::lifecycle_opacity(state) == 255,
+            "software wake does not stack a character fade over the panel fade");
+    require(CODY::advance_lifecycle(state, 799999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootSleeping, "software wake keeps Sleeping during the 800-ms panel fade");
+    require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootWaking, "waking begins after the shared panel fade");
     CODY::Channels face{};
     CODY::ContourControls contour{};
     require(CODY::lifecycle_targets({}, face, contour) == ESP_OK, "sleeping atlas expression resolves");

@@ -56,7 +56,7 @@ cannot accidentally reuse a Release build.
 | Boot identity | Debug notice | One Release notice warning about the USB sleep limitation |
 | Automatic Light-sleep | Disabled for USB debugging | Enabled when power management is present and workloads permit it |
 | Inactivity sleep | CPU/USB remain awake in software standby | Deep-sleep after confirmed standby; touch/IMU wake restarts firmware |
-| Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 300-ms fade | Same timeout and fades |
+| Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 800-ms fade | Same timeout and fades |
 | Standby motion observation | 10-Hz host snapshots | Accelerometer-only hardware WoM; no host polling during Deep-sleep |
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
