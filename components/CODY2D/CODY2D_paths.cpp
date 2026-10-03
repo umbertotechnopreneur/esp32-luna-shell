@@ -129,11 +129,11 @@ void add_coverage_span(int16_t *differences, uint32_t *events, int left, int rig
     add_coverage_change(differences, events, last_pixel + 1, -last_coverage);
 }
 
-// strip: Validated writable RGB565 tile with no padding writes.
+// strip: Validated writable RGB565 tile with explicit byte order and no padding writes.
 // first_row: Absolute canvas y origin shared by every tile of this polygon.
 // vertices: Validated readable polygon coordinates.
 // count: Validated polygon size bounded by kMaxPathVertices.
-// palette: Validated readable RGB565 color table.
+// palette: Validated readable native RGB565 color table.
 // first_color: First slot of the ordered gradient, or the solid color slot.
 // last_color: Last slot of the ordered gradient.
 // opacity: Nonzero source opacity, combined with geometric coverage once per pixel.
@@ -265,6 +265,7 @@ esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
             color = palette[slot];
         }
 
+        const uint16_t stored_color = rgb565_native_to_stored(color, strip.byte_order);
         int coverage = 0;
         int column = first_covered_pixel;
         while (column < past_last_covered_pixel) {
@@ -285,10 +286,22 @@ esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
                 uint16_t *destination = strip.pixels + row * strip.stride + column;
                 uint16_t *past_destination = strip.pixels + row * strip.stride + past_run;
                 if (effective_opacity == 255) {
-                    std::fill(destination, past_destination, color);
-                } else {
+                    std::fill(destination, past_destination, stored_color);
+                } else if (strip.byte_order == Rgb565ByteOrder::Native) {
                     while (destination != past_destination) {
                         *destination = blend_rgb565(color, *destination, effective_opacity);
+                        ++destination;
+                    }
+                } else {
+                    // Coverage still blends native channels; only storage is in panel order.
+                    while (destination != past_destination) {
+                        const uint16_t native_destination = rgb565_stored_to_native(
+                            *destination, strip.byte_order
+                        );
+                        const uint16_t blended_color = blend_rgb565(
+                            color, native_destination, effective_opacity
+                        );
+                        *destination = rgb565_native_to_stored(blended_color, strip.byte_order);
                         ++destination;
                     }
                 }
@@ -335,6 +348,9 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
 
     const bool is_solid_color = first_color == last_color;
     const uint16_t solid_color = palette[first_color];
+    const uint16_t solid_stored_color = rgb565_native_to_stored(
+        solid_color, strip.byte_order
+    );
     float intersections[kMaxPathVertices];
     for (uint16_t row = 0; row < strip.height; ++row) {
         const float scan_y = first_row + row + .5f;
@@ -357,11 +373,13 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
         }
         std::sort(intersections, intersections + hits);
         uint16_t color = solid_color;
+        uint16_t stored_color = solid_stored_color;
         if (!is_solid_color) {
             const float ratio = (scan_y - top) / (bottom - top);
             const uint16_t slot = first_color + static_cast<uint16_t>(
                 std::floor(ratio * (last_color - first_color) + .5f));
             color = palette[slot];
+            stored_color = rgb565_native_to_stored(color, strip.byte_order);
         }
         for (uint16_t hit = 0; hit < hits; hit += 2) {
             const int left = std::max(static_cast<int>(first_column),
@@ -375,11 +393,26 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
                 // The common opaque span needs neither a destination read nor
                 // a per-pixel palette lookup/coverage branch.
                 std::fill(strip.pixels + row * strip.stride + (left - first_column),
-                          strip.pixels + row * strip.stride + (right - first_column), color);
-            } else {
+                          strip.pixels + row * strip.stride + (right - first_column),
+                          stored_color);
+            } else if (strip.byte_order == Rgb565ByteOrder::Native) {
+                // Preserve the native hot path and its exact blend expression.
                 for (int column = left; column < right; ++column) {
                     auto &destination = strip.pixels[row * strip.stride + column - first_column];
                     destination = blend_rgb565(color, destination, opacity);
+                }
+            } else {
+                for (int column = left; column < right; ++column) {
+                    auto &destination = strip.pixels[row * strip.stride + column - first_column];
+                    const uint16_t native_destination = rgb565_stored_to_native(
+                        destination, strip.byte_order
+                    );
+                    const uint16_t native_blended = blend_rgb565(
+                        color, native_destination, opacity
+                    );
+                    destination = rgb565_native_to_stored(
+                        native_blended, strip.byte_order
+                    );
                 }
             }
         }
@@ -526,6 +559,24 @@ esp_err_t PreparedStroke::raster_rows(
     if (left > right || top > bottom) {
         return ESP_OK;
     }
+    const uint16_t stored_color = rgb565_native_to_stored(color_, strip.byte_order);
+    if (squared_length_ == 0) {
+        // Point markers always used this same circle predicate, but the
+        // generic loop also calculated a zero projection for every pixel.
+        // Keep its pixel decisions identical and leave capsule arithmetic to
+        // the nonzero strokes that actually need it.
+        for (int row = top; row <= bottom; ++row) {
+            const float py = row + .5f - from_.y;
+            for (int column = left; column <= right; ++column) {
+                const float px = column + .5f - from_.x;
+                if (px*px + py*py <= squared_radius_) {
+                    strip.pixels[(row - first_row)*strip.stride + column - first_column] =
+                        stored_color;
+                }
+            }
+        }
+        return ESP_OK;
+    }
     // For interior pixels, compare the squared cross product with r² * |d|².
     // This avoids software division and closest-point construction. A small
     // guard repeats the original projection at rounding-sensitive boundaries.
@@ -557,7 +608,7 @@ esp_err_t PreparedStroke::raster_rows(
             const float py = row + .5f - from_.y;
             const float projection = px*dx_ + py*dy_;
             bool covered = false;
-            if (squared_length_ == 0 || projection <= 0) {
+            if (projection <= 0) {
                 covered = px*px + py*py <= squared_radius_;
             } else if (projection >= squared_length_) {
                 const float ex = px - dx_;
@@ -577,7 +628,7 @@ esp_err_t PreparedStroke::raster_rows(
                 }
             }
             if (covered) {
-                strip.pixels[(row - first_row)*strip.stride + column - first_column] = color_;
+                strip.pixels[(row - first_row)*strip.stride + column - first_column] = stored_color;
             }
         }
     }

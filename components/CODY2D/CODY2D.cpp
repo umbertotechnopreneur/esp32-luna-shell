@@ -13,15 +13,15 @@ constexpr char kTag[] = "CODY2D";
 // row: Visible destination row within the surface.
 // first_column: First included column of an already validated span.
 // count: Number of pixels in the span, without writing stride padding.
-// color: Native RGB565 color to write.
+// stored_color: RGB565 color already encoded for the surface byte order.
 void fill_row(
     Surface surface, uint32_t row, uint32_t first_column,
-    uint32_t count, uint16_t color
+    uint32_t count, uint16_t stored_color
 )
 {
     uint16_t *destination = surface.pixels + row * surface.stride + first_column;
     for (uint32_t column = 0; column < count; ++column) {
-        destination[column] = color;
+        destination[column] = stored_color;
     }
 }
 
@@ -74,9 +74,15 @@ uint16_t run_count(const uint8_t *runs, uint32_t offset)
 
 }  // namespace
 
-// surface: Externally owned native RGB565 storage, with stride and capacity in pixels.
+// surface: Externally owned typed RGB565 storage, with stride and capacity in pixels.
 esp_err_t validate_surface(Surface surface)
 {
+    if (!valid_rgb565_byte_order(surface.byte_order)) {
+        ESP_LOGE(kTag, "Surface byte order rejected: order=%u (%s)",
+                 static_cast<unsigned>(surface.byte_order),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
     if (surface.pixels == nullptr ||
         reinterpret_cast<uintptr_t>(surface.pixels) % alignof(uint16_t) != 0 ||
         surface.width == 0 || surface.height == 0 ||
@@ -198,8 +204,9 @@ esp_err_t clear(Surface surface, uint16_t color)
     if (result != ESP_OK) {
         return result;
     }
+    const uint16_t stored_color = rgb565_native_to_stored(color, surface.byte_order);
     for (uint32_t row = 0; row < surface.height; ++row) {
-        fill_row(surface, row, 0, surface.width, color);
+        fill_row(surface, row, 0, surface.width, stored_color);
     }
     return ESP_OK;
 }
@@ -217,8 +224,9 @@ esp_err_t fill_rect(Surface surface, Rect rect, uint16_t color)
     if (result != ESP_OK) {
         return result;
     }
+    const uint16_t stored_color = rgb565_native_to_stored(color, surface.byte_order);
     for (uint32_t row = rect.y; row < static_cast<uint32_t>(rect.y) + rect.height; ++row) {
-        fill_row(surface, row, rect.x, rect.width, color);
+        fill_row(surface, row, rect.x, rect.width, stored_color);
     }
     return ESP_OK;
 }
@@ -245,13 +253,14 @@ esp_err_t fill_circle(Surface surface, Point center, uint16_t radius, uint16_t c
         return ESP_ERR_INVALID_SIZE;
     }
     const int32_t radius_squared = static_cast<int32_t>(radius) * radius;
+    const uint16_t stored_color = rgb565_native_to_stored(color, surface.byte_order);
     for (int32_t row = top; row <= bottom; ++row) {
         const int32_t distance_y = row - center.y;
         uint16_t *destination = surface.pixels + static_cast<uint32_t>(row) * surface.stride;
         for (int32_t column = left; column <= right; ++column) {
             const int32_t distance_x = column - center.x;
             if (distance_x * distance_x + distance_y * distance_y <= radius_squared) {
-                destination[column] = color;
+                destination[column] = stored_color;
             }
         }
     }
@@ -276,7 +285,8 @@ esp_err_t fill_vertical_gradient32(
     }
     uint16_t colors[kVerticalGradientLevels];
     for (uint32_t level = 0; level < kVerticalGradientLevels; ++level) {
-        colors[level] = gradient_color(top_color, bottom_color, level);
+        const uint16_t native_color = gradient_color(top_color, bottom_color, level);
+        colors[level] = rgb565_native_to_stored(native_color, surface.byte_order);
     }
     const uint32_t span = rect.height - 1U;
     for (uint32_t row = 0; row < rect.height; ++row) {
@@ -322,8 +332,12 @@ esp_err_t decode_rows(
         uint32_t column = 0;
         for (uint32_t offset = start; offset < end; offset += 3U) {
             const uint16_t count = run_count(image.runs, offset);
-            const uint16_t color = image.palette[image.runs[offset + 2]];
-            fill_row(destination, row, column, count, color);
+            // Boot decoding is off the animation hot path. Converting each run
+            // avoids reserving a 256-entry palette on the 6 KB worker stack.
+            const uint16_t stored_color = rgb565_native_to_stored(
+                image.palette[image.runs[offset + 2]], destination.byte_order
+            );
+            fill_row(destination, row, column, count, stored_color);
             column += count;
         }
     }

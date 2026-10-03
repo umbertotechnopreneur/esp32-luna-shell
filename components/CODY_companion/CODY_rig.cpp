@@ -253,7 +253,9 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             const int first_color = to_index(Data::back_top);
             const int color_span = to_index(Data::back_bottom) - first_color;
             const int slot = first_color + static_cast<int>((dy + kControlRadius) * color_span / 60);
-            const uint16_t color = Data::palette[slot];
+            const uint16_t stored_color = CODY2D::rgb565_native_to_stored(
+                Data::palette[slot], strip.byte_order
+            );
             const int first_x = std::max(static_cast<int>(first_column),
                                         static_cast<int>(control.center.x - kControlRadius));
             const int last_x = std::min(static_cast<int>(first_column + strip.width),
@@ -261,7 +263,7 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             for (int x = first_x; x < last_x; ++x) {
                 const float dx = x + .5f - control.center.x;
                 if (dx * dx + dy * dy <= kControlRadius * kControlRadius) {
-                    strip.pixels[row * strip.stride + x - first_column] = color;
+                    strip.pixels[row * strip.stride + x - first_column] = stored_color;
                 }
             }
         }

@@ -250,18 +250,25 @@ esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capacity_bytes);
 // frame_error: First geometry/raster/transfer error; partial frames cannot report success.
 esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error);
 
-/** Write one packed native little-endian RGB565 rectangle through the standalone panel. */
+typedef enum {
+    LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_NATIVE = 0,
+    LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_PANEL = 1,
+} LUNASHELL_display_rgb565_byte_order_t;
+
+/** Write one explicitly ordered packed RGB565 rectangle through the standalone panel. */
 // x_start: First included horizontal pixel coordinate.
 // y_start: First included vertical pixel coordinate.
 // x_end: First excluded horizontal pixel coordinate.
 // y_end: First excluded vertical pixel coordinate.
 // pixels: Packed RGB565 pixels retained until the synchronous write returns.
+// byte_order: Explicit source representation mapped to the BSP without guessing.
 esp_err_t LUNASHELL_display_write_rgb565(
     int x_start,
     int y_start,
     int x_end,
     int y_end,
-    const void *pixels
+    const void *pixels,
+    LUNASHELL_display_rgb565_byte_order_t byte_order
 );
 
 typedef struct {

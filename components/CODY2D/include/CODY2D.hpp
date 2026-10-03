@@ -11,12 +11,52 @@ constexpr uint16_t kMaxDimension = 1024;
 constexpr uint16_t kMaxPaletteColors = 256;
 constexpr uint32_t kVerticalGradientLevels = 32;
 
+enum class Rgb565ByteOrder : uint8_t {
+    Native,
+    ByteSwapped,
+};
+
+// byte_order: Typed RGB565 storage representation to validate.
+constexpr bool valid_rgb565_byte_order(Rgb565ByteOrder byte_order)
+{
+    return byte_order == Rgb565ByteOrder::Native ||
+           byte_order == Rgb565ByteOrder::ByteSwapped;
+}
+
+// color: RGB565 word whose two bytes exchange positions.
+constexpr uint16_t swap_rgb565_bytes(uint16_t color)
+{
+    return static_cast<uint16_t>((color << 8U) | (color >> 8U));
+}
+
+// native_color: Native RGB565 word supplied by every public drawing API.
+// byte_order: Validated destination storage representation.
+constexpr uint16_t rgb565_native_to_stored(
+    uint16_t native_color, Rgb565ByteOrder byte_order
+)
+{
+    return byte_order == Rgb565ByteOrder::ByteSwapped
+        ? swap_rgb565_bytes(native_color)
+        : native_color;
+}
+
+// stored_color: RGB565 word read from storage in the declared representation.
+// byte_order: Validated source storage representation.
+constexpr uint16_t rgb565_stored_to_native(
+    uint16_t stored_color, Rgb565ByteOrder byte_order
+)
+{
+    // Byte swapping is its own inverse; native storage is the identity case.
+    return rgb565_native_to_stored(stored_color, byte_order);
+}
+
 struct Surface {
     uint16_t *pixels = nullptr;
     uint16_t width = 0;
     uint16_t height = 0;
     uint16_t stride = 0;
     uint32_t pixel_capacity = 0;
+    Rgb565ByteOrder byte_order = Rgb565ByteOrder::Native;
 };
 
 struct Rect {
@@ -44,7 +84,7 @@ struct IndexedRleImage {
     uint32_t runs_size = 0;
 };
 
-// surface: Externally owned native RGB565 storage, with stride and capacity in pixels.
+// surface: Externally owned typed RGB565 storage, with stride and capacity in pixels.
 esp_err_t validate_surface(Surface surface);
 
 // image: Complete immutable indexed image and its readable palette, offsets, and run storage.

@@ -838,7 +838,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             // All current layers are recomposed, including unchanged overlaps.
             const CODY2D::Surface strip{
                 static_cast<uint16_t *>(raster_storage), width, height, width,
-                static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
+                static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t)),
+                CODY2D::Rgb565ByteOrder::ByteSwapped
             };
             const int64_t raster_started_us = esp_timer_get_time();
             if (s_state.rig_visible) {
@@ -862,7 +863,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             if (result == ESP_OK) {
                 const int64_t transfer_started_us = esp_timer_get_time();
                 result = LUNASHELL_display_write_rgb565(
-                    damage.left, damage.top, damage.right, damage.bottom, strip.pixels
+                    damage.left, damage.top, damage.right, damage.bottom, strip.pixels,
+                    LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_PANEL
                 );
                 timings.transfer_us += esp_timer_get_time() - transfer_started_us;
                 if (result == ESP_OK) {
@@ -900,7 +902,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     s_resources.previous_frame_valid = completed.error == ESP_OK;
     if (completed.error == ESP_OK) {
         // Commit geometry only after every panel write and frame retirement.
-        // The panel byte swap touched only the DMA tile, never this reference.
+        // Panel-order raster bytes live only in the borrowed DMA tile, never in this reference.
         if (frame_was_rig) {
             *s_resources.previous_rig = *s_resources.rig;
         }

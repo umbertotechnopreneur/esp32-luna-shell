@@ -23,9 +23,9 @@ struct DamageRegions {
     uint16_t count = 0;
 };
 
-// tile: Fully rendered ordinary RGB565 rows, before any in-place packing.
+// tile: Fully rendered typed RGB565 rows, before any in-place packing.
 // first_row: Logical origin of the tile in the complete canvas.
-// previous: PSRAM-owned candidate frame, updated only where comparison proves changes.
+// previous: PSRAM-owned candidate frame in the same byte order, updated only for changes.
 // compare_previous: False after startup, failed frames, rotation or panel invalidation.
 // regions: Complete conservative coverage of everything that could have changed.
 // damage: Receives the paired-column bounds of actual changed pixels.
@@ -36,9 +36,9 @@ esp_err_t measure_and_cache_damage_rows(CODY2D::Surface tile, uint16_t first_row
 
 // tile: Fully rendered tile whose pixels become the candidate cache contents.
 // first_row: Logical row offset into the complete cache.
-// previous: Frame-owned cache already staged above; retained for bounds validation.
+// previous: Same-order frame cache already staged above; retained for bounds validation.
 // damage: Changed region measured while staging the candidate cache.
-// packed: Receives a compact transfer view borrowing the tile's storage.
+// packed: Receives a compact transfer view preserving the tile byte order.
 esp_err_t pack_damage_rows(CODY2D::Surface tile, uint16_t first_row,
                            CODY2D::Surface previous, const DamageRect &damage,
                            CODY2D::Surface &packed);

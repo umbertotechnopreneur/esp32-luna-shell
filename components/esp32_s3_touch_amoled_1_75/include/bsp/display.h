@@ -43,6 +43,11 @@ typedef enum {
     BSP_DISPLAY_ROTATE_270 = 3,
 } bsp_display_rotation_t;
 
+typedef enum {
+    BSP_DISPLAY_RGB565_BYTE_ORDER_NATIVE = 0,
+    BSP_DISPLAY_RGB565_BYTE_ORDER_PANEL = 1,
+} bsp_display_rgb565_byte_order_t;
+
 /** Initialize enabled panel/touch, clear a black frame while dark, then enable output. */
 esp_err_t bsp_display_base_start(void);
 
@@ -58,20 +63,23 @@ uint32_t bsp_display_content_revision(void);
 
 /**
  * Write a packed RGB565 rectangle synchronously, with exclusive end coordinates.
- * Pixels are native little-endian RGB565; the driver converts to panel wire order.
+ * Native pixels are converted to panel wire order. Panel-order pixels are
+ * copied unchanged only when they are not already in the owned DMA slot.
  * Source memory may be PSRAM and can be reused immediately after this call returns.
- * A slot obtained from bsp_display_frame_buffer is consumed in-place into wire
- * order; the renderer must redraw that slot before its next native RGB565 use.
+ * A native-order slot obtained from bsp_display_frame_buffer is consumed in-place;
+ * the renderer must redraw that slot before its next native RGB565 use.
  * This API is available only when the legacy UI is disabled. A transfer timeout
  * retains its DMA buffer and rejects later writes until an explicit reset.
  * @param x_start First column included in the rectangle.
  * @param y_start First row included in the rectangle.
  * @param x_end First column after the rectangle.
  * @param y_end First row after the rectangle.
- * @param pixels Packed native RGB565 source, containing the complete rectangle.
+ * @param pixels Packed RGB565 source, containing the complete rectangle.
+ * @param byte_order Explicit source representation: native CPU or panel wire order.
  */
 esp_err_t bsp_display_write_rgb565(
-    int x_start, int y_start, int x_end, int y_end, const void *pixels
+    int x_start, int y_start, int x_end, int y_end, const void *pixels,
+    bsp_display_rgb565_byte_order_t byte_order
 );
 
 // Bounded standalone frame ownership. No GUI headers are admitted here.
@@ -91,8 +99,8 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms);
 esp_err_t bsp_display_frame_check_deadline(void);
 // pixels: Receives frame-borrowed internal RGB565 storage, never caller-freed.
 // capacity_bytes: Receives usable bytes; raster rows must fit this actual capacity.
-// Borrow expires at frame end. A synchronous write consumes native pixels in
-// place into wire order; redraw them before reusing the same storage.
+// Borrow expires at frame end. A native-order synchronous write consumes pixels
+// in place; a panel-order write can submit the already encoded slot unchanged.
 esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes);
 // frame_error: Original render/transfer failure; success still checks the deadline.
 // result: Receives measured duration and quarantined DMA bytes before lock release.

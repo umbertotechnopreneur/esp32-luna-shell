@@ -97,8 +97,10 @@ void format_processor(const LUNASHELL::ProcessorSnapshot &processor,
 // strip: Valid compact destination tile with its own width and stride.
 // first_row: Logical origin used to clip glyphs across strip boundaries.
 // first_column: Logical x origin used to clip glyphs without moving their layout.
+// stored_color: Text color already encoded for the strip byte order.
 esp_err_t draw_line_rows(const char *text, uint16_t top,
-                        CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+                        CODY2D::Surface strip, uint16_t first_row, uint16_t first_column,
+                        uint16_t stored_color)
 {
     const uint16_t bottom = top + kGlyphRows * kGlyphScale;
     if (first_row >= bottom || first_row + strip.height <= top) {
@@ -142,7 +144,8 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
                         if (canvas_x < first_column || canvas_x >= first_column + strip.width) {
                             continue;
                         }
-                        strip.pixels[destination_y * strip.stride + canvas_x - first_column] = kTextWhite;
+                        strip.pixels[destination_y * strip.stride + canvas_x - first_column] =
+                            stored_color;
                     }
                 }
             }
@@ -229,12 +232,21 @@ esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
+    const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(
+        kTextWhite, strip.byte_order
+    );
     const esp_err_t fps_error =
-        draw_line_rows(readout.frame_rate, kFrameRateTop, strip, first_row, first_column);
+        draw_line_rows(
+            readout.frame_rate, kFrameRateTop, strip, first_row, first_column,
+            stored_text_color
+        );
     if (fps_error != ESP_OK) {
         return fps_error;
     }
-    return draw_line_rows(readout.processors, kProcessorTop, strip, first_row, first_column);
+    return draw_line_rows(
+        readout.processors, kProcessorTop, strip, first_row, first_column,
+        stored_text_color
+    );
 }
 
 }  // namespace CODY

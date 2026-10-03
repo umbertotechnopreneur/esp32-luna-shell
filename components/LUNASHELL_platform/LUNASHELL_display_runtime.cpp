@@ -255,15 +255,33 @@ extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
 // x_end: First excluded horizontal pixel coordinate.
 // y_end: First excluded vertical pixel coordinate.
 // pixels: Packed RGB565 pixels retained until the synchronous write returns.
+// byte_order: Explicit source representation mapped to the matching BSP contract.
 extern "C" esp_err_t LUNASHELL_display_write_rgb565(
     int x_start,
     int y_start,
     int x_end,
     int y_end,
-    const void *pixels
+    const void *pixels,
+    LUNASHELL_display_rgb565_byte_order_t byte_order
 )
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    bsp_display_rgb565_byte_order_t bsp_byte_order;
+    switch (byte_order) {
+    case LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_NATIVE:
+        bsp_byte_order = BSP_DISPLAY_RGB565_BYTE_ORDER_NATIVE;
+        break;
+    case LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_PANEL:
+        bsp_byte_order = BSP_DISPLAY_RGB565_BYTE_ORDER_PANEL;
+        break;
+    default:
+        ESP_LOGE(kTag, "RGB565 rectangle byte order rejected: %d (%s)",
+                 static_cast<int>(byte_order), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(
+            false, ESP_ERR_INVALID_ARG
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
         LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, lock_error);
@@ -283,7 +301,7 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
         return log_operation_result("RGB565 rectangle watchdog start", watch_error);
     }
     const esp_err_t write_result = bsp_display_write_rgb565(
-        x_start, y_start, x_end, y_end, pixels
+        x_start, y_start, x_end, y_end, pixels, bsp_byte_order
     );
     const esp_err_t result = in_frame ? write_result : LUNASHELL_liveness_watch_end(
         LUNASHELL_LIVENESS_DISPLAY, write_result
@@ -295,9 +313,10 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
         LUNASHELL::DeviceSnapshotService::instance().reportDisplay(result == ESP_OK, result);
     }
     if (result != ESP_OK) {
-        ESP_LOGE(kTag, "RGB565 rectangle [%d,%d)-[%d,%d), pixels=%s: %s",
+        ESP_LOGE(kTag, "RGB565 rectangle [%d,%d)-[%d,%d), pixels=%s order=%d: %s",
                  x_start, y_start, x_end, y_end,
-                 pixels == nullptr ? "null" : "present", esp_err_to_name(result));
+                 pixels == nullptr ? "null" : "present", static_cast<int>(byte_order),
+                 esp_err_to_name(result));
     }
     return log_operation_result("RGB565 rectangle write", result);
 #else
@@ -306,6 +325,7 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
     (void)x_end;
     (void)y_end;
     (void)pixels;
+    (void)byte_order;
     return log_operation_result("RGB565 rectangle write", ESP_ERR_NOT_SUPPORTED);
 #endif
 }

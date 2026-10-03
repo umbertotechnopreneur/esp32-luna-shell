@@ -3611,7 +3611,8 @@ uint32_t bsp_display_content_revision(void)
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static esp_err_t bsp_display_write_rgb565_internal(
-    int x_start, int y_start, int x_end, int y_end, const void *pixels, bool clear_black
+    int x_start, int y_start, int x_end, int y_end, const void *pixels,
+    bsp_display_rgb565_byte_order_t byte_order, bool clear_black
 );
 #endif
 
@@ -3641,7 +3642,10 @@ esp_err_t bsp_display_base_start(void)
         TAG, "Base display brightness initialization failed"
     );
     ESP_RETURN_ON_ERROR(
-        bsp_display_write_rgb565_internal(0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES, NULL, true),
+        bsp_display_write_rgb565_internal(
+            0, 0, BSP_LCD_H_RES, BSP_LCD_V_RES, NULL,
+            BSP_DISPLAY_RGB565_BYTE_ORDER_PANEL, true
+        ),
         TAG, "Base display black-frame initialization failed"
     );
     ESP_RETURN_ON_ERROR(
@@ -3922,17 +3926,23 @@ static inline void bsp_display_copy_rgb565_to_panel_order(
 // y_start: First row included in the dirty rectangle.
 // x_end: Exclusive last column; must remain inside the physical display.
 // y_end: Exclusive last row; must remain inside the physical display.
-// pixels: Packed native little-endian RGB565 data, owned by the caller throughout the call.
+// pixels: Packed RGB565 data, owned by the caller throughout the call.
+// byte_order: Explicit source representation; invalid enum values are rejected.
 // clear_black: Initialize the dark panel using bounded zeroed strips without a framebuffer.
 static esp_err_t bsp_display_write_rgb565_internal(
-    int x_start, int y_start, int x_end, int y_end, const void *pixels, bool clear_black
+    int x_start, int y_start, int x_end, int y_end, const void *pixels,
+    bsp_display_rgb565_byte_order_t byte_order, bool clear_black
 )
 {
+    const bool valid_byte_order =
+        byte_order == BSP_DISPLAY_RGB565_BYTE_ORDER_NATIVE ||
+        byte_order == BSP_DISPLAY_RGB565_BYTE_ORDER_PANEL;
     if ((!clear_black && pixels == NULL) || x_start < 0 || y_start < 0 ||
         x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
-        x_start >= x_end || y_start >= y_end) {
-        ESP_LOGE(TAG, "RGB565 rectangle rejected: [%d,%d,%d,%d] pixels=%p (%s)",
-                 x_start, y_start, x_end, y_end, pixels, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        x_start >= x_end || y_start >= y_end || !valid_byte_order) {
+        ESP_LOGE(TAG, "RGB565 rectangle rejected: [%d,%d,%d,%d] pixels=%p order=%d (%s)",
+                 x_start, y_start, x_end, y_end, pixels, (int)byte_order,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
     const esp_err_t lock_error = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
@@ -3983,14 +3993,25 @@ static esp_err_t bsp_display_write_rgb565_internal(
         const int next_row = strip_y + (int)lease->transfer_rows;
         const int strip_end = next_row < y_end ? next_row : y_end;
         const size_t strip_bytes = (size_t)(strip_end - strip_y) * source_row_bytes;
-        const int64_t conversion_started_us = in_frame ? esp_timer_get_time() : 0;
+        const uint8_t *strip_source = clear_black ? NULL :
+            source + (size_t)(strip_y - y_start) * source_row_bytes;
+        const bool panel_order_in_place =
+            byte_order == BSP_DISPLAY_RGB565_BYTE_ORDER_PANEL &&
+            strip_source == lease->data;
+        const bool has_conversion_work = clear_black || !panel_order_in_place;
+        const int64_t conversion_started_us = in_frame && has_conversion_work
+            ? esp_timer_get_time() : 0;
         if (clear_black) {
             memset(lease->data, 0, strip_bytes);
-        } else {
-            const uint8_t *strip_source = source + (size_t)(strip_y - y_start) * source_row_bytes;
+        } else if (byte_order == BSP_DISPLAY_RGB565_BYTE_ORDER_NATIVE) {
             bsp_display_copy_rgb565_to_panel_order(lease->data, strip_source, strip_bytes);
+        } else if (!panel_order_in_place) {
+            memcpy(lease->data, strip_source, strip_bytes);
+        } else {
+            // Cody rendered directly into the owned panel-order slot. Touching
+            // it again would only burn CPU before the same bytes are submitted.
         }
-        if (in_frame) {
+        if (in_frame && has_conversion_work) {
             display_frame.conversion_us += (uint32_t)(esp_timer_get_time() - conversion_started_us);
         }
         if (esp_timer_get_time() >= deadline_us) {
@@ -4049,19 +4070,24 @@ static esp_err_t bsp_display_write_rgb565_internal(
 // y_start: First row included in the dirty rectangle.
 // x_end: Exclusive last column, bounded by the physical display.
 // y_end: Exclusive last row, bounded by the physical display.
-// pixels: Packed native little-endian RGB565 rectangle, reusable after return.
+// pixels: Packed RGB565 rectangle, reusable after return.
+// byte_order: Explicit source representation; invalid enum values remain errors.
 esp_err_t bsp_display_write_rgb565(
-    int x_start, int y_start, int x_end, int y_end, const void *pixels
+    int x_start, int y_start, int x_end, int y_end, const void *pixels,
+    bsp_display_rgb565_byte_order_t byte_order
 )
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
-    return bsp_display_write_rgb565_internal(x_start, y_start, x_end, y_end, pixels, false);
+    return bsp_display_write_rgb565_internal(
+        x_start, y_start, x_end, y_end, pixels, byte_order, false
+    );
 #else
     (void)x_start;
     (void)y_start;
     (void)x_end;
     (void)y_end;
     (void)pixels;
+    (void)byte_order;
     ESP_LOGE(TAG, "Standalone RGB565 output unavailable in this profile (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 #endif

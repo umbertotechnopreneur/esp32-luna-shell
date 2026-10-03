@@ -294,7 +294,7 @@ esp_err_t deform_jelly_face(RigScene &scene)
 }
 
 // frame: Prepared logical rows; no floating-point work or PNG decode occurs here.
-// strip: Native RGB565 output with caller-owned writable storage.
+// strip: RGB565 output with caller-owned writable storage and explicit byte order.
 // first_row: Logical tile y origin, independent of the framebuffer's row stride.
 // first_column: Logical tile x origin, preserving identical samples across tile splits.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
@@ -328,7 +328,12 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
         for (uint16_t column = left; column < right; ++column) {
             const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
-            *destination = blend_rgba(sample, *destination);
+            // Alpha blending uses native channels even when the tile is ready for the panel.
+            const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
+                *destination, strip.byte_order
+            );
+            const uint16_t blended_color = blend_rgba(sample, native_destination);
+            *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
             ++destination;
             source_x += mapping.source_step;
         }

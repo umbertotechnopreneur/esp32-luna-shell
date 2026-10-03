@@ -24,11 +24,18 @@ allocation, or scheduler is included.
 
 ## Surface and raster contract
 
-`Surface` holds native little-endian RGB565 pixels. `stride` and
-`pixel_capacity` are measured in pixels, not bytes. Width and height are
-nonzero and no larger than 1024; stride must be at least width. The caller
-must provide the actual writable capacity and retain the storage through
-the call. The final visible pixel is checked using
+`Surface` explicitly declares native or byte-swapped RGB565 storage; omitted
+aggregate fields default to native. Public drawing colors and palettes remain
+native RGB565, and each raster operation encodes its writes for the declared
+surface order. `stride` and `pixel_capacity` are measured in pixels, not bytes.
+The Cody firmware now rasterizes borrowed DMA tiles directly in panel byte order,
+so the display submission can avoid a second complete byte-swap pass. Coverage
+AA and the pearl-jelly sampler still blend native RGB565 channels, then encode
+the result for the destination. This integrates the `cody-perf` worktree with
+the newer jelly renderer; the CPU/FPS effect has not been measured or validated.
+Width and height are nonzero and no larger than 1024; stride must be at least
+width. The caller must provide the actual writable capacity and retain the
+storage through the call. The final visible pixel is checked using
 `(height - 1) * stride + width`; row padding remains untouched.
 
 `clear` fills visible pixels. `fill_rect`, `fill_circle`, and
