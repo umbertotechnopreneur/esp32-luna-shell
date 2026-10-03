@@ -31,6 +31,7 @@ constexpr std::string_view kStatusPath =
 constexpr std::string_view kWakePath =
     "/LUNASHELL_chrome_screen/chrome/wake";
 
+// timing: Typed inactivity control whose user-facing name is requested.
 const char *setting_name(LUNASHELL::AdaptiveChromeTiming timing)
 {
     using LUNASHELL::AdaptiveChromeTiming;
@@ -41,12 +42,13 @@ const char *setting_name(LUNASHELL::AdaptiveChromeTiming timing)
         return "Status Arc timeout";
     case AdaptiveChromeTiming::DisplayDim:
         return "display dim timeout";
-    case AdaptiveChromeTiming::ScreenSleep:
-        return "screen-sleep delay";
+    case AdaptiveChromeTiming::ScreenIdle:
+        return "screen inactivity timeout";
     }
     return "adaptive chrome timeout";
 }
 
+// timing: Typed UI control mapped to the platform's explicit settings identity.
 LUNASHELL_power_timeout_t platform_timeout(
     LUNASHELL::AdaptiveChromeTiming timing
 )
@@ -59,8 +61,8 @@ LUNASHELL_power_timeout_t platform_timeout(
         return LUNASHELL_POWER_TIMEOUT_STATUS_ARC;
     case AdaptiveChromeTiming::DisplayDim:
         return LUNASHELL_POWER_TIMEOUT_DISPLAY_DIM;
-    case AdaptiveChromeTiming::ScreenSleep:
-        return LUNASHELL_POWER_TIMEOUT_SCREEN_SLEEP;
+    case AdaptiveChromeTiming::ScreenIdle:
+        return LUNASHELL_POWER_TIMEOUT_SCREEN_IDLE;
     }
     return LUNASHELL_POWER_TIMEOUT_COMMAND_ARC;
 }

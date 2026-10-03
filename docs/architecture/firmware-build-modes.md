@@ -55,6 +55,9 @@ cannot accidentally reuse a Release build.
 | Bootloader logging | INFO | WARN |
 | Boot identity | Debug notice | One Release notice warning about the USB sleep limitation |
 | Automatic Light-sleep | Disabled for USB debugging | Enabled when power management is present and workloads permit it |
+| Inactivity sleep | CPU/USB remain awake in software standby | Deep-sleep after confirmed standby; touch/IMU wake restarts firmware |
+| Screen inactivity and fade | Runtime `idle_sleep_s`, default 60 s; 300-ms fade | Same timeout and fades |
+| Standby motion observation | 10-Hz host snapshots | Accelerometer-only hardware WoM; no host polling during Deep-sleep |
 | CPU frequency | Existing 80--240 MHz dynamic policy | Same 80--240 MHz policy |
 | Sleep residency diagnostics | Callback counters available | Debug-only callback instrumentation disabled |
 | Repeated post-wake trace reports | Available | Disabled; retained failure trace remains available |
@@ -65,16 +68,20 @@ cannot accidentally reuse a Release build.
 
 Release keeps real errors, canonical snapshot health/validity/timestamps,
 frame ownership/deadline checks, watchdogs, persistence semantics, requested
-sensor cadences and the existing PWR/qualified-IMU wake paths. Driver-owned
+active sensor cadences and structured input errors. Driver-owned
 frame safety and published measurements are still present. User-requested
 diagnostic services are functional features and are not silently disabled.
 Performance Mode restores the compiled log default when it ends, so it cannot
 turn Release INFO logging back on.
 
-Release permits automatic Light-sleep; it does not enter Deep-sleep or promise
-a particular current or battery life. PWR/IMU still use the board's existing
-one-second standby checks. Native ESP32-S3 USB Serial/JTAG may disconnect while
-sleeping. `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION` stays disabled in both modes:
+Release enters Deep-sleep after confirmed standby on touch-enabled profiles;
+touch GPIO11 and accelerometer-only IMU INT2/GPIO21 provide physical wake.
+The normal inactivity timer adds no periodic wake and PWR polling stops.
+Debug keeps CPU/USB awake and retains 10-Hz software motion observation.
+See [Release sleep lifecycle](release-deep-sleep.md) for runtime settings,
+IRQ/revision checks, rollback, startup and shared-rail limits. Whole-board
+current and battery life remain unmeasured. Native USB Serial/JTAG disconnects
+during Deep-sleep. `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION` stays disabled in both modes:
 the known ESP-IDF 6.0.2 SOF-hook cache-error problem has not been repaired by
 this change. Wake/reconnect may be necessary before a later explicitly
 authorized serial/flash operation.

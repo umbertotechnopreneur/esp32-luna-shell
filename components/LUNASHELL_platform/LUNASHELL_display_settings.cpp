@@ -13,6 +13,7 @@
 
 #include "bsp/display.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -425,6 +426,7 @@ extern "C" esp_err_t LUNASHELL_display_get_brightness_percent(uint32_t *percent)
     return error;
 }
 
+// No parameters: load the saved target strictly; keep Deep-sleep startup at zero.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
 {
     DisplayOperationLock display_lock;
@@ -498,9 +500,11 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
 
     ESP_LOGI(kTag, "Applying saved AMOLED brightness: %lu%%",
              static_cast<unsigned long>(brightness));
+    const bool waking_from_deep_sleep = esp_reset_reason() == ESP_RST_DEEPSLEEP;
+    const uint32_t applied_brightness = waking_from_deep_sleep ? 0U : brightness;
     const esp_err_t display_error =
-        bsp_display_brightness_set(static_cast<int>(brightness));
-    publish_brightness(brightness, display_error);
+        bsp_display_brightness_set(static_cast<int>(applied_brightness));
+    publish_brightness(applied_brightness, display_error);
     publish_configured_brightness(brightness, display_error);
     if (display_error != ESP_OK) {
         ESP_LOGE(
@@ -510,7 +514,9 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_brightness(void)
         );
     } else {
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayPowerMode(
-            LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active,
+            waking_from_deep_sleep
+                ? LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::DisplayOff
+                : LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active,
             ESP_OK
         );
     }

@@ -1,5 +1,15 @@
 # Done
 
+## Release touch/motion sleep policy (2026-10-04)
+
+- [x] Implement runtime `idle_sleep_s` (default 60 seconds), shared 300-ms fades,
+  Release transactional Deep-sleep with touch GPIO11 and QMI8658 INT2/GPIO21
+  accelerometer-only WoM, wake startup pin/IMU/display restoration and rejected
+  entry recovery. Debug retains CPU/USB/logs and 10-Hz software motion observation.
+  Update Luna Settings, canonical power snapshot and HTTP diagnostics. Source
+  review and GUI document generation only; validation and device evidence remain
+  open in `TODO.md`. No board-current or wake-latency claim.
+
 ## Hardware power census (2026-10-04)
 
 - [x] Add the root hardware consumption census with manufacturer datasheet

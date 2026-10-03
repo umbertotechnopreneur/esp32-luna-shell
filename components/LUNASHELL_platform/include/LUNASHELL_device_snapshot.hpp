@@ -481,6 +481,8 @@ struct PowerManagementSnapshot : ComponentSnapshot {
         power_policy::kDefaultDisplayDimTimeoutSeconds;
     uint32_t screen_sleep_delay_seconds =
         power_policy::kDefaultScreenSleepDelaySeconds;
+    uint32_t screen_idle_timeout_seconds =
+        power_policy::kDefaultScreenIdleTimeoutSeconds;
     uint32_t transition_sequence = 0;
     int64_t last_activity_at_us = 0;
     int64_t changed_at_us = 0;
@@ -715,6 +717,7 @@ public:
         uint32_t status_arc_timeout_seconds,
         uint32_t display_dim_timeout_seconds,
         uint32_t screen_sleep_delay_seconds,
+        uint32_t screen_idle_timeout_seconds,
         uint32_t transition_sequence,
         int64_t last_activity_at_us,
         esp_err_t error

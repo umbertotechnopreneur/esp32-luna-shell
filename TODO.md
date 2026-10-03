@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] On fresh explicit validation/hardware authorization, validate Release
+  touch/IMU Deep-sleep and Debug software standby: QMI revision/protocol, 60-second
+  runtime timeout and persistence, 300-ms fades, held-IRQ rejection/recovery,
+  repeated wake boots, USB/radios and complete-board current including powered
+  GPS. Source implementation only; see `docs/architecture/release-deep-sleep.md`.
+
 - [ ] On fresh explicit validation authorization, validate the common Debug/Release
   split: build-mode selector/configuration rejection check, console/profile/power
   checks, both modes' clean/incremental builds, size and simulator behavior.

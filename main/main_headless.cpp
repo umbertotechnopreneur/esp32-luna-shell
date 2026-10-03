@@ -129,6 +129,7 @@ void report_optional_startup_failure(
 // No parameters: start the selected standalone firmware and retain real startup failures.
 extern "C" void app_main(void)
 {
+    ESP_ERROR_CHECK(LUNASHELL_power_prepare_boot());
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
     ESP_ERROR_CHECK(LUNASHELL_logger_init());
     LUNASHELL::build_mode::log_startup_mode();
@@ -163,6 +164,9 @@ extern "C" void app_main(void)
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     ESP_ERROR_CHECK(CODY_companion_start());
     startup_watch.progress("Cody boot frame and touch consumer");
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    ESP_ERROR_CHECK(LUNASHELL_power_restore_wake_display());
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE
     report_optional_startup_failure("voice AFE", LUNASHELL_voice_afe_init());

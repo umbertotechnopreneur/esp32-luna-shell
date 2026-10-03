@@ -35,7 +35,7 @@ I2C driver.
 | I2C SCL | 14 |
 | Display CS / PCLK / D0-D3 / reset | 12 / 38 / 4,5,6,7 / 39 |
 | Touch reset / interrupt | 40 / 11 |
-| IMU INT2 | 21 (direct ESP RTC-capable GPIO; hardware WoM wake not implemented) |
+| IMU INT2 | 21 (direct ESP RTC-capable GPIO; Release WoM wake implemented in source, hardware verification pending) |
 | SDMMC CLK / CMD / D0 | 2 / 1 / 3 |
 | I2S BCLK / MCLK / WS / DOUT / DIN | 9 / 42 / 45 / 8 / 10 |
 | Speaker amplifier enable | 46 |

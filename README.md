@@ -18,6 +18,9 @@ Firmware commands default to `Debug`, independently of the selected hardware
 profile. `Release` requires explicit `-BuildMode Release` on each CLI invocation
 or an explicit selection for the current menu session. Configurations and build
 directories are separate. See [Debug/Release behavior and commands](docs/architecture/firmware-build-modes.md).
+Release uses touch/IMU Deep-sleep after the runtime `idle_sleep_s` timeout
+(default 60 seconds), with 300-ms display fades. Debug retains CPU/USB access
+and software wake observation. See the [sleep lifecycle and hardware limits](docs/architecture/release-deep-sleep.md).
 
 ## Inherited Luna Shell
 

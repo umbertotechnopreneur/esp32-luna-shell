@@ -47,8 +47,10 @@ operating conditions; do not sum them with the CPU baseline as independent chips
 Ideal Light-sleep MCU/PSRAM subtotal: **380 µA**, calculated from the two rows;
 this is not a board-current prediction.
 Flash values: [Winbond W25Q128JV Rev F][flash], section 9.4, printed p. 62.
-Release permits automatic Light-sleep; it does not establish these datasheet
-power-domain conditions on our firmware or enter Deep-sleep automatically.
+Release permits automatic Light-sleep while active and now enters Deep-sleep
+after confirmed inactivity standby on touch-enabled profiles. These source
+changes do not establish measured board current or all datasheet power-domain
+conditions. See the [implemented sleep policy](docs/architecture/release-deep-sleep.md).
 
 ## Sensors, display, audio and power
 
@@ -91,8 +93,8 @@ ESP32's internal capacitive touch wake peripheral. ESP32-S3 RTC-capable GPIOs
 | Requested wake source | Schematic route | What is possible | Current firmware |
 | --- | --- | --- | --- |
 | BOOT button | GPIO0 to GND | Direct RTC GPIO wake | Explicit sleep helper enables EXT0 low; optional timer. |
-| Touch | CST9217 TP_INT → GPIO11 | External GPIO wake while touch scanning remains powered; monitor mode is the low-current candidate | Touch IRQ is used by input; not configured as a Deep-sleep source. |
-| IMU movement | QMI8658 INT2 → GPIO21; INT1 → TCA9554 P6 | Configure accelerometer-only WoM on INT2, polarity, threshold and latch handling, then RTC GPIO wake | Software motion sampling; no configured hardware WoM/Deep-sleep route. |
+| Touch | CST9217 TP_INT → GPIO11 | External GPIO wake while touch scanning remains powered; monitor mode is the low-current candidate | Release arms EXT1 ANY_LOW. Controller stays powered; automatic idle-monitor behavior/current requires device confirmation. |
+| IMU movement | QMI8658 INT2 → GPIO21; INT1 → TCA9554 P6 | Configure accelerometer-only WoM on INT2, polarity, threshold and latch handling, then RTC GPIO wake | Release implements INT2 initially high, 200-mg WoM, accelerometer-only nominal 21 Hz and checked CTRL9 protocol; revision and wake behavior remain unverified on hardware. |
 | PWR short press | AXP2101 PWRON; AXP_IRQ → TCA9554 P5 | No direct ESP RTC wake on the published PCB: TCA9554 INT is only pulled high, not wired to ESP | PMU polling wakes software Device Standby; polling stops in Deep-sleep. |
 | RTC alarm | PCF85063 INT → TCA9554 P3 | No direct RTC-alarm GPIO wake through the unwired expander INT | RTC values are acquired; use ESP sleep timer for a direct timed wake candidate. |
 | PWR after PMU shutdown | Hardware PMU key / PWROK → ESP CHIP_PU | AXP2101 power-on sequence can restore power and boot; touch/IMU cannot wake with their common rail off | Separate product behavior requiring an explicit PMU shutdown/startup implementation; not Device Standby. |
@@ -100,8 +102,9 @@ ESP32's internal capacitive touch wake peripheral. ESP32-S3 RTC-capable GPIOs
 Routes: [published board schematic][schematic], sheet 1, AXP2101, I/O Extensions,
 RTC, 6/9-Axis and connector sections. WoM interrupt selection/polarity:
 [QMI8658C §9 and table 33][imu]. An electrically suitable route is not proof of
-working firmware wakeup. IRQ retention, touch monitor support in the actual
-panel firmware, sensor identity/revision and boot restoration still need work.
+working firmware wakeup. IRQ/output retention and boot restoration are now
+implemented in source. Touch monitor support/current in the actual panel
+firmware, sensor revision, wake reliability and latency still need device evidence.
 
 For touch plus motion, align both interrupt active levels before using EXT1.
 Keep the selected sensors powered, quiesce other owners, clear old interrupt
@@ -115,10 +118,11 @@ FreeRTOS polling cannot run in Deep-sleep. These are design candidates.
 
 ## What matters for the complete device
 
-The current six-axis standby rate reduction has little sensor-current benefit
-in the reference table. Disabling the gyro and selecting accelerometer-only
-WoM is the meaningful low-current candidate; retained UI/boot state and wake
-latency must then be designed explicitly.
+Debug retains six-axis software motion monitoring; lowering its sample rate
+alone has little sensor-current benefit in the reference table. Release now
+selects accelerometer-only WoM, disables the gyro, and uses INT2 for Deep-sleep
+wake. The boot path restores normal acquisition and fades the display in;
+board current and complete wake latency still need physical measurement.
 
 LC76GABMD VCC shares VCC3V3, while V_BCKP is on VCC-RTC; STANDBY is unconnected.
 The documented lowest-power sequence requires `$PAIR650`, then VCC removal

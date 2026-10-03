@@ -24,13 +24,14 @@ inline constexpr const char *kName = "Release";
 
 inline constexpr bool kDevelopmentDiagnosticsEnabled = kSelectedMode == Mode::Debug;
 inline constexpr bool kAutomaticLightSleepEnabled = kSelectedMode == Mode::Release;
+inline constexpr bool kDeepSleepOnStandbyEnabled = kSelectedMode == Mode::Release;
 
 // No parameters: publish the compiled mode once during real firmware startup.
 inline void log_startup_mode()
 {
     if constexpr (kAutomaticLightSleepEnabled) {
         // The one Release boot warning explains the real USB-debug limitation.
-        ESP_LOGW("LUNASHELL_build", "Firmware mode=Release; warnings/errors only; USB may disconnect during Light-sleep");
+        ESP_LOGW("LUNASHELL_build", "Firmware mode=Release; warnings/errors only; touch/motion Deep-sleep restarts firmware and disconnects USB/Wi-Fi/BLE");
     } else {
         ESP_LOGI("LUNASHELL_build", "Firmware mode=Debug; diagnostics enabled; automatic Light-sleep disabled");
     }

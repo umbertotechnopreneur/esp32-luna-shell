@@ -788,6 +788,8 @@ const char *deviceStateReasonName(LUNASHELL::DeviceStateReason reason)
     return "unknown";
 }
 
+// json: Response writer that owns formatting and serialization errors.
+// power: Canonical published power state, including the live inactivity setting.
 void writePowerManagement(
     LUNASHELL::HttpJsonWriter &json,
     const LUNASHELL::PowerManagementSnapshot &power
@@ -809,11 +811,12 @@ void writePowerManagement(
     (void)json.raw(",\"display_idle_stage\":");
     (void)json.quoted(displayPowerModeName(power.display_idle_stage));
     (void)json.format(
-        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"screen_sleep_delay_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
+        ",\"command_arc_timeout_seconds\":%lu,\"status_arc_timeout_seconds\":%lu,\"display_dim_timeout_seconds\":%lu,\"screen_sleep_delay_seconds\":%lu,\"screen_idle_timeout_seconds\":%lu,\"transition_sequence\":%lu,\"last_activity_at_us\":%lld,\"changed_at_us\":%lld}",
         static_cast<unsigned long>(power.command_arc_timeout_seconds),
         static_cast<unsigned long>(power.status_arc_timeout_seconds),
         static_cast<unsigned long>(power.display_dim_timeout_seconds),
         static_cast<unsigned long>(power.screen_sleep_delay_seconds),
+        static_cast<unsigned long>(power.screen_idle_timeout_seconds),
         static_cast<unsigned long>(power.transition_sequence),
         static_cast<long long>(power.last_activity_at_us),
         static_cast<long long>(power.changed_at_us)
