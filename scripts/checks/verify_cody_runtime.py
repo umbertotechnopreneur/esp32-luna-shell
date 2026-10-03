@@ -106,6 +106,7 @@ def compare_response(observed):
 # Raises AssertionError or filesystem errors for mismatched generated assets.
 def check_assets(settings):
     rig, palette = load_contract()
+    sample_rate_hz = settings["audio"]["sample_rate_hz"]
     generated = ROOT / "assets/cody/poc/generated"
     manifest = json.loads((generated / "manifest.json").read_text())
     assert manifest["source_sha256"] == hashlib.sha256((ROOT / "assets/cody/poc.yaml").read_bytes()).hexdigest()
@@ -115,9 +116,9 @@ def check_assets(settings):
         digest = hashlib.sha256(raw).hexdigest()
         hashes.append(digest)
         assert digest == manifest["cues"][cue]["sha256"]
-        assert len(raw) == round(settings["audio"][duration_key] * 16000) * 2
+        assert len(raw) == round(settings["audio"][duration_key] * sample_rate_hz) * 2
         with wave.open(str(generated / f"cody-{cue}.wav"), "rb") as wav:
-            assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) == (1, 2, 16000)
+            assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) == (1, 2, sample_rate_hz)
             assert wav.readframes(wav.getnframes()) == raw
     assert len(set(hashes)) == 2
     elapsed = 0
