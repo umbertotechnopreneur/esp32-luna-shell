@@ -138,3 +138,25 @@ summary and startup audio/refresh warnings are separate existing issues.
 Physical rotation/standby stress, long-run stability, battery response and audio
 quality remain separate checks. Radio initialization is not evidence of a
 connected Wi-Fi/BLE session or coexistence under network load.
+
+## October 3 pipeline isolation
+
+The physical pipeline capture (`poc-pipeline-demo-20261003.log`) separates
+comparison, packing, endian conversion, submission and sleeping DMA waits.
+Median sampled artwork costs were 4.747 ms comparison, 4.114 ms packing,
+1.588 ms conversion, 2.894 ms submission and 7.140 ms completion wait.
+DMA completion wait is elapsed time while blocked, not CPU utilization.
+The corresponding skeleton medians were 5.416, 5.715, 2.080, 2.897 and
+8.227 ms. The pause baseline remains CPU1 1%, CPU2 0%.
+
+Candidate `6d5636d4` skipped static raster tiles and tried 64-byte memcmp
+blocks. Its skeleton capture showed reduced raster work but variable
+comparison costs of roughly 4-10 ms. The user reported artwork at 26 FPS,
+CPU1 80%, CPU2 0%. This does not establish a performance improvement.
+The next candidate retains static-tile rejection and restores direct
+RGB565 comparison to isolate those two changes. Its physical result is
+pending; do not attribute the earlier measurements to that candidate.
+
+At the user's request, further validation is limited to compilation, flash
+and physical performance observations. Automated tests and validation scans
+remain deferred unless separately requested or approved.
