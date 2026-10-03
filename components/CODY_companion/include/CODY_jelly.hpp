@@ -56,6 +56,14 @@ esp_err_t select_jelly_skin(const char *id);
 // Exception: Returns ESP_ERR_INVALID_STATE if internal selection no longer resolves uniquely.
 esp_err_t selected_jelly_skin(JellySkinSelection &selection);
 
+// No parameters: load the explicit stable-ID preference, persisting Pearl Mist only when absent.
+// Exception: Returns the real NVS/read error or ESP_ERR_INVALID_STATE for an unknown saved ID.
+esp_err_t load_persisted_jelly_skin();
+
+// id: Exact authored ID selected by an explicit user action.
+// Exception: Returns the real validation/write error without changing the active skin.
+esp_err_t persist_jelly_skin(const char *id);
+
 // identity: Authored path whose vector surface is replaced by the pearl sprite.
 bool jelly_replaces_path(PathId identity);
 

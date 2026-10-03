@@ -33,6 +33,7 @@ constexpr AtlasScreenDefinition kAtlasScreens[] = {
     {AtlasScreenId::Pairing07, "07", "Pairing...", ExpressionId::Calm, SceneId::Pairing},
     {AtlasScreenId::PairingFailed08, "08", "Try again", ExpressionId::Embarrassed, SceneId::PairingFailed},
     {AtlasScreenId::Online09, "09", "You're online.", ExpressionId::Happy, SceneId::Online},
+    {AtlasScreenId::CodyLook11, "11", "Cody's look", ExpressionId::Happy, SceneId::CodyLook},
     {AtlasScreenId::Idle16, "16", "Idle", ExpressionId::Calm},
     {AtlasScreenId::Sleep35A, "35A", "Sleep", ExpressionId::Sleeping},
     {AtlasScreenId::Wake35B, "35B", "Wake", ExpressionId::Drowsy},

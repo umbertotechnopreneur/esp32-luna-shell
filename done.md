@@ -542,3 +542,15 @@ retained reset diagnostics, and worker stack margins remain hardware tests in
 - Authorized host checks passed: 11 response tests, 23 PoC/Tk tests, portable
   raster/rig contracts and 500 native/host model updates. ESP-IDF compilation,
   physical audio/touch and measured firmware fluidity remain open in TODO.md.
+
+## Cody look selector (2026-10-04)
+
+- Implemented atlas screen 11 as `Cody's look`: a live character preview above
+  a bounded vertical single-choice list for Pearl Mist, Aurora Veil, Cosmic
+  Stardust, Enchanted Mosaic and Dreamwave.
+- Added stable-ID NVS persistence with Pearl Mist created only for an absent
+  key; read, write and unknown-ID failures remain visible and preserve the prior
+  active choice.
+- Added append-only atlas addendum A02: planning page 24 and navigation page 14.
+  All earlier pages render identically at 96 DPI. Firmware build, simulator,
+  automated tests and device behavior remain unverified.

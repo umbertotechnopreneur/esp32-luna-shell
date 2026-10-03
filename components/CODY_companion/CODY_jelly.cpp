@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstring>
 #include <iterator>
+#include <string>
 #include "CODY_rig.hpp"
+#include "LUNASHELL_settings.hpp"
 #include "cody_jelly_data.hpp"
 #include "cody_jelly_skins.hpp"
 #include "cloud_rig_data.hpp"
@@ -17,6 +19,7 @@ namespace {
 constexpr char kTag[] = "CODY_jelly";
 constexpr int32_t kFixedOne = 65536;
 constexpr uint16_t kCanvasSize = 466;
+constexpr char kSkinSettingKey[] = "cody_skin";
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
 
@@ -237,6 +240,83 @@ esp_err_t selected_jelly_skin(JellySkinSelection &selection)
         definition->display_name,
         definition->id == JellySkinCatalog::default_skin,
     };
+    return ESP_OK;
+}
+
+// No parameters: load the saved stable identity after the shared settings owner is ready.
+// Exception: Missing is the only state that creates the documented Pearl Mist default.
+esp_err_t load_persisted_jelly_skin()
+{
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    esp_err_t error = settings.isInitialized() ? ESP_OK : settings.initialize();
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Look settings initialization failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    std::string saved_id;
+    error = settings.getString(kSkinSettingKey, &saved_id);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        const JellySkinDefinition *definition = find_skin(JellySkinCatalog::default_skin);
+        if (definition == nullptr) {
+            ESP_LOGE(kTag, "Default look identity is not in the catalog (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        ESP_LOGI(kTag, "Look key '%s' absent; persisting default id=%s name=%s",
+                 kSkinSettingKey, definition->key, definition->display_name);
+        error = settings.setString(kSkinSettingKey, definition->key);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Default look persistence failed: key=%s id=%s (%s)",
+                     kSkinSettingKey, definition->key, esp_err_to_name(error));
+            return error;
+        }
+        s_selected_skin.store(definition->id, std::memory_order_release);
+        return ESP_OK;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Look preference read failed: key=%s (%s)",
+                 kSkinSettingKey, esp_err_to_name(error));
+        return error;
+    }
+    const JellySkinDefinition *definition = find_skin(saved_id.c_str());
+    if (definition == nullptr) {
+        ESP_LOGE(kTag, "Saved look rejected: key=%s id=%s (%s)", kSkinSettingKey,
+                 saved_id.c_str(), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_selected_skin.store(definition->id, std::memory_order_release);
+    ESP_LOGI(kTag, "Saved look loaded: id=%s name=%s%s", definition->key,
+             definition->display_name,
+             definition->id == JellySkinCatalog::default_skin ? " default" : "");
+    return ESP_OK;
+}
+
+// id: Exact authored identity chosen from screen 11, never its visible row position.
+// Exception: The active texture changes only after the NVS write succeeds completely.
+esp_err_t persist_jelly_skin(const char *id)
+{
+    if (id == nullptr) {
+        ESP_LOGE(kTag, "Look persistence rejected: id=<null> (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const JellySkinDefinition *definition = find_skin(id);
+    if (definition == nullptr) {
+        ESP_LOGE(kTag, "Look persistence rejected: id=%s (%s)", id,
+                 esp_err_to_name(ESP_ERR_NOT_FOUND));
+        return ESP_ERR_NOT_FOUND;
+    }
+    const esp_err_t error = LUNASHELL::UserSettingsService::instance().setString(
+        kSkinSettingKey, definition->key);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Look persistence failed: key=%s id=%s (%s)",
+                 kSkinSettingKey, definition->key, esp_err_to_name(error));
+        return error;
+    }
+    s_selected_skin.store(definition->id, std::memory_order_release);
+    ESP_LOGI(kTag, "Look selected and persisted: id=%s name=%s%s", definition->key,
+             definition->display_name,
+             definition->id == JellySkinCatalog::default_skin ? " default" : "");
     return ESP_OK;
 }
 

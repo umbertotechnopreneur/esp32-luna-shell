@@ -55,5 +55,12 @@ inline constexpr SceneDefinition definitions[] = {
         {"You're online.", 14},
         305, 65535, 0, false, false, true
     },
+    {
+        SceneId::CodyLook, "cody-look", {233.000000000f, 148.000000000f, 62.000000000f},
+        {0, 0},
+        {{0.120000000f, 0.120000000f, 0.150000000f, 0.150000000f, 0.650000000f, 0.000000000f, 1.100000000f, 1.000000000f, 1.250000000f, 1.000000000f}}, &title_font,
+        {"Cody's look", 11},
+        30, 65535, 0, false, false, true
+    },
 };
 } // namespace CODY::SceneData

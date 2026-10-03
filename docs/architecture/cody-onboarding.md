@@ -3,8 +3,9 @@
 Implementation source checkpoint, 4 October 2026. Build, host checks, simulator
 and physical pairing remain unverified for this change.
 
-The source of truth is navigation atlas page 02 for startup and **addendum A01,
-page 13**, for QR routes (also planning atlas page 23). The addendum supplements
+The source of truth is navigation atlas page 02 for startup, **addendum A01,
+page 13**, for QR routes (also planning atlas page 23), and **addendum A02,
+page 14**, for screen 11 (also planning atlas page 24). The addenda supplement
 the printed pages without renumbering them. Hello is screen **04**, not 06.
 
 ## Startup and entry
@@ -36,6 +37,10 @@ Standby and pause do not advance the Hello reading hold or typewriter.
 | Failed / TimedOut | 08 / actual error; Retry only after successful cleanup |
 | 08, Retry | New attempt and a new device QR; never replay the whole OOBE |
 | Online plus currently valid Wi-Fi association and IP | 09 / You're online. |
+| 09, Continue | 11 / Cody's look (screen 10 preferences remain separate work) |
+| 11, vertical drag | Scroll the fixed-capacity look list only |
+| 11, tap a look | Persist its stable ID and update the live Cody preview |
+| 11, Back or Done | Return to 09 without discarding the selected look |
 
 06 deliberately has **no visible title**. Its QR encodes the actual inherited
 Android provisioning-app installation URL:
@@ -46,9 +51,29 @@ Neither illustrative QR drawings nor a previous attempt's QR enter firmware.
 
 09 continues checking the live Wi-Fi observation. Losing the link replaces its
 online claim with `No connection` and `Wi-Fi disconnected` or `UNAVAILABLE`.
-The subsequent preferences route 10 is not implemented by this increment; no
-nonfunctional Continue button or implicit first-boot persistence is added.
+The broader preferences route 10 is not implemented by this increment. Screen
+09 therefore supplies the current direct Continue entry to the completed screen
+11 selector; route 10 can become the caller later without changing screen 11.
 The current development force-first-boot setting remains respected.
+
+## Screen 11 / Cody's look
+
+Screen 11 uses one live preview above one vertically scrollable list. It does
+not expose the internal word `skin`, a color editor, texture mixing or per-look
+parameters. The visible names are Pearl Mist, Aurora Veil, Cosmic Stardust,
+Enchanted Mosaic and Dreamwave. Pearl Mist remains the first-boot default.
+
+Rows retain the catalog's stable IDs across reordering. A tap writes the exact
+ID to the `cody_skin` user setting before changing the active texture; a failed
+write leaves the previous selection and preview intact. Only a genuinely absent
+key creates and persists the Pearl Mist default. Read/type/storage errors and an
+unknown saved ID remain startup errors and are never repaired silently.
+
+The list has a bounded fixed capacity, a visible scroll thumb and no momentum.
+A drag changes only the list offset; a tap-sized release selects one row. The
+same logical geometry is used for drawing and touch after the display owner's
+rotation mapping. Back remains the separate left-side chevron. Done returns to
+the current caller; future Settings can reuse the same screen and IDs.
 
 ## Ownership, memory and reusable pieces
 
@@ -71,6 +96,9 @@ The current development force-first-boot setting remains respected.
 - The same licensed JetBrains Mono source supplies an additional 18px printable-
   ASCII caption/action font: **7,125 bytes in internal flash**, no runtime glyph cache.
   The existing title font is unchanged; no localization or SD dependency is added.
+- The look catalog and all five packed textures stay in internal flash. The
+  selector renders names from the catalog and never treats list position as
+  identity.
 
 All measured radio state comes from `DeviceSnapshotService.readConnectivityObservation`.
 Validity/staleness and typed attempt/session identities gate every action and QR.
@@ -81,8 +109,9 @@ Snapshot-read/render failures still propagate their original errors.
 
 ## Deferred validation
 
-The new Cody-only QR manifest requires the normal reviewed dependency-lock update
+The Cody-only QR manifest requires the normal reviewed dependency-lock update
 through `scripts/device.ps1 update-lock -Profile cody-companion -BuildMode Debug
 -BuildDir artifacts/build-cody-companion-debug` before building. Do not bypass the
 canonical lock comparison. Tests/build/flash require the user's explicit approvals.
-The asset generator is source preparation, not firmware or simulator validation.
+The scene asset generator completed for eight scenes. This source preparation
+is not firmware, simulator or physical-device validation.

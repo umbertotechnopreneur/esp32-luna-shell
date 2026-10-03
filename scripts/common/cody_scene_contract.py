@@ -11,7 +11,7 @@ SCENE_IDENTITIES = {
     "greeting": (1, "Greeting"), "pair-invitation": (2, "PairInvitation"),
     "install-app": (3, "InstallApp"), "scan-to-pair": (4, "ScanToPair"),
     "pairing": (5, "Pairing"), "pairing-failed": (6, "PairingFailed"),
-    "online": (7, "Online"),
+    "online": (7, "Online"), "cody-look": (8, "CodyLook"),
 }
 
 

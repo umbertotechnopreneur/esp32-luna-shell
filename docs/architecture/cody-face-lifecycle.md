@@ -113,6 +113,7 @@ the catalog. Unknown keys and ambiguous `35` fail explicitly.
 | `07` | `AtlasScreenId::Pairing07` | Calm; Pairing... |
 | `08` | `AtlasScreenId::PairingFailed08` | Embarrassed; real error and bounded recovery |
 | `09` | `AtlasScreenId::Online09` | Happy; valid current Wi-Fi association and IP |
+| `11` | `AtlasScreenId::CodyLook11` | Happy; live preview above the persisted look selector |
 | `16` | `AtlasScreenId::Idle16` | Calm |
 | `35A` | `AtlasScreenId::Sleep35A` | Sleeping |
 | `35B` | `AtlasScreenId::Wake35B` | Drowsy, then Calm |

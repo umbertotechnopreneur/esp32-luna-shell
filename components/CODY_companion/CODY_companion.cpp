@@ -1657,6 +1657,7 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 }
 
 // point: Successfully acquired valid hardware sample, handled under the display lock.
+// Exception: Returns the real route, gesture, snapshot or rendering-state error.
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
@@ -1677,20 +1678,22 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.body_drag_active = false;
         return ESP_OK;
     }
-    if (pressed_edge && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
-        if (CODY::lifecycle_is_resting(s_state.lifecycle)) {
-            bool consumed = false;
-            const esp_err_t route_error = CODY::handle_onboarding_touch(s_state.scene,
-                {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)}, consumed);
-            if (route_error != ESP_OK) {
-                return route_error;
-            }
-            if (consumed) {
-                s_state.body_drag_active = false;
-                s_state.frame_dirty.store(true, std::memory_order_release);
-                return ESP_OK;
-            }
+    if (s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
+        CODY::lifecycle_is_resting(s_state.lifecycle)) {
+        bool consumed = false;
+        const esp_err_t route_error = CODY::handle_onboarding_touch(
+            s_state.scene, {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)},
+            point.pressed, pressed_edge, consumed);
+        if (route_error != ESP_OK) {
+            return route_error;
         }
+        if (consumed) {
+            s_state.body_drag_active = false;
+            s_state.frame_dirty.store(true, std::memory_order_release);
+            return ESP_OK;
+        }
+    }
+    if (pressed_edge && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
         if (!s_state.rig_visible) {
             if (!s_greeting_scheduled.load(std::memory_order_acquire) &&
                 point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
@@ -1976,6 +1979,12 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (settings_error != ESP_OK) {
         return fail_consumer("Onboarding settings", settings_error, false);
     }
+#if CODY_ENABLE_PEARL_JELLY
+    const esp_err_t look_error = CODY::load_persisted_jelly_skin();
+    if (look_error != ESP_OK) {
+        return fail_consumer("Cody look setting", look_error, false);
+    }
+#endif
     for (const auto &definition : CODY::SceneData::definitions) {
         CODY::SceneFrame preflight_scene{};
         const esp_err_t scene_error = CODY::begin_scene(definition, preflight_scene);

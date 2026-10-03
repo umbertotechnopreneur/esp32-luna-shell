@@ -8,7 +8,7 @@ namespace CODY {
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
     AnimationDemo = 0, Greeting = 1, PairInvitation = 2, InstallApp = 3,
-    ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7,
+    ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7, CodyLook = 8,
 };
 enum class SceneElementId : uint8_t { Cloud, Title, Content };
 enum class SceneIntroPhase : uint8_t { BitmapFadeOut, CloudFadeIn, Complete };

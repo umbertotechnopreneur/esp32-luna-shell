@@ -30,6 +30,7 @@ enum class AtlasScreenId : uint16_t {
     Pairing07 = 7,
     PairingFailed08 = 8,
     Online09 = 9,
+    CodyLook11 = 11,
     Idle16 = 16,
     Sleep35A = 350,
     Wake35B = 351,
@@ -75,7 +76,7 @@ esp_err_t find_expression(const char *key, const ExpressionDefinition *&definiti
 // definition: Receives the immutable screen mapping on success and nullptr on failure.
 esp_err_t find_atlas_screen(AtlasScreenId identity, const AtlasScreenDefinition *&definition);
 
-// key: Exact atlas key: "01", "02", "03", "04", "16", "35A", or "35B".
+// key: Exact implemented atlas key, including "11", "16", "35A" and "35B".
 // An omitted leading zero or an ambiguous "35" is rejected.
 // definition: Receives the immutable screen mapping on success and nullptr on failure.
 esp_err_t find_atlas_screen(const char *key, const AtlasScreenDefinition *&definition);
