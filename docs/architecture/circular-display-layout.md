@@ -21,6 +21,7 @@ file or a dependency on the Luna GUI.
 | Left navigation / Back | Origin (10, 203), 60 x 60, circular radius 30 |
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
+| Luna upper Status Arc | Date/time at [157, 309) x [14, 32); USB at [113, 153) x [36, 83); battery at [158, 256) x [34, 81); SD at [267, 307) x [36, 83); Wi-Fi at [313, 353) x [36, 83) |
 | Cody Debug Pause/Play | Upper-left annular segment, radii 167–223, 13–31 degrees left of the top |
 | Cody Debug Skeleton | Mirrored upper-right annular segment, same radii and angles |
 
@@ -113,6 +114,15 @@ The existing Luna content viewport can release top and bottom arc space:
 These expanded rectangles are layout viewports inside a circular display,
 not proof that every point of the rectangle is visible. Controls in released
 top and bottom space still need the local chord and padding.
+
+The persistent Luna Status Arc uses two compact rows after the boot artwork is
+released: a full English date/time line above USB, battery percentage, SD and
+right-aligned Wi-Fi state. Every value comes from the canonical device
+snapshot. Invalid or stale clock and battery data stays explicit instead of
+becoming a plausible time or percentage. Semantic colors are cyan for ready,
+amber for warning/in-progress/stale, red for missing or failed hardware, and
+muted blue-grey for intentionally inactive or unconfigured state. Profile-
+disabled clock and Wi-Fi controls remain hidden.
 
 The selected logical orientation applies to drawing, clipping, and touch
 together, including 180 degrees. The Back slot remains the user's left side
