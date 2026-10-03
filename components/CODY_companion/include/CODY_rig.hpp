@@ -226,6 +226,10 @@ struct RigRasterProfile {
     int64_t skeleton_markers_us = 0;
 };
 
+// channels: Independent finite controls, each inside its authored range.
+// transform: Finite logical position and scale accepted by the shared renderer.
+esp_err_t validate_rig_pose(const Channels &channels, Transform transform);
+
 // channels: Independent finite controls, each strictly inside its authored range.
 // transform: Position and uniform scale in logical display pixels.
 // scene: Caller-owned evaluated geometry, invalidated immediately on entry.
@@ -273,11 +277,13 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // paused: Show Play instead of Pause; scene geometry remains owned by the caller.
 // first_column: Logical x origin of the tile; geometry remains in canvas coordinates.
 // debug_cache: Optional prepared links, tangents and markers for this scene and selection.
+// navigation_visible: Render the existing controls only when the active scene exposes them.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
                         uint16_t first_column = 0,
-                        const RigDebugStrokeCache *debug_cache = nullptr);
+                        const RigDebugStrokeCache *debug_cache = nullptr,
+                        bool navigation_visible = true);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.

@@ -124,4 +124,6 @@ calibration, not an additional UI inset.
 
 Only source files were read for these measurements. No simulator, firmware
 validation, hardware operation, or LVGL integration into Cody was performed.
-The current Cody boot consumer does not yet implement OOBE navigation.
+The Cody boot consumer now has a standalone first-boot greeting scene; it does
+not yet implement OOBE pairing/navigation. Its cloud/title/content layout uses
+this same geometry, documented in `cody-scenes.md`.

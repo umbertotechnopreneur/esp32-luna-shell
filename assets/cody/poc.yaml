@@ -14,8 +14,9 @@ diagnostics:
   report_interval_ms: 2000
   frame_budget_us: 33333
 audio:
-  sample_rate_hz: 16000
+  # Match the one shared ES8311/ES7210 I2S clock, including active diagnostics.
+  sample_rate_hz: 22050
   ready_duration_seconds: 0.18
   eyes_open_duration_seconds: 1.3
-  ready_volume_percent: 30
-  eyes_open_volume_percent: 40
+  ready_volume_percent: 100
+  eyes_open_volume_percent: 100

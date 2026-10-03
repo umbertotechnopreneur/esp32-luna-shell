@@ -1,0 +1,17 @@
+{
+  "schema": "cody.scene-font.v1",
+  "font_name": "Cody Title Mono",
+  "source_family": "JetBrains Mono",
+  "license": "SIL-OFL-1.1",
+  "font_source_sha256": "f01031f40e48dc29e1112e6b0b0450a2c6cd097f3f35cfff05c55cb311f8034c",
+  "scenes_sha256": "7308378d2635f1945fd12232f3fd9c411f6313e300c2ffd22c6504391cb72cef",
+  "first_character": 32,
+  "character_count": 95,
+  "width": 19,
+  "height": 40,
+  "advance": 18,
+  "row_bytes": 5,
+  "coverage_bytes": 19000,
+  "coverage_sha256": "1e6ed9137698d2b92e4477415bc5c2d7fe70bd893756b96fbdf640e542faba64",
+  "note": "Source asset generation only; no firmware or simulator validation."
+}

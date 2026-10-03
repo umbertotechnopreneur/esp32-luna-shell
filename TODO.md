@@ -17,13 +17,32 @@ authorization.
   Cancel while starting/connecting, timeout, DHCP, telemetry handoff, standby,
   persisted-profile reboot and opt-in authenticated HTTP over the actual LAN.
 
+- [ ] Review the new first-boot greeting in the Windows simulator and on the
+  device after fresh, specific authorization. Implementation and source assets
+  are complete; checkpoint `1df7ee0a` compiled and flashed on COM10 with the
+  forced first-boot flag enabled. No simulator, tests, separate size report
+  or physical display observation ran for this change. A later authorized
+  45-second boot capture showed the greeting entering and continuous frames
+  at 19-20 FPS/core 0 around 81-83%, but not the reported freeze. The next
+  checkpoint restores its measured HUD, uses 22.05 kHz cues at volume 100 and
+  enables shared cardinal auto-rotation; physical sound and orientation remain
+  to be observed after deployment.
+  Checkpoint `6f42f84d` compiled (2,074,320 bytes) but was not flashed because
+  COM10 disconnected before the flash stage. Reconnect the intended USB device
+  and retry delivery before reviewing these changes on hardware.
+  Check the two-second Ready deadline, happy pearl face, typewriter, snapshot
+  motion, rotations and pause/standby timing; measure real frame/CPU and memory
+  cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.
+
 - [ ] Identify the intermittent display/touch stop reported after the pearl
   release. The first capture began after failure and shows DISPLAY/TOUCH in
   error while the MCU continues snapshots. The triggering error is absent.
   Boot and later captures did not reproduce it through uptime 487 seconds;
   the gap between those captures was not continuously observed. Do not claim
   the issue fixed. Evidence: `docs/architecture/cody-cloud-finish.md` and
-  `artifacts/serial/cody-jelly-crash*.log`.
+  `artifacts/serial/cody-jelly-crash*.log`. The later 45-second greeting capture
+  also did not reproduce a freeze; its evidence is preserved in
+  `artifacts/build-release-evidence/cody-greeting-freeze.log`.
 - [ ] Review wider rotation/navigation coverage and runtime face-preference
   behavior on hardware. The user accepted the pearl appearance; the native
   renderer and face-follow preference are enabled by default but selectable.
@@ -34,7 +53,8 @@ authorization.
 
 - [ ] Review the opt-in PNG/triangle cloud experiment with the user before any
   device port. The previous full workspace is checkpointed at `3b90f25a`;
-  the experiment is isolated on `codex/cloud-png-mesh-study`. A painted transparent
+  the experimental source is retained on `main` after branch consolidation.
+  A painted transparent
   body now follows the existing lobe anchors through 99 vertices/138 triangles,
   with the face separate. Static PNG, mesh overlay and synthetic GIF previews
   are under `artifacts/simulator/cloud-png-mesh-*`. No new tests or hardware

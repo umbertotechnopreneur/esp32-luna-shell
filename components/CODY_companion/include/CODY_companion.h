@@ -18,9 +18,17 @@ esp_err_t CODY_companion_boot_midpoint(void);
 
 // Render the ready face synchronously after every mandatory boot stage and watchdog cleanup.
 // Subsequent rotation/wake redraws retain the completed phase; failures remain terminal.
+// Effective first boot schedules the greeting two seconds after this completed frame.
 esp_err_t CODY_companion_boot_completed(void);
-// Enter the authored animation demo after the ready frame if autostart is enabled.
+// Request the optional authored demo; the scheduled first-boot greeting has priority.
 esp_err_t CODY_companion_demo_start(void);
+
+// enabled: Session preference for the existing measured FPS/CPU layer on eligible scenes.
+// Queues old/new HUD damage; it never samples hardware or allocates a framebuffer.
+esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled);
+
+// enabled: Non-null output receiving the current session preference on success only.
+esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled);
 
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.
 // Session-scoped preference: queues geometry for the worker, without advancing paused animation.

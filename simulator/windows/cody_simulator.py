@@ -32,12 +32,14 @@ from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
+from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
 
 SCREEN_NAMES = tuple(screen.value for screen in Screen)
+ANIMATED_SCREENS = (Screen.RIG, Screen.GREETING)
 BOOT_NAMES = {"boot-sleep": "cody-sleep-blue.png", "boot-waking": "cody-waking-blue.png", "boot-ready": "cody-ready-blue.png"}
 LABEL_SCOPES = tuple(scope.value for scope in LabelScope)
 
@@ -82,6 +84,7 @@ class CodyRenderer:
         self.jelly_study_enabled = jelly_study
         self.jelly_sprite = None
         self.face_follows_body = True
+        self.scene_painter = ScenePainter(root, self.rig)
 
     # color is the initial palette slot of a fresh full logical canvas.
     def indexed(self, color=None):
@@ -189,9 +192,10 @@ class CodyRenderer:
     # material_study: Opt-in host-only continuous cloud shading, not firmware parity.
     # png_mesh_study: Opt-in painted texture driven by the same semantic lobe pose.
     # mesh_overlay: Show the actual triangle edges when the PNG study is selected.
+    # navigation_visible: Scene policy; hidden controls have no raster footprint.
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
     # Raises OSError for unreadable experimental PNG artwork.
-    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False):
+    def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, navigation_visible=True):
         if sum((material_study, png_mesh_study, self.jelly_study_enabled)) > 1:
             raise ValueError('Choose only one cloud rendering study')
         if mesh_overlay and not png_mesh_study:
@@ -277,7 +281,8 @@ class CodyRenderer:
                 draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=slot)
         if response_frame is not None:
             self.draw_response_roots(image, response_frame, colors)
-        self.draw_navigation(image, debug, colors)
+        if navigation_visible:
+            self.draw_navigation(image, debug, colors)
         if guide:
             draw.rectangle((73,73,392,392), outline=colors["selected"])
         return image
@@ -334,13 +339,14 @@ class CodyRenderer:
     # material_study: Opt-in host-only material study; default rendering is unchanged.
     # png_mesh_study: Opt-in PNG/triangle body; the existing face remains independent.
     # mesh_overlay: Show triangle topology rather than just the painted result.
+    # scene_elapsed_ms: Active typewriter time, independent of the shared rig clock.
     # Raises ValueError for an unknown screen or invalid rig values.
     # Raises OSError for unreadable experimental PNG artwork.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False):
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
-        if screen == Screen.RIG:
+        if screen in ANIMATED_SCREENS:
             if self.jelly_study_enabled and self.face_follows_body:
                 if self.jelly_sprite is None:
                     self.jelly_sprite = JellyScanlineStudy(self.root, self.rig)
@@ -348,7 +354,12 @@ class CodyRenderer:
             image = self.draw_scene(scene, debug, selected, guide,
                                     outline=outline, rest_outline=rest_outline, response_frame=response_frame,
                                     material_study=material_study, png_mesh_study=png_mesh_study,
-                                    mesh_overlay=mesh_overlay)
+                                    mesh_overlay=mesh_overlay,
+                                    navigation_visible=screen != Screen.GREETING or
+                                    self.scene_painter.definition("greeting")["navigation_visible"])
+            if screen == Screen.GREETING:
+                image = image.convert("RGB")
+                self.scene_painter.paint_title(image, "greeting", scene_elapsed_ms)
         else:
             image = self.boot[screen].copy()
         circular = Image.new("L", (SIZE, SIZE))
@@ -360,7 +371,7 @@ class CodyRenderer:
             image.info['cody_material_study'] = True
         if png_mesh_study and screen == Screen.RIG:
             image.info['cody_png_mesh_study'] = True
-        if self.jelly_study_enabled and screen == Screen.RIG:
+        if self.jelly_study_enabled and screen in ANIMATED_SCREENS:
             image.info['cody_jelly_study'] = True
         return image, scene
 
@@ -464,6 +475,8 @@ class CodyWindow:
         self.response_frame = None
         self.motion_overlay = tk.BooleanVar(value=not self.jelly_study)
         self.elapsed_ms = 0.0
+        self.scene_elapsed_ms = 0.0
+        self.previous_animation_screen = None
         self.last_tick = time.perf_counter()
         self.selected = None
         self.scene = None
@@ -721,7 +734,7 @@ class CodyWindow:
         state = self.response_state
         motion = state.motion_status
         power = state.power_status
-        if screen != Screen.RIG:
+        if screen not in ANIMATED_SCREENS:
             now_us = int(time.perf_counter() * 1_000_000)
             motion = effective_stamp(inputs.motion.stamp, now_us, self.response_config["motion"]["sample_timeout_seconds"], "motion.acceleration")
             power = effective_stamp(inputs.power.stamp, now_us, self.response_config["power"]["sample_timeout_seconds"], "power.charge")
@@ -742,7 +755,7 @@ class CodyWindow:
             dy = frame.current_root[1] - frame.resting_root[1]
             vx, vy = frame.spring_velocity_px_per_second
             body_text = f"\nRoot: {dx:+.1f}, {dy:+.1f} px\nSpring v: {vx:+.1f}, {vy:+.1f} px/s\nDepth: {frame.depth_scale:.4f}"
-        status = "RUNNING" if screen == Screen.RIG else "PAUSED / boot artwork"
+        status = "RUNNING" if screen in ANIMATED_SCREENS else "PAUSED / boot artwork"
         self.response_info.configure(text=f"{status} / SYNTHETIC\n{motion_text}\n{power_text}\n"
             f"Microphone: {state.microphone_status.health.value}\nPlayback: {state.playback_status.health.value}\n"
             f"MODEL attention: {state.attention:.3f} / speaking: {state.speaking:.3f}\n"
@@ -1000,7 +1013,8 @@ class CodyWindow:
         if self.display_screen == Screen.RIG:
             self.screen.set(Screen.BOOT_READY.value)
 
-    # event supplies desktop coordinates projected through the last displayed layout and rotation.
+    # self: Preview controller using the same displayed geometry for touch and eye hits.
+    # event: Desktop coordinates projected through the last displayed layout and rotation.
     def touch(self, event):
         self.preview_interaction()
         clicked_name = None
@@ -1019,12 +1033,14 @@ class CodyWindow:
         if self.display_screen == Screen.BOOT_READY and 73<=x<393 and 73<=y<393:
             self.screen.set(Screen.RIG.value)
             return
-        if self.display_screen != Screen.RIG:
+        if self.display_screen not in ANIMATED_SCREENS:
             return
-        if (x-40)**2+(y-233)**2<=900:
+        navigation_visible = (self.display_screen != Screen.GREETING or
+            self.renderer.scene_painter.definition("greeting")["navigation_visible"])
+        if navigation_visible and (x-40)**2+(y-233)**2<=900:
             self.back()
             return
-        if (x-426)**2+(y-233)**2<=900:
+        if navigation_visible and (x-426)**2+(y-233)**2<=900:
             self.debug.set(not self.debug.get())
             self.choose_point(None)
             return
@@ -1063,13 +1079,19 @@ class CodyWindow:
     def advance_animation(self, screen, active_ms):
         face_targets = [value.get() for value in self.values]
         targets = {name: value.get() for name, value in self.contour_values.items()}
-        if self.demo_enabled.get() and screen == Screen.RIG:
+        if screen == Screen.GREETING:
+            face_targets = self.renderer.scene_painter.face("greeting")
+            targets = contour_defaults(self.renderer.rig)
+            if self.previous_animation_screen != screen:
+                self.face_state = list(face_targets)
+        elif self.demo_enabled.get() and screen == Screen.RIG:
             _, face_targets, targets = demo_targets(self.poc_settings, self.renderer.rig, self.elapsed_ms)
         self.face_state = advance_face(
             self.renderer.rig, self.face_state, face_targets, active_ms
         )
+        self.previous_animation_screen = screen
         values = self.face_state
-        if self.playing.get() and screen != Screen.RIG:
+        if self.playing.get() and screen not in ANIMATED_SCREENS:
             values = animate(self.face_state, self.elapsed_ms)
         # The single response composer adds effects before the contour transition.
         return values, targets
@@ -1110,7 +1132,7 @@ class CodyWindow:
                 text=f"{self.contour_state[name]:.2f} > {targets[name]:.2f}"
             )
         status = "PAUSED"
-        if self.contour_playing.get() and screen == Screen.RIG:
+        if self.contour_playing.get() and screen in ANIMATED_SCREENS:
             status = "RUNNING"
         phase = self.contour_state["phase"]
         blend_seconds = self.renderer.rig["contour"]["transition_seconds"]
@@ -1148,7 +1170,7 @@ class CodyWindow:
     # Raises tk.TclError if a presentation control has become unavailable.
     def presentation_key(self, screen, rotation, layout, values, transform):
         common = (screen, rotation, layout)
-        if screen != Screen.RIG:
+        if screen not in ANIMATED_SCREENS:
             return common
         # Subpixel comparison only: leave the model's full-precision values alone.
         contour = tuple((name, round(value, 4)) for name, value in self.contour_state.items())
@@ -1163,6 +1185,8 @@ class CodyWindow:
             self.outline.get(), self.rest_outline.get(), self.names.get(),
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
             self.face_follows_body.get(),
+            self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
+            if screen == Screen.GREETING else None,
         )
 
     # self: Preview controller advancing sources, model, geometry and presentation once.
@@ -1175,16 +1199,24 @@ class CodyWindow:
         rotation = self.rotation.get()
         show_names = self.names.get() and screen == Screen.RIG
         layout = PreviewLayout.fit(*self.pending_canvas_size, show_names)
-        active_ms = interval_seconds * 1000 if screen == Screen.RIG else 0
+        active_ms = interval_seconds * 1000 if screen in ANIMATED_SCREENS else 0
+        if screen == Screen.GREETING:
+            if self.previous_animation_screen != screen:
+                self.scene_elapsed_ms = 0.0
+            elif self.playing.get():
+                self.scene_elapsed_ms += active_ms
         if self.playing.get():
             self.elapsed_ms += active_ms
 
         values, targets = self.advance_animation(screen, active_ms)
         transform = [value.get() for value in self.transform]
+        if screen == Screen.GREETING:
+            cloud = self.renderer.scene_painter.definition("greeting")["cloud"]
+            transform = [cloud[key] for key in ("x", "y", "scale")]
         inputs = self.observe_stimuli(int(started * 1_000_000), rotation)
         self.response_frame = None
-        if screen == Screen.RIG:
-            if self.display_screen != Screen.RIG:
+        if screen in ANIMATED_SCREENS:
+            if self.display_screen not in ANIMATED_SCREENS:
                 self.response_state = rebase_response_motion(self.response_state)
             self.response_config["motion"]["sensitivity"] = self.motion_sensitivity.get()
             validate_response_config(self.response_config)
@@ -1213,6 +1245,7 @@ class CodyWindow:
                 outline=self.outline.get(),
                 rest_outline=self.rest_outline.get(),
                 response_frame=self.response_frame if self.motion_overlay.get() else None,
+                scene_elapsed_ms=self.scene_elapsed_ms,
             )
             self.present_frame(image, layout, screen, rotation)
             # Commit only after Tk accepted the image and its matching hit targets.
@@ -1230,7 +1263,7 @@ class CodyWindow:
                  f"active target {target_hz} Hz / ESP32: UNMEASURED"
         )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
-        interval_ms = 1000 / target_hz if screen == Screen.RIG else 100
+        interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100
         delay_ms = max(1, math.ceil(interval_ms - duration_ms))
         self.after_id = self.root.after(delay_ms, self.tick)
 
@@ -1262,8 +1295,8 @@ def main(argv=None):
         parser.error('--cloud-material-study requires --capture and --screen rig')
     if args.cloud_png_mesh_study and (args.capture is None or args.screen != Screen.RIG):
         parser.error('--cloud-png-mesh-study requires --capture and --screen rig')
-    if args.cloud_jelly_study and args.screen != Screen.RIG:
-        parser.error('--cloud-jelly-study requires --screen rig')
+    if args.cloud_jelly_study and args.screen not in ANIMATED_SCREENS:
+        parser.error('--cloud-jelly-study requires an animated screen: rig or greeting')
     if sum((args.cloud_material_study, args.cloud_png_mesh_study, args.cloud_jelly_study)) > 1:
         parser.error('Select only one cloud study')
     if args.mesh_overlay and not args.cloud_png_mesh_study:
@@ -1272,6 +1305,8 @@ def main(argv=None):
     if args.capture is not None and sprite_study and args.capture.suffix.lower() not in ('.png', '.gif'):
         parser.error('Sprite studies capture PNG stills or a GIF synthetic motion loop')
     if args.capture is not None and args.capture.suffix.lower() == '.gif':
+        if args.screen != Screen.RIG:
+            parser.error('The fixed GIF motion timeline requires --screen rig; use PNG or interactive greeting')
         if not sprite_study:
             parser.error('GIF motion capture requires --cloud-png-mesh-study or --cloud-jelly-study')
         if args.safe_guide or '--at-ms' in (sys.argv[1:] if argv is None else argv):
@@ -1288,14 +1323,17 @@ def main(argv=None):
             renderer.capture_sprite_motion(destination, args.rotation, args.mesh_overlay)
             print(destination)
             return
-        values = animate(renderer.rig['boot_channels']['ready'],args.at_ms)
+        face = renderer.scene_painter.face("greeting") if args.screen == Screen.GREETING else renderer.rig['boot_channels']['ready']
+        values = face if args.screen == Screen.GREETING else animate(face,args.at_ms)
         contour = advance_contour(renderer.rig,make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
         # Captures show the same clean artwork as the device's initial view.
         # Interactive inspection still exposes its separate debug controls.
-        image,_ = renderer.render(args.screen,values,tuple(renderer.rig['default_transform'][key] for key in ('x','y','scale')),
+        placement = renderer.scene_painter.definition("greeting")["cloud"] if args.screen == Screen.GREETING else renderer.rig['default_transform']
+        image,_ = renderer.render(args.screen,values,tuple(placement[key] for key in ('x','y','scale')),
                                 debug=False,guide=args.safe_guide,rotation=args.rotation,contour=contour,
                                 material_study=args.cloud_material_study,
-                                png_mesh_study=args.cloud_png_mesh_study, mesh_overlay=args.mesh_overlay)
+                                png_mesh_study=args.cloud_png_mesh_study, mesh_overlay=args.mesh_overlay,
+                                scene_elapsed_ms=args.at_ms)
         destination.parent.mkdir(parents=True,exist_ok=True)
         renderer.capture_sheet(image,f"{args.screen} / {args.rotation} deg / HOST PREVIEW").save(destination)
         print(destination)

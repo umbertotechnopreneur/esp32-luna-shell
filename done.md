@@ -15,6 +15,38 @@
   OOBE integration contract. Source review only; validation and UI/hardware
   evidence remain open in `TODO.md`.
 
+## Cody greeting diagnostics, audio and orientation implementation (2026-10-04)
+
+- [x] Restore the measured FPS/CPU HUD on the greeting behind a default-on
+  session flag with a locked runtime setter/getter. Include old HUD damage when
+  hiding it. Reuse Luna's existing cardinal auto-rotation owner and API through
+  a default-on Cody startup policy after strict saved-setting restoration.
+  No new sensor reader, task, framebuffer or LVGL dependency is introduced.
+- [x] Resolve the observed boot cue format mismatch in source: regenerate both
+  original flash-owned PCM cues at the shared 22.05 kHz clock and request codec
+  volume 100. Reject peer stream clock conflicts before changing transport.
+  One authorized preceding-firmware 45-second capture showed continuous frames
+  and the I2S mismatch, not the reported freeze. This records implementation;
+  new device appearance, audible output and rotation are not yet observed.
+  Checkpoint `6f42f84d` compiled successfully (2,074,320-byte application),
+  with HUD/rotation enabled and LVGL excluded. Flash did not run because COM10
+  was disconnected; deployment remains open rather than recorded as success.
+
+## Cody first-boot scene implementation (2026-10-03)
+
+- [x] Implement the atlas page 05 / screen 04 greeting through a reusable
+  standalone cloud/title/optional-content compositor. Keep the existing
+  snapshot response and pearl face warp; move Cody ten pixels higher, use
+  scale 130, and reveal `Hi, I'm Cody!` in a 70 ms-per-character typewriter.
+  Schedule it two seconds after the Ready frame with a logged, strictly read
+  NVS first-boot key and an explicit development override enabled by default.
+  Pack printable ASCII coverage into 19,000 flash bytes without runtime font
+  decoding, per-frame allocation or another framebuffer. Add the shared
+  Windows preview route and document ownership/failure rules. Checkpoint
+  `1df7ee0a` subsequently compiled and flashed on COM10 at explicit user
+  request: 2,055,376-byte application, verified flash hash and hardware reset.
+  No automated tests or simulator ran; runtime/size checks remain open.
+
 ## Cody rendering checkpoint (2026-10-03)
 
 - [x] Port the approved concept-08 pearl texture to native scanline deformation,

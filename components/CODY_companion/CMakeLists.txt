@@ -9,6 +9,8 @@ endif()
 idf_component_register(
     SRCS
         "CODY_companion.cpp"
+        "CODY_scene.cpp"
+        "CODY_settings.cpp"
         "CODY_debug_hud.cpp"
         "CODY_damage.cpp"
         "CODY_dirty_plan.cpp"
@@ -21,9 +23,11 @@ idf_component_register(
         "../../assets/cody/boot/generated/cody_sleep_blue.cpp"
         "../../assets/cody/boot/generated/cody_waking_blue.cpp"
         "../../assets/cody/boot/generated/cody_ready_blue.cpp"
+        "../../assets/cody/scenes/generated/scene_font.cpp"
         ${cody_jelly_sources}
     INCLUDE_DIRS "include"
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/poc/generated"
+        "../../assets/cody/scenes/generated"
         "../../assets/cody/experiments/jelly-scanline/generated"
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer

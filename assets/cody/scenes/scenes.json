@@ -1,0 +1,22 @@
+{
+  "schema": "cody.scenes.v1",
+  "boot_delay_ms": 2000,
+  "font": { "pixel_size": 30, "first_character": 32, "last_character": 126 },
+  "scenes": [
+    {
+      "id": "greeting",
+      "identity": 1,
+      "cloud": { "x": 233, "y": 225, "scale": 130 },
+      "face": {
+        "eye_left": 0.12, "eye_right": 0.12,
+        "brow_left": 0.15, "brow_right": 0.15,
+        "mouth_open": 0.65, "breath": 0,
+        "mouth_width": 1.1, "nose_size": 1,
+        "cheek_size": 1.25, "cheek_opacity": 1
+      },
+      "title": { "text": "Hi, I'm Cody!", "top": 348, "color_rgb565": 65535, "character_interval_ms": 70 },
+      "navigation_visible": false,
+      "readout_visible": true
+    }
+  ]
+}

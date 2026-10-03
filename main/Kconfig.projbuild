@@ -73,6 +73,37 @@ config LUNASHELL_CODY_FACE_FOLLOWS_BODY
         at runtime without restarting the renderer. The runtime flag is not
         persisted; this setting supplies the initial choice on each boot.
 
+config LUNASHELL_CODY_FORCE_FIRST_BOOT
+    bool "Force Cody first-boot greeting for development"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Keep the effective first-boot setting at one during the current
+        onboarding iteration. Still read and validate the real persisted
+        setting; never overwrite a user's stored zero or hide an NVS failure.
+        Disable to honor the persisted cody_firstboot preference alone.
+
+config LUNASHELL_CODY_DIAGNOSTICS_READOUT
+    bool "Show Cody measured FPS and CPU readout at startup"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Initial session preference for the existing measured diagnostic layer.
+        Scene authoring also selects whether that scene admits the readout.
+        Change it later with CODY_companion_set_debug_readout_enabled without
+        rebuilding, allocating a framebuffer or altering sensor acquisition.
+
+config LUNASHELL_CODY_START_AUTO_ROTATION
+    bool "Enable shared display auto-rotation when Cody starts"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION && LUNASHELL_BUILD_ENABLE_IMU
+    default y
+    help
+        Explicitly enable and persist Luna's existing cardinal auto-rotation
+        preference after strict saved-setting restoration. Already-enabled
+        settings are not rewritten. Disable this startup policy to honor a
+        saved off preference. Runtime settings still use the same Luna API.
+        No Cody sensor-read loop or separate display/touch mapping is added.
+
 choice LUNASHELL_BUILD_DISPLAY_DRIVER
     prompt "Display and touch board driver"
     default LUNASHELL_BUILD_DISPLAY_DRIVER_WAVESHARE_AMOLED

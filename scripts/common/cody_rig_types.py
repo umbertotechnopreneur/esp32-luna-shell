@@ -45,6 +45,7 @@ class CurvePoint(IntEnum):
 
 class Screen(str, Enum):
     RIG = "rig"
+    GREETING = "greeting"
     BOOT_SLEEP = "boot-sleep"
     BOOT_WAKING = "boot-waking"
     BOOT_READY = "boot-ready"
