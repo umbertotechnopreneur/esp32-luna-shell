@@ -305,10 +305,16 @@ function Write-MenuCompactSectionHeader {
     Write-Host ("-" * $ruleRemainder) -ForegroundColor DarkGray
 }
 
+# Number identifies the menu selection key displayed beside the item.
+# Emoji contains the icon; an empty string is valid for text-only menu items.
+# Label names the action shown in the compact menu.
+# Desc carries details for help pages and is not displayed in compact rows.
+# LabelColor selects the console color used for the action label.
+# ConsoleWidth determines the available width before the label is truncated.
 function Write-MenuItemCompact {
     param(
         [Parameter(Mandatory)][object]$Number,
-        [Parameter(Mandatory)][string]$Emoji,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Emoji,
         [Parameter(Mandatory)][string]$Label,
         [Parameter(Mandatory)][AllowEmptyString()][string]$Desc,
         [ConsoleColor]$LabelColor = 'Yellow',
