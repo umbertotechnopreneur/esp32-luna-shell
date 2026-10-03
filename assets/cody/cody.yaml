@@ -1,6 +1,6 @@
 # Cody identity, entities, normalized rig and indexed style.
 # Point offsets are relative to their parent anchor; curve handles follow their knots.
-# Paints name palette colors; use mint.level.00 through mint.level.47 for mint.
+# Cloud paint uses warm cream to pale sky blue; navigation retains its blue ramp.
 schema: cody.rig.v2
 character:
   id: cody
@@ -11,8 +11,8 @@ palette_file: assets/cody/palette/palette256.json
 style:
   paints:
     cloud:
-    - blue.level.00
-    - blue.level.63
+    - cloud.level.00
+    - cloud.level.63
     cheek:
     - coral.level.11
     - coral.level.11

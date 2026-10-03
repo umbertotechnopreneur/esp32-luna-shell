@@ -1,5 +1,5 @@
 {
-  "name": "Cody shared OOBE palette v2",
+  "name": "Cody shared OOBE palette v3",
   "purpose": "Shared palette for the Cody rig PoC and its host preview; original boot images retain their independent indexed palettes.",
   "schema_version": 1,
   "slot_count": 256,
@@ -78,10 +78,34 @@
       "dark": "#DFA74C"
     },
     {
-      "name": "reserved",
+      "name": "cloud",
       "first": 172,
+      "last": 235,
+      "count": 64,
+      "availability": "current",
+      "anchors": [
+        {
+          "index": 172,
+          "rgb888": "#FFF4DE",
+          "role": "top"
+        },
+        {
+          "index": 204,
+          "rgb888": "#F2F5F1",
+          "role": "middle"
+        },
+        {
+          "index": 235,
+          "rgb888": "#C8E2EF",
+          "role": "bottom"
+        }
+      ]
+    },
+    {
+      "name": "reserved",
+      "first": 236,
       "last": 255,
-      "count": 84,
+      "count": 20,
       "availability": "reserved",
       "deterministic_color": "#000000",
       "usage": "Unallocated; must not be referenced by current artwork, typography, or controls."
@@ -2510,899 +2534,899 @@
     },
     {
       "index": 172,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_172",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_00",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FFF4DE",
+      "rgb565": "0xFFBB",
       "rgb565_little_endian": [
-        0,
-        0
+        187,
+        255
       ],
-      "id": "reserved.level.00"
+      "id": "cloud.level.00"
     },
     {
       "index": 173,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_173",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_01",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FFF4DF",
+      "rgb565": "0xFFBB",
       "rgb565_little_endian": [
-        0,
-        0
+        187,
+        255
       ],
-      "id": "reserved.level.01"
+      "id": "cloud.level.01"
     },
     {
       "index": 174,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_174",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_02",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FEF4DF",
+      "rgb565": "0xFFBB",
       "rgb565_little_endian": [
-        0,
-        0
+        187,
+        255
       ],
-      "id": "reserved.level.02"
+      "id": "cloud.level.02"
     },
     {
       "index": 175,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_175",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_03",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FEF4E0",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.03"
+      "id": "cloud.level.03"
     },
     {
       "index": 176,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_176",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_04",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FDF4E0",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.04"
+      "id": "cloud.level.04"
     },
     {
       "index": 177,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_177",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_05",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FDF4E1",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.05"
+      "id": "cloud.level.05"
     },
     {
       "index": 178,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_178",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_06",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FDF4E2",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.06"
+      "id": "cloud.level.06"
     },
     {
       "index": 179,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_179",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_07",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FCF4E2",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.07"
+      "id": "cloud.level.07"
     },
     {
       "index": 180,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_180",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_08",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FCF4E3",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.08"
+      "id": "cloud.level.08"
     },
     {
       "index": 181,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_181",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_09",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FBF4E3",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.09"
+      "id": "cloud.level.09"
     },
     {
       "index": 182,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_182",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_10",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FBF4E4",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.10"
+      "id": "cloud.level.10"
     },
     {
       "index": 183,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_183",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_11",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FBF4E5",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.11"
+      "id": "cloud.level.11"
     },
     {
       "index": 184,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_184",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_12",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FAF4E5",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.12"
+      "id": "cloud.level.12"
     },
     {
       "index": 185,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_185",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_13",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#FAF4E6",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.13"
+      "id": "cloud.level.13"
     },
     {
       "index": 186,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_186",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_14",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F9F4E6",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.14"
+      "id": "cloud.level.14"
     },
     {
       "index": 187,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_187",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_15",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F9F4E7",
+      "rgb565": "0xFFBC",
       "rgb565_little_endian": [
-        0,
-        0
+        188,
+        255
       ],
-      "id": "reserved.level.15"
+      "id": "cloud.level.15"
     },
     {
       "index": 188,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_188",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_16",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F9F5E8",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        255
       ],
-      "id": "reserved.level.16"
+      "id": "cloud.level.16"
     },
     {
       "index": 189,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_189",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_17",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F8F5E8",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        255
       ],
-      "id": "reserved.level.17"
+      "id": "cloud.level.17"
     },
     {
       "index": 190,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_190",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_18",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F8F5E9",
+      "rgb565": "0xFFBD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        255
       ],
-      "id": "reserved.level.18"
+      "id": "cloud.level.18"
     },
     {
       "index": 191,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_191",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_19",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F7F5E9",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.19"
+      "id": "cloud.level.19"
     },
     {
       "index": 192,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_192",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_20",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F7F5EA",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.20"
+      "id": "cloud.level.20"
     },
     {
       "index": 193,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_193",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_21",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F6F5EA",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.21"
+      "id": "cloud.level.21"
     },
     {
       "index": 194,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_194",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_22",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F6F5EB",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.22"
+      "id": "cloud.level.22"
     },
     {
       "index": 195,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_195",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_23",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F6F5EC",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.23"
+      "id": "cloud.level.23"
     },
     {
       "index": 196,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_196",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_24",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F5F5EC",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.24"
+      "id": "cloud.level.24"
     },
     {
       "index": 197,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_197",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_25",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F5F5ED",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.25"
+      "id": "cloud.level.25"
     },
     {
       "index": 198,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_198",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_26",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F4F5ED",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.26"
+      "id": "cloud.level.26"
     },
     {
       "index": 199,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_199",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_27",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F4F5EE",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.27"
+      "id": "cloud.level.27"
     },
     {
       "index": 200,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_200",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_28",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F4F5EF",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.28"
+      "id": "cloud.level.28"
     },
     {
       "index": 201,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_201",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_29",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F3F5EF",
+      "rgb565": "0xF7BD",
       "rgb565_little_endian": [
-        0,
-        0
+        189,
+        247
       ],
-      "id": "reserved.level.29"
+      "id": "cloud.level.29"
     },
     {
       "index": 202,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_202",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_30",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F3F5F0",
+      "rgb565": "0xF7BE",
       "rgb565_little_endian": [
-        0,
-        0
+        190,
+        247
       ],
-      "id": "reserved.level.30"
+      "id": "cloud.level.30"
     },
     {
       "index": 203,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_203",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_31",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F2F5F0",
+      "rgb565": "0xF7BE",
       "rgb565_little_endian": [
-        0,
-        0
+        190,
+        247
       ],
-      "id": "reserved.level.31"
+      "id": "cloud.level.31"
     },
     {
       "index": 204,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_204",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_32",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F2F5F1",
+      "rgb565": "0xF7BE",
       "rgb565_little_endian": [
-        0,
-        0
+        190,
+        247
       ],
-      "id": "reserved.level.32"
+      "id": "cloud.level.32"
     },
     {
       "index": 205,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_205",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_33",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#F1F4F1",
+      "rgb565": "0xF7BE",
       "rgb565_little_endian": [
-        0,
-        0
+        190,
+        247
       ],
-      "id": "reserved.level.33"
+      "id": "cloud.level.33"
     },
     {
       "index": 206,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_206",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_34",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EFF4F1",
+      "rgb565": "0xEFBE",
       "rgb565_little_endian": [
-        0,
-        0
+        190,
+        239
       ],
-      "id": "reserved.level.34"
+      "id": "cloud.level.34"
     },
     {
       "index": 207,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_207",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_35",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EEF3F1",
+      "rgb565": "0xEF9E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        239
       ],
-      "id": "reserved.level.35"
+      "id": "cloud.level.35"
     },
     {
       "index": 208,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_208",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_36",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EDF3F1",
+      "rgb565": "0xEF9E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        239
       ],
-      "id": "reserved.level.36"
+      "id": "cloud.level.36"
     },
     {
       "index": 209,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_209",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_37",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EBF2F1",
+      "rgb565": "0xEF9E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        239
       ],
-      "id": "reserved.level.37"
+      "id": "cloud.level.37"
     },
     {
       "index": 210,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_210",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_38",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#EAF1F1",
+      "rgb565": "0xEF9E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        239
       ],
-      "id": "reserved.level.38"
+      "id": "cloud.level.38"
     },
     {
       "index": 211,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_211",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_39",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E9F1F1",
+      "rgb565": "0xEF9E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        239
       ],
-      "id": "reserved.level.39"
+      "id": "cloud.level.39"
     },
     {
       "index": 212,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_212",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_40",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E7F0F0",
+      "rgb565": "0xE79E",
       "rgb565_little_endian": [
-        0,
-        0
+        158,
+        231
       ],
-      "id": "reserved.level.40"
+      "id": "cloud.level.40"
     },
     {
       "index": 213,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_213",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_41",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E6EFF0",
+      "rgb565": "0xE77E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        231
       ],
-      "id": "reserved.level.41"
+      "id": "cloud.level.41"
     },
     {
       "index": 214,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_214",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_42",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E4EFF0",
+      "rgb565": "0xE77E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        231
       ],
-      "id": "reserved.level.42"
+      "id": "cloud.level.42"
     },
     {
       "index": 215,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_215",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_43",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E3EEF0",
+      "rgb565": "0xE77E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        231
       ],
-      "id": "reserved.level.43"
+      "id": "cloud.level.43"
     },
     {
       "index": 216,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_216",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_44",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E2EEF0",
+      "rgb565": "0xE77E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        231
       ],
-      "id": "reserved.level.44"
+      "id": "cloud.level.44"
     },
     {
       "index": 217,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_217",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_45",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#E0EDF0",
+      "rgb565": "0xE77E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        231
       ],
-      "id": "reserved.level.45"
+      "id": "cloud.level.45"
     },
     {
       "index": 218,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_218",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_46",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DFECF0",
+      "rgb565": "0xDF7E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        223
       ],
-      "id": "reserved.level.46"
+      "id": "cloud.level.46"
     },
     {
       "index": 219,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_219",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_47",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DEECF0",
+      "rgb565": "0xDF7E",
       "rgb565_little_endian": [
-        0,
-        0
+        126,
+        223
       ],
-      "id": "reserved.level.47"
+      "id": "cloud.level.47"
     },
     {
       "index": 220,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_220",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_48",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DCEBF0",
+      "rgb565": "0xDF5E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        223
       ],
-      "id": "reserved.level.48"
+      "id": "cloud.level.48"
     },
     {
       "index": 221,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_221",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_49",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DBEBF0",
+      "rgb565": "0xDF5E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        223
       ],
-      "id": "reserved.level.49"
+      "id": "cloud.level.49"
     },
     {
       "index": 222,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_222",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_50",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#DAEAF0",
+      "rgb565": "0xDF5E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        223
       ],
-      "id": "reserved.level.50"
+      "id": "cloud.level.50"
     },
     {
       "index": 223,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_223",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_51",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D8E9F0",
+      "rgb565": "0xDF5E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        223
       ],
-      "id": "reserved.level.51"
+      "id": "cloud.level.51"
     },
     {
       "index": 224,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_224",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_52",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D7E9F0",
+      "rgb565": "0xD75E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        215
       ],
-      "id": "reserved.level.52"
+      "id": "cloud.level.52"
     },
     {
       "index": 225,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_225",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_53",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D6E8F0",
+      "rgb565": "0xD75E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        215
       ],
-      "id": "reserved.level.53"
+      "id": "cloud.level.53"
     },
     {
       "index": 226,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_226",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_54",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D4E8F0",
+      "rgb565": "0xD75E",
       "rgb565_little_endian": [
-        0,
-        0
+        94,
+        215
       ],
-      "id": "reserved.level.54"
+      "id": "cloud.level.54"
     },
     {
       "index": 227,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_227",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_55",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D3E7F0",
+      "rgb565": "0xD73E",
       "rgb565_little_endian": [
-        0,
-        0
+        62,
+        215
       ],
-      "id": "reserved.level.55"
+      "id": "cloud.level.55"
     },
     {
       "index": 228,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_228",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_56",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D1E6EF",
+      "rgb565": "0xD73D",
       "rgb565_little_endian": [
-        0,
-        0
+        61,
+        215
       ],
-      "id": "reserved.level.56"
+      "id": "cloud.level.56"
     },
     {
       "index": 229,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_229",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_57",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#D0E6EF",
+      "rgb565": "0xD73D",
       "rgb565_little_endian": [
-        0,
-        0
+        61,
+        215
       ],
-      "id": "reserved.level.57"
+      "id": "cloud.level.57"
     },
     {
       "index": 230,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_230",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_58",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CFE5EF",
+      "rgb565": "0xCF3D",
       "rgb565_little_endian": [
-        0,
-        0
+        61,
+        207
       ],
-      "id": "reserved.level.58"
+      "id": "cloud.level.58"
     },
     {
       "index": 231,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_231",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_59",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CDE4EF",
+      "rgb565": "0xCF3D",
       "rgb565_little_endian": [
-        0,
-        0
+        61,
+        207
       ],
-      "id": "reserved.level.59"
+      "id": "cloud.level.59"
     },
     {
       "index": 232,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_232",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_60",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CCE4EF",
+      "rgb565": "0xCF3D",
       "rgb565_little_endian": [
-        0,
-        0
+        61,
+        207
       ],
-      "id": "reserved.level.60"
+      "id": "cloud.level.60"
     },
     {
       "index": 233,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_233",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_61",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#CBE3EF",
+      "rgb565": "0xCF1D",
       "rgb565_little_endian": [
-        0,
-        0
+        29,
+        207
       ],
-      "id": "reserved.level.61"
+      "id": "cloud.level.61"
     },
     {
       "index": 234,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_234",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_62",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#C9E3EF",
+      "rgb565": "0xCF1D",
       "rgb565_little_endian": [
-        0,
-        0
+        29,
+        207
       ],
-      "id": "reserved.level.62"
+      "id": "cloud.level.62"
     },
     {
       "index": 235,
-      "group": "reserved",
-      "role": "reserved_do_not_use_slot_235",
-      "availability": "reserved",
-      "reserved": true,
-      "rgb888": "#000000",
-      "rgb565": "0x0000",
+      "group": "cloud",
+      "role": "cloud_gradient_level_63",
+      "availability": "current",
+      "reserved": false,
+      "rgb888": "#C8E2EF",
+      "rgb565": "0xCF1D",
       "rgb565_little_endian": [
-        0,
-        0
+        29,
+        207
       ],
-      "id": "reserved.level.63"
+      "id": "cloud.level.63"
     },
     {
       "index": 236,
