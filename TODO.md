@@ -19,6 +19,9 @@ authorization.
   Checkpoint `b663f2ac` was subsequently flashed successfully on COM10 with a
   verified 2,074,320-byte application. Review the new 400 ms bitmap fade-out,
   two-second animated cloud fade-in, then typewriter, eye taps and elastic drag.
+  This intro/touch revision `d922d75a` subsequently compiled and flashed on
+  COM10 (2,081,600-byte app, verified hash and reset); no tests, simulator or
+  post-flash capture ran. Physical motion/touch confirmation remains open.
   Check the two-second Ready deadline, happy pearl face, snapshot
   motion, rotations and pause/standby timing; measure real frame/CPU and memory
   cost rather than infer it from the smaller cloud. See `docs/architecture/cody-scenes.md`.

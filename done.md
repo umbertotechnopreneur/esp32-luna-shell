@@ -14,6 +14,10 @@
 - [x] Fix review P2: the runtime asset check now takes PCM/WAV sample rate from
   the explicit authored audio setting instead of assuming 16 kHz. No check or
   simulator execution was authorized for this iteration.
+- [x] Deliver checkpoint `d922d75a` on explicit request: ESP-IDF 6.0.2 build
+  and COM10 flash succeeded with at most eight jobs, a 2,081,600-byte app,
+  verified written hash and hardware RTS reset. No tests, simulator or
+  post-flash serial capture ran; physical behavior remains to be observed.
 
 ## Cody greeting diagnostics, audio and orientation implementation (2026-10-04)
 

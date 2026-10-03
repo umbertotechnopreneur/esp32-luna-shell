@@ -245,3 +245,17 @@ No panic or repeated reset occurred in that window; the capture began during
 startup and does not contain a preceding failure/reset reason. Evidence:
 `artifacts/build-release-evidence/cody-reboot-loop-live.log`.
 This does not establish long-run stability or fix the earlier intermittent stop.
+
+## Intro/touch deployment (2026-10-04)
+
+At the user's explicit request, checkpoint `d922d75a` compiled and flashed
+successfully through `device.ps1 flash -Profile cody-companion -BuildDir
+artifacts/build-cody-companion -Port COM10 -Baud 460800 -Jobs 8`.
+The application is **2,081,600 bytes** at `0x10000`, on the 16 MB board;
+esptool verified the written hash and completed the RTS hardware reset.
+This includes the scene intro, authored X/Y swap and canonical elastic touch
+response, plus preceding review-P2 fix `db2c7815`.
+Evidence: `artifacts/build-release-evidence/cody-intro-touch-flash.log`.
+No tests, simulator execution, separate size report or post-flash capture ran.
+Appearance, motion directions, touch response and long-run behavior remain
+physical observations, not conclusions from successful compilation/flashing.
