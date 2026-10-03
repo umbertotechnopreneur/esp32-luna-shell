@@ -546,6 +546,17 @@ const char *LUNASHELL_provisioning_pop(void);
 /** Copy the active pairing QR without returning shared mutable storage. */
 esp_err_t LUNASHELL_provisioning_copy_qr(char *buffer, size_t buffer_size, uint32_t session_id);
 
+typedef enum {
+    LUNASHELL_PAIRING_ACTION_START,
+    LUNASHELL_PAIRING_ACTION_RETRY,
+    LUNASHELL_PAIRING_ACTION_CANCEL,
+} LUNASHELL_pairing_action_t;
+
+/** Initialize the internal-stack async pairing controller; never opens BLE. */
+esp_err_t LUNASHELL_pairing_service_init(void);
+/** Submit one explicit action against the currently observed attempt identity. */
+esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action, uint32_t expected_attempt_id);
+
 #ifdef __cplusplus
 }
 #endif

@@ -607,6 +607,17 @@ void DeviceSnapshotService::reportDisplayPowerMode(
     );
 }
 
+// pairing: Original controller result, including failure and confirmed cleanup.
+void DeviceSnapshotService::reportPairingSession(const PairingSessionSnapshot &pairing)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.pairing = pairing;
+        }
+    );
+    log_snapshot_publication_failure("Pairing session report", publication_error);
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)

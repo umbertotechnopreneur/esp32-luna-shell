@@ -42,6 +42,29 @@ The SET event precedes the config write; CRED_RECV follows the successful write
 and the accepted one-second connect timer. No second SDK connect is issued by
 the Wi-Fi owner.
 
+## Asynchronous controller
+
+`LUNASHELL_pairing_service_init()` creates one 4 KiB internal-stack worker and
+publishes Idle. It does not start BLE. `LUNASHELL_pairing_request(action,
+expected_attempt_id)` admits Start, Retry or Cancel against the exact observed
+attempt. Its success acknowledges admission; the snapshot reports completion.
+The controller rejects duplicates, stale identities and retry after failed
+cleanup. Cancel may queue while Start is still running. The worker parks when
+idle and observes an active attempt every 250 ms through the canonical small
+`ConnectivityObservation`, without a second sensor/network read path.
+
+The attempt expires after five minutes. Credential failure, timeout and cancel
+close provisioning before publishing the terminal state. Retry creates a new
+manager session, QR proof and attempt ID. Online requires manager success plus
+a valid, healthy Wi-Fi snapshot with association and a real nonzero IP; the
+provisioning manager is released before telemetry starts. A cleanup failure
+remains visible separately from the original failure and blocks reuse. A power
+transition out of Active closes the attempt; wake never silently reopens it.
+
+New UI consumers read `DeviceSnapshot.radios.pairing` or the same canonical
+connectivity projection. No callback into the renderer is necessary. The
+pairing snapshot contains no QR or authentication secret.
+
 ## Delivery boundary
 
 Implementation has received source review only. No configure, build, size,

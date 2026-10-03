@@ -26,4 +26,17 @@ enum class ProvisioningFailureReason : uint8_t {
     Unknown,
 };
 
+enum class PairingSessionState : uint8_t {
+    Idle,
+    Starting,
+    ReadyToScan,
+    Connecting,
+    Completing,
+    Online,
+    Cancelling,
+    Cancelled,
+    Failed,
+    TimedOut,
+};
+
 }  // namespace LUNASHELL
