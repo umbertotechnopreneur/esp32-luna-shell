@@ -155,20 +155,71 @@ function Write-DeviceHelpText([string]$Text, [int]$Width, [string]$Indent = '   
     }
 }
 
-# Title names a command category or a subsection within it.
-# Icon is the category emoji, kept separate from aligned command columns.
-# Width bounds the divider to the current terminal.
-# Color selects the category accent.
-# Subsection uses a lighter heading instead of a full category divider.
-function Write-DeviceHelpSection([string]$Title, [string]$Icon, [int]$Width, [ConsoleColor]$Color = 'Cyan', [switch]$Subsection) {
-    Write-Host ''
-    if ($Subsection) {
-        Write-Host "    $Icon  $Title" -ForegroundColor $Color
+# Length is the number of terminal cells available after the section title.
+# Color identifies the category accent used at the first gradient point.
+# Throws when no gradient palette is defined for the requested category color.
+function Write-DeviceHelpGradient([int]$Length, [ConsoleColor]$Color) {
+    $start = switch ($Color) {
+        Cyan { [pscustomobject]@{ Red = 64; Green = 190; Blue = 200 } }
+        Magenta { [pscustomobject]@{ Red = 184; Green = 90; Blue = 196 } }
+        Yellow { [pscustomobject]@{ Red = 208; Green = 176; Blue = 70 } }
+        Green { [pscustomobject]@{ Red = 76; Green = 174; Blue = 112 } }
+        default { throw "Device help gradient: no palette for category color '$Color'." }
+    }
+    if (-not $Host.UI.SupportsVirtualTerminal) {
+        Write-Host ('─' * $Length) -ForegroundColor DarkGray
         return
     }
-    Write-Host ('  ' + ('─' * ($Width - 4))) -ForegroundColor DarkGray
-    Write-Host "  $Icon  $Title" -ForegroundColor $Color
-    Write-Host ('  ' + ('─' * ($Width - 4))) -ForegroundColor DarkGray
+
+    # Three named points keep the category tint at the start, soften it halfway,
+    # then fade into a dark neutral tone suited to the development terminal.
+    $end = [pscustomobject]@{ Red = 32; Green = 32; Blue = 32 }
+    $middle = [pscustomobject]@{
+        Red = [int][Math]::Round($end.Red + ($start.Red - $end.Red) * 0.42)
+        Green = [int][Math]::Round($end.Green + ($start.Green - $end.Green) * 0.42)
+        Blue = [int][Math]::Round($end.Blue + ($start.Blue - $end.Blue) * 0.42)
+    }
+    $line = [Text.StringBuilder]::new()
+    for ($column = 0; $column -lt $Length; $column++) {
+        $progress = $column / [Math]::Max(1, $Length - 1)
+        if ($progress -le 0.5) {
+            $from = $start
+            $to = $middle
+            $blend = $progress * 2
+        } else {
+            $from = $middle
+            $to = $end
+            $blend = ($progress - 0.5) * 2
+        }
+        $red = [int][Math]::Round($from.Red + ($to.Red - $from.Red) * $blend)
+        $green = [int][Math]::Round($from.Green + ($to.Green - $from.Green) * $blend)
+        $blue = [int][Math]::Round($from.Blue + ($to.Blue - $from.Blue) * $blend)
+        [void]$line.Append(('{0}[22;38;2;{1};{2};{3}m─' -f [char]27, $red, $green, $blue))
+    }
+    [void]$line.Append(('{0}[0m' -f [char]27))
+    Write-Host $line.ToString()
+}
+
+# Title names a command category or a subsection within it.
+# Icon is the category emoji, rendered in two terminal cells.
+# Width bounds the divider to the current terminal.
+# Color selects the category accent.
+# Subsection indents nested headings to preserve the category hierarchy.
+# Throws when the category accent has no defined gradient palette.
+function Write-DeviceHelpSection([string]$Title, [string]$Icon, [int]$Width, [ConsoleColor]$Color = 'Cyan', [switch]$Subsection) {
+    Write-Host ''
+    $indent = if ($Subsection) { '    ' } else { '  ' }
+    $heading = "$Icon  $Title"
+    $iconWidth = if ($Icon) { 2 } else { 0 }
+    $headingWidth = $indent.Length + $iconWidth + 2 + $Title.Length
+    $ruleLength = $Width - $headingWidth - 3
+    if ($ruleLength -lt 3) {
+        # Keep the complete title when a very narrow terminal leaves no rule room.
+        Write-DeviceHelpText -Text $heading -Width $Width -Indent $indent -Color $Color
+        return
+    }
+    Write-Host "$indent$heading " -ForegroundColor $Color -NoNewline
+    Write-DeviceHelpGradient -Length $ruleLength -Color $Color
 }
 
 # Syntax is the exact public command, tool identifier or option being documented.

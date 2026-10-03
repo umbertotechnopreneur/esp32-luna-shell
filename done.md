@@ -10,6 +10,8 @@
   for execution from `scripts`. Show every command/option in bold WhiteSmoke
   (`#F5F5F5`) with its extended description underneath; use the full terminal
   width with one blank line between entries instead of two columns.
+  Place category/subsection titles beside a thin, width-aware rule with a
+  three-point gradient fading toward its right edge.
   Review source only; no CLI preview, tests, build, simulator or physical-device
   operation ran.
 

@@ -17,6 +17,9 @@ Help examples use only `Device.ps1`; an opening note explains that the script
 is run from the `scripts` folder with `.\Device.ps1` in PowerShell.
 Single- and double-dash parameters also use bold WhiteSmoke (`#F5F5F5`) inside
 descriptions when the terminal supports ANSI color.
+Category and subsection titles share one row with a thin rule: after a single
+space, a three-point gradient fades from the category accent toward a dark
+neutral tone. The rule fits the remaining terminal width.
 
 Firmware mode defaults to `Debug` on every CLI invocation. Release requires
 explicit `-BuildMode Release`, including for later flash/size/configuration
