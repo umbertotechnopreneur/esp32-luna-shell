@@ -12,11 +12,13 @@ priority. Promote an item to `TODO.md` when it becomes active.
   not connected directly to the ESP. Use cases: gentle alarms,
   focus/break sessions. See `docs/architecture/cody-rtc.md`.
 
-- [ ] Finish English circular OOBE preferences and optional user-selected Cody
-  gradient color. Pairing backend and the UI integration contract are now
-  active in `TODO.md`; presentation is owned by the Welcome/OOBE agent.
-  Blue is the initial accent. Keep manual 0/180 orientation, auto-rotation,
-  shake-to-wake and sound preferences separate and validity-aware.
+- [ ] Finish English circular OOBE preferences and the screen 11 skin selector.
+  The internal-flash catalog now contains Pearl Mist as the default plus Aurora
+  Veil, Cosmic Stardust, Enchanted Mosaic and Dreamwave, each with a stable ID;
+  source generation completed, but firmware build and device behavior remain
+  unverified. Pairing UI integration is active in `TODO.md`; the selector and
+  explicit persistence are still future work. Keep manual 0/180 orientation,
+  auto-rotation, shake-to-wake and sound preferences separate and validity-aware.
 - [ ] After the local cloud-rig PoC, select antialiasing/tessellation and
   dirty-region policy using measured target timings. Add state-to-channel
   composition from real, validity-aware environmental events. Keep the shared

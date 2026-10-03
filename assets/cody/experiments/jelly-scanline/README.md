@@ -3,9 +3,11 @@
 This opt-in Windows simulator mode applies the user's selected
 **08 / GELATINA PERLATA** concept to Cody. It replaces only the cloud body and
 four vector relief paths. The face remains vector artwork but follows the same
-body warp by default; navigation stays independent. The Windows mode is opt-in.
-The firmware renderer is selectable, currently enabled by default at the user's
-request. Nothing in the artwork renderer reads physical sensors.
+body warp by default; navigation stays independent. The current pearl material
+is the default, with four additional authored skins packaged for the future
+screen 11 selector. The Windows mode is opt-in. The firmware renderer is
+selectable, currently enabled by default at the user's request. Nothing in the
+artwork renderer reads physical sensors.
 
 ## Artwork and provenance
 
@@ -17,14 +19,20 @@ face, text and black matte; a second edit recovered transparent framing around
 the complete silhouette. The final image is stored here, not loaded from the
 tool's output folder.
 
-The source is decoded once, cropped to alpha >= 64 with four source pixels of
-padding, and resized with premultiplied alpha. This master's crop is
-`(28, 206, 1229, 1082)`; the runtime texture is **320 x 233**.
-Colors are quantized to RGB565 while alpha remains eight-bit.
-The native port keeps premultiplied RGBA8 after RGB565 source quantization:
-298,240 bytes (291.25 KiB) in internal flash, plus binding tables. Eight-bit
-premultiplied channels preserve faint alpha-edge colors during filtering.
-The Python process separately retains Pillow buffers.
+The four additional source PNGs live under `skins/`. They were generated on
+4 October 2026 with the built-in `image_gen` tool as texture-only edits, then
+received the canonical master's alpha channel pixel for pixel. They contain no
+face; expressions remain separate vector artwork. `skins.json` owns their
+stable IDs, explicit numeric enum values, user-facing names and source paths.
+
+Every source is cropped through the one canonical `(28, 206, 1229, 1082)`
+rectangle and resized with premultiplied alpha to **320 x 233**. The generator
+rejects any different canvas, RGBA mode or alpha bytes instead of inferring new
+geometry. Colors are quantized to RGB565 while alpha remains eight-bit. Each
+native texture uses 298,240 bytes (291.25 KiB); the five-skin catalog uses
+1,491,200 bytes in internal flash, plus the shared binding tables. Only the
+selected texture is sampled, so the catalog does not add a runtime framebuffer.
+The Python generator separately retains Pillow buffers while packaging.
 
 ## Deformation contract
 
@@ -80,6 +88,23 @@ The interactive simulator exposes the same choice in Face ->
 `Deform face with jelly body`, checked initially. Synthetic input remains
 visibly labelled; simulator speed is not device performance.
 
+## Skin catalog and future selection
+
+| Internal ID | User-facing name | Role |
+| --- | --- | --- |
+| `cody.skin.pearl_mist.v1` | Pearl Mist | Current material and boot default |
+| `cody.skin.aurora_veil.v1` | Aurora Veil | Simple aqua-to-lilac gradient |
+| `cody.skin.cosmic_stardust.v1` | Cosmic Stardust | Starfield and nebula texture |
+| `cody.skin.enchanted_mosaic.v1` | Enchanted Mosaic | Iridescent enamel mosaic |
+| `cody.skin.dreamwave.v1` | Dreamwave | Flowing pearlescent ribbons |
+
+`jelly_skin_at()` exposes names for a future selector while selection always
+uses the stable string ID. `select_jelly_skin()` rejects unknown IDs and changes
+only the session request used by subsequent evaluated frames. It does not
+persist a value, complete first boot or imply that screen 11 exists. The future
+screen must make persistence an explicit confirmed user action and preserve
+Pearl Mist when no key has ever been saved.
+
 ## Reproduce through the public simulator CLI
 
 Interactive preview:
@@ -117,9 +142,10 @@ procedural cloud-material mode. The previous experiments remain available.
 .\scripts\device.ps1 generate -Generator cody-jelly
 ```
 
-The generator writes the immutable texture and named lobe/row binding tables
-under `generated/`. CMake links these into internal flash: no SD, PNG decoder,
-texture allocation or filesystem read is needed on the device.
+The generator writes the immutable texture catalog, typed skin identities and
+named lobe/row binding tables under `generated/`. CMake links these into
+internal flash: no SD, PNG decoder, texture allocation or filesystem read is
+needed on the device.
 `CODY_jelly.cpp` prepares clipped logical row mappings once per evaluated frame
 in the existing caller-owned PSRAM scene, then draws into the ordinary compact
 RGB565 tiles. The face is composited afterward and the physical owner applies

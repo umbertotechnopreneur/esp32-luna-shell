@@ -1,10 +1,13 @@
 #include "CODY_jelly.hpp"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstring>
 #include <iterator>
 #include "CODY_rig.hpp"
 #include "cody_jelly_data.hpp"
+#include "cody_jelly_skins.hpp"
 #include "cloud_rig_data.hpp"
 #include "esp_log.h"
 
@@ -18,6 +21,32 @@ static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
 
 static_assert(std::size(JellyFrame{}.controls) == std::size(JellyData::rows));
+std::atomic<JellySkinId> s_selected_skin{JellySkinCatalog::default_skin};
+
+// id: Exact stable authored ID, never a display name or catalog position.
+const JellySkinDefinition *find_skin(const char *id)
+{
+    if (id == nullptr) {
+        return nullptr;
+    }
+    for (const auto &definition : JellySkinCatalog::definitions) {
+        if (std::strcmp(definition.key, id) == 0) {
+            return &definition;
+        }
+    }
+    return nullptr;
+}
+
+// identity: Typed authored identity, independent from catalog ordering.
+const JellySkinDefinition *find_skin(JellySkinId identity)
+{
+    for (const auto &definition : JellySkinCatalog::definitions) {
+        if (definition.id == identity) {
+            return &definition;
+        }
+    }
+    return nullptr;
+}
 
 // identity: Authored point whose ancestry determines whether it belongs to the face.
 bool is_facial_point(PointId identity)
@@ -147,6 +176,70 @@ uint16_t blend_rgba(uint32_t source, uint16_t destination)
 
 }  // namespace
 
+// No parameters: expose bounded catalog size without treating position as identity.
+size_t jelly_skin_count()
+{
+    return std::size(JellySkinCatalog::definitions);
+}
+
+// index: Traversal offset at this API boundary, never persisted or used as identity.
+// selection: Receives immutable catalog data only after a valid bounds check.
+esp_err_t jelly_skin_at(size_t index, JellySkinSelection &selection)
+{
+    if (index >= std::size(JellySkinCatalog::definitions)) {
+        ESP_LOGE(kTag, "Skin catalog index rejected: %u (%s)",
+                 static_cast<unsigned>(index), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const auto &definition = JellySkinCatalog::definitions[index];
+    selection = {
+        definition.key,
+        definition.display_name,
+        definition.id == JellySkinCatalog::default_skin,
+    };
+    return ESP_OK;
+}
+
+// id: Exact authored identity selected for subsequent evaluated frames.
+// Exception: Null and unknown IDs are rejected without changing the current skin.
+esp_err_t select_jelly_skin(const char *id)
+{
+    if (id == nullptr) {
+        ESP_LOGE(kTag, "Skin selection rejected: id=<null> (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const JellySkinDefinition *definition = find_skin(id);
+    if (definition == nullptr) {
+        ESP_LOGE(kTag, "Skin selection rejected: id=%s (%s)",
+                 id, esp_err_to_name(ESP_ERR_NOT_FOUND));
+        return ESP_ERR_NOT_FOUND;
+    }
+    s_selected_skin.store(definition->id, std::memory_order_release);
+    ESP_LOGI(kTag, "Skin selected for subsequent frames: id=%s name=%s%s",
+             definition->key, definition->display_name,
+             definition->id == JellySkinCatalog::default_skin ? " default" : "");
+    return ESP_OK;
+}
+
+// selection: Receives the current typed selection after validating the catalog identity.
+esp_err_t selected_jelly_skin(JellySkinSelection &selection)
+{
+    const JellySkinId identity = s_selected_skin.load(std::memory_order_acquire);
+    const JellySkinDefinition *definition = find_skin(identity);
+    if (definition == nullptr) {
+        ESP_LOGE(kTag, "Selected skin identity rejected: value=%u (%s)",
+                 static_cast<unsigned>(identity), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    selection = {
+        definition->key,
+        definition->display_name,
+        definition->id == JellySkinCatalog::default_skin,
+    };
+    return ESP_OK;
+}
+
 // identity: Semantic vector surface path replaced by the approved sprite.
 bool jelly_replaces_path(PathId identity)
 {
@@ -168,6 +261,7 @@ esp_err_t prepare_jelly_frame(const RigScene &scene, JellyFrame &frame)
 {
     frame.valid = false;
     frame.bounds = {};
+    frame.skin_id = static_cast<uint16_t>(s_selected_skin.load(std::memory_order_acquire));
     if (!std::isfinite(scene.scale) || scene.scale <= 0 || scene.scale > 204.f) {
         ESP_LOGE(kTag, "Prepare scale rejected: %f (%s)", scene.scale,
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -309,6 +403,13 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
                  first_column, first_row, strip.width, strip.height, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+    const auto skin = static_cast<JellySkinId>(frame.skin_id);
+    const uint32_t *pixels = JellyData::pixels_for(skin);
+    if (pixels == nullptr || find_skin(skin) == nullptr) {
+        ESP_LOGE(kTag, "Draw skin rejected: value=%u (%s)", frame.skin_id,
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     const uint16_t first = std::max(first_row, frame.bounds.top);
     const uint16_t last = std::min(static_cast<uint16_t>(first_row + strip.height), frame.bounds.bottom);
     for (uint16_t row = first; row < last; ++row) {
@@ -322,8 +423,8 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         const uint32_t source_row = static_cast<uint32_t>(source_y) >> 16U;
         const uint32_t next_row = std::min(source_row + 1U, static_cast<uint32_t>(JellyData::height - 1));
         const uint32_t vertical_weight = (static_cast<uint32_t>(source_y) >> 8U) & 255U;
-        const auto *upper = JellyData::pixels + source_row * JellyData::width;
-        const auto *lower = JellyData::pixels + next_row * JellyData::width;
+        const auto *upper = pixels + source_row * JellyData::width;
+        const auto *lower = pixels + next_row * JellyData::width;
         int32_t source_x = mapping.source_x + (left - mapping.left) * mapping.source_step;
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
         for (uint16_t column = left; column < right; ++column) {
@@ -345,7 +446,8 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
 // current: Next evaluated row mapping, including both texture and alpha geometry.
 bool same_jelly_frame(const JellyFrame &previous, const JellyFrame &current)
 {
-    if (!previous.valid || !current.valid || previous.bounds.left != current.bounds.left ||
+    if (!previous.valid || !current.valid || previous.skin_id != current.skin_id ||
+        previous.bounds.left != current.bounds.left ||
         previous.bounds.top != current.bounds.top || previous.bounds.right != current.bounds.right ||
         previous.bounds.bottom != current.bounds.bottom) {
         return false;
