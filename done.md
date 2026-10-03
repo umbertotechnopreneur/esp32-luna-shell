@@ -1,17 +1,5 @@
 # Done
 
-# Connected Status Arc (2026-10-04)
-
-- [x] Extend the persistent Luna LVGL Status Arc with canonical local date/time,
-  measured battery percentage, and right-aligned Wi-Fi state while retaining
-  USB and SD indicators. Invalid/stale values remain explicit and ready,
-  warning, fault, missing, and inactive states use the shared semantic palette.
-- [x] Keep clock and Wi-Fi chrome hidden in build profiles that disable their
-  services, and keep every displayed value sourced from `DeviceSnapshotService`.
-
-Firmware compilation, simulator appearance, and physical display behavior have
-not yet been validated; those checks require explicit authorization.
-
 ## Offline SD logging and native USB readback (2026-10-04)
 
 - [x] Enable the existing SD owner and FAT long filenames for Cody. Capture
