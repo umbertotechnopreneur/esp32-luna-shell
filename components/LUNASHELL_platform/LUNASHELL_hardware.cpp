@@ -6634,6 +6634,25 @@ DeviceSnapshot DeviceSnapshotService::snapshot() const
     return copy;
 }
 
+// frame: Receives the last completed display operation, never a new driver read.
+// Its measured flag, original error and completion timestamp travel with the values.
+esp_err_t DeviceSnapshotService::readDisplayFrameObservation(DisplayFrameSnapshot &frame) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "display frame snapshot read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Display frame snapshot read failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayFrameSnapshot copy = s_snapshot.ui.rendering;
+    const esp_err_t release_error = give_snapshot_mutex("display frame snapshot read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Display frame snapshot release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    frame = copy;
+    return ESP_OK;
+}
+
 // processor: Receives measured CPU state from the canonical snapshot, aged at read time.
 // The rendering task does not call FreeRTOS counters or allocate a full device snapshot.
 esp_err_t DeviceSnapshotService::readProcessorObservation(ProcessorSnapshot &processor) const

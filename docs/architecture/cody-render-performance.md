@@ -85,8 +85,14 @@ tiles are rasterized until an input or display invalidation requires a full
 redraw. Paused refreshes do not enter animation benchmark distributions.
 Logs explicitly identify `Animation PAUSED`, `PAUSED geometry=frozen HUD=1Hz`,
 and `Animation RESUMED`. Native checks cover control targets and exact full/
-dirty-frame parity through pause, unchanged pause and resume. Physical evidence
-for this control remains pending.
+dirty-frame parity through pause, unchanged pause and resume. The control compiled and flashed successfully (1,705,456 bytes,
+SHA256 `BD89756B4569CD3723832CD12154FDC9F863F4A79C1F9D4B867FD4061B642FE2`).
+The user confirmed CPU1 1% in pause. `poc-pause-demo-20261003.log` independently
+records the pause transition and repeated canonical CPU1 1%, CPU2 0% samples.
+Paused HUD drawing is about 0.4 ms and reuse about 0.75 ms once per second.
+This establishes a low-load baseline and locates the major extra utilization
+in the active animation/render path. It does not yet identify which active
+stage is CPU-bound versus waiting for the panel.
 
 | Candidate | Observed physical result |
 | --- | --- |

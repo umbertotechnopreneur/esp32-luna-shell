@@ -204,6 +204,8 @@ struct FrameTimings {
     int64_t geometry_us = 0;
     int64_t raster_us = 0;
     int64_t reuse_us = 0;
+    int64_t comparison_us = 0;
+    int64_t packing_us = 0;
     int64_t transfer_us = 0;
     uint32_t submitted_pixels = 0;
     uint16_t dirty_rectangles = 0;
@@ -440,6 +442,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
 
 struct CompletedFrameLog {
     CODY::DebugReadout readout{};
+    LUNASHELL::DisplayFrameSnapshot transfer{};
     bool rig = false;
     bool paused = false;
     CODY::FrameDistribution distribution{};
@@ -507,6 +510,16 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Completed frame statistics failed: %s", esp_err_to_name(error));
         return error;
+    }
+    error = LUNASHELL::DeviceSnapshotService::instance().readDisplayFrameObservation(log.transfer);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (!log.transfer.measured || log.transfer.last_error != ESP_OK ||
+        log.transfer.completed_at_us < timings.started_us) {
+        ESP_LOGE(kTag, "Completed transfer profile unavailable for this frame (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
     }
     s_state.last_timing_log_us = completed_us;
     log.frame_count = s_state.rig_frame_count;
@@ -577,6 +590,11 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         static_cast<long>(timings.raster_us - timings.reuse_us),
         static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
         log.readout.frame_rate, log.readout.processors);
+    ESP_LOGI(kTag, "Pipeline compare=%ldus pack=%ldus convert=%luus submit=%luus dma_wait=%luus",
+        static_cast<long>(timings.comparison_us), static_cast<long>(timings.packing_us),
+        static_cast<unsigned long>(log.transfer.last_conversion_us),
+        static_cast<unsigned long>(log.transfer.last_submission_us),
+        static_cast<unsigned long>(log.transfer.last_completion_wait_us));
     ESP_LOGI(kTag, "Layers clear=%ldus artwork=%ldus skeleton=%ldus navigation=%ldus",
         static_cast<long>(timings.raster_profile.clear_us),
         static_cast<long>(timings.raster_profile.artwork_us),
@@ -752,12 +770,16 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             result = CODY::measure_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, compare_previous, candidate_regions, damage);
         }
+        const int64_t packing_started_us = esp_timer_get_time();
+        timings.comparison_us += packing_started_us - reuse_started_us;
         if (result == ESP_OK && !damage.empty()) {
             result = CODY::prepare_damage_rows(strip, static_cast<uint16_t>(row),
                 frame_cache, damage, packed);
         }
         // Raster cost includes cache comparison and transfer-payload packing.
-        timings.reuse_us += esp_timer_get_time() - reuse_started_us;
+        const int64_t reuse_completed_us = esp_timer_get_time();
+        timings.packing_us += reuse_completed_us - packing_started_us;
+        timings.reuse_us += reuse_completed_us - reuse_started_us;
         timings.raster_us += esp_timer_get_time() - raster_started_us;
         if (result == ESP_OK && !damage.empty()) {
             const int64_t transfer_started_us = esp_timer_get_time();

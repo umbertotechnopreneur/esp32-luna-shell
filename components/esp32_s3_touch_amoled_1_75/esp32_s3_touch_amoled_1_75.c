@@ -130,6 +130,9 @@ typedef struct {
     int64_t started_at_us;
     int64_t deadline_us;
     uint32_t rectangles;
+    uint32_t conversion_us;
+    uint32_t submission_us;
+    uint32_t completion_wait_us;
     esp_err_t error;
 } bsp_display_frame_t;
 static bsp_display_frame_t display_frame;
@@ -3778,6 +3781,9 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
         return lease_error;
     }
     display_frame.rectangles = 0;
+    display_frame.conversion_us = 0;
+    display_frame.submission_us = 0;
+    display_frame.completion_wait_us = 0;
     display_frame.error = ESP_OK;
     __atomic_store_n(&display_frame.owner, xTaskGetCurrentTaskHandle(), __ATOMIC_RELEASE);
     // Keep this lock level until end: panel and touch stay in the same orientation.
@@ -3856,6 +3862,9 @@ esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_
     *result = (bsp_display_frame_result_t){
         .duration_us = (uint32_t)(esp_timer_get_time() - display_frame.started_at_us),
         .rectangles = display_frame.rectangles,
+        .conversion_us = display_frame.conversion_us,
+        .submission_us = display_frame.submission_us,
+        .completion_wait_us = display_frame.completion_wait_us,
         .retained_dma_bytes = __atomic_load_n(&display_dma_retained_bytes, __ATOMIC_ACQUIRE),
         .error = error,
     };
@@ -3938,6 +3947,7 @@ static esp_err_t bsp_display_write_rgb565_internal(
         const int next_row = strip_y + (int)lease->transfer_rows;
         const int strip_end = next_row < y_end ? next_row : y_end;
         const size_t strip_bytes = (size_t)(strip_end - strip_y) * source_row_bytes;
+        const int64_t conversion_started_us = in_frame ? esp_timer_get_time() : 0;
         if (clear_black) {
             memset(lease->data, 0, strip_bytes);
         } else {
@@ -3952,14 +3962,22 @@ static esp_err_t bsp_display_write_rgb565_internal(
                 lease->data[byte + 1U] = low;
             }
         }
+        if (in_frame) {
+            display_frame.conversion_us += (uint32_t)(esp_timer_get_time() - conversion_started_us);
+        }
         if (esp_timer_get_time() >= deadline_us) {
             error = ESP_ERR_TIMEOUT;
             ESP_LOGE(TAG, "RGB565 deadline exhausted before row %d (%s)",
                      strip_y, esp_err_to_name(error));
             break;
         }
+        const int64_t submission_started_us = in_frame ? esp_timer_get_time() : 0;
         error = esp_lcd_panel_draw_bitmap(panel_handle, x_start, strip_y, x_end, strip_end, lease->data);
+        if (in_frame) {
+            display_frame.submission_us += (uint32_t)(esp_timer_get_time() - submission_started_us);
+        }
         if (error == ESP_OK) {
+            const int64_t completion_started_us = in_frame ? esp_timer_get_time() : 0;
             const int64_t wait_us = deadline_us - esp_timer_get_time();
             const TickType_t wait_ticks = wait_us > 0
                 ? pdMS_TO_TICKS((uint32_t)(wait_us / 1000)) : 0;
@@ -3967,6 +3985,11 @@ static esp_err_t bsp_display_write_rgb565_internal(
                 error = ESP_ERR_TIMEOUT;
             } else if (display_completion_fault) {
                 error = ESP_ERR_INVALID_STATE;
+            }
+            if (in_frame) {
+                // Elapsed semaphore wait is not CPU utilization: this stage
+                // lets the task sleep while the queued color DMA completes.
+                display_frame.completion_wait_us += (uint32_t)(esp_timer_get_time() - completion_started_us);
             }
         }
         if (error != ESP_OK) {

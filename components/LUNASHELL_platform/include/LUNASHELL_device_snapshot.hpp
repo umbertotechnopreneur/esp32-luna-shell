@@ -275,6 +275,9 @@ struct DisplayFrameSnapshot {
     uint32_t last_lock_wait_us = 0;
     uint32_t last_duration_us = 0;
     uint32_t last_rectangle_count = 0;
+    uint32_t last_conversion_us = 0;
+    uint32_t last_submission_us = 0;
+    uint32_t last_completion_wait_us = 0;
     uint32_t retained_dma_bytes = 0;
     uint32_t retained_consumer_bytes = 0;
     esp_err_t retained_consumer_error = ESP_OK;
@@ -577,6 +580,9 @@ public:
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.
     // This read never samples FreeRTOS directly or starts another telemetry cache.
     esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;
+    // frame: Last completed operation, including its timestamp and measured/error flags.
+    // This projection never asks the display driver to acquire another measurement.
+    esp_err_t readDisplayFrameObservation(DisplayFrameSnapshot &frame) const;
     // observation: Receives published motion/power fields under one snapshot lock.
     // No hardware refresh or independent measurement ownership is introduced here.
     esp_err_t readMotionPowerObservation(MotionPowerObservation &observation) const;

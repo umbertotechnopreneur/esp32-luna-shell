@@ -78,6 +78,9 @@ esp_err_t bsp_display_write_rgb565(
 typedef struct {
     uint32_t duration_us;
     uint32_t rectangles;
+    uint32_t conversion_us;
+    uint32_t submission_us;
+    uint32_t completion_wait_us;
     uint32_t retained_dma_bytes;
     esp_err_t error;
 } bsp_display_frame_result_t;

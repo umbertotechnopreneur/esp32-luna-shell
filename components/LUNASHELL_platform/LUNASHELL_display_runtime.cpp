@@ -226,6 +226,9 @@ extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
     s_frame_metrics.measured = true;
     s_frame_metrics.last_duration_us = metrics.duration_us;
     s_frame_metrics.last_rectangle_count = metrics.rectangles;
+    s_frame_metrics.last_conversion_us = metrics.conversion_us;
+    s_frame_metrics.last_submission_us = metrics.submission_us;
+    s_frame_metrics.last_completion_wait_us = metrics.completion_wait_us;
     s_frame_metrics.retained_dma_bytes = metrics.retained_dma_bytes;
     s_frame_metrics.reset_required = metrics.retained_dma_bytes != 0;
     s_frame_metrics.last_error = end_error;
