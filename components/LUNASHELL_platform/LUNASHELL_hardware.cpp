@@ -6,6 +6,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_distance_service.hpp"
 #include "LUNASHELL_sensor_fusion.hpp"
 #include "LUNASHELL_settings.hpp"
@@ -79,6 +80,15 @@
 
 namespace {
 
+using LUNASHELL::snapshot_detail::health_for;
+using LUNASHELL::snapshot_detail::set_component;
+using LUNASHELL::snapshot_detail::mark_sample_success;
+using LUNASHELL::snapshot_detail::mark_sample_failure;
+using LUNASHELL::snapshot_detail::log_snapshot_publication_failure;
+using LUNASHELL::snapshot_detail::kDiagnosticPeriodMinMs;
+using LUNASHELL::snapshot_detail::kDiagnosticPeriodMaxMs;
+using LUNASHELL::snapshot_detail::kImuSmoothingMaxPercent;
+
 const char *TAG = "LUNASHELL_snapshot";
 constexpr char kDiagnosticPeriodSetting[] = "diag_ms";
 constexpr char kImuSmoothingSetting[] = "imu_smooth";
@@ -86,10 +96,7 @@ constexpr char kAutoRotationSetting[] = "auto_rotate";
 constexpr char kLegFlipSetting[] = "leg_flip";
 constexpr char kDisplayRotationSetting[] = "display_rot";
 constexpr uint32_t kDiagnosticPeriodDefaultMs = 300;
-constexpr uint32_t kDiagnosticPeriodMinMs = 100;
-constexpr uint32_t kDiagnosticPeriodMaxMs = 2000;
 constexpr uint32_t kImuSmoothingDefaultPercent = 70;
-constexpr uint32_t kImuSmoothingMaxPercent = 90;
 constexpr uint32_t kOrientationSamplePeriodMs = 100;
 constexpr uint32_t kOrientationApplyRetryBackoffMs = 1000;
 constexpr uint32_t kUiMotionSamplePeriodMs = 100;
@@ -491,11 +498,6 @@ esp_err_t give_refresh_mutex(
 template <typename Update>
 esp_err_t update_snapshot(Update update);
 
-void mark_sample_failure(
-    LUNASHELL::ComponentSnapshot &component,
-    esp_err_t error,
-    int64_t sampled_at_us
-);
 
 void publish_imu_calibration_failure(
     esp_err_t error,
@@ -511,22 +513,6 @@ void publish_imu_calibration_failure(
     });
 }
 
-LUNASHELL::DeviceHealth health_for(bool ready, esp_err_t error)
-{
-    if (ready) {
-        return LUNASHELL::DeviceHealth::Ready;
-    }
-    if (error == ESP_ERR_NOT_SUPPORTED) {
-        return LUNASHELL::DeviceHealth::Unknown;
-    }
-    return error == ESP_ERR_NOT_FOUND ? LUNASHELL::DeviceHealth::Missing : LUNASHELL::DeviceHealth::Degraded;
-}
-
-void set_component(LUNASHELL::ComponentSnapshot &component, bool ready, esp_err_t error)
-{
-    component.health = health_for(ready, error);
-    component.last_error = error;
-}
 
 void advance_snapshot_sequence()
 {
@@ -577,38 +563,6 @@ esp_err_t update_snapshot(Update update)
     return ESP_OK;
 }
 
-void mark_sample_success(
-    LUNASHELL::ComponentSnapshot &component,
-    int64_t attempted_at_us,
-    int64_t completed_at_us
-)
-{
-    set_component(component, true, ESP_OK);
-    component.data_valid = true;
-    component.data_stale = false;
-    component.last_attempt_at_us = attempted_at_us;
-    component.last_success_at_us = completed_at_us;
-}
-
-void mark_sample_success(
-    LUNASHELL::ComponentSnapshot &component,
-    int64_t sampled_at_us
-)
-{
-    mark_sample_success(component, sampled_at_us, sampled_at_us);
-}
-
-void mark_sample_failure(
-    LUNASHELL::ComponentSnapshot &component,
-    esp_err_t error,
-    int64_t attempted_at_us
-)
-{
-    set_component(component, false, error);
-    component.data_valid = false;
-    component.data_stale = component.last_success_at_us > 0;
-    component.last_attempt_at_us = attempted_at_us;
-}
 
 void record_first_error(esp_err_t error, esp_err_t *aggregate)
 {
@@ -636,21 +590,6 @@ esp_err_t sample_publication_result(
     return sample_error != ESP_OK ? sample_error : publication_error;
 }
 
-void log_snapshot_publication_failure(
-    const char *operation,
-    esp_err_t error
-)
-{
-    if (error != ESP_OK) {
-        ESP_LOGE(
-            TAG,
-            "%s snapshot publication failed (%s)",
-            operation,
-            esp_err_to_name(error)
-        );
-        std::abort();
-    }
-}
 
 esp_err_t take_snapshot_mutex(TickType_t wait_ticks, const char *operation)
 {
@@ -6209,6 +6148,21 @@ esp_err_t sample_system_state()
 
 }  // namespace
 
+namespace LUNASHELL::snapshot_detail {
+// mutation: Synchronous update executed by the canonical snapshot owner.
+// context: Borrowed caller state; never stored beyond this call.
+esp_err_t apply_snapshot_mutation(SnapshotMutation mutation, void *context)
+{
+    if (mutation == nullptr || context == nullptr) {
+        ESP_LOGE(TAG, "Snapshot mutation rejected: callback=%s context=%p (%s)",
+                 mutation != nullptr ? "present" : "null", context, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    // Keep staging and lock ownership here. Reporters never acquire their own sensor cache.
+    return ::update_snapshot([=](DeviceSnapshot &snapshot) { mutation(snapshot, context); });
+}
+}  // namespace LUNASHELL::snapshot_detail
+
 namespace LUNASHELL {
 
 const char *deviceHealthName(DeviceHealth health)
@@ -6883,525 +6837,6 @@ esp_err_t DeviceSnapshotService::sampleDistanceGeometry(
     return error;
 }
 
-void DeviceSnapshotService::reportStorage(
-    const StorageMountReport &report
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const bool coherent_capacity =
-        report.capacity_bytes > 0 &&
-        report.filesystem_total_bytes > 0 &&
-        report.filesystem_total_bytes <= report.capacity_bytes &&
-        report.free_bytes <= report.filesystem_total_bytes;
-    const bool coherent_mounted =
-        report.outcome == StorageMountOutcome::Mounted &&
-        report.error == ESP_OK &&
-        report.cleanup_error == ESP_OK &&
-        report.cleanup_complete &&
-        !report.poisoned &&
-        report.mounted &&
-        report.card_response_verified &&
-        !report.format_required &&
-        coherent_capacity;
-    esp_err_t effective_error = report.error;
-    if (!coherent_mounted && effective_error == ESP_OK) {
-        effective_error =
-            report.cleanup_error != ESP_OK
-                ? report.cleanup_error
-                : (report.outcome == StorageMountOutcome::NotAttempted
-                       ? ESP_ERR_INVALID_STATE
-                       : ESP_ERR_INVALID_RESPONSE);
-    }
-
-    const esp_err_t publication_error = update_snapshot(
-        [report, coherent_mounted, effective_error, attempted_at_us](
-            DeviceSnapshot &snapshot
-        ) {
-            snapshot.storage.mount_outcome = report.outcome;
-            snapshot.storage.mount_stage = report.stage;
-            snapshot.storage.cleanup_stage = report.cleanup_stage;
-            snapshot.storage.cleanup_error = report.cleanup_error;
-            snapshot.storage.initial_fatfs_result_valid =
-                report.initial_fatfs_result_valid;
-            snapshot.storage.initial_fatfs_result =
-                report.initial_fatfs_result;
-            snapshot.storage.fatfs_result_valid =
-                report.fatfs_result_valid;
-            snapshot.storage.fatfs_result = report.fatfs_result;
-            snapshot.storage.cleanup_fatfs_result_valid =
-                report.cleanup_fatfs_result_valid;
-            snapshot.storage.cleanup_fatfs_result =
-                report.cleanup_fatfs_result;
-            snapshot.storage.cleanup_complete = report.cleanup_complete;
-            snapshot.storage.poisoned = report.poisoned;
-            snapshot.storage.mounted = report.mounted;
-            snapshot.storage.card_response_verified =
-                report.card_response_verified;
-            snapshot.storage.format_required = report.format_required;
-            snapshot.storage.authorization_consumed =
-                report.authorization_consumed;
-            snapshot.storage.authorization_identity_matched =
-                report.authorization_identity_matched;
-            snapshot.storage.format_attempted =
-                report.format_attempted;
-            snapshot.storage.partition_written =
-                report.partition_written;
-            snapshot.storage.formatted = report.formatted;
-            snapshot.storage.mount_attempt_count =
-                report.mount_attempt_count;
-            snapshot.storage.logger_mirror_requested =
-                report.logger_mirror_requested;
-            snapshot.storage.logger_mirror_enabled =
-                report.logger_mirror_enabled;
-
-            if (coherent_mounted) {
-                snapshot.storage.capacity_bytes =
-                    report.capacity_bytes;
-                snapshot.storage.filesystem_total_bytes =
-                    report.filesystem_total_bytes;
-                snapshot.storage.free_bytes = report.free_bytes;
-                mark_sample_success(
-                    snapshot.storage,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.storage,
-                    effective_error,
-                    attempted_at_us
-                );
-                snapshot.storage.health = DeviceHealth::Degraded;
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Storage report",
-        publication_error
-    );
-
-    if (!coherent_mounted) {
-        ESP_LOGW(
-            TAG,
-            "Storage report rejected as current data: outcome=%u mounted=%s card-response=%s error=%s cleanup=%s",
-            static_cast<unsigned>(report.outcome),
-            report.mounted ? "yes" : "no",
-            report.card_response_verified ? "verified" : "unconfirmed",
-            esp_err_to_name(effective_error),
-            esp_err_to_name(report.cleanup_error)
-        );
-    }
-}
-
-void DeviceSnapshotService::reportStorageMirror(
-    bool requested,
-    bool enabled,
-    esp_err_t error,
-    int last_errno,
-    int64_t changed_at_us,
-    uint32_t failure_count
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            snapshot.storage.logger_mirror_requested = requested;
-            snapshot.storage.logger_mirror_enabled = enabled;
-            snapshot.storage.logger_mirror_errno = last_errno;
-            snapshot.storage.logger_mirror_changed_at_us = changed_at_us;
-            snapshot.storage.logger_mirror_failure_count = failure_count;
-            if (error == ESP_OK) {
-                mark_sample_success(
-                    snapshot.storage.logger_mirror,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.storage.logger_mirror,
-                    error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Storage-mirror report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDiagnosticPeriod(
-    uint32_t sample_period_ms,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK &&
-                (sample_period_ms < kDiagnosticPeriodMinMs ||
-                 sample_period_ms > kDiagnosticPeriodMaxMs)
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.diagnostics.sample_period_ms =
-                    sample_period_ms;
-                mark_sample_success(
-                    snapshot.diagnostics.sample_period,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.diagnostics.sample_period,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Diagnostic-period report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportImuSmoothing(
-    uint32_t imu_smoothing_percent,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK &&
-                imu_smoothing_percent > kImuSmoothingMaxPercent
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.diagnostics.imu_smoothing_percent =
-                    imu_smoothing_percent;
-                mark_sample_success(
-                    snapshot.diagnostics.imu_smoothing,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.diagnostics.imu_smoothing,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "IMU-smoothing report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportFullSnapshotPeriod(
-    uint32_t full_snapshot_period_ms,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK &&
-                !isFullSnapshotPeriodSupported(full_snapshot_period_ms)
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.diagnostics.full_snapshot_period_ms =
-                    full_snapshot_period_ms;
-                mark_sample_success(
-                    snapshot.diagnostics.full_snapshot_period,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.diagnostics.full_snapshot_period,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Full-snapshot-period report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportFullSnapshotMonitor(
-    bool monitor_active,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            snapshot.diagnostics.full_snapshot_monitor_active =
-                monitor_active;
-            if (error == ESP_OK) {
-                mark_sample_success(
-                    snapshot.diagnostics.full_snapshot_monitor,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.diagnostics.full_snapshot_monitor,
-                    error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Full-snapshot-monitor report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportSensorFusion(
-    const SensorFusionResult &result,
-    esp_err_t error,
-    int64_t sampled_at_us
-)
-{
-    const int64_t attempted_at_us =
-        sampled_at_us > 0 ? sampled_at_us : esp_timer_get_time();
-    const bool result_is_finite =
-        std::isfinite(result.acceleration_magnitude_mps2) &&
-        std::isfinite(result.angular_speed_dps);
-    const esp_err_t effective_error =
-        error == ESP_OK && !result_is_finite
-            ? ESP_ERR_INVALID_RESPONSE
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.sensor_fusion.gravity_dominant =
-                    result.gravity_dominant;
-                snapshot.sensor_fusion.stationary = result.stationary;
-                snapshot.sensor_fusion.acceleration_magnitude_mps2 =
-                    result.acceleration_magnitude_mps2;
-                snapshot.sensor_fusion.angular_speed_dps =
-                    result.angular_speed_dps;
-                mark_sample_success(
-                    snapshot.sensor_fusion,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.sensor_fusion,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Sensor-fusion report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDistance(const DistanceSnapshot &distance)
-{
-    const esp_err_t publication_error = update_snapshot(
-        [&distance](DeviceSnapshot &snapshot) {
-            snapshot.distance = distance;
-        }
-    );
-    log_snapshot_publication_failure(
-        "Distance report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDiagnosticMonitor(
-    bool imu_monitor_active,
-    bool microphone_monitor_active,
-    bool microphone_spectrum_monitor_active,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (error == ESP_OK) {
-                snapshot.diagnostics.monitor_active =
-                    imu_monitor_active || microphone_monitor_active;
-                snapshot.diagnostics.imu_monitor_active =
-                    imu_monitor_active;
-                snapshot.diagnostics.microphone_monitor_active =
-                    microphone_monitor_active;
-                snapshot.diagnostics.microphone_spectrum_monitor_active =
-                    microphone_spectrum_monitor_active;
-                mark_sample_success(
-                    snapshot.diagnostics.monitor,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.diagnostics.monitor,
-                    error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Diagnostic-monitor report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDisplayBrightness(
-    uint32_t brightness_percent,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK && brightness_percent > 100U
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.ui.brightness_percent =
-                    brightness_percent;
-                mark_sample_success(
-                    snapshot.ui.brightness,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.ui.brightness,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Display-brightness report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDisplayConfiguredBrightness(
-    uint32_t brightness_percent,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK && brightness_percent > 100U
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.ui.configured_brightness_percent = brightness_percent;
-                mark_sample_success(
-                    snapshot.ui.brightness,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.ui.brightness,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Configured-display-brightness report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDisplayPowerMode(
-    UiHardwareSnapshot::DisplayPowerMode display_power_mode,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        error == ESP_OK && display_power_mode == UiHardwareSnapshot::DisplayPowerMode::Unknown
-            ? ESP_ERR_INVALID_ARG
-            : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (effective_error == ESP_OK) {
-                snapshot.ui.display_power_mode_state = display_power_mode;
-                mark_sample_success(
-                    snapshot.ui.display_power_mode,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.ui.display_power_mode,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Display-power-mode report",
-        publication_error
-    );
-}
-
-void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (ready && effective_error == ESP_OK) {
-                mark_sample_success(snapshot.ui.display, attempted_at_us);
-            } else {
-                mark_sample_failure(
-                    snapshot.ui.display,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("Display report", publication_error);
-}
-
-void DeviceSnapshotService::reportTouch(bool ready, esp_err_t error)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (ready && effective_error == ESP_OK) {
-                mark_sample_success(snapshot.ui.touch, attempted_at_us);
-            } else {
-                mark_sample_failure(
-                    snapshot.ui.touch,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("Touch report", publication_error);
-}
-
 void DeviceSnapshotService::reportTouchActivity()
 {
     const int64_t activity_at_us = esp_timer_get_time();
@@ -7412,234 +6847,6 @@ void DeviceSnapshotService::reportTouchActivity()
     s_touch_activity_sequence.fetch_add(
         1,
         std::memory_order_release
-    );
-}
-
-void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t effective_error =
-        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (ready && effective_error == ESP_OK) {
-                mark_sample_success(snapshot.audio.speaker, attempted_at_us);
-            } else {
-                mark_sample_failure(
-                    snapshot.audio.speaker,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("Speaker report", publication_error);
-}
-
-void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            snapshot.radios.wifi = wifi;
-            if (wifi.health == DeviceHealth::Ready &&
-                wifi.last_error == ESP_OK) {
-                mark_sample_success(
-                    snapshot.radios.wifi,
-                    attempted_at_us
-                );
-            } else {
-                const esp_err_t effective_error =
-                    wifi.last_error == ESP_OK
-                        ? ESP_ERR_INVALID_STATE
-                        : wifi.last_error;
-                mark_sample_failure(
-                    snapshot.radios.wifi,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("Wi-Fi report", publication_error);
-}
-
-void DeviceSnapshotService::reportBle(
-    bool ready,
-    esp_err_t error,
-    bool advertising,
-    bool connected,
-    uint16_t connection_handle,
-    uint32_t connection_count,
-    uint32_t disconnection_count,
-    const char *device_name,
-    bool provisioning
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const bool device_name_valid =
-        device_name != nullptr &&
-        device_name[0] != '\0' &&
-        std::strlen(device_name) < sizeof(BleSnapshot::device_name);
-    const esp_err_t effective_error =
-        error == ESP_OK && ready && !device_name_valid
-            ? ESP_ERR_INVALID_ARG
-            : (!ready && error == ESP_OK
-                   ? ESP_ERR_INVALID_STATE
-                   : error);
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            if (ready && effective_error == ESP_OK) {
-                mark_sample_success(
-                    snapshot.radios.ble,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.radios.ble,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-            snapshot.radios.ble.provisioning = provisioning;
-            snapshot.radios.ble.advertising = advertising;
-            snapshot.radios.ble.connected = connected;
-            snapshot.radios.ble.connection_handle = connection_handle;
-            snapshot.radios.ble.connection_count = connection_count;
-            snapshot.radios.ble.disconnection_count = disconnection_count;
-            if (device_name_valid) {
-                strlcpy(
-                    snapshot.radios.ble.device_name,
-                    device_name,
-                    sizeof(snapshot.radios.ble.device_name)
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("BLE report", publication_error);
-}
-
-void DeviceSnapshotService::reportTime(
-    bool system_time_valid,
-    bool synchronized,
-    const char *source,
-    const char *timezone,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const bool source_valid =
-        source != nullptr &&
-        source[0] != '\0' &&
-        std::strlen(source) < sizeof(RtcSnapshot::source);
-    const bool timezone_valid =
-        timezone != nullptr &&
-        timezone[0] != '\0' &&
-        std::strlen(timezone) < sizeof(RtcSnapshot::timezone);
-    esp_err_t effective_error = error;
-    if (effective_error == ESP_OK && !system_time_valid) {
-        effective_error = ESP_ERR_INVALID_STATE;
-    } else if (
-        effective_error == ESP_OK &&
-        (!source_valid || !timezone_valid)
-    ) {
-        effective_error = ESP_ERR_INVALID_ARG;
-    }
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            snapshot.rtc.system_time_valid = system_time_valid;
-            snapshot.rtc.synchronized = synchronized;
-            if (source_valid) {
-                strlcpy(
-                    snapshot.rtc.source,
-                    source,
-                    sizeof(snapshot.rtc.source)
-                );
-            }
-            if (timezone_valid) {
-                strlcpy(
-                    snapshot.rtc.timezone,
-                    timezone,
-                    sizeof(snapshot.rtc.timezone)
-                );
-            }
-            if (system_time_valid && effective_error == ESP_OK) {
-                mark_sample_success(
-                    snapshot.rtc.system_time,
-                    attempted_at_us
-                );
-            } else {
-                mark_sample_failure(
-                    snapshot.rtc.system_time,
-                    effective_error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure("Time report", publication_error);
-}
-
-void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
-{
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) { snapshot.input = inputs; }
-    );
-    log_snapshot_publication_failure("Input report", publication_error);
-}
-
-void DeviceSnapshotService::reportPowerManagement(
-    DeviceOperatingState state,
-    DeviceStateReason reason,
-    bool audio_suspended,
-    bool fullscreen_active,
-    bool command_arc_visible,
-    bool status_arc_visible,
-    UiHardwareSnapshot::DisplayPowerMode display_idle_stage,
-    uint32_t command_arc_timeout_seconds,
-    uint32_t status_arc_timeout_seconds,
-    uint32_t display_dim_timeout_seconds,
-    uint32_t screen_sleep_delay_seconds,
-    uint32_t transition_sequence,
-    int64_t last_activity_at_us,
-    esp_err_t error
-)
-{
-    const int64_t attempted_at_us = esp_timer_get_time();
-    const esp_err_t publication_error = update_snapshot(
-        [=](DeviceSnapshot &snapshot) {
-            snapshot.power.state = state;
-            snapshot.power.reason = reason;
-            snapshot.power.audio_suspended = audio_suspended;
-            snapshot.power.fullscreen_active = fullscreen_active;
-            snapshot.power.command_arc_visible = command_arc_visible;
-            snapshot.power.status_arc_visible = status_arc_visible;
-            snapshot.power.display_idle_stage = display_idle_stage;
-            snapshot.power.command_arc_timeout_seconds =
-                command_arc_timeout_seconds;
-            snapshot.power.status_arc_timeout_seconds =
-                status_arc_timeout_seconds;
-            snapshot.power.display_dim_timeout_seconds =
-                display_dim_timeout_seconds;
-            snapshot.power.screen_sleep_delay_seconds =
-                screen_sleep_delay_seconds;
-            snapshot.power.transition_sequence = transition_sequence;
-            snapshot.power.last_activity_at_us = last_activity_at_us;
-            snapshot.power.changed_at_us = attempted_at_us;
-            if (error == ESP_OK) {
-                mark_sample_success(snapshot.power, attempted_at_us);
-            } else {
-                mark_sample_failure(
-                    snapshot.power,
-                    error,
-                    attempted_at_us
-                );
-            }
-        }
-    );
-    log_snapshot_publication_failure(
-        "Power-management report",
-        publication_error
     );
 }
 

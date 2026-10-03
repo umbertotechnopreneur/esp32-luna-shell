@@ -45,6 +45,8 @@ constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 constexpr uint32_t kWorkerStackBytes = 6144;
 constexpr uint32_t kRigFramePeriodMs = 33;
+// This is a failure deadline, not an FPS claim; real frame cost still needs measurement.
+constexpr uint32_t kFrameBudgetMs = 500;
 
 enum class StartState : uint32_t {
     Idle,
@@ -92,32 +94,38 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
-uint16_t *s_strip = nullptr;
-uint16_t *s_frame_cache = nullptr;
-bool s_frame_cache_valid = false;
+struct CompanionResources {
+    uint16_t *strip = nullptr;
+    uint16_t *frame_cache = nullptr;
+    bool frame_cache_valid = false;
+    CODY::RigScene *rig = nullptr;
+};
+CompanionResources s_resources;
 std::atomic<uint32_t> s_rendered_revision{0};
 std::atomic<bool> s_demo_requested{false};
-// Bounded collector shares the display lock with completed-frame publication.
+// This bounded collector shares the display/state lock with completed frame publication.
 CODY::FrameBenchmark s_benchmark;
-// Read and written only while the shared BSP display lock is held.
-BootPhase s_boot_phase = BootPhase::Sleeping;
-CODY::RigScene *s_rig = nullptr;
-bool s_rig_visible = false;
-bool s_rig_debug = true;
-bool s_touch_pressed = false;
-CODY::PointId s_selected_point = CODY::kNoPoint;
-std::atomic<bool> s_frame_dirty{false};
-int64_t s_animation_elapsed_us = 0;
-int64_t s_animation_sampled_us = 0;
-CODY::ContourState s_contour{};
-CODY::Channels s_face{};
-CODY::ResponseState s_response{};
-CODY::ResponseFrame s_response_frame{};
-bool s_response_sources_logged = false;
-int64_t s_next_frame_us = 0;
-int64_t s_last_timing_log_us = 0;
-uint32_t s_rig_frame_count = 0;
-CODY::FrameRateMeasurement s_frame_rate{};
+struct CompanionState {
+    // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
+    BootPhase boot_phase = BootPhase::Sleeping;
+    bool rig_visible = false;
+    bool rig_debug = true;
+    bool touch_pressed = false;
+    CODY::PointId selected_point = CODY::kNoPoint;
+    std::atomic<bool> frame_dirty{false};
+    int64_t animation_elapsed_us = 0;
+    int64_t animation_sampled_us = 0;
+    CODY::ContourState contour{};
+    CODY::Channels face{};
+    CODY::ResponseState response{};
+    CODY::ResponseFrame response_frame{};
+    bool response_sources_logged = false;
+    int64_t next_frame_us = 0;
+    int64_t last_timing_log_us = 0;
+    uint32_t rig_frame_count = 0;
+    CODY::FrameRateMeasurement frame_rate{};
+};
+CompanionState s_state;
 
 // Adopt one successfully acquired BSP lock. Failed acquisition never creates this guard.
 class DisplayUnlockOnExit final {
@@ -149,6 +157,40 @@ private:
     bool active_ = true;
 };
 
+// Own only the frame acquired by this call; every return passes its original result.
+class StandaloneFrameOnExit final {
+public:
+    // Adopt the platform frame already acquired by this call.
+    StandaloneFrameOnExit() = default;
+
+    // A missed finish is a visible failure; never leave a DMA lease or watchdog behind.
+    ~StandaloneFrameOnExit()
+    {
+        if (active_) {
+            const esp_err_t error = LUNASHELL_display_frame_end(ESP_ERR_INVALID_STATE);
+            ESP_LOGE(kTag, "Unfinished render frame retired (%s)", esp_err_to_name(error));
+        }
+    }
+
+    // draw: Geometry/raster/transfer result; successful completion still checks the deadline.
+    DrawResult finish(DrawResult draw)
+    {
+        draw.error = LUNASHELL_display_frame_end(draw.error);
+        active_ = false;
+        if (draw.error != ESP_OK) {
+            draw.completed_revision = 0;
+        }
+        return draw;
+    }
+
+    // other: Ownership cannot be duplicated.
+    StandaloneFrameOnExit(const StandaloneFrameOnExit &other) = delete;
+    // other: An acquired transaction cannot be replaced.
+    StandaloneFrameOnExit &operator=(const StandaloneFrameOnExit &other) = delete;
+
+private:
+    bool active_ = true;
+};
 
 struct FrameTimings {
     int64_t started_us = 0;
@@ -195,36 +237,60 @@ esp_err_t validate_boot_asset(const CODY2D::IndexedRleImage &image, const char *
     return CODY2D::validate_indexed_rle_image(image);
 }
 
-// Before task creation, only startup owns the strip and no renderer can reference it.
-void release_startup_strip()
+// phase: Typed startup checkpoint; an unknown checkpoint is a visible failure.
+const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
 {
-    s_frame_cache_valid = false;
-    if (s_frame_cache != nullptr) {
-        heap_caps_free(s_frame_cache);
-        s_frame_cache = nullptr;
+    switch (phase) {
+    case BootPhase::Sleeping:
+        return &CODY_asset::sleeping_blue;
+    case BootPhase::Waking:
+        return &CODY_asset::waking_blue;
+    case BootPhase::Ready:
+        return &CODY_asset::ready_blue;
+    default:
+        ESP_LOGE(kTag, "Unknown boot phase rejected: %lu (%s)",
+                 static_cast<unsigned long>(phase), esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return nullptr;
     }
-    if (s_rig != nullptr) {
-        s_rig->~RigScene();
-        heap_caps_free(s_rig);
-        s_rig = nullptr;
+}
+
+// Before task creation, only startup owns the strip and no renderer can reference it.
+void release_companion_resources()
+{
+    s_resources.frame_cache_valid = false;
+    if (s_resources.frame_cache != nullptr) {
+        heap_caps_free(s_resources.frame_cache);
+        s_resources.frame_cache = nullptr;
     }
-    if (s_strip != nullptr) {
-        heap_caps_free(s_strip);
-        s_strip = nullptr;
+    if (s_resources.rig != nullptr) {
+        s_resources.rig->~RigScene();
+        heap_caps_free(s_resources.rig);
+        s_resources.rig = nullptr;
+    }
+    if (s_resources.strip != nullptr) {
+        heap_caps_free(s_resources.strip);
+        s_resources.strip = nullptr;
     }
 }
 
 // Drain every possible boot-completion writer before releasing the worker's strip.
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
-esp_err_t release_worker_strip()
+esp_err_t release_worker_resources()
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
-        ESP_LOGE(kTag, "Strip cleanup retained PSRAM until reset: %s",
+        const uint32_t retained_bytes =
+            (s_resources.strip != nullptr ? kStripPixels * sizeof(uint16_t) : 0) +
+            (s_resources.frame_cache != nullptr ? kFramePixels * sizeof(uint16_t) : 0) +
+            (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0);
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
+            retained_bytes, lock_error
+        );
+        ESP_LOGE(kTag, "Companion cleanup retained PSRAM until reset: %s",
                  esp_err_to_name(lock_error));
         return lock_error;
     }
-    release_startup_strip();
+    release_companion_resources();
     bsp_display_unlock();
     return ESP_OK;
 }
@@ -287,16 +353,16 @@ void log_response_source(CODY::StimulusId source, const CODY::SampleStamp &previ
 // resume_animation: Exclude standby time from both independent animation clocks.
 esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_animation)
 {
-    if (s_rig == nullptr) {
+    if (s_resources.rig == nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
-    const int64_t animation_delta_us = resume_animation || s_animation_sampled_us == 0
-        ? 0 : frame_started_us - s_animation_sampled_us;
+    const int64_t animation_delta_us = resume_animation || s_state.animation_sampled_us == 0
+        ? 0 : frame_started_us - s_state.animation_sampled_us;
     const float animation_delta_ms = static_cast<float>(animation_delta_us) / 1000.f;
     CODY::Channels target_face{};
     CODY::ContourControls target_contour{};
     CODY::DemoPhase phase{};
-    const esp_err_t demo_error = CODY::demo_targets(s_animation_elapsed_us + animation_delta_us,
+    const esp_err_t demo_error = CODY::demo_targets(s_state.animation_elapsed_us + animation_delta_us,
         target_face, target_contour, phase);
     if (demo_error != ESP_OK) {
         ESP_LOGE(kTag, "Authored demo targets rejected: %s", esp_err_to_name(demo_error));
@@ -304,7 +370,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     }
     CODY::Channels next_face{};
     const esp_err_t face_error = CODY::advance_face(
-        s_face, target_face, animation_delta_ms, next_face
+        s_state.face, target_face, animation_delta_ms, next_face
     );
     if (face_error != ESP_OK) {
         return face_error;
@@ -314,7 +380,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (observation_error != ESP_OK) {
         return observation_error;
     }
-    CODY::ResponseState previous_response = s_response;
+    CODY::ResponseState previous_response = s_state.response;
     if (resume_animation) {
         CODY::rebase_response_motion(previous_response);
     }
@@ -338,33 +404,33 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     }
     CODY::ContourState next_contour{};
     const esp_err_t contour_error = CODY::advance_contour(
-        s_contour, response_frame.contour, animation_delta_ms, next_contour
+        s_state.contour, response_frame.contour, animation_delta_ms, next_contour
     );
     if (contour_error != ESP_OK) {
         return contour_error;
     }
     const esp_err_t geometry_error = CODY::evaluate_rig(
-        response_frame.face, response_frame.transform, *s_rig, &next_contour
+        response_frame.face, response_frame.transform, *s_resources.rig, &next_contour
     );
     if (geometry_error != ESP_OK) {
         return geometry_error;
     }
-    s_contour = next_contour;
-    s_face = next_face;
-    log_response_source(CODY::StimulusId::MotionAcceleration, s_response.motion_status,
-                        next_response.motion_status, !s_response_sources_logged);
-    log_response_source(CODY::StimulusId::PowerCharge, s_response.power_status,
-                        next_response.power_status, !s_response_sources_logged);
-    log_response_source(CODY::StimulusId::MicrophoneLevel, s_response.microphone_status,
-                        next_response.microphone_status, !s_response_sources_logged);
-    log_response_source(CODY::StimulusId::SpeakerPlayback, s_response.playback_status,
-                        next_response.playback_status, !s_response_sources_logged);
-    s_response_sources_logged = true;
-    s_response = next_response;
-    s_response_frame = response_frame;
+    s_state.contour = next_contour;
+    s_state.face = next_face;
+    log_response_source(CODY::StimulusId::MotionAcceleration, s_state.response.motion_status,
+                        next_response.motion_status, !s_state.response_sources_logged);
+    log_response_source(CODY::StimulusId::PowerCharge, s_state.response.power_status,
+                        next_response.power_status, !s_state.response_sources_logged);
+    log_response_source(CODY::StimulusId::MicrophoneLevel, s_state.response.microphone_status,
+                        next_response.microphone_status, !s_state.response_sources_logged);
+    log_response_source(CODY::StimulusId::SpeakerPlayback, s_state.response.playback_status,
+                        next_response.playback_status, !s_state.response_sources_logged);
+    s_state.response_sources_logged = true;
+    s_state.response = next_response;
+    s_state.response_frame = response_frame;
     // Parked time never advances the body, breath, blink or contour clocks.
-    s_animation_elapsed_us += animation_delta_us;
-    s_animation_sampled_us = frame_started_us;
+    s_state.animation_elapsed_us += animation_delta_us;
+    s_state.animation_sampled_us = frame_started_us;
     return ESP_OK;
 }
 
@@ -391,24 +457,24 @@ struct CompletedFrameReport {
 esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog &log, bool &should_log)
 {
     should_log = false;
-    s_frame_dirty.store(false, std::memory_order_release);
+    s_state.frame_dirty.store(false, std::memory_order_release);
     log.completed_us = esp_timer_get_time();
-    log.rig = s_rig_visible;
-    log.debug = s_rig_debug;
-    if (!s_rig_visible) {
+    log.rig = s_state.rig_visible;
+    log.debug = s_state.rig_debug;
+    if (!s_state.rig_visible) {
         should_log = CODY::PocData::execution_timings;
         return ESP_OK;
     }
 
     // Let late frames go. Schedule from this frame's real timestamp.
-    s_next_frame_us = timings.started_us + kRigFramePeriodMs * 1000;
-    ++s_rig_frame_count;
+    s_state.next_frame_us = timings.started_us + kRigFramePeriodMs * 1000;
+    ++s_state.rig_frame_count;
     const int64_t completed_us = log.completed_us;
-    CODY::record_frame_rate(s_frame_rate, timings.started_us, completed_us);
+    CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
     if (!CODY::PocData::execution_timings) {
         return ESP_OK;
     }
-    const CODY::OverlayMode mode = s_rig_debug ? CODY::OverlayMode::Skeleton : CODY::OverlayMode::Artwork;
+    const CODY::OverlayMode mode = s_state.rig_debug ? CODY::OverlayMode::Skeleton : CODY::OverlayMode::Artwork;
     const CODY::FrameCosts costs{static_cast<uint32_t>(timings.geometry_us),
         static_cast<uint32_t>(timings.raster_us), static_cast<uint32_t>(timings.transfer_us),
         static_cast<uint32_t>(completed_us - timings.started_us)};
@@ -417,7 +483,7 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
         ESP_LOGE(kTag, "Completed frame timing rejected: %s", esp_err_to_name(error));
         return error;
     }
-    if (s_last_timing_log_us != 0 && completed_us - s_last_timing_log_us <
+    if (s_state.last_timing_log_us != 0 && completed_us - s_state.last_timing_log_us <
         CODY::PocData::report_interval_ms * 1000LL) {
         return ESP_OK;
     }
@@ -426,12 +492,12 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
         ESP_LOGE(kTag, "Completed frame statistics failed: %s", esp_err_to_name(error));
         return error;
     }
-    s_last_timing_log_us = completed_us;
-    log.frame_count = s_rig_frame_count;
-    log.debug = s_rig_debug;
+    s_state.last_timing_log_us = completed_us;
+    log.frame_count = s_state.rig_frame_count;
+    log.debug = s_state.rig_debug;
     log.completed_us = completed_us;
-    log.response = s_response;
-    log.response_frame = s_response_frame;
+    log.response = s_state.response;
+    log.response_frame = s_state.response_frame;
     should_log = true;
     return ESP_OK;
 }
@@ -493,67 +559,77 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
-// deferred_log: Boot defers output until its outer recursive lock is released.
+// deferred_log: Startup's outer recursive lock defers output until that owner releases it.
 DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameReport *deferred_log = nullptr)
 {
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         return {ESP_ERR_INVALID_STATE, renderer_is_parked(), 0};
     }
-    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    const esp_err_t lock_error = LUNASHELL_display_frame_begin(kFrameBudgetMs);
     if (lock_error != ESP_OK) {
         return {lock_error, renderer_is_parked(), 0};
     }
-    DisplayUnlockOnExit display_lock;
+    StandaloneFrameOnExit frame;
+    // Retain the companion's state lock while the completed-frame result is recorded.
+    const esp_err_t state_lock_error = bsp_display_lock(0);
+    if (state_lock_error != ESP_OK) {
+        return frame.finish({state_lock_error, false, 0});
+    }
+    DisplayUnlockOnExit state_lock;
     if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         const esp_err_t error = s_terminal_error.load(std::memory_order_acquire);
-        return {error, false, 0};
+        return frame.finish({error, false, 0});
     }
     if (!LUNASHELL_display_runtime_writes_allowed()) {
         const bool parked = renderer_is_parked();
-        return {ESP_ERR_INVALID_STATE, parked, 0};
+        return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
     }
     const uint32_t revision = LUNASHELL_display_runtime_content_revision();
     if (revision == 0) {
-        return {ESP_ERR_INVALID_RESPONSE, false, 0};
+        return frame.finish({ESP_ERR_INVALID_RESPONSE, false, 0});
     }
-    const auto &image = s_boot_phase == BootPhase::Ready
-        ? CODY_asset::ready_blue
-        : s_boot_phase == BootPhase::Waking
-            ? CODY_asset::waking_blue : CODY_asset::sleeping_blue;
+    const CODY2D::IndexedRleImage *image = boot_asset_for(s_state.boot_phase);
+    if (image == nullptr) {
+        return frame.finish({ESP_ERR_INVALID_STATE, false, 0});
+    }
 
     FrameTimings timings{};
-    const bool compare_previous = s_frame_cache_valid && !resume_animation &&
+    const bool compare_previous = s_resources.frame_cache_valid && !resume_animation &&
         s_rendered_revision.load(std::memory_order_acquire) == revision;
     // A partial cache is never trusted after an error. Only completed frame
     // retirement below makes these candidate pixels eligible for comparison.
-    s_frame_cache_valid = false;
+    s_resources.frame_cache_valid = false;
     const CODY2D::Surface frame_cache{
-        s_frame_cache, kPanelWidth, kPanelHeight, kPanelWidth, kFramePixels
+        s_resources.frame_cache, kPanelWidth, kPanelHeight, kPanelWidth, kFramePixels
     };
     PendingTouchReports pending_touch;
     timings.started_us = esp_timer_get_time();
     CODY::DebugReadout debug_readout;
-    if (s_rig_visible) {
+    if (s_state.rig_visible) {
         if (resume_animation) {
-            s_frame_rate = {};
+            s_state.frame_rate = {};
             s_benchmark.reset();
         }
         const esp_err_t readout_error = CODY::prepare_debug_readout(
-            s_frame_rate, timings.started_us, debug_readout
+            s_state.frame_rate, timings.started_us, debug_readout
         );
         if (readout_error != ESP_OK) {
-            return {readout_error, false, 0};
+            return frame.finish({readout_error, false, 0});
         }
         const esp_err_t geometry_error = evaluate_companion_geometry(
             timings.started_us, resume_animation
         );
         if (geometry_error != ESP_OK) {
-            return {geometry_error, false, 0};
+            return frame.finish({geometry_error, false, 0});
         }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
     esp_err_t result = ESP_OK;
     for (uint32_t row = 0; row < kPanelHeight; row += kStripRows) {
+        result = LUNASHELL_display_frame_check_deadline();
+        if (result != ESP_OK) {
+            break;
+        }
         if (s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
             result = s_terminal_error.load(std::memory_order_acquire);
             break;
@@ -562,23 +638,28 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         // standby request from closing the gate until the complete frame ends.
         if (!LUNASHELL_display_runtime_writes_allowed()) {
             const bool parked = renderer_is_parked();
-            return {ESP_ERR_INVALID_STATE, parked, 0};
+            return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
         }
         const uint32_t remaining_rows = kPanelHeight - row;
         const uint16_t strip_rows = static_cast<uint16_t>(
             remaining_rows < kStripRows ? remaining_rows : kStripRows
         );
         const CODY2D::Surface strip{
-            s_strip, kPanelWidth, strip_rows, kPanelWidth, kStripPixels
+            s_resources.strip, kPanelWidth, strip_rows, kPanelWidth, kStripPixels
         };
         const int64_t raster_started_us = esp_timer_get_time();
-        result = s_rig_visible
-            ? CODY::draw_rig_rows(*s_rig, strip, static_cast<uint16_t>(row), s_rig_debug, s_selected_point)
-            : CODY2D::decode_rows(image, row, strip);
-        if (result == ESP_OK && s_rig_visible) {
-            result = CODY::draw_debug_readout_rows(
-                debug_readout, strip, static_cast<uint16_t>(row)
+        if (s_state.rig_visible) {
+            result = CODY::draw_rig_rows(
+                *s_resources.rig, strip, static_cast<uint16_t>(row),
+                s_state.rig_debug, s_state.selected_point
             );
+            if (result == ESP_OK) {
+                result = CODY::draw_debug_readout_rows(
+                    debug_readout, strip, static_cast<uint16_t>(row)
+                );
+            }
+        } else {
+            result = CODY2D::decode_rows(*image, row, strip);
         }
         CODY::DamageRect damage;
         CODY2D::Surface packed;
@@ -623,22 +704,26 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         s_start_state.load(std::memory_order_acquire) == StartState::Failed) {
         result = s_terminal_error.load(std::memory_order_acquire);
     }
-    s_frame_cache_valid = result == ESP_OK;
+    const uint32_t completed_revision = result == ESP_OK ? revision : 0;
+    const DrawResult completed = frame.finish({result, false, completed_revision});
+    s_resources.frame_cache_valid = completed.error == ESP_OK;
     CompletedFrameLog log{};
     log.readout = debug_readout;
     bool should_log = false;
-    if (result == ESP_OK) {
+    if (completed.error == ESP_OK) {
         const esp_err_t statistics_error = record_completed_frame(timings, log, should_log);
         if (statistics_error != ESP_OK) {
             return {fail_consumer("Completed frame statistics", statistics_error, false), false, 0};
         }
+    }
+    if (completed.error == ESP_OK) {
         const esp_err_t input_error = dispatch_pending_touch(pending_touch);
         if (input_error != ESP_OK) {
             return {fail_consumer("Deferred touch dispatch", input_error, true), false, 0};
         }
     }
-    // Output runs outside this render lock; boot defers its outer lock too.
-    display_lock.release();
+    // A slow log sink must not keep rotation or standby waiting behind the renderer.
+    state_lock.release();
     if (should_log) {
         if (deferred_log != nullptr) {
             deferred_log->timings = timings;
@@ -648,7 +733,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             log_completed_frame(timings, log);
         }
     }
-    return {result, false, result == ESP_OK ? revision : 0};
+    return completed;
 }
 
 // requested_phase: Next real startup checkpoint; backward or duplicate changes are rejected.
@@ -669,10 +754,10 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
         return error;
     }
     const bool is_next_checkpoint =
-        (s_boot_phase == BootPhase::Sleeping && requested_phase == BootPhase::Waking) ||
-        (s_boot_phase == BootPhase::Waking && requested_phase == BootPhase::Ready);
+        (s_state.boot_phase == BootPhase::Sleeping && requested_phase == BootPhase::Waking) ||
+        (s_state.boot_phase == BootPhase::Waking && requested_phase == BootPhase::Ready);
     if (!is_next_checkpoint) {
-        const uint32_t current_phase = static_cast<uint32_t>(s_boot_phase);
+        const uint32_t current_phase = static_cast<uint32_t>(s_state.boot_phase);
         bsp_display_unlock();
         ESP_LOGE(kTag, "%s rejected: current phase=%lu requested phase=%lu (%s)",
                  operation, static_cast<unsigned long>(current_phase),
@@ -681,7 +766,7 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
         return ESP_ERR_INVALID_STATE;
     }
     // Every immutable flash asset completed full validation before worker creation.
-    s_boot_phase = requested_phase;
+    s_state.boot_phase = requested_phase;
     CompletedFrameReport report;
     const DrawResult draw = draw_companion_frame(false, &report);
     if (draw.error != ESP_OK) {
@@ -698,23 +783,47 @@ esp_err_t advance_boot_phase(BootPhase requested_phase, const char *operation)
     return ESP_OK;
 }
 
+// Semantic touch identities are independent from renderer storage.
+enum class TouchAction : uint8_t {
+    None,
+    ReturnToBoot,
+    ToggleOverlay,
+    SelectPoint,
+};
+
+// point: Real logical touch coordinate already mapped by the display owner.
+TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
+{
+    const int32_t vertical_offset = static_cast<int32_t>(point.y) - 233;
+    const int32_t back_offset = static_cast<int32_t>(point.x) - 40;
+    const int32_t overlay_offset = static_cast<int32_t>(point.x) - 426;
+    // Small icons, generous fingers: keep the full 60-pixel circles alive.
+    if (back_offset * back_offset + vertical_offset * vertical_offset <= 30 * 30) {
+        return TouchAction::ReturnToBoot;
+    }
+    if (overlay_offset * overlay_offset + vertical_offset * vertical_offset <= 30 * 30) {
+        return TouchAction::ToggleOverlay;
+    }
+    return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
+}
+
 // Shared route entry: touch and automatic demo use the same clocks, buffers and model.
 // Caller owns the display/state lock; entering does not draw while another frame is active.
 void enter_animation_demo()
 {
-    s_rig_visible = true;
-    s_rig_debug = true;
-    s_animation_elapsed_us = 0;
-    s_contour = CODY::make_contour_state();
-    s_face = CODY::Data::ready;
-    s_response = CODY::make_response_state(CODY::Data::response);
-    s_response_sources_logged = false;
-    s_animation_sampled_us = 0;
-    s_last_timing_log_us = 0;
-    s_rig_frame_count = 0;
-    s_frame_rate = {};
+    s_state.rig_visible = true;
+    s_state.rig_debug = true;
+    s_state.animation_elapsed_us = 0;
+    s_state.contour = CODY::make_contour_state();
+    s_state.face = CODY::Data::ready;
+    s_state.response = CODY::make_response_state(CODY::Data::response);
+    s_state.response_sources_logged = false;
+    s_state.animation_sampled_us = 0;
+    s_state.last_timing_log_us = 0;
+    s_state.rig_frame_count = 0;
+    s_state.frame_rate = {};
     s_benchmark.reset();
-    s_frame_dirty.store(true, std::memory_order_release);
+    s_state.frame_dirty.store(true, std::memory_order_release);
     ESP_LOGI(kTag, "Animation demo entered: %s; authored targets and real snapshot stimuli", CODY::Data::character_name);
 }
 
@@ -729,10 +838,10 @@ esp_err_t apply_demo_request()
         return lock_error;
     }
     const DisplayUnlockOnExit lock;
-    if (s_boot_phase != BootPhase::Ready) {
+    if (s_state.boot_phase != BootPhase::Ready) {
         return ESP_ERR_INVALID_STATE;
     }
-    if (!s_rig_visible) {
+    if (!s_state.rig_visible) {
         enter_animation_demo();
     }
     return ESP_OK;
@@ -741,39 +850,39 @@ esp_err_t apply_demo_request()
 // point: Successfully acquired valid hardware sample, handled under the display lock.
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
-    const bool pressed_edge = point.pressed && !s_touch_pressed;
-    s_touch_pressed = point.pressed;
-    if (pressed_edge && s_boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
-        if (!s_rig_visible) {
+    const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    s_state.touch_pressed = point.pressed;
+    if (pressed_edge && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed()) {
+        if (!s_state.rig_visible) {
             if (point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
                 enter_animation_demo();
             }
         } else {
             const TouchAction action = classify_rig_touch(point);
             if (action == TouchAction::ReturnToBoot) {
-                s_rig_visible = false;
-                s_selected_point = CODY::kNoPoint;
+                s_state.rig_visible = false;
+                s_state.selected_point = CODY::kNoPoint;
                 ESP_LOGI(kTag, "Rig Back -> completed boot checkpoint");
             } else if (action == TouchAction::ToggleOverlay) {
-                s_rig_debug = !s_rig_debug;
-                s_selected_point = CODY::kNoPoint;
-                s_last_timing_log_us = 0;
-                ESP_LOGI(kTag, "Rig geometry overlay=%u", s_rig_debug);
+                s_state.rig_debug = !s_state.rig_debug;
+                s_state.selected_point = CODY::kNoPoint;
+                s_state.last_timing_log_us = 0;
+                ESP_LOGI(kTag, "Rig geometry overlay=%u", s_state.rig_debug);
             } else if (action == TouchAction::SelectPoint) {
-                const esp_err_t selection_error = CODY::nearest_rig_point(*s_rig,
-                    {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_selected_point);
+                const esp_err_t selection_error = CODY::nearest_rig_point(*s_resources.rig,
+                    {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_state.selected_point);
                 if (selection_error != ESP_OK) {
                     return selection_error;
                 }
-                if (s_selected_point != CODY::kNoPoint) {
-                    const auto local = s_rig->local[CODY::to_index(s_selected_point)];
+                if (s_state.selected_point != CODY::kNoPoint) {
+                    const auto local = s_resources.rig->local[CODY::to_index(s_state.selected_point)];
                     ESP_LOGI(kTag, "Rig point=%s local=(%.4f,%.4f) touch=(%u,%u)",
-                             CODY::rig_point_name(s_selected_point), local.x, local.y, point.x, point.y);
+                             CODY::rig_point_name(s_state.selected_point), local.x, local.y, point.x, point.y);
                 }
             }
-            if (s_rig_frame_count != 0 && action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay) {
+            if (s_state.rig_frame_count != 0 && action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay) {
                 CODY::EyeId eye = CODY::EyeId::None;
-                const esp_err_t hit_error = CODY::hit_test_eye(*s_rig,
+                const esp_err_t hit_error = CODY::hit_test_eye(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)},
                     CODY::Data::response.touch.eye_hit_radius, eye);
                 if (hit_error != ESP_OK) {
@@ -791,7 +900,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                         eye == CODY::EyeId::Left ? "left" : "right");
                 }
             }
-            s_frame_dirty.store(true, std::memory_order_release);
+            s_state.frame_dirty.store(true, std::memory_order_release);
         }
     }
     return ESP_OK;
@@ -804,18 +913,16 @@ TouchPollResult read_touch_report(LUNASHELL_touch_point_t &point)
     if (lock_error != ESP_OK) {
         return {TouchPollStatus::Failed, lock_error};
     }
+    const DisplayUnlockOnExit display_lock;
     const esp_err_t sample_error = LUNASHELL_touch_read_point(&point);
     if (sample_error == ESP_ERR_NOT_FOUND && point.error == sample_error &&
         !point.valid && point.sample_timestamp_us == 0) {
-        bsp_display_unlock();
         return {TouchPollStatus::NoReport, sample_error};
     }
     if (sample_error != ESP_OK || !point.valid) {
-        bsp_display_unlock();
         return {TouchPollStatus::Failed,
                 sample_error != ESP_OK ? sample_error : ESP_ERR_INVALID_RESPONSE};
     }
-    bsp_display_unlock();
     return {TouchPollStatus::Reported, ESP_OK};
 }
 
@@ -858,14 +965,13 @@ TouchPollResult sample_touch()
     if (lock_error != ESP_OK) {
         return {TouchPollStatus::Failed, lock_error};
     }
+    const DisplayUnlockOnExit display_lock;
     LUNASHELL_touch_point_t point{};
     const TouchPollResult sample = read_touch_report(point);
     if (sample.status != TouchPollStatus::Reported) {
-        bsp_display_unlock();
         return sample;
     }
     const esp_err_t route_error = handle_touch_sample(point);
-    bsp_display_unlock();
     return {route_error == ESP_OK ? TouchPollStatus::Reported : TouchPollStatus::Failed,
             route_error};
 }
@@ -878,11 +984,11 @@ void companion_worker(void *context)
     for (;;) {
         const int64_t now_us = esp_timer_get_time();
         // Only this worker changes rig visibility after startup; boot remains static.
-        const int64_t remaining_us = s_next_frame_us - now_us;
+        const int64_t remaining_us = s_state.next_frame_us - now_us;
         uint32_t wait_ms = kSamplePeriodMs;
         if (parked) {
             wait_ms = kStandbySamplePeriodMs;
-        } else if (s_rig_visible) {
+        } else if (s_state.rig_visible) {
             wait_ms = remaining_us > 0 ?
                 static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
         }
@@ -913,12 +1019,12 @@ void companion_worker(void *context)
             continue;
         }
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
-        if (!parked && s_rig_visible && esp_timer_get_time() < s_next_frame_us &&
-            !s_frame_dirty.load(std::memory_order_acquire) &&
+        if (!parked && s_state.rig_visible && esp_timer_get_time() < s_state.next_frame_us &&
+            !s_state.frame_dirty.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
-        if (!parked && !s_rig_visible && !s_frame_dirty.load(std::memory_order_acquire) &&
+        if (!parked && !s_state.rig_visible && !s_state.frame_dirty.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
@@ -936,7 +1042,7 @@ void companion_worker(void *context)
         s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
         parked = false;
     }
-    const esp_err_t cleanup_error = release_worker_strip();
+    const esp_err_t cleanup_error = release_worker_resources();
     if (cleanup_error != ESP_OK) {
         fail_consumer("Strip cleanup", cleanup_error, false);
     }
@@ -981,35 +1087,35 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (response_config_error != ESP_OK) {
         return fail_consumer("Response configuration", response_config_error, false);
     }
-    s_response = CODY::make_response_state(CODY::Data::response);
-    s_strip = static_cast<uint16_t *>(heap_caps_malloc(
+    s_state.response = CODY::make_response_state(CODY::Data::response);
+    s_resources.strip = static_cast<uint16_t *>(heap_caps_malloc(
         kStripPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
-    if (s_strip == nullptr) {
+    if (s_resources.strip == nullptr) {
         return fail_consumer("Boot strip allocation", ESP_ERR_NO_MEM, false);
     }
-    s_frame_cache = static_cast<uint16_t *>(heap_caps_malloc(
+    s_resources.frame_cache = static_cast<uint16_t *>(heap_caps_malloc(
         kFramePixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));
-    if (s_frame_cache == nullptr) {
-        release_startup_strip();
+    if (s_resources.frame_cache == nullptr) {
+        release_companion_resources();
         return fail_consumer("PSRAM frame cache allocation", ESP_ERR_NO_MEM, false);
     }
     void *rig_storage = heap_caps_malloc(sizeof(CODY::RigScene), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (rig_storage == nullptr) {
-        release_startup_strip();
+        release_companion_resources();
         return fail_consumer("Rig scene allocation", ESP_ERR_NO_MEM, false);
     }
-    s_rig = new (rig_storage) CODY::RigScene{};
+    s_resources.rig = new (rig_storage) CODY::RigScene{};
     const DrawResult draw = draw_companion_frame();
     if (draw.error != ESP_OK) {
-        release_startup_strip();
+        release_companion_resources();
         return fail_consumer("Mandatory boot frame", draw.error, false);
     }
     s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
     const TouchPollResult touch = sample_touch();
     if (touch.status == TouchPollStatus::Failed) {
-        release_startup_strip();
+        release_companion_resources();
         return fail_consumer("Mandatory touch input", touch.error, true);
     }
     if (touch.status == TouchPollStatus::NoReport) {
@@ -1021,7 +1127,7 @@ extern "C" esp_err_t CODY_companion_start(void)
             companion_worker, "CODY_companion", kWorkerStackBytes,
             nullptr, 2, &worker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
-        release_startup_strip();
+        release_companion_resources();
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
     ESP_LOGI(kTag, "Blue boot frame and real touch ready; strip=%lu bytes, active=%lu ms standby=%lu ms",
@@ -1056,11 +1162,11 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
     }
     const DisplayUnlockOnExit lock;
     if (s_start_state.load(std::memory_order_acquire) != StartState::Running ||
-        s_boot_phase != BootPhase::Ready) {
+        s_state.boot_phase != BootPhase::Ready) {
         ESP_LOGE(kTag, "Demo entry state rejected: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    if (s_rig_visible) {
+    if (s_state.rig_visible) {
         return ESP_OK; // A real touch may already have entered while startup finishes.
     }
     s_demo_requested.store(true, std::memory_order_release);

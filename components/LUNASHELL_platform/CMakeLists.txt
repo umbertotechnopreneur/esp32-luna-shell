@@ -1,5 +1,6 @@
 set(LUNASHELL_platform_srcs
     "LUNASHELL_hardware.cpp"
+    "LUNASHELL_snapshot_reports.cpp"
     "LUNASHELL_liveness.cpp"
     "LUNASHELL_snapshot_scheduler.cpp"
     "LUNASHELL_sensor_fusion.cpp"

@@ -268,8 +268,24 @@ struct OrientationSnapshot : ComponentSnapshot {
     int64_t changed_at_us = 0;
 };
 
+struct DisplayFrameSnapshot {
+    bool measured = false;
+    uint32_t completed_frames = 0;
+    uint32_t failed_frames = 0;
+    uint32_t last_lock_wait_us = 0;
+    uint32_t last_duration_us = 0;
+    uint32_t last_rectangle_count = 0;
+    uint32_t retained_dma_bytes = 0;
+    uint32_t retained_consumer_bytes = 0;
+    esp_err_t retained_consumer_error = ESP_OK;
+    bool reset_required = false;
+    esp_err_t last_error = ESP_ERR_INVALID_STATE;
+    int64_t completed_at_us = 0;
+};
+
 struct UiHardwareSnapshot {
     ComponentSnapshot display;
+    DisplayFrameSnapshot rendering;
     ComponentSnapshot touch;
     ComponentSnapshot brightness;
     ComponentSnapshot display_power_mode;
@@ -605,6 +621,11 @@ public:
         esp_err_t error
     );
     void reportDisplay(bool ready, esp_err_t error);
+    // frame: Completed operation metrics; unmeasured fields remain explicitly unavailable.
+    void reportDisplayFrame(const DisplayFrameSnapshot &frame);
+    // bytes: Consumer-owned PSRAM retained because cleanup could not prove exclusive ownership.
+    // error: Original cleanup failure, preserved separately from transfer failures.
+    void reportDisplayConsumerRetention(uint32_t bytes, esp_err_t error);
     void reportTouch(bool ready, esp_err_t error);
     void reportTouchActivity();
     void reportSpeaker(bool ready, esp_err_t error);

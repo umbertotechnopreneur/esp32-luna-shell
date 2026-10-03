@@ -7,6 +7,9 @@
 #include "LUNASHELL_liveness.h"
 
 #include <atomic>
+#include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 #include "esp_log.h"
 #include "sdkconfig.h"
@@ -23,6 +26,15 @@ constexpr char kTag[] = "LUNASHELL_display_runtime";
 std::atomic_bool s_writes_suspended{false};
 std::atomic_bool s_runtime_ready{false};
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
+std::atomic<TaskHandle_t> s_frame_owner{nullptr};
+// These metrics belong to the owner while the BSP frame lock is held.
+LUNASHELL::DisplayFrameSnapshot s_frame_metrics{};
+
+// Return whether this call belongs to the currently locked frame.
+bool owns_display_frame()
+{
+    return s_frame_owner.load(std::memory_order_acquire) == xTaskGetCurrentTaskHandle();
+}
 #endif
 
 // operation: Display or touch operation whose result is being reported.
@@ -118,6 +130,100 @@ extern "C" esp_err_t LUNASHELL_display_runtime_set_suspended(bool suspended)
 #endif
 }
 
+// budget_ms: Total budget for one standalone frame, including geometry and raster work.
+extern "C" esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    const int64_t lock_started_us = esp_timer_get_time();
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, lock_error);
+        return log_operation_result("Frame lock", lock_error);
+    }
+    const uint32_t lock_wait_us = static_cast<uint32_t>(esp_timer_get_time() - lock_started_us);
+    if (!LUNASHELL_display_runtime_writes_allowed() ||
+        s_frame_owner.load(std::memory_order_acquire) != nullptr) {
+        bsp_display_unlock();
+        return log_operation_result("Frame begin state", ESP_ERR_INVALID_STATE);
+    }
+    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(LUNASHELL_LIVENESS_DISPLAY);
+    if (watch_error != ESP_OK) {
+        bsp_display_unlock();
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, watch_error);
+        return log_operation_result("Frame watchdog start", watch_error);
+    }
+    const esp_err_t begin_error = bsp_display_frame_begin(budget_ms);
+    // Keep both levels on success: watch cleanup and publication precede final unlock.
+    if (begin_error != ESP_OK) {
+        const esp_err_t error = LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_DISPLAY, begin_error);
+        bsp_display_unlock();
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, error);
+        return log_operation_result("Frame begin", error);
+    }
+    s_frame_metrics.last_lock_wait_us = lock_wait_us;
+    s_frame_owner.store(xTaskGetCurrentTaskHandle(), std::memory_order_release);
+    return ESP_OK;
+#else
+    (void)budget_ms;
+    return log_operation_result("Frame begin", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
+// Deadline failures remain failures even when the caller has not submitted pixels yet.
+extern "C" esp_err_t LUNASHELL_display_frame_check_deadline(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (!owns_display_frame()) {
+        return log_operation_result("Frame deadline owner", ESP_ERR_INVALID_STATE);
+    }
+    const esp_err_t error = bsp_display_frame_check_deadline();
+    if (error != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, error);
+    }
+    return error;
+#else
+    return log_operation_result("Frame deadline", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
+// frame_error: Original failure from the renderer, or success after its final strip.
+extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (!owns_display_frame()) {
+        return log_operation_result("Frame end owner", ESP_ERR_INVALID_STATE);
+    }
+    // The outer level is already ours, even if a DMA fault now rejects new locks.
+    bsp_display_frame_result_t metrics{};
+    const esp_err_t deadline_error = bsp_display_frame_check_deadline();
+    const esp_err_t render_error = frame_error != ESP_OK ? frame_error : deadline_error;
+    const esp_err_t watched_error = LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_DISPLAY, render_error);
+    const esp_err_t end_error = bsp_display_frame_end(watched_error, &metrics);
+    // State and metric publication must precede releasing our platform owner below.
+    s_frame_metrics.measured = true;
+    s_frame_metrics.last_duration_us = metrics.duration_us;
+    s_frame_metrics.last_rectangle_count = metrics.rectangles;
+    s_frame_metrics.retained_dma_bytes = metrics.retained_dma_bytes;
+    s_frame_metrics.reset_required = metrics.retained_dma_bytes != 0;
+    s_frame_metrics.last_error = end_error;
+    s_frame_metrics.completed_at_us = esp_timer_get_time();
+    if (end_error == ESP_OK) {
+        ++s_frame_metrics.completed_frames;
+    } else {
+        ++s_frame_metrics.failed_frames;
+    }
+    const auto completed_metrics = s_frame_metrics;
+    s_runtime_ready.store(bsp_display_is_ready(), std::memory_order_release);
+    s_frame_owner.store(nullptr, std::memory_order_release);
+    LUNASHELL::DeviceSnapshotService::instance().reportDisplayFrame(completed_metrics);
+    bsp_display_unlock();
+    return log_operation_result("Frame completion", end_error);
+#else
+    (void)frame_error;
+    return log_operation_result("Frame end", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
 // x_start: First included horizontal pixel coordinate.
 // y_start: First included vertical pixel coordinate.
 // x_end: First excluded horizontal pixel coordinate.
@@ -141,7 +247,8 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
         bsp_display_unlock();
         return log_operation_result("RGB565 rectangle write during standby", ESP_ERR_INVALID_STATE);
     }
-    const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
+    const bool in_frame = owns_display_frame();
+    const esp_err_t watch_error = in_frame ? ESP_OK : LUNASHELL_liveness_watch_begin(
         LUNASHELL_LIVENESS_DISPLAY
     );
     if (watch_error != ESP_OK) {
@@ -152,14 +259,15 @@ extern "C" esp_err_t LUNASHELL_display_write_rgb565(
     const esp_err_t write_result = bsp_display_write_rgb565(
         x_start, y_start, x_end, y_end, pixels
     );
-    const esp_err_t result = LUNASHELL_liveness_watch_end(
+    const esp_err_t result = in_frame ? write_result : LUNASHELL_liveness_watch_end(
         LUNASHELL_LIVENESS_DISPLAY, write_result
     );
     s_runtime_ready.store(bsp_display_is_ready(), std::memory_order_release);
     bsp_display_unlock();
-    LUNASHELL::DeviceSnapshotService::instance().reportDisplay(
-        result == ESP_OK, result
-    );
+    // Every failed strip is visible immediately; success belongs to the whole frame.
+    if (!in_frame || result != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(result == ESP_OK, result);
+    }
     if (result != ESP_OK) {
         ESP_LOGE(kTag, "RGB565 rectangle [%d,%d)-[%d,%d), pixels=%s: %s",
                  x_start, y_start, x_end, y_end,

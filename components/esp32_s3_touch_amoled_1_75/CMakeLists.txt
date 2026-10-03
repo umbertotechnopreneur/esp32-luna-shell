@@ -105,7 +105,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION)
 endif()
 
 idf_component_register(
-    SRCS "esp32_s3_touch_amoled_1_75.c" ${SRC_VER}
+    SRCS "esp32_s3_touch_amoled_1_75.c" "bsp_display_dma.c" ${SRC_VER}
     INCLUDE_DIRS "include" "include/bsp"
     REQUIRES ${REQ} esp_lcd
     PRIV_REQUIRES ${PRIV_REQ} esp_timer spiffs esp_psram

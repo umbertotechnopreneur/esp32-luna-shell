@@ -239,6 +239,14 @@ bool LUNASHELL_display_runtime_writes_allowed(void);
 /** Query the panel revision; a change requires the caller to redraw its full content. */
 uint32_t LUNASHELL_display_runtime_content_revision(void);
 
+/** Begin one bounded standalone frame; the same task must finish it. */
+// budget_ms: Aggregate rendering/transfer budget, 1..1000 ms after acquiring the lock.
+esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms);
+/** Check the frame deadline between geometry/raster stages, without resetting it. */
+esp_err_t LUNASHELL_display_frame_check_deadline(void);
+// frame_error: First geometry/raster/transfer error; partial frames cannot report success.
+esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error);
+
 /** Write one packed native little-endian RGB565 rectangle through the standalone panel. */
 // x_start: First included horizontal pixel coordinate.
 // y_start: First included vertical pixel coordinate.
@@ -320,7 +328,6 @@ esp_err_t LUNASHELL_audio_init(void);
 // volume_percent: Explicit 0..100 output volume.
 esp_err_t LUNASHELL_audio_set_startup_cue(const int16_t *samples, size_t sample_count,
                                         uint32_t sample_rate_hz, int volume_percent);
-
 
 /** Return the number of physically selected microphone channels: 0, 1, or 2. */
 uint8_t LUNASHELL_audio_input_channel_count(void);

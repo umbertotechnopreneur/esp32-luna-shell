@@ -43,6 +43,7 @@
 #include "bsp/esp32_s3_touch_amoled_1_75.h"
 #include "bsp/display.h"
 #include "bsp/touch.h"
+#include "bsp_display_dma.h"
 
 static const char *TAG = "ESP32-S3-Touch-AMOLED-1.75";
 
@@ -55,7 +56,6 @@ static uint32_t display_content_revision;
 static bsp_display_rotation_t current_rotation = BSP_DISPLAY_ROTATE_0;
 static bool display_rotation_consistent = true;
 static bool display_panel_output_enabled = false;
-static bool display_dma_low_memory_reported = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static lv_display_t *display_handle = NULL;
 static lv_indev_t *disp_indev = NULL;
@@ -105,36 +105,6 @@ static void bsp_touch_activity_event_cb(lv_event_t *event)
 #define BSP_SDCARD_FORMAT_WORK_BUFFER_SIZE 4096U
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
-#define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
-#define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
-// Larger transient slots amortize standalone command/completion overhead.
-#define BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT 32U
-#define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
-#define BSP_DISPLAY_DMA_ALIGNMENT          64U
-#define BSP_DISPLAY_DMA_HEADROOM_BYTES     4096U
-#define BSP_DISPLAY_DMA_EMERGENCY_ROWS     1U
-#define BSP_DISPLAY_REPLAY_TRANSFER_HEIGHT BSP_DISPLAY_DMA_TRANSFER_HEIGHT
-#define BSP_DISPLAY_CIRCLE_EDGE_PADDING    2
-#define BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS 1000U
-#define BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS 1000U
-#define BSP_DISPLAY_FRAME_BYTES            \
-    ((size_t)BSP_LCD_H_RES * BSP_LCD_V_RES * BSP_LCD_BITS_PER_PIXEL / 8U)
-#define BSP_DISPLAY_DMA_ROW_BYTES           \
-    ((size_t)BSP_LCD_H_RES * BSP_LCD_BITS_PER_PIXEL / 8U)
-#define BSP_DISPLAY_DMA_ALIGNED_BYTES(_bytes) \
-    (((_bytes) + BSP_DISPLAY_DMA_ALIGNMENT - 1U) & \
-     ~(BSP_DISPLAY_DMA_ALIGNMENT - 1U))
-#define BSP_DISPLAY_DMA_SLOT_BYTES          \
-    BSP_DISPLAY_DMA_ALIGNED_BYTES(          \
-        BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_TRANSFER_HEIGHT \
-    )
-#define BSP_DISPLAY_DMA_PIPELINE_BYTES       \
-    (BSP_DISPLAY_DMA_SLOT_BYTES * BSP_DISPLAY_DMA_PIPELINE_DEPTH)
-#define BSP_DISPLAY_DMA_EMERGENCY_BYTES      \
-    BSP_DISPLAY_DMA_ALIGNED_BYTES(           \
-        BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_EMERGENCY_ROWS \
-    )
-
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI && CONFIG_BSP_LCD_TRANS_QUEUE_DEPTH < BSP_DISPLAY_DMA_PIPELINE_DEPTH
 #error "LCD transaction queue must hold the display DMA pipeline"
 #endif
@@ -148,34 +118,26 @@ _Static_assert(
     "Display DMA emergency slot must hold one full row"
 );
 
-typedef struct {
-    uint8_t *data;
-    size_t slot_stride_bytes;
-    size_t buffer_count;
-    size_t transfer_rows;
-    bool heap_owned;
-    bool emergency;
-} bsp_display_dma_lease_t;
+
 
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
 // A failed completion must retain memory that the SPI peripheral may still own.
 static bsp_display_dma_lease_t display_dma_fault_lease;
+static uint32_t display_dma_retained_bytes;
+typedef struct {
+    TaskHandle_t owner;
+    bsp_display_dma_lease_t lease;
+    int64_t started_at_us;
+    int64_t deadline_us;
+    uint32_t rectangles;
+    esp_err_t error;
+} bsp_display_frame_t;
+static bsp_display_frame_t display_frame;
 #endif
 
-// This one-row last resort is deliberately internal and static. It guarantees
-// display progress without recreating the old multi-row persistent staging
-// buffer that consumed and fragmented substantially more internal SRAM.
-static DMA_ATTR uint8_t
-    display_dma_emergency_buffer[BSP_DISPLAY_DMA_EMERGENCY_BYTES]
-    __attribute__((aligned(BSP_DISPLAY_DMA_ALIGNMENT)));
-static uint32_t display_dma_dual_slot_count;
-static uint32_t display_dma_single_slot_count;
-static uint32_t display_dma_reduced_rows_count;
-static uint32_t display_dma_emergency_count;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static uint32_t display_dma_transfer_failure_count;
 #endif
-static bool display_dma_emergency_in_use;
 #endif
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
@@ -1913,219 +1875,6 @@ static void rounder_event_cb(lv_event_t *e)
 }
 #endif
 
-static size_t bsp_display_dma_aligned_size(size_t byte_count)
-{
-    return
-        (byte_count + BSP_DISPLAY_DMA_ALIGNMENT - 1U) &
-        ~(BSP_DISPLAY_DMA_ALIGNMENT - 1U);
-}
-
-static bool bsp_display_should_log_count(uint32_t count)
-{
-    return count == 1U || (count & (count - 1U)) == 0U;
-}
-
-static void bsp_display_release_dma_pipeline(
-    bsp_display_dma_lease_t *lease
-)
-{
-    if (lease == NULL || lease->data == NULL) {
-        return;
-    }
-    if (lease->heap_owned) {
-        heap_caps_free(lease->data);
-    } else if (lease->emergency) {
-        display_dma_emergency_in_use = false;
-    }
-    *lease = (bsp_display_dma_lease_t){0};
-}
-
-static esp_err_t bsp_display_acquire_dma_pipeline(
-    size_t source_row_bytes,
-    size_t maximum_transfer_rows,
-    size_t preferred_buffer_count,
-    bsp_display_dma_lease_t *out_lease
-)
-{
-    if (source_row_bytes == 0U || maximum_transfer_rows == 0U ||
-        preferred_buffer_count == 0U ||
-        preferred_buffer_count > BSP_DISPLAY_DMA_PIPELINE_DEPTH ||
-        out_lease == NULL) {
-        ESP_LOGE(TAG, "Display DMA allocation rejected: invalid pipeline request");
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    *out_lease = (bsp_display_dma_lease_t){0};
-
-    const uint32_t capabilities =
-        MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
-    const size_t full_slot_stride_bytes = bsp_display_dma_aligned_size(
-        source_row_bytes * maximum_transfer_rows
-    );
-    const size_t full_pipeline_bytes =
-        full_slot_stride_bytes * preferred_buffer_count;
-    size_t largest_block =
-        heap_caps_get_largest_free_block(capabilities);
-    bool attempted_full_slot = false;
-
-    if (largest_block >=
-        full_pipeline_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
-        attempted_full_slot = preferred_buffer_count == 1U;
-        uint8_t *pipeline = heap_caps_aligned_alloc(
-            BSP_DISPLAY_DMA_ALIGNMENT,
-            full_pipeline_bytes,
-            capabilities
-        );
-        if (pipeline != NULL) {
-            *out_lease = (bsp_display_dma_lease_t){
-                .data = pipeline,
-                .slot_stride_bytes = full_slot_stride_bytes,
-                .buffer_count = preferred_buffer_count,
-                .transfer_rows = maximum_transfer_rows,
-                .heap_owned = true,
-            };
-            if (preferred_buffer_count > 1U) {
-                ++display_dma_dual_slot_count;
-            } else {
-                ++display_dma_single_slot_count;
-            }
-            return ESP_OK;
-        }
-        ESP_LOGW(
-            TAG,
-            "Allocating the %lu-byte preferred DMA pipeline failed despite "
-            "a %lu-byte largest block",
-            (unsigned long)full_pipeline_bytes,
-            (unsigned long)largest_block
-        );
-    }
-
-    if (preferred_buffer_count > 1U) {
-        largest_block = heap_caps_get_largest_free_block(capabilities);
-    }
-    if (!attempted_full_slot &&
-        largest_block >=
-        full_slot_stride_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
-        attempted_full_slot = true;
-        uint8_t *single_slot = heap_caps_aligned_alloc(
-            BSP_DISPLAY_DMA_ALIGNMENT,
-            full_slot_stride_bytes,
-            capabilities
-        );
-        if (single_slot != NULL) {
-            *out_lease = (bsp_display_dma_lease_t){
-                .data = single_slot,
-                .slot_stride_bytes = full_slot_stride_bytes,
-                .buffer_count = 1U,
-                .transfer_rows = maximum_transfer_rows,
-                .heap_owned = true,
-            };
-            ++display_dma_single_slot_count;
-            return ESP_OK;
-        }
-        ESP_LOGW(
-            TAG,
-            "Allocating the %lu-byte single-slot DMA pipeline failed despite "
-            "a %lu-byte largest block",
-            (unsigned long)full_slot_stride_bytes,
-            (unsigned long)largest_block
-        );
-    }
-
-    largest_block = heap_caps_get_largest_free_block(capabilities);
-    const size_t usable_block =
-        largest_block > BSP_DISPLAY_DMA_HEADROOM_BYTES
-            ? largest_block - BSP_DISPLAY_DMA_HEADROOM_BYTES
-            : 0U;
-    size_t fallback_rows = usable_block / source_row_bytes;
-    if (fallback_rows > maximum_transfer_rows) {
-        fallback_rows = maximum_transfer_rows;
-    }
-    if (attempted_full_slot && fallback_rows == maximum_transfer_rows) {
-        --fallback_rows;
-    }
-
-    while (fallback_rows > BSP_DISPLAY_DMA_EMERGENCY_ROWS) {
-        const size_t fallback_slot_stride_bytes =
-            bsp_display_dma_aligned_size(source_row_bytes * fallback_rows);
-        if (fallback_slot_stride_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES <=
-            largest_block) {
-            uint8_t *fallback = heap_caps_aligned_alloc(
-                BSP_DISPLAY_DMA_ALIGNMENT,
-                fallback_slot_stride_bytes,
-                capabilities
-            );
-            if (fallback != NULL) {
-                if (!display_dma_low_memory_reported) {
-                    ESP_LOGW(
-                        TAG,
-                        "Display DMA low-memory pipeline active: rows=%lu "
-                        "slot=%lu largest=%lu",
-                        (unsigned long)fallback_rows,
-                        (unsigned long)fallback_slot_stride_bytes,
-                        (unsigned long)largest_block
-                    );
-                    display_dma_low_memory_reported = true;
-                }
-                *out_lease = (bsp_display_dma_lease_t){
-                    .data = fallback,
-                    .slot_stride_bytes = fallback_slot_stride_bytes,
-                    .buffer_count = 1U,
-                    .transfer_rows = fallback_rows,
-                    .heap_owned = true,
-                };
-                ++display_dma_reduced_rows_count;
-                return ESP_OK;
-            }
-        }
-        --fallback_rows;
-    }
-
-    if (source_row_bytes <= BSP_DISPLAY_DMA_EMERGENCY_BYTES &&
-        !display_dma_emergency_in_use) {
-        display_dma_emergency_in_use = true;
-        ++display_dma_emergency_count;
-        *out_lease = (bsp_display_dma_lease_t){
-            .data = display_dma_emergency_buffer,
-            .slot_stride_bytes = BSP_DISPLAY_DMA_EMERGENCY_BYTES,
-            .buffer_count = 1U,
-            .transfer_rows = BSP_DISPLAY_DMA_EMERGENCY_ROWS,
-            .heap_owned = false,
-            .emergency = true,
-        };
-        if (bsp_display_should_log_count(display_dma_emergency_count)) {
-            ESP_LOGW(
-                TAG,
-                "Display DMA emergency row active: count=%lu row=%lu "
-                "free=%lu minimum=%lu largest=%lu headroom=%u",
-                (unsigned long)display_dma_emergency_count,
-                (unsigned long)source_row_bytes,
-                (unsigned long)heap_caps_get_free_size(capabilities),
-                (unsigned long)heap_caps_get_minimum_free_size(capabilities),
-                (unsigned long)largest_block,
-                (unsigned int)BSP_DISPLAY_DMA_HEADROOM_BYTES
-            );
-        }
-        return ESP_OK;
-    }
-
-    ESP_LOGE(
-        TAG,
-        "Display DMA acquisition failed: row=%lu max_rows=%lu largest=%lu "
-        "emergency_in_use=%d error=%s",
-        (unsigned long)source_row_bytes,
-        (unsigned long)maximum_transfer_rows,
-        (unsigned long)largest_block,
-        display_dma_emergency_in_use,
-        esp_err_to_name(ESP_ERR_NO_MEM)
-    );
-    return ESP_ERR_NO_MEM;
-}
-
-// Keep LVGL's larger render tiles in PSRAM, but copy them into a short-lived
-// internal DMA pipeline before QSPI. Two buffers let the CPU prepare the next
-// strip while the panel consumes the previous one without retaining scarce
-// internal RAM after the logical flush completes.
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
 static esp_err_t bsp_display_draw_bitmap_bounced(
     esp_lcd_panel_handle_t panel,
@@ -2877,6 +2626,8 @@ esp_err_t bsp_io_expander_init(
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// cfg: Selected panel and LVGL adapter configuration.
+// out_display: Receives the adapter display only after initialization succeeds.
 static esp_err_t bsp_display_lcd_init(
     const bsp_display_cfg_t *cfg,
     lv_display_t **out_display
@@ -2886,15 +2637,10 @@ static esp_err_t bsp_display_lcd_init(
         return ESP_ERR_INVALID_ARG;
     }
     *out_display = NULL;
-    if (!esp_ptr_internal(display_dma_emergency_buffer) ||
-        !esp_ptr_dma_capable(display_dma_emergency_buffer)) {
-        ESP_LOGE(
-            TAG,
-            "Display emergency buffer is not internal DMA-capable: %p",
-            display_dma_emergency_buffer
-        );
-        return ESP_ERR_INVALID_STATE;
-    }
+    ESP_RETURN_ON_ERROR(
+        bsp_display_validate_emergency_buffer(),
+        TAG, "Display emergency DMA row validation failed"
+    );
 
     // Rasterize into tall PSRAM tiles, then feed CO5300 QSPI through the
     // transient internal bounce buffer owned by each cached draw callback.
@@ -4001,6 +3747,101 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
 #endif
 }
 
+// budget_ms: Complete-frame limit, independent of the number of strips.
+esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (budget_ms == 0 || budget_ms > BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS) {
+        ESP_LOGE(TAG, "Frame budget %lu rejected (%s)", (unsigned long)budget_ms,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t lock_error = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
+    if (lock_error != ESP_OK) {
+        return lock_error;
+    }
+    if (__atomic_load_n(&display_frame.owner, __ATOMIC_ACQUIRE) != NULL ||
+        !bsp_display_is_ready() || !display_panel_output_enabled) {
+        bsp_display_unlock();
+        ESP_LOGE(TAG, "Frame begin rejected: nested frame or unavailable panel (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    display_frame.started_at_us = esp_timer_get_time();
+    display_frame.deadline_us = display_frame.started_at_us + (int64_t)budget_ms * 1000;
+    const esp_err_t lease_error = bsp_display_acquire_dma_pipeline(
+        BSP_DISPLAY_DMA_ROW_BYTES, BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT, 1U,
+        &display_frame.lease
+    );
+    if (lease_error != ESP_OK) {
+        bsp_display_unlock();
+        return lease_error;
+    }
+    display_frame.rectangles = 0;
+    display_frame.error = ESP_OK;
+    __atomic_store_n(&display_frame.owner, xTaskGetCurrentTaskHandle(), __ATOMIC_RELEASE);
+    // Keep this lock level until end: panel and touch stay in the same orientation.
+    return ESP_OK;
+#else
+    (void)budget_ms;
+    ESP_LOGE(TAG, "Standalone frame begin unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// Only the owner may inspect or advance the frame while holding its inherited lock.
+esp_err_t bsp_display_frame_check_deadline(void)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (__atomic_load_n(&display_frame.owner, __ATOMIC_ACQUIRE) != xTaskGetCurrentTaskHandle()) {
+        ESP_LOGE(TAG, "Frame deadline check rejected: caller is not the owner (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (display_frame.error == ESP_OK && esp_timer_get_time() >= display_frame.deadline_us) {
+        display_frame.error = ESP_ERR_TIMEOUT;
+        ESP_LOGE(TAG, "Complete frame exceeded its deadline after %lu rectangles (%s)",
+                 (unsigned long)display_frame.rectangles, esp_err_to_name(display_frame.error));
+    }
+    return display_frame.error;
+#else
+    ESP_LOGE(TAG, "Standalone frame deadline unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// frame_error: First failure from geometry, raster or a completed transfer.
+// result: Nonnull output; a failed completion never becomes a successful frame.
+esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (result == NULL ||
+        __atomic_load_n(&display_frame.owner, __ATOMIC_ACQUIRE) != xTaskGetCurrentTaskHandle()) {
+        ESP_LOGE(TAG, "Frame end rejected: output=%p or wrong owner (%s)", result,
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t deadline_error = bsp_display_frame_check_deadline();
+    const esp_err_t error = frame_error != ESP_OK ? frame_error : deadline_error;
+    *result = (bsp_display_frame_result_t){
+        .duration_us = (uint32_t)(esp_timer_get_time() - display_frame.started_at_us),
+        .rectangles = display_frame.rectangles,
+        .retained_dma_bytes = __atomic_load_n(&display_dma_retained_bytes, __ATOMIC_ACQUIRE),
+        .error = error,
+    };
+    // Uncertain DMA was moved to quarantine. Only a proven-idle lease reaches free.
+    bsp_display_release_dma_pipeline(&display_frame.lease);
+    __atomic_store_n(&display_frame.owner, NULL, __ATOMIC_RELEASE);
+    bsp_display_unlock();
+    return error;
+#else
+    (void)frame_error;
+    (void)result;
+    ESP_LOGE(TAG, "Standalone frame end unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
 // x_start: First column included in the dirty rectangle.
 // y_start: First row included in the dirty rectangle.
@@ -4015,77 +3856,95 @@ static esp_err_t bsp_display_write_rgb565_internal(
     if ((!clear_black && pixels == NULL) || x_start < 0 || y_start < 0 ||
         x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
         x_start >= x_end || y_start >= y_end) {
-        ESP_LOGE(TAG, "Direct RGB565 rectangle rejected: [%d,%d,%d,%d] pixels=%p (%s)", x_start, y_start, x_end, y_end, pixels, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        ESP_LOGE(TAG, "RGB565 rectangle rejected: [%d,%d,%d,%d] pixels=%p (%s)",
+                 x_start, y_start, x_end, y_end, pixels, esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const esp_err_t lock_result = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
-    if (lock_result != ESP_OK) {
-        return lock_result;
+    const esp_err_t lock_error = bsp_display_lock(BSP_DISPLAY_CONTROL_LOCK_TIMEOUT_MS);
+    if (lock_error != ESP_OK) {
+        return lock_error;
     }
-    const bool initialized = __atomic_load_n(&display_initialized, __ATOMIC_ACQUIRE);
-    const bool dma_faulted = __atomic_load_n(&display_dma_faulted, __ATOMIC_ACQUIRE);
-    if (!initialized || (!clear_black && !display_panel_output_enabled) ||
-        !display_rotation_consistent || dma_faulted) {
-        ESP_LOGE(TAG, "Direct RGB565 write rejected: ready=%d output=%d rotation=%d DMA_fault=%d retained=%p (%s)", initialized, display_panel_output_enabled, display_rotation_consistent, dma_faulted, display_dma_fault_lease.data, esp_err_to_name(ESP_ERR_INVALID_STATE));
+    if (!bsp_display_is_ready() || (!clear_black && !display_panel_output_enabled) ||
+        !display_rotation_consistent) {
         bsp_display_unlock();
+        ESP_LOGE(TAG, "RGB565 write rejected: panel unavailable (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    const bool in_frame =
+        __atomic_load_n(&display_frame.owner, __ATOMIC_ACQUIRE) == xTaskGetCurrentTaskHandle();
     const size_t source_row_bytes = (size_t)(x_end - x_start) * 2U;
-    const size_t transfer_rows = (size_t)(y_end - y_start) < BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT
-        ? (size_t)(y_end - y_start) : BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT;
-    bsp_display_dma_lease_t lease = {0};
-    esp_err_t result = bsp_display_acquire_dma_pipeline(source_row_bytes, transfer_rows, 1U, &lease);
-    if (result != ESP_OK) {
-        bsp_display_unlock();
-        return result;
+    bsp_display_dma_lease_t rectangle_lease = {0};
+    bsp_display_dma_lease_t *lease = in_frame ? &display_frame.lease : &rectangle_lease;
+    esp_err_t error = ESP_OK;
+    if (in_frame) {
+        error = bsp_display_frame_check_deadline();
+    } else {
+        const size_t rectangle_rows = (size_t)(y_end - y_start);
+        const size_t transfer_rows = rectangle_rows < BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT
+            ? rectangle_rows : BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT;
+        error = bsp_display_acquire_dma_pipeline(source_row_bytes, transfer_rows, 1U, lease);
     }
+    if (error != ESP_OK) {
+        bsp_display_unlock();
+        return error;
+    }
+    const int64_t deadline_us = in_frame ? display_frame.deadline_us
+        : esp_timer_get_time() + (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
     const uint8_t *source = (const uint8_t *)pixels;
-    const int64_t deadline_us = esp_timer_get_time() +
-        (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
-    for (int strip_y = y_start; strip_y < y_end; strip_y += (int)lease.transfer_rows) {
-        const int strip_end = strip_y + (int)lease.transfer_rows < y_end
-            ? strip_y + (int)lease.transfer_rows : y_end;
+    for (int strip_y = y_start; strip_y < y_end; strip_y += (int)lease->transfer_rows) {
+        const int next_row = strip_y + (int)lease->transfer_rows;
+        const int strip_end = next_row < y_end ? next_row : y_end;
         const size_t strip_bytes = (size_t)(strip_end - strip_y) * source_row_bytes;
         if (clear_black) {
-            memset(lease.data, 0, strip_bytes);
+            memset(lease->data, 0, strip_bytes);
         } else {
             const uint8_t *strip_source = source + (size_t)(strip_y - y_start) * source_row_bytes;
-            // The panel consumes the most significant RGB565 byte first.
-            for (size_t index = 0; index < strip_bytes; index += 2U) {
-                lease.data[index] = strip_source[index + 1U];
-                lease.data[index + 1U] = strip_source[index];
+            // The panel reads the big end first; the caller keeps ordinary RGB565.
+            for (size_t byte = 0; byte < strip_bytes; byte += 2U) {
+                lease->data[byte] = strip_source[byte + 1U];
+                lease->data[byte + 1U] = strip_source[byte];
             }
         }
-        const int64_t remaining_us = deadline_us - esp_timer_get_time();
-        if (remaining_us <= 0) {
-            result = ESP_ERR_TIMEOUT;
-            ESP_LOGE(TAG, "Direct RGB565 write exceeded its deadline before row %d (%s)", strip_y, esp_err_to_name(result));
+        if (esp_timer_get_time() >= deadline_us) {
+            error = ESP_ERR_TIMEOUT;
+            ESP_LOGE(TAG, "RGB565 deadline exhausted before row %d (%s)",
+                     strip_y, esp_err_to_name(error));
             break;
         }
-        // The previous strip has completed before either reuse or submission.
-        result = esp_lcd_panel_draw_bitmap(panel_handle, x_start, strip_y, x_end, strip_end, lease.data);
-        if (result == ESP_OK) {
-            const int64_t completion_wait_us = deadline_us - esp_timer_get_time();
-            const TickType_t completion_wait = completion_wait_us > 0
-                ? pdMS_TO_TICKS((uint32_t)((completion_wait_us + 999) / 1000)) : 0;
-            if (xSemaphoreTake(display_completion, completion_wait) != pdTRUE) {
-                result = ESP_ERR_TIMEOUT;
+        error = esp_lcd_panel_draw_bitmap(panel_handle, x_start, strip_y, x_end, strip_end, lease->data);
+        if (error == ESP_OK) {
+            const int64_t wait_us = deadline_us - esp_timer_get_time();
+            const TickType_t wait_ticks = wait_us > 0
+                ? pdMS_TO_TICKS((uint32_t)(wait_us / 1000)) : 0;
+            if (xSemaphoreTake(display_completion, wait_ticks) != pdTRUE) {
+                error = ESP_ERR_TIMEOUT;
             } else if (display_completion_fault) {
-                result = ESP_ERR_INVALID_STATE;
+                error = ESP_ERR_INVALID_STATE;
             }
         }
-        if (result != ESP_OK) {
-            // SDK failure does not prove that DMA released the submitted buffer.
+        if (error != ESP_OK) {
+            // The pixels may still be on the road. Keep their buffer until reset.
+            display_dma_fault_lease = *lease;
+            __atomic_store_n(&display_dma_retained_bytes,
+                (uint32_t)(lease->slot_stride_bytes * lease->buffer_count), __ATOMIC_RELEASE);
+            *lease = (bsp_display_dma_lease_t){0};
             __atomic_store_n(&display_dma_faulted, true, __ATOMIC_RELEASE);
-            display_dma_fault_lease = lease;
-            lease = (bsp_display_dma_lease_t){0};
-            ESP_LOGE(TAG, "Direct RGB565 transfer failed at rows %d-%d; retaining DMA until explicit reset (%s)", strip_y, strip_end - 1, esp_err_to_name(result));
+            ESP_LOGE(TAG, "RGB565 transfer rows %d-%d failed; DMA retained until reset (%s)",
+                     strip_y, strip_end - 1, esp_err_to_name(error));
             break;
         }
     }
-    bsp_display_release_dma_pipeline(&lease);
+    if (in_frame) {
+        ++display_frame.rectangles;
+        if (display_frame.error == ESP_OK) {
+            display_frame.error = error;
+        }
+    } else {
+        bsp_display_release_dma_pipeline(&rectangle_lease);
+    }
     bsp_display_unlock();
-    return result;
+    return error;
 }
 #endif
 

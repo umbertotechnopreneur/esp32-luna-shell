@@ -71,6 +71,22 @@ esp_err_t bsp_display_write_rgb565(
     int x_start, int y_start, int x_end, int y_end, const void *pixels
 );
 
+// Bounded standalone frame ownership. No GUI headers are admitted here.
+typedef struct {
+    uint32_t duration_us;
+    uint32_t rectangles;
+    uint32_t retained_dma_bytes;
+    esp_err_t error;
+} bsp_display_frame_result_t;
+
+// budget_ms: Complete-frame budget in 1..1000 ms, starting after lock acquisition.
+esp_err_t bsp_display_frame_begin(uint32_t budget_ms);
+// Check the current owner's aggregate deadline, including geometry and raster work.
+esp_err_t bsp_display_frame_check_deadline(void);
+// frame_error: Original render/transfer failure; success still checks the deadline.
+// result: Receives measured duration and quarantined DMA bytes before lock release.
+esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result);
+
 /**
  * @param timeout_ms Maximum wait in milliseconds; standalone calls accept at most 1000 ms.
  */

@@ -1,0 +1,957 @@
+#include "LUNASHELL_snapshot_internal.hpp"
+#include "LUNASHELL_snapshot_cadence.hpp"
+#include "LUNASHELL_sensor_fusion.hpp"
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include "esp_log.h"
+#include "esp_timer.h"
+
+namespace {
+constexpr char TAG[] = "LUNASHELL_snapshot";
+}
+
+namespace LUNASHELL::snapshot_detail {
+// ready: Hardware readiness confirmed by the component owner.
+// error: Original operation error; publication never hides a failure.
+LUNASHELL::DeviceHealth health_for(bool ready, esp_err_t error)
+{
+    if (ready) {
+        return LUNASHELL::DeviceHealth::Ready;
+    }
+    if (error == ESP_ERR_NOT_SUPPORTED) {
+        return LUNASHELL::DeviceHealth::Unknown;
+    }
+    if (error == ESP_ERR_NOT_FOUND) {
+        return LUNASHELL::DeviceHealth::Missing;
+    }
+    return LUNASHELL::DeviceHealth::Degraded;
+}
+
+// component: Canonical component state whose validity is being updated.
+// ready: Hardware readiness confirmed by the component owner.
+// error: Original operation error; publication never hides a failure.
+void set_component(LUNASHELL::ComponentSnapshot &component, bool ready, esp_err_t error)
+{
+    component.health = health_for(ready, error);
+    component.last_error = error;
+}
+
+// component: Canonical component state whose validity is being updated.
+// attempted_at_us: Real time at which acquisition or publication was attempted.
+// completed_at_us: Real time at which the hardware read completed successfully.
+void mark_sample_success(
+    LUNASHELL::ComponentSnapshot &component,
+    int64_t attempted_at_us,
+    int64_t completed_at_us
+)
+{
+    set_component(component, true, ESP_OK);
+    component.data_valid = true;
+    component.data_stale = false;
+    component.last_attempt_at_us = attempted_at_us;
+    component.last_success_at_us = completed_at_us;
+}
+
+// component: Canonical component state whose validity is being updated.
+// sampled_at_us: Hardware sample timestamp used for both attempt and success.
+void mark_sample_success(
+    LUNASHELL::ComponentSnapshot &component,
+    int64_t sampled_at_us
+)
+{
+    mark_sample_success(component, sampled_at_us, sampled_at_us);
+}
+
+// component: Canonical component state whose validity is being updated.
+// error: Original operation error; publication never hides a failure.
+// attempted_at_us: Real time at which acquisition or publication was attempted.
+void mark_sample_failure(
+    LUNASHELL::ComponentSnapshot &component,
+    esp_err_t error,
+    int64_t attempted_at_us
+)
+{
+    set_component(component, false, error);
+    component.data_valid = false;
+    component.data_stale = component.last_success_at_us > 0;
+    component.last_attempt_at_us = attempted_at_us;
+}
+
+// operation: Component operation named in a fatal publication error.
+// error: Original operation error; publication never hides a failure.
+void log_snapshot_publication_failure(
+    const char *operation,
+    esp_err_t error
+)
+{
+    if (error != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "%s snapshot publication failed (%s)",
+            operation,
+            esp_err_to_name(error)
+        );
+        std::abort();
+    }
+}
+
+}  // namespace LUNASHELL::snapshot_detail
+
+namespace LUNASHELL {
+using namespace snapshot_detail;
+
+// report: Hardware owner result, including partial cleanup and its real errors.
+void DeviceSnapshotService::reportStorage(
+    const StorageMountReport &report
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const bool coherent_capacity =
+        report.capacity_bytes > 0 &&
+        report.filesystem_total_bytes > 0 &&
+        report.filesystem_total_bytes <= report.capacity_bytes &&
+        report.free_bytes <= report.filesystem_total_bytes;
+    const bool coherent_mounted =
+        report.outcome == StorageMountOutcome::Mounted &&
+        report.error == ESP_OK &&
+        report.cleanup_error == ESP_OK &&
+        report.cleanup_complete &&
+        !report.poisoned &&
+        report.mounted &&
+        report.card_response_verified &&
+        !report.format_required &&
+        coherent_capacity;
+    esp_err_t effective_error = report.error;
+    if (!coherent_mounted && effective_error == ESP_OK) {
+        effective_error =
+            report.cleanup_error != ESP_OK
+                ? report.cleanup_error
+                : (report.outcome == StorageMountOutcome::NotAttempted
+                       ? ESP_ERR_INVALID_STATE
+                       : ESP_ERR_INVALID_RESPONSE);
+    }
+
+    const esp_err_t publication_error = update_snapshot(
+        [report, coherent_mounted, effective_error, attempted_at_us](
+            DeviceSnapshot &snapshot
+        ) {
+            snapshot.storage.mount_outcome = report.outcome;
+            snapshot.storage.mount_stage = report.stage;
+            snapshot.storage.cleanup_stage = report.cleanup_stage;
+            snapshot.storage.cleanup_error = report.cleanup_error;
+            snapshot.storage.initial_fatfs_result_valid =
+                report.initial_fatfs_result_valid;
+            snapshot.storage.initial_fatfs_result =
+                report.initial_fatfs_result;
+            snapshot.storage.fatfs_result_valid =
+                report.fatfs_result_valid;
+            snapshot.storage.fatfs_result = report.fatfs_result;
+            snapshot.storage.cleanup_fatfs_result_valid =
+                report.cleanup_fatfs_result_valid;
+            snapshot.storage.cleanup_fatfs_result =
+                report.cleanup_fatfs_result;
+            snapshot.storage.cleanup_complete = report.cleanup_complete;
+            snapshot.storage.poisoned = report.poisoned;
+            snapshot.storage.mounted = report.mounted;
+            snapshot.storage.card_response_verified =
+                report.card_response_verified;
+            snapshot.storage.format_required = report.format_required;
+            snapshot.storage.authorization_consumed =
+                report.authorization_consumed;
+            snapshot.storage.authorization_identity_matched =
+                report.authorization_identity_matched;
+            snapshot.storage.format_attempted =
+                report.format_attempted;
+            snapshot.storage.partition_written =
+                report.partition_written;
+            snapshot.storage.formatted = report.formatted;
+            snapshot.storage.mount_attempt_count =
+                report.mount_attempt_count;
+            snapshot.storage.logger_mirror_requested =
+                report.logger_mirror_requested;
+            snapshot.storage.logger_mirror_enabled =
+                report.logger_mirror_enabled;
+
+            if (coherent_mounted) {
+                snapshot.storage.capacity_bytes =
+                    report.capacity_bytes;
+                snapshot.storage.filesystem_total_bytes =
+                    report.filesystem_total_bytes;
+                snapshot.storage.free_bytes = report.free_bytes;
+                mark_sample_success(
+                    snapshot.storage,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.storage,
+                    effective_error,
+                    attempted_at_us
+                );
+                snapshot.storage.health = DeviceHealth::Degraded;
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Storage report",
+        publication_error
+    );
+
+    if (!coherent_mounted) {
+        ESP_LOGW(
+            TAG,
+            "Storage report rejected as current data: outcome=%u mounted=%s card-response=%s error=%s cleanup=%s",
+            static_cast<unsigned>(report.outcome),
+            report.mounted ? "yes" : "no",
+            report.card_response_verified ? "verified" : "unconfirmed",
+            esp_err_to_name(effective_error),
+            esp_err_to_name(report.cleanup_error)
+        );
+    }
+}
+
+// requested: Whether the logger mirror was explicitly requested.
+// enabled: Whether the mirror owner actually enabled writes.
+// error: Original operation or publication failure.
+// last_errno: Original filesystem errno from the mirror owner.
+// changed_at_us: Real time of the last mirror state change.
+// failure_count: Cumulative failures counted by the mirror owner.
+void DeviceSnapshotService::reportStorageMirror(
+    bool requested,
+    bool enabled,
+    esp_err_t error,
+    int last_errno,
+    int64_t changed_at_us,
+    uint32_t failure_count
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.storage.logger_mirror_requested = requested;
+            snapshot.storage.logger_mirror_enabled = enabled;
+            snapshot.storage.logger_mirror_errno = last_errno;
+            snapshot.storage.logger_mirror_changed_at_us = changed_at_us;
+            snapshot.storage.logger_mirror_failure_count = failure_count;
+            if (error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.storage.logger_mirror,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.storage.logger_mirror,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Storage-mirror report",
+        publication_error
+    );
+}
+
+// sample_period_ms: Requested diagnostic cadence, accepted only within its defined bounds.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDiagnosticPeriod(
+    uint32_t sample_period_ms,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK &&
+                (sample_period_ms < kDiagnosticPeriodMinMs ||
+                 sample_period_ms > kDiagnosticPeriodMaxMs)
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.diagnostics.sample_period_ms =
+                    sample_period_ms;
+                mark_sample_success(
+                    snapshot.diagnostics.sample_period,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.sample_period,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Diagnostic-period report",
+        publication_error
+    );
+}
+
+// imu_smoothing_percent: Validated IMU smoothing setting; corrupt values are rejected.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportImuSmoothing(
+    uint32_t imu_smoothing_percent,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK &&
+                imu_smoothing_percent > kImuSmoothingMaxPercent
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.diagnostics.imu_smoothing_percent =
+                    imu_smoothing_percent;
+                mark_sample_success(
+                    snapshot.diagnostics.imu_smoothing,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.imu_smoothing,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "IMU-smoothing report",
+        publication_error
+    );
+}
+
+// full_snapshot_period_ms: Requested cadence for complete hardware snapshots.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportFullSnapshotPeriod(
+    uint32_t full_snapshot_period_ms,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK &&
+                !isFullSnapshotPeriodSupported(full_snapshot_period_ms)
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.diagnostics.full_snapshot_period_ms =
+                    full_snapshot_period_ms;
+                mark_sample_success(
+                    snapshot.diagnostics.full_snapshot_period,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.full_snapshot_period,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Full-snapshot-period report",
+        publication_error
+    );
+}
+
+// monitor_active: Whether the full-snapshot sampling worker is active.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportFullSnapshotMonitor(
+    bool monitor_active,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.diagnostics.full_snapshot_monitor_active =
+                monitor_active;
+            if (error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.diagnostics.full_snapshot_monitor,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.full_snapshot_monitor,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Full-snapshot-monitor report",
+        publication_error
+    );
+}
+
+// result: Measured sensor-fusion result published only on success.
+// error: Original operation or publication failure.
+// sampled_at_us: Original sensor acquisition timestamp, when provided.
+void DeviceSnapshotService::reportSensorFusion(
+    const SensorFusionResult &result,
+    esp_err_t error,
+    int64_t sampled_at_us
+)
+{
+    const int64_t attempted_at_us =
+        sampled_at_us > 0 ? sampled_at_us : esp_timer_get_time();
+    const bool result_is_finite =
+        std::isfinite(result.acceleration_magnitude_mps2) &&
+        std::isfinite(result.angular_speed_dps);
+    const esp_err_t effective_error =
+        error == ESP_OK && !result_is_finite
+            ? ESP_ERR_INVALID_RESPONSE
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.sensor_fusion.gravity_dominant =
+                    result.gravity_dominant;
+                snapshot.sensor_fusion.stationary = result.stationary;
+                snapshot.sensor_fusion.acceleration_magnitude_mps2 =
+                    result.acceleration_magnitude_mps2;
+                snapshot.sensor_fusion.angular_speed_dps =
+                    result.angular_speed_dps;
+                mark_sample_success(
+                    snapshot.sensor_fusion,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.sensor_fusion,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Sensor-fusion report",
+        publication_error
+    );
+}
+
+// distance: Distance owner snapshot with original sample validity.
+void DeviceSnapshotService::reportDistance(const DistanceSnapshot &distance)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [&distance](DeviceSnapshot &snapshot) {
+            snapshot.distance = distance;
+        }
+    );
+    log_snapshot_publication_failure(
+        "Distance report",
+        publication_error
+    );
+}
+
+// imu_monitor_active: Whether current IMU samples are being collected.
+// microphone_monitor_active: Whether microphone level sampling is active.
+// microphone_spectrum_monitor_active: Whether measured spectrum sampling is active.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDiagnosticMonitor(
+    bool imu_monitor_active,
+    bool microphone_monitor_active,
+    bool microphone_spectrum_monitor_active,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (error == ESP_OK) {
+                snapshot.diagnostics.monitor_active =
+                    imu_monitor_active || microphone_monitor_active;
+                snapshot.diagnostics.imu_monitor_active =
+                    imu_monitor_active;
+                snapshot.diagnostics.microphone_monitor_active =
+                    microphone_monitor_active;
+                snapshot.diagnostics.microphone_spectrum_monitor_active =
+                    microphone_spectrum_monitor_active;
+                mark_sample_success(
+                    snapshot.diagnostics.monitor,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.diagnostics.monitor,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Diagnostic-monitor report",
+        publication_error
+    );
+}
+
+// brightness_percent: Brightness confirmed by the display/settings owner.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDisplayBrightness(
+    uint32_t brightness_percent,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK && brightness_percent > 100U
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.ui.brightness_percent =
+                    brightness_percent;
+                mark_sample_success(
+                    snapshot.ui.brightness,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.brightness,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Display-brightness report",
+        publication_error
+    );
+}
+
+// brightness_percent: Brightness confirmed by the display/settings owner.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDisplayConfiguredBrightness(
+    uint32_t brightness_percent,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK && brightness_percent > 100U
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.ui.configured_brightness_percent = brightness_percent;
+                mark_sample_success(
+                    snapshot.ui.brightness,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.brightness,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Configured-display-brightness report",
+        publication_error
+    );
+}
+
+// display_power_mode: Validated persisted display power policy.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDisplayPowerMode(
+    UiHardwareSnapshot::DisplayPowerMode display_power_mode,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        error == ESP_OK && display_power_mode == UiHardwareSnapshot::DisplayPowerMode::Unknown
+            ? ESP_ERR_INVALID_ARG
+            : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (effective_error == ESP_OK) {
+                snapshot.ui.display_power_mode_state = display_power_mode;
+                mark_sample_success(
+                    snapshot.ui.display_power_mode,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.display_power_mode,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Display-power-mode report",
+        publication_error
+    );
+}
+
+// ready: Hardware readiness confirmed by a successful operation.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (ready && effective_error == ESP_OK) {
+                mark_sample_success(snapshot.ui.display, attempted_at_us);
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.display,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("Display report", publication_error);
+}
+
+// frame: Measured completed-frame result, preserving consumer retention from its own owner.
+void DeviceSnapshotService::reportDisplayFrame(const DisplayFrameSnapshot &frame)
+{
+    const esp_err_t publication_error = update_snapshot([&frame](DeviceSnapshot &snapshot) {
+        const uint32_t retained_consumer_bytes = snapshot.ui.rendering.retained_consumer_bytes;
+        const esp_err_t consumer_error = snapshot.ui.rendering.retained_consumer_error;
+        snapshot.ui.rendering = frame;
+        snapshot.ui.rendering.retained_consumer_error = consumer_error;
+        snapshot.ui.rendering.retained_consumer_bytes = retained_consumer_bytes;
+        snapshot.ui.rendering.reset_required = frame.reset_required || retained_consumer_bytes != 0;
+        // A healthy transfer cannot erase another owner's unresolved cleanup failure.
+        esp_err_t display_error = frame.last_error;
+        if (display_error == ESP_OK && retained_consumer_bytes != 0) {
+            display_error = consumer_error != ESP_OK ? consumer_error : ESP_ERR_INVALID_STATE;
+        }
+        if (display_error == ESP_OK) {
+            mark_sample_success(snapshot.ui.display, frame.completed_at_us);
+        } else {
+            mark_sample_failure(snapshot.ui.display, display_error, frame.completed_at_us);
+        }
+    });
+    log_snapshot_publication_failure("Display frame report", publication_error);
+}
+
+// bytes: Exact consumer-owned allocation bytes retained after an ambiguous cleanup.
+// error: Real cleanup failure; no memory is claimed to have been released.
+void DeviceSnapshotService::reportDisplayConsumerRetention(uint32_t bytes, esp_err_t error)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot([=](DeviceSnapshot &snapshot) {
+        snapshot.ui.rendering.retained_consumer_bytes = bytes;
+        snapshot.ui.rendering.reset_required = bytes != 0 || snapshot.ui.rendering.retained_dma_bytes != 0;
+        snapshot.ui.rendering.retained_consumer_error = error;
+        mark_sample_failure(snapshot.ui.display, error, attempted_at_us);
+    });
+    log_snapshot_publication_failure("Display consumer retention", publication_error);
+}
+
+// ready: Hardware readiness confirmed by a successful operation.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportTouch(bool ready, esp_err_t error)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (ready && effective_error == ESP_OK) {
+                mark_sample_success(snapshot.ui.touch, attempted_at_us);
+            } else {
+                mark_sample_failure(
+                    snapshot.ui.touch,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("Touch report", publication_error);
+}
+
+
+
+// ready: Hardware readiness confirmed by a successful operation.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportSpeaker(bool ready, esp_err_t error)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t effective_error =
+        !ready && error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (ready && effective_error == ESP_OK) {
+                mark_sample_success(snapshot.audio.speaker, attempted_at_us);
+            } else {
+                mark_sample_failure(
+                    snapshot.audio.speaker,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("Speaker report", publication_error);
+}
+
+// wifi: Wi-Fi owner result, including connectivity and the real error.
+void DeviceSnapshotService::reportWifi(const WifiSnapshot &wifi)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.wifi = wifi;
+            if (wifi.health == DeviceHealth::Ready &&
+                wifi.last_error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.radios.wifi,
+                    attempted_at_us
+                );
+            } else {
+                const esp_err_t effective_error =
+                    wifi.last_error == ESP_OK
+                        ? ESP_ERR_INVALID_STATE
+                        : wifi.last_error;
+                mark_sample_failure(
+                    snapshot.radios.wifi,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("Wi-Fi report", publication_error);
+}
+
+// ready: Hardware readiness confirmed by a successful operation.
+// error: Original operation or publication failure.
+// advertising: Whether the BLE driver confirmed active advertising.
+// connected: Whether the BLE driver confirmed a live connection.
+// connection_handle: Driver connection identity; no list position is used as identity.
+// connection_count: Cumulative confirmed BLE connections.
+// disconnection_count: Cumulative confirmed BLE disconnections.
+// device_name: Verified BLE device identity, or null when unavailable.
+// provisioning: Whether a provisioning session is active.
+void DeviceSnapshotService::reportBle(
+    bool ready,
+    esp_err_t error,
+    bool advertising,
+    bool connected,
+    uint16_t connection_handle,
+    uint32_t connection_count,
+    uint32_t disconnection_count,
+    const char *device_name,
+    bool provisioning
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const bool device_name_valid =
+        device_name != nullptr &&
+        device_name[0] != '\0' &&
+        std::strlen(device_name) < sizeof(BleSnapshot::device_name);
+    const esp_err_t effective_error =
+        error == ESP_OK && ready && !device_name_valid
+            ? ESP_ERR_INVALID_ARG
+            : (!ready && error == ESP_OK
+                   ? ESP_ERR_INVALID_STATE
+                   : error);
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            if (ready && effective_error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.radios.ble,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.radios.ble,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+            snapshot.radios.ble.provisioning = provisioning;
+            snapshot.radios.ble.advertising = advertising;
+            snapshot.radios.ble.connected = connected;
+            snapshot.radios.ble.connection_handle = connection_handle;
+            snapshot.radios.ble.connection_count = connection_count;
+            snapshot.radios.ble.disconnection_count = disconnection_count;
+            if (device_name_valid) {
+                strlcpy(
+                    snapshot.radios.ble.device_name,
+                    device_name,
+                    sizeof(snapshot.radios.ble.device_name)
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("BLE report", publication_error);
+}
+
+// system_time_valid: Whether the time owner verified the current clock.
+// synchronized: Whether an external clock synchronization completed.
+// source: Verified system-time source name.
+// timezone: Configured timezone identifier.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportTime(
+    bool system_time_valid,
+    bool synchronized,
+    const char *source,
+    const char *timezone,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const bool source_valid =
+        source != nullptr &&
+        source[0] != '\0' &&
+        std::strlen(source) < sizeof(RtcSnapshot::source);
+    const bool timezone_valid =
+        timezone != nullptr &&
+        timezone[0] != '\0' &&
+        std::strlen(timezone) < sizeof(RtcSnapshot::timezone);
+    esp_err_t effective_error = error;
+    if (effective_error == ESP_OK && !system_time_valid) {
+        effective_error = ESP_ERR_INVALID_STATE;
+    } else if (
+        effective_error == ESP_OK &&
+        (!source_valid || !timezone_valid)
+    ) {
+        effective_error = ESP_ERR_INVALID_ARG;
+    }
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.rtc.system_time_valid = system_time_valid;
+            snapshot.rtc.synchronized = synchronized;
+            if (source_valid) {
+                strlcpy(
+                    snapshot.rtc.source,
+                    source,
+                    sizeof(snapshot.rtc.source)
+                );
+            }
+            if (timezone_valid) {
+                strlcpy(
+                    snapshot.rtc.timezone,
+                    timezone,
+                    sizeof(snapshot.rtc.timezone)
+                );
+            }
+            if (system_time_valid && effective_error == ESP_OK) {
+                mark_sample_success(
+                    snapshot.rtc.system_time,
+                    attempted_at_us
+                );
+            } else {
+                mark_sample_failure(
+                    snapshot.rtc.system_time,
+                    effective_error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure("Time report", publication_error);
+}
+
+// inputs: Hardware input owner snapshot.
+void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) { snapshot.input = inputs; }
+    );
+    log_snapshot_publication_failure("Input report", publication_error);
+}
+
+// state: Power state confirmed by the orchestrator.
+// reason: Explicit reason for the most recent power transition.
+// audio_suspended: Whether the audio owner confirmed quiescence.
+// fullscreen_active: Whether central content currently occupies the full canvas.
+// command_arc_visible: Published visibility of the command arc.
+// status_arc_visible: Published visibility of the status arc.
+// display_idle_stage: Current typed stage of the display idle policy.
+// command_arc_timeout_seconds: Configured command-arc inactivity threshold.
+// status_arc_timeout_seconds: Configured status-arc inactivity threshold.
+// display_dim_timeout_seconds: Configured delay before display dimming.
+// screen_sleep_delay_seconds: Configured delay before display sleep.
+// transition_sequence: Monotonic power-transition identity.
+// last_activity_at_us: Real timestamp of the latest accepted user activity.
+// error: Original operation or publication failure.
+void DeviceSnapshotService::reportPowerManagement(
+    DeviceOperatingState state,
+    DeviceStateReason reason,
+    bool audio_suspended,
+    bool fullscreen_active,
+    bool command_arc_visible,
+    bool status_arc_visible,
+    UiHardwareSnapshot::DisplayPowerMode display_idle_stage,
+    uint32_t command_arc_timeout_seconds,
+    uint32_t status_arc_timeout_seconds,
+    uint32_t display_dim_timeout_seconds,
+    uint32_t screen_sleep_delay_seconds,
+    uint32_t transition_sequence,
+    int64_t last_activity_at_us,
+    esp_err_t error
+)
+{
+    const int64_t attempted_at_us = esp_timer_get_time();
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.power.state = state;
+            snapshot.power.reason = reason;
+            snapshot.power.audio_suspended = audio_suspended;
+            snapshot.power.fullscreen_active = fullscreen_active;
+            snapshot.power.command_arc_visible = command_arc_visible;
+            snapshot.power.status_arc_visible = status_arc_visible;
+            snapshot.power.display_idle_stage = display_idle_stage;
+            snapshot.power.command_arc_timeout_seconds =
+                command_arc_timeout_seconds;
+            snapshot.power.status_arc_timeout_seconds =
+                status_arc_timeout_seconds;
+            snapshot.power.display_dim_timeout_seconds =
+                display_dim_timeout_seconds;
+            snapshot.power.screen_sleep_delay_seconds =
+                screen_sleep_delay_seconds;
+            snapshot.power.transition_sequence = transition_sequence;
+            snapshot.power.last_activity_at_us = last_activity_at_us;
+            snapshot.power.changed_at_us = attempted_at_us;
+            if (error == ESP_OK) {
+                mark_sample_success(snapshot.power, attempted_at_us);
+            } else {
+                mark_sample_failure(
+                    snapshot.power,
+                    error,
+                    attempted_at_us
+                );
+            }
+        }
+    );
+    log_snapshot_publication_failure(
+        "Power-management report",
+        publication_error
+    );
+}
+
+
+}  // namespace LUNASHELL
