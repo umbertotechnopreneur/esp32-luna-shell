@@ -21,6 +21,7 @@ file or a dependency on the Luna GUI.
 | Left navigation / Back | Origin (10, 203), 60 x 60, circular radius 30 |
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
+| Cody PoC Pause/Play | Origin (203, 10), 60 x 60, circular radius 30, center (233, 40) |
 
 The 60-pixel Back fits entirely to the left of the square: its right exclusive
 edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
@@ -30,6 +31,14 @@ The complete bounding box also fits within the circle.
 The right navigation slot records available space in the source UI. A primary
 OOBE action such as Next, Pair Cody, or Setup guide can remain centered in the
 content area; it does not need to move into that slot.
+
+The Cody PoC uses the upper arc for an icon-only Pause/Play control. Its full
+target lies above y=73 and inside the circle. Drawing and hit testing share one
+named control table; the physical owner maps the same logical target through
+all cardinal rotations. Pause freezes the evaluated character and its clocks.
+The CPU readout remains live at one update per second, displaying `PAUSED` in
+place of animation FPS. Resume excludes the paused interval from animation and
+motion integration. Back and overlay remain available while paused.
 
 ## Rounded space
 

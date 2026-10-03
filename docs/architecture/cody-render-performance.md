@@ -78,6 +78,16 @@ parallel uncommitted changes included in the integrated fixture.
 
 ## Subsequent physical measurements
 
+The latest diagnostic control adds Pause/Play at logical (233, 40), in the upper
+arc. A pause freezes geometry, face, contour and response clocks while the
+canonical CPU readout refreshes at 1 Hz. Once the pause icon is drawn, only HUD
+tiles are rasterized until an input or display invalidation requires a full
+redraw. Paused refreshes do not enter animation benchmark distributions.
+Logs explicitly identify `Animation PAUSED`, `PAUSED geometry=frozen HUD=1Hz`,
+and `Animation RESUMED`. Native checks cover control targets and exact full/
+dirty-frame parity through pause, unchanged pause and resume. Physical evidence
+for this control remains pending.
+
 | Candidate | Observed physical result |
 | --- | --- |
 | Conservative comparison regions | Skeleton 16.3-17.4 FPS, about 57 ms per frame; CPU1 83-84%, CPU2 0%. |

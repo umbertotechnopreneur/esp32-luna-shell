@@ -277,11 +277,13 @@ void damage_contracts()
         bool cache_valid = false;
         CODY::DamageRect previous_bounds;
         bool previous_debug = debug;
+        bool previous_paused = false;
         enum class Scenario { Initial, Unchanged, MouthChange, Translate, Shrink, Clip,
-            SelectedMarker, ToggleOverlay, RestoreOverlay, Invalidate };
+            SelectedMarker, ToggleOverlay, RestoreOverlay, Pause, PauseHold, Resume, Invalidate };
         for (const auto scenario : {Scenario::Initial, Scenario::Unchanged, Scenario::MouthChange,
                 Scenario::Translate, Scenario::Shrink, Scenario::Clip, Scenario::SelectedMarker,
-                Scenario::ToggleOverlay, Scenario::RestoreOverlay, Scenario::Invalidate}) {
+                Scenario::ToggleOverlay, Scenario::RestoreOverlay, Scenario::Pause, Scenario::PauseHold,
+                Scenario::Resume, Scenario::Invalidate}) {
             auto channels = CODY::Data::ready;
             if (scenario == Scenario::MouthChange) {
                 channels[CODY::FaceChannel::MouthOpen] = .9f;
@@ -296,18 +298,19 @@ void damage_contracts()
                 placement.x = 30;
                 placement.y = 30;
             }
+            const bool paused = scenario == Scenario::Pause || scenario == Scenario::PauseHold;
             const bool current_debug = scenario == Scenario::ToggleOverlay ? !debug : debug;
             const auto selected = scenario == Scenario::SelectedMarker ? CODY::PointId::EyeLeft : CODY::kNoPoint;
             CODY::RigScene scene;
             CODY::DamageRect current_bounds;
             require(CODY::evaluate_rig(channels, placement, scene) == ESP_OK &&
-                    CODY::draw_rig_rows(scene, expected_frame, 0, current_debug, selected) == ESP_OK &&
+                    CODY::draw_rig_rows(scene, expected_frame, 0, current_debug, selected, nullptr, paused) == ESP_OK &&
                     CODY::rig_damage_bounds(scene, current_debug, current_bounds) == ESP_OK,
                     "reference geometry/raster failed");
             regions.rectangles[0] = previous_bounds;
             regions.rectangles[1] = current_bounds;
             regions.count = 2;
-            if (current_debug != previous_debug) {
+            if (current_debug != previous_debug || paused != previous_paused) {
                 regions.rectangles[regions.count++] = CODY::rig_navigation_damage_bounds();
             }
             uint32_t submitted_pixels = 0;
@@ -316,7 +319,7 @@ void damage_contracts()
                 const uint16_t height = panel_height - row < tile_rows ? panel_height - row : tile_rows;
                 const CODY2D::Surface rendered{rendered_tile.data(), panel_width, height, panel_width,
                     static_cast<uint32_t>(rendered_tile.size())};
-                require(CODY::draw_rig_rows(scene, rendered, row, current_debug, selected) == ESP_OK &&
+                require(CODY::draw_rig_rows(scene, rendered, row, current_debug, selected, nullptr, paused) == ESP_OK &&
                         CODY::measure_damage_rows(rendered, row, previous_frame, compare_previous, regions, damage) == ESP_OK,
                         "rendered tile damage failed");
                 if (damage.empty()) {
@@ -334,7 +337,7 @@ void damage_contracts()
             }
             require(host_panel == expected && previous == expected,
                     "partial updates differ from the complete actual rig framebuffer");
-            if (scenario == Scenario::Unchanged) {
+            if (scenario == Scenario::Unchanged || scenario == Scenario::PauseHold) {
                 require(submitted_pixels == 0, "unchanged frame submitted a rectangle");
             } else if (scenario == Scenario::Initial || scenario == Scenario::Invalidate) {
                 require(submitted_pixels == frame_pixels, "invalid cache skipped canvas pixels");
@@ -345,6 +348,7 @@ void damage_contracts()
             cache_valid = true;
             previous_bounds = current_bounds;
             previous_debug = current_debug;
+            previous_paused = paused;
         }
       }
     }
@@ -354,6 +358,14 @@ void damage_contracts()
 // Emit a fifty-second fixture from the actual C++ model for independent Python parity.
 int main()
 {
+    require(CODY::rig_control_at({233, 40}) == CODY::RigControl::Pause &&
+            CODY::rig_control_at({233, 69}) == CODY::RigControl::Pause &&
+            CODY::rig_control_at({233, 73}) == CODY::RigControl::None,
+            "pause target must stay in the upper arc outside the safe square");
+    require(CODY::rig_control_at({40, 233}) == CODY::RigControl::Back &&
+            CODY::rig_control_at({426, 233}) == CODY::RigControl::Overlay &&
+            CODY::rig_control_at({233, 233}) == CODY::RigControl::None,
+            "pause target must not steal lateral controls or character taps");
     benchmark_contracts();
     demo_contracts();
     damage_contracts();

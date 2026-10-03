@@ -6,6 +6,7 @@
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include <atomic>
 #include <cstdint>
+#include <cstdio>
 #include <new>
 
 #include "CODY2D.hpp"
@@ -44,6 +45,7 @@ constexpr uint32_t kStandbySamplePeriodMs = 200;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 constexpr uint32_t kWorkerStackBytes = 6144;
 constexpr uint32_t kRigFramePeriodMs = 33;
+constexpr uint32_t kPausedReadoutPeriodMs = 1000;
 // This is a failure deadline, not an FPS claim; real frame cost still needs measurement.
 constexpr uint32_t kFrameBudgetMs = 500;
 
@@ -108,11 +110,13 @@ CODY::FrameBenchmark s_benchmark;
 CODY::DamageRect s_cached_rig_bounds;
 bool s_cache_was_rig = false;
 bool s_cached_rig_debug = false;
+bool s_cached_rig_paused = false;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
     bool rig_visible = false;
     bool rig_debug = true;
+    bool animation_paused = false;
     bool touch_pressed = false;
     CODY::PointId selected_point = CODY::kNoPoint;
     std::atomic<bool> frame_dirty{false};
@@ -437,6 +441,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
 struct CompletedFrameLog {
     CODY::DebugReadout readout{};
     bool rig = false;
+    bool paused = false;
     CODY::FrameDistribution distribution{};
     uint32_t frame_count = 0;
     bool debug = false;
@@ -461,17 +466,28 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     log.completed_us = esp_timer_get_time();
     log.rig = s_state.rig_visible;
     log.debug = s_state.rig_debug;
+    log.paused = s_state.animation_paused;
     if (!s_state.rig_visible) {
         should_log = CODY::PocData::execution_timings;
         return ESP_OK;
     }
 
     // Let late frames go. Schedule from this frame's real timestamp.
-    s_state.next_frame_us = timings.started_us + kRigFramePeriodMs * 1000;
+    const uint32_t period_ms = s_state.animation_paused ? kPausedReadoutPeriodMs : kRigFramePeriodMs;
+    s_state.next_frame_us = timings.started_us + period_ms * 1000LL;
     ++s_state.rig_frame_count;
     const int64_t completed_us = log.completed_us;
     CODY::record_frame_rate(s_state.frame_rate, timings.started_us, completed_us);
     if (!CODY::PocData::execution_timings) {
+        return ESP_OK;
+    }
+    if (s_state.animation_paused) {
+        // Paused HUD refreshes are not animation samples or frame-budget misses.
+        should_log = s_state.last_timing_log_us == 0 || completed_us - s_state.last_timing_log_us >=
+            CODY::PocData::report_interval_ms * 1000LL;
+        if (should_log) {
+            s_state.last_timing_log_us = completed_us;
+        }
         return ESP_OK;
     }
     const CODY::OverlayMode mode = s_state.rig_debug ? CODY::OverlayMode::Skeleton : CODY::OverlayMode::Artwork;
@@ -510,6 +526,13 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         ESP_LOGI(kTag, "TIMING boot_buffer geometry=%ldus raster=%ldus transfer=%ldus total=%ldus",
             static_cast<long>(timings.geometry_us), static_cast<long>(timings.raster_us),
             static_cast<long>(timings.transfer_us), static_cast<long>(log.completed_us - timings.started_us));
+        return;
+    }
+    if (log.paused) {
+        ESP_LOGI(kTag, "PAUSED geometry=frozen HUD=1Hz draw=%ldus reuse=%ldus transfer=%ldus %s",
+            static_cast<long>(timings.raster_us - timings.reuse_us),
+            static_cast<long>(timings.reuse_us), static_cast<long>(timings.transfer_us),
+            log.readout.processors);
         return;
     }
     const auto &statistics = log.distribution;
@@ -630,6 +653,9 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     CODY::DamageRegions candidate_regions;
     const bool frame_was_rig = s_state.rig_visible;
     const bool frame_debug = s_state.rig_debug;
+    const bool paused_readout_only = compare_previous && s_state.animation_paused &&
+        s_cached_rig_paused && !s_state.frame_dirty.load(std::memory_order_acquire);
+    const auto readout_bounds = CODY::debug_readout_damage_bounds();
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -641,9 +667,14 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         if (readout_error != ESP_OK) {
             return frame.finish({readout_error, false, 0});
         }
-        const esp_err_t geometry_error = evaluate_companion_geometry(
-            timings.started_us, resume_animation
-        );
+        if (s_state.animation_paused) {
+            std::snprintf(debug_readout.frame_rate, sizeof(debug_readout.frame_rate), "PAUSED");
+        }
+        // Freeze the evaluated scene as well as the clocks. Fresh sensors keep
+        // publishing independently, but cannot deform a paused character.
+        const esp_err_t geometry_error = s_state.animation_paused
+            ? (s_resources.rig->valid ? ESP_OK : ESP_ERR_INVALID_STATE)
+            : evaluate_companion_geometry(timings.started_us, resume_animation);
         if (geometry_error != ESP_OK) {
             return frame.finish({geometry_error, false, 0});
         }
@@ -656,11 +687,15 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         candidate_regions.rectangles[1] = current_rig_bounds;
         candidate_regions.rectangles[2] = CODY::debug_readout_damage_bounds();
         candidate_regions.count = 3;
-        if (s_cached_rig_debug != frame_debug) {
+        if (s_cached_rig_debug != frame_debug || s_cached_rig_paused != s_state.animation_paused) {
             // The right control's marker changes with the overlay. Its fixed
             // layout is outside the artwork; comparing the whole control band
             // also keeps future left-control styling inside the same owner.
             candidate_regions.rectangles[candidate_regions.count++] = CODY::rig_navigation_damage_bounds();
+        }
+        if (paused_readout_only) {
+            candidate_regions.rectangles[0] = readout_bounds;
+            candidate_regions.count = 1;
         }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
     }
@@ -685,6 +720,11 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         const uint16_t strip_rows = static_cast<uint16_t>(
             remaining_rows < timings.tile_rows ? remaining_rows : timings.tile_rows
         );
+        if (paused_readout_only && (row >= readout_bounds.bottom || row + strip_rows <= readout_bounds.top)) {
+            // Untouched geometry is already on the panel and in the native
+            // cache. Only the one-Hz HUD needs drawing while paused.
+            continue;
+        }
         const CODY2D::Surface strip{
             static_cast<uint16_t *>(raster_storage), kPanelWidth, strip_rows, kPanelWidth,
             static_cast<uint32_t>(raster_capacity_bytes / sizeof(uint16_t))
@@ -694,7 +734,8 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             result = CODY::draw_rig_rows(
                 *s_resources.rig, strip, static_cast<uint16_t>(row),
                 s_state.rig_debug, s_state.selected_point,
-                CODY::PocData::execution_timings ? &timings.raster_profile : nullptr
+                CODY::PocData::execution_timings ? &timings.raster_profile : nullptr,
+                s_state.animation_paused
             );
             if (result == ESP_OK) {
                 result = CODY::draw_debug_readout_rows(
@@ -756,6 +797,7 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         s_cached_rig_bounds = current_rig_bounds;
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
+        s_cached_rig_paused = s_state.animation_paused;
     }
     CompletedFrameLog log{};
     log.readout = debug_readout;
@@ -838,21 +880,22 @@ enum class TouchAction : uint8_t {
     None,
     ReturnToBoot,
     ToggleOverlay,
+    TogglePause,
     SelectPoint,
 };
 
 // point: Real logical touch coordinate already mapped by the display owner.
 TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 {
-    const int32_t vertical_offset = static_cast<int32_t>(point.y) - 233;
-    const int32_t back_offset = static_cast<int32_t>(point.x) - 40;
-    const int32_t overlay_offset = static_cast<int32_t>(point.x) - 426;
-    // Small icons, generous fingers: keep the full 60-pixel circles alive.
-    if (back_offset * back_offset + vertical_offset * vertical_offset <= 30 * 30) {
+    switch (CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)})) {
+    case CODY::RigControl::Back:
         return TouchAction::ReturnToBoot;
-    }
-    if (overlay_offset * overlay_offset + vertical_offset * vertical_offset <= 30 * 30) {
+    case CODY::RigControl::Overlay:
         return TouchAction::ToggleOverlay;
+    case CODY::RigControl::Pause:
+        return TouchAction::TogglePause;
+    case CODY::RigControl::None:
+        break;
     }
     return s_state.rig_debug ? TouchAction::SelectPoint : TouchAction::None;
 }
@@ -863,6 +906,7 @@ void enter_animation_demo()
 {
     s_state.rig_visible = true;
     s_state.rig_debug = true;
+    s_state.animation_paused = false;
     s_state.animation_elapsed_us = 0;
     s_state.contour = CODY::make_contour_state();
     s_state.face = CODY::Data::ready;
@@ -913,6 +957,18 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.rig_visible = false;
                 s_state.selected_point = CODY::kNoPoint;
                 ESP_LOGI(kTag, "Rig Back -> completed boot checkpoint");
+            } else if (action == TouchAction::TogglePause) {
+                s_state.animation_paused = !s_state.animation_paused;
+                // Resume from this pose without integrating time or motion
+                // accumulated during the pause. Keep both frame windows clean.
+                s_state.animation_sampled_us = 0;
+                CODY::rebase_response_motion(s_state.response);
+                s_state.frame_rate = {};
+                s_benchmark.reset();
+                s_state.last_timing_log_us = 0;
+                ESP_LOGI(kTag, "Animation %s by touch=(%u,%u); HUD period=%lu ms",
+                    s_state.animation_paused ? "PAUSED" : "RESUMED", point.x, point.y,
+                    static_cast<unsigned long>(s_state.animation_paused ? kPausedReadoutPeriodMs : kRigFramePeriodMs));
             } else if (action == TouchAction::ToggleOverlay) {
                 s_state.rig_debug = !s_state.rig_debug;
                 s_state.selected_point = CODY::kNoPoint;
@@ -930,7 +986,9 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                              CODY::rig_point_name(s_state.selected_point), local.x, local.y, point.x, point.y);
                 }
             }
-            if (s_state.rig_frame_count != 0 && action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay) {
+            if (!s_state.animation_paused && s_state.rig_frame_count != 0 &&
+                action != TouchAction::ReturnToBoot && action != TouchAction::ToggleOverlay &&
+                action != TouchAction::TogglePause) {
                 CODY::EyeId eye = CODY::EyeId::None;
                 const esp_err_t hit_error = CODY::hit_test_eye(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)},

@@ -20,6 +20,11 @@ enum class FaceChannel : uint8_t {
 };
 enum class ContourControl : uint8_t { Fullness, Amplitude, Speed, PhaseSpread, Count };
 enum class PointRole : uint8_t { Anchor, Knot, Handle };
+
+enum class RigControl : uint8_t { None, Back, Overlay, Pause };
+
+// point: Logical display coordinate already mapped by the shared rotation owner.
+RigControl rig_control_at(CODY2D::Vec2 point);
 enum class CurvePoint : uint8_t { Start, OutgoingHandle, IncomingHandle, End };
 enum class PointId : uint16_t;
 enum class CurveId : uint16_t;
@@ -198,9 +203,10 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // debug: Draw skeleton links, curve handles and point markers from scene.
 // selected: Optional stable point ID to emphasize; kNoPoint selects none.
 // profile: Optional caller-owned collector with a monotonic execution clock.
+// paused: Show Play instead of Pause; scene geometry remains owned by the caller.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
-                        RigRasterProfile *profile = nullptr);
+                        RigRasterProfile *profile = nullptr, bool paused = false);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.
