@@ -38,6 +38,7 @@ struct DeviceSnapshot;
 namespace app_detail {
 struct AudioFftBindingCache;
 struct BatteryBindingCache;
+enum class LogFilter : uint8_t { All, Warnings, Errors, Info };
 }
 
 class App final : public esp_brookesia::system::core::IApp {
@@ -637,7 +638,7 @@ private:
     NavigationService navigation_;
     PairingQrAsset pairing_qr_;
     LUNASHELLStatusBar status_bar_;
-    uint8_t log_filter_mode_ = 0;
+    app_detail::LogFilter log_filter_mode_ = app_detail::LogFilter::All;
     int64_t diagnostic_activation_sample_at_us_ = 0;
     int64_t pairing_started_at_us_ = 0;
     std::string log_query_;

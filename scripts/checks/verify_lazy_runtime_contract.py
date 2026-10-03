@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 
 # Direct command execution resolves the shared repository package explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -31,8 +34,10 @@ EXPECTED_TYPOGRAPHY_AVAILABLE = [
 ]
 
 
+# path: Requested source; split implementation families are read together.
+# Raises OSError or UnicodeError when a required source is unavailable.
 def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return read_component_source(path)
 
 
 def require(condition: bool, message: str) -> None:

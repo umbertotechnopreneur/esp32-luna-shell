@@ -442,6 +442,28 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
             }
         }
         path.count = vertex - path.first_vertex;
+        const float stroke_width = definition.stroke * scene.scale;
+        if (!std::isfinite(stroke_width) || stroke_width < 0 ||
+            stroke_width > CODY2D::kMaxStrokeWidth ||
+            (definition.stroke == 0 && path.count > CODY2D::kMaxPathVertices)) {
+            ESP_LOGE(kTag, "Evaluated path %s rejected: width=%f vertices=%u (%s)",
+                     definition.name, stroke_width, path.count, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        const float stroke_margin = stroke_width * .5f;
+        path.first_scan_y = scene.vertices[path.first_vertex].y - stroke_margin;
+        path.last_scan_y = scene.vertices[path.first_vertex].y + stroke_margin;
+        for (uint16_t path_vertex = path.first_vertex; path_vertex < vertex; ++path_vertex) {
+            const auto position = scene.vertices[path_vertex];
+            if (!std::isfinite(position.x) || !std::isfinite(position.y) ||
+                std::abs(position.x) > 2048 || std::abs(position.y) > 2048) {
+                ESP_LOGE(kTag, "Evaluated path %s has invalid geometry (%s)", definition.name,
+                         esp_err_to_name(ESP_ERR_INVALID_ARG));
+                return ESP_ERR_INVALID_ARG;
+            }
+            path.first_scan_y = std::min(path.first_scan_y, position.y - stroke_margin);
+            path.last_scan_y = std::max(path.last_scan_y, position.y + stroke_margin);
+        }
     }
     scene.valid = true;
     return ESP_OK;
@@ -479,7 +501,11 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
         const auto &definition = Data::paths[index];
         const auto &path = scene.paths[index];
-        if (!path.visible) {
+        // Bounds belong to the evaluated frame, not to whichever strip draws first.
+        const float strip_first_scan_y = first_row + .5f;
+        const float strip_last_scan_y = first_row + strip.height - .5f;
+        if (!path.visible || (definition.stroke == 0 && path.opacity == 0) ||
+            strip_last_scan_y < path.first_scan_y || strip_first_scan_y > path.last_scan_y) {
             continue;
         }
         const auto *vertices = scene.vertices.data() + path.first_vertex;

@@ -144,6 +144,8 @@ struct EvaluatedPath {
     uint16_t count = 0;
     bool visible = false;
     uint8_t opacity = 255;
+    float first_scan_y = 0;
+    float last_scan_y = 0;
 };
 
 // Allocate this once in caller-owned PSRAM. It contains no heap-owning objects.

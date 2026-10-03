@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 
 # Direct command execution resolves the shared repository package explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -25,8 +28,11 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+# path: Source family to inspect, including its split implementation modules.
+# fragment: Required contract text.
+# Raises OSError, UnicodeError or AssertionError when the contract is unavailable.
 def require_contains(path: Path, fragment: str) -> None:
-    text = path.read_text(encoding="utf-8")
+    text = read_component_source(path)
     require(fragment in text, f"{fragment!r} missing from {path}")
 
 

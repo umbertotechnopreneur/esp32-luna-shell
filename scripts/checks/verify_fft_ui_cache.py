@@ -6,6 +6,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
+
 
 ROOT = Path(__file__).resolve().parents[2]
 APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp"
@@ -40,8 +43,10 @@ MIC1_COLORS = (
 )
 
 
+# path: Requested source; split implementation families are read together.
+# Raises OSError or UnicodeError when a required source is unavailable.
 def read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
+    return read_component_source(path)
 
 
 def require(condition: bool, message: str) -> None:

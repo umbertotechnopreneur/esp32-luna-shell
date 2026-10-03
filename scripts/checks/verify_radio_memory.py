@@ -2,7 +2,10 @@
 
 
 from pathlib import Path
+
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 
 # Direct command execution resolves the shared repository package explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -12,8 +15,10 @@ from scripts.common.firmware_profile import read_profile_defaults
 ROOT = Path(__file__).resolve().parents[2]
 
 
+# relative: Requested source; split implementation families are read together.
+# Raises OSError or UnicodeError when a required source is unavailable.
 def read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+    return read_component_source(ROOT / relative)
 
 
 def require(text: str, fragment: str, source: str) -> None:

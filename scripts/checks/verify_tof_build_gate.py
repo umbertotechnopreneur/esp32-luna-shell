@@ -4,7 +4,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+
 import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 
 # Direct command execution resolves the shared repository package explicitly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -21,7 +24,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 def read(relative_path: str) -> str:
     path = REPO_ROOT / relative_path
     try:
-        return path.read_text(encoding="utf-8")
+        return read_component_source(path)
     except OSError as error:
         raise RuntimeError(f"cannot read {relative_path}: {error}") from error
 

@@ -6,6 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
+
 
 ROOT = Path(__file__).resolve().parents[2]
 HARDWARE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
@@ -463,7 +467,7 @@ def verify_gps_sync_model() -> None:
 
 
 def main() -> int:
-    hardware = HARDWARE.read_text(encoding="utf-8")
+    hardware = read_component_source(HARDWARE)
     time_source = TIME.read_text(encoding="utf-8")
     wifi = WIFI.read_text(encoding="utf-8")
 

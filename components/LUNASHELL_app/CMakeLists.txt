@@ -11,6 +11,8 @@ idf_component_register(
     SRCS
         "LUNASHELL_alert_service.cpp"
         "LUNASHELL_app.cpp"
+        "LUNASHELL_app_logs.cpp"
+        "LUNASHELL_app_pairing.cpp"
         "LUNASHELL_app_documents.cpp"
         "LUNASHELL_app_document_actions.cpp"
         "LUNASHELL_adaptive_chrome.cpp"

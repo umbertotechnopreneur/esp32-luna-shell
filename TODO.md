@@ -29,6 +29,24 @@ authorization.
   and hardware validation of the separate Luna ports remain open. Details:
   `docs/architecture/cody-device-debug.md`.
 
+- [ ] On explicit validation request, validate the code-review mitigation checkpoint:
+  standalone frame deadline and all release/error paths; one transient DMA lease
+  and watchdog per frame; retained DMA/consumer byte counts and failure health;
+  module-aware snapshot/pairing/log checks and typed log filters. Include UI-on,
+  standalone and display-off source lists. No tests, builds or validation scans
+  ran for this checkpoint. Blueprint: `docs/architecture/code-review-mitigations.md`.
+
+- [ ] Measure native raster and preview optimizations on explicitly authorized
+  hardware: frame distributions, concurrent standby/rotation, deliberately slow
+  DMA, task stack and radio memory. Portable raster/rig parity and PoC checks
+  passed in the integrated working copy; no device performance gain is measured.
+
+- [ ] Continue R6 in a separate focused stage: isolate snapshot storage/staging
+  and sensor/processor acquisition without changing canonical lock ownership.
+  Continue R3 segment/debug culling only after native raster parity evidence;
+  keep repeated intersecting-path validation explicit until its ownership contract
+  is ready. Remaining Luna presenter families are deferred in `planned-todo.md`.
+
 - [ ] Validate real Cody snapshot cadence, board-axis signs, charge/microphone
   response, standby/wake and radio headroom on explicitly authorized hardware.
   Host response/model and PoC checks passed, including native/Python equations,

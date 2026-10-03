@@ -25,6 +25,18 @@
   policy. This records implementation/compilation only: its flash and physical
   touch/animation/rotation checks remain open in `TODO.md`.
 
+## Code-review mitigation implementation (2026-10-02)
+
+- [x] Introduce frame-level standalone deadline/DMA/watchdog ownership and
+  structured measured results with explicit failure retention. Extract snapshot
+  reporters and the DMA lease owner, and separate Luna log/pairing presenters.
+  Use typed severity identities and readable ownership/parameter comments.
+  This records implementation only; validation is pending in `TODO.md`.
+- [x] Integrate the shared Luna changes with Cody's current response engine;
+  group companion state/resources, name touch actions, cull nonintersecting paths
+  and reduce unchanged preview presentation/Tk allocation. Prepare a native C++
+  raster/rig runner and Python geometry comparison without executing them.
+
 ## Cody Response Engine implementation (2026-10-02)
 
 - [x] Add typed external-stimulus inputs, a coherent read-only view of the single

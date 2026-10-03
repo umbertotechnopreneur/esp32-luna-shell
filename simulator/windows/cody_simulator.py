@@ -338,6 +338,9 @@ class CodyWindow:
         self.display_rotation = args.rotation
         self.display_screen = args.screen
         self.label_text_cache = {}
+        self.label_items = {}
+        self.last_presentation_key = None
+        self.photo = None
         self.canvas = tk.Canvas(root, width=600, height=420,
                                 highlightthickness = 0, bg="#101820")
         self.canvas.grid(row=0,column=0,sticky="nsew")
@@ -782,9 +785,10 @@ class CodyWindow:
     # upright desktop labels connect to the same rotated, evaluated points.
     # Raises ValueError for an unsupported label scope or displayed rotation.
     def draw_labels(self):
-        self.canvas.delete("rig_label")
+        active_names = set()
         names = self.overlay_names()
         if not self.names.get() or self.display_screen != Screen.RIG or self.scene is None or self.layout.height<self.label_row_height+24:
+            self.remove_unused_labels(active_names)
             return
         colors = self.renderer.rig["style"]["debug"]
         palette = self.renderer.rgb_palette
@@ -807,12 +811,33 @@ class CodyWindow:
                 width = label_x-8 if side=="left" else self.layout.width-label_x-8
                 ink = color(colors["selected"] if name==self.selected else colors["anchor"])
                 tags = ("rig_label",f"point:{name}")
-                self.canvas.create_line(label_x,row,elbow,row,x,y,fill=color(colors["link"]), width=metrics["link_width"], tags=tags)
-                self.canvas.create_oval(x - marker_radius, y - marker_radius,
-                                        x + marker_radius, y + marker_radius,
-                                        outline=ink, width=metrics["outline_width"], tags=tags)
-                self.canvas.create_text(label_x,row,text=self.fit_label(name,width),anchor="e" if side=="left" else "w",
-                                        fill = ink,font=self.label_font,tags=tags)
+                active_names.add(name)
+                if name not in self.label_items:
+                    self.label_items[name] = (
+                        self.canvas.create_line(0, 0, 0, 0, tags=tags),
+                        self.canvas.create_oval(0, 0, 0, 0, tags=tags),
+                        self.canvas.create_text(0, 0, tags=tags),
+                    )
+                leader, marker, label = self.label_items[name]
+                self.canvas.coords(leader, label_x, row, elbow, row, x, y)
+                self.canvas.itemconfigure(leader, fill=color(colors["link"]), width=metrics["link_width"])
+                self.canvas.coords(marker, x - marker_radius, y - marker_radius,
+                                   x + marker_radius, y + marker_radius)
+                self.canvas.itemconfigure(marker, outline=ink, width=metrics["outline_width"])
+                self.canvas.coords(label, label_x, row)
+                self.canvas.itemconfigure(label, text=self.fit_label(name, width),
+                                          anchor="e" if side == "left" else "w",
+                                          fill=ink, font=self.label_font)
+        self.remove_unused_labels(active_names)
+
+    # active_names: Stable authored point names still shown in this label page.
+    # Raises tk.TclError if Tk has already destroyed the canvas.
+    def remove_unused_labels(self, active_names):
+        for name in tuple(self.label_items):
+            if name not in active_names:
+                for item in self.label_items.pop(name):
+                    self.canvas.delete(item)
+
 
     # event identifies the selected entity from the YAML catalog.
     def select_entity(self, event):
@@ -914,7 +939,12 @@ class CodyWindow:
             (layout.image_size, layout.image_size),
             Image.Resampling.NEAREST,
         )
-        self.photo = ImageTk.PhotoImage(display_image)
+        # Reuse Tk's image storage while the viewport size stays unchanged.
+        if (self.photo is None or self.photo.width() != layout.image_size or
+                self.photo.height() != layout.image_size):
+            self.photo = ImageTk.PhotoImage(display_image)
+        else:
+            self.photo.paste(display_image)
         if layout != self.layout:
             self.label_text_cache.clear()
 
@@ -964,6 +994,30 @@ class CodyWindow:
                  f"panel  {panel_x:.1f}, {panel_y:.1f}"
         )
 
+    # screen: Current typed route; boot images depend only on viewport and rotation.
+    # rotation: Cardinal orientation shared by the displayed image and touch.
+    # layout: Complete desktop viewport including label margins.
+    # values: Composed facial state; comparison does not alter the simulation.
+    # transform: Composed position and scale in logical pixels.
+    # Raises tk.TclError if a presentation control has become unavailable.
+    def presentation_key(self, screen, rotation, layout, values, transform):
+        common = (screen, rotation, layout)
+        if screen != Screen.RIG:
+            return common
+        # Subpixel comparison only: leave the model's full-precision values alone.
+        contour = tuple((name, round(value, 4)) for name, value in self.contour_state.items())
+        overlay = None
+        if self.motion_overlay.get() and self.response_frame is not None:
+            frame = self.response_frame
+            overlay = (frame.resting_root, frame.current_root)
+        return common + (
+            tuple(round(value, 4) for value in values),
+            tuple(round(value, 3) for value in transform),
+            contour, self.debug.get(), self.selected, self.guide.get(),
+            self.outline.get(), self.rest_outline.get(), self.names.get(),
+            self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
+        )
+
     # self: Preview controller advancing sources, model, geometry and presentation once.
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
@@ -996,31 +1050,39 @@ class CodyWindow:
             transform = self.response_frame.transform
             if self.contour_playing.get():
                 self.contour_state = advance_contour(self.renderer.rig, self.contour_state, targets, active_ms)
-        image, self.scene = self.renderer.render(
-            screen,
-            values,
-            transform,
-            self.debug.get(),
-            self.selected,
-            self.guide.get(),
-            rotation,
-            contour=self.contour_state,
-            outline=self.outline.get(),
-            rest_outline=self.rest_outline.get(),
-            response_frame=self.response_frame if self.motion_overlay.get() else None,
-        )
-        self.present_frame(image, layout, screen, rotation)
+        presentation_key = self.presentation_key(screen, rotation, layout, values, transform)
+        changed = presentation_key != self.last_presentation_key
+        if changed:
+            image, self.scene = self.renderer.render(
+                screen,
+                values,
+                transform,
+                self.debug.get(),
+                self.selected,
+                self.guide.get(),
+                rotation,
+                contour=self.contour_state,
+                outline=self.outline.get(),
+                rest_outline=self.rest_outline.get(),
+                response_frame=self.response_frame if self.motion_overlay.get() else None,
+            )
+            self.present_frame(image, layout, screen, rotation)
+            # Commit only after Tk accepted the image and its matching hit targets.
+            self.last_presentation_key = presentation_key
         self.update_contour_readouts(targets, screen)
         self.update_stimulus_readouts(inputs, screen)
         self.update_point_inspector()
 
         duration_ms = (time.perf_counter() - started) * 1000
         self.timing.configure(
-            text=f"SYNTHETIC / host frame {duration_ms:.1f} ms / "
+            text=f"SYNTHETIC / host tick {duration_ms:.1f} ms / "
+                 f"presentation {'UPDATED' if changed else 'UNCHANGED'} / "
                  f"interval {interval_seconds * 1000:.1f} ms / "
-                 "target 60 Hz / ESP32: UNMEASURED"
+                 "active target 60 Hz / ESP32: UNMEASURED"
         )
-        delay_ms = max(1, math.ceil(1000 / 60 - duration_ms))
+        # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
+        interval_ms = 1000 / 60 if screen == Screen.RIG else 100
+        delay_ms = max(1, math.ceil(interval_ms - duration_ms))
         self.after_id = self.root.after(delay_ms, self.tick)
 
 

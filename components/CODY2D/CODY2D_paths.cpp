@@ -21,7 +21,8 @@ bool valid_point(Vec2 point)
 // opacity: Source coverage in 0..255; integer rounding is shared with the host renderer.
 uint16_t blend_rgb565(uint16_t source, uint16_t destination, uint8_t opacity)
 {
-    const uint32_t alpha = opacity, inverse = 255U - alpha;
+    const uint32_t alpha = opacity;
+    const uint32_t inverse = 255U - alpha;
     const uint32_t red = (((source >> 11) & 31U) * alpha + ((destination >> 11) & 31U) * inverse + 127U) / 255U;
     const uint32_t green = (((source >> 5) & 63U) * alpha + ((destination >> 5) & 63U) * inverse + 127U) / 255U;
     const uint32_t blue = ((source & 31U) * alpha + (destination & 31U) * inverse + 127U) / 255U;
@@ -43,7 +44,9 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         uint8_t opacity)
 {
     const esp_err_t error = validate_surface(strip);
-    if (error != ESP_OK) return error;
+    if (error != ESP_OK) {
+        return error;
+    }
     if (!vertices || !palette || count < 3 || count > kMaxPathVertices ||
         first_color > last_color || first_row + strip.height > kMaxDimension) {
         ESP_LOGE(kTag, "Fill rejected: vertices=%p count=%u palette=%p slots=%u..%u row=%u (%s)",
@@ -51,7 +54,8 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    float top = vertices[0].y, bottom = vertices[0].y;
+    float top = vertices[0].y;
+    float bottom = vertices[0].y;
     for (uint16_t index = 0; index < count; ++index) {
         if (!valid_point(vertices[index])) {
             ESP_LOGE(kTag, "Fill point %u rejected: %f,%f (%s)", index,
@@ -61,14 +65,19 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
         top = std::min(top, vertices[index].y);
         bottom = std::max(bottom, vertices[index].y);
     }
-    if (opacity == 0) return ESP_OK;
+    if (opacity == 0) {
+        return ESP_OK;
+    }
     float intersections[kMaxPathVertices];
     for (uint16_t row = 0; row < strip.height; ++row) {
         const float scan_y = first_row + row + .5f;
-        if (scan_y < top || scan_y >= bottom) continue;
+        if (scan_y < top || scan_y >= bottom) {
+            continue;
+        }
         uint16_t hits = 0;
         for (uint16_t index = 0; index < count; ++index) {
-            const Vec2 a = vertices[index], b = vertices[(index + 1) % count];
+            const Vec2 a = vertices[index];
+            const Vec2 b = vertices[(index + 1) % count];
             if ((a.y <= scan_y && b.y > scan_y) || (b.y <= scan_y && a.y > scan_y)) {
                 intersections[hits++] = a.x + (scan_y - a.y) * (b.x - a.x) / (b.y - a.y);
             }
@@ -116,7 +125,9 @@ esp_err_t stroke_rows(Surface strip, uint16_t first_row,
                       Vec2 from, Vec2 to, float width, uint16_t color)
 {
     const esp_err_t error = validate_surface(strip);
-    if (error != ESP_OK) return error;
+    if (error != ESP_OK) {
+        return error;
+    }
     if (!valid_point(from) || !valid_point(to) || !std::isfinite(width) ||
         width <= 0 || width > kMaxStrokeWidth || first_row + strip.height > kMaxDimension) {
         ESP_LOGE(kTag, "Stroke rejected: from=%f,%f to=%f,%f width=%f row=%u (%s)",

@@ -70,3 +70,10 @@ priority. Promote an item to `TODO.md` when it becomes active.
 - [ ] Extract the GNSS NMEA parser only together with host tests for GGA, RMC,
   checksums, malformed frames, and partial input so the maintenance split does
   not change live fix validity semantics.
+
+## Remaining Luna presenter organization
+
+- Extract hardware/audio/Leg/settings and other remaining presenters one family
+  at a time, preserving navigation, cached bindings and scoped connections.
+  Logs and pairing are already separate. This is R7 maintenance work; it is not
+  a promised Cody runtime RAM optimization. Move a family into `TODO.md` when active.

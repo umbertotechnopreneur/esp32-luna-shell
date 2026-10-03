@@ -177,6 +177,21 @@ not substitutes for authorized device validation. Open work belongs in
 - A watchdog proves progress, not success. Fast repeated errors stay visible
   in component snapshots and logs rather than being reclassified as a hang.
 
+## Frame-level ownership and source splits (2026-10-02)
+
+- Reuse standalone DMA only within a bounded owned frame. Release it at frame
+  end/park; a permanent multistrip allocation competes with radio headroom.
+  Uncertain completion still requires quarantine, exact retained-byte reporting
+  and reset, even when the frame deadline has expired.
+- Start the display watchdog before geometry/raster work and retire it before
+  another writer can enter. Keep rotation/touch/power mapping atomic for the frame.
+  Successful strip writes are not complete-frame success. Log timing from copied
+  state after releasing the worker's display lock.
+- Extract reporters around the existing canonical snapshot lock/staging owner.
+  Do not create another sensor cache or allocate a type-erased callback wrapper.
+  Keep source-contract readers aware of explicit implementation modules after
+  moving definitions; missing parts must fail instead of disappearing from checks.
+
 ## Cody raster performance evidence (2026-10-03)
 
 - Measure complete frames and layer costs separately. Removing debug can raise

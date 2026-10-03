@@ -6,6 +6,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
+
 
 ROOT = Path(__file__).resolve().parents[2]
 GUI_RES = ROOT / "components/LUNASHELL_app/package/res"
@@ -14,8 +18,10 @@ CHROME_INSET = 73
 SAFE_CONTENT_SIZE = 320
 
 
+# path: Requested source; split implementation families are read together.
+# Raises OSError or UnicodeError when a required source is unavailable.
 def read(path: str) -> str:
-    return ROOT.joinpath(path).read_text(encoding="utf-8")
+    return read_component_source(ROOT / path)
 
 
 def require(source: str, token: str, context: str) -> None:

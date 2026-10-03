@@ -14,6 +14,9 @@
 
 namespace LUNASHELL::app_detail {
 
+inline constexpr char kEspressifAppStoreUrl[] =
+    "https://play.google.com/store/apps/details?id=com.espressif.provble";
+
 inline constexpr char kTag[] = "LUNASHELL_app";
 
 }  // namespace LUNASHELL::app_detail

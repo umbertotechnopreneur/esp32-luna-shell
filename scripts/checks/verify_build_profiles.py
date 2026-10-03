@@ -3,6 +3,10 @@
 
 import json
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 import re
 
 
@@ -10,8 +14,10 @@ ROOT = Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "config" / "sdkconfig" / "v1" / "catalog.json"
 
 
+# relative: Requested source; split implementation families are read together.
+# Raises OSError or UnicodeError when a required source is unavailable.
 def read(relative: str) -> str:
-    return (ROOT / relative).read_text(encoding="utf-8")
+    return read_component_source(ROOT / relative)
 
 
 def require(text: str, fragment: str, label: str) -> None:

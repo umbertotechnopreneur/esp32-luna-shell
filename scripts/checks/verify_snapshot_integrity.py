@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from common.source_contracts import read_component_source
 import copy
 import re
 
@@ -294,7 +298,7 @@ def commit_snapshot_stage(store: SnapshotStoreModel, kind: str = "full") -> Devi
 
 
 def verify_source_contract() -> None:
-    source = SOURCE.read_text(encoding="utf-8")
+    source = read_component_source(SOURCE)
     main_source = MAIN_SOURCE.read_text(encoding="utf-8")
     headless_source = HEADLESS_SOURCE.read_text(encoding="utf-8")
 

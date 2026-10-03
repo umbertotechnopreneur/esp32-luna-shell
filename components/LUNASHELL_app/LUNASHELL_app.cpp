@@ -59,6 +59,7 @@ namespace {
 
 using esp_brookesia::system::core::AppContext;
 using LUNASHELL::app_detail::kTag;
+using LUNASHELL::app_detail::LogFilter;
 using LUNASHELL::snapshot_semantics::component_ready;
 using LUNASHELL::snapshot_semantics::gps_fix_valid;
 using LUNASHELL::snapshot_semantics::storage_cleanup_failed;
@@ -127,18 +128,12 @@ constexpr int32_t kTofReferenceMinimumMm = 500;
 constexpr int32_t kTofReferenceMaximumMm = 1500;
 constexpr int32_t kTofReferenceStepMm = 10;
 #endif
-constexpr char kPairingQrImageId[] = "LUNASHELL.pairing.qr";
 constexpr char kBackgroundImageId[] = "LUNASHELL.background.asset";
 constexpr char kBackgroundImagePath[] =
     "/LUNASHELL_background_screen/background/asset";
-constexpr char kEspressifAppStoreUrl[] =
-    "https://play.google.com/store/apps/details?id=com.espressif.provble";
-constexpr int64_t kPairingTimeoutUs = 5LL * 60LL * 1000000LL;
-constexpr size_t kLogBufferBytes = 4096;
+using LUNASHELL::app_detail::kEspressifAppStoreUrl;
 constexpr double kAudioMeterFloorDbfs = -60.0;
 constexpr double kPcm16FullScale = 32768.0;
-// The logger contract keeps the bounded snapshot inside the persistent 4 KB buffer.
-constexpr size_t kLogSnapshotLines = LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES;
 
 constexpr char kAudioFftBandsPath[] =
     "/LUNASHELL_audio_fft/surface/bands";
@@ -961,60 +956,6 @@ void format_component_status(
     );
 }
 
-bool log_line_matches(const char *line, const std::string &query, uint8_t filter_mode)
-{
-    const char *first = line;
-    while (*first == ' ' || *first == '\t') {
-        ++first;
-    }
-    if (filter_mode == 1 && *first != 'W' && *first != 'w') {
-        return false;
-    }
-    if (filter_mode == 2 && *first != 'E' && *first != 'e') {
-        return false;
-    }
-    if (filter_mode == 3 && *first != 'I' && *first != 'i') {
-        return false;
-    }
-    return query.empty() || std::strstr(line, query.c_str()) != nullptr;
-}
-
-void filter_logs(
-    const char *source,
-    const std::string &query,
-    uint8_t filter_mode,
-    char *output,
-    size_t output_size
-)
-{
-    if (output == nullptr || output_size == 0) {
-        return;
-    }
-
-    output[0] = '\0';
-    size_t used = 0;
-    const char *cursor = source != nullptr ? source : "";
-    while (*cursor != '\0' && used + 1 < output_size) {
-        const char *line_end = std::strchr(cursor, '\n');
-        const size_t raw_length =
-            line_end != nullptr ? static_cast<size_t>(line_end - cursor) : std::strlen(cursor);
-        const size_t line_length = std::min(raw_length, size_t{255});
-        std::array<char, 256> line{};
-        std::memcpy(line.data(), cursor, line_length);
-        line[line_length] = '\0';
-
-        if (log_line_matches(line.data(), query, filter_mode)) {
-            const size_t copy_length = std::min(line_length, output_size - used - 1);
-            std::memcpy(output + used, line.data(), copy_length);
-            used += copy_length;
-            if (used + 1 < output_size) {
-                output[used++] = '\n';
-            }
-            output[used] = '\0';
-        }
-        cursor = line_end != nullptr ? line_end + 1 : cursor + raw_length;
-    }
-}
 
 }  // namespace
 
@@ -1023,6 +964,8 @@ namespace LUNASHELL {
 App::~App() = default;
 
 // Initialize a fresh active input generation for the mounted LUNASHELL app.
+// context: Active Brookesia context owning the app lifecycle and bindings.
+// Exceptions: std::bad_alloc if result text or GUI allocations fail.
 std::expected<void, std::string> App::on_start(AppContext &context)
 {
     if (audio_fft_binding_cache_ == nullptr) {
@@ -1153,7 +1096,7 @@ std::expected<void, std::string> App::on_start(AppContext &context)
     storage_format_request_attempt_ = 0;
     pairing_started_at_us_ = 0;
     pairing_result_.clear();
-    log_filter_mode_ = 0;
+    log_filter_mode_ = LogFilter::All;
     diagnostic_activation_sample_at_us_ = 0;
     log_query_.clear();
     release_log_buffers();
@@ -1977,6 +1920,8 @@ std::expected<void, std::string> App::apply_diagnostic_monitor(
 }
 
 // Publish only route intent; the persistent component owns layout and colors.
+// context: Active GUI document receiving the route command set.
+// Exceptions: std::bad_alloc if GUI/result text allocation fails.
 std::expected<void, std::string> App::configure_chrome(
     AppContext &context
 )
@@ -2021,7 +1966,7 @@ std::expected<void, std::string> App::configure_chrome(
         {
             "\xef\x81\xae",
             "LUNASHELL.logs.filter",
-            log_filter_mode_ == 0
+            log_filter_mode_ == LogFilter::All
                 ? ActionRole::Primary
                 : ActionRole::Warning,
             false,
@@ -2600,6 +2545,9 @@ std::expected<void, std::string> App::open_screen(
 }
 
 // Reject touch actions while the power owner has quiesced every GUI producer.
+// context: Active Brookesia context owning the action document.
+// action: Stable authored action ID, independent of button ordering.
+// Exceptions: std::bad_alloc if GUI/result text allocation fails.
 std::expected<void, std::string> App::on_action(
     AppContext &context,
     std::string_view action
@@ -2802,7 +2750,23 @@ std::expected<void, std::string> App::on_action(
         return refresh_logs(context);
     }
     if (action == "LUNASHELL.logs.filter") {
-        log_filter_mode_ = static_cast<uint8_t>((log_filter_mode_ + 1U) % 4U);
+        switch (log_filter_mode_) {
+        case LogFilter::All:
+            log_filter_mode_ = LogFilter::Warnings;
+            break;
+        case LogFilter::Warnings:
+            log_filter_mode_ = LogFilter::Errors;
+            break;
+        case LogFilter::Errors:
+            log_filter_mode_ = LogFilter::Info;
+            break;
+        case LogFilter::Info:
+            log_filter_mode_ = LogFilter::All;
+            break;
+        default:
+            ESP_LOGE(kTag, "Invalid log filter rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return std::unexpected("Invalid log filter state");
+        }
         if (auto result = configure_chrome(context); !result) {
             return result;
         }
@@ -5307,31 +5271,6 @@ std::expected<void, std::string> App::refresh_battery(AppContext &context)
     return {};
 }
 
-std::expected<void, std::string> App::ensure_log_buffers()
-{
-    if (log_source_buffer_ != nullptr && log_filtered_buffer_ != nullptr) {
-        return {};
-    }
-    // Retain these bounded buffers until app stop so route changes do not
-    // repeatedly split and rejoin the heap.
-    release_log_buffers();
-
-    std::unique_ptr<char[]> source(
-        new (std::nothrow) char[kLogBufferBytes]
-    );
-    std::unique_ptr<char[]> filtered(
-        new (std::nothrow) char[kLogBufferBytes]
-    );
-    if (source == nullptr || filtered == nullptr) {
-        return std::unexpected("Failed to allocate LUNASHELL log buffers");
-    }
-
-    source[0] = '\0';
-    filtered[0] = '\0';
-    log_source_buffer_ = std::move(source);
-    log_filtered_buffer_ = std::move(filtered);
-    return {};
-}
 
 std::expected<void, std::string> App::refresh_background(AppContext &context)
 {
@@ -5395,122 +5334,6 @@ std::expected<void, std::string> App::refresh_background(AppContext &context)
     return {};
 }
 
-void App::release_log_buffers()
-{
-    log_source_buffer_.reset();
-    log_filtered_buffer_.reset();
-}
-
-std::expected<void, std::string> App::refresh_logs(AppContext &context)
-{
-    const DeviceSnapshot snapshot = DeviceSnapshotService::instance().snapshot();
-    if (auto result = refresh_chrome(context, snapshot); !result) {
-        return result;
-    }
-    if (auto result = ensure_log_buffers(); !result) {
-        return result;
-    }
-    if (!logs_paused_) {
-        size_t bytes_written = 0;
-        esp_err_t snapshot_result = LUNASHELL_logger_snapshot(
-            log_source_buffer_.get(),
-            kLogBufferBytes,
-            kLogSnapshotLines,
-            &bytes_written
-        );
-        if (snapshot_result == ESP_OK && bytes_written >= kLogBufferBytes) {
-            snapshot_result = ESP_ERR_INVALID_SIZE;
-        }
-        if (snapshot_result != ESP_OK) {
-            log_source_buffer_[0] = '\0';
-            std::snprintf(
-                log_filtered_buffer_.get(),
-                kLogBufferBytes,
-                "LOGGER ERROR\n%s",
-                esp_err_to_name(snapshot_result)
-            );
-            ESP_LOGE(
-                kTag,
-                "Canonical logger snapshot failed: %s",
-                esp_err_to_name(snapshot_result)
-            );
-            if (auto result = set_text(
-                    context,
-                    "/LUNASHELL_logs/surface/log_scroller/log_text",
-                    log_filtered_buffer_.get()
-                ); !result) {
-                return result;
-            }
-            return std::unexpected(
-                "Canonical logger snapshot failed: " +
-                std::string(esp_err_to_name(snapshot_result))
-            );
-        }
-        log_source_buffer_[bytes_written] = '\0';
-        filter_logs(
-            log_source_buffer_.get(),
-            log_query_,
-            log_filter_mode_,
-            log_filtered_buffer_.get(),
-            kLogBufferBytes
-        );
-        if (log_filtered_buffer_[0] == '\0') {
-            std::snprintf(
-                log_filtered_buffer_.get(),
-                kLogBufferBytes,
-                "%s",
-                bytes_written == 0
-                    ? "LOGGER READY | NO LOG ENTRIES"
-                    : "LOGGER READY | NO ENTRIES MATCH THE ACTIVE FILTER"
-            );
-        }
-        if (auto result = set_text(
-                context,
-                "/LUNASHELL_logs/surface/log_scroller/log_text",
-                log_filtered_buffer_.get()
-            ); !result) {
-            return result;
-        }
-    } else {
-        std::snprintf(
-            log_source_buffer_.get(),
-            kLogBufferBytes,
-            "PAUSED | PREVIOUS LOGGER SNAPSHOT\n%s",
-            log_filtered_buffer_.get()
-        );
-        if (auto result = set_text(
-                context,
-                "/LUNASHELL_logs/surface/log_scroller/log_text",
-                log_source_buffer_.get()
-            ); !result) {
-            return result;
-        }
-    }
-
-    if (logs_follow_latest_ && !logs_paused_) {
-        auto scroll_result = scroll_to(
-            context,
-            "/LUNASHELL_logs/surface/log_scroller",
-            0,
-            32767,
-            false
-        );
-        if (!scroll_result) {
-            const std::string details =
-                "Failed to follow the canonical logger: " + scroll_result.error();
-            ESP_LOGE(kTag, "%s", details.c_str());
-            if (auto dialog_result = show_error_dialog(
-                    context,
-                    "Log view error",
-                    details
-                ); !dialog_result) {
-                return dialog_result;
-            }
-            return std::unexpected(details);
-        }
-    }
-    return {};
-}
 
 std::expected<void, std::string> App::refresh_hardware(AppContext &context)
 {
@@ -6365,244 +6188,6 @@ std::expected<void, std::string> App::refresh_audio(AppContext &context)
     );
 }
 
-bool App::is_pairing_screen(Screen screen)
-{
-    switch (screen) {
-    case Screen::PairIntro:
-    case Screen::PairBluetooth:
-    case Screen::PairApp:
-    case Screen::AppStoreQr:
-    case Screen::PairQr:
-    case Screen::PairResult:
-        return true;
-    default:
-        return false;
-    }
-}
-
-std::expected<void, std::string> App::prepare_pairing_qr(
-    AppContext &context,
-    const char *payload
-)
-{
-    const esp_err_t generation_result = pairing_qr_.generate(payload);
-    if (generation_result != ESP_OK) {
-        return std::unexpected(
-            "Pairing QR generation failed: " +
-            std::string(esp_err_to_name(generation_result))
-        );
-    }
-    if (pairing_qr_registered_) {
-        return {};
-    }
-
-    const lv_image_dsc_t *image = pairing_qr_.image();
-    if (image == nullptr) {
-        return std::unexpected(
-            "Pairing QR generation completed without an image"
-        );
-    }
-    auto registration_result = context.gui().register_image(
-        esp_brookesia::gui::RuntimeImageResource{
-            .id = kPairingQrImageId,
-            .primary_src = "",
-            .native_src = reinterpret_cast<uintptr_t>(image),
-            .width = PairingQrAsset::kSize,
-            .height = PairingQrAsset::kSize,
-            .preload = false,
-        }
-    );
-    if (!registration_result) {
-        return std::unexpected(
-            "Failed to register pairing QR image: " +
-            registration_result.error()
-        );
-    }
-    pairing_qr_registered_ = true;
-    return {};
-}
-
-std::expected<void, std::string> App::release_pairing_qr(AppContext &context)
-{
-    if (pairing_qr_registered_ &&
-        !context.gui().unregister_image(kPairingQrImageId)) {
-        return std::unexpected("Failed to unregister LUNASHELL pairing QR image");
-    }
-    pairing_qr_registered_ = false;
-    pairing_qr_.reset();
-    return {};
-}
-
-std::expected<void, std::string> App::open_app_store_qr(
-    AppContext &context,
-    NavigationMode mode
-)
-{
-    if (auto result = prepare_pairing_qr(
-            context,
-            kEspressifAppStoreUrl
-        ); !result) {
-        return show_pairing_result(
-            context,
-            result.error(),
-            false
-        );
-    }
-    return open_screen(
-        context,
-        Screen::AppStoreQr,
-        "LUNASHELL.open.app_store_qr",
-        mode
-    );
-}
-
-std::expected<void, std::string> App::start_pairing_session(
-    AppContext &context,
-    NavigationMode mode
-)
-{
-    esp_err_t result = LUNASHELL_wifi_init();
-    if (result == ESP_OK &&
-        !LUNASHELL_provisioning_initialized()) {
-        result = LUNASHELL_provisioning_init();
-    }
-    if (result == ESP_OK) {
-        result = LUNASHELL_provisioning_start();
-    }
-    if (result != ESP_OK) {
-        return show_pairing_result(
-            context,
-            "BLE provisioning could not start: " +
-                std::string(esp_err_to_name(result)),
-            false
-        );
-    }
-    if (auto qr_result = prepare_pairing_qr(
-            context,
-            LUNASHELL_provisioning_qr_payload()
-        ); !qr_result) {
-        const esp_err_t stop_result = LUNASHELL_provisioning_stop();
-        if (stop_result != ESP_OK) {
-            return std::unexpected(
-                qr_result.error() +
-                "; provisioning stop also failed: " +
-                esp_err_to_name(stop_result)
-            );
-        }
-        return show_pairing_result(
-            context,
-            qr_result.error(),
-            false
-        );
-    }
-
-    pairing_started_at_us_ = esp_timer_get_time();
-    return open_screen(
-        context,
-        Screen::PairQr,
-        "LUNASHELL.open.pair_qr",
-        mode
-    );
-}
-
-std::expected<void, std::string> App::show_pairing_result(
-    AppContext &context,
-    std::string message,
-    bool success
-)
-{
-    // The result page no longer owns an active BLE provisioning session.
-    if (LUNASHELL_provisioning_active()) {
-        const esp_err_t stop_result = LUNASHELL_provisioning_stop();
-        if (stop_result != ESP_OK) {
-            return std::unexpected(
-                "Failed to stop BLE provisioning before showing its result: " +
-                std::string(esp_err_to_name(stop_result))
-            );
-        }
-    }
-    pairing_result_ = std::move(message);
-    pairing_result_success_ = success;
-    pairing_started_at_us_ = 0;
-    return open_screen(
-        context,
-        Screen::PairResult,
-        "LUNASHELL.open.pair_result",
-        NavigationMode::Replace
-    );
-}
-
-std::expected<void, std::string> App::pairing_next(AppContext &context)
-{
-    const auto mode_for = [this](Screen target) {
-        const std::optional<Screen> forward =
-            navigation_.forward_target();
-        return forward.has_value() && *forward == target
-            ? NavigationMode::Forward
-            : NavigationMode::Push;
-    };
-
-    switch (screen_) {
-    case Screen::PairIntro:
-        return open_screen(
-            context,
-            Screen::PairBluetooth,
-            "LUNASHELL.open.pair_bluetooth",
-            mode_for(Screen::PairBluetooth)
-        );
-    case Screen::PairBluetooth:
-        return open_screen(
-            context,
-            Screen::PairApp,
-            "LUNASHELL.open.pair_app",
-            mode_for(Screen::PairApp)
-        );
-    case Screen::PairApp:
-        return open_app_store_qr(
-            context,
-            mode_for(Screen::AppStoreQr)
-        );
-    case Screen::AppStoreQr: {
-        const NavigationMode mode = mode_for(Screen::PairQr);
-        if (!LUNASHELL_provisioning_active()) {
-            return start_pairing_session(context, mode);
-        }
-        if (auto result = prepare_pairing_qr(
-                context,
-                LUNASHELL_provisioning_qr_payload()
-            ); !result) {
-            return result;
-        }
-        return open_screen(
-            context,
-            Screen::PairQr,
-            "LUNASHELL.open.pair_qr",
-            mode
-        );
-    }
-    case Screen::PairResult:
-        if (pairing_result_success_) {
-            return open_screen(
-                context,
-                Screen::Settings,
-                "LUNASHELL.open.settings",
-                NavigationMode::ReturnTo
-            );
-        }
-        return start_pairing_session(
-            context,
-            NavigationMode::Replace
-        );
-    case Screen::PairQr:
-        return std::unexpected(
-            "Next action rejected while pairing is in progress"
-        );
-    default:
-        return std::unexpected(
-            "Next action rejected outside the pairing wizard"
-        );
-    }
-}
 
 std::string_view App::screen_action(Screen screen)
 {
@@ -6690,283 +6275,6 @@ std::expected<void, std::string> App::navigate_back(AppContext &context)
     );
 }
 
-std::expected<void, std::string> App::refresh_pairing(AppContext &context)
-{
-    const DeviceSnapshot snapshot =
-        DeviceSnapshotService::instance().snapshot();
-    if (auto result = refresh_chrome(context, snapshot); !result) {
-        return result;
-    }
-
-    const char *root = "/LUNASHELL_pairing/surface";
-    const char *title = nullptr;
-    const char *step = nullptr;
-    const char *message = nullptr;
-    const char *detail = "";
-    const char *accent_color = "#20dfc1";
-    bool show_qr = false;
-    int32_t progress_value = 0;
-    bool progress_hidden = false;
-    std::array<char, 192> dynamic_message{};
-
-    switch (screen_) {
-    case Screen::PairIntro:
-        title = "PAIR DEVICE";
-        step = "STEP 1 OF 5";
-        message = "Connect LUNASHELL to your Wi-Fi network.";
-        detail = "Bluetooth carries the Wi-Fi setup details.";
-        progress_value = 1;
-        break;
-    case Screen::PairBluetooth:
-        title = "BLUETOOTH";
-        step = "STEP 2 OF 5";
-        message = "Turn on Bluetooth on your phone.";
-        detail = "Allow Nearby devices when prompted.";
-        progress_value = 2;
-        break;
-    case Screen::PairApp:
-        title = "GET THE APP";
-        step = "STEP 3 OF 5";
-        message = "Install ESP BLE Provisioning on your phone.";
-        detail = "Next shows the official Google Play download.";
-        progress_value = 3;
-        break;
-    case Screen::AppStoreQr:
-        title = "INSTALL APP";
-        step = "STEP 4 OF 5";
-        message = "Scan to install ESP BLE Provisioning.";
-        detail = "Then return here and press Next.";
-        show_qr = true;
-        progress_value = 4;
-        break;
-    case Screen::PairQr: {
-        title = "SCAN DEVICE";
-        step = "STEP 5 OF 5";
-        show_qr = true;
-        detail = LUNASHELL_provisioning_service_name();
-        progress_value = 5;
-        const LUNASHELL_provisioning_state_t state = LUNASHELL_provisioning_state();
-        switch (state) {
-        case LUNASHELL_PROVISIONING_STATE_IDLE:
-        case LUNASHELL_PROVISIONING_STATE_STARTING:
-            message = "Starting Bluetooth setup...";
-            break;
-        case LUNASHELL_PROVISIONING_STATE_WAITING_FOR_APP:
-            message = "In the app, scan this device QR.";
-            break;
-        case LUNASHELL_PROVISIONING_STATE_CREDENTIALS_RECEIVED:
-            message = "Wi-Fi details received. Preparing the connection...";
-            break;
-        case LUNASHELL_PROVISIONING_STATE_CONNECTING:
-            message = "Wi-Fi details received. Connecting...";
-            break;
-        case LUNASHELL_PROVISIONING_STATE_SUCCESS: {
-            std::array<char, 128> summary{};
-            const esp_err_t summary_result =
-                LUNASHELL_provisioning_connection_summary(
-                    summary.data(),
-                    summary.size()
-                );
-            if (summary_result == ESP_OK) {
-                return show_pairing_result(
-                    context,
-                    summary.data(),
-                    true
-                );
-            }
-            std::snprintf(
-                dynamic_message.data(),
-                dynamic_message.size(),
-                "Wi-Fi connected. Connection summary unavailable (%s).",
-                esp_err_to_name(summary_result)
-            );
-            return show_pairing_result(
-                context,
-                dynamic_message.data(),
-                true
-            );
-        }
-        case LUNASHELL_PROVISIONING_STATE_FAILED:
-            switch (LUNASHELL_provisioning_failure_reason()) {
-            case LUNASHELL_PROVISIONING_FAILURE_AUTHENTICATION:
-                return show_pairing_result(
-                    context,
-                    "Wi-Fi password was rejected. Check it and try again.",
-                    false
-                );
-            case LUNASHELL_PROVISIONING_FAILURE_ACCESS_POINT_NOT_FOUND:
-                return show_pairing_result(
-                    context,
-                    "Wi-Fi network not found. Check its name or move closer.",
-                    false
-                );
-            case LUNASHELL_PROVISIONING_FAILURE_NONE:
-            case LUNASHELL_PROVISIONING_FAILURE_UNKNOWN:
-                return show_pairing_result(
-                    context,
-                    "Wi-Fi connection failed without a reported reason.",
-                    false
-                );
-            }
-            return show_pairing_result(
-                context,
-                "Wi-Fi connection failed with an invalid reason.",
-                false
-            );
-        case LUNASHELL_PROVISIONING_STATE_POISONED:
-            return show_pairing_result(
-                context,
-                "Bluetooth setup stopped after an unrecoverable error.",
-                false
-            );
-        case LUNASHELL_PROVISIONING_STATE_UNAVAILABLE:
-            return show_pairing_result(
-                context,
-                "Wi-Fi setup is unavailable in this firmware build.",
-                false
-            );
-        case LUNASHELL_PROVISIONING_STATE_STOPPING:
-        case LUNASHELL_PROVISIONING_STATE_DEINITIALIZING:
-            message = "Closing Bluetooth setup...";
-            break;
-        case LUNASHELL_PROVISIONING_STATE_STOPPED:
-            return show_pairing_result(
-                context,
-                "Bluetooth setup ended before Wi-Fi connected.",
-                false
-            );
-        }
-
-        if (pairing_started_at_us_ > 0 &&
-            esp_timer_get_time() - pairing_started_at_us_ >=
-                kPairingTimeoutUs) {
-            const esp_err_t stop_result = LUNASHELL_provisioning_stop();
-            if (stop_result != ESP_OK) {
-                std::snprintf(
-                    dynamic_message.data(),
-                    dynamic_message.size(),
-                    "Pairing timed out and BLE could not stop (%s).",
-                    esp_err_to_name(stop_result)
-                );
-            } else {
-                std::snprintf(
-                    dynamic_message.data(),
-                    dynamic_message.size(),
-                    "Setup timed out after 5 minutes. Try again."
-                );
-            }
-            return show_pairing_result(
-                context,
-                dynamic_message.data(),
-                false
-            );
-        }
-        break;
-    }
-    case Screen::PairResult:
-        title = pairing_result_success_
-            ? "WI-FI READY"
-            : "SETUP FAILED";
-        step = pairing_result_success_ ? "CONNECTED" : "ACTION REQUIRED";
-        message = pairing_result_.c_str();
-        detail = pairing_result_success_
-            ? "Setup complete. Next returns to Settings."
-            : "Press Next to try again.";
-        accent_color = pairing_result_success_ ? "#20dfc1" : "#ff3859";
-        progress_hidden = true;
-        break;
-    default:
-        return std::unexpected(
-            "Pairing refresh rejected outside the wizard"
-        );
-    }
-
-    const PairingVisualState next_state{
-        .screen = screen_,
-        .title = title,
-        .step = step,
-        .message = message,
-        .detail = detail,
-        .accent_color = accent_color,
-        .show_qr = show_qr,
-        .progress_value = progress_value,
-        .progress_hidden = progress_hidden,
-    };
-    if (pairing_visual_state_.has_value() &&
-        *pairing_visual_state_ == next_state) {
-        return {};
-    }
-
-    if (auto result = set_text(
-            context,
-            std::string(root) + "/title",
-            title
-        ); !result) {
-        return result;
-    }
-    if (auto result = set_text(
-            context,
-            std::string(root) + "/step",
-            step
-        ); !result) {
-        return result;
-    }
-    if (auto result = set_text(
-            context,
-            std::string(root) + "/message",
-            message
-        ); !result) {
-        return result;
-    }
-    if (auto result = set_text(
-            context,
-            std::string(root) + "/detail",
-            detail
-        ); !result) {
-        return result;
-    }
-    if (auto result = set_binding_values(
-            context,
-            {
-                {
-                    .absolute_path = std::string(root) + "/step",
-                    .key = "color",
-                    .value = accent_color,
-                },
-                {
-                    .absolute_path = std::string(root) + "/progress",
-                    .key = "value",
-                    .value = std::to_string(progress_value),
-                },
-                {
-                    .absolute_path = std::string(root) + "/progress",
-                    .key = "hidden",
-                    .value = progress_hidden ? "true" : "false",
-                },
-            }
-        ); !result) {
-        return result;
-    }
-    if (auto result = set_hidden(
-            context,
-            std::string(root) + "/qr",
-            !show_qr
-        ); !result) {
-        return result;
-    }
-    if (show_qr) {
-        if (auto result = set_binding_text(
-                context,
-                std::string(root) + "/qr",
-                "src",
-                kPairingQrImageId
-            ); !result) {
-            return result;
-        }
-    }
-    pairing_visual_state_ = next_state;
-    return {};
-}
 
 // Render the restored compact DFT bank without bypassing the Brookesia view tree.
 std::expected<void, std::string> App::refresh_audio_fft(AppContext &context)
