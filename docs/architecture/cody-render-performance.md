@@ -87,9 +87,17 @@ parallel uncommitted changes included in the integrated fixture.
 The last row was flashed from the integrated working copy: firmware size
 1,704,288 bytes, SHA256
 `34F5FA42B5FE0A58639A7BEC42C9202CD5071360359CD05B59ECE9901A6AAADD`.
-Capture: `poc-layer-demo-20261003.log`. Latest cross-product/opaque-span source
-has no physical performance result yet; these older measurements do not
-validate that candidate.
+Capture: `poc-layer-demo-20261003.log`.
+
+The subsequent cross-product/opaque-span candidate also compiled and flashed:
+1,704,208 bytes, SHA256
+`99D6B8471123AFD5B44F5A0DB652194F3BF4FD2F2B79642019EE1A79CEE896C8`.
+The 100-second `poc-cross-span-demo-20261003.log` contains continuous skeleton
+frames, typically around 21 FPS (readout range 18.5-23) with CPU1 79-83%
+and CPU2 0%. Skeleton raster costs about
+9 ms per frame. This is a modest improvement; the CPU target remains open.
+No Back transition was captured, so this run also does not establish static
+boot CPU usage. Artwork-only performance of this candidate is not measured.
 
 In that capture the skeleton costs about 10.3-10.9 ms per frame; artwork costs
 7.5-8.7 ms, clear about 2 ms and navigation about 1.3 ms. Cache reuse costs about
