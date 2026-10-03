@@ -25,7 +25,6 @@
 #include "bsp/display.h"
 #include "esp_heap_caps.h"
 #include "esp_timer.h"
-#include "esp_pm.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/idf_additions.h"
 #include "freertos/task.h"
@@ -35,8 +34,9 @@ namespace {
 constexpr char kTag[] = "CODY_companion";
 constexpr uint16_t kPanelWidth = 466;
 constexpr uint16_t kPanelHeight = 466;
-// Match Luna's tall PSRAM render tiles; the BSP owns smaller internal DMA slots.
-constexpr uint16_t kStripRows = 64;
+// The current and cached tile must fit together in the 64 KiB data cache,
+// leaving room for the evaluated rig. The BSP still owns transient DMA slots.
+constexpr uint16_t kStripRows = 16;
 constexpr uint16_t kPaletteLimit = 64;
 constexpr uint32_t kStripPixels = static_cast<uint32_t>(kPanelWidth) * kStripRows;
 constexpr uint32_t kFramePixels = static_cast<uint32_t>(kPanelWidth) * kPanelHeight;
@@ -92,9 +92,6 @@ esp_err_t dispatch_pending_touch(const PendingTouchReports &reports);
 
 std::atomic<StartState> s_start_state{StartState::Idle};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
-// One firmware-lifetime handle, created once before the worker. Acquisition is
-// scoped to CPU work; neither the DMA wait nor idle/standby retains the boost.
-esp_pm_lock_handle_t s_render_clock = nullptr;
 uint16_t *s_strip = nullptr;
 uint16_t *s_frame_cache = nullptr;
 bool s_frame_cache_valid = false;
@@ -183,60 +180,6 @@ esp_err_t fail_consumer(const char *operation, esp_err_t error, bool touch_failu
     return error;
 }
 
-// Retain the frequency constraint only while this scope owns CPU rendering work.
-class RenderClockOnExit final {
-public:
-    // Start released; the caller must check acquire before doing CPU work.
-    RenderClockOnExit() = default;
-
-    // Early geometry/error exits must still let the idle governor lower the clock.
-    ~RenderClockOnExit()
-    {
-        const esp_err_t error = release();
-        if (error != ESP_OK) {
-            fail_consumer("Render clock cleanup", error, false);
-        }
-    }
-
-    // Request the configured CPU maximum without changing the global power policy.
-    esp_err_t acquire()
-    {
-        if (held_) {
-            ESP_LOGE(kTag, "Render clock acquired twice (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-            return ESP_ERR_INVALID_STATE;
-        }
-        const esp_err_t error = esp_pm_lock_acquire(s_render_clock);
-        if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Render clock acquire failed (%s)", esp_err_to_name(error));
-            return error;
-        }
-        held_ = true;
-        return ESP_OK;
-    }
-
-    // Drop the CPU constraint before waiting on DMA or retiring this scope.
-    esp_err_t release()
-    {
-        if (!held_) {
-            return ESP_OK;
-        }
-        const esp_err_t error = esp_pm_lock_release(s_render_clock);
-        if (error != ESP_OK) {
-            ESP_LOGE(kTag, "Render clock release failed (%s)", esp_err_to_name(error));
-            return error;
-        }
-        held_ = false;
-        return ESP_OK;
-    }
-
-    // other: A held clock constraint belongs to one scope only.
-    RenderClockOnExit(const RenderClockOnExit &other) = delete;
-    // other: Ownership cannot be replaced by copying another scope.
-    RenderClockOnExit &operator=(const RenderClockOnExit &other) = delete;
-
-private:
-    bool held_ = false;
-};
 
 // image: Immutable source that must cover the mandatory panel with at most 64 colors.
 // operation: Asset phase named in a metadata rejection log.
@@ -591,11 +534,6 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
     timings.started_us = esp_timer_get_time();
     CODY::DebugReadout debug_readout;
     if (s_rig_visible) {
-        RenderClockOnExit clock;
-        const esp_err_t clock_error = clock.acquire();
-        if (clock_error != ESP_OK) {
-            return frame.finish({clock_error, false, 0});
-        }
         if (resume_animation) {
             s_frame_rate = {};
             s_benchmark.reset();
@@ -613,10 +551,6 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
             return {geometry_error, false, 0};
         }
         timings.geometry_us = esp_timer_get_time() - timings.started_us;
-        const esp_err_t release_error = clock.release();
-        if (release_error != ESP_OK) {
-            return frame.finish({release_error, false, 0});
-        }
     }
     esp_err_t result = ESP_OK;
     for (uint32_t row = 0; row < kPanelHeight; row += kStripRows) {
@@ -637,11 +571,6 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         const CODY2D::Surface strip{
             s_strip, kPanelWidth, strip_rows, kPanelWidth, kStripPixels
         };
-        RenderClockOnExit clock;
-        result = clock.acquire();
-        if (result != ESP_OK) {
-            break;
-        }
         const int64_t raster_started_us = esp_timer_get_time();
         result = s_rig_visible
             ? CODY::draw_rig_rows(*s_rig, strip, static_cast<uint16_t>(row), s_rig_debug, s_selected_point)
@@ -665,12 +594,6 @@ DrawResult draw_companion_frame(bool resume_animation = false, CompletedFrameRep
         // Raster cost includes cache comparison and transfer-payload packing.
         timings.reuse_us += esp_timer_get_time() - reuse_started_us;
         timings.raster_us += esp_timer_get_time() - raster_started_us;
-        const esp_err_t release_error = clock.release();
-        if (release_error != ESP_OK) {
-            // Keep the first operation error; the clock owner logs its own real
-            // failure and retries cleanup before this scope can be destroyed.
-            result = result == ESP_OK ? release_error : result;
-        }
         if (result == ESP_OK && !damage.empty()) {
             const int64_t transfer_started_us = esp_timer_get_time();
             result = LUNASHELL_display_write_rgb565(
@@ -1059,13 +982,6 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Response configuration", response_config_error, false);
     }
     s_response = CODY::make_response_state(CODY::Data::response);
-    const esp_err_t clock_error = esp_pm_lock_create(
-        ESP_PM_CPU_FREQ_MAX, 0, "cody-render", &s_render_clock
-    );
-    if (clock_error != ESP_OK) {
-        return fail_consumer("Render clock initialization", clock_error, false);
-    }
-    ESP_LOGI(kTag, "CPU maximum requested only during geometry/raster; released for DMA and idle");
     s_strip = static_cast<uint16_t *>(heap_caps_malloc(
         kStripPixels * sizeof(uint16_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
     ));

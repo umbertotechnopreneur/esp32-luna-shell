@@ -127,7 +127,7 @@ void stroke_contracts()
     };
     for (const Segment &segment : segments) {
         for (float width : {.001f, .5f, 1.f, 2.75f, 7.f, CODY2D::kMaxStrokeWidth}) {
-            for (uint16_t rows : {uint16_t{8}, uint16_t{64}}) {
+            for (uint16_t rows : {uint16_t{8}, uint16_t{16}, uint16_t{64}}) {
                 std::vector<uint16_t> expected(size * stride + 2, 0x35ad);
                 auto actual = expected;
                 for (uint16_t first = 0; first < size; first += rows) {
@@ -166,6 +166,7 @@ void demo_contracts()
             "negative demo time accepted");
 }
 // Cover cache invalidation, paired columns, overlapping packing and pixel parity.
+// Exceptions: std::bad_alloc if a host framebuffer allocation fails.
 void damage_contracts()
 {
     uint16_t cached_storage[40]{};
@@ -195,7 +196,7 @@ void damage_contracts()
 
     constexpr uint16_t panel_width = 466;
     constexpr uint16_t panel_height = 466;
-    constexpr uint16_t tile_rows = 64;
+    constexpr uint16_t tile_rows = 16;
     constexpr uint32_t frame_pixels = static_cast<uint32_t>(panel_width) * panel_height;
     for (const bool debug : {false, true}) {
         std::vector<uint16_t> previous(frame_pixels);

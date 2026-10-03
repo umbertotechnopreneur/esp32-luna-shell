@@ -57,12 +57,14 @@ esp_err_t measure_damage_rows(CODY2D::Surface tile, uint16_t first_row,
     for (uint16_t row = 0; row < tile.height; ++row) {
         const uint16_t *current_row = tile.pixels + row * tile.stride;
         const uint16_t *cached_row = previous.pixels + (first_row + row) * previous.stride;
-        if (std::memcmp(current_row, cached_row, tile.width * sizeof(uint16_t)) == 0) {
-            continue;
-        }
+        // Find the first and last differences directly in RGB565 units. A
+        // byte-wise memcmp followed by these same scans reads the prefix twice.
         uint16_t first_changed = 0;
-        while (current_row[first_changed] == cached_row[first_changed]) {
-            ++first_changed; // memcmp above already proved a differing pixel exists.
+        while (first_changed < tile.width && current_row[first_changed] == cached_row[first_changed]) {
+            ++first_changed;
+        }
+        if (first_changed == tile.width) {
+            continue;
         }
         uint16_t after_last_changed = tile.width;
         while (current_row[after_last_changed - 1U] == cached_row[after_last_changed - 1U]) {
