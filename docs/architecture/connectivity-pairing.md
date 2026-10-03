@@ -21,7 +21,7 @@ controller's contiguous DMA reservation while it awaits an explicit pairing
 action. Saved Wi-Fi profiles still use the normal station connection path.
 
 Each provisioning attempt rotates a random 64-bit proof of possession for
-the existing Security 1 transport. The device name uses three MAC suffix bytes.
+the existing Security 1 transport. The device name uses the full station MAC.
 `DeviceSnapshot.radios.provisioning` publishes typed lifecycle state, observed
 errors, cleanup errors, timestamps and a monotonically increasing session ID.
 Secrets are excluded. `LUNASHELL_provisioning_copy_qr` requires that exact active
