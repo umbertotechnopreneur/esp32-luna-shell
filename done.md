@@ -24,6 +24,13 @@
   cache. On COM10, marker time falls from 2 ms to 1 ms, skeleton from 6 ms to
   5 ms, raster from 14 ms to 13 ms and median CPU1 from 64% to 63%; CPU2 stays
   0% and sustained FPS reaches 29.2. No automated tests ran.
+- [x] Shortlist only fill edges that can cross a compact tile and skip constant
+  gradient math for solid paths without changing scanline coverage. On COM10,
+  artwork CPU1 falls from 45% to 33%, artwork raster from about 7 ms to 4 ms
+  and frame mean from about 26 ms to 21 ms at 29.4 FPS. The matched skeleton
+  capture falls from CPU1 63% to 55% and draw from 13 ms to 10 ms. CPU2 remains
+  0%; the user observed no dirty pixels in the checked orientation. No
+  automated tests ran.
 - [x] Add additive skeleton links/tangents/markers probes with two extra clock
   reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
   flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;

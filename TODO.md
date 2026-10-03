@@ -14,17 +14,20 @@ authorization.
   conversion improves it to 28.7 FPS, CPU1 66%, and 2 ms conversion. Prepared
   link/tangent batches then reach 28.9 FPS, CPU1 64%, 14 ms raster and 6 ms
   skeleton. Prepared markers reach 29.2 FPS, CPU1 63%, 13 ms raster and 5 ms
-  skeleton; marker cost falls from 2 ms to 1 ms.
+  skeleton; marker cost falls from 2 ms to 1 ms. Conservative per-tile fill
+  edge shortlists then bring artwork to 29.4 FPS, CPU1 33%, 21 ms frame mean
+  and 4 ms artwork raster. The matched skeleton capture reaches 29.4 FPS,
+  CPU1 55%, 29 ms frame mean and 10 ms total raster.
   Pixel comparison/packing are removed, but conservative rectangles increase
-  sent bytes; artwork drawing and sleeping DMA wait remain the main costs.
-  Remove exact-pixel arithmetic overhead from solid artwork fills before
-  considering a more invasive asynchronous DMA pipeline.
+  sent bytes; artwork, skeleton strokes, conversion, submission and sleeping
+  DMA wait are now the remaining measured costs. Rank the next exact-pixel CPU
+  change before considering a more invasive asynchronous DMA pipeline.
   Obtain a logged static-route CPU baseline before
   attributing the remaining work to hardware services. Evidence:
   `docs/architecture/cody-render-performance.md`.
   The pre-raster damage/compact-tile, reduced-log, aligned word-conversion and
-  prepared-stroke and prepared-marker candidates have narrow
-  compilation/device timing evidence.
+  prepared-stroke, prepared-marker and fill-edge-shortlist candidates have
+  narrow compilation/device timing evidence.
   On fresh test
   authorization, check compact/full pixel parity,
   old/new damage reconstruction and device artwork/skeleton/pause/rotation;

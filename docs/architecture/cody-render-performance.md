@@ -374,11 +374,43 @@ Build, verified flash and capture logs are
 `prepared-markers-flash-20261003.log` and
 `prepared-markers-capture-20261003.log` in the same evidence directory.
 
+The artwork fill candidate keeps the original scanline crossing predicate,
+intersection expression, edge order, sorting, clipping and blend operations,
+but builds a conservative authored-order edge shortlist for each compact tile.
+Edges whose half-open vertical range cannot contain any tile pixel center are
+not revisited for every row. Eight of the nine filled paths use one palette
+slot, so those paths also skip the otherwise constant gradient division; the
+body gradient retains its original arithmetic. The shortlist adds 256 bytes to
+the existing fill stack arrays and is compile-time bounded to the 256 authored
+vertex limit.
+
+The 40-second `fill-edge-shortlist-artwork-20261003.log` contains 20 complete
+artwork reports. Against the earlier pre-raster artwork capture, median CPU1
+falls from 45% to 33%, artwork raster from about 7 ms to 4 ms and frame-window
+mean from about 26 ms to 21 ms. CPU2 remains 0%; measured sustained FPS is
+29.4 against the 30 FPS schedule. Median stages are 1 ms geometry, 0 ms dirty
+planning, 4 ms draw, 2 ms conversion, 3 ms submission and 11 ms sleeping DMA
+wait after whole-millisecond rounding. Median payload is 129,272 bytes across
+8 rectangles and 8 compact tiles, closely matching the earlier artwork load.
+
+The matched 40-second `fill-edge-shortlist-skeleton-20261003.log` also contains
+20 complete reports. Against prepared markers, median CPU1 falls from 63% to
+55%, artwork raster from 7 ms to 4 ms, total draw from 13 ms to 10 ms and frame
+mean from 32 ms to 29 ms. Skeleton remains 5 ms; measured sustained FPS reaches
+29.4. This sample covers a heavier animation phase: median payload is 178,464
+bytes across 10 rectangles and 10 tiles, so its 13 ms DMA wait is not a direct
+regression against the earlier 11 ms/8-tile sample.
+
+The fill-edge-shortlist binary is 1,712,560 bytes (`0x1a21b0`); SHA256:
+`D06081735567ECC1A5A3A6C82BE0BEF8843ECFB4CF355736A8C95AD200AB800A`.
+Build and verified-flash logs are `fill-edge-shortlist-build-20261003.log` and
+`fill-edge-shortlist-flash-20261003.log`; the two capture logs use the matching
+`fill-edge-shortlist-*-capture-20261003.log` names.
+
 No automated tests, simulator checks, size workflow or validation scans ran.
-The captures contain the existing snapshot-summary truncation warning and
-RTC error state. The first capture has complete performance triplets; the
-second has 22 STAGE/DRAW pairs but only 20 PERF lines, so two samples lack
-their frame-identity/readout record and are excluded from those statistics.
-The user observed no dirty pixels in the checked orientation. Rotation and
-power stress remain open, separate from the compilation and performance
-observations.
+Both fill-edge-shortlist captures contain 20 complete PERF/STAGE/DRAW triplets.
+They contain the existing snapshot-summary truncation warning and RTC error
+state; no allocation, display, touch or fill error is recorded.
+The user observed no dirty pixels from the fill-edge-shortlist candidate in the
+checked orientation. Rotation and power stress remain open, separate from the
+compilation and performance observations.

@@ -8,6 +8,8 @@
 namespace CODY2D {
 namespace {
 constexpr char kTag[] = "CODY2D_paths";
+static_assert(kMaxPathVertices <= std::numeric_limits<uint8_t>::max() + 1U,
+              "Fill edge indices no longer fit in the compact shortlist");
 
 // point: Canvas coordinate whose bounded extent makes integer raster conversion safe.
 bool valid_point(Vec2 point)
@@ -70,6 +72,27 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
     if (opacity == 0) {
         return ESP_OK;
     }
+
+    // Keep the original edge order, but do not revisit edges that cannot cross
+    // any pixel-center scanline in this tile. The row loop still applies the
+    // original crossing predicate, so this shortlist is only a conservative
+    // rejection and cannot change polygon coverage.
+    const float tile_first_scan_y = first_row + .5f;
+    const float tile_last_scan_y = first_row + strip.height - .5f;
+    uint8_t candidate_edges[kMaxPathVertices];
+    uint16_t candidate_edge_count = 0;
+    for (uint16_t index = 0; index < count; ++index) {
+        const Vec2 a = vertices[index];
+        const Vec2 b = vertices[(index + 1) % count];
+        const float edge_top = std::min(a.y, b.y);
+        const float edge_bottom = std::max(a.y, b.y);
+        if (edge_top <= tile_last_scan_y && edge_bottom > tile_first_scan_y) {
+            candidate_edges[candidate_edge_count++] = static_cast<uint8_t>(index);
+        }
+    }
+
+    const bool is_solid_color = first_color == last_color;
+    const uint16_t solid_color = palette[first_color];
     float intersections[kMaxPathVertices];
     for (uint16_t row = 0; row < strip.height; ++row) {
         const float scan_y = first_row + row + .5f;
@@ -77,7 +100,8 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
             continue;
         }
         uint16_t hits = 0;
-        for (uint16_t index = 0; index < count; ++index) {
+        for (uint16_t candidate = 0; candidate < candidate_edge_count; ++candidate) {
+            const uint16_t index = candidate_edges[candidate];
             const Vec2 a = vertices[index];
             const Vec2 b = vertices[(index + 1) % count];
             if ((a.y <= scan_y && b.y > scan_y) || (b.y <= scan_y && a.y > scan_y)) {
@@ -90,10 +114,13 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
             return ESP_ERR_INVALID_RESPONSE;
         }
         std::sort(intersections, intersections + hits);
-        const float ratio = (scan_y - top) / (bottom - top);
-        const uint16_t slot = first_color + static_cast<uint16_t>(
-            std::floor(ratio * (last_color - first_color) + .5f));
-        const uint16_t color = palette[slot];
+        uint16_t color = solid_color;
+        if (!is_solid_color) {
+            const float ratio = (scan_y - top) / (bottom - top);
+            const uint16_t slot = first_color + static_cast<uint16_t>(
+                std::floor(ratio * (last_color - first_color) + .5f));
+            color = palette[slot];
+        }
         for (uint16_t hit = 0; hit < hits; hit += 2) {
             const int left = std::max(static_cast<int>(first_column),
                                      static_cast<int>(std::ceil(intersections[hit] - .5f)));
