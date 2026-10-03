@@ -31,8 +31,8 @@ priority. Promote an item to `TODO.md` when it becomes active.
 
 ## Power management
 
-- [ ] Before measuring Cody battery life, replace the temporary hardware-PoC
-  awake policy with a verified USB/debug-session policy and measure current,
+- [ ] After the explicit Debug/Release split receives host/build/device
+  validation, evaluate a safe USB-session-aware sleep policy and measure current,
   reconnect and standby/wake behavior. Keep the known ESP-IDF 6.0.2 USB SOF
   cache-error lesson explicit; do not re-enable that hook without evidence.
 

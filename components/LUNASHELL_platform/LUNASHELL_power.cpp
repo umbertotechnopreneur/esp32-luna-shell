@@ -7,6 +7,7 @@
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_settings.hpp"
 
 #include <algorithm>
@@ -1410,6 +1411,8 @@ esp_err_t wait_for_ui_quiescence(uint32_t transition_sequence)
 }
 
 // Coordinate UI quiescence and every hardware resource as one transaction.
+// standby: Target standby or active state for all mandatory resources.
+// reason: Real user/activity event that caused this transition.
 esp_err_t set_standby(
     bool standby,
     LUNASHELL::DeviceStateReason reason
@@ -1659,10 +1662,12 @@ esp_err_t set_standby(
 #endif
     publish_power(optional_storage_error);
     record_standby_trace(StandbyTracePhase::Awake, optional_storage_error);
-    s_deferred_standby_trace_report_at_us =
-        esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
-    s_deferred_standby_trace_reports_remaining =
-        kDeferredStandbyTraceReportCount;
+    if constexpr (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
+        s_deferred_standby_trace_report_at_us =
+            esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
+        s_deferred_standby_trace_reports_remaining =
+            kDeferredStandbyTraceReportCount;
+    }
     ESP_LOGI(
         kTag,
         "Device awake: reason=%s sequence=%lu storage=%s",
@@ -2186,6 +2191,7 @@ esp_err_t apply_idle_policy()
     return ESP_OK;
 }
 
+// argument: Unused task context; this worker owns the published power timeline.
 void power_task(void *argument)
 {
     (void)argument;
@@ -2397,7 +2403,8 @@ void power_task(void *argument)
                 esp_err_to_name(idle_error)
             );
         }
-        if (s_deferred_standby_trace_report_at_us > 0 &&
+        if (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled &&
+            s_deferred_standby_trace_report_at_us > 0 &&
             s_state == LUNASHELL::DeviceOperatingState::Active &&
             esp_timer_get_time() >= s_deferred_standby_trace_report_at_us) {
             s_deferred_standby_trace_report_at_us = 0;
@@ -2540,14 +2547,10 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     }
 
 #if CONFIG_PM_ENABLE
-    // This hardware PoC needs native USB available even after a rendering/input
-    // failure. Automatic light sleep disconnects USB Serial/JTAG on the S3.
-    // Keep frequency scaling; measured sleep/battery policy comes after the PoC.
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    constexpr bool automatic_light_sleep = false;
-#else
-    constexpr bool automatic_light_sleep = true;
-#endif
+    // Debug keeps USB reachable even after a consumer failure. Release may
+    // sleep between functional wake checks; the unsafe USB SOF hook stays off.
+    constexpr bool automatic_light_sleep =
+        LUNASHELL::build_mode::kAutomaticLightSleepEnabled;
     const esp_pm_config_t power_policy = {
         .max_freq_mhz = kMaximumCpuFrequencyMhz,
         .min_freq_mhz = kMinimumCpuFrequencyMhz,
@@ -2574,7 +2577,7 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
         "ESP power policy active: CPU=%d..%d MHz automatic-light-sleep=%s",
         kMinimumCpuFrequencyMhz,
         kMaximumCpuFrequencyMhz,
-        automatic_light_sleep ? "yes" : "no (Cody hardware PoC)"
+        automatic_light_sleep ? "yes (Release)" : "no (Debug)"
     );
 #if CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION
     ESP_LOGI(

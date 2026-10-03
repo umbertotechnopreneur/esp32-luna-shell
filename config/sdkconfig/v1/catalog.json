@@ -2,6 +2,15 @@
   "schema_version": 1,
   "board": "waveshare-esp32s3-touch-amoled-1.75",
   "default_variant": "cody-companion",
+  "default_build_mode": "Debug",
+  "build_modes": {
+    "Debug": {
+      "defaults": ["config/sdkconfig/v1/modes/debug.defaults"]
+    },
+    "Release": {
+      "defaults": ["config/sdkconfig/v1/modes/release.defaults"]
+    }
+  },
   "variants": {
     "headless": {
       "profile": "headless",

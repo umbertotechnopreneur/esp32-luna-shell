@@ -18,6 +18,8 @@ param(
     [string]$BuildDir,
     [ValidateSet('full','connected','ui-minimal','display-touch','headless','leg-edition','cody-companion')]
     [string]$Profile = 'cody-companion',
+    [ValidateSet('Debug','Release')]
+    [string]$BuildMode = 'Debug',
     [ValidateSet('none','distance')][string]$Feature = 'none',
     [string]$BoardConfig,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,

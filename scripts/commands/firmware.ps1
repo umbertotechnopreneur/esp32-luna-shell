@@ -14,6 +14,9 @@ param(
     [ValidateSet("full", "connected", "ui-minimal", "display-touch", "headless", "leg-edition", "cody-companion")]
     [string]$Profile = "cody-companion",
 
+    [ValidateSet("Debug", "Release")]
+    [string]$BuildMode = "Debug",
+
     [ValidateSet("none", "distance")]
     [string]$Feature = "none",
 
@@ -219,6 +222,10 @@ try {
 if ($profileCatalog.schema_version -ne 1) {
     throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
 }
+. (Join-Path $PSScriptRoot '../common/BuildMode.ps1')
+$modeSelection = Resolve-FirmwareBuildMode -Catalog $profileCatalog `
+    -BuildMode $BuildMode -ExplicitSelection ($PSBoundParameters.ContainsKey('BuildMode'))
+$BuildMode = $modeSelection.Name
 if ($null -ne $BoardConfigPath -and $profileCatalog.board -cne $boardSelection.board) {
     throw "Board YAML and firmware profile catalog select different boards"
 }
@@ -332,6 +339,10 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
 if ($SelectedSdkconfigDefaults.Count -eq 0) {
     throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
 }
+# Apply mode policy last, independently of board/profile/module selection.
+$SelectedSdkconfigDefaults += @(
+    $modeSelection.Defaults | ForEach-Object { Resolve-ProfileCatalogPath $_ }
+)
 foreach ($defaultPath in $SelectedSdkconfigDefaults) {
     if (-not (Test-Path -LiteralPath $defaultPath -PathType Leaf)) {
         throw "Profile SDKCONFIG defaults file not found: $defaultPath"
@@ -366,7 +377,7 @@ $ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
     "$($SelectedProfileVariant.dependency_lock)"
 )
 $ProfileSdkconfigPath = Resolve-ArtifactPath(
-    "$($SelectedProfileVariant.generated_sdkconfig)"
+    "$($SelectedProfileVariant.generated_sdkconfig)-$($modeSelection.ArtifactSuffix)"
 )
 function Assert-BoardSdkconfig {
     if ($null -eq $BoardModules) { return }
@@ -413,7 +424,7 @@ if (-not (Test-Path -LiteralPath $profileSdkconfigDirectory -PathType Container)
     $null = New-Item -ItemType Directory -Path $profileSdkconfigDirectory
 }
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
-    $BuildDir = "$($SelectedProfileVariant.default_build_dir)"
+    $BuildDir = "$($SelectedProfileVariant.default_build_dir)-$($modeSelection.ArtifactSuffix)"
 }
 if ([string]::IsNullOrWhiteSpace($BuildDir)) {
     throw "Firmware profile variant has no default build directory: $ProfileBuildKey"
@@ -422,6 +433,11 @@ $ArtifactsRoot = Get-DeviceArtifactsRoot
 $ResolvedBuildDir = Resolve-ArtifactPath $BuildDir ''
 $BuildDir = $ResolvedBuildDir
 Write-Host "Firmware profile: $ProfileBuildKey"
+Write-Host "Firmware build mode: $BuildMode"
+if ($BuildMode -eq 'Release') {
+    Write-Host 'Release: warnings/errors only, rendering diagnostics disabled, automatic Light-sleep allowed.'
+    Write-Host 'Native USB Serial/JTAG may disconnect during Light-sleep; no flash or device operation is implied by building.'
+}
 Write-Host "Build directory: $BuildDir"
 
 if (-not $IdfPath) {
@@ -1035,6 +1051,7 @@ function Get-WorkingDependencyLockPath([string]$RequestedBuildDir) {
     return Join-Path (Get-BuildDirectoryPath $RequestedBuildDir) "dependencies.lock"
 }
 
+# RequestedBuildDir identifies the selected mode's build directory.
 function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
     $selector = if ($null -ne $BoardConfigPath) {
         "-BoardConfig '$BoardConfig'"
@@ -1045,7 +1062,7 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 update-lock " +
         $selector +
-        " -BuildDir $RequestedBuildDir"
+        " -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"
     )
 }
 
@@ -1157,6 +1174,9 @@ function Invoke-BuildDirectoryClean([string]$RequestedBuildDir) {
     }
 }
 
+# RequestedBuildDir identifies the selected mode's build directory.
+# RefreshDependencyLock explicitly enables the existing dependency-resolution workflow.
+# Throws on configuration, dependency, board, or build-mode policy failure.
 function Invoke-ProfileConfiguration(
     [string]$RequestedBuildDir,
     [bool]$RefreshDependencyLock
@@ -1195,6 +1215,7 @@ function Invoke-ProfileConfiguration(
     & $PythonExe $IdfPy --no-hints `
         -B $RequestedBuildDir `
         "-DSDKCONFIG=$ProfileSdkconfigPath" `
+        "-DLUNASHELL_BUILD_MODE=$BuildMode" `
         "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
         "-DIDF_TARGET=esp32s3" `
         reconfigure 2>&1 | ForEach-Object { Write-Host "$_" }
@@ -1202,8 +1223,12 @@ function Invoke-ProfileConfiguration(
         throw "Profile configuration failed (ESP-IDF exit code $LASTEXITCODE)"
     }
     Assert-BoardSdkconfig
+    Assert-FirmwareBuildModeConfiguration `
+        -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) -BuildMode $BuildMode
 }
 
+# No parameters: fingerprint the selected profile, mode, defaults and generated configuration.
+# Throws if any required input is missing or disagrees with the selected mode.
 function Get-SdkconfigDefaultsState {
     $activeDefaults = [System.Collections.Generic.List[string]]::new()
     foreach ($baseDefault in $SelectedSdkconfigDefaults) {
@@ -1235,6 +1260,8 @@ function Get-SdkconfigDefaultsState {
     if (-not (Test-Path -LiteralPath $generatedSdkconfig -PathType Leaf)) {
         throw "Generated sdkconfig not found: $generatedSdkconfig"
     }
+    Assert-FirmwareBuildModeConfiguration `
+        -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -1261,6 +1288,7 @@ function Get-SdkconfigDefaultsState {
                 "schema=1"
                 "profile=$Profile"
                 "feature=$Feature"
+                "build_mode=$BuildMode"
                 "catalog|$catalogHash"
                 $boardConfigEntry
                 "dependency_lock|$dependencyLockHash"
@@ -1284,6 +1312,7 @@ function Get-SdkconfigDefaultsStatePath([string]$RequestedBuildDir) {
     return Join-Path $buildDirectory ".LUNASHELL-sdkconfig-defaults.state"
 }
 
+# RequestedBuildDir identifies the selected mode's build directory.
 function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
     $selector = if ($null -ne $BoardConfigPath) {
         "-BoardConfig '$BoardConfig'"
@@ -1293,7 +1322,7 @@ function Get-SetTargetRecoveryCommand([string]$RequestedBuildDir) {
     }
     return (
         "pwsh -NoProfile -File .\scripts\device.ps1 set-target " +
-        "$selector -BuildDir $RequestedBuildDir"
+        "$selector -BuildMode $BuildMode -BuildDir '" + $RequestedBuildDir.Replace("'", "''") + "'"
     )
 }
 
@@ -1348,6 +1377,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
         & $PythonExe $IdfPy --no-hints `
             -B $RequestedBuildDir `
             "-DSDKCONFIG=$ProfileSdkconfigPath" `
+            "-DLUNASHELL_BUILD_MODE=$BuildMode" `
             "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
             reconfigure
         if ($LASTEXITCODE -ne 0) {
@@ -1410,6 +1440,7 @@ try {
         "-B",
         $BuildDir,
         "-DSDKCONFIG=$ProfileSdkconfigPath",
+        "-DLUNASHELL_BUILD_MODE=$BuildMode",
         "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $BuildDir)"
     )
 

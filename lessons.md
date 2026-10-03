@@ -6,6 +6,12 @@ not substitutes for authorized device validation. Open work belongs in
 
 ## Build profiles and resources
 
+- Debug/Release is a separate axis from the hardware graph. Default to Debug;
+  require explicit Release, isolate each mode's sdkconfig/build state and retain
+  the mode in recovery commands. Existing Release artifacts never imply intent.
+  Debug keeps USB awake; Release permits sleep with the unsafe USB SOF hook still
+  disabled. Source policy alone does not establish electrical savings.
+
 - ESP-IDF resolves components before project Kconfig. Each legal
   board/profile/feature variant needs a pre-Kconfig catalog of admitted roots,
   local component directories, defaults, and a reviewed dependency lock.

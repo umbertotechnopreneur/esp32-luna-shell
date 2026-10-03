@@ -136,6 +136,7 @@ esp_err_t apply_steps(bool enabled, bool reconcile_unknown_state)
 
 }  // namespace
 
+// enabled: Select the session Performance Mode without overriding the compiled logging policy.
 extern "C" esp_err_t LUNASHELL_performance_mode_set_enabled(bool enabled)
 {
     std::lock_guard<std::mutex> lock(s_transition_mutex);
@@ -164,7 +165,7 @@ extern "C" esp_err_t LUNASHELL_performance_mode_set_enabled(bool enabled)
     s_state_known.store(true, std::memory_order_release);
     esp_log_level_set(
         "*",
-        enabled ? ESP_LOG_WARN : ESP_LOG_INFO
+        enabled ? ESP_LOG_WARN : static_cast<esp_log_level_t>(CONFIG_LOG_DEFAULT_LEVEL)
     );
     ESP_LOGI(
         kTag,

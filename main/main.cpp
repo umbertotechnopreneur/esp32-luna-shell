@@ -26,6 +26,7 @@
 #include "LUNASHELL_app_identity.hpp"
 #include "../components/LUNASHELL_boot/include/LUNASHELL_boot.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_logger.h"
 #include "LUNASHELL_platform.h"
@@ -361,10 +362,12 @@ void brookesia_task()
 
 }  // namespace
 
+// No parameters: start the selected UI firmware and fail at a critical startup error.
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());
     ESP_ERROR_CHECK(LUNASHELL_logger_init());
+    LUNASHELL::build_mode::log_startup_mode();
     ESP_ERROR_CHECK(LUNASHELL_liveness_init());
     StartupWatch startup_watch;
     ESP_LOGI(kTag, "Firmware boot");

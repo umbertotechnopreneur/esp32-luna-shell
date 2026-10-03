@@ -1,0 +1,11 @@
+# Release is selected only by an explicit -BuildMode Release invocation.
+# Keep the common -O2 optimization and all error/health/watchdog contracts.
+CONFIG_LUNASHELL_BUILD_MODE_RELEASE=y
+# CONFIG_LUNASHELL_BUILD_MODE_DEBUG is not set
+CONFIG_LOG_DEFAULT_LEVEL_WARN=y
+CONFIG_LOG_MAXIMUM_LEVEL_WARN=y
+CONFIG_BOOTLOADER_LOG_LEVEL_WARN=y
+# Do not collect debug-only sleep residency statistics in Release.
+# CONFIG_PM_LIGHT_SLEEP_CALLBACKS is not set
+# Keep the known unsafe USB SOF guard disabled, including in Release.
+CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n

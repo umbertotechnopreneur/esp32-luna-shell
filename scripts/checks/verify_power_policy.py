@@ -2647,8 +2647,13 @@ def verify_source_contracts() -> None:
     require_regex(
         power,
         r"esp_pm_config_t\s+power_policy\s*=\s*\{.*?"
-        r"\.light_sleep_enable\s*=\s*true",
-        "automatic ESP-IDF Light-sleep policy",
+        r"\.light_sleep_enable\s*=\s*automatic_light_sleep",
+        "build-mode-selected ESP-IDF Light-sleep policy",
+    )
+    require_contains(
+        power,
+        "LUNASHELL::build_mode::kAutomaticLightSleepEnabled",
+        "shared Debug/Release sleep policy",
     )
     require_contains(
         power,

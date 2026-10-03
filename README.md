@@ -14,6 +14,11 @@ generators and explicit checks. Use `help` for the CLI. Runtime output goes to
 `artifacts/`; build/flash clears transient output while retaining firmware and
 configuration caches. See [the console guide](scripts/README.md).
 
+Firmware commands default to `Debug`, independently of the selected hardware
+profile. `Release` requires explicit `-BuildMode Release` on each CLI invocation
+or an explicit selection for the current menu session. Configurations and build
+directories are separate. See [Debug/Release behavior and commands](docs/architecture/firmware-build-modes.md).
+
 ## Inherited Luna Shell
 
 Firmware and Windows simulator for ESP32 Luna Shell, currently configured for
@@ -231,10 +236,13 @@ notifications instead of waking periodically. Brookesia System Core and Service
 Manager workers also block until posted work or the next real timer deadline,
 rather than polling idle schedulers every 2--5 ms. The PMU-isolated PKEY poll
 runs from an internal-RAM task stack, and it plus the IMU motion monitor remain
-alive at a one-second cadence in Device Standby. ESP-IDF Dynamic
+alive at a one-second cadence in Device Standby. In explicitly selected Release,
+ESP-IDF Dynamic
 Frequency Scaling and tickless idle can therefore enter automatic Light-sleep
-during the idle intervals; each completed standby logs measured Light-sleep
-cycles, milliseconds, and residency. ESP32-S3 cannot retain its native
+during the idle intervals. Debug-only callback instrumentation records measured
+Light-sleep cycles, milliseconds, and residency; Release omits that diagnostic
+instrumentation. Debug disables
+automatic Light-sleep to preserve USB debugging. ESP32-S3 cannot retain its native
 USB Serial/JTAG link through Light-sleep. This board keeps
 `CONFIG_USJ_NO_AUTO_LS_ON_CONNECTION=n` because the ESP-IDF USB host guard
 caused cache-error reboots during flash operations. The serial port may become
@@ -427,8 +435,10 @@ The first YAML board build describes the display/touch baseline and selects
 `ui-minimal`. See [board build configuration](docs/architecture/board-build-configuration.md)
 for its hardware set, commands, and current compile boundary.
 
-The default directories are `artifacts/build-full`, `artifacts/build-connected`,
-`artifacts/build-ui-bootstrap`, and `artifacts/build-headless`. All firmware build
+The default directories use mode suffixes, for example
+`artifacts/build-full-debug`, `artifacts/build-connected-debug`,
+`artifacts/build-ui-bootstrap-debug`, and `artifacts/build-headless-debug`.
+Explicit Release uses the corresponding `-release` directories. All firmware build
 trees belong below `artifacts/`; an explicit `-BuildDir` may select a different
 cache location only when it remains under that root.
 

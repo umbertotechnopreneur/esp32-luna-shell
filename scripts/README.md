@@ -5,6 +5,12 @@ interactive menu. Opening the menu/help does not load ESP-IDF, start a simulator
 run checks or probe a serial port. Select an operation to run it explicitly.
 All labels and command help are English.
 
+Firmware mode defaults to `Debug` on every CLI invocation. Release requires
+explicit `-BuildMode Release`, including for later flash/size/configuration
+commands. Session settings can explicitly select Release for the current menu
+session; the next menu starts in Debug. See the
+[mode policy and deferred validation](../docs/architecture/firmware-build-modes.md).
+
 ```powershell
 pwsh -NoProfile -File .\scripts\device.ps1 help
 pwsh -NoProfile -File .\scripts\device.ps1 simulator
@@ -14,6 +20,8 @@ pwsh -NoProfile -File .\scripts\device.ps1 check -Check cody-poc
 pwsh -NoProfile -File .\scripts\device.ps1 check -Check device-console
 pwsh -NoProfile -File .\scripts\device.ps1 generate -Generator cody-rig
 pwsh -NoProfile -File .\scripts\device.ps1 build -Jobs 8
+pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildMode Release
+pwsh -NoProfile -File .\scripts\device.ps1 build -BuildMode Release -Jobs 8
 pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM8 -Jobs 8
 pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM8 -DurationSeconds 30
 pwsh -NoProfile -File .\scripts\device.ps1 size -SizeOutputFormat json2
@@ -72,7 +80,7 @@ All disposable project output belongs under `artifacts/`:
 
 | Location | Contents | Before build/flash |
 | --- | --- | --- |
-| `build-*`, or explicitly selected `-BuildDir` | Firmware build, binaries, working dependency lock | Retained |
+| `build-*-debug`, `build-*-release`, or explicitly selected `-BuildDir` | Mode-specific firmware build, binaries, working dependency lock | Retained |
 | `sdkconfig/`, `board-config/` | Generated configuration and board overlays | Retained |
 | `python/` | Host environment and package cache | Retained |
 | `logs/` | Current command logs | Replaced |

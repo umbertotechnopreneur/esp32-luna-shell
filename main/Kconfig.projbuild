@@ -1,5 +1,21 @@
 menu "ESP32 Luna Shell build profiles"
 
+choice LUNASHELL_BUILD_MODE
+    prompt "Firmware build mode"
+    default LUNASHELL_BUILD_MODE_DEBUG
+    help
+        Build mode is independent of the hardware profile. The public wrapper
+        defaults to Debug; Release requires an explicit -BuildMode Release.
+        The wrapper rejects a generated configuration from another mode.
+
+config LUNASHELL_BUILD_MODE_DEBUG
+    bool "Debug: diagnostic logging and USB-friendly awake policy"
+
+config LUNASHELL_BUILD_MODE_RELEASE
+    bool "Release: warnings/errors and automatic Light-sleep"
+
+endchoice
+
 config LUNASHELL_BUILD_PROFILE_SCHEMA_VERSION
     int
     range 1 1

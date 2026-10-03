@@ -1,5 +1,15 @@
 # Done
 
+## Common firmware build modes (2026-10-04)
+
+- [x] Add profile-independent Debug/Release selection to the public firmware CLI
+  and menu. Debug is the default; Release requires explicit selection. Isolate
+  generated configuration/build output and reject mode/log/power mismatches.
+  Apply Release warning/error logs, automatic Light-sleep eligibility, disabled
+  debug-only residency/frame/HUD work and reduced Cody static/parked polling.
+  Preserve errors, watchdogs and functional wake/acquisition contracts. Source
+  implementation and static review only; validation remains in `TODO.md`.
+
 ## Cody rendering checkpoint (2026-10-03)
 
 - [x] Port the approved concept-08 pearl texture to native scanline deformation,
