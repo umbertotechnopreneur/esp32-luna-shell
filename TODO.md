@@ -6,17 +6,12 @@ authorization.
 
 ## Current integration
 
-- [ ] On explicit firmware/device validation request, measure the new skeleton
-  links/tangents/markers probes in the existing `Layers` report. Substages sum
-  to the skeleton layer and use only two extra clock reads per drawn tile.
-  Implementation has static review only; no tests or builds ran for this change.
-
 - [ ] Reduce Cody animation CPU usage and meet the sustained frame budget in
-  both artwork and skeleton views. Current physical evidence is about 27 FPS
-  without lines and CPU1 around 80%; obtain a logged static-route CPU baseline
-  before attributing the remaining work to hardware services. The latest
-  stroke/fill candidate is typically around 21 FPS with skeleton, CPU1 79-83%;
-  its artwork-only performance remains unmeasured. Evidence:
+  both artwork and skeleton views. Latest skeleton substage capture is around
+  21 FPS with CPU1 around 80% and CPU2 0%: links about 3 ms, tangents about
+  3 ms and markers about 2 ms. Compare/packing and sleeping DMA wait remain
+  major frame costs. Obtain a logged static-route CPU baseline before
+  attributing the remaining work to hardware services. Evidence:
   `docs/architecture/cody-render-performance.md`.
 
 - [ ] Finish the Cody offline PoC's physical checks: acoustic quality of both

@@ -193,3 +193,33 @@ medians, not additive frame percentiles. CPU remains unresolved. No
 artwork-only transition was captured and artifact disappearance has not been
 visually confirmed. The user reported that the previous candidate's dirty
 pixels persisted in pause. No automated checks were run for these changes.
+
+### Skeleton substage probes
+
+Firmware `bc7c940b` compiled with ESP-IDF 6.0.2 and eight jobs, then flashed
+successfully on COM10. The 60-second capture is
+`artifacts/build-cody-companion/device-evidence/skeleton-substages-20261003.log`.
+No automated tests or simulator checks ran for this change.
+
+The capture contains 30 complete sampled frame reports. The existing `Layers`
+report now includes links, tangents and point markers.
+Their measured durations sum exactly to the skeleton layer on successful
+debug frames. Two additional execution-clock reads per drawn tile separate
+the three loops; logging still happens after the frame lock is released.
+
+Across those samples, the median completed-frame readout is about 22 FPS;
+median CPU1 is 80% and CPU2 stays at 0%. The overlapping 128-frame windows
+have a median of frame medians around 45 ms and p95 values around 47 ms.
+
+Observed skeleton costs are about 3 ms for links, 3 ms for tangents and 2 ms
+for markers, roughly 8 ms total. The final complete 128-frame window reports
+about 46 ms mean and 48 ms p95, with every frame exceeding the 33 ms budget.
+Its completed-frame readout is about 21 FPS with CPU1 78% and CPU2 0%; the
+user independently reports about 20 FPS and 80% on one core.
+
+Compare/packing still costs about 11 ms per sampled frame. Conversion and
+submission cost about 2 ms and 3 ms, with roughly 9 ms of sleeping DMA wait.
+The synchronous diagnostic bundle itself costs about 113 ms every two seconds.
+These are sampled elapsed stage costs, not active CPU measurements or proof
+of an FPS improvement. Snapshot truncation warnings remain separate from the
+complete skeleton probe records. Sustained performance work stays open.

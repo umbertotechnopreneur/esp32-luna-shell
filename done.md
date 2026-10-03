@@ -2,6 +2,10 @@
 
 ## Cody rendering checkpoint (2026-10-03)
 
+- [x] Add additive skeleton links/tangents/markers probes with two extra clock
+  reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
+  flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;
+  the sustained CPU/FPS target remains open. No automated tests ran.
 - [x] Checkpoint shared bounded frame ownership separately from Cody rendering.
   Rasterize in the frame-owned DMA slot, compare conservative old/new coverage,
   retain exact pixel reference checks, and report individual layer durations.
