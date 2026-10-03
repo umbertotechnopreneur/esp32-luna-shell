@@ -476,6 +476,55 @@ void writeProvisioning(
     (void)json.raw("}");
 }
 
+// state: Typed controller state observed in the canonical snapshot.
+const char *pairingSessionStateName(LUNASHELL::PairingSessionState state)
+{
+    using State = LUNASHELL::PairingSessionState;
+    switch (state) {
+    case State::Idle:
+        return "idle";
+    case State::Starting:
+        return "starting";
+    case State::ReadyToScan:
+        return "ready-to-scan";
+    case State::Connecting:
+        return "connecting";
+    case State::Completing:
+        return "completing";
+    case State::Online:
+        return "online";
+    case State::Cancelling:
+        return "cancelling";
+    case State::Cancelled:
+        return "cancelled";
+    case State::Failed:
+        return "failed";
+    case State::TimedOut:
+        return "timed-out";
+    }
+    return "unknown";
+}
+
+// json: Bounded writer retaining all transport errors.
+// pairing: Canonical controller status; no QR or credentials are present.
+void writePairingSession(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::PairingSessionSnapshot &pairing)
+{
+    writeComponentStart(json, pairing);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(pairingSessionStateName(pairing.state));
+    (void)json.raw(",\"failure_reason\":");
+    (void)json.quoted(provisioningFailureName(pairing.failure_reason));
+    (void)json.raw(",\"command_pending\":");
+    (void)json.boolean(pairing.command_pending);
+    (void)json.format(",\"attempt_id\":%lu,\"provisioning_session_id\":%lu,\"changed_at_us\":%lld,\"deadline_at_us\":%lld,\"cleanup_error\":",
+        static_cast<unsigned long>(pairing.attempt_id),
+        static_cast<unsigned long>(pairing.provisioning_session_id),
+        static_cast<long long>(pairing.changed_at_us),
+        static_cast<long long>(pairing.deadline_at_us));
+    (void)json.quoted(esp_err_to_name(pairing.cleanup_error));
+    (void)json.raw("}");
+}
+
 const char *storageMountOutcomeName(LUNASHELL::StorageMountOutcome outcome)
 {
     switch (outcome) {
@@ -1085,6 +1134,8 @@ void writeSnapshotData(
     writeBle(json, snapshot.radios.ble);
     (void)json.raw(",\"provisioning\":");
     writeProvisioning(json, snapshot.radios.provisioning);
+    (void)json.raw(",\"pairing\":");
+    writePairingSession(json, snapshot.radios.pairing);
     (void)json.raw("},\"storage\":");
     writeStorage(json, snapshot.storage);
     if (complete_diagnostics) {
