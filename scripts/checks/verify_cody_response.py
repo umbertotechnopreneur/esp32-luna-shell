@@ -11,12 +11,12 @@ sys.path.insert(0, str(ROOT))
 
 from scripts.common.cody_response import (
     InputOrigin, MotionSample, PowerSample, ResponseInputs, SampleHealth, SampleStamp,
-    SpringState, advance_response, advance_spring, compose_response, logical_vector,
+    BodyTouchSample, SpringState, advance_response, advance_spring, compose_response, logical_vector,
     make_response_state, rebase_response_motion,
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config
 from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_contract, make_contour_state
-from scripts.common.cody_rig_types import FaceChannel
+from scripts.common.cody_rig_types import ContourControl, FaceChannel
 
 
 # sampled_at_us: Synthetic successful measurement time, not a physical device sample.
@@ -42,6 +42,53 @@ class ResponseChecks(unittest.TestCase):
         self.config = self.rig["response"]
         self.initial = make_response_state(self.config)
         self.placement = tuple(self.rig["default_transform"][name] for name in ("x", "y", "scale"))
+
+    # self: Stronger authored gains amplify small real impulses without changing axis mapping.
+    def test_more_pronounced_motion_remains_bounded(self):
+        state = advance_response(self.config, self.initial, samples(1_000_000), 100, 1_000_000)
+        acceleration = {Axis.X: 0, Axis.Y: 1, Axis.Z: 9.80665}
+        impulse = samples(1_100_000, acceleration)
+        strong = advance_response(self.config, state, impulse, 100, 1_100_000)
+        previous = deepcopy(self.config)
+        previous["motion"].update(sensitivity=3.2, translation_gain=.045, translation_limit=.14)
+        gentle = advance_response(previous, state, impulse, 100, 1_100_000)
+        self.assertGreater(abs(strong.body[Axis.X].position), abs(gentle.body[Axis.X].position) * 1.5)
+        frame = compose_response(self.rig, strong, self.rig["boot_channels"]["ready"],
+                                 contour_defaults(self.rig), self.placement, 0, False)
+        self.assertLess(abs(frame.current_root[0] - frame.resting_root[0]),
+                        self.config["motion"]["translation_limit"] * self.placement[2])
+
+    # self: A press and drag must excite lobe deformation and spring back after release.
+    def test_touch_deforms_lobes_and_keeps_release_inertia(self):
+        state = advance_response(self.config, self.initial, samples(1_000_000), 100, 1_000_000)
+        touch = BodyTouchSample(current_stamp(1_100_000), True, (60, 0), 0, 1_100_000)
+        pressed = advance_response(self.config, state, replace(samples(1_100_000), body_touch=touch), 100, 1_100_000)
+        base = contour_defaults(self.rig)
+        face = self.rig["boot_channels"]["ready"]
+        frame = compose_response(self.rig, pressed, face, base, self.placement, 0, False)
+        self.assertGreater(frame.current_root[0], frame.resting_root[0] + 10)
+        self.assertGreater(frame.contour[ContourControl.AMPLITUDE], base[ContourControl.AMPLITUDE])
+        self.assertLess(frame.contour[ContourControl.FULLNESS], base[ContourControl.FULLNESS])
+        self.assertLess(frame.depth_scale, 1)
+        release = replace(touch, stamp=current_stamp(1_200_000), pressed=False)
+        released = advance_response(self.config, pressed, replace(samples(1_200_000), body_touch=release), 100, 1_200_000)
+        after = compose_response(self.rig, released, face, base, self.placement, 0, False)
+        self.assertGreater(after.current_root[0], after.resting_root[0])
+        self.assertGreater(after.contour[ContourControl.AMPLITUDE], base[ContourControl.AMPLITUDE])
+        self.assertEqual(released.consumed_body_press_at_us, pressed.consumed_body_press_at_us)
+
+    # self: Touch displacement is already logical and cannot be rotated again like IMU data.
+    def test_drag_logical_axis_and_stale_recovery(self):
+        touch = BodyTouchSample(current_stamp(1_000_000), True, (40, 0), 90, 1_000_000)
+        inputs = replace(samples(1_000_000), rendering_rotation_degrees=90, body_touch=touch)
+        state = advance_response(self.config, self.initial, inputs, 100, 1_000_000)
+        frame = compose_response(self.rig, state, self.rig["boot_channels"]["ready"],
+                                 contour_defaults(self.rig), self.placement, 90, False)
+        self.assertGreater(frame.current_root[0], frame.resting_root[0])
+        self.assertAlmostEqual(frame.current_root[1], frame.resting_root[1])
+        stale = advance_response(self.config, state, inputs, 100, 4_000_000)
+        self.assertEqual(stale.body_touch_status.health, SampleHealth.STALE)
+        self.assertEqual(stale.consumed_body_press_at_us, state.consumed_body_press_at_us)
 
     # self: A resting accelerometer includes gravity but must not manufacture a startup kick.
     def test_gravity_primes_without_motion_or_stress(self):

@@ -46,6 +46,14 @@ esp_err_t LUNASHELL_hardware_init(void);
 /** Refresh the canonical hardware snapshot once. */
 esp_err_t LUNASHELL_hardware_refresh(const char *reason);
 
+typedef struct {
+    /** False before the first edge, or when both edge orders are ambiguous. */
+    bool state_known;
+    bool pressed;
+    /** Zero until a new unambiguous press edge has been acquired this boot. */
+    int64_t pressed_at_us;
+} LUNASHELL_power_key_sample_t;
+
 /**
  * Atomically consume AXP2101 PKEY events captured from the PMIC IRQ status.
  *
@@ -54,7 +62,8 @@ esp_err_t LUNASHELL_hardware_refresh(const char *reason);
  */
 esp_err_t LUNASHELL_hardware_take_power_key_events(
     uint32_t *short_presses,
-    uint32_t *long_presses
+    uint32_t *long_presses,
+    LUNASHELL_power_key_sample_t *sample
 );
 
 /**

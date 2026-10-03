@@ -3,6 +3,8 @@
 #include "CODY_rig.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_jelly_data.hpp"
+#include "CODY_lifecycle.hpp"
+#include "LUNASHELL_button_hold.hpp"
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -567,6 +569,63 @@ void check_jelly_texture_contract()
         }
     }
 }
+// No parameters: exercise the same allocation-free hold detector used by PWR.
+void check_button_hold_contract()
+{
+    LUNASHELL::ButtonHold hold;
+    require(!hold.update(true, 1000000, true, 3999999, 3000000), "PWR cannot reset before 3 seconds");
+    require(hold.update(true, 1000000, true, 4000000, 3000000), "PWR resets after a continuous 3-second hold");
+    require(!hold.update(true, 1000000, true, 5000000, 3000000), "a held key fires only once");
+    require(!hold.update(false, 0, true, 5000000, 3000000), "release rearms without firing");
+    require(!hold.update(true, 5100000, true, 6000000, 3000000), "short second hold does not accumulate time");
+    require(!hold.update(false, 0, true, 6000001, 3000000), "early release cancels reset");
+    require(!hold.update(true, 0, true, 10000000, 3000000), "key held before acquisition cannot cause a reset loop");
+    require(!hold.update(true, 7000000, false, 10000000, 3000000), "failed or stale sample cannot reset");
+    require(!hold.update(true, 7000000, true, 10000001, 3000000), "recovery requires a new physical release");
+    require(!hold.update(false, 0, true, 10000002, 3000000), "fresh release clears fault blocking");
+    require(!hold.update(true, 20000000, true, 10000003, 3000000), "future press timestamp cannot reset");
+    require(hold.update(true, 11000000, true, 14000000, 3000000), "new valid hold rearms after a release");
+}
+
+// No parameters: boot animation retains exact durations without inventing readiness.
+void check_lifecycle_contract()
+{
+    using CODY::BootCheckpoint;
+    using CODY::LifecyclePhase;
+    CODY::LifecycleState state{};
+    require(CODY::lifecycle_opacity(state) == 0, "sleeping character starts black");
+    require(CODY::advance_lifecycle(state, 1000000, BootCheckpoint::Ready, state) == ESP_OK &&
+            CODY::lifecycle_opacity(state) == 128, "sleeping fade midpoint at one second");
+    require(CODY::advance_lifecycle(state, 1000000, BootCheckpoint::Sleeping, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootSleeping && CODY::lifecycle_opacity(state) == 255,
+            "sleeping fade finishes at two seconds but waits for local services");
+    require(CODY::advance_lifecycle(state, 5000000, BootCheckpoint::Sleeping, state) == ESP_OK &&
+            state.phase_elapsed_us == CODY::kBootSleepingUs, "startup waiting time does not skip later animation");
+    require(CODY::advance_lifecycle(state, 0, BootCheckpoint::Waking, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootWaking && state.phase_elapsed_us == 0, "local checkpoint releases waking phase");
+    require(CODY::advance_lifecycle(state, 4000000, BootCheckpoint::Waking, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootWaking && state.phase_elapsed_us == CODY::kBootWakingUs,
+            "waking lasts four seconds and cannot imply complete startup");
+    require(CODY::advance_lifecycle(state, 0, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady && state.phase_elapsed_us == 0, "ready starts after actual startup succeeds");
+    require(CODY::advance_lifecycle(state, 1999999, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::BootReady, "ready remains visible for two seconds");
+    require(CODY::advance_lifecycle(state, 1, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::Idle, "after ready first setup may enter Hello; otherwise settle at Idle16");
+    state = {};
+    require(CODY::advance_lifecycle(state, 8000000, BootCheckpoint::Ready, state) == ESP_OK &&
+            state.phase == LifecyclePhase::Idle, "one large delta preserves the complete 2/4/2 timeline");
+    CODY::Channels face{};
+    CODY::ContourControls contour{};
+    require(CODY::lifecycle_targets({}, face, contour) == ESP_OK, "sleeping atlas expression resolves");
+    require(face[CODY::FaceChannel::EyeLeft] == CODY::Data::sleep[CODY::FaceChannel::EyeLeft],
+            "screen 01 begins with sleeping eyes, not Calm");
+    const CODY::AtlasScreenDefinition *hello = nullptr;
+    require(CODY::find_atlas_screen(CODY::AtlasScreenId::Greeting04, hello) == ESP_OK &&
+            hello->expression == CODY::ExpressionId::Happy, "OOBE Hello selects the happy face");
+    require(CODY::advance_lifecycle(state, -1, BootCheckpoint::Ready, state) == ESP_ERR_INVALID_ARG,
+            "invalid lifecycle time fails fast");
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -580,6 +639,8 @@ int main()
         check_compact_raster_contract();
         check_dirty_plan_contract();
         check_jelly_texture_contract();
+        check_button_hold_contract();
+        check_lifecycle_contract();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

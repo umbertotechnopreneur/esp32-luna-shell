@@ -194,11 +194,11 @@ response:
     annoyance_release_seconds: 3
     stress_gain: 0.7
     brow_gain: 0.9
-    drag_gain: 0.85
-    drag_limit_px: 42
-    press_depth: 0.08
+    drag_gain: 1.35
+    drag_limit_px: 60
+    press_depth: 0.14
     spring_hz: 3.5
-    damping_ratio: 0.55
+    damping_ratio: 0.42
   audio:
     sample_timeout_seconds: 2.5
     microphone_reference: 0.08
@@ -224,14 +224,14 @@ response:
       y: {axis: x, sign: 1}
       z: {axis: z, sign: 1}
     # Small real IMU impulses drive a soft, underdamped response; excursion limits stay bounded.
-    sensitivity: 3.2
+    sensitivity: 4
     baseline_seconds: 1
     sample_timeout_seconds: 0.75
     # Translation is a fraction of the resting body scale; Z changes scale only.
-    translation_gain: 0.045
-    translation_limit: 0.14
-    depth_gain: 0.009
-    depth_limit: 0.05
+    translation_gain: 0.075
+    translation_limit: 0.22
+    depth_gain: 0.018
+    depth_limit: 0.085
     spring_hz: 2
     damping_ratio: 0.32
     stress_reference_mps2: 5

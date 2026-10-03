@@ -147,7 +147,9 @@ constexpr uint64_t kPmuRuntimeIrqMask =
     XPOWERS_AXP2101_VBUS_REMOVE_IRQ |
 #endif
     XPOWERS_AXP2101_PKEY_SHORT_IRQ |
-    XPOWERS_AXP2101_PKEY_LONG_IRQ
+    XPOWERS_AXP2101_PKEY_LONG_IRQ |
+    XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+    XPOWERS_AXP2101_PKEY_POSITIVE_IRQ
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BATTERY
     |
     XPOWERS_AXP2101_BAT_CHG_DONE_IRQ |
@@ -185,6 +187,7 @@ std::atomic<uint32_t> s_pkey_short_press_pending{0};
 std::atomic<uint32_t> s_pkey_long_press_pending{0};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
 uint64_t s_pmu_queued_pkey_status;
+LUNASHELL_power_key_sample_t s_pkey_sample{};
 #endif
 bool s_rtc_ready;
 std::atomic_bool s_rtc_oscillator_stop_latched{false};
@@ -2042,7 +2045,9 @@ esp_err_t collect_pmu_irq_events()
     const uint64_t pkey_status =
         irq_status &
         (XPOWERS_AXP2101_PKEY_SHORT_IRQ |
-         XPOWERS_AXP2101_PKEY_LONG_IRQ);
+         XPOWERS_AXP2101_PKEY_LONG_IRQ |
+         XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ |
+         XPOWERS_AXP2101_PKEY_POSITIVE_IRQ);
     const uint64_t new_pkey_status =
         pkey_status & ~s_pmu_queued_pkey_status;
     if ((new_pkey_status & XPOWERS_AXP2101_PKEY_SHORT_IRQ) != 0U) {
@@ -2050,6 +2055,21 @@ esp_err_t collect_pmu_irq_events()
     }
     if ((new_pkey_status & XPOWERS_AXP2101_PKEY_LONG_IRQ) != 0U) {
         s_pkey_long_press_pending.fetch_add(1, std::memory_order_release);
+    }
+    // PWRON is pulled high internally and the physical key connects it to GND.
+    // Both accumulated edges have unknown order. Invalidate that interval
+    // instead of publishing a fabricated pressed/released level.
+    const bool released = (new_pkey_status & XPOWERS_AXP2101_PKEY_POSITIVE_IRQ) != 0U;
+    const bool pressed = (new_pkey_status & XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ) != 0U;
+    if (released && pressed) {
+        s_pkey_sample = {};
+    } else if (released) {
+        s_pkey_sample = {};
+        s_pkey_sample.state_known = true;
+    } else if (pressed) {
+        s_pkey_sample.state_known = true;
+        s_pkey_sample.pressed = true;
+        s_pkey_sample.pressed_at_us = esp_timer_get_time();
     }
     // Mark decoded PKEY bits before clearing so a failed clear can be retried
     // without duplicating the already queued physical event.
@@ -2659,6 +2679,7 @@ esp_err_t remove_pmu_device()
 }
 #endif
 
+// bus: Existing hardware-owned I2C bus used for bounded PMIC initialization.
 esp_err_t init_pmu(i2c_master_bus_handle_t bus)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
@@ -2742,6 +2763,23 @@ esp_err_t init_pmu(i2c_master_bus_handle_t bus)
             s_pkey_short_press_pending.store(0, std::memory_order_relaxed);
             s_pkey_long_press_pending.store(0, std::memory_order_relaxed);
             s_pmu_queued_pkey_status = 0;
+            s_pkey_sample = {};
+        }
+    }
+    // Leave ample time for the bounded log drain after the 3-second software
+    // reset. A 10-second hardware shutdown remains available if firmware hangs.
+    if (error == ESP_OK &&
+        !require_pmu_write(s_power.setPowerKeyPressOffTime(XPOWERS_POWEROFF_10S),
+                           "set emergency PWR shutdown to 10 seconds")) {
+        error = ESP_FAIL;
+    }
+    if (error == ESP_OK) {
+        uint8_t key_timing = 0;
+        error = read_register(s_pmu_device, XPOWERS_AXP2101_IRQ_OFF_ON_LEVEL_CTRL,
+                              &key_timing, sizeof(key_timing));
+        if (error == ESP_OK && ((key_timing >> 2) & 3U) != XPOWERS_POWEROFF_10S) {
+            ESP_LOGE(TAG, "Emergency PWR shutdown timing verification failed");
+            error = ESP_ERR_INVALID_RESPONSE;
         }
     }
     if (error == ESP_OK &&
@@ -7129,17 +7167,22 @@ extern "C" esp_err_t LUNASHELL_hardware_refresh(const char *reason)
     return LUNASHELL::DeviceSnapshotService::instance().refresh(reason);
 }
 
+// short_presses: Receives queued short IRQs only after successful collection.
+// long_presses: Receives queued long IRQs only after successful collection.
+// sample: Receives the same acquisition's edge-derived pressed state.
 extern "C" esp_err_t LUNASHELL_hardware_take_power_key_events(
     uint32_t *short_presses,
-    uint32_t *long_presses
+    uint32_t *long_presses,
+    LUNASHELL_power_key_sample_t *sample
 )
 {
-    if (short_presses == nullptr || long_presses == nullptr) {
+    if (short_presses == nullptr || long_presses == nullptr || sample == nullptr) {
         ESP_LOGE(TAG, "PKEY event take rejected: output pointer is null");
         return ESP_ERR_INVALID_ARG;
     }
     *short_presses = 0;
     *long_presses = 0;
+    *sample = {};
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS && CONFIG_LUNASHELL_BUILD_PMU_DRIVER_AXP2101
     if (!s_initialized || !s_pmu_ready) {
@@ -7169,6 +7212,7 @@ extern "C" esp_err_t LUNASHELL_hardware_take_power_key_events(
             s_pkey_short_press_pending.exchange(0, std::memory_order_acq_rel);
         *long_presses =
             s_pkey_long_press_pending.exchange(0, std::memory_order_acq_rel);
+        *sample = s_pkey_sample;
     }
     const esp_err_t release_error = give_pmu_mutex(
         pmu_mutex,

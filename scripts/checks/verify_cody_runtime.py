@@ -14,10 +14,10 @@ from scripts.common.cody_poc_contract import demo_targets, load_settings
 from scripts.common.cody_response import (
     InputOrigin, MicrophoneSample, PlaybackSample, PowerSample, ResponseInputs,
     SampleHealth, SampleStamp, advance_response, compose_response, make_response_state,
-    EyeId, EyeTapSample, hit_test_eye,
+    BodyTouchSample, EyeId, EyeTapSample, hit_test_eye,
 )
 from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_contract
-from scripts.common.cody_rig_types import FaceChannel
+from scripts.common.cody_rig_types import ContourControl, FaceChannel
 from scripts.common.asset_provenance import text_source_hash
 
 
@@ -82,14 +82,19 @@ def compare_response(observed):
             playback=PlaybackSample(current, playing, 5000 if playing else 0),
             last_interaction_at_us=46_000_000 if tick >= 450 else 35_400_000 if tick >= 344 else 0,
             eye_tap=EyeTapSample(SampleStamp(SampleHealth.CURRENT, InputOrigin.SYNTHETIC, 46_000_000, 0), EyeId.LEFT)
-                if tick >= 450 else EyeTapSample())
+                if tick >= 450 else EyeTapSample(),
+            body_touch=BodyTouchSample(current, tick < 325, (60, -25), 0, 31_000_000)
+                if 300 <= tick < 336 else BodyTouchSample())
         state = advance_response(config, state, inputs, 100, now)
         frame = compose_response(rig, state, rig["boot_channels"]["ready"],
             contour_defaults(rig), placement, 0)
         expected = {"attention": state.attention, "speaking": state.speaking, "fatigue": state.fatigue,
             "idle": state.idle_seconds, "yawn": state.yawn_weight,
             "mouth": frame.face[FaceChannel.MOUTH_OPEN], "eye": frame.face[FaceChannel.EYE_LEFT],
-            "annoyance": state.annoyance, "closure": state.protective_eye_closure}
+            "annoyance": state.annoyance, "closure": state.protective_eye_closure,
+            "root_x": frame.current_root[0], "root_y": frame.current_root[1],
+            "depth": frame.depth_scale, "amplitude": frame.contour[ContourControl.AMPLITUDE],
+            "fullness": frame.contour[ContourControl.FULLNESS]}
         for name, value in expected.items():
             if not math.isclose(row[name], value, rel_tol=0, abs_tol=.00015):
                 raise AssertionError(f"Native/Python tick={tick} {name}: {row[name]} vs {value}")

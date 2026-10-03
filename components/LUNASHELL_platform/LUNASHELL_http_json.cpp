@@ -846,6 +846,9 @@ void writeInput(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::InputSnapshot 
     (void)json.boolean(input.boot_pressed);
     (void)json.raw(",\"power_pressed\":");
     (void)json.boolean(input.power_pressed);
+    (void)json.raw(",\"power_pressed_valid\":");
+    (void)json.boolean(input.power_pressed_valid);
+    (void)json.format(",\"power_pressed_at_us\":%lld", static_cast<long long>(input.power_pressed_at_us));
     (void)json.format(
         ",\"boot_press_count\":%lu,\"boot_long_press_count\":%lu,\"power_short_press_count\":%lu,\"power_long_press_count\":%lu,\"wakeup_cause\":%lu}",
         static_cast<unsigned long>(input.boot_press_count),

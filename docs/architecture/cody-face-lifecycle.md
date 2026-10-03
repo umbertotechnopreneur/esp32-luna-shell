@@ -1,11 +1,19 @@
 # Cody face lifecycle and expression catalog
 
-The standalone Cody renderer starts with animated **Calm -> Happy -> Calm** on
-every ordinary cold boot, software restart and hardware reset. It begins with
-the rig in the mandatory first frame rather than waiting for startup bitmap
-checkpoints. The sequence uses active animation time: Calm 900 ms, Happy
-1,200 ms, then Calm 900 ms, followed by idle. The real startup checkpoints
-continue to report completed services and do not select static facial images.
+The standalone Cody renderer starts with **01 / Sleeping -> 02 / Waking up ->
+03 / Ready** on every ordinary cold boot, software restart and hardware reset.
+Sleeping fades the animated pearl character in from black over 2 seconds;
+Waking interpolates the authored sleeping/waking face over 4 seconds; Ready
+remains visible for 2 seconds. The sequence uses active animation time, not
+blocking startup delays, PNG replacement, or additional framebuffers.
+
+Real startup checkpoints gate these phases: Sleeping cannot end before local
+services succeed, and Waking cannot end before startup completes. If a service
+is delayed or fails, the last valid phase stays visible; elapsed waiting time
+does not consume the following phase's full duration. After Ready, effective
+first setup enters **04 / Hi, I'm Cody!** with the authored Happy face and
+monospace typewriter; a saved opt-out instead reaches **16 / Idle**. There is no second
+bitmap/cloud fade in the Hello scene.
 
 The source atlas names are **35A / Sleep**, **35B / Wake**, and **16 / Idle**.
 Calm and Happy are expression combinations, in a separate typed namespace from
@@ -17,7 +25,7 @@ or label in the atlas.
 The boot face sits above the bounded ASCII brand `umbertogiacobbi.biz`, centered
 at logical y=348 and checked against the circle's chord at every bounding corner.
 The existing packed title font is reused. No performance HUD appears during
-Calm/Happy/Calm. The branding fades out over 300 ms before **04 / Hi, I'm Cody!**
+Sleeping/Waking/Ready. Branding fades out during Ready's final 300 ms, then **04 / Hi, I'm Cody!**
 enters; its typewriter and authored Happy face then run over the continuous rig.
 The FPS/CPU readout and its measurement windows start with screen 04. Readout
 text is RGB565 whitesmoke (#F5F5F5), retaining real CPU measurement and unavailable
@@ -38,7 +46,7 @@ rig morph, not replacement of full-screen PNGs. Body/contour controls keep their
 separate owner and do not select an unrelated pose when the expression changes.
 
 `CODY_response` composes breathing and natural blinking after selecting the base
-expression. Their phases remain continuous across Calm, Happy, idle and software
+expression. Their phases remain continuous across startup, Happy, idle and software
 wake transitions. The base breath is 0.25 Hz with the existing real-input response;
 visible Sleep slows towards 0.15 Hz without resetting phase. Awake eyes blink
 over the existing 280 ms closure/reopening interval every 4.8 seconds. Sleep eyes
@@ -53,10 +61,13 @@ Only a completely retired panel frame acknowledges preparation. The power owner
 then suspends producers and display writes and applies its existing panel fade.
 This face change does not change the selected power policy or fade duration.
 
-On software wake, the power owner restores producers and enables standalone
-writes while the panel is dark. The worker prepares **35B / Wake** before the
-panel fade-in, first targeting Drowsy for 300 ms, then Calm; after 900 ms the
-lifecycle is **16 / Idle**. A Deep-sleep reset is distinguished using the real
+On software wake from PWR/touch, the power owner restores producers and enables
+standalone writes while the panel is dark. The worker prepares a dark Sleeping01
+frame before the panel fade-in, acknowledges that completed frame, then replays
+the same **Sleeping (2 s fade) -> Waking (4 s) -> Ready (2 s)** sequence. Effective
+first setup re-enters Hello04 and its Happy/typewriter presentation. The existing
+worker performs the sequence without blocking the power callback for 8 seconds.
+A Deep-sleep reset is distinguished using the real
 ESP reset reason and starts Wake -> Idle rather than replaying the ordinary
 boot greeting. Its rhythm starts a new CPU session; no previous sensor reading
 is invented or retained as current data.
@@ -104,7 +115,7 @@ the catalog. Unknown keys and ambiguous `35` fail explicitly.
 uses the same atlas lookup, so the service index is the actual runtime source.
 Screen 04 resolves its real greeting scene through the catalog. Screen identities
 01/02/03 describe the existing authored preview combinations; they do not override
-the requested ordinary Calm/Happy/Calm startup sequence. For example,
+the ordinary Sleeping/Waking/Ready startup sequence. For example,
 `find_atlas_screen("35A", screen)` resolves the screen mapping, while
 `find_expression("sleeping", expression)` resolves only its face combination.
 

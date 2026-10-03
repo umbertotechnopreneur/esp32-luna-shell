@@ -448,6 +448,12 @@ int main()
             inputs.eye_tap.eye = CODY::EyeId::Left;
             inputs.last_interaction_at_us = 46000000LL;
         }
+        if (tick >= 300 && tick < 336) {
+            current(inputs.body_touch.stamp, now_us);
+            inputs.body_touch.pressed = tick < 325;
+            inputs.body_touch.displacement_px = {60, -25};
+            inputs.body_touch.gesture_started_at_us = 31000000LL;
+        }
         require(CODY::advance_response(CODY::Data::response, state, inputs, 100, now_us, true, state) == ESP_OK,
                 "response fixture update rejected");
         CODY::ResponseFrame frame{};
@@ -455,10 +461,13 @@ int main()
             CODY::contour_defaults(), CODY::Data::placement, 0, true, frame) == ESP_OK,
             "response fixture composition rejected");
         std::printf("%s{\"tick\":%d,\"attention\":%.9g,\"speaking\":%.9g,\"fatigue\":%.9g,"
-            "\"idle\":%.9g,\"yawn\":%.9g,\"mouth\":%.9g,\"eye\":%.9g,\"annoyance\":%.9g,\"closure\":%.9g}",
+            "\"idle\":%.9g,\"yawn\":%.9g,\"mouth\":%.9g,\"eye\":%.9g,\"annoyance\":%.9g,\"closure\":%.9g,"
+            "\"root_x\":%.9g,\"root_y\":%.9g,\"depth\":%.9g,\"amplitude\":%.9g,\"fullness\":%.9g}",
             tick == 0 ? "" : ",\n", tick, state.attention, state.speaking, state.fatigue,
             state.idle_seconds, state.yawn_weight, frame.face[CODY::FaceChannel::MouthOpen],
-            frame.face[CODY::FaceChannel::EyeLeft], state.annoyance, state.protective_eye_closure);
+            frame.face[CODY::FaceChannel::EyeLeft], state.annoyance, state.protective_eye_closure,
+            frame.current_root.x, frame.current_root.y, frame.depth_scale,
+            frame.contour[CODY::ContourControl::Amplitude], frame.contour[CODY::ContourControl::Fullness]);
     }
     std::puts("\n]");
     return 0;

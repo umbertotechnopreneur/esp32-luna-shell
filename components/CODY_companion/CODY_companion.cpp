@@ -82,11 +82,7 @@ enum class StartState : uint32_t {
     Failed,
 };
 
-enum class BootPhase : uint32_t {
-    Sleeping,
-    Waking,
-    Ready,
-};
+using BootPhase = CODY::BootCheckpoint;
 
 struct DrawResult {
     esp_err_t error = ESP_OK;
@@ -598,7 +594,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     CODY::SceneFrame next_scene = s_state.scene;
     CODY::LifecycleState next_lifecycle{};
     esp_err_t lifecycle_error = CODY::advance_lifecycle(
-        s_state.lifecycle, animation_delta_us, next_lifecycle);
+        s_state.lifecycle, animation_delta_us, s_state.boot_phase, next_lifecycle);
     if (lifecycle_error == ESP_OK) {
         lifecycle_error = CODY::lifecycle_targets(next_lifecycle, target_face, target_contour);
     }
@@ -609,10 +605,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (routine_error != ESP_OK) {
         return routine_error;
     }
-    if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && next_scene.valid) {
+    if (CODY::lifecycle_is_resting(next_lifecycle) && next_scene.valid) {
         target_face = next_scene.definition->face;
     }
-    if (next_lifecycle.phase == CODY::LifecyclePhase::Idle && s_state.expression_override) {
+    if (CODY::lifecycle_is_resting(next_lifecycle) && s_state.expression_override) {
         const esp_err_t expression_error = CODY::expression_channels(s_state.requested_expression, target_face);
         if (expression_error != ESP_OK) {
             return expression_error;
@@ -705,9 +701,12 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     s_state.contour = next_contour;
     s_state.lifecycle = next_lifecycle;
     if (s_state.branding_phase == BrandingPhase::Visible &&
-        s_state.boot_phase == BootPhase::Ready && next_lifecycle.phase == CODY::LifecyclePhase::Idle &&
-        !s_state.onboarding.effective_first_boot) {
-        // A saved opt-out skips screen 04; the startup brand still retires normally.
+        s_state.boot_phase == BootPhase::Ready &&
+        ((next_lifecycle.phase == CODY::LifecyclePhase::BootReady &&
+          next_lifecycle.phase_elapsed_us >= CODY::kBootReadyUs - kBrandingFadeDurationUs) ||
+         CODY::lifecycle_is_resting(next_lifecycle))) {
+        // Retire branding during the final Ready hold, not as an extra delay
+        // before screen 04. A saved opt-out uses the same startup presentation.
         s_state.branding_phase = BrandingPhase::FadingOut;
         s_state.branding_fade_elapsed_us = 0;
     }
@@ -1042,8 +1041,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return frame.finish({presentation_error, false, 0});
         }
     }
+    presentation.opacity = static_cast<uint8_t>(
+        static_cast<uint32_t>(presentation.opacity) * CODY::lifecycle_opacity(s_state.lifecycle) / 255U);
+    if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
+        presentation.content_visible = false;
+    }
     const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
-    const bool lifecycle_navigation_allowed = s_state.lifecycle.phase == CODY::LifecyclePhase::Idle;
+    const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle);
     const bool frame_navigation_visible = lifecycle_navigation_allowed && presentation.content_visible &&
         (!s_state.scene.valid || s_state.scene.definition->navigation_visible);
     const uint8_t branding_opacity = startup_branding_opacity();
@@ -1350,7 +1354,7 @@ enum class TouchAction : uint8_t {
 // point: Real logical touch coordinate already mapped by the display owner.
 TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 {
-    if (s_state.lifecycle.phase != CODY::LifecyclePhase::Idle) {
+    if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
         return TouchAction::None;
     }
     if (s_state.scene.valid && (s_state.scene.intro_phase != CODY::SceneIntroPhase::Complete ||
@@ -1414,7 +1418,7 @@ esp_err_t apply_scene_requests()
         return ESP_ERR_INVALID_STATE;
     }
     if (greeting_due) {
-        if (s_state.lifecycle.phase != CODY::LifecyclePhase::Idle) {
+        if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
             return ESP_OK;
         }
         if (s_state.branding_phase == BrandingPhase::Visible) {
@@ -1444,7 +1448,7 @@ esp_err_t apply_scene_requests()
         if (error != ESP_OK) {
             return error;
         }
-        // Startup already has the animated Calm/Happy/Calm sequence. Keep the
+        // Startup already has the animated Sleeping/Waking/Ready sequence. Keep the
         // optional first-boot text, without replacing it with a static bitmap.
         prepared.intro_phase = CODY::SceneIntroPhase::Complete;
         prepared.intro_elapsed_us = 0;
@@ -1533,7 +1537,16 @@ esp_err_t apply_lifecycle_requests()
     const DisplayUnlockOnExit lock;
     s_state.lifecycle_request = request;
     const bool sleeping = (request & 1U) != 0;
-    s_state.lifecycle = {sleeping ? CODY::LifecyclePhase::Sleep : CODY::LifecyclePhase::Wake, 0};
+    s_state.lifecycle = {sleeping ? CODY::LifecyclePhase::Sleep : CODY::LifecyclePhase::BootSleeping, 0};
+    if (!sleeping) {
+        // The first retired dark/closed-eye frame acknowledges restored display
+        // ownership; the complete 2/4/2 sequence continues in this same worker.
+        const esp_err_t face_error = CODY::expression_channels(CODY::ExpressionId::BootSleeping, s_state.face);
+        if (face_error != ESP_OK) {
+            return face_error;
+        }
+        s_state.greeting_entered = false;
+    }
     s_state.requested_expression = CODY::ExpressionId::Calm;
     s_state.expression_override = false;
     s_state.branding_phase = BrandingPhase::Hidden;
@@ -1547,11 +1560,17 @@ esp_err_t apply_lifecycle_requests()
     s_state.next_frame_us = 0;
     s_state.frame_dirty.store(true, std::memory_order_release);
     s_greeting_scheduled.store(false, std::memory_order_release);
+    if (!sleeping && s_state.onboarding.effective_first_boot) {
+        s_greeting_due_us = esp_timer_get_time() +
+            CODY::kBootSleepingUs + CODY::kBootWakingUs + CODY::kBootReadyUs;
+        s_greeting_scheduled.store(true, std::memory_order_release);
+    }
     s_demo_requested.store(false, std::memory_order_release);
     CODY::rebase_response_motion(s_state.response);
     // The existing face is the starting point for morphing, including closed
     // sleep eyes. Breathing/blink phases keep their owner across the transition.
-    ESP_LOGI(kTag, "Atlas lifecycle: %s -> 16 / Idle after wake", sleeping ? "35A / Sleep" : "35B / Wake");
+    ESP_LOGI(kTag, "Atlas lifecycle: %s", sleeping ? "35A / Sleep" :
+        "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (2s); OOBE Hello when first setup");
     return ESP_OK;
 }
 
@@ -1920,7 +1939,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         ? CODY::LifecycleState{CODY::LifecyclePhase::Wake, 0} : CODY::LifecycleState{};
     s_state.contour = CODY::make_contour_state();
     const esp_err_t initial_expression_error = CODY::expression_channels(
-        s_state.deep_sleep_wake ? CODY::ExpressionId::Drowsy : CODY::ExpressionId::Calm, s_state.face);
+        s_state.deep_sleep_wake ? CODY::ExpressionId::Drowsy : CODY::ExpressionId::BootSleeping, s_state.face);
     if (initial_expression_error != ESP_OK) {
         release_companion_resources();
         return fail_consumer("Initial lifecycle expression", initial_expression_error, false);
@@ -1954,7 +1973,7 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
     }
     ESP_LOGI(kTag, "Animated %s and real touch ready; frame-owned internal raster, active=%lu ms standby=%lu ms",
-             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "Calm -> Happy -> Calm",
+             s_state.deep_sleep_wake ? "35B / Wake -> 16 / Idle" : "01 Sleeping (2s fade) -> 02 Waking (4s) -> 03 Ready (2s)",
              static_cast<unsigned long>(kSamplePeriodMs),
              static_cast<unsigned long>(kStandbySamplePeriodMs));
     return ESP_OK;
@@ -2047,7 +2066,7 @@ extern "C" esp_err_t CODY_companion_set_expression(const char *expression_key)
     const DisplayUnlockOnExit lock;
     const StartState state = s_start_state.load(std::memory_order_acquire);
     if (state != StartState::Running ||
-        s_state.boot_phase != BootPhase::Ready || s_state.lifecycle.phase != CODY::LifecyclePhase::Idle ||
+        s_state.boot_phase != BootPhase::Ready || !CODY::lifecycle_is_resting(s_state.lifecycle) ||
         !LUNASHELL_display_runtime_writes_allowed()) {
         const esp_err_t error = state == StartState::Failed
             ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;

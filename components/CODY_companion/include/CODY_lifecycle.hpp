@@ -5,17 +5,33 @@
 
 namespace CODY {
 
-enum class LifecyclePhase : uint8_t { BootCalm, BootHappy, BootSettling, Idle, Sleep, Wake };
+enum class BootCheckpoint : uint32_t { Sleeping, Waking, Ready };
+enum class LifecyclePhase : uint8_t { BootSleeping, BootWaking, BootReady, Idle, Sleep, Wake };
+
+inline constexpr uint32_t kBootSleepingUs = 2000000;
+inline constexpr uint32_t kBootWakingUs = 4000000;
+inline constexpr uint32_t kBootReadyUs = 2000000;
 
 struct LifecycleState {
-    LifecyclePhase phase = LifecyclePhase::BootCalm;
+    LifecyclePhase phase = LifecyclePhase::BootSleeping;
     uint32_t phase_elapsed_us = 0;
 };
 
+// state: Settled animation permits interaction; timed startup/Sleep/Wake do not.
+constexpr bool lifecycle_is_resting(const LifecycleState &state)
+{
+    return state.phase == LifecyclePhase::Idle;
+}
+
 // state: Current phase and active-time clock; standby time is excluded by the caller.
 // active_delta_us: Nonnegative elapsed animation time, never a sensor measurement.
+// checkpoint: Last successful startup checkpoint; animation cannot imply hardware readiness.
 // next: Receives the complete phase update only on success.
-esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us, LifecycleState &next);
+esp_err_t advance_lifecycle(const LifecycleState &state, int64_t active_delta_us,
+                            BootCheckpoint checkpoint, LifecycleState &next);
+
+// state: Active-time startup phase; only Sleeping01 fades from black.
+uint8_t lifecycle_opacity(const LifecycleState &state);
 
 // state: Current boot, idle or sleep/wake presentation.
 // face: Receives the authored target without replacing the rhythmic channels.

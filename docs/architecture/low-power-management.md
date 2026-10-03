@@ -146,3 +146,35 @@ it therefore cannot validate this updated source tree.
 Open PKEY-cycle, IMU-wake, GNSS-standby, codec-current, and whole-device current
 measurements remain tracked in `TODO.md` and `planned-todo.md`. They are not
 closed by this software package.
+
+## PWR software restart and retained log files
+
+Holding the physical PWR key continuously for 3 seconds requests `esp_restart()`
+without resetting the AXP2101 or erasing NVS, settings, or log files. The existing
+hardware owner enables/decodes PWRON negative (press) and positive (release)
+edges, queues them before verified IRQ clear, and publishes the acquired level
+and press timestamp through `InputSnapshot`, with explicit `power_pressed_valid`
+to distinguish an unknown level from a real release. Consumers never read PMIC registers
+or sensors directly. Both edges in one acquisition cancel the ambiguous hold.
+
+The power policy checks current canonical sample health and a 500-ms freshness
+bound. An unknown press start, failed/stale sample or early release cannot
+trigger reset; recovery requires a fresh release. A key held before initialization
+does not retrigger software resets. The PMIC's earlier long IRQ now waits for
+release to enter standby, leaving the owner running until the 3-second reset.
+Short PWR taps still toggle standby. BOOT's existing 3-second restart uses the
+same log-drain helper.
+An acquired current PWR hold inhibits automatic inactivity sleep so Release
+cannot park the power worker in the middle of this gesture.
+
+The reset helper logs the reason, requests the existing bounded one-second SD
+writer drain/close when mirroring is enabled, flushes stdout, and gives USB 50 ms
+to transmit before restarting. The PMIC's emergency hardware power-off is set
+and read back at 10 seconds to leave room for this drain. Errors remain visible;
+a failed SD or disconnected host cannot guarantee delivery. Serial capture
+files on the host and successfully persisted SD lines survive. The ordinary
+RAM log ring does not survive an ESP software reset, and USB may re-enumerate.
+
+This firmware gesture is available while the power worker runs, including
+Debug software standby. It is not an electrical wake source from Release
+Deep-sleep: the board still has no verified ESP-routed PWR wake pin.

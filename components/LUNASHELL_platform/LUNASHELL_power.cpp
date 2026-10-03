@@ -10,11 +10,14 @@
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_sleep.hpp"
+#include "LUNASHELL_button_hold.hpp"
+#include "LUNASHELL_logger.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 
 #include "bsp/esp-bsp.h"
@@ -43,6 +46,8 @@ constexpr TickType_t kUiQuiescenceTimeoutTicks = pdMS_TO_TICKS(1500);
 constexpr TickType_t kDebounceTicks = pdMS_TO_TICKS(30);
 constexpr TickType_t kBootArmReleaseTicks = pdMS_TO_TICKS(500);
 constexpr TickType_t kBootResetPressTicks = pdMS_TO_TICKS(3000);
+constexpr int64_t kPowerResetPressUs = 3000000;
+constexpr int64_t kPowerKeyFreshnessUs = 500000;
 constexpr uint32_t kTaskStackBytes = 8192;
 constexpr uint32_t kDisplayFadeDurationMs = LUNASHELL::power_policy::kDisplayFadeDurationMs;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
@@ -234,6 +239,8 @@ enum class ButtonEvent : uint8_t {
 };
 
 ButtonState s_boot;
+LUNASHELL::ButtonHold s_power_reset_hold;
+bool s_power_long_press_pending_release = false;
 
 const char *standby_trace_phase_name(StandbyTracePhase phase)
 {
@@ -413,9 +420,32 @@ void set_input_component(
 void publish_inputs()
 {
     s_inputs.boot_pressed = s_boot.stable_pressed;
-    // AXP2101 exposes discrete PKEY IRQs, not a stable pressed level.
-    s_inputs.power_pressed = false;
     LUNASHELL::DeviceSnapshotService::instance().reportInputs(s_inputs);
+}
+
+// key: Physical button responsible for this explicit software restart.
+[[noreturn]] void restart_preserving_logs(const char *key)
+{
+    ESP_LOGW(kTag, "%s held for 3 seconds; software restart (settings preserved)", key);
+    LUNASHELL_logger_sd_status_t sd_status{};
+    const esp_err_t status_error = LUNASHELL_logger_get_sd_status(&sd_status);
+    if (status_error == ESP_OK && sd_status.enabled) {
+        // The existing writer drains its queue and acknowledges close with a
+        // one-second bound. Never reset the PMIC or erase settings/log files.
+        const esp_err_t drain_error = LUNASHELL_logger_disable_sd();
+        if (drain_error != ESP_OK) {
+            ESP_LOGE(kTag, "Restart SD log drain failed (%s)", esp_err_to_name(drain_error));
+        }
+    } else if (status_error != ESP_OK) {
+        ESP_LOGE(kTag, "Restart logger status failed (%s)", esp_err_to_name(status_error));
+    }
+    if (std::fflush(stdout) != 0) {
+        ESP_LOGE(kTag, "Restart serial flush failed");
+    }
+    // Give the USB console a bounded transmit opportunity before esp_restart.
+    // The host/SD files survive; the non-retained RAM log ring does not.
+    vTaskDelay(pdMS_TO_TICKS(50));
+    esp_restart();
 }
 
 // error: Real transition or settings error published with the current power state.
@@ -2133,6 +2163,8 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 }
 #endif
 
+// short_presses: Newly acquired discrete short-press IRQ count.
+// long_presses: Newly acquired long-press IRQ count; reset waits for a full hold.
 esp_err_t handle_power_key_events(
     uint32_t short_presses,
     uint32_t long_presses
@@ -2159,13 +2191,13 @@ esp_err_t handle_power_key_events(
     if (long_presses > 0U) {
         ESP_LOGI(
             kTag,
-            "PWR long press: requesting standby (count=%lu)",
+            "PWR long press: release for standby, hold 3 seconds for software restart (count=%lu)",
             static_cast<unsigned long>(long_presses)
         );
-        if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
-            return ESP_OK;
-        }
-        return set_standby(true, LUNASHELL::DeviceStateReason::PowerButton);
+        // Do not park the owner at the PMIC's earlier long-IRQ threshold.
+        // It must keep acquiring release edges until the 3-second reset fires.
+        s_power_long_press_pending_release = true;
+        return ESP_OK;
     }
 
     ESP_LOGI(
@@ -2334,11 +2366,7 @@ void power_task(void *argument)
             }
         }
         if (boot_event == ButtonEvent::LongPress) {
-            ESP_LOGW(
-                kTag,
-                "BOOT held for 3 seconds; restarting device"
-            );
-            esp_restart();
+            restart_preserving_logs("BOOT");
         }
         if (now - last_policy_tick < kPolicyTicks) {
             vTaskDelay(power_poll_delay());
@@ -2364,24 +2392,26 @@ void power_task(void *argument)
         s_initial_pkey_long_presses = 0;
         uint32_t sampled_short_presses = 0;
         uint32_t sampled_long_presses = 0;
+        LUNASHELL_power_key_sample_t pkey_sample{};
         const esp_err_t pkey_error =
             LUNASHELL_hardware_take_power_key_events(
                 &sampled_short_presses,
-                &sampled_long_presses
+                &sampled_long_presses,
+                &pkey_sample
             );
-        const bool publish_pkey_health =
-            update_power_key_component(pkey_error);
+        update_power_key_component(pkey_error);
         if (pkey_error == ESP_OK) {
             short_presses += sampled_short_presses;
             long_presses += sampled_long_presses;
+            s_inputs.power_pressed = pkey_sample.pressed;
+            s_inputs.power_pressed_valid = pkey_sample.state_known;
+            s_inputs.power_pressed_at_us = pkey_sample.pressed_at_us;
         }
         const esp_err_t pkey_transition_error =
             handle_power_key_events(short_presses, long_presses);
-        if (short_presses > 0U ||
-            long_presses > 0U ||
-            publish_pkey_health) {
-            publish_inputs();
-        }
+        // Publish every acquisition, including failed samples: consumers must
+        // not time a hold against stale health from a previous successful poll.
+        publish_inputs();
         if (pkey_transition_error != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -2392,6 +2422,30 @@ void power_task(void *argument)
 
         const LUNASHELL::DeviceSnapshot snapshot =
             LUNASHELL::DeviceSnapshotService::instance().snapshot();
+        const auto &key = snapshot.input;
+        const int64_t key_now_us = esp_timer_get_time();
+        const bool key_current = key.power_button.data_valid && !key.power_button.data_stale &&
+            key.power_button.last_error == ESP_OK &&
+            key.power_button.last_success_at_us > 0 &&
+            key_now_us >= key.power_button.last_success_at_us &&
+            key_now_us - key.power_button.last_success_at_us <= kPowerKeyFreshnessUs;
+        if (!key_current) {
+            s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
+                                      false, key_now_us, kPowerResetPressUs);
+        }
+        if (key_current && key.power_pressed_valid &&
+            s_power_reset_hold.update(key.power_pressed, key.power_pressed_at_us,
+                                      true, key_now_us, kPowerResetPressUs)) {
+            restart_preserving_logs("PWR");
+        }
+        if (key_current && key.power_pressed_valid && !key.power_pressed && s_power_long_press_pending_release) {
+            s_power_long_press_pending_release = false;
+            const esp_err_t standby_error =
+                set_standby(true, LUNASHELL::DeviceStateReason::PowerButton);
+            if (standby_error != ESP_OK) {
+                ESP_LOGE(kTag, "PWR release standby failed (%s)", esp_err_to_name(standby_error));
+            }
+        }
         const bool leg_mode =
             s_leg_mode_enabled.load(std::memory_order_acquire);
         if (leg_mode != s_leg_mode_observed) {
@@ -2514,7 +2568,11 @@ void power_task(void *argument)
         }
         // Let the ordinary acquisition path consume a new IRQ before parking it.
         // A raw IRQ never becomes a fabricated touch sample or activity timestamp.
-        const esp_err_t idle_error = physical_touch_interrupt ? ESP_OK : apply_idle_policy();
+        // Do not enter Release Deep-sleep between the press edge and reset.
+        // This is a current physical hold, not a fabricated activity timestamp.
+        const bool power_hold_active = key_current && key.power_pressed;
+        const esp_err_t idle_error = physical_touch_interrupt || power_hold_active
+            ? ESP_OK : apply_idle_policy();
         if (idle_error != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -2733,10 +2791,15 @@ extern "C" esp_err_t LUNASHELL_power_manager_init(void)
     const TickType_t now = xTaskGetTickCount();
     reset_boot_arm_state(now);
     set_input_component(s_inputs.boot_button, true, ESP_OK);
+    LUNASHELL_power_key_sample_t initial_pkey_sample{};
     result = LUNASHELL_hardware_take_power_key_events(
         &s_initial_pkey_short_presses,
-        &s_initial_pkey_long_presses
+        &s_initial_pkey_long_presses,
+        &initial_pkey_sample
     );
+    s_inputs.power_pressed = initial_pkey_sample.pressed;
+    s_inputs.power_pressed_valid = initial_pkey_sample.state_known;
+    s_inputs.power_pressed_at_us = initial_pkey_sample.pressed_at_us;
     set_input_component(
         s_inputs.power_button,
         result == ESP_OK,

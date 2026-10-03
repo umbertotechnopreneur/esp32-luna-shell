@@ -9,6 +9,27 @@ eye-tap closure/annoyance. Its authorized host checks passed; firmware compilati
 and physical behavior remain unverified. Current configuration, evidence and
 limits: [Cody offline PoC](cody-offline-poc.md).
 
+## Pronounced jelly response
+
+The current shared YAML tuning sets motion sensitivity to 4, translation gain
+to 0.075 and excursion limit to 0.22 of the resting character scale. Depth uses
+gain 0.018 with limit 0.085. The board/panel axis mapping, baseline filtering,
+timestamp deduplication and stale/error handling remain unchanged.
+
+Touch drag uses gain 1.35, a 60-pixel soft limit and an underdamped spring
+(3.5 Hz, damping ratio 0.42). Press depth is 0.14. Touch displacement is already
+logical and must not be rotated a second time. The existing pressure/drag
+springs also excite contour amplitude/speed and reduce fullness, so the lobes
+and the optional body-following face deform with the gesture. Release retains
+spring inertia before returning to rest; it does not invent sensor samples.
+Pressure here means the acquired pressed state, not measured force: the touch
+controller supplies no physical pressure value.
+
+Firmware and Windows use matching composer equations and the same generated
+configuration. No sensor reader, framebuffer, task or per-frame allocation is
+added. Actual target FPS/CPU and interaction feel require a new authorized
+flash and physical verification.
+
 ```mermaid
 flowchart LR
     HW[Hardware services: IMU / PMU / microphones / playback] --> DS[Single canonical DeviceSnapshot]

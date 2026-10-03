@@ -472,6 +472,8 @@ struct InputSnapshot {
     ComponentSnapshot power_button;
     bool boot_pressed = false;
     bool power_pressed = false;
+    bool power_pressed_valid = false;
+    int64_t power_pressed_at_us = 0;
     uint32_t boot_press_count = 0;
     uint32_t boot_long_press_count = 0;
     uint32_t power_short_press_count = 0;

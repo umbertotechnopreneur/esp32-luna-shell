@@ -733,11 +733,19 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
     result.face[FaceChannel::CheekOpacity] *= 1 - state.fatigue * expression.fatigue_cheek_fade;
     auto &amplitude = result.contour[ContourControl::Amplitude];
     amplitude += (1 - amplitude) * state.stress * expression.stress_wave_gain;
+    // Excite the same lobes/face warp as IMU motion, not just root translation.
+    // Spring positions keep deforming after release without inventing samples.
+    const float touch_drag = config.touch.drag_limit_px > 0
+        ? std::hypot(state.drag_x.position, state.drag_y.position) / config.touch.drag_limit_px : 0;
+    const float touch_activity = soft_limit(std::fabs(state.touch_pressure.position) * 6.f + touch_drag, 1.f);
+    amplitude += (1 - amplitude) * touch_activity;
     auto &speed = result.contour[ContourControl::Speed];
     speed += (2 - speed) * state.stress * expression.stress_wave_speed_gain;
+    speed += (2 - speed) * touch_activity * .5f;
     speed *= 1 - state.fatigue * expression.fatigue_wave_slowdown;
     auto &fullness = result.contour[ContourControl::Fullness];
     fullness -= (fullness + 1) * state.fatigue * expression.fatigue_fullness;
+    fullness -= (fullness + 1) * soft_limit(std::fabs(state.touch_pressure.position), .15f);
     if (animate_rhythm) {
         const float breathing = std::sin(state.breath_phase);
         const float blink = state.blink_elapsed_ms < 280

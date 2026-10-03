@@ -1114,7 +1114,8 @@ def verify_source_contracts() -> None:
         header,
         r"LUNASHELL_hardware_take_power_key_events\s*\(\s*"
         r"uint32_t\s*\*\s*short_presses\s*,\s*"
-        r"uint32_t\s*\*\s*long_presses\s*\)",
+        r"uint32_t\s*\*\s*long_presses\s*,\s*"
+        r"LUNASHELL_power_key_sample_t\s*\*\s*sample\s*\)",
         "LUNASHELL_platform.h",
     )
     require_contains(power, "LUNASHELL_hardware_take_power_key_events(", "LUNASHELL_power.cpp")
@@ -1449,6 +1450,20 @@ def verify_source_contracts() -> None:
         "if (pkey_error == ESP_OK)",
         "PKEY poll error propagation",
     )
+    for edge in ("XPOWERS_AXP2101_PKEY_NEGATIVE_IRQ", "XPOWERS_AXP2101_PKEY_POSITIVE_IRQ"):
+        require_contains(hardware, edge, "physical PWR press/release acquisition")
+        require_contains(queued_before_clear, edge, "PWR edges queued before verified IRQ clear")
+    for fragment in ("snapshot.input", "key.power_pressed_at_us", "key.power_button.data_valid",
+                     "key.power_pressed_valid", "kPowerKeyFreshnessUs", "s_power_reset_hold.update(", 'restart_preserving_logs("PWR")'):
+        require_contains(power_task, fragment, "continuous PWR reset uses only fresh canonical input")
+    require_contains(power, "kPowerResetPressUs = 3000000", "three-second PWR software hold")
+    restart = function_text(power, "void restart_preserving_logs(", "LUNASHELL_power.cpp")
+    for fragment in ("LUNASHELL_logger_disable_sd()", "std::fflush(stdout)", "esp_restart()"):
+        require_contains(restart, fragment, "bounded soft restart preserves serial and SD logs")
+    require("nvs_flash_erase" not in restart and "setLongPressRestart" not in restart,
+            "PWR reset must not erase settings or power-cycle the PMIC")
+    require_contains(init_pmu, "XPOWERS_POWEROFF_10S", "emergency shutdown leaves time to drain logs")
+    require_contains(power_task, "key_current && key.power_pressed", "fresh PWR hold inhibits inactivity sleep")
 
     idle_policy = function_text(
         power,

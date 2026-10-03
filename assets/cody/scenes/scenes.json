@@ -6,7 +6,7 @@
     {
       "id": "greeting",
       "identity": 1,
-      "intro": { "bitmap_fade_out_ms": 400, "cloud_fade_in_ms": 2000 },
+      "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 225, "scale": 130 },
       "face": {
         "eye_left": 0.12, "eye_right": 0.12,

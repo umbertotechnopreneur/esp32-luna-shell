@@ -631,9 +631,15 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
     face[FaceChannel.MOUTH_WIDTH] -= (face[FaceChannel.MOUTH_WIDTH] - mouth_min) * stress * expression["stress_mouth_narrowing"]
     face[FaceChannel.CHEEK_OPACITY] *= 1 - fatigue * expression["fatigue_cheek_fade"]
     contour[ContourControl.AMPLITUDE] += (1 - contour[ContourControl.AMPLITUDE]) * stress * expression["stress_wave_gain"]
+    drag_limit = rig["response"]["touch"]["drag_limit_px"]
+    touch_drag = math.hypot(state.drag_x.position, state.drag_y.position) / drag_limit if drag_limit > 0 else 0
+    touch_activity = soft_limit(abs(state.touch_pressure.position) * 6 + touch_drag, 1)
+    contour[ContourControl.AMPLITUDE] += (1 - contour[ContourControl.AMPLITUDE]) * touch_activity
     contour[ContourControl.SPEED] += (2 - contour[ContourControl.SPEED]) * stress * expression["stress_wave_speed_gain"]
+    contour[ContourControl.SPEED] += (2 - contour[ContourControl.SPEED]) * touch_activity * .5
     contour[ContourControl.SPEED] *= 1 - fatigue * expression["fatigue_wave_slowdown"]
     contour[ContourControl.FULLNESS] -= (contour[ContourControl.FULLNESS] + 1) * fatigue * expression["fatigue_fullness"]
+    contour[ContourControl.FULLNESS] -= (contour[ContourControl.FULLNESS] + 1) * soft_limit(abs(state.touch_pressure.position), .15)
     if animate_rhythm:
         breathing = math.sin(state.breath_phase)
         blink = .5 - .5 * math.cos(math.tau * state.blink_elapsed_ms / 280) if state.blink_elapsed_ms < 280 else 0
