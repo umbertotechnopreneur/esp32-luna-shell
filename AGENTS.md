@@ -113,6 +113,10 @@ These rules apply to the entire ESP32 Luna Shell firmware repository.
   them. Do not automatically run configure/build/size passes, simulator checks,
   test suites, or validation scans during implementation or before delivery.
   Static code review is allowed; report deferred validation clearly.
+- Before running any test suite or individual test, tell the user exactly which
+  tests and commands you intend to run and wait for fresh explicit authorization.
+  Build, flash, capture, implementation approval, or an earlier test approval
+  never implicitly authorizes another test run.
 - Treat compiler and linker errors as evidence; fix their root cause rather
   than suppressing warnings globally.
 - Firmware compilation can take up to 240 seconds; allow at least a 240-second
