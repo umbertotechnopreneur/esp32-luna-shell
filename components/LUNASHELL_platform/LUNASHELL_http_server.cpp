@@ -272,14 +272,6 @@ esp_err_t loadApiKeyFromSettings()
     if (error != ESP_OK) {
         return error;
     }
-    if (value.empty()) {
-        // Oversized/corrupt values still reach validation; empty is unconfigured.
-        std::lock_guard<std::mutex> lock(s_auth_mutex);
-        s_auth_ready = false;
-        std::memset(s_api_key, 0, sizeof(s_api_key));
-        std::memset(s_expected_authorization, 0, sizeof(s_expected_authorization));
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
     return loadApiKeyValue(value.c_str());
 }
 
