@@ -17,7 +17,7 @@ param(
     [ValidateSet("Debug", "Release")]
     [string]$BuildMode = "Debug",
 
-    [ValidateSet("none", "distance")]
+    [ValidateSet("none", "distance", "wake-word")]
     [string]$Feature = "none",
 
     # A reviewed board YAML selects its compiler profile before ESP-IDF runs.
@@ -336,6 +336,18 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
     [System.IO.File]::WriteAllLines($overlayPath, $overlay)
     $SelectedSdkconfigDefaults += $overlayPath
 }
+if ($Feature -eq "wake-word") {
+    # ESP-SR's packer resolves this string from its own working directory.
+    # Generate an absolute, portable-to-this-checkout path rather than hardcode E:.
+    $wakeModelDirectory = (Resolve-ProfileCatalogPath "assets/wake-word/models") -replace '\\', '/'
+    $wakeOverlayDirectory = Resolve-ArtifactPath '' "artifacts/wake-word"
+    $null = New-Item -ItemType Directory -Path $wakeOverlayDirectory -Force
+    $wakeOverlayPath = Join-Path $wakeOverlayDirectory "$ProfileBuildKey.defaults"
+    [System.IO.File]::WriteAllLines($wakeOverlayPath, @(
+        ('CONFIG_ESP_SR_EXTERNAL_MODEL_PATH="{0}"' -f $wakeModelDirectory)
+    ))
+    $SelectedSdkconfigDefaults += $wakeOverlayPath
+}
 if ($SelectedSdkconfigDefaults.Count -eq 0) {
     throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
 }
@@ -435,8 +447,12 @@ $BuildDir = $ResolvedBuildDir
 Write-Host "Firmware profile: $ProfileBuildKey"
 Write-Host "Firmware build mode: $BuildMode"
 if ($BuildMode -eq 'Release') {
-    Write-Host 'Release: warnings/errors only, rendering diagnostics disabled, automatic Light-sleep allowed.'
-    Write-Host 'Native USB Serial/JTAG may disconnect during Light-sleep; no flash or device operation is implied by building.'
+    if ($Feature -eq 'wake-word') {
+        Write-Host 'Release: warnings/errors only, rendering diagnostics disabled; standby voice listening keeps CPU/audio active and disables silicon sleep.'
+    } else {
+        Write-Host 'Release: warnings/errors only, rendering diagnostics disabled, automatic Light-sleep allowed.'
+        Write-Host 'Native USB Serial/JTAG may disconnect during Light-sleep; no flash or device operation is implied by building.'
+    }
 }
 Write-Host "Build directory: $BuildDir"
 

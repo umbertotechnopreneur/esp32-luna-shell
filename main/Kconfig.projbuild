@@ -304,15 +304,59 @@ config LUNASHELL_BUILD_ENABLE_AUDIO
     default y if LUNASHELL_BUILD_PROFILE_FULL || LUNASHELL_BUILD_PROFILE_LEG_EDITION
     default n
 
+# Capabilities describe the enabled adapter, never a product or board name.
+# Future input adapters must opt in only after implementing 16 kHz PCM16 capture.
+config LUNASHELL_BUILD_VOICE_MICROPHONE_CHANNELS
+    int
+    default 2 if LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL
+    default 1 if LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO
+    default 0
+
+config LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE
+    bool
+    default y if LUNASHELL_BUILD_ENABLE_AUDIO && CODEC_ES7210_SUPPORT && (LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL || LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO)
+
+config LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE
+    bool
+    default y if IDF_TARGET_ESP32S3 && SPIRAM
+
 config LUNASHELL_BUILD_ENABLE_VOICE_AFE
     bool "Enable ESP-SR 16 kHz voice AFE"
-    select LUNASHELL_BUILD_ENABLE_AUDIO
+    depends on LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE && LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE
     default n
     help
-        Starts a dedicated 16 kHz PCM16 voice pipeline. It uses MR for one
-        microphone or MMNR for two microphones, and keeps a speaker PCM
-        reference ring for AEC. This is the speech-recognition profile, not a
+        Starts a dedicated 16 kHz PCM16 voice pipeline. It uses M/MM without
+        a speaker or MR/MMNR with the enabled speaker PCM reference for AEC. This is the speech-recognition profile, not a
         full-duplex conversation path.
+
+config LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    bool "Enable local wake-on-word"
+    depends on LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE && LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE
+    select LUNASHELL_BUILD_ENABLE_VOICE_AFE
+    default n
+    help
+        Loads the selected model from the internal model partition. No network
+        or speech transcription is involved. Requires an enabled microphone
+        adapter, a supported processor and PSRAM. Use a wake-word build variant.
+
+choice LUNASHELL_BUILD_WAKE_WORD_MODEL
+    prompt "Wake word model"
+    depends on LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    default LUNASHELL_BUILD_WAKE_WORD_SOPHIA
+
+config LUNASHELL_BUILD_WAKE_WORD_SOPHIA
+    bool "Sophia (wn9_sophia_tts_v1)"
+
+endchoice
+
+config LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
+    bool "Keep listening during software standby"
+    depends on LUNASHELL_BUILD_ENABLE_WAKE_WORD && LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    default y
+    help
+        Keeps the CPU, audio capture and AFE active while the screen is off.
+        This is software standby, not light/deep sleep. Explicit diagnostic
+        and performance suspensions still pause recognition.
 
 choice LUNASHELL_BUILD_VOICE_AFE_SR_PROFILE
     prompt "Voice AFE speech-recognition profile"

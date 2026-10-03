@@ -1,0 +1,20 @@
+{
+  "repository": "https://github.com/espressif/esp-sr",
+  "commit": "cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143",
+  "model": "wn9_sophia_tts_v1",
+  "wake_word": "Sophia",
+  "files": {
+    "_MODEL_INFO_": {
+      "bytes": 170,
+      "sha256": "d50e96d85404a8b6e2b4d701e581ce2569ce35921efc21e0821db6236d92faf1"
+    },
+    "wn9_index": {
+      "bytes": 1200,
+      "sha256": "b463a5051d01bddc1f5723cddc8f3d5f11a6c750106694ca4aa0c8fdc235032c"
+    },
+    "wn9_data": {
+      "bytes": 289638,
+      "sha256": "6c87e5cc4d2bd95df5ff2e1658b64b3fc59e9fb162d53c582f76be5858f31eaf"
+    }
+  }
+}

@@ -97,11 +97,20 @@ if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_UI)
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE AND
-   (NOT CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO OR
-    NOT CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 OR
-    (NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_DUAL AND
-     NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_ES7210_MONO)))
-    message(FATAL_ERROR "Voice AFE requires the selected audio input/output path")
+   (NOT CONFIG_LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE OR
+    NOT CONFIG_LUNASHELL_BUILD_VOICE_ENGINE_AVAILABLE))
+    message(FATAL_ERROR "Voice AFE requires enabled PCM16 capture, a supported CPU and PSRAM")
+endif()
+if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD)
+    if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE OR
+       NOT CONFIG_MODEL_IN_FLASH OR
+       NOT CONFIG_ESP_SR_EXTERNAL_MODEL_PATH)
+        message(FATAL_ERROR "Wake word requires AFE and the reviewed internal-flash model path")
+    endif()
+    partition_table_get_partition_info(_wake_model_size "--partition-name model" "size")
+    if(NOT _wake_model_size OR _wake_model_size LESS 524288)
+        message(FATAL_ERROR "Wake word requires an internal model partition of at least 512 KiB")
+    endif()
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING AND
    (NOT CONFIG_LUNASHELL_BUILD_ENABLE_WIFI OR

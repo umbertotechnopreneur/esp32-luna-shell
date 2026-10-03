@@ -20,7 +20,7 @@ param(
     [string]$Profile = 'cody-companion',
     [ValidateSet('Debug','Release')]
     [string]$BuildMode = 'Debug',
-    [ValidateSet('none','distance')][string]$Feature = 'none',
+    [ValidateSet('none','distance','wake-word')][string]$Feature = 'none',
     [string]$BoardConfig,
     [ValidateRange(1,86400)][int]$WaitSeconds = 30,
     [ValidateRange(1,86400)][int]$DurationSeconds = 30,

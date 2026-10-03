@@ -53,6 +53,8 @@ def main() -> None:
         "connected",
         "full",
         "full-distance",
+        "cody-companion-wake-word",
+        "full-wake-word",
     }:
         raise AssertionError("profile catalog variants are incomplete or unexpected")
 
@@ -63,7 +65,8 @@ def main() -> None:
     for variant_name, variant in variants.items():
         if not isinstance(variant, dict):
             raise AssertionError(f"variant {variant_name} must be an object")
-        identity = (variant.get("profile"), variant.get("feature"))
+        profile_name = variant.get("profile")
+        identity = (profile_name, variant.get("feature"))
         expected_name = (
             identity[0] if identity[1] == "none" else f"{identity[0]}-{identity[1]}"
         )
@@ -82,23 +85,23 @@ def main() -> None:
         roots = variant.get("component_roots")
         if not isinstance(roots, list) or "main" not in roots or len(roots) != len(set(roots)):
             raise AssertionError(f"variant {variant_name} has invalid component roots")
-        if variant_name == "headless" and roots != ["main"]:
+        if profile_name == "headless" and roots != ["main"]:
             raise AssertionError("headless must admit only the main transitive root")
-        if variant_name in {"connected", "full", "full-distance"}:
+        if profile_name in {"connected", "full"}:
             for required_root in ("esp_http_server", "espressif__network_provisioning"):
                 if required_root not in roots:
                     raise AssertionError(f"{variant_name} is missing root {required_root}")
-        if variant_name == "cody-companion":
+        if profile_name == "cody-companion":
             if "espressif__network_provisioning" not in roots or "esp_http_server" in roots:
                 raise AssertionError("Cody rig PoC requires provisioning with HTTP diagnostics excluded")
-        if variant_name not in {"headless", "display-touch", "cody-companion"} and "espressif__esp_board_manager" not in roots:
+        if profile_name not in {"headless", "display-touch", "cody-companion"} and "espressif__esp_board_manager" not in roots:
             raise AssertionError(f"{variant_name} is missing the HAL board-manager root")
-        if variant_name in {"display-touch", "cody-companion"}:
+        if profile_name in {"display-touch", "cody-companion"}:
             if "esp32_s3_touch_amoled_1_75" not in roots:
                 raise AssertionError(f"{variant_name} must admit the physical BSP")
             if any("lvgl" in root or "brookesia" in root or root == "LUNASHELL_app" for root in roots):
                 raise AssertionError(f"{variant_name} must not admit a GUI root")
-        if variant_name == "cody-companion" and not {"CODY2D", "CODY_companion"}.issubset(roots):
+        if profile_name == "cody-companion" and not {"CODY2D", "CODY_companion"}.issubset(roots):
             raise AssertionError("cody-companion must admit its local renderer and consumer")
 
         component_dirs = variant.get("component_dirs")
@@ -121,11 +124,11 @@ def main() -> None:
             raise AssertionError(f"variant {variant_name} is missing a base component dir")
         app_dir = (ROOT / "components/LUNASHELL_app").resolve()
         bsp_dir = (ROOT / "components/esp32_s3_touch_amoled_1_75").resolve()
-        if variant_name == "headless" and (
+        if profile_name == "headless" and (
             app_dir in resolved_component_dirs or bsp_dir in resolved_component_dirs
         ):
             raise AssertionError("headless must not discover app or BSP manifests")
-        if variant_name in {"display-touch", "cody-companion"} and (
+        if profile_name in {"display-touch", "cody-companion"} and (
             bsp_dir not in resolved_component_dirs or app_dir in resolved_component_dirs
         ):
             raise AssertionError(f"{variant_name} must discover the BSP without the Luna app")
@@ -137,15 +140,15 @@ def main() -> None:
         lock_dependencies = set(
             re.findall(r"(?m)^  ([^ \r\n][^:]*):\s*$", lock_text)
         )
-        if variant_name == "headless":
+        if profile_name == "headless":
             if lock_dependencies != {"idf"}:
                 raise AssertionError("headless dependency lock must contain only ESP-IDF")
-        elif variant_name in {"display-touch", "cody-companion"}:
+        elif profile_name in {"display-touch", "cody-companion"}:
             if not {"idf", "espressif/esp_lcd_co5300", "waveshare/esp_lcd_touch_cst9217"}.issubset(lock_dependencies):
                 raise AssertionError(f"{variant_name} lock must contain display and touch drivers")
             if any("lvgl" in dependency or "brookesia" in dependency for dependency in lock_dependencies):
                 raise AssertionError(f"{variant_name} lock must not contain the GUI stack")
-            if variant_name == "cody-companion" and not {
+            if profile_name == "cody-companion" and not {
                 "espressif/network_provisioning", "espressif/esp_codec_dev",
                 "waveshare/qmi8658", "cube32esp/xpowerslib",
             }.issubset(lock_dependencies):
@@ -159,20 +162,27 @@ def main() -> None:
                 raise AssertionError(f"{variant_name} lock is missing its UI closure")
             connected_dependency = "espressif/network_provisioning"
             full_dependencies = {"waveshare/qmi8658", "cube32esp/xpowerslib"}
-            if variant_name == "ui-minimal" and (
+            if profile_name == "ui-minimal" and (
                 connected_dependency in lock_dependencies
                 or full_dependencies.intersection(lock_dependencies)
             ):
                 raise AssertionError("ui-minimal lock contains connected/full hardware")
-            if variant_name == "connected":
+            if profile_name == "connected":
                 if connected_dependency not in lock_dependencies:
                     raise AssertionError("connected lock is missing provisioning")
                 if full_dependencies.intersection(lock_dependencies):
                     raise AssertionError("connected lock contains full hardware")
-            if variant_name in {"full", "full-distance"} and not (
+            if profile_name == "full" and not (
                 {connected_dependency} | full_dependencies
             ).issubset(lock_dependencies):
                 raise AssertionError(f"{variant_name} lock is missing full hardware")
+        if variant.get("feature") == "wake-word":
+            if "espressif__esp-sr" not in roots or "espressif/esp-sr" not in lock_dependencies:
+                raise AssertionError(f"{variant_name} must resolve ESP-SR in its isolated dependency closure")
+            if "config/sdkconfig/v1/features/wake-word.defaults" not in defaults:
+                raise AssertionError(f"{variant_name} must use the shared wake-word defaults")
+        elif "espressif__esp-sr" in roots:
+            raise AssertionError(f"{variant_name} must keep opt-in ESP-SR out of its root list")
         sdkconfig = resolve_relative(
             variant.get("generated_sdkconfig"), f"{variant_name}.sdkconfig"
         )
