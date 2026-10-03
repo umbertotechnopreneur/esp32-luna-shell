@@ -20,6 +20,10 @@
   64%, and sustained FPS from 28.7 to 28.9; payload and DMA are unchanged.
   The cache is opaque and committed only after complete preparation. No
   automated tests ran.
+- [x] Prepare the exact marker disks in authored order in the same private
+  cache. On COM10, marker time falls from 2 ms to 1 ms, skeleton from 6 ms to
+  5 ms, raster from 14 ms to 13 ms and median CPU1 from 64% to 63%; CPU2 stays
+  0% and sustained FPS reaches 29.2. No automated tests ran.
 - [x] Add additive skeleton links/tangents/markers probes with two extra clock
   reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
   flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;

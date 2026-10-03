@@ -335,7 +335,7 @@ the compact-tile loop. A separate PSRAM cache owns opaque validated stroke
 coefficients; preparation commits the complete cache before drawing, while the
 legacy stroke path retains its cheap off-tile rejection. Cached links and
 tangents are submitted in two ordered batches so each tile validates its
-surface once per skeleton substage. Markers retain the generic exact path.
+surface once per skeleton substage.
 
 The 40-second `prepared-strokes-skeleton-20261003.log` contains 20 complete
 skeleton reports. Against the word-swap capture, median draw falls from 15 ms
@@ -354,6 +354,25 @@ The final build and verified flash logs are
 `prepared-strokes-flash-20261003.log`. The capture contains only the existing
 snapshot-summary truncation warning; no allocation, display, touch or cache
 error is recorded.
+
+Prepared marker disks then extend the same cache without changing their
+authored order, diameter or selected/anchor/handle colors. The selection and
+scene are part of the cache provenance, and every marker is prepared before
+the cache becomes valid. The 40-second
+`prepared-markers-skeleton-20261003.log` contains 20 complete reports. Against
+the prepared-link/tangent capture, median skeleton time falls from 6 ms to
+5 ms, marker time from 2 ms to 1 ms, draw from 14 ms to 13 ms and CPU1 from
+64% to 63%; CPU2 remains 0%. Median sampled frame duration remains 32 ms and
+measured sustained FPS changes from 28.9 to 29.2. Links, tangents, conversion
+and sleeping DMA wait remain 2 ms, 2 ms, 2 ms and 11 ms respectively. Median
+payload is 144,576 bytes.
+
+The prepared-marker binary is 1,712,304 bytes (`0x1a20b0`); SHA256:
+`6843C0B613908BB4BD9C643BDD911C263497CF6EA77AF26BDE0C7049C00166CE`.
+Build, verified flash and capture logs are
+`prepared-markers-build-20261003.log`,
+`prepared-markers-flash-20261003.log` and
+`prepared-markers-capture-20261003.log` in the same evidence directory.
 
 No automated tests, simulator checks, size workflow or validation scans ran.
 The captures contain the existing snapshot-summary truncation warning and

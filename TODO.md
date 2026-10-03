@@ -13,16 +13,18 @@ authorization.
   shows 27.9 FPS, CPU1 68%, CPU2 0%, and 15 ms raster. Aligned RGB565 word
   conversion improves it to 28.7 FPS, CPU1 66%, and 2 ms conversion. Prepared
   link/tangent batches then reach 28.9 FPS, CPU1 64%, 14 ms raster and 6 ms
-  skeleton; markers still cost 2 ms.
+  skeleton. Prepared markers reach 29.2 FPS, CPU1 63%, 13 ms raster and 5 ms
+  skeleton; marker cost falls from 2 ms to 1 ms.
   Pixel comparison/packing are removed, but conservative rectangles increase
-  sent bytes; artwork/skeleton drawing and sleeping DMA wait remain the main
-  costs. Cache or specialize the exact marker disks before considering a more
-  invasive asynchronous DMA pipeline.
+  sent bytes; artwork drawing and sleeping DMA wait remain the main costs.
+  Remove exact-pixel arithmetic overhead from solid artwork fills before
+  considering a more invasive asynchronous DMA pipeline.
   Obtain a logged static-route CPU baseline before
   attributing the remaining work to hardware services. Evidence:
   `docs/architecture/cody-render-performance.md`.
   The pre-raster damage/compact-tile, reduced-log, aligned word-conversion and
-  prepared-stroke candidates have narrow compilation/device timing evidence.
+  prepared-stroke and prepared-marker candidates have narrow
+  compilation/device timing evidence.
   On fresh test
   authorization, check compact/full pixel parity,
   old/new damage reconstruction and device artwork/skeleton/pause/rotation;

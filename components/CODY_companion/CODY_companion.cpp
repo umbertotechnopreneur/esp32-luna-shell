@@ -743,7 +743,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 return frame.finish({ESP_ERR_INVALID_STATE, false, 0});
             }
             const esp_err_t prepare_error = CODY::prepare_rig_debug_strokes(
-                *s_resources.rig, *s_resources.rig_debug_strokes
+                *s_resources.rig, s_state.selected_point, *s_resources.rig_debug_strokes
             );
             if (prepare_error != ESP_OK) {
                 ESP_LOGE(kTag, "Frame debug stroke preparation failed: %s",

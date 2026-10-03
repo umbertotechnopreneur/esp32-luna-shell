@@ -38,10 +38,13 @@ constexpr size_t authored_debug_link_count()
 
 constexpr size_t kAuthoredDebugLinkCount = authored_debug_link_count();
 constexpr size_t kAuthoredDebugTangentCount = std::size(Data::curves) * 2;
+constexpr size_t kAuthoredDebugMarkerCount = std::size(Data::points);
 static_assert(kAuthoredDebugLinkCount <= kRigDebugLinkCapacity,
               "Rig debug link cache is smaller than the authored rig");
 static_assert(kAuthoredDebugTangentCount <= kRigDebugTangentCapacity,
               "Rig debug tangent cache is smaller than the authored rig");
+static_assert(kAuthoredDebugMarkerCount <= kMaxPoints,
+              "Rig debug marker cache is smaller than the authored rig");
 
 // channels: Independent facial values, including shape and cheek opacity controls.
 // operation: Identifies the caller that rejected a channel without clamping it.
@@ -116,7 +119,7 @@ CODY2D::Vec2 cubic(const CODY2D::Vec2 (&control)[4], float t)
 // profile: Optional frame-wide accumulator using the caller's execution clock.
 // stage_started_us: Current substage start; advanced after links and tangents.
 // first_column: Logical x origin of the compact destination, never applied to geometry.
-// debug_strokes: Optional immutable prepared links and tangents for this exact scene.
+// debug_strokes: Optional immutable prepared links, tangents and markers for this scene and selection.
 esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
                           uint16_t first_row, PointId selected, RigRasterProfile *profile,
                           int64_t &stage_started_us, uint16_t first_column,
@@ -181,28 +184,38 @@ esp_err_t draw_debug_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     // The caller's existing skeleton-end tick also closes the marker stage.
     // Only two extra clock reads per tile are needed for this breakdown.
-    for (uint16_t index = 0; index < std::size(Data::points); ++index) {
-        const auto &point = Data::points[index];
-        const bool is_selected = point.id == selected;
-        const bool is_handle = point.role == PointRole::Handle;
-        ColorId marker_color = Data::debug_knot;
-        if (is_selected) {
-            marker_color = Data::debug_selected;
-        } else if (is_handle) {
-            marker_color = Data::debug_handle;
-        } else if (point.role == PointRole::Anchor) {
-            marker_color = Data::debug_anchor;
-        }
-        float diameter = Data::debug_anchor_diameter;
-        if (is_selected) {
-            diameter = Data::debug_selected_diameter;
-        } else if (is_handle) {
-            diameter = Data::debug_handle_diameter;
-        }
-        result = CODY2D::stroke_rows(strip, first_row, scene.world[index], scene.world[index],
-                                    diameter, Data::palette[to_index(marker_color)], first_column);
+    if (debug_strokes != nullptr) {
+        result = CODY2D::stroke_prepared_batch_rows(
+            strip, first_row, debug_strokes->markers,
+            debug_strokes->marker_count, first_column
+        );
         if (result != ESP_OK) {
             return result;
+        }
+    } else {
+        for (uint16_t index = 0; index < std::size(Data::points); ++index) {
+            const auto &point = Data::points[index];
+            const bool is_selected = point.id == selected;
+            const bool is_handle = point.role == PointRole::Handle;
+            ColorId marker_color = Data::debug_knot;
+            if (is_selected) {
+                marker_color = Data::debug_selected;
+            } else if (is_handle) {
+                marker_color = Data::debug_handle;
+            } else if (point.role == PointRole::Anchor) {
+                marker_color = Data::debug_anchor;
+            }
+            float diameter = Data::debug_anchor_diameter;
+            if (is_selected) {
+                diameter = Data::debug_selected_diameter;
+            } else if (is_handle) {
+                diameter = Data::debug_handle_diameter;
+            }
+            result = CODY2D::stroke_rows(strip, first_row, scene.world[index], scene.world[index],
+                                        diameter, Data::palette[to_index(marker_color)], first_column);
+            if (result != ESP_OK) {
+                return result;
+            }
         }
     }
     return ESP_OK;
@@ -538,15 +551,20 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
 }
 
 // scene: Successfully evaluated geometry that remains unchanged while prepared strokes are used.
-// cache: Separate caller-owned storage, invalid until every authored line has been prepared.
-esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &cache)
+// selected: Stable point ID whose marker receives the selected style, or kNoPoint.
+// cache: Separate caller-owned storage, invalid until every authored stroke has been prepared.
+esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
+                                    RigDebugStrokeCache &cache)
 {
     cache.valid_ = false;
     cache.source_scene_ = nullptr;
     cache.link_count_ = 0;
     cache.tangent_count_ = 0;
-    if (!scene.valid) {
-        ESP_LOGE(kTag, "Debug stroke preparation rejected: invalid scene (%s)",
+    cache.marker_count_ = 0;
+    cache.selected_ = kNoPoint;
+    if (!scene.valid || (selected != kNoPoint && to_index(selected) >= std::size(Data::points))) {
+        ESP_LOGE(kTag, "Debug stroke preparation rejected: valid=%u selected=%u (%s)",
+                 static_cast<unsigned>(scene.valid), static_cast<unsigned>(to_index(selected)),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -593,11 +611,44 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &
         }
     }
 
+    uint16_t prepared_marker_count = 0;
+    for (uint16_t point_index = 0; point_index < std::size(Data::points); ++point_index) {
+        const auto &point = Data::points[point_index];
+        const bool is_selected = point.id == selected;
+        const bool is_handle = point.role == PointRole::Handle;
+        ColorId marker_color = Data::debug_knot;
+        if (is_selected) {
+            marker_color = Data::debug_selected;
+        } else if (is_handle) {
+            marker_color = Data::debug_handle;
+        } else if (point.role == PointRole::Anchor) {
+            marker_color = Data::debug_anchor;
+        }
+        float diameter = Data::debug_anchor_diameter;
+        if (is_selected) {
+            diameter = Data::debug_selected_diameter;
+        } else if (is_handle) {
+            diameter = Data::debug_handle_diameter;
+        }
+        const esp_err_t prepare_error = CODY2D::prepare_stroke(
+            scene.world[point_index], scene.world[point_index], diameter,
+            Data::palette[to_index(marker_color)], cache.markers_[prepared_marker_count]
+        );
+        if (prepare_error != ESP_OK) {
+            ESP_LOGE(kTag, "Debug marker preparation failed for point=%u: %s",
+                     static_cast<unsigned>(to_index(point.id)), esp_err_to_name(prepare_error));
+            return prepare_error;
+        }
+        ++prepared_marker_count;
+    }
+
     // Counts and provenance are the commit record. Partially written arrays
     // remain unreachable after any earlier failure.
     cache.link_count_ = prepared_link_count;
     cache.tangent_count_ = prepared_tangent_count;
+    cache.marker_count_ = prepared_marker_count;
     cache.source_scene_ = &scene;
+    cache.selected_ = selected;
     cache.valid_ = true;
     return ESP_OK;
 }
@@ -610,7 +661,7 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Draw the Resume action without changing caller-owned geometry.
 // first_column: Logical x origin of the compact tile; absolute raster arithmetic is preserved.
-// debug_cache: Optional prepared links and tangents for this exact unchanged scene.
+// debug_cache: Optional prepared links, tangents and markers for this scene and selection.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
@@ -629,14 +680,20 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         ? debug_cache->view() : RigDebugStrokeView{};
     if (debug && debug_cache != nullptr &&
         (!debug_strokes.valid || debug_strokes.source_scene != &scene ||
+         debug_strokes.selected != selected ||
          debug_strokes.link_count != kAuthoredDebugLinkCount ||
-         debug_strokes.tangent_count != kAuthoredDebugTangentCount)) {
+         debug_strokes.tangent_count != kAuthoredDebugTangentCount ||
+         debug_strokes.marker_count != kAuthoredDebugMarkerCount)) {
         ESP_LOGE(kTag,
-                 "Prepared debug cache rejected: valid=%u source=%u links=%u tangents=%u (%s)",
+                 "Prepared debug cache rejected: valid=%u source=%u selected=%u expected_selected=%u "
+                 "links=%u tangents=%u markers=%u (%s)",
                  static_cast<unsigned>(debug_strokes.valid),
                  static_cast<unsigned>(debug_strokes.source_scene == &scene),
+                 static_cast<unsigned>(to_index(debug_strokes.selected)),
+                 static_cast<unsigned>(to_index(selected)),
                  static_cast<unsigned>(debug_strokes.link_count),
                  static_cast<unsigned>(debug_strokes.tangent_count),
+                 static_cast<unsigned>(debug_strokes.marker_count),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }

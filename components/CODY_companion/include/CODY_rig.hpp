@@ -164,9 +164,12 @@ struct RigScene {
 struct RigDebugStrokeView {
     const CODY2D::PreparedStroke *links = nullptr;
     const CODY2D::PreparedStroke *tangents = nullptr;
+    const CODY2D::PreparedStroke *markers = nullptr;
     const RigScene *source_scene = nullptr;
     uint16_t link_count = 0;
     uint16_t tangent_count = 0;
+    uint16_t marker_count = 0;
+    PointId selected = kNoPoint;
     bool valid = false;
 };
 
@@ -180,21 +183,24 @@ public:
     RigDebugStrokeView view() const
     {
         return {
-            links_.data(), tangents_.data(), source_scene_,
-            link_count_, tangent_count_, valid_
+            links_.data(), tangents_.data(), markers_.data(), source_scene_,
+            link_count_, tangent_count_, marker_count_, selected_, valid_
         };
     }
 
 private:
     friend esp_err_t prepare_rig_debug_strokes(
-        const RigScene &scene, RigDebugStrokeCache &cache
+        const RigScene &scene, PointId selected, RigDebugStrokeCache &cache
     );
 
     std::array<CODY2D::PreparedStroke, kRigDebugLinkCapacity> links_{};
     std::array<CODY2D::PreparedStroke, kRigDebugTangentCapacity> tangents_{};
+    std::array<CODY2D::PreparedStroke, kMaxPoints> markers_{};
     const RigScene *source_scene_ = nullptr;
     uint16_t link_count_ = 0;
     uint16_t tangent_count_ = 0;
+    uint16_t marker_count_ = 0;
+    PointId selected_ = kNoPoint;
     bool valid_ = false;
 };
 
@@ -220,8 +226,10 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
                        const ContourState *contour = nullptr);
 
 // scene: Successfully evaluated geometry that remains unchanged while the cache is used.
+// selected: Stable point ID whose prepared marker receives the selected style, or kNoPoint.
 // cache: Separate caller-owned storage, invalidated on entry and committed only on success.
-esp_err_t prepare_rig_debug_strokes(const RigScene &scene, RigDebugStrokeCache &cache);
+esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
+                                    RigDebugStrokeCache &cache);
 
 // defaults come from the YAML-generated immutable contour table.
 ContourControls contour_defaults();
@@ -255,7 +263,7 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // profile: Optional caller-owned collector with a monotonic execution clock.
 // paused: Show Play instead of Pause; scene geometry remains owned by the caller.
 // first_column: Logical x origin of the tile; geometry remains in canvas coordinates.
-// debug_cache: Optional prepared links and tangents for this unchanged scene.
+// debug_cache: Optional prepared links, tangents and markers for this scene and selection.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
