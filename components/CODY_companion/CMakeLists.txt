@@ -43,7 +43,8 @@ idf_component_register(
 )
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
-    idf_component_optional_requires(PRIVATE qrcode)
+    # optional_requires matches admitted managed identities, not registry aliases.
+    idf_component_optional_requires(PRIVATE espressif__qrcode)
 endif()
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
