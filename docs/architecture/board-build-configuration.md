@@ -93,13 +93,12 @@ Battery readings and the battery snapshot sampling path compile only when
 `battery: service`; battery detector and ADC setup belong to that module. The
 PMU retains PWR IRQ handling, TS disablement, and the same 50/400/25 mA charge
 policy with a 4.20 V target even when battery telemetry is off.
-`esp_board_manager` remains required by ESP-IDF component Kconfig integration;
-it pulls FatFS and SDMMC into the component graph even though this BSP does not
-compile its SD mount, format, or status functions when `sd: off`. A later
-checkpoint can separate the BSP into bus, display/touch, audio, SD, and
-I/O-expander units and remove remaining indirect dependencies where possible.
-SD dependency removal is explicitly deferred in `planned-todo.md`; this
-correction does not change SD implementation or dependencies.
+The enabled SD service now declares its own FatFS/SDMMC dependencies; it does
+not depend on an unrelated component admitting them accidentally. When
+`sd: off`, this BSP does not compile SD mount, format, or status functions,
+although Brookesia or another required component can still pull the libraries
+into the graph. Separating the BSP into smaller units and removing remaining
+indirect SD dependencies is still deferred in `planned-todo.md`.
 Device UI pages are not yet selectable in this shell profile. A future board
 must supply an explicit adapter and pinout; changing the YAML board name alone
 is rejected.
