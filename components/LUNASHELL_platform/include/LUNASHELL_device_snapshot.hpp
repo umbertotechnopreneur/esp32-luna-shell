@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "esp_err.h"
+#include "LUNASHELL_clock.hpp"
 #include "LUNASHELL_power_policy.hpp"
 
 namespace LUNASHELL {
@@ -80,6 +81,36 @@ struct RtcSnapshot : ComponentSnapshot {
     uint8_t second = 0;
     char source[8] = "none";
     char timezone[40] = "UTC0";
+};
+
+// Actual system-clock observation by the time owner, not an extrapolated RTC sample.
+struct ClockSnapshot : ComponentSnapshot {
+    int64_t utc_epoch_seconds = 0;
+    uint16_t local_minute = 0;
+    ClockTimezone timezone = ClockTimezone::Utc;
+    bool preferences_valid = false;
+    bool routines_enabled = false;
+    bool quiet_hours_enabled = false;
+    uint16_t quiet_start_minute = 0;
+    uint16_t quiet_end_minute = 0;
+    RoutinePeriod period = RoutinePeriod::Unavailable;
+    bool quiet = false;
+    char source[8] = "none";
+};
+
+// Last synchronization measurement is historical, not a continuously sampled metric.
+struct RtcDriftSnapshot : ComponentSnapshot {
+    ComponentSnapshot baseline;
+    bool offset_valid = false;
+    bool rate_valid = false;
+    int32_t rtc_minus_reference_seconds = 0;
+    float rate_ppm = 0;
+    float rate_uncertainty_ppm = 0;
+    uint32_t interval_seconds = 0;
+    uint32_t offset_uncertainty_seconds = 0;
+    int64_t reference_utc_seconds = 0;
+    int64_t rtc_sampled_at_us = 0;
+    char source[8] = "none";
 };
 
 struct GpsSnapshot : ComponentSnapshot {
@@ -561,6 +592,8 @@ struct DeviceSnapshot {
     SensorFusionSnapshot sensor_fusion;
     DistanceSnapshot distance;
     RtcSnapshot rtc;
+    ClockSnapshot clock;
+    RtcDriftSnapshot rtc_drift;
     GpsSnapshot gps;
     AudioSnapshot audio;
     CharacterInteractionSnapshot character_interaction;
@@ -591,6 +624,7 @@ struct MotionPowerObservation {
     bool storage_available = false;
     BatterySnapshot battery;
     ImuSnapshot imu;
+    ClockSnapshot clock;
     uint16_t rendering_rotation_degrees = 0;
     AudioSnapshot audio;
     int64_t touch_last_activity_at_us = 0;
@@ -635,6 +669,8 @@ public:
     // observation: Receives published motion/power fields under one snapshot lock.
     // No hardware refresh or independent measurement ownership is introduced here.
     esp_err_t readMotionPowerObservation(MotionPowerObservation &observation) const;
+    // clock: Receives only the canonical time-owner observation, aged at read time.
+    esp_err_t readClockObservation(ClockSnapshot &clock) const;
     /** Sample only the fresh IMU/fusion geometry needed by the TOF worker. */
     esp_err_t sampleDistanceGeometry(DistanceGeometrySnapshot *geometry);
 
@@ -720,6 +756,10 @@ public:
         const char *timezone,
         esp_err_t error
     );
+    // clock: Time-owner observation with its original attempt/success timestamps.
+    esp_err_t reportClock(const ClockSnapshot &clock);
+    // drift: Historical measurement made before correcting RTC against trusted UTC.
+    esp_err_t reportRtcDrift(const RtcDriftSnapshot &drift);
     void reportInputs(const InputSnapshot &inputs);
     void reportPowerManagement(
         DeviceOperatingState state,

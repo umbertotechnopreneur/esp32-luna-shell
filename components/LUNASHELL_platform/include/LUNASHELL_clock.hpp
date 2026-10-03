@@ -1,0 +1,45 @@
+#pragma once
+
+#include <cstdint>
+#include "esp_err.h"
+
+namespace LUNASHELL {
+
+// Stable setting identities, not positions in a timezone menu. RTC storage stays UTC.
+enum class ClockTimezone : uint8_t { Utc = 0, Rome = 1, HoChiMinh = 2 };
+enum class RoutinePeriod : uint8_t { Unavailable, Morning, Afternoon, Evening, Night };
+enum class ClockCuePolicy : uint8_t { Allowed, QuietHours, TimeUnavailable, SettingsUnavailable };
+struct ClockSnapshot;
+
+struct ClockPreferences {
+    ClockTimezone timezone = ClockTimezone::Utc;
+    bool routines_enabled = true;
+    bool quiet_hours_enabled = true;
+    uint16_t quiet_start_minute = 22 * 60;
+    uint16_t quiet_end_minute = 7 * 60;
+};
+
+// timezone: Explicit reviewed identity; unsupported values return nullptr, never UTC.
+inline const char *clock_timezone_spec(ClockTimezone timezone)
+{
+    switch (timezone) {
+    case ClockTimezone::Utc:
+        return "UTC0";
+    case ClockTimezone::Rome:
+        return "CET-1CEST,M3.5.0/2,M10.5.0/3";
+    case ClockTimezone::HoChiMinh:
+        return "ICT-7";
+    }
+    return nullptr;
+}
+
+// preferences: Receives the validated active configuration; no storage or clock reads.
+esp_err_t read_clock_preferences(ClockPreferences &preferences);
+// preferences: Explicit runtime request, persisted atomically through the NVS owner.
+esp_err_t configure_clock_preferences(const ClockPreferences &preferences);
+// clock: Canonical, aged observation; an invalid/stale value cannot select a routine.
+bool clock_observation_current(const ClockSnapshot &clock);
+// clock: User opt-out is explicit; otherwise unknown time conservatively suppresses cues.
+ClockCuePolicy clock_cue_policy(const ClockSnapshot &clock);
+
+} // namespace LUNASHELL

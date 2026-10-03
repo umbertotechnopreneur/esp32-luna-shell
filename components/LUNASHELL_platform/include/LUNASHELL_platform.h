@@ -154,6 +154,11 @@ esp_err_t LUNASHELL_rtc_write(const LUNASHELL_calendar_time_t *time);
 /** Restore system time from RTC and prepare deferred SNTP synchronization. */
 esp_err_t LUNASHELL_time_init(const char *timezone);
 
+// No parameters: whether the time owner completed configuration (clock may be invalid).
+bool LUNASHELL_time_is_initialized(void);
+// No parameters: acquisition-owner hook; publishes a real system-clock observation.
+esp_err_t LUNASHELL_time_refresh_snapshot(void);
+
 /** Start SNTP after DHCP has supplied an IP address. */
 esp_err_t LUNASHELL_time_notify_wifi_online(void);
 

@@ -201,8 +201,25 @@ void writeSensorFusion(
     );
 }
 
-void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::RtcSnapshot &rtc)
+// period: Published routine identity; never use a numeric table position as its meaning.
+const char *routinePeriodName(LUNASHELL::RoutinePeriod period)
 {
+    using LUNASHELL::RoutinePeriod;
+    switch (period) {
+    case RoutinePeriod::Morning: return "morning";
+    case RoutinePeriod::Afternoon: return "afternoon";
+    case RoutinePeriod::Evening: return "evening";
+    case RoutinePeriod::Night: return "night";
+    case RoutinePeriod::Unavailable: return "unavailable";
+    }
+    return "unavailable";
+}
+
+// json: Existing bounded writer; it retains the original serialization error.
+// snapshot: Canonical RTC, system-clock and historical synchronization observations.
+void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::DeviceSnapshot &snapshot)
+{
+    const auto &rtc = snapshot.rtc;
     writeComponentStart(json, rtc);
     (void)json.raw(",\"system_time\":");
     writeComponentFields(json, rtc.system_time);
@@ -224,6 +241,72 @@ void writeRtcData(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::RtcSnapshot 
     (void)json.quoted(rtc.source);
     (void)json.raw(",\"timezone\":");
     (void)json.quoted(rtc.timezone);
+    const auto &clock = snapshot.clock;
+    const bool clock_current = LUNASHELL::clock_observation_current(clock);
+    (void)json.raw(",\"clock\":");
+    writeComponentStart(json, clock);
+    (void)json.raw(",\"utc_epoch_seconds\":");
+    if (clock_current) {
+        (void)json.format("%lld", static_cast<long long>(clock.utc_epoch_seconds));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"local_minute\":");
+    if (clock_current) {
+        (void)json.format("%u", clock.local_minute);
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"period\":");
+    (void)json.quoted(routinePeriodName(clock_current ? clock.period : LUNASHELL::RoutinePeriod::Unavailable));
+    (void)json.raw(",\"quiet\":");
+    if (clock_current) {
+        (void)json.boolean(clock.quiet);
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"preferences_valid\":");
+    (void)json.boolean(clock.preferences_valid);
+    (void)json.raw(",\"routines_enabled\":");
+    (void)json.boolean(clock.routines_enabled);
+    (void)json.raw(",\"quiet_hours_enabled\":");
+    (void)json.boolean(clock.quiet_hours_enabled);
+    (void)json.format(",\"quiet_start_minute\":%u,\"quiet_end_minute\":%u}",
+        clock.quiet_start_minute, clock.quiet_end_minute);
+    const auto &drift = snapshot.rtc_drift;
+    (void)json.raw(",\"drift\":");
+    writeComponentStart(json, drift);
+    (void)json.raw(",\"baseline\":");
+    writeComponentFields(json, drift.baseline);
+    (void)json.raw(",\"rtc_minus_reference_seconds\":");
+    if (drift.data_valid && drift.offset_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%ld", static_cast<long>(drift.rtc_minus_reference_seconds));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"rate_ppm\":");
+    if (drift.data_valid && drift.rate_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%.3f", static_cast<double>(drift.rate_ppm));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw(",\"rate_uncertainty_ppm\":");
+    if (drift.data_valid && drift.rate_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%.3f", static_cast<double>(drift.rate_uncertainty_ppm));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.format(",\"interval_seconds\":%lu,\"offset_uncertainty_seconds\":%lu,\"rtc_sampled_at_us\":%lld,\"source\":",
+        static_cast<unsigned long>(drift.interval_seconds),
+        static_cast<unsigned long>(drift.offset_uncertainty_seconds), static_cast<long long>(drift.rtc_sampled_at_us));
+    (void)json.quoted(drift.source);
+    (void)json.raw(",\"reference_utc_seconds\":");
+    if (drift.data_valid && drift.offset_valid && drift.last_error == ESP_OK) {
+        (void)json.format("%lld", static_cast<long long>(drift.reference_utc_seconds));
+    } else {
+        (void)json.raw("null");
+    }
+    (void)json.raw("}");
     (void)json.raw("}");
 }
 
@@ -1126,7 +1209,7 @@ void writeSnapshotData(
         writeDistance(json, snapshot.distance);
     }
     (void)json.raw(",\"rtc\":");
-    writeRtcData(json, snapshot.rtc);
+    writeRtcData(json, snapshot);
     (void)json.raw(",\"gps\":");
     writeGpsData(json, snapshot.gps, complete_diagnostics);
     (void)json.raw(",\"audio\":");
@@ -1367,10 +1450,12 @@ void httpJsonWriteDiagnostics(
     (void)json.raw("}");
 }
 
+// json: Bounded writer receiving the RTC diagnostics envelope.
+// snapshot: Canonical acquired state, including routine clock and measured drift.
 void httpJsonWriteRtc(HttpJsonWriter &json, const DeviceSnapshot &snapshot)
 {
     writeEnvelopeStart(json, "LUNASHELL.device.rtc.v1", snapshot);
-    writeRtcData(json, snapshot.rtc);
+    writeRtcData(json, snapshot);
     (void)json.raw("}");
 }
 

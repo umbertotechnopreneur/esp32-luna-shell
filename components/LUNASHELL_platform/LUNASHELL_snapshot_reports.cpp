@@ -897,6 +897,26 @@ void DeviceSnapshotService::reportTime(
     log_snapshot_publication_failure("Time report", publication_error);
 }
 
+// clock: Time-owner observation; failed reads keep explicit unavailable routine state.
+esp_err_t DeviceSnapshotService::reportClock(const ClockSnapshot &clock)
+{
+    const esp_err_t error = update_snapshot(
+        [&clock](DeviceSnapshot &snapshot) { snapshot.clock = clock; }
+    );
+    log_snapshot_publication_failure("Clock report", error);
+    return error;
+}
+
+// drift: Measured comparison with trusted UTC, including original sample/error state.
+esp_err_t DeviceSnapshotService::reportRtcDrift(const RtcDriftSnapshot &drift)
+{
+    const esp_err_t error = update_snapshot(
+        [&drift](DeviceSnapshot &snapshot) { snapshot.rtc_drift = drift; }
+    );
+    log_snapshot_publication_failure("RTC drift report", error);
+    return error;
+}
+
 // inputs: Hardware input owner snapshot.
 void DeviceSnapshotService::reportInputs(const InputSnapshot &inputs)
 {

@@ -975,6 +975,8 @@ int64_t measured_sample_ttl_us(const LUNASHELL::DeviceSnapshot &snapshot)
     return std::max(kMinimumMeasuredSampleTtlUs, cadence_ttl_us);
 }
 
+// snapshot: Canonical observations whose original timestamps must remain untouched.
+// now_us: Actual monotonic observation time used to mark, never refresh, stale data.
 void apply_measured_sample_aging(
     LUNASHELL::DeviceSnapshot &snapshot,
     int64_t now_us
@@ -983,6 +985,7 @@ void apply_measured_sample_aging(
     const int64_t ttl_us = measured_sample_ttl_us(snapshot);
     age_measured_sample(snapshot.battery, now_us, ttl_us);
     age_measured_sample(snapshot.rtc, now_us, ttl_us);
+    age_measured_sample(snapshot.clock, now_us, ttl_us);
     age_measured_sample(snapshot.imu, now_us, ttl_us);
     age_measured_sample(snapshot.sensor_fusion, now_us, ttl_us);
     age_measured_sample(snapshot.distance, now_us, ttl_us);
@@ -6492,6 +6495,8 @@ esp_err_t DeviceSnapshotService::initialize()
     return ESP_OK;
 }
 
+// reason: Caller-owned diagnostic label for this serialized acquisition.
+// diagnostic_reuse_limit_ms: Bounded original-sample reuse window; zero disables reuse.
 esp_err_t DeviceSnapshotService::refresh(
     const char *reason,
     uint32_t diagnostic_reuse_limit_ms
@@ -6656,6 +6661,12 @@ esp_err_t DeviceSnapshotService::refresh(
             &aggregate
         );
     }
+    // The time owner observes the system clock only after the staged hardware
+    // commit. It must not race the stage merge or create a second sensor sampler.
+    if (LUNASHELL_time_is_initialized()) {
+        const esp_err_t clock_error = LUNASHELL_time_refresh_snapshot();
+        record_first_error(clock_error, &aggregate);
+    }
     bool should_log_summary =
         summary_available && std::strcmp(phase, "diagnostic-ui") != 0;
     if (should_log_summary &&
@@ -6798,6 +6809,7 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     }
     copy.battery = s_snapshot.battery;
     copy.imu = s_snapshot.imu;
+    copy.clock = s_snapshot.clock;
     copy.audio = s_snapshot.audio;
     copy.character_interaction = s_snapshot.character_interaction;
     copy.character_touch = s_snapshot.character_touch;
@@ -6813,6 +6825,7 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     const int64_t now_us = esp_timer_get_time();
     age_measured_sample(copy.battery, now_us, ttl_us);
     age_measured_sample(copy.imu, now_us, ttl_us);
+    age_measured_sample(copy.clock, now_us, ttl_us);
     age_measured_sample(copy.audio.microphone, now_us, ttl_us);
     age_measured_sample(copy.audio.playback, now_us, ttl_us);
     age_measured_sample(copy.character_interaction, now_us, ttl_us);
@@ -6820,6 +6833,26 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     // Match the full snapshot: the touch producer publishes its activity atomically.
     copy.touch_last_activity_at_us = touchActivityObservation().last_activity_at_us;
     observation = copy;
+    return ESP_OK;
+}
+
+// clock: Aged projection of the canonical owner; never read or extrapolate RTC here.
+esp_err_t DeviceSnapshotService::readClockObservation(ClockSnapshot &clock) const
+{
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "clock read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Clock observation lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    ClockSnapshot copy = s_snapshot.clock;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("clock read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Clock observation release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    age_measured_sample(copy, esp_timer_get_time(), ttl_us);
+    clock = copy;
     return ESP_OK;
 }
 
