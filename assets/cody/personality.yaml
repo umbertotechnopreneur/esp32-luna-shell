@@ -1,0 +1,20 @@
+# Session-only character mood. It does not measure the person's emotions.
+# Carezza recognition is configured separately in CODY_petting_config.hpp.
+schema: cody.personality.v1
+scope: session
+face_binding: disabled
+
+happiness:
+  minimum: 0
+  maximum: 100
+  initial: 50
+  on_caress:
+    add: 10
+  decay:
+    subtract: 1
+    every_seconds: 60
+    clock: awake
+
+# A derived view, never a second independently stored mood value.
+sadness:
+  rule: complement_of_happiness

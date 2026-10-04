@@ -8,6 +8,15 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] Validate the single-value happiness MVP after fresh authorization:
+  actual generated YAML/config provenance, initial/gain values, exact minute
+  boundaries, retained partial minute after a carezza, 0/100 saturation,
+  sadness complement, equal decay at different tick cadences, invalid authoring/
+  state/time rejection, awake pause/route behavior and park/resume rebasing.
+  Confirm recognized carezze increase mood even if the heart channel is busy.
+  Face influence and persistence are deliberately absent. Generator ran;
+  focused native/host fixtures, current build and simulator remain unexecuted.
+
 - [ ] Validate the new petting increment after fresh command-specific
   authorization: focused `cody-personality` host suite, native/Python gesture
   agreement, slow strokes above eyes/below mouth, tap/swipe/jitter/gap rejection,

@@ -2,6 +2,8 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
 #include "CODY_petting.hpp"
+#include "CODY_happiness.hpp"
+#include "personality_rules.hpp"
 #include "cloud_rig_data.hpp"
 
 #include <array>
@@ -396,6 +398,74 @@ void check_petting()
                 "stationary noisy contact never becomes a caress");
     }
 }
+// No parameters: actual portable mood arithmetic is checked against elapsed-time and domain outcomes.
+void check_happiness()
+{
+    HappinessState state;
+    require(initialize_happiness(PersonalityData::happiness, state) == ESP_OK &&
+            state.happiness == PersonalityData::happiness.initial && state.decay_remainder_us == 0,
+            "compiled authored happiness initializes the session without persistence");
+    const HappinessConfig config{0, 100, 50, 10, 1, 60000000};
+    require(initialize_happiness(config, state) == ESP_OK && state.happiness == 50,
+            "explicit mood fixture starts at midpoint");
+    require(advance_happiness(config, 59999999, state) == ESP_OK && state.happiness == 50 &&
+            state.decay_remainder_us == 59999999, "a partial minute does not decay happiness");
+    require(advance_happiness(config, 1, state) == ESP_OK && state.happiness == 49 &&
+            state.decay_remainder_us == 0, "exact full minute decays one point");
+    require(advance_happiness(config, 30000000, state) == ESP_OK,
+            "half minute advances the artistic clock");
+    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 59 &&
+            state.decay_remainder_us == 30000000, "caress gains ten without resetting the minute phase");
+    require(advance_happiness(config, 30000000, state) == ESP_OK && state.happiness == 58 &&
+            state.decay_remainder_us == 0, "caress does not postpone the already scheduled next decay");
+    state = {99, 13000000};
+    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 100 &&
+            state.decay_remainder_us == 13000000, "authored ceiling bounds gain while retaining phase");
+    state = {0, 20000000};
+    require(advance_happiness(config, 125000000, state) == ESP_OK && state.happiness == 0 &&
+            state.decay_remainder_us == 25000000, "floor discards unpaid full decay while retaining bounded phase");
+    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 10 &&
+            state.decay_remainder_us == 25000000, "a caress at the floor creates no replayed decay debt");
+    require(advance_happiness(config, 35000000, state) == ESP_OK && state.happiness == 9 &&
+            state.decay_remainder_us == 0, "floor recovery pays only the next actual full minute");
+    state = {50, 0};
+    require(advance_happiness(config, INT64_MAX, state) == ESP_OK && state.happiness == 0 &&
+            state.decay_remainder_us == INT64_MAX % config.decay_interval_us,
+            "huge elapsed intervals saturate safely without arithmetic overflow");
+    HappinessState whole{50, 0};
+    HappinessState partitioned{50, 0};
+    require(advance_happiness(config, 60000000, whole) == ESP_OK &&
+            advance_happiness(config, 27000000, partitioned) == ESP_OK &&
+            advance_happiness(config, 8000000, partitioned) == ESP_OK &&
+            advance_happiness(config, 25000000, partitioned) == ESP_OK &&
+            whole.happiness == partitioned.happiness &&
+            whole.decay_remainder_us == partitioned.decay_remainder_us,
+            "decay depends on awake elapsed time rather than update frequency");
+    const HappinessState unchanged = partitioned;
+    require(advance_happiness(config, -1, partitioned) == ESP_ERR_INVALID_ARG &&
+            partitioned.happiness == unchanged.happiness &&
+            partitioned.decay_remainder_us == unchanged.decay_remainder_us,
+            "negative elapsed time fails without changing mood");
+    HappinessConfig invalid = config;
+    invalid.decay_points = 0;
+    require(initialize_happiness(invalid, partitioned) == ESP_ERR_INVALID_ARG &&
+            partitioned.happiness == unchanged.happiness &&
+            partitioned.decay_remainder_us == unchanged.decay_remainder_us,
+            "invalid authored decay is rejected without a default or reset");
+    invalid = config;
+    invalid.initial = 101;
+    require(initialize_happiness(invalid, partitioned) == ESP_ERR_INVALID_ARG,
+            "out-of-domain authored initial value is rejected");
+    state = {101, 0};
+    require(apply_happiness_caress(config, state) == ESP_ERR_INVALID_STATE && state.happiness == 101,
+            "invalid existing happiness is rejected rather than clamped as a repair");
+    state = {50, 60000000};
+    require(advance_happiness(config, 0, state) == ESP_ERR_INVALID_STATE &&
+            state.decay_remainder_us == 60000000, "invalid phase is rejected without repair");
+    state = {93, 40000000};
+    require(initialize_happiness(config, state) == ESP_OK && state.happiness == 50 &&
+            state.decay_remainder_us == 0, "new session deliberately starts from authored initial mood");
+}
 } // namespace
 
 // No parameters: runs only when explicitly authorized through the public check CLI.
@@ -408,6 +478,7 @@ int main()
     check_rejection_and_sizes();
     check_dirty_and_raster();
     check_petting();
+    check_happiness();
     std::printf("],\"assertions\":%d}\n", assertions);
     return failures == 0 ? 0 : 1;
 }

@@ -1,0 +1,27 @@
+{
+  "schema": "cody.personality.generated.v1",
+  "source": "assets/cody/personality.yaml",
+  "source_sha256": "e93773970739f8d2397db6b45c80305646ffb8df157945ade7aa560ce3dfd849",
+  "header": "assets/cody/personality/generated/personality_rules.hpp",
+  "rules": {
+    "schema": "cody.personality.v1",
+    "scope": "session",
+    "face_binding": "disabled",
+    "happiness": {
+      "minimum": 0,
+      "maximum": 100,
+      "initial": 50,
+      "on_caress": {
+        "add": 10
+      },
+      "decay": {
+        "subtract": 1,
+        "every_seconds": 60,
+        "clock": "awake"
+      }
+    },
+    "sadness": {
+      "rule": "complement_of_happiness"
+    }
+  }
+}

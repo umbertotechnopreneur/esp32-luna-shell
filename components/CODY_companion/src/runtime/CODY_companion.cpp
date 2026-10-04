@@ -1,6 +1,7 @@
 #include "CODY_companion.h"
 #include "CODY_personality.hpp"
 #include "CODY_personality_audio.hpp"
+#include "CODY_happiness.hpp"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -36,6 +37,7 @@
 #include "CODY_benchmark.hpp"
 #include "runtime_settings.hpp"
 #include "cloud_rig_data.hpp"
+#include "personality_rules.hpp"
 #include "cody_sleep_pearl.hpp"
 #include "cody_waking_pearl.hpp"
 #include "cody_ready_pearl.hpp"
@@ -173,6 +175,8 @@ struct CompanionState {
     CODY::PettingState petting{};
     int64_t affection_remaining_us = 0;
     bool affection_owns_channel = false;
+    CODY::HappinessState happiness{};
+    int64_t happiness_sampled_at_us = 0;
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityFrame retired_personality{};
     CODY::PersonalityPresentationStatus personality_status = CODY::PersonalityPresentationStatus::Hidden;
@@ -866,6 +870,55 @@ public:
 private:
     bool active_ = true;
 };
+
+// sampled_at_us: Current monotonic owner time, independent of animation/frame clocks.
+// awake: False while power ownership parks Cody; only the clock baseline is then discarded.
+// Exception: Returns invalid monotonic time or the original happiness model failure.
+esp_err_t advance_happiness_clock_locked(int64_t sampled_at_us, bool awake)
+{
+    if (sampled_at_us <= 0 ||
+        (s_state.happiness_sampled_at_us != 0 && sampled_at_us < s_state.happiness_sampled_at_us)) {
+        ESP_LOGE(kTag, "Happiness clock rejected: now_us=%lld previous_us=%lld (%s)",
+                 static_cast<long long>(sampled_at_us),
+                 static_cast<long long>(s_state.happiness_sampled_at_us), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!awake) {
+        s_state.happiness_sampled_at_us = 0;
+        return ESP_OK;
+    }
+    const int64_t elapsed_us = s_state.happiness_sampled_at_us == 0
+        ? 0 : sampled_at_us - s_state.happiness_sampled_at_us;
+    const uint16_t previous_happiness = s_state.happiness.happiness;
+    const esp_err_t error = CODY::advance_happiness(CODY::PersonalityData::happiness,
+                                                  elapsed_us, s_state.happiness);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_state.happiness_sampled_at_us = sampled_at_us;
+    if (s_state.happiness.happiness != previous_happiness) {
+        ESP_LOGI(kTag, "Mood decay: happiness=%u sadness=%u",
+            static_cast<unsigned>(s_state.happiness.happiness),
+            static_cast<unsigned>(CODY::PersonalityData::happiness.maximum - s_state.happiness.happiness));
+    }
+    return ESP_OK;
+}
+
+// force_rebase: True after an actual parked draw, before a later wake can accumulate elapsed time.
+// Exception: Returns the real display lock, monotonic clock or character-state model error.
+esp_err_t update_worker_happiness(bool force_rebase = false)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Happiness owner lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const bool awake = !force_rebase && LUNASHELL_display_runtime_writes_allowed() &&
+        s_state.lifecycle.phase != CODY::LifecyclePhase::Sleep;
+    return advance_happiness_clock_locked(esp_timer_get_time(), awake);
+}
+
 // cue: Already validated typed identity for a single narrative or device request.
 // Exception: Returns the real consumer-state or display lock failure.
 esp_err_t set_personality_request(CODY::PersonalityCue cue)
@@ -2486,6 +2539,19 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
             return petting_error;
         }
         if (zone != CODY::PettingZone::None) {
+            // Mood belongs to the recognized interaction, even if another symbol suppresses the heart.
+            const esp_err_t clock_error = advance_happiness_clock_locked(esp_timer_get_time(), true);
+            if (clock_error != ESP_OK) {
+                return clock_error;
+            }
+            const esp_err_t happiness_error = CODY::apply_happiness_caress(
+                CODY::PersonalityData::happiness, s_state.happiness);
+            if (happiness_error != ESP_OK) {
+                return happiness_error;
+            }
+            ESP_LOGI(kTag, "Mood caress: happiness=%u sadness=%u",
+                static_cast<unsigned>(s_state.happiness.happiness),
+                static_cast<unsigned>(CODY::PersonalityData::happiness.maximum - s_state.happiness.happiness));
             // No deferred reaction: an occupied symbol channel drops this contact's heart.
             const bool channel_available = s_state.requested_personality == CODY::PersonalityCue::None &&
                 (s_state.personality_lag.cue == CODY::PersonalityCue::None ||
@@ -2914,6 +2980,11 @@ void companion_worker(void *context)
             fail_consumer("PWR capture timeline", capture_timeline_error, false);
             break;
         }
+        const esp_err_t happiness_error = update_worker_happiness();
+        if (happiness_error != ESP_OK) {
+            fail_consumer("Happiness owner update", happiness_error, false);
+            break;
+        }
         if (!LUNASHELL_display_runtime_writes_allowed()) {
             suspend_optional_personality_audio(true);
             if (!renderer_is_parked()) {
@@ -2928,6 +2999,7 @@ void companion_worker(void *context)
             }
             const esp_err_t audio_error = set_companion_typewriter_suspended(true);
             cancel_transient_affection();
+            s_state.happiness_sampled_at_us = 0;
             bsp_display_unlock();
             if (audio_error != ESP_OK) {
                 fail_consumer("Parked typewriter audio", audio_error, false);
@@ -2960,6 +3032,11 @@ void companion_worker(void *context)
             ESP_LOGW(kTag, "Redraw parked during power transition: %s",
                      esp_err_to_name(draw.error));
             parked = true;
+            const esp_err_t happiness_rebase_error = update_worker_happiness(true);
+            if (happiness_rebase_error != ESP_OK) {
+                fail_consumer("Parked happiness clock", happiness_rebase_error, false);
+                break;
+            }
             continue;
         }
         if (draw.error != ESP_OK) {
@@ -3086,6 +3163,29 @@ esp_err_t CODY::get_personality_frame(PersonalityFrame &frame)
     return ESP_OK;
 }
 
+// snapshot: Receives session happiness, derived sadness and retained decay phase under one lock.
+// Exception: Returns the actual display-lock or consumer-state error without replacing output.
+esp_err_t CODY::get_happiness(HappinessSnapshot &snapshot)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Happiness read lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Happiness read state rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    snapshot.happiness = s_state.happiness.happiness;
+    snapshot.sadness = CODY::PersonalityData::happiness.maximum - snapshot.happiness;
+    snapshot.decay_remainder_us = s_state.happiness.decay_remainder_us;
+    return ESP_OK;
+}
+
 // Start the single companion owner; a failed stage keeps its original error.
 // Exception: Returns the original startup failure and publishes the failed stage.
 extern "C" esp_err_t CODY_companion_start(void)
@@ -3101,6 +3201,12 @@ extern "C" esp_err_t CODY_companion_start(void)
                  static_cast<unsigned long>(expected), esp_err_to_name(result));
         return result;
     }
+    const esp_err_t happiness_error = CODY::initialize_happiness(
+        CODY::PersonalityData::happiness, s_state.happiness);
+    if (happiness_error != ESP_OK) {
+        return fail_consumer("Happiness configuration", happiness_error, false);
+    }
+    s_state.happiness_sampled_at_us = 0;
     const esp_err_t asset_error = validate_boot_asset(
         CODY_asset::sleeping_pearl, "Sleeping boot asset"
     );
@@ -3498,6 +3604,16 @@ esp_err_t CODY::get_personality_cue(PersonalityCue &cue)
 {
     (void)cue;
     ESP_LOGE("CODY_companion", "Personality read rejected: consumer excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// snapshot: Output remains unchanged because this explicit profile excludes Cody.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.
+esp_err_t CODY::get_happiness(HappinessSnapshot &snapshot)
+{
+    (void)snapshot;
+    ESP_LOGE("CODY_companion", "Happiness read rejected: consumer excluded (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 }
 

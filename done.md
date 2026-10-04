@@ -7,6 +7,16 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Added a source-reviewed single-value happiness MVP: canonical
+  `assets/cody/personality.yaml`, strict schema and immutable generated flash
+  rules (generation through `scripts/device.ps1` completed). Session happiness
+  starts at 50, recognized carezze add 10, and each 60 awake seconds subtracts
+  one point, with intentional 0/100 saturation and retained partial minutes.
+  Sadness is derived as 100 minus happiness. Facial/motion bindings remain
+  disabled. Native and synthetic host source expose values independently of
+  heart occupancy; authored behavior/config fixtures have not run. No new
+  build, simulator execution or hardware action.
+
 - Added a source-reviewed gentle petting experiment on 2026-10-05 in normal Main view:
   body-contained AboveEyes/BelowMouth zones, acquired-time/path/speed/gap
   recognition, one reaction/contact and six-second cooldown. An idle symbol

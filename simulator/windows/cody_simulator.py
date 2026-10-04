@@ -28,6 +28,7 @@ from scripts.common.cody_response import (  # noqa: E402
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
 from scripts.common.cody_navigation import load_navigation, control_contains, NavigationVisibility  # noqa: E402
 from scripts.common.cody_runtime_contract import load_settings, demo_targets  # noqa: E402
+from scripts.common.cody_personality_contract import load_personality_rules  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
@@ -35,6 +36,7 @@ from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
 from cody_personality import PersonalityCue, PersonalityPainter, PersonalityPresentation  # noqa: E402
 from cody_petting import PettingRecognizer, PettingZone, load_petting_config  # noqa: E402
+from cody_happiness import initial_state, advance_happiness, apply_caress, sadness  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -542,6 +544,9 @@ class CodyWindow:
         self.affection_owns_channel = False
         self.petting_context = None
         self.petting_selected_cue = PersonalityCue.NONE
+        self.personality_rules = load_personality_rules(ROOT / "assets/cody/personality.yaml")
+        self.happiness_state = initial_state(self.personality_rules)
+        self.happiness_sampled_us = int(time.perf_counter() * 1_000_000)
         self.contour_playing = tk.BooleanVar(value=True)
         self.contour_state = make_contour_state(renderer.rig)
         self.entity_name = next(iter(renderer.rig["entities"]))
@@ -1233,12 +1238,22 @@ class CodyWindow:
             return
         zone = self.petting.observe(self.scene, point, True, pressed_edge, sampled_us)
         if zone != PettingZone.NONE:
+            self.advance_happiness_clock(sampled_us)
+            self.happiness_state = apply_caress(self.personality_rules, self.happiness_state)
             painter = self.renderer.personality_painter
             current = PersonalityCue.NONE if painter is None else painter.channel.cue
             if (PersonalityCue[self.personality_cue.get()] == PersonalityCue.NONE and
                     current in (PersonalityCue.NONE, PersonalityCue.AFFECTION)):
                 self.affection_remaining_us = self.petting.config["affection_us"]
                 self.affection_owns_channel = True
+
+    # self: Synthetic mood owner with an independent awake clock.
+    # sampled_us: Monotonic host time, including time during animation pause.
+    # Raises ValueError for a backwards clock or invalid artistic state.
+    def advance_happiness_clock(self, sampled_us):
+        elapsed_us = sampled_us - self.happiness_sampled_us
+        self.happiness_state = advance_happiness(self.personality_rules, self.happiness_state, elapsed_us)
+        self.happiness_sampled_us = sampled_us
 
     # self: Pointer reaction owner, preserving explicitly selected Affection.
     # preserve_fade: Keep the current visible heart for a smooth semantic Sleep handoff.
@@ -1400,6 +1415,7 @@ class CodyWindow:
     # Raises ValueError or tk.TclError; tick exposes the original error and stops.
     def render_tick(self):
         started = time.perf_counter()
+        self.advance_happiness_clock(int(started * 1_000_000))
         self.navigation_visibility.update(int(started * 1_000_000))
         self.renderer.navigation_opacity = self.navigation_visibility.opacity(int(started * 1_000_000))
         self.renderer.navigation_paused = not self.playing.get()
@@ -1494,7 +1510,9 @@ class CodyWindow:
             text=f"SYNTHETIC / host tick {duration_ms:.1f} ms / "
                  f"presentation {'UPDATED' if changed else 'UNCHANGED'} / "
                  f"interval {interval_seconds * 1000:.1f} ms / "
-                 f"active target {target_hz} Hz / symbol {personality_status} / ESP32: UNMEASURED"
+                 f"active target {target_hz} Hz / symbol {personality_status} / "
+                 f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)} / "
+                 f"ESP32: UNMEASURED"
         )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100

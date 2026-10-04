@@ -1,8 +1,51 @@
 # Personality behavior exploration
 
-This proposal records the 2026-10-04 product discussion. The petting experiment
-is implemented separately in the existing personality channel; the needs,
-mood and agent-session model below is deferred, not firmware behavior.
+This note records the 2026-10-04/05 product discussion. The petting experiment
+and the single-value happiness MVP are implemented in source. The broader
+needs, mood categories and agent-session model below remain deferred.
+
+## MVP happiness authoring
+
+`assets/cody/personality.yaml` is the canonical source of the test rules.
+Its strict `cody.personality.v1` contract defines session-only artistic state,
+no facial binding, happiness bounds 0..100, initial value 50, a ten-point
+carezza gain and one-point decay per 60 awake seconds. Initial value, gain and
+decay timing are authored test choices. Sadness is always `100 - happiness`;
+there is no independent sadness counter or mood transition enum in this MVP.
+
+The portable model accumulates elapsed microseconds and consumes whole decay
+intervals, retaining the remainder. Carezze do not restart the minute. Arithmetic
+intentionally saturates at 0 and 100; invalid configuration/state is rejected
+instead of repaired. Decay at zero leaves no unpaid point debt. The awake clock
+continues across routes and animation pause, excludes actual standby/park, and
+rebases on resume. State is RAM-only and starts again at the authored initial
+value after restart. Sleep outside the active renderer is not guessed from
+wall time. This is the chosen MVP policy, not a persisted/offline mood service.
+
+Only a recognized eligible upper/lower body stroke applies gain, once per
+contact and under the existing petting cooldown. Apply that event even when
+another cue suppresses the decorative heart. Happiness and derived sadness
+do not modify facial channels, breathing, motion or cue priorities yet.
+The native getter exposes an artistic snapshot under the existing display
+lock. The Windows source reads the same YAML and displays synthetic diagnostic
+values; it does not write firmware observations.
+
+Generate firmware rules through the sole public CLI:
+
+```powershell
+.\scripts\device.ps1 generate -Generator cody-personality-rules
+```
+
+The generator rejects duplicates, unknown fields, invalid integers, unsupported
+clocks, scope or facial bindings. It emits immutable `HappinessConfig` in
+`assets/cody/personality/generated/personality_rules.hpp` plus canonical source
+provenance in `manifest.json`. Firmware uses those flash constants rather than
+parsing YAML or evaluating arbitrary expressions at runtime. After editing the
+YAML, regenerate and build before expecting a device rule change.
+
+Generation has run; native and host behavior fixtures have been authored but
+not executed. The new model, simulator flow and combined firmware have not
+been built or tried on hardware. Prior personality checks predate these changes.
 
 ## Independent finite states
 

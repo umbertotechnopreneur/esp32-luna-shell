@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 from scripts.tests.cody_personality_parity import compare_personality_fixture
 from scripts.tests.cody_petting_contract import check_host_petting
+from scripts.tests.cody_happiness_contract import check_host_happiness
 
 
 # root: Checkout containing the exact authored manifests and generated binary assets.
@@ -96,12 +97,14 @@ def main(argv=None):
                     "components/LUNASHELL_platform/include", "components/CODY_companion/include",
                     "assets/cody/rig/generated", "assets/cody/scenes/generated",
                     "assets/cody/personality-icons/generated", "assets/cody/appearance/jelly-scanline/generated")
+        includes += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/personality_contract.cpp",
                    "components/CODY2D/src/CODY2D.cpp", "components/CODY2D/src/CODY2D_paths.cpp",
                    "components/CODY2D/src/CODY2D_text.cpp", "components/CODY2D/src/CODY2D_controls.cpp",
                    "components/CODY_companion/src/model/CODY_rig.cpp",
                    "components/CODY_companion/src/model/CODY_response.cpp",
                    "components/CODY_companion/src/model/CODY_petting.cpp",
+                   "components/CODY_companion/src/model/CODY_happiness.cpp",
                    "components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
                    "components/CODY_companion/src/rendering/CODY_personality.cpp",
                    "assets/cody/personality-icons/generated/personality_icons.cpp")
@@ -112,6 +115,7 @@ def main(argv=None):
         fixture = json.loads(native.stdout)
         compare_personality_fixture(ROOT, fixture)
         report["host_petting_assertions"] = check_host_petting(ROOT)
+        report["host_happiness_assertions"] = check_host_happiness(ROOT, output)
         report["status"] = "passed"
         report["native_assertions"] = fixture["assertions"]
         report["parity_frames"] = len(fixture["samples"])
@@ -122,6 +126,8 @@ def main(argv=None):
             "alpha-only and departing icon damage", "compact raster parity and stride guards",
             "caress zones, gesture rejection, one trigger and cooldown",
             "independent host-preview caress scenarios (no native gesture trace parity claim)",
+            "native happiness gain, elapsed-minute decay, bounded phase and domain rejection",
+            "independent host happiness, monotonic clock, strict authoring and generated provenance scenarios",
             "native/Python controller, transform, alpha and admission parity",
             "14 fixed-palette icon hashes/identity and14 PCM/WAV formats/hashes/audition offsets"]
     except Exception as error:
