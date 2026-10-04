@@ -23,8 +23,14 @@ and referenced architecture/artifact records.
 - Boot audio now waits for verified canonical time instead of permanently
   suppressing that boot's cue when RTC is invalid. A single temporary 4 KiB
   PSRAM worker respects quiet hours/active state, with pending-only 1 Hz reads
-  and real playback/error publication. These changes have static review only;
-  build, flash and physical confirmation are not claimed here.
+  and real playback/error publication. Static integration review found no
+  remaining actionable issue; physical confirmation remains open.
+- Built/flashed `9fde2b48` on COM10 (Debug, eight jobs, no test runs): app
+  3,721,616 bytes, 75% partition free; all written hashes verified. Matching
+  ELF SHA256 starts `c572bfaefa`; ELF/build/flash evidence is preserved under
+  `artifacts/build-cody-companion-debug/evidence/cody-9fde2b48*`. This image
+  includes the wake/touch/inactivity/deferred-audio changes and raster stage 1;
+  successful writes do not establish physical wake, audio or performance behavior.
 - Captured 28 deterministic `CODY_companion` stack overflows in 100 seconds
   after flashing `dd9f05d8`. The matching ELF shows the worker/frame/coverage
   call chain alone needs 8,176 bytes against an 8,192-byte stack; enabling cheek
@@ -45,13 +51,13 @@ and referenced architecture/artifact records.
   geometry around 3 ms; this is a narrow baseline, not a full-scene guarantee.
   Repeated wake/visual/audio/storage checks remain open. Retained ELF and logs:
   `artifacts/build-cody-companion-debug/evidence/cody-d766e08c*`.
-- Raster optimization stage 1 (source only): all-zero bilinear footprints skip
+- Raster optimization stage 1: all-zero bilinear footprints skip
   the original three packed lerps; zero-alpha samples preserve destination bytes
   without load/swap/store. Other samples retain their arithmetic. Added separate
   jelly/vector microsecond timings within artwork and reference contracts for
   transparent prefixes, fractional samples, backgrounds, byte order and guards.
-  No test/build/device comparison ran; an extra nonzero-footprint branch may
-  offset the saving. The device still runs `d766e08c`, not this optimization.
+  Included in the `9fde2b48` Debug build/flash; no tests or device comparison
+  ran. An extra nonzero-footprint branch may offset the saving.
 - The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
   block before display startup and parked display frames during radio startup.
   It passed an eight-job Debug build, flash and short capture, but a later

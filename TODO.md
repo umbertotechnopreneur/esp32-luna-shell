@@ -20,7 +20,8 @@ older host/build/flash evidence does not validate the current combined image.
   proves the prior firmware still rebooted; corrected `d766e08c` completed one
   100-second boot/standby capture without panic, but the later passive monitor
   exposed repeated BLE contiguous-DMA rejection and a touch critical-section
-  Interrupt-WDT during wake. Source corrections exist; repeated wake cycles
+  Interrupt-WDT during wake. Corrections were built/flashed as `9fde2b48`;
+  repeated wake cycles
   and degraded-radio error/recovery publication remain unverified.
 - [ ] Verify screen 05/06/07 returns to Welcome after 30 awake seconds without
   real touch/pairing progress, including animation pause, standby, late worker
@@ -33,8 +34,8 @@ older host/build/flash evidence does not validate the current combined image.
   transparent jelly work first, then Coverage/span preparation, then SIMD only
   for measured common kernels. Separate jelly and face timings before ranking
   gains; current screen-05 artwork is about 14 ms, not a blending-only measure.
-  New optimization source needs explicitly authorized final checks/build/device
-  comparison; no performance improvement has yet been verified.
+  Optimization stage 1 was built/flashed in `9fde2b48`; final checks and device
+  comparison remain unauthorized/unrun. No performance improvement is verified.
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy
   Back/Done, route reset during writes, rotated touch, canonical errors and
   bounded memory across repeated entries. Host persistence faults are covered;
