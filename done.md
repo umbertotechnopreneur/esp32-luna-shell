@@ -7,6 +7,18 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Real pairing 07 now allows 90 awake seconds without genuine activity; 05/06
+  retain 30 seconds. Its scene standby override is also 90 seconds and refreshes
+  on canonical progress, without synthesizing touch or changing saved settings.
+  Backend deadline remains five minutes. Source assertions updated but not run;
+  new firmware build/flash and physical 90-second behavior remain pending.
+- Captured the intermittent wake complaint: the earlier renderer had already
+  stopped with INVALID_ARG before standby was requested; the first terminating
+  operation was outside the capture. After an explicit reset, `bb8fd327` entered
+  standby at 64 s and woke on touch at 179 s with wireless ESP_OK, confirmed by
+  the owner. No new renderer termination was captured. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-bb8fd32-renderer-repro-20261005.log`.
+
 - Corrected false monolithic BLE admission: SDK 51d9dfd EMI uses separate
   allocations; `0x7800` in the inspected routine is an address offset, not a
   malloc size. Preserve the 34,816-byte aggregate budget with four 8-KiB chunks

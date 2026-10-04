@@ -87,8 +87,9 @@ class RigContractTests(unittest.TestCase):
         for scene in (installation, device):
             self.assertEqual(scene["background_rgb565"], 65535)
             self.assertEqual(scene["title"]["color_rgb565"], 0)
-            self.assertEqual(scene["standby_override_seconds"], 60)
             self.assertEqual(scene["title"]["character_interval_ms"], 45)
+        self.assertEqual(installation["standby_override_seconds"], 60)
+        self.assertEqual(device["standby_override_seconds"], 90)
         self.assertFalse(installation["title"]["visible"])
         self.assertEqual(installation["cloud"], {"x": 233, "y": 94, "scale": 58})
         self.assertLess(installation["cloud"]["scale"], scenes.definition("pair-invitation")["cloud"]["scale"])

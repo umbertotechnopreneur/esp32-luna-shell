@@ -58,7 +58,7 @@
     {
       "id": "pairing", "identity": 5,
       "background_rgb565": 65535,
-      "standby_override_seconds": 60,
+      "standby_override_seconds": 90,
       "entrance": { "from": { "x": 233, "y": 56, "scale": 40 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 56, "scale": 40 },

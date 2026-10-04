@@ -217,7 +217,8 @@ void LUNASHELL_power_manager_note_power_activity(void);
 
 // seconds: Transient scene inactivity seconds; zero restores the configured timeout.
 // Positive overrides start on scene entry and defer display dimming until standby.
-// The caller changes this only on scene transitions; saved settings remain unchanged.
+// Refresh only on scene transitions or genuine operation progress, never every frame.
+// Saved settings remain unchanged; ordinary touch uses the existing activity owner.
 // Exception: Returns the real initialization or excluded-profile error.
 esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds);
 

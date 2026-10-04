@@ -50,7 +50,7 @@ inline constexpr SceneDefinition definitions[] = {
         {"Pairing...", 10},
         115, 0, 45, false, true, true,
         {{233.000000000f, 56.000000000f, 40.000000000f}, 0, 0}, 65535,
-        60U
+        90U
     },
     {
         SceneId::PairingFailed, "pairing-failed", {233.000000000f, 160.000000000f, 105.000000000f},

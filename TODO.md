@@ -23,10 +23,23 @@ older host/build/flash evidence does not validate the current combined image.
   Interrupt-WDT during wake. Corrections were built/flashed as `9fde2b48`;
   repeated wake cycles
   and degraded-radio error/recovery publication remain unverified.
-- [ ] Verify screen 05/06/07 returns to Welcome after 30 awake seconds without
+- [ ] Verify 05/06 return to Welcome after 30 awake seconds and real pairing 07
+  after 90 awake seconds without
   real touch/pairing progress, including animation pause, standby, late worker
   results, cancellation errors and a fresh tap to restart. Verify deferred boot
   audio when the canonical clock becomes trusted, quiet hours and standby races.
+- [ ] Capture the first renderer termination in the intermittent wake failure.
+  `bb8fd327` was healthy at 204 s and already DISPLAY-error/INVALID_ARG at 314 s;
+  the missing interval prevents cause attribution. The reset/reproduction log
+  records clean standby at 64 s and touch wake at 179 s, confirmed by the owner.
+  Do not treat that single success as a fix or hide terminal errors with restart.
+- [ ] Resolve removable-SD transport before screenshot persistence: `bb8fd327`
+  repeatedly times out in `sdmmc_card_init`/OCR, before card identity and FAT;
+  both FRESULT fields remain -1. Formatting is user-authorized only if needed,
+  but no responding card/FormatRequired state has been verified and nothing was
+  formatted. Cody currently has no exposed format control. Recheck the inserted
+  card, then use the storage owner's identity-bound one-shot authorization only
+  for a verified missing filesystem; confirm an actual saved BMP afterward.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.
@@ -66,7 +79,8 @@ older host/build/flash evidence does not validate the current combined image.
   Retry/new QR, Back/Cancel during Start/connect, timeout, DHCP, BLE telemetry
   handoff, standby, persisted-profile reboot and explicitly enabled authenticated
   HTTP on the actual LAN.
-- [ ] Validate transient 60-second pairing standby overrides without changing
+- [ ] Validate transient 60-second invitation/install and 90-second real-pairing
+  standby overrides without changing
   configured settings; confirm dim suppression and timeout restoration on exit.
   Exercise software Sleep -> Wake -> Ready with retained route, text/entrance
   clocks, paused expression/geometry and backend changes while asleep.

@@ -936,7 +936,9 @@ void check_scene_typewriter_contract()
             "a hidden title does not delay Pair Cody's typed caption");
 
     require(CODY::find_scene(CODY::SceneId::Pairing, definition) == ESP_OK &&
-            CODY::begin_scene(*definition, scene) == ESP_OK, "prepare screen 07's reusable text layout");
+            definition->standby_override_seconds == 90 &&
+            CODY::begin_scene(*definition, scene) == ESP_OK,
+            "screen 07's reusable text layout preserves the full 90-second pairing window");
     const int64_t long_running_us = static_cast<int64_t>(UINT32_MAX) + 1000000LL;
     require(CODY::advance_scene(scene, long_running_us) == ESP_OK &&
             scene.text_elapsed_us > UINT32_MAX, "typing clocks remain usable beyond 71 minutes");

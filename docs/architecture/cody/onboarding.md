@@ -17,7 +17,7 @@ in [runtime](runtime.md).
 | 07, current attempt ReadyToScan + QR encoded | Remain 07 / Scan to pair + session QR |
 | Credentials / Connecting / Completing | Retire QR; type actual progress in 07 |
 | 07, Cancel | Wipe QR and await confirmed closure, then 06 |
-| 05 / 06 / 07, 30 active seconds without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
+| 05 / 06 after 30 active seconds, or 07 after 90 active seconds, without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
 | Timeout-returned 04, fresh tap after confirmed clean closure | Resume at 05; no boot sequence is replayed |
 | Failed / TimedOut / presentation error | 08 / actual error and gated Retry |
 | 08, Retry after clean terminal failure | Return to 05; Show QR and Pair Cody admit the next attempt |
@@ -148,14 +148,17 @@ Stored SSID, BLE connection, credentials, DHCP initiation or action admission
 never establish Online. See [connectivity/pairing](../connectivity-pairing.md) for
 the acquisition, worker and cleanup implementation.
 
-A fixed-capacity screen policy gives 05, 06 and 07 their separate 30-second
-inactivity return. It uses the awake route clock: pausing animation does not pause
+A fixed-capacity screen policy gives 05 and 06 a 30-second inactivity return;
+real pairing 07 allows 90 seconds, including time spent entering the phone's
+Wi-Fi password. It uses the awake route clock: pausing animation does not pause
 inactivity, while standby and the lifecycle wake sequence consume no timeout time.
 Fresh presses, actual contact
 movement/releases and canonical progress in the current attempt refresh it;
 animation, typewriter prefixes, IMU movement and repeated unchanged snapshots
-do not. This policy does not write settings or change the five-minute backend
-deadline or the scenes' 60-second standby overrides.
+do not. Genuine progress also reanchors 07's 90-second standby override so the
+previous 60-second policy cannot interrupt the wait. Ordinary touch refreshes
+standby through its existing owner. This policy does not write settings or change
+the five-minute backend deadline; 05 and 06 retain 60-second standby overrides.
 
 The timeout retires the route generation and wipes the displayed QR before showing
 the existing `Hi, I'm Cody!` Greeting scene. Its normal teletype remains paused when

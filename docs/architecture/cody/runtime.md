@@ -69,10 +69,13 @@ profile-specific silicon-sleep policy remain in
 
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. Invitation
-05, installation 06 and pairing 07 use 60 seconds; the unused scan definition does
-too. Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
+05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
+scan definition, Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
 and look 11 inherit. Scene entry supplies a fresh
-inactivity baseline and touch refreshes it. Departure/parking clears the override.
+inactivity baseline and touch refreshes it. Genuine canonical progress in the
+current pairing attempt also refreshes its 90-second anchor without fabricating
+a touch event. Repeated unchanged snapshots do not refresh it.
+Departure/parking clears the override.
 This never writes NVS or extends the backend's five-minute pairing deadline.
 
 Standby retains the active route. In particular, wake from screen 09 returns to

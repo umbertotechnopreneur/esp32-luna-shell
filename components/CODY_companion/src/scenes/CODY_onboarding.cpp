@@ -85,7 +85,7 @@ struct ScreenInactivityPolicy {
 constexpr ScreenInactivityPolicy kScreenInactivityPolicies[] = {
     {Route::Invitation05, 30LL * 1000000LL, Route::Hello04},
     {Route::Install06, 30LL * 1000000LL, Route::Hello04},
-    {Route::Pairing07, 30LL * 1000000LL, Route::Hello04},
+    {Route::Pairing07, 90LL * 1000000LL, Route::Hello04},
 };
 struct ScreenActivity {
     Route route = Route::None;
@@ -224,7 +224,7 @@ esp_err_t synchronize_screen_activity(int64_t active_time_us)
 }
 
 // active_time_us: Real interaction or canonical progress time on the awake route clock.
-// Exception: Returns the original clock error without refreshing the timeout.
+// Exception: Returns the original clock error without refreshing inactivity.
 esp_err_t refresh_screen_activity(int64_t active_time_us)
 {
     const esp_err_t error = synchronize_screen_activity(active_time_us);
@@ -237,13 +237,36 @@ esp_err_t refresh_screen_activity(int64_t active_time_us)
     return ESP_OK;
 }
 
+// inactivity_policy: Current screen 07 policy that must match its authored scene interval.
+// Exception: Returns the original scene or power error; interval disagreement is invalid state.
+esp_err_t refresh_pairing_standby(const ScreenInactivityPolicy &inactivity_policy)
+{
+    const SceneDefinition *definition = nullptr;
+    const esp_err_t scene_error = find_scene(SceneId::Pairing, definition);
+    if (scene_error != ESP_OK) {
+        return scene_error;
+    }
+    if (definition == nullptr ||
+        static_cast<int64_t>(definition->standby_override_seconds) * 1000000LL !=
+            inactivity_policy.timeout_us) {
+        ESP_LOGE(kTag, "Pairing standby and inactivity intervals disagree (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    // Only canonical progress calls this: real Touch already extends the power
+    // owner's standby reference and must not republish/log every dragged point.
+    return LUNASHELL_power_manager_set_scene_standby_override(
+        definition->standby_override_seconds);
+}
+
 // observation: One canonical connectivity snapshot; no radio or sensor reads occur here.
 // active_time_us: Awake route clock on which genuine progress refreshes the policy.
-// Exception: Returns a clock error rather than refreshing with an invalid timestamp.
+// Exception: Returns the original activity error without consuming a failed progress refresh.
 esp_err_t observe_pairing_progress(const LUNASHELL::ConnectivityObservation &observation,
                                    int64_t active_time_us)
 {
-    if (screen_inactivity_policy(s_route) == nullptr) {
+    const auto *inactivity_policy = screen_inactivity_policy(s_route);
+    if (inactivity_policy == nullptr) {
         return ESP_OK;
     }
     const auto &pairing = observation.radios.pairing;
@@ -291,8 +314,20 @@ esp_err_t observe_pairing_progress(const LUNASHELL::ConnectivityObservation &obs
             current.ble_connections != s_pairing_progress.ble_connections)) ||
         (current.wifi_connected && !s_pairing_progress.wifi_connected) ||
         (current.wifi_has_ip && !s_pairing_progress.wifi_has_ip);
+    if (progressed) {
+        esp_err_t error = synchronize_screen_activity(active_time_us);
+        if (error == ESP_OK && s_route == Route::Pairing07) {
+            error = refresh_pairing_standby(*inactivity_policy);
+        }
+        if (error == ESP_OK) {
+            error = refresh_screen_activity(active_time_us);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
     s_pairing_progress = current;
-    return progressed ? refresh_screen_activity(active_time_us) : ESP_OK;
+    return ESP_OK;
 }
 
 // bytes: Owned storage that may contain a proof-of-possession-derived QR.
