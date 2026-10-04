@@ -37,8 +37,10 @@ older host/build/flash evidence does not validate the current combined image.
   benchmark, non-Pearl and Release builds explicitly.
   Validate the implemented S3 interpolation kernel: `simd_verify` first checks
   65,536 weight combinations and then compares live RGBA samples; `simd` and
-  `scalar` are separate timing captures. Host model, assembly build and target
-  execution are pending. Device/COM access now requires renewed user approval.
+  `scalar` are separate timing captures. The S3 Debug build succeeded; the first
+  host-check attempt produced a non-Windows executable and stopped before its
+  assertions. Repeat that suite with a native Windows compiler, then execute
+  the kernel and compare frames on target after explicit hardware authorization.
   Add deterministic animated work after trustworthy timings; include
   packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

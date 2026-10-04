@@ -5,8 +5,15 @@ and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
 [planned-todo.md](planned-todo.md). Historical revision details remain in Git
 and referenced architecture/artifact records.
 
-## Cody and connectivity — 2026-10-02 to 2026-10-04
+## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Built `0883de76` as ESP32-S3 Cody Debug with ESP-IDF 6.0.2 and eight jobs.
+  The S3 assembly and C++ validation source compiled; the final ELF links
+  `cody_jelly_bilinear_s3`. App image: 3,725,904 bytes, 75% partition free;
+  ELF SHA256 `5f615d5437f90b4d762642b9647f92db319751f3b657f0c75bb591d964b94908`.
+  The authorized host-check attempt stopped before assertions with Windows
+  `WinError 216`: the specified ESP Clang produced an executable Windows cannot
+  launch. A native host compiler retry and target execution are still pending.
 - Implemented an opt-in ESP32-S3 PIE bilinear sampler (source review only):
   two RGBA pixels per eight 16-bit lanes, 40-bit accumulation with the same three
   rounded lerps, aligned row scratch, unchanged RGB565 composition and scalar
@@ -16,8 +23,8 @@ and referenced architecture/artifact records.
   comparisons for `simd_verify`; this mode suppresses performance summaries.
   Extended host contracts with a labeled arithmetic model, packer/byte-order/
   clipping/tail checks and deliberate mismatch injection. Generated configuration
-  selects verification, not a claimed fast path. Tests, build and S3 execution
-  of this increment have not run; no speed or target parity is claimed.
+  selects verification, not a claimed fast path. At the source checkpoint,
+  tests, build and S3 execution had not run; no speed or target parity is claimed.
   The preceding `5947db83` detail-only flash command was cancelled during CMake
   reconfiguration, before flashing, when the user withdrew COM access. No build/
   flasher processes remained. Last verified device image remains `4ac6c812`.
