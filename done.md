@@ -7,6 +7,26 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Investigated the reported caress freeze on device firmware `99342b7a`:
+  the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,
+  while periodic firmware snapshots continued. Source review establishes that
+  an acquisition error terminates the Cody worker and leaves later IRQs pending;
+  it does not identify the original malformed packet. Reset captures booted to
+  ready touch/display and later entered normal inactivity standby without a
+  captured caress or panic. One live capture was interrupted when Codex restarted;
+  it is incomplete evidence. The user reports a later stroke neither froze nor
+  showed a heart; physical gesture recognition remains open in TODO.
+  `device.ps1 check -Check cody-personality` passed 1,041 native assertions,
+  122 controller parity frames and 118 host assertions. `cody-runtime` passed
+  500 model/host ticks after its obsolete screenshot hit-target expectation
+  was corrected to the already implemented hidden/noninteractive control.
+  Initial check attempts retained a missing compiler environment and that stale
+  expectation in their command logs; MSVC developer environment was restored.
+  Checks ran through the public CLI. Evidence and command logs are under
+  `artifacts/build-cody-companion-debug/evidence/caress-*`; current host reports
+  are in `artifacts/checks/cody-personality/` and `artifacts/checks/cody-runtime/`.
+  No firmware source fix, new build, new flash or simulator launch was performed.
+
 - Integrated remote main `649cbc7f` into `feat/personality-icons`, preserving
   petting, happiness, symbol arbitration and the Studio DPI/renderer changes.
   Ordinary S3 Pearl rendering now uses the upstream SIMD kernel and transparent

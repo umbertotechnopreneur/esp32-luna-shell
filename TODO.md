@@ -14,9 +14,14 @@ older host/build/flash evidence does not validate the current combined image.
   rotation repeatedly reported pending/pressed contact with
   `ESP_ERR_INVALID_RESPONSE`. No initial malformed packet or panic was captured.
   Static review confirms a failed touch sample terminates the Cody consumer and
-  leaves subsequent IRQs pending; obtain the first acquisition error after a
-  separately authorized restart before changing driver acceptance or recovery.
-  Evidence: `artifacts/build-cody-companion-debug/evidence/caress-crash-20261005.log`.
+  leaves subsequent IRQs pending. Subsequent reset captures reached ready
+  touch/display and normal inactivity standby without the reported error or a
+  recognized `Mood caress` event. The user reports a later stroke did not freeze
+  but showed no icon. Host personality/runtime checks passed; real contact
+  timing, scene eligibility and the first rejected controller packet remain
+  unresolved. Do not treat a missing recognition log as proof of a layout fault
+  or silently relax driver acceptance. Evidence lives under
+  `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
 
 - [ ] After fresh command-specific authorization, run the pure host
   `scripts/device.ps1 check -Check cody-preview-raster` regression checks for

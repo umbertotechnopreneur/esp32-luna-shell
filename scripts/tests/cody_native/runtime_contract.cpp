@@ -394,12 +394,13 @@ void damage_contracts()
 } // namespace
 
 // No parameters: emit fifty seconds from the actual C++ model for independent Python parity.
+// Exception: Host framebuffer allocations may throw std::bad_alloc.
 int main()
 {
     require(CODY::rig_control_at({158, 47}) == CODY::RigControl::None &&
-            CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot &&
+            CODY::rig_control_at({233, 47}) == CODY::RigControl::None &&
             CODY::rig_control_at({308, 47}) == CODY::RigControl::None,
-            "only the on-demand screenshot target remains active above the safe square");
+            "hidden top controls must not intercept character contacts");
     require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None &&
             CODY::rig_control_at({426, 233}) == CODY::RigControl::None &&
             CODY::rig_control_at({233, 233}) == CODY::RigControl::None,
