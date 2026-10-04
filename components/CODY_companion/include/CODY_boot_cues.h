@@ -9,8 +9,12 @@ esp_err_t CODY_boot_cues_prepare_boot(void);
 void CODY_boot_cues_boot_checkpoint(const char *stage);
 // Configure the existing logger mirror after the SD owner's startup stage.
 esp_err_t CODY_boot_cues_configure_diagnostics(void);
-// No parameters: completed boot plays ready/eyes-open cues unless quiet or time unavailable.
+// No parameters: play completed-boot cues, or admit one pending request for verified time.
+// Exception: Returns original admission/playback errors; admission is not playback completion.
 esp_err_t CODY_boot_cues_play_eyes_open(void);
+// No parameters: inspect only a pending boot's canonical clock, at most once per second.
+// Asynchronous admission/playback errors remain logged and published by the cue owner.
+void CODY_boot_cues_observe_pending(void);
 #ifdef __cplusplus
 }
 #endif

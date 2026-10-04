@@ -7,6 +7,16 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Integrated the selected 16-pixel SIMD and transparent row/block skips with
+  current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
+  Pearl rendering now starts on SIMD in Debug and Release; portable host
+  rendering starts on scalar. Benchmark autostart/detail are disabled, normal
+  placement is retained, and RGB565 composition is unchanged. Added a host
+  assertion for initial backend selection. Portable native, SIMD-model and raster
+  benchmark contracts pass after updating the installation-scene expectations to
+  main's current heading and scale. Combined Debug build and device validation
+  remain pending; earlier fixed-route measurements below belong to the SIMD
+  worktree image.
 - The same 16-pixel SIMD and row-coverage path completed fixed 40-second device
   windows at smaller scales. At 75%, 975 frames submitted 35,256 pixels each:
   mean 33,888 us, p95 34,512 us, maximum 35,147 us, and zero budget misses.
@@ -117,6 +127,126 @@ and referenced architecture/artifact records.
   channels now also match the already-authored/current generated rig presets.
   No tests, firmware build or physical capture ran for this checkpoint, and no
   SIMD implementation or measured gain is claimed.
+- Real pairing 07 now allows 90 awake seconds without genuine activity; 05/06
+  retain 30 seconds. Its scene standby override is also 90 seconds and refreshes
+  on canonical progress, without synthesizing touch or changing saved settings.
+  Backend deadline remains five minutes. Debug `0a4f1b87` built with eight jobs,
+  flashed to COM10 with verified hashes and booted with the matching ELF identity.
+  Source assertions updated but not run; physical 90-second behavior is pending.
+  Saved Wi-Fi credentials reconnect with DHCP and SNTP in this boot capture.
+  SD initially timed out before FAT after reinsertion; after the owner's full
+  power cycle, the snapshot reported mounted=yes and card-response=verified on
+  attempt 1, without formatting. The owner confirmed a saved PWR screenshot.
+  Ordinary idle standby completes at 64.697 s with BLE budget rearm.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/cody-0a4f1b8-deploy.md`.
+- Captured the intermittent wake complaint: the earlier renderer had already
+  stopped with INVALID_ARG before standby was requested; the first terminating
+  operation was outside the capture. After an explicit reset, `bb8fd327` entered
+  standby at 64 s and woke on touch at 179 s with wireless ESP_OK, confirmed by
+  the owner. No new renderer termination was captured. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-bb8fd32-renderer-repro-20261005.log`.
+
+- Corrected false monolithic BLE admission: SDK 51d9dfd EMI uses separate
+  allocations; `0x7800` in the inspected routine is an address offset, not a
+  malloc size. Preserve the 34,816-byte aggregate budget with four 8-KiB chunks
+  and one 2-KiB chunk, all-or-nothing acquisition and real SDK error handling.
+  No SDK patch/allocation hook or Wi-Fi buffer reduction. Debug `bb8fd327`
+  built with eight jobs and flashed to COM10 with verified write hashes.
+  The owner confirmed the real pairing QR. The passive log records healthy
+  BLE wake, provisioning startup, clean inactivity closure with budget rearm,
+  then a second provisioning startup without `ESP_ERR_NO_MEM`. Phone credential
+  transfer/DHCP remain unverified; no tests or simulator were run.
+
+- Lifetime BLE DMA ownership: one static 34,816-byte reserve survives standby
+  and pre-controller failures. After actual SDK teardown Cody parks display DMA
+  and rearms the budget; cleanup and reservation errors have separate outcomes
+  and canonical pairing fields, so clean Retry/known-off standby remain valid
+  if a future budget cannot be restored. Limits and Wi-Fi configuration stay
+  unchanged. Debug `a19e0093` built/flashed successfully, but physical Pair
+  reproduced `0x101`. Its complete boot capture proved SDK startup succeeds;
+  after first clean standby teardown the monolithic rearm fails with 97,443
+  bytes free and largest 21,504. The chunked correction above follows this evidence.
+
+- Captured explicit Pair failure on main `a154b677`: the 34,816-byte internal
+  DMA hold failed with 70,955 bytes free but largest block 21,504, before manager
+  startup or session QR. Explicit Pair now drains/parks display DMA before BLE
+  teardown/admission and keeps the gate through controller startup; every path
+  attempts restoration and preserves real errors. Hold/headroom limits and Wi-Fi
+  configuration remain unchanged. Pre-controller failures retain an existing
+  lease; no new lease is allocated by Cancel. Frame admission captures intentional
+  parking under the lock to avoid terminating Cody after a fast failed handoff.
+  Debug `7e45bf32` built and flashed with verified write hashes. The following
+  passive monitor reproduced allocation failure after the drain: 96,243 bytes
+  free, largest 21,504. No panic/reboot was observed; the standby path discarded
+  the earlier reserve. This led to the lifetime-ownership correction above.
+- Debug `143fdb22` built with eight jobs and flashed to COM10 / ESP32-S3
+  `a4:cb:8f:db:42:d8`. Esptool verified written data and reset the board.
+  Application: 3,755,536 bytes, 75 percent of the app partition free. Includes
+  greeting C, regenerated mouth/tongue/QR assets and corrected Retry teardown.
+  No tests, simulator or post-flash monitor ran; physical behavior remains
+  unverified. ELF/BIN hashes and transcript are preserved in
+  `artifacts/build-cody-companion-debug/evidence/cody-143fdb22-deploy.md`.
+- Prepared three private vocal greetings with ffmpeg and explicit read-only
+  source recipes. The owner selected C (`cody-hello-murmur`) for the boot cue;
+  A/B and chime-only remain configurable. Shared authoring helpers pin source
+  and rendered identities, while runtime composition retains the original
+  1.3-second chime plus 100-ms gap. The selected combined asset needs 90,412
+  PCM bytes at 22,050 Hz (about 2.05 seconds); no new device decoder/worker or
+  canonical-clock/quiet-policy changes. Local asset generation and independent
+  static review completed. On 2026-10-04 the owner confirmed purchased perpetual
+  commercial-use licences for the SFX packages; the selected PCM/WAV and matching
+  manifest are now included in the asset checkpoint. Debug build/flash completed
+  as `143fdb22`; physical acoustics and updated host checks remain unverified.
+- Mouth source refresh: widened the shared lip controls 18 percent, reused the
+  existing breathing phase for opening/width motion and added a coral tongue
+  clipped against the evaluated mouth. Native and host coverage intersect the
+  same geometric spans. Fixed budgets are 200 points, 62 cubics, 16 paths and
+  124 debug tangents; existing raster arrays/worker stack are unchanged.
+  Source implementation, independent review and rig/jelly regeneration are
+  complete and deployed as `143fdb22`. Physical appearance and timing remain pending.
+- QR copy now distinguishes installation (`Scan to install`) from the live
+  session (`Scan to pair`, `Scan me in the app.`). Install/session routes share
+  compact cloud placement; actual 40/25-pixel font cells govern title/caption
+  separation. Existing QR quiet zones, footer bounds and white theme remain.
+  Scene regeneration is complete; physical checks are pending. The Obsidian planning
+  atlas has corrected page 23 and a dated final errata page 27; other original
+  pages are preserved. Backup and visually inspected page renders are retained
+  under `artifacts/build-cody-companion-debug/evidence/qr-atlas/`.
+- Passive `9fde2b48` logs confirm the reported graphical wake works even after
+  the BLE reservation fails (34,816 bytes requested, largest DMA block 21,504).
+  Subsequent Retry contacts fail during Cancel cleanup, with primary result
+  `ESP_OK`: teardown incorrectly reserves memory for a future session.
+  Removed that future admission from teardown; next Start retains strict
+  reservation/preflight and its original error. Cancel now retains the failed
+  attempt's cause alongside the actual cleanup result, allowing clean Retry
+  navigation to 05. Source integration reviewed and deployed as `143fdb22`;
+  physical Retry remains unverified. Capture starts after the original Pair Cody failure, so its
+  exact startup stage is not established:
+  `artifacts/build-cody-companion-debug/evidence/cody-9fde2b48-pairing-before-reset.log`.
+- Passive monitoring of `d766e08c` recorded wake input followed by failed BLE
+  DMA reservation (34,816 bytes required; largest block about 21-22 KiB), then
+  rollback to standby. A later Interrupt-WDT backtrace enters the log mutex
+  from CST9217's point logging inside a critical section. Preserved evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-d766e08c-wake-failures-20261004.log`.
+  Removed that logging in the reproducible vendor patch. Standalone graphical
+  wake now accepts a radio failure only after confirmed shutdown, preserves the
+  original error until verified recovery and still rejects uncertain cleanup.
+- Added a bounded 30-second awake-inactivity policy for 05/06/07 returning to
+  Welcome 04 without replaying boot. Real touch/pairing progress refreshes it;
+  animation pause does not stop the timeout, standby does. Detached cancellation
+  blocks new pairing and rejects late route promotion. Returned Welcome waits
+  for a fresh tap, keeping the normal typewriter presentation.
+- Boot audio now waits for verified canonical time instead of permanently
+  suppressing that boot's cue when RTC is invalid. A single temporary 4 KiB
+  PSRAM worker respects quiet hours/active state, with pending-only 1 Hz reads
+  and real playback/error publication. Static integration review found no
+  remaining actionable issue; physical confirmation remains open.
+- Built/flashed `9fde2b48` on COM10 (Debug, eight jobs, no test runs): app
+  3,721,616 bytes, 75% partition free; all written hashes verified. Matching
+  ELF SHA256 starts `c572bfaefa`; ELF/build/flash evidence is preserved under
+  `artifacts/build-cody-companion-debug/evidence/cody-9fde2b48*`. This image
+  includes the wake/touch/inactivity/deferred-audio changes and raster stage 1;
+  successful writes do not establish physical wake, audio or performance behavior.
 - Captured 28 deterministic `CODY_companion` stack overflows in 100 seconds
   after flashing `dd9f05d8`. The matching ELF shows the worker/frame/coverage
   call chain alone needs 8,176 bytes against an 8,192-byte stack; enabling cheek
@@ -137,13 +267,13 @@ and referenced architecture/artifact records.
   geometry around 3 ms; this is a narrow baseline, not a full-scene guarantee.
   Repeated wake/visual/audio/storage checks remain open. Retained ELF and logs:
   `artifacts/build-cody-companion-debug/evidence/cody-d766e08c*`.
-- Raster optimization stage 1 (source only): all-zero bilinear footprints skip
+- Raster optimization stage 1: all-zero bilinear footprints skip
   the original three packed lerps; zero-alpha samples preserve destination bytes
   without load/swap/store. Other samples retain their arithmetic. Added separate
   jelly/vector microsecond timings within artwork and reference contracts for
   transparent prefixes, fractional samples, backgrounds, byte order and guards.
-  No test/build/device comparison ran; an extra nonzero-footprint branch may
-  offset the saving. The device still runs `d766e08c`, not this optimization.
+  Included in the `9fde2b48` Debug build/flash; no tests or device comparison
+  ran. An extra nonzero-footprint branch may offset the saving.
 - The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
   block before display startup and parked display frames during radio startup.
   It passed an eight-job Debug build, flash and short capture, but a later
@@ -252,8 +382,8 @@ and referenced architecture/artifact records.
   Added the original flash microclick with bounded audio-owner notifications,
   coherent cancellation, quiet/volume/time gates and optional failure reporting.
   Source review/asset preparation only; no new tests/build/simulator/device
-  validation. Private archive-cue auditions have unconfirmed rights and are
-  not firmware assets.
+  validation. Archive-cue auditions are not firmware assets; their perpetual
+  commercial-use licences were subsequently confirmed by the owner on 2026-10-04.
 - Implemented native snapshot-only status and Screenshot chrome with atomic SD
   BMP writing and temporary PSRAM; recent preview evidence covers control
   visibility only, not firmware status or storage behavior.

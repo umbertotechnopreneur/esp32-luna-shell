@@ -33,6 +33,7 @@ constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
 constexpr uint16_t kQrQuietModules = 4;
 constexpr CODY2D::Rect kInstallQrBounds{113, 140, 240, 240};
 constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
+constexpr uint16_t kSessionCaptionTop = 156;
 constexpr CODY2D::Rect kFooterBounds{113, 390, 240, 40};
 constexpr uint16_t kActionBlueTop = 0x765E;
 constexpr uint16_t kActionBlueBottom = 0x34FC;
@@ -76,6 +77,37 @@ enum class OnboardingAction : uint8_t {
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
+struct ScreenInactivityPolicy {
+    Route route;
+    int64_t timeout_us;
+    Route destination;
+};
+constexpr ScreenInactivityPolicy kScreenInactivityPolicies[] = {
+    {Route::Invitation05, 30LL * 1000000LL, Route::Hello04},
+    {Route::Install06, 30LL * 1000000LL, Route::Hello04},
+    {Route::Pairing07, 90LL * 1000000LL, Route::Hello04},
+};
+struct ScreenActivity {
+    Route route = Route::None;
+    int64_t last_activity_us = -1;
+};
+struct PairingProgress {
+    bool valid = false;
+    PairState state = PairState::Idle;
+    LUNASHELL::ProvisioningState provisioning_state = LUNASHELL::ProvisioningState::Idle;
+    uint32_t provisioning_events = 0;
+    uint32_t ble_connections = 0;
+    bool ble_connected = false;
+    bool wifi_connected = false;
+    bool wifi_has_ip = false;
+};
+struct TimeoutCleanup {
+    bool pending = false;
+    bool awaiting_start_result = false;
+    bool cancel_requested = false;
+    uint32_t retired_generation = 0;
+    uint32_t attempt = 0;
+};
 struct QrModules {
     uint8_t bits[kQrBytes]{};
     uint16_t side = 0;
@@ -110,6 +142,7 @@ struct ContentView {
 ContentView s_view;
 Route s_route = Route::None;
 uint32_t s_generation = 1;
+std::atomic<uint32_t> s_presentation_generation{1};
 uint32_t s_look_request_id = 0; // Never reset with a route; late writes keep their identity.
 uint32_t s_revision = 0;
 uint32_t s_navigation_revision = 0;
@@ -126,6 +159,12 @@ bool s_first_boot_persisted = false;
 bool s_pairing_debug_dismissed = false;
 int64_t s_hello_completed_at_us = -1;
 int64_t s_last_pairing_change_us = -1;
+ScreenActivity s_screen_activity{};
+PairingProgress s_pairing_progress{};
+TimeoutCleanup s_timeout_cleanup{};
+bool s_hello_waits_for_touch = false;
+bool s_activity_touch_pressed = false;
+CODY2D::Point s_activity_touch_point{};
 uint32_t s_codex_attempt = 0;
 int64_t s_last_codex_change_us = -1;
 int64_t s_codex_idle_started_at_us = -1;
@@ -153,6 +192,143 @@ std::atomic<bool> s_result_ready{false};
 Command s_command{};
 Result s_result{};
 QrModules *s_encoding_target = nullptr; // Only the action worker calls the QR library.
+
+// route: Stable route identity whose bounded local inactivity policy is requested.
+const ScreenInactivityPolicy *screen_inactivity_policy(Route route)
+{
+    for (const auto &policy : kScreenInactivityPolicies) {
+        if (policy.route == route) {
+            return &policy;
+        }
+    }
+    return nullptr;
+}
+
+// active_time_us: Awake route clock, including animation pause and excluding standby.
+// Exception: Rejects a negative or regressing clock rather than inventing elapsed time.
+esp_err_t synchronize_screen_activity(int64_t active_time_us)
+{
+    if (active_time_us < 0 || (s_screen_activity.last_activity_us >= 0 &&
+        active_time_us < s_screen_activity.last_activity_us)) {
+        ESP_LOGE(kTag, "Screen activity clock rejected: current=%lld previous=%lld (%s)",
+            static_cast<long long>(active_time_us),
+            static_cast<long long>(s_screen_activity.last_activity_us),
+            esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_screen_activity.route != s_route) {
+        s_screen_activity = {s_route, active_time_us};
+        s_pairing_progress = {};
+    }
+    return ESP_OK;
+}
+
+// active_time_us: Real interaction or canonical progress time on the awake route clock.
+// Exception: Returns the original clock error without refreshing inactivity.
+esp_err_t refresh_screen_activity(int64_t active_time_us)
+{
+    const esp_err_t error = synchronize_screen_activity(active_time_us);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (screen_inactivity_policy(s_route) != nullptr) {
+        s_screen_activity.last_activity_us = active_time_us;
+    }
+    return ESP_OK;
+}
+
+// inactivity_policy: Current screen 07 policy that must match its authored scene interval.
+// Exception: Returns the original scene or power error; interval disagreement is invalid state.
+esp_err_t refresh_pairing_standby(const ScreenInactivityPolicy &inactivity_policy)
+{
+    const SceneDefinition *definition = nullptr;
+    const esp_err_t scene_error = find_scene(SceneId::Pairing, definition);
+    if (scene_error != ESP_OK) {
+        return scene_error;
+    }
+    if (definition == nullptr ||
+        static_cast<int64_t>(definition->standby_override_seconds) * 1000000LL !=
+            inactivity_policy.timeout_us) {
+        ESP_LOGE(kTag, "Pairing standby and inactivity intervals disagree (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    // Only canonical progress calls this: real Touch already extends the power
+    // owner's standby reference and must not republish/log every dragged point.
+    return LUNASHELL_power_manager_set_scene_standby_override(
+        definition->standby_override_seconds);
+}
+
+// observation: One canonical connectivity snapshot; no radio or sensor reads occur here.
+// active_time_us: Awake route clock on which genuine progress refreshes the policy.
+// Exception: Returns the original activity error without consuming a failed progress refresh.
+esp_err_t observe_pairing_progress(const LUNASHELL::ConnectivityObservation &observation,
+                                   int64_t active_time_us)
+{
+    const auto *inactivity_policy = screen_inactivity_policy(s_route);
+    if (inactivity_policy == nullptr) {
+        return ESP_OK;
+    }
+    const auto &pairing = observation.radios.pairing;
+    const bool owned_attempt = s_pairing_owned && pairing.attempt_id == s_attempt;
+    const bool admitted_pending_start = s_command_pending && s_command.generation == s_generation &&
+        (s_command.work == Work::Start || s_command.work == Work::Retry) &&
+        s_command.attempt < UINT32_MAX && pairing.attempt_id == s_command.attempt + 1U;
+    if ((!owned_attempt && !admitted_pending_start) || !pairing.data_valid || pairing.data_stale) {
+        return ESP_OK;
+    }
+    const bool progressing_state = pairing.state == PairState::Starting ||
+        pairing.state == PairState::ReadyToScan || pairing.state == PairState::Connecting ||
+        pairing.state == PairState::Completing || pairing.state == PairState::Online;
+    if (!progressing_state) {
+        return ESP_OK;
+    }
+    // Keep only the last observed transition signature when an optional field is
+    // unavailable. Recovery of validity alone must not invent pairing progress.
+    PairingProgress current = s_pairing_progress;
+    current.valid = true;
+    current.state = pairing.state;
+    const auto &provisioning = observation.radios.provisioning;
+    if (provisioning.data_valid && !provisioning.data_stale &&
+        provisioning.session_id == pairing.provisioning_session_id) {
+        current.provisioning_state = provisioning.state;
+        current.provisioning_events = provisioning.event_sequence;
+    }
+    const auto &ble = observation.radios.ble;
+    if (ble.data_valid && !ble.data_stale) {
+        current.ble_connected = ble.connected;
+        current.ble_connections = ble.connection_count;
+    }
+    const auto &wifi = observation.radios.wifi;
+    if (wifi.data_valid && !wifi.data_stale && wifi.last_error == ESP_OK) {
+        current.wifi_connected = wifi.connected;
+        current.wifi_has_ip = wifi.ip_acquired && wifi.ip_address[0] != '\0';
+    }
+    const bool credential_progress = current.provisioning_state == LUNASHELL::ProvisioningState::CredentialsReceived ||
+        current.provisioning_state == LUNASHELL::ProvisioningState::Connecting ||
+        current.provisioning_state == LUNASHELL::ProvisioningState::Success;
+    const bool progressed = !s_pairing_progress.valid || current.state != s_pairing_progress.state ||
+        (credential_progress && (current.provisioning_state != s_pairing_progress.provisioning_state ||
+            current.provisioning_events != s_pairing_progress.provisioning_events)) ||
+        (current.ble_connected && (!s_pairing_progress.ble_connected ||
+            current.ble_connections != s_pairing_progress.ble_connections)) ||
+        (current.wifi_connected && !s_pairing_progress.wifi_connected) ||
+        (current.wifi_has_ip && !s_pairing_progress.wifi_has_ip);
+    if (progressed) {
+        esp_err_t error = synchronize_screen_activity(active_time_us);
+        if (error == ESP_OK && s_route == Route::Pairing07) {
+            error = refresh_pairing_standby(*inactivity_policy);
+        }
+        if (error == ESP_OK) {
+            error = refresh_screen_activity(active_time_us);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    s_pairing_progress = current;
+    return ESP_OK;
+}
 
 // bytes: Owned storage that may contain a proof-of-possession-derived QR.
 // size: Exact writable byte count; volatile stores are not optimized away.
@@ -230,6 +406,15 @@ void execute_command(const Command &command, Result &result)
                 static_cast<unsigned long>(command.attempt), wifi.data_valid, wifi.data_stale,
                 to_index(wifi.health), esp_err_to_name(wifi.last_error), wifi.connected,
                 wifi.ip_acquired, esp_err_to_name(result.error));
+            return;
+        }
+        // A queued write belongs to its admitted presentation generation. Once
+        // NVS starts it keeps ownership; retirement can only reject it beforehand.
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGW(kTag, "First-boot write retired before persistence: attempt=%lu generation=%lu (%s)",
+                static_cast<unsigned long>(command.attempt),
+                static_cast<unsigned long>(command.generation), esp_err_to_name(result.error));
             return;
         }
         result.error = persist_first_boot(false);
@@ -632,7 +817,7 @@ esp_err_t attach_content(SceneFrame &scene)
     const uint16_t top = s_route == Route::DebugText ? 130 :
         (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
         s_route == Route::Install06 ? kInstallQrBounds.y :
-        s_route == Route::Pairing07 ? kSessionQrBounds.y :
+        s_route == Route::Pairing07 ? kSessionCaptionTop :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
     content.bottom_action_visible = uses_footer_action() && s_view.action_visible;
@@ -736,6 +921,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
 {
     SceneId identity;
     switch (route) {
+    case Route::Hello04:
+        identity = SceneId::Greeting;
+        break;
     case Route::Invitation05:
         identity = SceneId::PairInvitation;
         break;
@@ -789,6 +977,13 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     ++s_navigation_revision;
     ++s_text_generation;
     s_route = route;
+    if (route == Route::Hello04) {
+        s_hello_completed_at_us = -1;
+        scene = prepared;
+        ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
+        return ESP_OK;
+    }
+    s_hello_waits_for_touch = false;
     if (route == Route::Invitation05) {
         constexpr const char *captions[] = {"We'll show a QR code.", "Scan it to install", "the pairing app."};
         for (const char *text : captions) {
@@ -1070,6 +1265,143 @@ esp_err_t show_pairing_progress(SceneFrame &scene, const char *message)
     return error == ESP_OK ? attach_content(scene) : error;
 }
 
+// policy: Bounded route policy selecting the actual Welcome scene as destination.
+// scene: Current display-owned frame, replaced without restarting the runtime.
+// Exception: Returns the real destination preparation error; cancellation remains owned.
+esp_err_t begin_inactivity_return(const ScreenInactivityPolicy &policy, SceneFrame &scene)
+{
+    const bool pending_start = s_command_pending && s_command.generation == s_generation &&
+        (s_command.work == Work::Start || s_command.work == Work::Retry);
+    s_timeout_cleanup = {};
+    s_timeout_cleanup.pending = s_pairing_owned || pending_start;
+    s_timeout_cleanup.awaiting_start_result = pending_start;
+    s_timeout_cleanup.retired_generation = s_generation;
+    s_timeout_cleanup.attempt = pending_start ? s_command.attempt : s_attempt;
+    // Retire presentation work immediately. Only its admitted attempt identity may
+    // be recovered for cancellation; no old result may restore QR or success UI.
+    ++s_generation;
+    s_presentation_generation.store(s_generation, std::memory_order_release);
+    s_command_pending = false;
+    s_pairing_owned = false;
+    s_cancel_to_install = false;
+    s_retry_to_invitation = false;
+    s_session = 0;
+    s_last_pairing_change_us = -1;
+    s_local_failure = false;
+    s_hello_waits_for_touch = policy.destination == Route::Hello04;
+    s_activity_touch_pressed = false;
+    const esp_err_t error = enter_route(policy.destination, scene);
+    if (error != ESP_OK) {
+        return error;
+    }
+    ESP_LOGI(kTag, "Screen inactivity returned to Welcome; pairing cleanup pending=%u",
+        s_timeout_cleanup.pending);
+    return ESP_OK;
+}
+
+// scene: Current frame replaced by an explicit error view if cleanup cannot finish.
+// error: Original cancellation admission or canonical cleanup error.
+// changed: Receives the visible error transition; no successful closure is fabricated.
+// Exception: Returns the real error-view preparation error while preserving the cause.
+esp_err_t show_timeout_cleanup_error(SceneFrame &scene, esp_err_t error, bool &changed)
+{
+    s_attempt = s_timeout_cleanup.attempt;
+    s_pairing_owned = true;
+    s_timeout_cleanup.pending = false;
+    s_command_pending = false;
+    s_local_failure = true;
+    s_failed_work = Work::Cancel;
+    ESP_LOGE(kTag, "Inactivity pairing cleanup failed: attempt=%lu (%s)",
+        static_cast<unsigned long>(s_attempt), esp_err_to_name(error));
+    changed = true;
+    esp_err_t presentation_error = show_error(scene, error);
+    if (presentation_error == ESP_OK) {
+        presentation_error = prepare_action(OnboardingAction::Retry, true);
+    }
+    return presentation_error == ESP_OK ? attach_content(scene) : presentation_error;
+}
+
+// scene: Retained Welcome or a user-selected route; clean closure never promotes it.
+// observation: One coherent canonical backend observation for the owned old attempt.
+// result: Acquired action result, wiped once detached cleanup consumes it.
+// have_result: Cleared only when cleanup consumes the result instead of route presentation.
+// changed: Receives only an actual cleanup-error presentation change.
+// Exception: Returns canonical identity or presentation errors; cleanup failures remain visible.
+esp_err_t update_timeout_cleanup(SceneFrame &scene,
+                                 const LUNASHELL::ConnectivityObservation &observation,
+                                 Result &result, bool &have_result, bool &changed)
+{
+    if (!s_timeout_cleanup.pending) {
+        return ESP_OK;
+    }
+    if (have_result && result.command.generation == s_timeout_cleanup.retired_generation &&
+        (result.command.work == Work::Start || result.command.work == Work::Retry)) {
+        s_timeout_cleanup.awaiting_start_result = false;
+        if (result.error == ESP_OK) {
+            s_timeout_cleanup.attempt = result.command.attempt + 1U;
+        } else {
+            // The rejected start acquired no attempt. Its real error was logged
+            // by the worker; the retired presentation must remain on Welcome.
+            s_timeout_cleanup.pending = false;
+        }
+        wipe(&result, sizeof(result));
+        have_result = false;
+    }
+    if (have_result && result.command.generation == s_generation &&
+        result.command.work == Work::Cancel) {
+        s_command_pending = false;
+        const esp_err_t cancellation_error = result.error;
+        wipe(&result, sizeof(result));
+        have_result = false;
+        if (cancellation_error != ESP_OK) {
+            return show_timeout_cleanup_error(scene, cancellation_error, changed);
+        }
+    }
+    if (!s_timeout_cleanup.pending || s_timeout_cleanup.awaiting_start_result) {
+        return ESP_OK;
+    }
+    const auto &pairing = observation.radios.pairing;
+    if (!pairing.data_valid || pairing.data_stale ||
+        pairing.attempt_id != s_timeout_cleanup.attempt) {
+        const esp_err_t error = pairing.last_error != ESP_OK ? pairing.last_error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Inactivity cleanup observation rejected: valid=%u stale=%u attempt=%lu/%lu (%s)",
+            pairing.data_valid, pairing.data_stale,
+            static_cast<unsigned long>(pairing.attempt_id),
+            static_cast<unsigned long>(s_timeout_cleanup.attempt), esp_err_to_name(error));
+        return error;
+    }
+    const bool clean_terminal = pairing.state == PairState::Idle || pairing.state == PairState::Cancelled ||
+        pairing.state == PairState::Failed || pairing.state == PairState::TimedOut || pairing.state == PairState::Online;
+    if (clean_terminal && pairing.cleanup_error == ESP_OK && !pairing.command_pending) {
+        s_timeout_cleanup.pending = false;
+        s_command_pending = false;
+        ESP_LOGI(kTag, "Inactivity pairing cleanup confirmed: attempt=%lu state=%u",
+            static_cast<unsigned long>(pairing.attempt_id), to_index(pairing.state));
+        return ESP_OK;
+    }
+    if (s_timeout_cleanup.cancel_requested && pairing.state == PairState::Failed &&
+        pairing.cleanup_error != ESP_OK) {
+        return show_timeout_cleanup_error(scene, pairing.cleanup_error, changed);
+    }
+    if (pairing.state == PairState::Cancelling || s_timeout_cleanup.cancel_requested ||
+        s_work_busy.load(std::memory_order_acquire)) {
+        return ESP_OK;
+    }
+    const bool cancellable = pairing.state == PairState::Starting || pairing.state == PairState::ReadyToScan ||
+        pairing.state == PairState::Connecting || pairing.state == PairState::Completing ||
+        (pairing.state == PairState::Failed && pairing.cleanup_error != ESP_OK);
+    if (!cancellable) {
+        const esp_err_t error = pairing.cleanup_error != ESP_OK ? pairing.cleanup_error : ESP_ERR_INVALID_STATE;
+        return show_timeout_cleanup_error(scene, error, changed);
+    }
+    const esp_err_t error = enqueue(Work::Cancel, pairing.attempt_id);
+    if (error != ESP_OK) {
+        return show_timeout_cleanup_error(scene, error, changed);
+    }
+    s_timeout_cleanup.cancel_requested = true;
+    return ESP_OK;
+}
+
 } // namespace
 
 // No parameters: all action storage is static; no framebuffer or per-frame allocation.
@@ -1091,6 +1423,7 @@ esp_err_t onboarding_service_init()
 void reset_onboarding()
 {
     ++s_generation;
+    s_presentation_generation.store(s_generation, std::memory_order_release);
     s_route = Route::None;
     s_command_pending = false;
     s_pairing_owned = false;
@@ -1099,6 +1432,12 @@ void reset_onboarding()
     s_attempt = 0;
     s_session = 0;
     s_last_pairing_change_us = -1;
+    s_screen_activity = {};
+    s_pairing_progress = {};
+    s_timeout_cleanup = {};
+    s_hello_waits_for_touch = false;
+    s_activity_touch_pressed = false;
+    s_activity_touch_point = {};
     s_codex_attempt = 0;
     s_last_codex_change_us = -1;
     s_codex_idle_started_at_us = -1;
@@ -1130,15 +1469,20 @@ void begin_onboarding()
 // scene: Current first-setup scene, always owned by the existing display worker.
 // completed_scene: Last fully retired text; never advance from a failed/partial frame.
 // active_time_us: Existing animation time, excluding standby and pause.
+// inactivity_active_time_us: Awake route time, including animation pause and excluding standby.
 // changed: Receives whether scene geometry or content needs a new frame.
 // Exception: Returns infrastructure/route errors; optional look-write failures remain
 // explicit operation results in the canonical snapshot and the reusable error view.
 esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene,
-                            int64_t active_time_us, bool &changed)
+                            int64_t active_time_us, int64_t inactivity_active_time_us, bool &changed)
 {
     changed = false;
+    const esp_err_t activity_error = synchronize_screen_activity(inactivity_active_time_us);
+    if (activity_error != ESP_OK) {
+        return activity_error;
+    }
     Result result;
-    const bool have_result = s_result_ready.load(std::memory_order_acquire);
+    bool have_result = s_result_ready.load(std::memory_order_acquire);
     if (have_result) {
         result = s_result;
         wipe(&s_result, sizeof(s_result));
@@ -1184,12 +1528,30 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         wipe(&result, sizeof(result));
         return ESP_OK;
     }
+    if (s_timeout_cleanup.pending) {
+        LUNASHELL::ConnectivityObservation observation{};
+        const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance()
+            .readConnectivityObservation(observation);
+        if (observation_error != ESP_OK) {
+            wipe(&result, sizeof(result));
+            return observation_error;
+        }
+        const esp_err_t cleanup_error = update_timeout_cleanup(
+            scene, observation, result, have_result, changed);
+        if (cleanup_error != ESP_OK) {
+            wipe(&result, sizeof(result));
+            return cleanup_error;
+        }
+    }
     if (s_route == Route::None) {
         wipe(&result, sizeof(result));
         return ESP_OK;
     }
     if (s_route == Route::Hello04) {
         wipe(&result, sizeof(result));
+        if (s_hello_waits_for_touch) {
+            return ESP_OK;
+        }
         const bool hello_retired = scene.valid && scene.definition != nullptr &&
             scene.visible_characters == scene.title.text.length &&
             completed_scene.valid && completed_scene.definition == scene.definition &&
@@ -1279,6 +1641,25 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     }
     const auto &pairing = observation.radios.pairing;
     const auto &codex_link = observation.radios.codex_link;
+    error = observe_pairing_progress(observation, inactivity_active_time_us);
+    if (error != ESP_OK) {
+        wipe(&result, sizeof(result));
+        return error;
+    }
+    const auto *inactivity_policy = screen_inactivity_policy(s_route);
+    const bool current_pairing_failure = s_pairing_owned && pairing.data_valid && !pairing.data_stale &&
+        pairing.attempt_id == s_attempt && !s_command_pending &&
+        (pairing.state == PairState::Failed || pairing.state == PairState::TimedOut);
+    if (inactivity_policy != nullptr && !current_pairing_failure &&
+        inactivity_active_time_us - s_screen_activity.last_activity_us >= inactivity_policy->timeout_us) {
+        changed = true;
+        error = begin_inactivity_return(*inactivity_policy, scene);
+        if (error == ESP_OK) {
+            error = update_timeout_cleanup(scene, observation, result, have_result, changed);
+        }
+        wipe(&result, sizeof(result));
+        return error;
+    }
     if (have_result && result.command.generation == s_generation) {
         s_command_pending = false;
         scene.content.control_revision = ++s_navigation_revision;
@@ -1334,10 +1715,15 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
             }
             if (error == ESP_OK) {
+                error = prepare_caption("Scan me in the app.", kSessionCaptionTop, s_view.lines[0]);
+            }
+            if (error == ESP_OK) {
                 s_local_failure = false;
                 s_view.qr = result.qr;
                 s_view.qr_bounds = kSessionQrBounds;
-                s_view.line_count = 0;
+                // The session caption shares the QR route's black-on-white theme.
+                s_view.lines[0].color = scene.definition->title_color;
+                s_view.line_count = 1;
                 s_session = result.command.session;
                 error = attach_content(scene);
             }
@@ -1657,6 +2043,9 @@ bool next_control_visible()
 // Exception: Returns the real persistence, snapshot, command or route error.
 esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection direction)
 {
+    if (s_timeout_cleanup.pending) {
+        return ESP_OK;
+    }
     const bool back_hit = direction == NavigationDirection::Previous && previous_navigation_available();
     const bool action_hit = direction == NavigationDirection::Next && next_navigation_available();
     if (!back_hit && !action_hit) {
@@ -1826,6 +2215,27 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     return action_error == ESP_OK ? attach_content(scene) : action_error;
 }
 
+// point: Real logical coordinate, including contacts consumed by Debug controls.
+// pressed: Actual contact state, not an inferred sensor value.
+// pressed_edge: True only for the first pressed sample of the contact.
+// inactivity_active_time_us: Awake route clock; only actual touch events refresh inactivity.
+// Exception: Returns the original screen-activity clock error.
+esp_err_t observe_onboarding_touch_activity(CODY2D::Point point, bool pressed,
+                                            bool pressed_edge, int64_t inactivity_active_time_us)
+{
+    const bool moved_contact = pressed && s_activity_touch_pressed &&
+        (point.x != s_activity_touch_point.x || point.y != s_activity_touch_point.y);
+    const bool released_contact = !pressed && s_activity_touch_pressed;
+    s_activity_touch_pressed = pressed;
+    if (pressed) {
+        s_activity_touch_point = point;
+    }
+    if (pressed_edge || moved_contact || released_contact) {
+        return refresh_screen_activity(inactivity_active_time_us);
+    }
+    return ESP_OK;
+}
+
 // scene: Current route; swipes use the exact same gated actions as the chevrons.
 // point: Real logical coordinate from the existing touch acquisition owner.
 // pressed: Actual contact state, not an inferred sensor value.
@@ -1834,10 +2244,21 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
 // consumed: True for controls/list gestures and a recognized navigation release.
 // Exception: Returns the real route, persistence, snapshot or action error.
 esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
-                                  bool pressed, bool pressed_edge, uint16_t rotation_degrees, bool &consumed)
+                                  bool pressed, bool pressed_edge,
+                                  uint16_t rotation_degrees, bool &consumed)
 {
     consumed = false;
-    if (s_route == Route::None || s_route == Route::Hello04) {
+    if (s_route == Route::None) {
+        return ESP_OK;
+    }
+    if (s_route == Route::Hello04) {
+        if (s_hello_waits_for_touch && pressed_edge) {
+            consumed = true;
+            if (!s_timeout_cleanup.pending && !s_command_pending &&
+                !s_work_busy.load(std::memory_order_acquire)) {
+                return enter_route(Route::Invitation05, scene);
+            }
+        }
         return ESP_OK;
     }
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG

@@ -10,10 +10,11 @@ demo:
     - {id: awake, duration_seconds: 5, face: ready, amplitude: 0.3, speed: 0.5}
 benchmark:
   # Debug-only fixed route for comparable native raster captures; it never feeds a firmware snapshot.
-  enabled: true
+  enabled: false
   profile_blocks: false
+  # Benchmark-only selection; ordinary S3 rendering uses SIMD independently.
   # scalar = baseline, simd_verify = exact comparison, simd = performance run.
-  kernel: simd
+  kernel: scalar
   cloud_scale_percent: 100
 diagnostics:
   execution_timings: true
@@ -25,5 +26,8 @@ audio:
   sample_rate_hz: 22050
   ready_duration_seconds: 0.18
   eyes_open_duration_seconds: 1.3
+  # Keep the original chime; append this explicitly selected licensed greeting.
+  # Other catalog IDs or 'none' preserve the alternatives without a fallback.
+  eyes_open_hello: cody-hello-murmur
   ready_volume_percent: 100
   eyes_open_volume_percent: 100

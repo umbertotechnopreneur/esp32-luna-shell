@@ -21,6 +21,18 @@ preset changes; zero amplitude/fullness preserves the source outline. Face and
 contour smoothing/breath/blink phase also survive preset changes and pause. Vector
 drawing, debug geometry and semantic hit testing consume the same evaluated pose.
 
+The shared lip control points are 18 percent wider, preserving each preset's
+relative width and opening. The existing breathing clock now closes and opens
+the mouth around that preset and adds a small width pulse; it does not add a
+timer or acquire measurements. A coral-pink tongue is a separate authored fill
+under the same mouth anchor and width/opening channels. It appears at opening
+0.28 and above, keeping Calm, Focused, Embarrassed and Worried tongue-free during
+their normal breath cycle. Sleeping and Afraid retain their narrower mouths.
+The tongue clips against the evaluated lip at each raster sample, so both paths
+follow the same pearl deformation. Optional authored clip ownership requires an
+earlier independent filled path; nested clips and overflowing combined geometry
+are rejected.
+
 The active native jelly finish derives from approved concept 08 in
 `assets/cody/appearance/jelly-scanline/`. Five skins share the crop
 `(28,206,1229,1082)`, matched alpha, 320×233 premultiplied RGBA8 and RGB565-quantized
@@ -122,6 +134,11 @@ cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain
 These are authored payload/structure budgets, not a current linked-image size or
 measured free-heap/high-water result. Fonts have no Unicode ranges, TTF runtime or
 heap-owned text. Ordinary scenes add fixed state, not a framebuffer/render task.
+The tongue brings the authored rig to 200 points, 62 cubics and 16 paths; point
+storage is bounded at 200 and the debug tangent cache at 124. Clipped fills share
+the existing 256-intersection scratch between subject and containing polygon,
+without an additional raster array or mask allocation. Runtime stack, timing and
+physical appearance after this mouth change remain unverified.
 Texture data, five catalog entries and core graphics stay available without SD.
 Optional action/audio worker budgets are in [onboarding](onboarding.md) and
 [runtime](runtime.md); flash capacity cannot substitute for internal RAM.
@@ -212,16 +229,16 @@ packer, kernel dispatch, odd tails, alignment and injected mismatch rejection.
 That model does not execute or validate ESP32-S3 instructions. This suite does not
 compile the firmware worker or prove device behavior. Its execution, firmware
 builds and physical captures still require explicit authorization under AGENTS.md.
-Transparent-footprint/alpha skips remain source-only optimization stage 1;
-exact-output execution and device gains are pending.
-
-The experimental ESP32-S3 kernel is selected only inside the benchmark with
-`benchmark.kernel`. Ordinary startup/UI and benchmark exit retain their previous
-scalar implementation. `scalar` selects the existing fused C sampler, `simd`
-selects the PIE assembly sampler for timing, and `simd_verify` selects an explicit
-verification run. Unsupported selections return an error; they never silently
-substitute C. The current authored configuration selects `simd` with block
-timing disabled. The 2026-10-05 S3 verifier passed both the exhaustive weight
+The ESP32-S3 Pearl renderer starts with the 16-pixel SIMD kernel and generated
+row coverage in ordinary Debug and Release rendering. Portable host builds
+start with the scalar sampler. The benchmark is disabled in the authored runtime
+configuration; it allocates no measurement buffer and does not interrupt the
+normal startup/UI. `benchmark.kernel` selects a diagnostic override only when
+the benchmark is enabled, and completion restores the previously selected
+kernel. `scalar` selects the fused C sampler, `simd` selects the PIE assembly
+sampler, and `simd_verify` selects an explicit verification run. Unsupported
+selections return an error; they never silently substitute C.
+The 2026-10-05 S3 verifier passed both the exhaustive weight
 contract and a completed 489-frame live comparison at 100% scale before row
 trimming was added. A fresh scalar control recorded 684 frames, mean 56,950 us,
 p95 57,634 us and jelly mean 37,106 us. The first 16-pixel SIMD run recorded
@@ -290,6 +307,6 @@ After an explicitly authorized verification passes, change only `kernel: simd`
 for a separately authorized timing capture with detail disabled, then compare
 with a fresh `scalar` run under identical conditions. Keep the distinction between
 source-level arithmetic bounds, host-model contracts and executed S3 evidence;
-none is interchangeable with another. No SIMD gain has yet been measured.
-Physical motion/rotation, long-run buffer
+none is interchangeable with another. The fixed-route gains above do not
+establish frame times in the combined main UI. Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

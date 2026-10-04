@@ -88,7 +88,7 @@ def main(argv=None) -> None:
                                     "continuous 3-second PWR hold, early release and failed-sample rearming",
                                     "2/4/4-second boot timeline, startup checkpoint gates and 800-ms panel wake"])
         report["contracts"].extend(["sequential title, body and footer teletype after entrance",
-                                    "hidden installation heading and 60-second scene override",
+                                    "current installation heading, hidden-heading fixture and 60-second scene override",
                                     "scene standby entry, real activity, inheritance and uint32 boundary",
                                     "long-lived and replaced text clocks without replayed entrance",
                                     "immutable retired character and text-generation baselines"])

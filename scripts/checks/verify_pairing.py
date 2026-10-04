@@ -339,7 +339,7 @@ def main() -> None:
         )
     require(radios, "LUNASHELL_wifi_init()", "radio startup")
     require(platform_header, "esp_err_t LUNASHELL_radios_init(void);", "platform API")
-    require(platform_header, "esp_err_t LUNASHELL_radios_stop(void);", "platform API")
+    require(platform_header, "LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_stop(void);", "platform API")
     require(platform_header, "esp_err_t LUNASHELL_wifi_stop(void);", "platform API")
     require(platform_cmake, '"src/network/LUNASHELL_provisioning.cpp"', "platform CMake")
     require(sdkconfig, "CONFIG_NETWORK_PROV_NETWORK_TYPE_WIFI=y", "sdkconfig defaults")

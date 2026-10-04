@@ -23,12 +23,14 @@ constexpr uint16_t kCanvasSize = 466;
 constexpr uint16_t kProfileBlockPixels = 16;
 constexpr uint16_t kSimdBlockPixels = 16;
 constexpr char kSkinSettingKey[] = "cody_skin";
+constexpr JellyRasterKernel kDefaultRasterKernel = CODY_JELLY_SIMD_AVAILABLE
+    ? JellyRasterKernel::Simd : JellyRasterKernel::Scalar;
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
 
 static_assert(std::size(JellyFrame{}.controls) == std::size(JellyData::rows));
 std::atomic<JellySkinId> s_selected_skin{JellySkinCatalog::default_skin};
-std::atomic<JellyRasterKernel> s_raster_kernel{JellyRasterKernel::Scalar};
+std::atomic<JellyRasterKernel> s_raster_kernel{kDefaultRasterKernel};
 
 // id: Exact stable authored ID, never a display name or catalog position.
 const JellySkinDefinition *find_skin(const char *id)
@@ -195,7 +197,7 @@ uint16_t blend_rgba(uint32_t source, uint16_t destination)
 // lower: Next source row, possibly the same at the texture boundary.
 // source_x: First Q16 coordinate, advanced by the exact number of packed pixels.
 // step: Prepared Q16 source increment, unchanged across compact tile splits.
-// pair_count: At most 32 complete pairs; no speculative tail reads.
+// pair_count: Complete pairs in one 16-pixel block; no speculative tail reads.
 // pairs: Aligned scratch filled for every lane the assembly will consume.
 uint32_t prepare_simd_pairs(const uint32_t *upper, const uint32_t *lower, int32_t &source_x,
                             int32_t step, uint16_t pair_count, JellySimdPair *pairs)

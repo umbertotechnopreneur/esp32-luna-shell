@@ -1111,16 +1111,25 @@ void check_scene_typewriter_contract()
             "body and footer use the same sequential typing clock");
 
     require(CODY::find_scene(CODY::SceneId::InstallApp, definition) == ESP_OK &&
-            !definition->title_visible && definition->cloud.scale == 58 &&
+            definition->title_visible && definition->cloud.scale == 40 &&
             definition->standby_override_seconds == 60 &&
             CODY::begin_scene(*definition, scene) == ESP_OK,
-            "installation scene enlarges Cody without a visible installation heading");
+            "installation scene preserves the current visible heading and bounded Cody placement");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK && scene.visible_characters == 1 &&
+            CODY::scene_content_characters(scene, 9, scene.title.text.length) == 0,
+            "installation heading starts before the following caption");
+    auto hidden_heading = *definition;
+    hidden_heading.title_visible = false;
+    require(CODY::begin_scene(hidden_heading, scene) == ESP_OK,
+            "prepare an explicit hidden-heading fixture without changing the authored scene");
     require(CODY::advance_scene(scene, 45000) == ESP_OK &&
             CODY::scene_content_characters(scene, 9, 0) == 1,
-            "a hidden title does not delay Pair Cody's typed caption");
+            "a hidden title does not delay the following typed caption");
 
     require(CODY::find_scene(CODY::SceneId::Pairing, definition) == ESP_OK &&
-            CODY::begin_scene(*definition, scene) == ESP_OK, "prepare screen 07's reusable text layout");
+            definition->standby_override_seconds == 90 &&
+            CODY::begin_scene(*definition, scene) == ESP_OK,
+            "screen 07's reusable text layout preserves the full 90-second pairing window");
     const int64_t long_running_us = static_cast<int64_t>(UINT32_MAX) + 1000000LL;
     require(CODY::advance_scene(scene, long_running_us) == ESP_OK &&
             scene.text_elapsed_us > UINT32_MAX, "typing clocks remain usable beyond 71 minutes");
@@ -1147,6 +1156,10 @@ void check_scene_typewriter_contract()
 int main()
 {
     try {
+        const auto expected_default = CODY::jelly_simd_available()
+            ? CODY::JellyRasterKernel::Simd : CODY::JellyRasterKernel::Scalar;
+        require(CODY::selected_jelly_raster_kernel() == expected_default,
+                "initial backend selects SIMD where compiled and portable scalar on the host");
         check_fill_contract();
         check_coverage_rectangle_contract();
         check_coverage_concave_tiles_contract();

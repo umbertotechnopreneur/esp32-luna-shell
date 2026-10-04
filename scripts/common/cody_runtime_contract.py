@@ -3,6 +3,7 @@ from pathlib import Path
 import math
 import yaml
 from scripts.common.cody_rig_contract import RigLoader
+from scripts.common.cody_boot_audio import load_selection
 
 
 # value: Authored mapping whose exact field set is part of this schema.
@@ -80,11 +81,17 @@ def load_settings(path):
     if benchmark["enabled"] and diagnostics["frame_budget_us"] != 40000:
         raise ValueError("benchmark.enabled requires diagnostics.frame_budget_us=40000 (25 FPS)")
     audio = settings["audio"]
-    fields(audio, ("sample_rate_hz", "ready_duration_seconds", "eyes_open_duration_seconds", "ready_volume_percent", "eyes_open_volume_percent"), "audio")
+    fields(audio, ("sample_rate_hz", "ready_duration_seconds", "eyes_open_duration_seconds", "eyes_open_hello", "ready_volume_percent", "eyes_open_volume_percent"), "audio")
     if type(audio["sample_rate_hz"]) is not int or audio["sample_rate_hz"] != 22050:
         raise ValueError("Boot cues must match the shared 22050 Hz codec/diagnostic clock")
     number(audio["ready_duration_seconds"], .05, .5, "audio.ready_duration_seconds")
     number(audio["eyes_open_duration_seconds"], 1, 1.8, "audio.eyes_open_duration_seconds")
+    if not isinstance(audio["eyes_open_hello"], str):
+        raise ValueError("audio.eyes_open_hello: explicit catalog identity or 'none' required")
+    if audio["eyes_open_hello"] != "none":
+        selection = load_selection()
+        if audio["eyes_open_hello"] not in {cue["id"] for cue in selection["cues"]}:
+            raise ValueError(f"audio.eyes_open_hello: unknown cue {audio['eyes_open_hello']}")
     for name in ("ready_volume_percent", "eyes_open_volume_percent"):
         if type(audio[name]) is not int:
             raise ValueError(f"audio.{name}: integer required")

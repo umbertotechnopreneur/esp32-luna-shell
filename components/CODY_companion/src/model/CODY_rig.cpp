@@ -532,9 +532,25 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms)
         .5f - .5f * std::cos(kTau * static_cast<float>(blink_ms) / 280.f) : 0;
     result[FaceChannel::EyeLeft] = base[FaceChannel::EyeLeft] * (1 - blink);
     result[FaceChannel::EyeRight] = base[FaceChannel::EyeRight] * (1 - blink);
-    result[FaceChannel::MouthOpen] = base[FaceChannel::MouthOpen] + (1 - base[FaceChannel::MouthOpen]) * .08f * (.5f + .5f * breath);
+    apply_mouth_breathing(result, breath);
     result[FaceChannel::Breath] = base[FaceChannel::Breath] + (1 - std::abs(base[FaceChannel::Breath])) * breath;
     return result;
+}
+
+// face: Validated channels composed from the selected face and response contributions.
+// breathing: Existing artistic breathing clock projected into the range [-1,1].
+void apply_mouth_breathing(Channels &face, float breathing)
+{
+    const float inhalation = .5f + .5f * breathing;
+    const float exhalation = 1 - inhalation;
+    auto &mouth_open = face[FaceChannel::MouthOpen];
+    // Close relative to the current expression, then reopen into its remaining
+    // range. Afraid stays narrow and Happy stays more open throughout the cycle.
+    mouth_open *= 1 - .22f * exhalation;
+    mouth_open += (1 - mouth_open) * .16f * inhalation;
+    auto &mouth_width = face[FaceChannel::MouthWidth];
+    const float maximum_width = Data::channel_max[to_index(FaceChannel::MouthWidth)];
+    mouth_width += (maximum_width - mouth_width) * .035f * inhalation;
 }
 
 // channels: Independent finite controls, each inside its authored range.
@@ -560,6 +576,7 @@ esp_err_t validate_rig_pose(const Channels &channels, Transform transform)
 // scene: Caller-owned geometry and pearl row mappings, never valid after failure.
 // contour: Optional outline controls; parented handles inherit their own lobe's translation.
 // deform_face: Runtime preference for the same forward warp as the pearlescent body.
+// Exception: Returns the real pose, clipping, sampling or pearl-warp error; scene remains invalid.
 esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &scene,
                        const ContourState *contour, bool deform_face)
 {
@@ -619,9 +636,21 @@ esp_err_t evaluate_rig(const Channels &channels, Transform transform, RigScene &
         const auto &definition = Data::paths[index];
         auto &path = scene.paths[index];
         path.first_vertex = vertex;
-        path.visible = definition.visible_channel == FaceChannel::None || channels[definition.visible_channel] >= .25f;
+        path.visible = definition.visible_channel == FaceChannel::None ||
+            channels[definition.visible_channel] >= definition.visible_minimum;
         path.opacity = definition.opacity_channel == FaceChannel::None ? 255 : static_cast<uint8_t>(
             std::floor(channels[definition.opacity_channel] * 255.f + .5f));
+        if (definition.clip_path != PathId::None) {
+            const uint16_t clip_index = to_index(definition.clip_path);
+            if (clip_index >= index || Data::paths[clip_index].stroke != 0 ||
+                Data::paths[clip_index].clip_path != PathId::None || definition.stroke != 0) {
+                ESP_LOGE(kTag, "Path %s clip ownership rejected (%s)", definition.name,
+                         esp_err_to_name(ESP_ERR_INVALID_ARG));
+                return ESP_ERR_INVALID_ARG;
+            }
+            // A detail cannot remain visible after its containing face path disappears.
+            path.visible = path.visible && scene.paths[clip_index].visible;
+        }
         for (uint16_t curve_index = 0; curve_index < definition.curve_count; ++curve_index) {
             const auto &curve = Data::curves[to_index(definition.first_curve) + curve_index];
             CODY2D::Vec2 control[4];
@@ -882,10 +911,18 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         }
         const auto *vertices = scene.vertices.data() + path.first_vertex;
         if (definition.stroke == 0) {
+            const CODY2D::Vec2 *clip_vertices = nullptr;
+            uint16_t clip_count = 0;
+            if (definition.clip_path != PathId::None) {
+                const auto &clip = scene.paths[to_index(definition.clip_path)];
+                clip_vertices = scene.vertices.data() + clip.first_vertex;
+                clip_count = clip.count;
+            }
             result = CODY2D::fill_path_rows(strip, first_row, vertices, path.count,
                                           Data::palette, static_cast<uint8_t>(to_index(definition.first_color)),
                                           static_cast<uint8_t>(to_index(definition.last_color)),
-                                          path.opacity, first_column, definition.antialiasing);
+                                          path.opacity, first_column, definition.antialiasing,
+                                          clip_vertices, clip_count);
         } else {
             for (uint16_t segment = 1; segment < path.count; ++segment) {
                 result = CODY2D::stroke_rows(strip, first_row, vertices[segment-1], vertices[segment],

@@ -45,6 +45,12 @@ The power owner parks producers and applies the shared 800-ms panel fade. Its
 3-second preparation deadline and the renderer's 500-ms failure deadline are
 failure bounds, not frame-rate promises. Failed sleep rolls back with its real
 error; failed wake leaves the panel dark rather than presenting a partial success.
+Standalone wireless restoration is optional for graphical wake: a failed restore
+must first stop both radios successfully. Only that known-off state permits Cody
+and touch to resume; uncertain cleanup still rejects wake. The original radio
+error remains in the power snapshot, return value, trace and logs until verified
+radio recovery. Ordinary touch/motion publication cannot erase it. A subsequent
+standby reasserts radio shutdown through its owner after any explicit pairing.
 
 Software wake first renders Sleeping behind the dark panel, exposes it through
 the shared 800-ms panel fade, then gives Waking and Ready 4 seconds each. It does
@@ -63,10 +69,13 @@ profile-specific silicon-sleep policy remain in
 
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. Invitation
-05, installation 06 and pairing 07 use 60 seconds; the unused scan definition does
-too. Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
+05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
+scan definition, Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
 and look 11 inherit. Scene entry supplies a fresh
-inactivity baseline and touch refreshes it. Departure/parking clears the override.
+inactivity baseline and touch refreshes it. Genuine canonical progress in the
+current pairing attempt also refreshes its 90-second anchor without fabricating
+a touch event. Repeated unchanged snapshots do not refresh it.
+Departure/parking clears the override.
 This never writes NVS or extends the backend's five-minute pairing deadline.
 
 Standby retains the active route. In particular, wake from screen 09 returns to
@@ -105,10 +114,27 @@ already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
 
-Boot cues are original procedural `audio-ready` (0.18 s) and `eyes-open` (1.3 s),
-authored in `assets/cody/runtime.yaml` and stored in flash. Preparation validates the
-flash PCM; both playback operations are deferred until completed boot reads the
-trusted-clock policy. The base assets use 22,050 Hz and authored volume 100; the
+Boot cues start with original procedural `audio-ready` (0.18 s) and `eyes-open`
+chime (1.3 s), authored in `assets/cody/runtime.yaml` and stored in flash. The explicit
+`audio.eyes_open_hello` selector currently appends `cody-hello-murmur`: 100 ms of
+silence and a 650-ms private vocal, for about 2.05 seconds / 90,412 bytes in the
+same eyes-open PCM asset. Other catalog voices and `none` (chime only) remain
+available; invalid identity, missing source or source/rendered hash mismatch fails
+preparation rather than substituting a sound. Only the selected voice is embedded.
+See [boot greeting authoring](../../../assets/cody/audio/boot-hello/README.md) for
+the ffmpeg recipe and owner-confirmed perpetual commercial-use licence provenance.
+Preparation validates the
+flash PCM; completed boot requires a verified canonical clock before applying
+the quiet-hours policy. An unavailable/stale clock admits one pending boot request,
+not a playback completion. The existing companion worker checks only that pending
+request's canonical clock at most once per second, including static/paused routes.
+A temporary 4 KiB PSRAM audio worker rechecks clock policy and active power state
+before the real PCM operations, then releases itself after completion, failure or
+a definitive quiet-hours skip. The request may remain unfulfilled through standby;
+completed/skipped/failed requests never become ordinary software-wake sounds. Clock
+waiting has no timeout that fabricates completion, and startup keeps an optional
+audio admission/playback failure visible without aborting visual startup.
+The base assets use 22,050 Hz and authored volume 100; the
 optional voice-AFE feature has its separate matched-rate configuration. Shared
 transport configuration is authoritative: a conflicting generic playback rate
 returns the real error rather than reconfiguring an open microphone unnoticed.
@@ -123,7 +149,7 @@ and wake reset the silent baseline; unchanged frames cannot create taps.
 It preserves actual codec volume and the already shared transport clock, converts
 only this cue to the active rate, and does not reconfigure the microphone. Zero
 volume, quiet hours, hidden/parked scenes and standby suppress output. Unavailable
-trusted time suppresses only when both routines and quiet-hours policy are
+trusted time suppresses keyboard microclicks only when both routines and quiet-hours policy are
 enabled; disabling either allows cues without that clock. Unavailable policy
 settings still suppress with their real error. Audio/speaker-excluded profiles
 skip preparation while preserving visual startup. Runtime playback failure is
@@ -134,8 +160,8 @@ stack + 2,400-byte transport scratch + small fixed state, not measured linked-im
 RAM. Speaker loudness/gentleness remains a listening check. The separate ten
 [archive cue candidates](../../../assets/cody/audio/gentle-sfx/README.md) exist only
 as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They are
-not firmware or automatic cues; redistribution rights and perceptual review are
-unconfirmed.
+not firmware or automatic cues. Perpetual commercial-use licences were confirmed
+by the owner on 2026-10-04; perceptual review is pending.
 
 ## Device diagnostics
 

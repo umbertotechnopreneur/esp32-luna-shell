@@ -217,7 +217,8 @@ void LUNASHELL_power_manager_note_power_activity(void);
 
 // seconds: Transient scene inactivity seconds; zero restores the configured timeout.
 // Positive overrides start on scene entry and defer display dimming until standby.
-// The caller changes this only on scene transitions; saved settings remain unchanged.
+// Refresh only on scene transitions or genuine operation progress, never every frame.
+// Saved settings remain unchanged; ordinary touch uses the existing activity owner.
 // Exception: Returns the real initialization or excluded-profile error.
 esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds);
 
@@ -323,7 +324,9 @@ uint32_t LUNASHELL_display_runtime_content_revision(void);
 
 /** Begin one bounded standalone frame; the same task must finish it. */
 // budget_ms: Aggregate rendering/transfer budget, 1..1000 ms after acquiring the lock.
-esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms);
+// parked: Receives a deliberate closed-gate rejection sampled under the frame lock.
+// Exception: Non-gate failures leave parked false and retain their original error.
+esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms, bool *parked);
 /** Check the frame deadline between geometry/raster stages, without resetting it. */
 esp_err_t LUNASHELL_display_frame_check_deadline(void);
 // pixels: Receives idle internal raster storage borrowed only until this frame ends.
@@ -534,12 +537,18 @@ esp_err_t LUNASHELL_radios_reserve_startup_dma(void);
  * device-scoped name.
  */
 esp_err_t LUNASHELL_radios_init(void);
-esp_err_t LUNASHELL_radios_stop(void);
+/** Hardware closure and restoring the next BLE budget are separate outcomes. */
+typedef struct {
+    esp_err_t cleanup_error;
+    esp_err_t dma_reservation_error;
+} LUNASHELL_radio_cleanup_result_t;
+
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_stop(void);
 esp_err_t LUNASHELL_ble_init(void);
 /** Explicit telemetry-to-provisioning handoff; call from a service worker. */
 esp_err_t LUNASHELL_radios_start_pairing(void);
 /** Close provisioning before optionally restoring telemetry on verified Wi-Fi. */
-esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
 
 #define LUNASHELL_WIFI_MAX_NETWORKS 16
 #define LUNASHELL_WIFI_SSID_MAX_LEN 32

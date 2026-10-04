@@ -64,13 +64,21 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Commit previous geometry only on success and erase both old/new bounds.
 - CO5300 QSPI cannot safely use direct PSRAM DMA here. Bounded internal bounce
   strips preserve completion ownership; smaller tiles must not create unbounded
-  deferred touch work. Reserve BLE contiguous headroom before Wi-Fi.
+  deferred touch work. Protect the BLE startup budget before Wi-Fi.
   [Mitigations](docs/architecture/display-touch-runtime.md),
   [rendering](docs/architecture/cody/rendering.md).
-- On Cody, reserve the BLE controller's contiguous DMA lease before SD/display
-  fragmentation, then drain and briefly park frame-owned display DMA during
-  Wi-Fi/BLE startup. Keep BLE's free-space and largest-block preflight strict;
-  aggregate free RAM alone does not prove a controller-sized block exists.
+- On Cody, reserve the BLE DMA budget before SD/display startup, then drain
+  and briefly park frame-owned display DMA during Wi-Fi/BLE startup. Keep
+  aggregate and per-block admission distinct. Do not infer a malloc size from
+  an address offset: controller 51d9dfd's EMI `addmi ...,30720` is not a 30-KiB
+  allocation. The old monolithic guard itself rejected healthy SDK restarts.
+  Explicit Pair must drain before telemetry teardown too. Capture deliberate
+  frame parking under its lock: re-reading a quickly reopened gate can turn a
+  harmless parked admission into a terminal renderer failure.
+- Keep unused BLE DMA in one lifetime owner through standby and pre-handoff
+  errors. After confirmed SDK closure, rearm under the parked display gate.
+  Report hardware cleanup separately from the future memory budget: losing a
+  reservation must not falsely keep a closed pairing session alive.
 
 ## Power, wake and audio
 
@@ -98,6 +106,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Native USB does not survive Light-sleep; CPU sleep figures are not board
   current. Powered GPS/shared rails prevent claimed Backup savings; verify
   codec shutdown physically. Retain the measured 80 MHz floor pending PWR tests.
+- Radio aggregate free RAM does not prove a wake can reacquire the contiguous
+  BLE controller block. Graphical wake may continue only after a failed optional
+  radio restore is cleaned to a known-off state; preserve the real error. Never
+  call ESP logging inside touch critical sections: even filtered logs can take
+  the SDK log-level mutex and corrupt/block FreeRTOS event-list operations.
 - RTC oscillator-stop remains unavailable until trusted write/readback. LC76G
   I2C control timing/terminal ACK parsing and bounded failed-read backoff matter
   to shared-lock responsiveness. Polling slower alone does not power down IMU.

@@ -25,6 +25,78 @@ bool valid_point(Vec2 point)
            std::abs(point.x) <= 2048 && std::abs(point.y) <= 2048;
 }
 
+struct FillSpanCursor {
+    uint16_t subject_hit = 0;
+    uint16_t clip_hit = 0;
+};
+
+// vertices: Optional validated containing polygon; null leaves the fill unmasked.
+// count: Validated containing polygon size.
+// scan_y: The subject's exact pixel-center or coverage subscanline coordinate.
+// intersections: Tail of the subject's existing bounded intersection scratch.
+// hits: Receives an even, sorted crossing count on success.
+// Exception: Returns ESP_ERR_INVALID_RESPONSE for an impossible odd crossing count.
+esp_err_t collect_clip_intersections(const Vec2 *vertices, uint16_t count, float scan_y,
+                                    float *intersections, uint16_t &hits)
+{
+    hits = 0;
+    if (vertices == nullptr) {
+        return ESP_OK;
+    }
+    for (uint16_t index = 0; index < count; ++index) {
+        const Vec2 start = vertices[index];
+        const Vec2 end = vertices[index + 1 < count ? index + 1 : 0];
+        if ((start.y <= scan_y && end.y > scan_y) || (end.y <= scan_y && start.y > scan_y)) {
+            intersections[hits++] = start.x + (scan_y - start.y) * (end.x - start.x) / (end.y - start.y);
+        }
+    }
+    if (hits % 2 != 0) {
+        ESP_LOGE(kTag, "Fill clip at y=%f has odd crossing count=%u (%s)", scan_y, hits,
+                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    std::sort(intersections, intersections + hits);
+    return ESP_OK;
+}
+
+// subject: Sorted crossing pairs for the path being filled.
+// subject_hits: Even crossing count in the subject's scratch region.
+// clip: Sorted containing crossing pairs, or null for an ordinary fill.
+// clip_hits: Even crossing count in the separate tail of the same scratch array.
+// cursor: Advances monotonically through both lists; no extra span array is needed.
+// left: Receives the next nonempty geometric span's start.
+// right: Receives its exclusive end in the same canvas coordinates.
+bool next_fill_span(const float *subject, uint16_t subject_hits,
+                    const float *clip, uint16_t clip_hits, FillSpanCursor &cursor,
+                    float &left, float &right)
+{
+    if (clip == nullptr) {
+        if (cursor.subject_hit >= subject_hits) {
+            return false;
+        }
+        left = subject[cursor.subject_hit];
+        right = subject[cursor.subject_hit + 1];
+        cursor.subject_hit += 2;
+        return true;
+    }
+    while (cursor.subject_hit < subject_hits && cursor.clip_hit < clip_hits) {
+        const float subject_end = subject[cursor.subject_hit + 1];
+        const float clip_end = clip[cursor.clip_hit + 1];
+        left = std::max(subject[cursor.subject_hit], clip[cursor.clip_hit]);
+        right = std::min(subject_end, clip_end);
+        if (subject_end <= clip_end) {
+            cursor.subject_hit += 2;
+        }
+        if (clip_end <= subject_end) {
+            cursor.clip_hit += 2;
+        }
+        if (left < right) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // differences: Bounded row scratch, initialized only where an event is first touched.
 // events: Zero-initialized bitset recording which coverage changes are readable this row.
 // column: Tile-local change position, including the one-past-width sentinel.
@@ -127,10 +199,14 @@ void add_coverage_span(int16_t *differences, uint32_t *events, int left, int rig
 // first_column: Absolute canvas x origin shared by every tile of this polygon.
 // top: Minimum polygon y used for the common gradient origin.
 // bottom: Maximum polygon y used for the common gradient extent.
+// clip_vertices: Optional containing polygon using the same four coverage samples.
+// clip_count: Validated clip size sharing kMaxPathVertices with the subject.
+// Exception: Returns ESP_ERR_INVALID_RESPONSE for malformed crossings or impossible coverage.
 esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
                              const Vec2 *vertices, uint16_t count,
                              const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                             uint8_t opacity, uint16_t first_column, float top, float bottom)
+                             uint8_t opacity, uint16_t first_column, float top, float bottom,
+                             const Vec2 *clip_vertices, uint16_t clip_count)
 {
     if (bottom <= first_row || top >= first_row + strip.height || top == bottom) {
         return ESP_OK;
@@ -210,9 +286,22 @@ esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
                 return ESP_ERR_INVALID_RESPONSE;
             }
             std::sort(intersections, intersections + hits);
-            for (uint16_t hit = 0; hit < hits; hit += 2) {
-                const float left = std::max(static_cast<float>(first_column), intersections[hit]);
-                const float right = std::min(tile_right, intersections[hit + 1]);
+            uint16_t clip_hits = 0;
+            float *clip_intersections = intersections + count;
+            const esp_err_t clip_error = collect_clip_intersections(
+                clip_vertices, clip_count, scan_y, clip_intersections, clip_hits
+            );
+            if (clip_error != ESP_OK) {
+                return clip_error;
+            }
+            FillSpanCursor cursor{};
+            float span_left = 0;
+            float span_right = 0;
+            while (next_fill_span(intersections, hits,
+                    clip_vertices != nullptr ? clip_intersections : nullptr, clip_hits,
+                    cursor, span_left, span_right)) {
+                const float left = std::max(static_cast<float>(first_column), span_left);
+                const float right = std::min(tile_right, span_right);
                 if (left >= right) {
                     continue;
                 }
@@ -310,10 +399,14 @@ esp_err_t fill_coverage_rows(Surface strip, uint16_t first_row,
 // first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
 // top: Minimum polygon y used for the original gradient origin.
 // bottom: Maximum polygon y used for the original gradient extent.
+// clip_vertices: Optional containing polygon using the same pixel-center rule.
+// clip_count: Validated clip size sharing the existing subject intersection scratch.
+// Exception: Returns ESP_ERR_INVALID_RESPONSE for an odd subject or clip crossing count.
 esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
                                  const Vec2 *vertices, uint16_t count,
                                  const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                                 uint8_t opacity, uint16_t first_column, float top, float bottom)
+                                 uint8_t opacity, uint16_t first_column, float top, float bottom,
+                                 const Vec2 *clip_vertices, uint16_t clip_count)
 {
     // Keep the original edge order, but do not revisit edges that cannot cross
     // any pixel-center scanline in this tile. The row loop still applies the
@@ -359,6 +452,14 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
             return ESP_ERR_INVALID_RESPONSE;
         }
         std::sort(intersections, intersections + hits);
+        uint16_t clip_hits = 0;
+        float *clip_intersections = intersections + count;
+        const esp_err_t clip_error = collect_clip_intersections(
+            clip_vertices, clip_count, scan_y, clip_intersections, clip_hits
+        );
+        if (clip_error != ESP_OK) {
+            return clip_error;
+        }
         uint16_t color = solid_color;
         uint16_t stored_color = solid_stored_color;
         if (!is_solid_color) {
@@ -368,11 +469,16 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
             color = palette[slot];
             stored_color = rgb565_native_to_stored(color, strip.byte_order);
         }
-        for (uint16_t hit = 0; hit < hits; hit += 2) {
+        FillSpanCursor cursor{};
+        float span_left = 0;
+        float span_right = 0;
+        while (next_fill_span(intersections, hits,
+                clip_vertices != nullptr ? clip_intersections : nullptr, clip_hits,
+                cursor, span_left, span_right)) {
             const int left = std::max(static_cast<int>(first_column),
-                                     static_cast<int>(std::ceil(intersections[hit] - .5f)));
+                                     static_cast<int>(std::ceil(span_left - .5f)));
             const int right = std::min(static_cast<int>(first_column + strip.width),
-                                      static_cast<int>(std::ceil(intersections[hit + 1] - .5f)));
+                                      static_cast<int>(std::ceil(span_right - .5f)));
             if (left >= right) {
                 continue;
             }
@@ -418,14 +524,24 @@ esp_err_t fill_pixel_center_rows(Surface strip, uint16_t first_row,
 // opacity: Source coverage; zero still checks the supplied geometry before returning without writes.
 // first_column: Canvas x origin; only destination indexing uses tile-local coordinates.
 // antialiasing: Explicit boundary sampling policy; Disabled preserves the original raster output.
+// clip_vertices: Optional containing polygon; all clip points are checked before writing.
+// clip_count: Zero without clipping; combined polygons share one bounded intersection array.
+// Exception: Returns original surface errors or rejects malformed fill/clip geometry.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
                         const uint16_t *palette, uint8_t first_color, uint8_t last_color,
-                        uint8_t opacity, uint16_t first_column, FillAntialiasing antialiasing)
+                        uint8_t opacity, uint16_t first_column, FillAntialiasing antialiasing,
+                        const Vec2 *clip_vertices, uint16_t clip_count)
 {
     const esp_err_t error = validate_surface(strip);
     if (error != ESP_OK) {
         return error;
+    }
+    if ((clip_vertices == nullptr && clip_count != 0) ||
+        (clip_vertices != nullptr && (clip_count < 3 || count + clip_count > kMaxPathVertices))) {
+        ESP_LOGE(kTag, "Fill clip rejected: vertices=%p count=%u subject_count=%u (%s)",
+                 clip_vertices, clip_count, count, esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
     }
     if (!vertices || !palette || count < 3 || count > kMaxPathVertices ||
         first_color > last_color || first_row + strip.height > kMaxDimension ||
@@ -436,6 +552,13 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                  static_cast<unsigned int>(antialiasing),
                  esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
+    }
+    for (uint16_t index = 0; index < clip_count; ++index) {
+        if (!valid_point(clip_vertices[index])) {
+            ESP_LOGE(kTag, "Fill clip point %u rejected: %f,%f (%s)", index,
+                     clip_vertices[index].x, clip_vertices[index].y, esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
     }
     float top = vertices[0].y;
     float bottom = vertices[0].y;
@@ -455,10 +578,12 @@ esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
     // coverage does not need the pixel-center intersection storage as well.
     if (antialiasing == FillAntialiasing::Coverage) {
         return fill_coverage_rows(strip, first_row, vertices, count, palette,
-                                  first_color, last_color, opacity, first_column, top, bottom);
+                                  first_color, last_color, opacity, first_column, top, bottom,
+                                  clip_vertices, clip_count);
     }
     return fill_pixel_center_rows(strip, first_row, vertices, count, palette,
-                                  first_color, last_color, opacity, first_column, top, bottom);
+                                  first_color, last_color, opacity, first_column, top, bottom,
+                                  clip_vertices, clip_count);
 }
 
 // from: Validated segment start in canvas coordinates.

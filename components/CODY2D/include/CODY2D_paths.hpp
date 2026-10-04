@@ -79,11 +79,15 @@ private:
 // opacity: Source coverage from transparent zero to opaque 255, composited in native RGB565.
 // first_column: Canvas column represented by the strip's first pixel column.
 // antialiasing: Disabled preserves pixel-center fills; Coverage smooths the polygon boundary.
+// clip_vertices: Optional evaluated containing polygon; clipping shares the fill's sampling policy.
+// clip_count: Zero without a clip; combined subject and clip vertices fit kMaxPathVertices.
+// Exception: Returns the real surface/raster error or rejects invalid geometry and clip capacity.
 esp_err_t fill_path_rows(Surface strip, uint16_t first_row,
                         const Vec2 *vertices, uint16_t count,
                         const uint16_t *palette, uint8_t first_color, uint8_t last_color,
                         uint8_t opacity = 255, uint16_t first_column = 0,
-                        FillAntialiasing antialiasing = FillAntialiasing::Disabled);
+                        FillAntialiasing antialiasing = FillAntialiasing::Disabled,
+                        const Vec2 *clip_vertices = nullptr, uint16_t clip_count = 0);
 
 // from: Segment start in canvas coordinates.
 // to: Segment end in canvas coordinates; an equal endpoint prepares a dot.

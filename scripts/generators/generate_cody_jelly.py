@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'simulator/windows'))
 
 from scripts.common.cody_rig_contract import load_contract, enum_identifier
+from scripts.common.asset_provenance import text_source_hash
 from cody_jelly_scanline import JellyScanlineStudy, native_texture_colors
 
 OUTPUT = ROOT / 'assets/cody/appearance/jelly-scanline/generated'
@@ -243,10 +244,10 @@ def main():
     total_texture_bytes = sum(len(source_bytes) for _, _, source_bytes in prepared_skins)
     manifest = {
         'catalog': CATALOG.relative_to(ROOT).as_posix(),
-        'catalog_sha256': hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
+        'catalog_sha256': text_source_hash(CATALOG),
         'default_id': catalog['default_id'],
         'alpha_sha256': alpha_sha256,
-        'skin_sha256': hashlib.sha256((ROOT / 'assets/cody/cody.yaml').read_bytes()).hexdigest(),
+        'skin_sha256': text_source_hash(ROOT / 'assets/cody/cody.yaml'),
         'source_crop': study.source_crop, 'width': width, 'height': height,
         'encoding': 'premultiplied RGBA8 in little-endian uint32, RGB565-quantized source',
         'texture_bytes_each': width * height * 4,

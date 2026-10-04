@@ -5,9 +5,9 @@
   "target_peak_dbfs": -26.0,
   "audition_gap_ms": 2000,
   "licensing": {
-    "status": "unverified",
-    "scope": "Local private listening candidates only.",
-    "restriction": "Do not commit the generated audio or redistribute it in firmware, downloads or public packages until the original sample licences have been verified."
+    "status": "owner_confirmed_perpetual_commercial",
+    "scope": "On 2026-10-04 the owner confirmed purchased perpetual licences including commercial use for the source SFX packages.",
+    "restriction": "Use Cody assets under the purchased package terms; repository licensing does not relicense the external source sample packs."
   },
   "selection_method": "Highest-energy fixed-length excerpt within the explicit source window, sampled every 5 ms; the generated manifest records the actual trim.",
   "cues": [
