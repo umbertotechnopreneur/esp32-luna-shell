@@ -13,6 +13,20 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   in the Obsidian `Cody Companion.md` product note, section
   "Product exploration priorities - 4 October 2026". These are ideas, not
   activated development or release commitments.
+- [ ] Position Cody as a physical voice/status interface to the user's existing
+  AI assistant. Explore host adapters for Codex, Claude, Hermes and OpenClaw;
+  Your Dot is another candidate whose external-device connection remains
+  unverified. Reuse supported assistant memory/reminder tools and define any
+  local timer ownership explicitly. Preserve session identity and genuine
+  acknowledgement/completion/error events; do not assume a universal API.
+- [ ] Explore explicitly initiated offline voice recording on SD and a durable
+  message outbox for later delivery. Define original capture time/clock validity,
+  destination/session, bounded streaming buffers, interrupted-write recovery,
+  retention/deletion, acknowledgement and uncertain-delivery reconciliation.
+  Use adapter idempotency where supported, and review/expire stale action
+  requests before replay. Missing/full/write-failed SD must surface a real
+  error; no implicit formatting or internal-storage fallback. This message
+  outbox is separate from the personality channel's no-queue policy.
 - [ ] Finish English circular screen 10 preferences and make it the normal
   first-setup caller for implemented screen 11. Keep manual 0/180 orientation,
   auto-rotation, shake-to-wake and sound separate and validity-aware.
