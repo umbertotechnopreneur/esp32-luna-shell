@@ -28,5 +28,6 @@ suspension can suppress playback. Idle codec mute is temporarily released and
 restored by its owner. There is no replay queue. Global enable is
 session-only; per-cue enable lives in the authored generator/catalog.
 
-No listening, build, simulator or hardware validation has been performed for
-this first pass. Refine the recipes after listening and actual speaker review.
+The Debug firmware including this catalog compiled and linked successfully on
+2026-10-04. The authored host asset checks have not run; listening, simulator and
+hardware validation remain open. Refine the recipes after actual speaker review.

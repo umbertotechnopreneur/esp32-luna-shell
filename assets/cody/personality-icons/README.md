@@ -50,5 +50,6 @@ onboarding, settings, QR, boot and header scenes disable it. Original synthesize
 sound companions and a listening reel are in [audio](audio/README.md).
 The implementation and performance limits are documented in
 [personality rendering](../../../docs/architecture/cody/personality-icons.md).
-Generation and source/artwork review were performed; firmware compilation,
+Generation, source/artwork review and the Debug firmware build were completed.
+The focused host suite is authored but awaits command-specific authorization;
 simulator execution, automatic checks and physical behavior remain unverified.

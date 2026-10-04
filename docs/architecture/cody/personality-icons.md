@@ -170,10 +170,20 @@ contention and PCM drain behavior remain unmeasured.
 
 ## Validation and integration status
 
-This increment has asset generation and static source review only. No tests, validation scans, build, size,
-simulator run, audio playback or hardware operation has been performed. Native
-and simulator behavior, minimal readability, extreme motion, pause/rotation,
-old-pixel erasure and resource costs require explicitly authorized validation.
+The Debug Cody firmware configured, compiled and linked successfully on
+2026-10-04 using ESP-IDF 6.0.2 and eight build jobs, at implementation checkpoint
+`2518f83a`. The image is `0x3c5870` bytes and its application partition retains
+73 percent free. Build evidence is retained under
+`artifacts/build-cody-companion-debug/evidence/personality-icons-debug-build-20261004.log`.
+
+The focused `scripts/device.ps1 check -Check cody-personality` suite has been
+authored and reviewed statically, but has not been executed. It compiles the
+actual portable vector controller/raster/damage sources and compares sequential
+frames with the simulator; it also checks the icon and PCM/WAV asset contracts.
+An installed host C++ developer environment, Pillow and PyYAML are required.
+No independent size report, simulator run, audio playback, validation scans or
+hardware operation has been performed. Readability, physical clearance, FPS,
+stack/codec contention and Sleep behavior remain unverified on the device.
 
 The isolated worktree is `E:\ESP32 Luna Cody Emotions`, branch
 `feat/personality-icons`, originally based on `290b6da3`. Newer main changes and

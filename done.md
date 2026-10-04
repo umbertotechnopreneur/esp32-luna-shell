@@ -7,6 +7,15 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Configured and built the personality implementation `2518f83a` as Debug with
+  ESP-IDF 6.0.2, `scripts/device.ps1` and eight jobs. Compilation/link succeeded;
+  binary is `0x3c5870` bytes with 73 percent application-partition free. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/personality-icons-debug-build-20261004.log`.
+  Authored a focused `cody-personality` host suite covering actual controller,
+  finite following, Sleep/pause, dirty raster, native/simulator parity and icon/
+  sound asset contracts; corrected `cody-native` source linkage. Tests are not
+  executed and await fresh command-specific approval. No device upload/access.
+
 - Extended the personality channel to Main/full-size Sleep only, with one latest
   target, 300-ms stability, 400-ms fade in, 2.5-second hold and 600-ms fade out.
   Semantic Sleep has explicit priority/release; device invalidity clears false

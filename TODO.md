@@ -8,8 +8,9 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Validate the personality-icons branch after explicit authorization:
-  compile/link, generated-palette/coverage contracts, all fourteen cues in Main
+- [ ] Run the authored `cody-personality` suite after fresh command-specific
+  authorization, then validate the personality-icons branch on the device:
+  generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
   jelly/vector clearance, circle/status/Back separation, configured face anchor,
   bounded follow under pause/wake/rotation, stable selection, fade/hold/release,
@@ -19,8 +20,8 @@ older host/build/flash evidence does not validate the current combined image.
   errors and codec contention. Profile
   complete frame/DMA/CPU/stack costs; static area counts are not performance
   evidence. Reconcile the independent renderer-optimization worktree before
-  integrated release validation. No tests/checks/build/simulator/device run has
-  been performed for this increment.
+  integrated release validation. The 2026-10-04 Debug firmware build passed;
+  tests/checks, simulator and device execution remain open.
 
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
