@@ -19,6 +19,7 @@
 #include "CODY_response.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_typewriter_audio.hpp"
 #include "CODY_onboarding.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "CODY_lifecycle.hpp"
@@ -149,6 +150,7 @@ CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
 bool s_cached_navigation_visible = false;
+bool s_cached_scene_visible = false;
 uint8_t s_cached_navigation_opacity = 0;
 uint8_t s_cached_branding_opacity = 0;
 CODY::StatusOverlay s_cached_status_overlay;
@@ -160,6 +162,9 @@ struct CompanionState {
     BootPhase boot_phase = BootPhase::Sleeping;
     CODY::OnboardingSettings onboarding{};
     CODY::SceneFrame scene{};
+    bool resume_scene_pending = false;
+    bool animation_paused_before_standby = false;
+    bool rig_debug_before_standby = false;
 #if CONFIG_LUNASHELL_CODY_DIAGNOSTICS_READOUT
     bool debug_readout_enabled = kRenderDiagnosticsEnabled;
 #else
@@ -208,6 +213,197 @@ struct CompanionState {
     CODY::FrameRateMeasurement frame_rate{};
 };
 CompanionState s_state;
+struct PausedSceneModel {
+    CODY::Channels face{};
+    CODY::ResponseState response{};
+    CODY::ResponseFrame response_frame{};
+    CODY::ContourState contour{};
+    const CODY::SceneDefinition *definition = nullptr;
+    bool valid = false;
+};
+// Preserve the compact artistic model, not another PSRAM geometry/framebuffer copy.
+PausedSceneModel s_paused_scene_model;
+const CODY::SceneDefinition *s_standby_scene_definition = nullptr;
+const CODY::SceneDefinition *s_typewriter_scene_definition = nullptr;
+const char *s_typewriter_title_text = nullptr;
+uint32_t s_typewriter_content_generation = 0;
+uint32_t s_typewriter_visible_characters = 0;
+bool s_typewriter_audio_prepared = false;
+bool s_typewriter_audio_suspended = false;
+esp_err_t s_optional_typewriter_error = ESP_OK;
+uint32_t s_optional_typewriter_repeated_failures = 0;
+int64_t s_optional_typewriter_reminder_at_us = 0;
+
+// error: Actual audio admission/result; successful no-op frames never report recovery.
+void log_optional_typewriter_result(esp_err_t error)
+{
+    if (error == ESP_OK) {
+        if (s_optional_typewriter_error != ESP_OK) {
+            ESP_LOGI(kTag, "Typewriter audio recovered after %lu repeated failures",
+                     static_cast<unsigned long>(s_optional_typewriter_repeated_failures));
+            s_optional_typewriter_error = ESP_OK;
+            s_optional_typewriter_repeated_failures = 0;
+            s_optional_typewriter_reminder_at_us = 0;
+        }
+        return;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (error != s_optional_typewriter_error) {
+        s_optional_typewriter_error = error;
+        s_optional_typewriter_repeated_failures = 0;
+        s_optional_typewriter_reminder_at_us = now_us + 60000000LL;
+        ESP_LOGE(kTag, "Completed typewriter audio unavailable (%s)", esp_err_to_name(error));
+        return;
+    }
+    if (s_optional_typewriter_repeated_failures != UINT32_MAX) {
+        ++s_optional_typewriter_repeated_failures;
+    }
+    if (now_us >= s_optional_typewriter_reminder_at_us) {
+        ESP_LOGE(kTag, "Completed typewriter audio still unavailable: %s; repeated_failures=%lu",
+                 esp_err_to_name(error), static_cast<unsigned long>(s_optional_typewriter_repeated_failures));
+        s_optional_typewriter_reminder_at_us = now_us + 60000000LL;
+    }
+}
+
+// No parameters: restore the paused model under the display lock before enabling pause.
+// Exception: Returns the real missing-model, placement or geometry error.
+esp_err_t restore_paused_scene_model()
+{
+    if (!s_state.animation_paused_before_standby) {
+        return ESP_OK;
+    }
+    if (!s_paused_scene_model.valid || s_resources.rig == nullptr) {
+        ESP_LOGE(kTag, "Paused wake model is unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    CODY::ResponseFrame restored_frame = s_paused_scene_model.response_frame;
+    const CODY::SceneDefinition *definition = s_state.scene.valid ? s_state.scene.definition : nullptr;
+    const bool same_scene = definition == s_paused_scene_model.definition;
+    if (!same_scene && definition != nullptr) {
+        // The canonical backend can close pairing during standby. Preserve the
+        // paused shape, but use the real replacement route's face and placement.
+        const esp_err_t placement_error = CODY::scene_cloud_transform(s_state.scene, restored_frame.transform);
+        if (placement_error != ESP_OK) {
+            return placement_error;
+        }
+        restored_frame.face = definition->face;
+    }
+    const esp_err_t geometry_error = CODY::evaluate_rig(restored_frame.face, restored_frame.transform,
+        *s_resources.rig, &s_paused_scene_model.contour, s_state.face_follows_body);
+    if (geometry_error != ESP_OK) {
+        return geometry_error;
+    }
+    s_state.face = same_scene ? s_paused_scene_model.face : restored_frame.face;
+    s_state.response = s_paused_scene_model.response;
+    CODY::rebase_response_motion(s_state.response);
+    s_state.response_frame = restored_frame;
+    s_state.contour = s_paused_scene_model.contour;
+    return ESP_OK;
+}
+
+// scene: Next scene selected under the display/state lock; empty means inherit settings.
+// Exception: Returns the real scene-definition or power-owner admission error.
+esp_err_t apply_scene_standby_policy(const CODY::SceneFrame &scene)
+{
+    if (scene.valid && scene.definition == nullptr) {
+        ESP_LOGE(kTag, "Scene standby policy has no definition (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const CODY::SceneDefinition *definition = scene.valid ? scene.definition : nullptr;
+    if (definition == s_standby_scene_definition) {
+        return ESP_OK;
+    }
+    const uint32_t seconds = definition == nullptr ? 0 : definition->standby_override_seconds;
+    const uint32_t previous_seconds = s_standby_scene_definition == nullptr
+        ? 0 : s_standby_scene_definition->standby_override_seconds;
+    // Initial inherited scenes need no power request before the startup owner
+    // starts the service. Each positive scene entry gets exactly one fresh anchor.
+    if (seconds != 0 || previous_seconds != 0) {
+        const esp_err_t error = LUNASHELL_power_manager_set_scene_standby_override(seconds);
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+    s_standby_scene_definition = definition;
+    return ESP_OK;
+}
+
+// suspended: Clear queued clicks while parked; resuming primes a fresh displayed baseline.
+// Exception: Returns the audio owner's real suspension error for an admitted feature.
+esp_err_t set_companion_typewriter_suspended(bool suspended)
+{
+    if (!s_typewriter_audio_prepared || suspended == s_typewriter_audio_suspended) {
+        return ESP_OK;
+    }
+    const esp_err_t error = CODY::set_typewriter_audio_suspended(suspended);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_typewriter_audio_suspended = suspended;
+    s_typewriter_scene_definition = nullptr;
+    s_typewriter_title_text = nullptr;
+    s_typewriter_content_generation = 0;
+    s_typewriter_visible_characters = 0;
+    return ESP_OK;
+}
+
+// scene: Immutable scene prefix from a completely retired panel frame.
+// presentation: Actual content visibility used to draw that same frame.
+// Exception: Returns the real audio admission or retained asynchronous error.
+esp_err_t notify_completed_typewriter(const CODY::SceneFrame &scene,
+                                     const CODY::ScenePresentation &presentation)
+{
+    if (!s_typewriter_audio_prepared) {
+        return ESP_OK;
+    }
+    if (!scene.valid || !presentation.content_visible || s_typewriter_audio_suspended) {
+        if (s_typewriter_scene_definition != nullptr && !s_typewriter_audio_suspended) {
+            esp_err_t error = set_companion_typewriter_suspended(true);
+            if (error == ESP_OK) {
+                error = set_companion_typewriter_suspended(false);
+            }
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        s_typewriter_scene_definition = nullptr;
+        s_typewriter_title_text = nullptr;
+        s_typewriter_content_generation = 0;
+        s_typewriter_visible_characters = 0;
+        return ESP_OK;
+    }
+    const uint32_t visible = (scene.definition->title_visible ? scene.visible_characters : 0U) +
+        static_cast<uint32_t>(scene.content.visible_characters);
+    if (s_typewriter_scene_definition != scene.definition ||
+        s_typewriter_title_text != scene.title.text.characters ||
+        s_typewriter_content_generation != scene.content.text_generation ||
+        visible < s_typewriter_visible_characters) {
+        esp_err_t error = set_companion_typewriter_suspended(true);
+        if (error == ESP_OK) {
+            error = set_companion_typewriter_suspended(false);
+        }
+        if (error != ESP_OK) {
+            return error;
+        }
+        // New scenes and rewound text prime the baseline; already-visible text
+        // never becomes a burst of clicks after wake, navigation or a redraw.
+        s_typewriter_scene_definition = scene.definition;
+        s_typewriter_title_text = scene.title.text.characters;
+        s_typewriter_content_generation = scene.content.text_generation;
+        s_typewriter_visible_characters = visible;
+        return ESP_OK;
+    }
+    const uint32_t newly_visible = visible - s_typewriter_visible_characters;
+    if (newly_visible != 0) {
+        const esp_err_t error = CODY::notify_typewriter_audio(newly_visible);
+        s_typewriter_visible_characters = visible;
+        if (error != ESP_OK) {
+            return error;
+        }
+        log_optional_typewriter_result(ESP_OK);
+    }
+    return ESP_OK;
+}
 
 // line: Receives the immutable ASCII branding layout after circle/coverage validation.
 esp_err_t prepare_startup_branding(CODY2D::TextLine &line)
@@ -424,12 +620,26 @@ void release_companion_resources()
     }
 }
 
-// Drain every possible boot-completion writer before releasing the rig resources.
+// No parameters: drain boot-completion writers and restore inherited scene policy.
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
 esp_err_t release_worker_resources()
 {
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
+        // The worker is retiring after a failure. Admission can be stopped even
+        // when the display lock cannot safely be reacquired for state cleanup.
+        if (s_typewriter_audio_prepared) {
+            const esp_err_t audio_error = CODY::set_typewriter_audio_suspended(true);
+            if (audio_error != ESP_OK) {
+                ESP_LOGE(kTag, "Typewriter cleanup suspension failed (%s)", esp_err_to_name(audio_error));
+            }
+        }
+        if (s_standby_scene_definition != nullptr && s_standby_scene_definition->standby_override_seconds != 0) {
+            const esp_err_t policy_error = LUNASHELL_power_manager_set_scene_standby_override(0);
+            if (policy_error != ESP_OK) {
+                ESP_LOGE(kTag, "Scene standby cleanup failed (%s)", esp_err_to_name(policy_error));
+            }
+        }
         const uint32_t retained_bytes =
             (s_resources.previous_rig != nullptr ? sizeof(CODY::RigScene) : 0) +
             (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0) +
@@ -441,9 +651,18 @@ esp_err_t release_worker_resources()
                  esp_err_to_name(lock_error));
         return lock_error;
     }
+    const esp_err_t audio_error = set_companion_typewriter_suspended(true);
+    if (audio_error != ESP_OK) {
+        ESP_LOGE(kTag, "Typewriter cleanup suspension failed (%s)", esp_err_to_name(audio_error));
+    }
+    const esp_err_t policy_error = apply_scene_standby_policy({});
+    if (policy_error != ESP_OK) {
+        bsp_display_unlock();
+        return policy_error;
+    }
     release_companion_resources();
     bsp_display_unlock();
-    return ESP_OK;
+    return audio_error;
 }
 
 // A closed write gate with a healthy BSP is a power transition, not a completed frame.
@@ -613,11 +832,13 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (lifecycle_error != ESP_OK) {
         return lifecycle_error;
     }
-    const esp_err_t routine_error = update_routine_greeting(clock, next_lifecycle, next_scene);
+    const bool scene_active = CODY::lifecycle_is_resting(next_lifecycle) && !s_state.resume_scene_pending;
+    const esp_err_t routine_error = scene_active
+        ? update_routine_greeting(clock, next_lifecycle, next_scene) : ESP_OK;
     if (routine_error != ESP_OK) {
         return routine_error;
     }
-    if (CODY::lifecycle_is_resting(next_lifecycle) && next_scene.valid) {
+    if (scene_active && next_scene.valid) {
         target_face = next_scene.definition->face;
     }
     if (CODY::lifecycle_is_resting(next_lifecycle) && s_state.expression_override) {
@@ -638,7 +859,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
             return expression_error;
         }
     }
-    if (next_scene.valid) {
+    if (scene_active && next_scene.valid) {
         esp_err_t scene_error = CODY::advance_scene(next_scene, animation_delta_us);
         if (scene_error == ESP_OK) {
             scene_error = CODY::scene_cloud_transform(next_scene, base_transform);
@@ -712,6 +933,10 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (geometry_error != ESP_OK) {
         return geometry_error;
     }
+    const esp_err_t scene_policy_error = apply_scene_standby_policy(scene_active ? next_scene : CODY::SceneFrame{});
+    if (scene_policy_error != ESP_OK) {
+        return scene_policy_error;
+    }
     s_state.contour = next_contour;
     s_state.lifecycle = next_lifecycle;
     if (s_state.branding_phase == BrandingPhase::Visible &&
@@ -745,8 +970,11 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     s_state.response = next_response;
     s_state.response_frame = response_frame;
     s_state.rendered_rotation_degrees = inputs.rendering_rotation_degrees;
-    // Parked time never advances the body, breath, blink or contour clocks.
-    s_state.animation_elapsed_us += animation_delta_us;
+    // Route timers and teletype keep their original active clock through the
+    // Sleep/Wake presentation; lifecycle breathing still has its own live clock.
+    if (scene_active) {
+        s_state.animation_elapsed_us += animation_delta_us;
+    }
     s_state.animation_sampled_us = frame_started_us;
     return ESP_OK;
 }
@@ -975,6 +1203,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         const bool parked = renderer_is_parked();
         return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
     }
+    const esp_err_t audio_resume_error = set_companion_typewriter_suspended(
+        s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep);
+    if (audio_resume_error != ESP_OK) {
+        return frame.finish({audio_resume_error, false, 0});
+    }
     const uint32_t revision = LUNASHELL_display_runtime_content_revision();
     if (revision == 0) {
         return frame.finish({ESP_ERR_INVALID_RESPONSE, false, 0});
@@ -1079,7 +1312,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     timings.geometry_completed_us = esp_timer_get_time();
     CODY::ScenePresentation presentation{};
-    if (s_state.scene.valid) {
+    const bool frame_scene_visible = s_state.scene.valid &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending;
+    if (frame_scene_visible) {
         const esp_err_t presentation_error = CODY::prepare_scene_presentation(s_state.scene, presentation);
         if (presentation_error != ESP_OK) {
             return frame.finish({presentation_error, false, 0});
@@ -1087,13 +1322,14 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     presentation.opacity = static_cast<uint8_t>(
         static_cast<uint32_t>(presentation.opacity) * CODY::lifecycle_opacity(s_state.lifecycle) / 255U);
-    if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
+    if (!CODY::lifecycle_is_resting(s_state.lifecycle) || s_state.resume_scene_pending) {
         presentation.content_visible = false;
     }
     const bool frame_was_rig = s_state.rig_visible && !presentation.boot_bitmap_visible;
-    const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle);
+    const bool lifecycle_navigation_allowed = CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        !s_state.resume_scene_pending;
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
-    const uint16_t scene_background = s_state.scene.valid ? s_state.scene.definition->background_rgb565 :
+    const uint16_t scene_background = frame_scene_visible ? s_state.scene.definition->background_rgb565 :
         CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
     const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
@@ -1146,6 +1382,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool reuse_previous = previous_frame_available && !resume_animation &&
         s_rendered_revision.load(std::memory_order_acquire) == revision &&
         s_state.rig_visible && s_cache_was_rig &&
+        s_cached_scene_visible == frame_scene_visible &&
         s_cached_scene.valid == s_state.scene.valid &&
         s_cached_scene.definition == s_state.scene.definition;
     esp_err_t plan_error = ESP_OK;
@@ -1276,7 +1513,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);
                 }
-                if (result == ESP_OK && s_state.scene.valid) {
+                if (result == ESP_OK && frame_scene_visible && presentation.content_visible) {
                     result = CODY::draw_scene_rows(s_state.scene, strip, damage.top, damage.left);
                 }
                 if (result == ESP_OK && presentation.content_visible) {
@@ -1387,6 +1624,13 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_status_visible = frame_status_visible;
         s_cached_screenshot_state = frame_screenshot_state;
         s_cached_scene = s_state.scene;
+        s_cached_scene_visible = frame_scene_visible;
+        const esp_err_t audio_error = notify_completed_typewriter(s_cached_scene, presentation);
+        if (audio_error != ESP_OK) {
+            // The audio owner already retains/publishes its real failure. This
+            // optional cue cannot invalidate a successfully retired panel frame.
+            log_optional_typewriter_result(audio_error);
+        }
     }
     CompletedFrameLog log{};
     log.readout = debug_readout;
@@ -1493,7 +1737,7 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
     if constexpr (!kRenderDiagnosticsEnabled) {
         return TouchAction::None;
     }
-    if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
+    if (!CODY::lifecycle_is_resting(s_state.lifecycle) || s_state.resume_scene_pending) {
         return TouchAction::None;
     }
     if (s_state.navigation_visibility.opacity(esp_timer_get_time()) != 255) {
@@ -1520,9 +1764,14 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
 
 // No parameters: touch and automatic demo share the same clocks, buffers and model.
 // Caller owns the display/state lock; entering does not draw while another frame is active.
-void enter_animation_demo()
+esp_err_t enter_animation_demo()
 {
+    const esp_err_t policy_error = apply_scene_standby_policy({});
+    if (policy_error != ESP_OK) {
+        return policy_error;
+    }
     s_state.scene = {};
+    s_state.resume_scene_pending = false;
     s_state.rig_visible = true;
     // Start with the character artwork; the lateral overlay control still
     // exposes the complete rig when the user wants to inspect its geometry.
@@ -1540,6 +1789,7 @@ void enter_animation_demo()
     s_benchmark.reset();
     s_state.frame_dirty.store(true, std::memory_order_release);
     ESP_LOGI(kTag, "Animation demo entered: %s; authored targets and real snapshot stimuli", CODY::Data::character_name);
+    return ESP_OK;
 }
 
 // No parameters: the existing worker owns both startup intents and the scene transition.
@@ -1551,6 +1801,11 @@ esp_err_t apply_scene_requests()
             return route_lock_error;
         }
         const DisplayUnlockOnExit route_lock;
+        if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
+            // Keep both the current route and any action-worker result intact
+            // until Wake finishes. No hidden scene consumes or loses a mailbox.
+            return ESP_OK;
+        }
         if (kRenderDiagnosticsEnabled || !s_state.onboarding.effective_first_boot) {
             const int64_t now_us = esp_timer_get_time();
             // No startup priming: only real touch reveals shared status/debug chrome.
@@ -1569,6 +1824,25 @@ esp_err_t apply_scene_requests()
             s_state.scene, s_cached_scene, s_state.animation_elapsed_us, route_changed);
         if (route_error != ESP_OK) {
             return route_error;
+        }
+        const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
+        if (policy_error != ESP_OK) {
+            return policy_error;
+        }
+        if (s_state.resume_scene_pending) {
+            // Reconcile the real backend before exposing the retained scene.
+            // A session closed by standby may now require a truthful new route.
+            const esp_err_t paused_model_error = restore_paused_scene_model();
+            if (paused_model_error != ESP_OK) {
+                return paused_model_error;
+            }
+            s_state.resume_scene_pending = false;
+            s_state.animation_paused = s_state.animation_paused_before_standby;
+            s_state.rig_debug = s_state.rig_debug_before_standby;
+            s_state.animation_sampled_us = 0;
+            route_changed = true;
+            ESP_LOGI(kTag, "Wake resumed scene: %s; preserved active text/entrance clocks",
+                     s_state.scene.valid ? s_state.scene.definition->name : "idle animation");
         }
         if (route_changed) {
             s_state.frame_dirty.store(true, std::memory_order_release);
@@ -1626,7 +1900,14 @@ esp_err_t apply_scene_requests()
         prepared.intro_phase = CODY::SceneIntroPhase::Complete;
         prepared.intro_elapsed_us = 0;
         if (!s_state.rig_visible) {
-            enter_animation_demo();
+            error = enter_animation_demo();
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        error = apply_scene_standby_policy(prepared);
+        if (error != ESP_OK) {
+            return error;
         }
         // Text and placement share the scene; facial lifecycle keeps its own owner.
         s_state.scene = prepared;
@@ -1646,7 +1927,7 @@ esp_err_t apply_scene_requests()
         return ESP_OK;
     }
     if (!s_state.rig_visible) {
-        enter_animation_demo();
+        return enter_animation_demo();
     }
     return ESP_OK;
 }
@@ -1709,9 +1990,31 @@ esp_err_t apply_lifecycle_requests()
         return error;
     }
     const DisplayUnlockOnExit lock;
-    s_state.lifecycle_request = request;
-    CODY::reset_onboarding();
+    const esp_err_t policy_error = apply_scene_standby_policy({});
+    if (policy_error != ESP_OK) {
+        return policy_error;
+    }
     const bool sleeping = (request & 1U) != 0;
+    const esp_err_t audio_error = set_companion_typewriter_suspended(sleeping);
+    if (audio_error != ESP_OK) {
+        return audio_error;
+    }
+    s_state.lifecycle_request = request;
+    if (sleeping && !s_state.resume_scene_pending) {
+        s_state.animation_paused_before_standby = s_state.animation_paused;
+        s_state.rig_debug_before_standby = s_state.rig_debug;
+        s_paused_scene_model.valid = s_state.animation_paused;
+        if (s_paused_scene_model.valid) {
+            // Wake has its own live artistic clocks. A paused scene retains its
+            // exact expression, root displacement and contour until it resumes.
+            s_paused_scene_model.face = s_state.face;
+            s_paused_scene_model.response = s_state.response;
+            s_paused_scene_model.response_frame = s_state.response_frame;
+            s_paused_scene_model.contour = s_state.contour;
+            s_paused_scene_model.definition = s_state.scene.valid ? s_state.scene.definition : nullptr;
+        }
+    }
+    s_state.resume_scene_pending = true;
     s_state.lifecycle = {sleeping ? CODY::LifecyclePhase::Sleep : CODY::LifecyclePhase::BootSleeping, 0};
     if (!sleeping) {
         // The first retired dark/closed-eye frame acknowledges restored display
@@ -1722,32 +2025,20 @@ esp_err_t apply_lifecycle_requests()
         if (face_error != ESP_OK) {
             return face_error;
         }
-        s_state.greeting_entered = false;
     }
-    s_state.requested_expression = CODY::ExpressionId::Calm;
-    s_state.expression_override = false;
     s_state.branding_phase = BrandingPhase::Hidden;
-    s_state.scene = {};
     s_state.rig_visible = true;
-    s_state.routine_scene = false;
-    s_state.routine_greeting_pending = !sleeping;
     s_state.rig_debug = false;
     s_state.animation_paused = false;
     s_state.animation_sampled_us = 0;
     s_state.next_frame_us = 0;
     s_state.frame_dirty.store(true, std::memory_order_release);
-    s_greeting_scheduled.store(false, std::memory_order_release);
-    if (!sleeping && s_state.onboarding.effective_first_boot) {
-        s_greeting_due_us = esp_timer_get_time() +
-            CODY::kPanelWakeSleepingUs + CODY::kBootWakingUs + CODY::kBootReadyUs;
-        s_greeting_scheduled.store(true, std::memory_order_release);
-    }
     s_demo_requested.store(false, std::memory_order_release);
     CODY::rebase_response_motion(s_state.response);
     // The existing face is the starting point for morphing, including closed
     // sleep eyes. Breathing/blink phases keep their owner across the transition.
     ESP_LOGI(kTag, "Atlas lifecycle: %s", sleeping ? "35A / Sleep" :
-        "01 Sleeping (800ms panel fade) -> 02 Waking (4s) -> 03 Ready (4s); OOBE Hello when first setup");
+        "01 Sleeping (800ms panel fade) -> 02 Waking (4s) -> 03 Ready (4s); resume retained scene");
     return ESP_OK;
 }
 
@@ -1816,7 +2107,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.body_drag_active = false;
         return ESP_OK;
     }
-    if (!debug_control_contact && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
+    if (!debug_control_contact && !s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
         CODY::lifecycle_is_resting(s_state.lifecycle)) {
         bool consumed = false;
         const esp_err_t route_error = CODY::handle_onboarding_touch(
@@ -1824,6 +2115,10 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             point.pressed, pressed_edge, s_state.rendered_rotation_degrees, consumed);
         if (route_error != ESP_OK) {
             return route_error;
+        }
+        const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
+        if (policy_error != ESP_OK) {
+            return policy_error;
         }
         if (consumed) {
             if (!point.pressed && s_state.body_drag_active) {
@@ -1841,13 +2136,21 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         if (!s_state.rig_visible) {
             if (!s_greeting_scheduled.load(std::memory_order_acquire) &&
                 point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
-                enter_animation_demo();
+                const esp_err_t demo_error = enter_animation_demo();
+                if (demo_error != ESP_OK) {
+                    return demo_error;
+                }
             }
         } else {
             const TouchAction action = classify_rig_touch(point);
             if (action == TouchAction::ReturnToIdle) {
+                const esp_err_t policy_error = apply_scene_standby_policy({});
+                if (policy_error != ESP_OK) {
+                    return policy_error;
+                }
                 s_state.rig_visible = true;
                 s_state.scene = {};
+                s_state.resume_scene_pending = false;
                 s_state.lifecycle = {CODY::LifecyclePhase::Idle, 0};
                 s_state.routine_scene = false;
                 s_state.routine_greeting_pending = false;
@@ -2047,6 +2350,17 @@ void companion_worker(void *context)
                 break;
             }
             parked = true;
+            const esp_err_t audio_lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+            if (audio_lock_error != ESP_OK) {
+                fail_consumer("Parked typewriter lock", audio_lock_error, false);
+                break;
+            }
+            const esp_err_t audio_error = set_companion_typewriter_suspended(true);
+            bsp_display_unlock();
+            if (audio_error != ESP_OK) {
+                fail_consumer("Parked typewriter audio", audio_error, false);
+                break;
+            }
             continue;
         }
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
@@ -2150,6 +2464,13 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (caption_font_error != ESP_OK) {
         return fail_consumer("Caption font configuration", caption_font_error, false);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    const esp_err_t typewriter_audio_error = CODY::prepare_typewriter_audio();
+    if (typewriter_audio_error != ESP_OK) {
+        return fail_consumer("Typewriter audio preparation", typewriter_audio_error, false);
+    }
+    s_typewriter_audio_prepared = true;
+#endif
     if (s_state.onboarding.effective_first_boot) {
         const esp_err_t action_worker_error = CODY::onboarding_service_init();
         if (action_worker_error != ESP_OK) {

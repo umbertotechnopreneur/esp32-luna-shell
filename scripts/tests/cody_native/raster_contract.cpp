@@ -6,6 +6,7 @@
 #include "cody_jelly_data.hpp"
 #include "host_settings.hpp"
 #include "CODY_lifecycle.hpp"
+#include "CODY_scene.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
 #include <algorithm>
@@ -791,6 +792,61 @@ void check_lifecycle_contract()
     require(CODY::advance_lifecycle(state, -1, BootCheckpoint::Ready, state) == ESP_ERR_INVALID_ARG,
             "invalid lifecycle time fails fast");
 }
+
+// No parameters: exercise the real scene clocks without running a display or audio driver.
+void check_scene_typewriter_contract()
+{
+    const CODY::SceneDefinition *definition = nullptr;
+    CODY::SceneFrame scene;
+    require(CODY::find_scene(CODY::SceneId::PairInvitation, definition) == ESP_OK &&
+            CODY::begin_scene(*definition, scene) == ESP_OK, "prepare authored pairing invitation");
+    require(CODY::advance_scene(scene, 1299999) == ESP_OK && scene.visible_characters == 0 &&
+            CODY::scene_content_characters(scene, 7, scene.title.text.length) == 0,
+            "entrance and 300-ms hold precede every typed character");
+    require(CODY::advance_scene(scene, 1) == ESP_OK && scene.text_elapsed_us == 0,
+            "exact text delay boundary contributes no typing time");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK && scene.visible_characters == 1,
+            "first invitation glyph appears after its 45-ms cadence");
+    const int64_t remaining_title_us = (scene.title.text.length - 1U) * 45000LL;
+    require(CODY::advance_scene(scene, remaining_title_us) == ESP_OK &&
+            scene.visible_characters == scene.title.text.length &&
+            CODY::scene_content_characters(scene, 7, scene.title.text.length) == 0,
+            "caption sequence starts after the complete title");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK &&
+            CODY::scene_content_characters(scene, 7, scene.title.text.length) == 1,
+            "body and footer use the same sequential typing clock");
+
+    require(CODY::find_scene(CODY::SceneId::InstallApp, definition) == ESP_OK &&
+            !definition->title_visible && definition->cloud.scale == 58 &&
+            definition->standby_override_seconds == 60 &&
+            CODY::begin_scene(*definition, scene) == ESP_OK,
+            "installation scene enlarges Cody without a visible installation heading");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK &&
+            CODY::scene_content_characters(scene, 9, 0) == 1,
+            "a hidden title does not delay Pair Cody's typed caption");
+
+    require(CODY::find_scene(CODY::SceneId::Pairing, definition) == ESP_OK &&
+            CODY::begin_scene(*definition, scene) == ESP_OK, "prepare screen 07's reusable text layout");
+    const int64_t long_running_us = static_cast<int64_t>(UINT32_MAX) + 1000000LL;
+    require(CODY::advance_scene(scene, long_running_us) == ESP_OK &&
+            scene.text_elapsed_us > UINT32_MAX, "typing clocks remain usable beyond 71 minutes");
+    const uint32_t entrance_before = scene.entrance_elapsed_us;
+    static constexpr char next_title[] = "Scan to pair";
+    require(CODY::set_scene_title(scene, {next_title, sizeof(next_title) - 1U}) == ESP_OK &&
+            scene.visible_characters == 0 && scene.text_elapsed_us == 0 &&
+            scene.entrance_elapsed_us == entrance_before,
+            "a new status restarts text without replaying Cody's entrance");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK && scene.visible_characters == 1 &&
+            CODY::scene_content_characters(scene, 6, scene.title.text.length) == 0,
+            "a replaced status cannot reveal its later caption instantly");
+    scene.content.visible_characters = 3;
+    scene.content.text_generation = 17;
+    const CODY::SceneFrame retired = scene;
+    scene.content.visible_characters = 5;
+    scene.content.text_generation = 18;
+    require(retired.content.visible_characters == 3 && retired.content.text_generation == 17,
+            "retired audio baselines own their counts, not mutable content pointers");
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -809,6 +865,7 @@ int main()
         check_navigation_visibility_contract();
         check_button_hold_contract();
         check_lifecycle_contract();
+        check_scene_typewriter_contract();
     } catch (const std::exception &error) {
         std::fprintf(stderr, "Native contract failed: %s\n", error.what());
         return 1;

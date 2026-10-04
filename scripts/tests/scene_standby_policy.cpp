@@ -1,0 +1,32 @@
+#include "../../components/LUNASHELL_platform/include/LUNASHELL_scene_standby_policy.hpp"
+
+using LUNASHELL::power_policy::SceneStandbyOverride;
+using LUNASHELL::power_policy::scene_standby_expired;
+using LUNASHELL::power_policy::scene_standby_timeout_seconds;
+
+// Entry grants the scene interval even when the configured global timeout expired.
+constexpr SceneStandbyOverride pairing{60, 120000000};
+static_assert(scene_standby_timeout_seconds(30, pairing) == 60);
+static_assert(scene_standby_timeout_seconds(0, pairing) == 60);
+static_assert(!scene_standby_expired(179999999, 1000000, pairing));
+static_assert(scene_standby_expired(180000000, 1000000, pairing));
+
+// Real activity extends the same interval; an ordinary frame does not modify entry.
+static_assert(!scene_standby_expired(209999999, 150000000, pairing));
+static_assert(scene_standby_expired(210000000, 150000000, pairing));
+constexpr SceneStandbyOverride next_scene{60, 180000000};
+static_assert(!scene_standby_expired(239999999, 150000000, next_scene));
+static_assert(scene_standby_expired(240000000, 150000000, next_scene));
+
+// Exit inherits the latest configured value, including an explicitly disabled timeout.
+constexpr SceneStandbyOverride inherited{};
+static_assert(scene_standby_timeout_seconds(30, inherited) == 30);
+static_assert(scene_standby_timeout_seconds(120, inherited) == 120);
+static_assert(scene_standby_timeout_seconds(0, inherited) == 0);
+static_assert(!scene_standby_expired(240000000, 0, inherited));
+
+// Full uint32 second authoring remains safe at the explicit ESP timer boundary.
+constexpr SceneStandbyOverride maximum{UINT32_MAX, 0};
+static_assert(!scene_standby_expired(4294967294999999LL, 0, maximum));
+static_assert(scene_standby_expired(4294967295000000LL, 0, maximum));
+static_assert(!scene_standby_expired(119999999, 0, pairing));

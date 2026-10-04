@@ -41,6 +41,12 @@ void cancel_look_touch();
 // Exception: Returns the real scene-content validation error.
 esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision);
 
+// scene: Active selector after the host advances its clock; previous frame must be retired.
+// control_revision: Host-owned revision of the shared lateral controls.
+// changed: Preserves existing changes and reports newly visible typed prefixes or controls.
+// Exception: Returns the real selector, caption, clock or scene-content error.
+esp_err_t update_look_text(SceneFrame &scene, uint32_t control_revision, bool &changed);
+
 // exit: Back uses the caller; Done uses the separately authored completion destination.
 // destination: Receives a validated scene identity only when navigation is permitted.
 // Exception: Returns ESP_ERR_INVALID_STATE while saving or outside the selector.

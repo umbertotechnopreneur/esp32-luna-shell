@@ -40,6 +40,8 @@ struct SceneDefinition {
     bool title_visible = true;
     SceneEntranceDefinition entrance{};
     uint16_t background_rgb565 = 0;
+    // Zero inherits the configured timeout; positive values live only in this scene.
+    uint32_t standby_override_seconds;
 };
 
 // Optional caller-owned content, e.g. text, a button or a QR in a later scene.
@@ -51,6 +53,10 @@ struct SceneContent {
     uint32_t revision = 0;
     DamageRect control_bounds[2]{};
     uint32_t control_revision = 0;
+    // Captured body/button prefix count; completed frames never read mutable route state.
+    uint16_t visible_characters = 0;
+    // Stable while a prefix types; replacing or scrolling text starts a new baseline.
+    uint32_t text_generation = 0;
     // state: Immutable content owned by the caller through complete frame retirement.
     // strip: Borrowed tile clipped to this content slot; never submit a display transaction.
     // first_row: Logical y origin shared with cloud and title.
@@ -68,6 +74,8 @@ struct SceneFrame {
     SceneIntroPhase intro_phase = SceneIntroPhase::Complete;
     uint32_t intro_elapsed_us = 0;
     uint32_t entrance_elapsed_us = 0;
+    // Retitling restarts text without replaying the cloud's entrance placement.
+    uint64_t text_elapsed_us = 0;
     bool valid = false;
 };
 

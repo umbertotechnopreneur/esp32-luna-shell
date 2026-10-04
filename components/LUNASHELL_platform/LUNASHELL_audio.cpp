@@ -6,14 +6,17 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_clock.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdlib>
 
 #include "bsp/esp-bsp.h"
 #include "esp_codec_dev.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -52,6 +55,97 @@ std::atomic_bool s_standby;
 std::atomic_bool s_audio_state_poisoned;
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
+
+constexpr uint32_t TYPEWRITER_INTERVAL_US = 50000;
+constexpr uint32_t TYPEWRITER_MAX_AGE_US = 150000;
+constexpr uint32_t TYPEWRITER_EVENT = 1U;
+constexpr uint32_t TYPEWRITER_STACK_BYTES = 4096;
+constexpr uint32_t TYPEWRITER_MAX_TRANSPORT_RATE_HZ = 48000;
+constexpr size_t TYPEWRITER_MAX_TRANSPORT_SAMPLES = 1200;
+struct TypewriterCue {
+    const int16_t *samples = nullptr;
+    size_t sample_count = 0;
+    uint32_t sample_rate_hz = 0;
+};
+TypewriterCue s_typewriter_cue;
+StaticTask_t s_typewriter_task_control;
+StackType_t s_typewriter_task_stack[TYPEWRITER_STACK_BYTES / sizeof(StackType_t)];
+std::atomic<TaskHandle_t> s_typewriter_task;
+struct TypewriterEvent {
+    uint32_t requested_at_us = 0;
+    uint32_t generation = 0;
+    uint32_t sequence = 0;
+};
+struct TypewriterMailbox {
+    bool pending = false;
+    bool suspended = false;
+    uint32_t generation = 0;
+    uint32_t sequence = 0;
+    TypewriterEvent latest;
+};
+TypewriterMailbox s_typewriter_mailbox;
+portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
+std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
+#endif
+
+// Clear an old scene's pending cue without waiting for the transport owner.
+void invalidate_typewriter_events()
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    s_typewriter_mailbox.pending = false;
+    ++s_typewriter_mailbox.generation;
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+}
+
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// No payload is consumed by this scheduling hint; the claim below remains authoritative.
+bool has_pending_typewriter_event()
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    const bool pending = s_typewriter_mailbox.pending;
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+    return pending;
+}
+
+// event: Receives one coherent latest payload only when a pending cue is claimed.
+bool claim_typewriter_event(TypewriterEvent &event)
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    const bool claimed = s_typewriter_mailbox.pending;
+    if (claimed) {
+        event = s_typewriter_mailbox.latest;
+        s_typewriter_mailbox.pending = false;
+    }
+    const bool allowed = claimed && !s_typewriter_mailbox.suspended &&
+        !s_standby.load(std::memory_order_acquire);
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+    return allowed;
+}
+#endif
+
+// event: Failed notification's exact payload; a newer producer must keep its cue.
+void drop_typewriter_event(const TypewriterEvent &event)
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    if (s_typewriter_mailbox.pending && s_typewriter_mailbox.latest.sequence == event.sequence) {
+        s_typewriter_mailbox.pending = false;
+    }
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+}
+
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// generation: Epoch captured with the retired-frame event, never read from a newer payload.
+bool typewriter_event_current(uint32_t generation)
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    const bool current = !s_typewriter_mailbox.suspended &&
+        generation == s_typewriter_mailbox.generation;
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+    return current;
+}
+#endif
 
 struct AudioStreamState {
     bool speaker_open;
@@ -634,6 +728,63 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
 }
 
 namespace {
+// samples: Immutable PCM at the actual transport sample rate.
+// sample_count: Exact count, already validated by the public owner.
+// sample_rate_hz: Actual clock shared with the microphone when open.
+// volume_percent: Observed or explicitly selected codec output policy.
+// Exception: Returns original AFE, codec write, or snapshot publication failures.
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
+                                  uint32_t sample_rate_hz, int volume_percent)
+{
+    size_t offset = 0;
+    while (offset < sample_count) {
+        const bool voice_afe_active = LUNASHELL_voice_afe_running();
+        const size_t chunk_limit = voice_afe_active ? VOICE_REFERENCE_CHUNK_SAMPLES : sample_rate_hz / 50U;
+        const size_t chunk_samples = std::min(chunk_limit, sample_count - offset);
+        if (voice_afe_active) {
+            const esp_err_t reference_error = LUNASHELL_voice_afe_push_speaker_pcm16(
+                samples + offset, chunk_samples, sample_rate_hz);
+            if (reference_error != ESP_OK) {
+                ESP_LOGE(TAG, "AEC speaker reference enqueue failed (%s)", esp_err_to_name(reference_error));
+                return reference_error;
+            }
+        }
+        const int write_result = esp_codec_dev_write(s_speaker,
+            const_cast<int16_t *>(samples + offset), chunk_samples * sizeof(int16_t));
+        if (write_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Speaker PCM write failed: codec_result=%d", write_result);
+            return static_cast<esp_err_t>(write_result);
+        }
+        uint32_t absolute_sum = 0;
+        for (size_t index = 0; index < chunk_samples; ++index) {
+            const int32_t sample = samples[offset + index];
+            absolute_sum += static_cast<uint32_t>(sample < 0 ? -sample : sample);
+        }
+        const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+            true, absolute_sum / chunk_samples, sample_rate_hz, volume_percent, ESP_OK);
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(TAG, "Speaker playback publication failed (%s)", esp_err_to_name(publication_error));
+            return publication_error;
+        }
+        offset += chunk_samples;
+    }
+    return ESP_OK;
+}
+#endif
+
+// error: Original failure; a secondary publication failure cannot replace it.
+// sample_rate_hz: Requested rate, diagnostic only on a failed publication.
+// volume_percent: Requested volume, diagnostic only on failure.
+void publish_rejected_playback(esp_err_t error, uint32_t sample_rate_hz, int volume_percent)
+{
+    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+        false, 0, sample_rate_hz, volume_percent, error);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(TAG, "Rejected playback publication failed: %s", esp_err_to_name(publication_error));
+    }
+}
+
 // operation: Rejected playback stage retained in the original error log.
 // error: Original failure; a secondary publication failure cannot replace it.
 // sample_rate_hz: Requested rate, diagnostic only on a failed publication.
@@ -642,11 +793,7 @@ esp_err_t reject_playback(const char *operation, esp_err_t error,
                          uint32_t sample_rate_hz, int volume_percent)
 {
     ESP_LOGE(TAG, "%s failed: %s", operation, esp_err_to_name(error));
-    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-        false, 0, sample_rate_hz, volume_percent, error);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE(TAG, "Rejected playback publication failed: %s", esp_err_to_name(publication_error));
-    }
+    publish_rejected_playback(error, sample_rate_hz, volume_percent);
     return error;
 }
 } // namespace
@@ -733,53 +880,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     if (error == ESP_OK) {
         // The PA is enabled by the official BSP codec interface; allow its output to settle.
         vTaskDelay(pdMS_TO_TICKS(100));
-        size_t offset = 0;
-        while (offset < sample_count && error == ESP_OK) {
-            const bool voice_afe_active = LUNASHELL_voice_afe_running();
-            const size_t chunk_samples = voice_afe_active
-                ? std::min(VOICE_REFERENCE_CHUNK_SAMPLES, sample_count - offset)
-                : std::min(static_cast<size_t>(sample_rate_hz / 50U), sample_count - offset);
-            if (voice_afe_active) {
-                const esp_err_t reference_error = LUNASHELL_voice_afe_push_speaker_pcm16(
-                    samples + offset,
-                    chunk_samples,
-                    sample_rate_hz
-                );
-                if (reference_error != ESP_OK) {
-                    ESP_LOGE(
-                        TAG,
-                        "AEC speaker reference enqueue failed (%s)",
-                        esp_err_to_name(reference_error)
-                    );
-                    error = reference_error;
-                    break;
-                }
-            }
-            const int result = esp_codec_dev_write(
-                s_speaker,
-                const_cast<int16_t *>(samples + offset),
-                chunk_samples * sizeof(int16_t)
-            );
-            if (result != ESP_CODEC_DEV_OK) {
-                ESP_LOGE(TAG, "Speaker PCM write failed: codec_result=%d", result);
-                error = static_cast<esp_err_t>(result);
-                break;
-            }
-            uint64_t absolute_sum = 0;
-            for (size_t sample_index = 0; sample_index < chunk_samples; ++sample_index) {
-                const int32_t sample = samples[offset + sample_index];
-                absolute_sum += static_cast<uint32_t>(sample < 0 ? -sample : sample);
-            }
-            const esp_err_t publication_error =
-                LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-                    true, static_cast<uint32_t>(absolute_sum / chunk_samples),
-                    sample_rate_hz, volume_percent, ESP_OK);
-            if (publication_error != ESP_OK) {
-                error = publication_error;
-                break;
-            }
-            offset += chunk_samples;
-        }
+        error = write_speaker_pcm_locked(samples, sample_count, sample_rate_hz, volume_percent);
         vTaskDelay(pdMS_TO_TICKS(100));
     }
     const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
@@ -989,8 +1090,11 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
 }
 
 // Suspend or restore codec streams and I2S as one reversible transition.
+// standby: Clears unplayed taps while the existing owner quiesces/restores its transport.
+// Exception: Returns original codec, transport, or lifecycle rollback errors.
 extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 {
+    invalidate_typewriter_events();
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) {
         return ESP_ERR_NO_MEM;
@@ -1121,4 +1225,287 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
         );
     }
     return error;
+}
+
+namespace {
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// played: True only after the real PCM write and mute restoration both succeed.
+// sample_rate_hz: Receives the current transport clock; no microphone is reconfigured.
+// volume_percent: Receives the existing codec volume, which this cue never overwrites.
+// generation: Scene admission generation captured when this event was dequeued.
+// Exception: Returns exact codec, AFE or snapshot failures; the caller owns the audio mutex.
+esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
+                                    int &volume_percent, uint32_t generation)
+{
+    played = false;
+    if (s_standby.load(std::memory_order_acquire) || !typewriter_event_current(generation)) {
+        return ESP_OK; // An explicitly suppressed cue was never submitted to the codec.
+    }
+    if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    sample_rate_hz = s_microphone_open ? s_microphone_sample_rate_hz :
+        s_speaker_open ? s_speaker_sample_rate_hz : s_typewriter_cue.sample_rate_hz;
+    if (sample_rate_hz < 8000U || sample_rate_hz > TYPEWRITER_MAX_TRANSPORT_RATE_HZ) {
+        ESP_LOGE(TAG, "Typewriter transport rate rejected: %lu", static_cast<unsigned long>(sample_rate_hz));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    esp_err_t error = configure_speaker_stream(sample_rate_hz);
+    if (error != ESP_OK) {
+        return error;
+    }
+    bool previous_mute = true;
+    if (error == ESP_OK) {
+        const int volume_result = esp_codec_dev_get_out_vol(s_speaker, &volume_percent);
+        const int mute_result = volume_result == ESP_CODEC_DEV_OK
+            ? esp_codec_dev_get_out_mute(s_speaker, &previous_mute) : volume_result;
+        if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Reading typewriter codec policy failed: volume=%d mute=%d", volume_result, mute_result);
+            return static_cast<esp_err_t>(volume_result != ESP_CODEC_DEV_OK ? volume_result : mute_result);
+        }
+        if (volume_percent < 0 || volume_percent > 100) {
+            ESP_LOGE(TAG, "Typewriter codec volume rejected: %d", volume_percent);
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        if (volume_percent == 0) {
+            return ESP_OK; // Existing silence is respected without a codec write or success report.
+        }
+    }
+    const size_t output_samples = s_typewriter_cue.sample_count * sample_rate_hz / s_typewriter_cue.sample_rate_hz;
+    if (output_samples == 0 || output_samples > s_typewriter_transport_samples.size()) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    // The peer mic clock stays untouched. Resample this tiny original impulse into
+    // bounded owner scratch instead of trying to switch the duplex I2S clock.
+    for (size_t index = 0; index < output_samples; ++index) {
+        const uint32_t source_position = static_cast<uint32_t>(index) * s_typewriter_cue.sample_rate_hz;
+        const size_t source_index = source_position / sample_rate_hz;
+        const uint32_t fraction = source_position % sample_rate_hz;
+        const size_t next_index = std::min(source_index + 1U, s_typewriter_cue.sample_count - 1U);
+        const int32_t first = s_typewriter_cue.samples[source_index];
+        const int32_t next = s_typewriter_cue.samples[next_index];
+        s_typewriter_transport_samples[index] = static_cast<int16_t>(
+            (first * static_cast<int32_t>(sample_rate_hz - fraction) + next * static_cast<int32_t>(fraction)) /
+            static_cast<int32_t>(sample_rate_hz));
+    }
+    if (error == ESP_OK) {
+        const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
+        if (unmute_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Unmuting speaker for typewriter tap failed (%d)", unmute_result);
+            error = static_cast<esp_err_t>(unmute_result);
+        }
+    }
+    if (error == ESP_OK) {
+        error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), output_samples,
+            sample_rate_hz, volume_percent);
+    }
+    if (error == ESP_OK) {
+        // Codec writes can enqueue DMA before the last sample reaches the amp.
+        // Drain this 15..25 ms cue before restoring mute, only in the audio worker.
+        const uint32_t clip_ms = static_cast<uint32_t>((output_samples * 1000U + sample_rate_hz - 1U) / sample_rate_hz);
+        vTaskDelay(pdMS_TO_TICKS(clip_ms) + 1U);
+    }
+    const int mute_result = esp_codec_dev_set_out_mute(s_speaker, previous_mute);
+    if (mute_result != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Restoring speaker mute after typewriter tap failed (%d)", mute_result);
+        if (error == ESP_OK) {
+            error = static_cast<esp_err_t>(mute_result);
+        }
+    }
+    played = error == ESP_OK;
+    return error;
+}
+
+// error: Original asynchronous error, retained for the next caller and canonical snapshot.
+// sample_rate_hz: Attempted transport rate, diagnostic only after a rejection.
+// volume_percent: Observed codec volume, or zero before policy could be read.
+// Coalesce duplicate log lines, never the canonical publication of a real failed operation.
+void retain_typewriter_failure(esp_err_t error, uint32_t sample_rate_hz, int volume_percent)
+{
+    if (s_typewriter_last_error.exchange(error, std::memory_order_acq_rel) != error) {
+        ESP_LOGE(TAG, "Typewriter playback failed: %s", esp_err_to_name(error));
+    }
+    publish_rejected_playback(error, sample_rate_hz, volume_percent);
+}
+
+// context: Unused; this static worker shares the existing codec/mutex owner.
+// Exception: Asynchronous errors are logged, published and returned by later admissions.
+void typewriter_worker(void *context)
+{
+    (void)context;
+    uint32_t last_play_at_us = 0;
+    bool have_played = false;
+    for (;;) {
+        uint32_t events = 0;
+        xTaskNotifyWait(0, UINT32_MAX, &events, portMAX_DELAY);
+        if ((events & TYPEWRITER_EVENT) == 0 || !has_pending_typewriter_event()) {
+            continue;
+        }
+        const uint32_t now_us = static_cast<uint32_t>(esp_timer_get_time());
+        const uint32_t since_play_us = now_us - last_play_at_us;
+        if (have_played && since_play_us < TYPEWRITER_INTERVAL_US) {
+            const uint32_t delay_ms = (TYPEWRITER_INTERVAL_US - since_play_us + 999U) / 1000U;
+            // One extra tick avoids a short floor-rounded wait at lower tick rates.
+            vTaskDelay(pdMS_TO_TICKS(delay_ms) + 1U);
+        }
+        TypewriterEvent event;
+        if (!claim_typewriter_event(event)) {
+            continue;
+        }
+        const uint32_t observed_us = static_cast<uint32_t>(esp_timer_get_time());
+        if (observed_us - event.requested_at_us > TYPEWRITER_MAX_AGE_US) {
+            continue; // Expired taps never catch up after another audio operation.
+        }
+        LUNASHELL::ClockSnapshot clock;
+        esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+        if (error != ESP_OK) {
+            retain_typewriter_failure(error, s_typewriter_cue.sample_rate_hz, 0);
+            continue;
+        }
+        if (LUNASHELL::clock_cue_policy(clock) != LUNASHELL::ClockCuePolicy::Allowed) {
+            continue; // Canonical quiet/invalid-time policy deliberately suppresses the cue.
+        }
+        error = LUNASHELL_audio_init();
+        if (error != ESP_OK) {
+            retain_typewriter_failure(error, s_typewriter_cue.sample_rate_hz, 0);
+            continue;
+        }
+        SemaphoreHandle_t mutex = audio_mutex();
+        if (xSemaphoreTake(mutex, 0) != pdTRUE) {
+            continue; // Meaningful playback/capture owns the route; no tap backlog is created.
+        }
+        bool played = false;
+        uint32_t sample_rate_hz = s_typewriter_cue.sample_rate_hz;
+        int volume_percent = 0;
+        const uint32_t started_at_us = static_cast<uint32_t>(esp_timer_get_time());
+        error = play_typewriter_tap_locked(played, sample_rate_hz, volume_percent, event.generation);
+        if (error != ESP_OK) {
+            retain_typewriter_failure(error, sample_rate_hz, volume_percent);
+            audio_unlock(mutex);
+            continue;
+        }
+        if (played) {
+            last_play_at_us = started_at_us;
+            have_played = true;
+            const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+                false, 0, sample_rate_hz, volume_percent, ESP_OK);
+            if (publication_error != ESP_OK) {
+                retain_typewriter_failure(publication_error, sample_rate_hz, volume_percent);
+            } else {
+                s_typewriter_last_error.store(ESP_OK, std::memory_order_release);
+            }
+        }
+        audio_unlock(mutex);
+    }
+}
+#endif
+} // namespace
+
+// samples: Immutable original PCM; lifetime must match the firmware owner.
+// sample_count: Bounded 15..25 ms cue payload, 240..400 mono samples.
+// sample_rate_hz: Exactly 16000 Hz; transport conversion happens only in the owner.
+// Exception: Returns actual preparation errors; does not initialize or play the codec.
+extern "C" esp_err_t LUNASHELL_audio_prepare_typewriter(const int16_t *samples,
+    size_t sample_count, uint32_t sample_rate_hz)
+{
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    (void)samples;
+    (void)sample_count;
+    (void)sample_rate_hz;
+    ESP_LOGE(TAG, "Typewriter audio is unavailable for the selected output route");
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    if (samples == nullptr || sample_count < 240U || sample_count > 400U || sample_rate_hz != 16000U) {
+        ESP_LOGE(TAG, "Typewriter original PCM registration rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
+        ESP_LOGE(TAG, "Typewriter preparation mutex timed out");
+        return ESP_ERR_TIMEOUT;
+    }
+    if (s_typewriter_task.load(std::memory_order_acquire) != nullptr) {
+        const bool same_cue = s_typewriter_cue.samples == samples &&
+            s_typewriter_cue.sample_count == sample_count && s_typewriter_cue.sample_rate_hz == sample_rate_hz;
+        audio_unlock(mutex);
+        if (!same_cue) {
+            ESP_LOGE(TAG, "Typewriter cue cannot replace its lifetime-owned PCM");
+            return ESP_ERR_INVALID_STATE;
+        }
+        return s_typewriter_last_error.load(std::memory_order_acquire);
+    }
+    s_typewriter_cue = {samples, sample_count, sample_rate_hz};
+    const TaskHandle_t worker = xTaskCreateStatic(typewriter_worker, "audio_typewriter",
+        TYPEWRITER_STACK_BYTES, nullptr, 2, s_typewriter_task_stack, &s_typewriter_task_control);
+    s_typewriter_task.store(worker, std::memory_order_release);
+    audio_unlock(mutex);
+    if (worker == nullptr) {
+        ESP_LOGE(TAG, "Typewriter static worker creation failed (%s)", esp_err_to_name(ESP_ERR_NO_MEM));
+        return ESP_ERR_NO_MEM;
+    }
+    ESP_LOGI(TAG, "Original typewriter cue registered: samples=%u bytes=%u rate=%lu; admission capped at 20/s",
+        static_cast<unsigned>(sample_count), static_cast<unsigned>(sample_count * sizeof(int16_t)),
+        static_cast<unsigned long>(sample_rate_hz));
+    return ESP_OK;
+#endif
+}
+
+// newly_visible_characters: New glyphs from the caller's complete displayed-frame delta.
+// Exception: Returns admission or retained asynchronous failure; never waits for audio I/O.
+extern "C" esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters)
+{
+    if (newly_visible_characters == 0) {
+        return ESP_OK; // No playback was requested for this unchanged frame.
+    }
+    const TaskHandle_t worker = s_typewriter_task.load(std::memory_order_acquire);
+    const uint32_t requested_at_us = static_cast<uint32_t>(esp_timer_get_time());
+    TypewriterEvent event;
+    bool admitted = false;
+    bool owner_unavailable = false;
+    // Publish pending, timestamp and epoch together. No scheduler or codec call
+    // belongs in this bounded critical section shared with the consumer claim.
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    if (!s_typewriter_mailbox.suspended && !s_standby.load(std::memory_order_acquire)) {
+        owner_unavailable = worker == nullptr;
+        if (!owner_unavailable) {
+            ++s_typewriter_mailbox.sequence;
+            event = {requested_at_us, s_typewriter_mailbox.generation, s_typewriter_mailbox.sequence};
+            s_typewriter_mailbox.latest = event;
+            s_typewriter_mailbox.pending = true;
+            admitted = true;
+        }
+    }
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+    if (owner_unavailable) {
+        ESP_LOGE(TAG, "Typewriter notification rejected before owner preparation");
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!admitted) {
+        return ESP_OK; // An explicitly suspended/standby cue was not admitted.
+    }
+    if (xTaskNotify(worker, TYPEWRITER_EVENT, eSetBits) != pdPASS) {
+        drop_typewriter_event(event);
+        ESP_LOGE(TAG, "Typewriter notification failed (%s)", esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    return s_typewriter_last_error.load(std::memory_order_acquire);
+}
+
+// suspended: Changes only cue admission; the canonical standby API owns codec quiescence.
+// Exception: Returns exact owner-preparation errors; no allocation, blocking lock, or codec I/O occurs.
+extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
+{
+    portENTER_CRITICAL(&s_typewriter_mailbox_mux);
+    s_typewriter_mailbox.suspended = suspended;
+    s_typewriter_mailbox.pending = false;
+    ++s_typewriter_mailbox.generation;
+    portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
+    if (s_typewriter_task.load(std::memory_order_acquire) == nullptr) {
+        ESP_LOGE(TAG, "Typewriter suspension rejected before owner preparation");
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
 }

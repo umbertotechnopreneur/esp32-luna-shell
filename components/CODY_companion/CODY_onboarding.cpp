@@ -27,10 +27,12 @@ constexpr char kTag[] = "CODY_onboarding";
 constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=com.espressif.provble";
 constexpr uint16_t kQrModulesMax = 57; // Version 10; bounded independently of the framebuffer.
 constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
-constexpr uint16_t kQrSide = 270;
 constexpr uint16_t kQrQuietModules = 4;
-constexpr uint16_t kQrLeft = 98;
-constexpr uint16_t kQrTop = 147;
+constexpr CODY2D::Rect kInstallQrBounds{113, 140, 240, 240};
+constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
+constexpr CODY2D::Rect kFooterBounds{113, 390, 240, 40};
+constexpr uint16_t kActionBlueTop = 0x765E;
+constexpr uint16_t kActionBlueBottom = 0x34FC;
 constexpr uint16_t kCaptionWidth = 232;
 constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
@@ -38,7 +40,7 @@ constexpr int64_t kHelloReadableHoldUs = 1000000;
 using PairState = LUNASHELL::PairingSessionState;
 
 enum class Route : uint8_t {
-    None, Hello04, Invitation05, Install06, Scan06Bis, Pairing07, Failed08, Online09, Look11
+    None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09, Look11
 };
 enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel, SaveLook };
 enum class NavigationDirection : uint8_t { Previous, Next };
@@ -68,8 +70,10 @@ struct ContentView {
     uint16_t visible_characters[3]{};
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
+    uint16_t action_visible_characters = 0;
     OnboardingAction action_id = OnboardingAction::None;
     QrModules qr{};
+    CODY2D::Rect qr_bounds{};
     char error_text[32]{};
 };
 ContentView s_view;
@@ -78,6 +82,7 @@ uint32_t s_generation = 1;
 uint32_t s_look_request_id = 0; // Never reset with a route; late writes keep their identity.
 uint32_t s_revision = 0;
 uint32_t s_navigation_revision = 0;
+uint32_t s_text_generation = 0;
 uint32_t s_attempt = 0;
 uint32_t s_session = 0;
 bool s_command_pending = false;
@@ -323,65 +328,118 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
-// action: Explicit route action; never inferred from an English label.
-// enabled: True only when the route has an admissible backend or navigation action.
-// Exception: Rejects an unknown action identity without changing the view.
-esp_err_t prepare_action(OnboardingAction action, bool enabled)
+// No parameters: primary setup actions use a captioned footer, not lateral arrows.
+bool uses_footer_action()
+{
+    return s_route == Route::Invitation05 || s_route == Route::Install06 ||
+        s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09;
+}
+
+// action: Stable action identity; the returned English label has flash lifetime.
+// label: Receives the primary capsule caption, or null for no action.
+// Exception: Unknown identities are rejected rather than inferred from route order.
+esp_err_t action_label(OnboardingAction action, const char *&label)
 {
     switch (action) {
     case OnboardingAction::None:
+        label = nullptr;
+        break;
     case OnboardingAction::ShowQr:
+        label = "Show QR";
+        break;
     case OnboardingAction::PairCody:
+        label = "Pair Cody";
+        break;
     case OnboardingAction::Cancel:
+        label = "Cancel";
+        break;
     case OnboardingAction::Retry:
+        label = "Retry";
+        break;
     case OnboardingAction::Continue:
+        label = "Continue";
+        break;
     case OnboardingAction::Done:
+        label = "Done";
         break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    if (s_view.action_id != action || s_view.action.enabled != enabled) {
-        ++s_navigation_revision;
-    }
-    s_view.action_id = action;
-    s_view.action_visible = action != OnboardingAction::None;
-    const auto bounds = action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
-    s_view.action = {bounds, {}, NavigationData::top, NavigationData::bottom, enabled};
     return ESP_OK;
 }
 
+// action: Explicit route action; never inferred from an English label.
+// enabled: True only when the route has an admissible backend or navigation action.
+// Exception: Rejects an unknown action identity without changing the view.
+esp_err_t prepare_action(OnboardingAction action, bool enabled)
+{
+    const char *label = nullptr;
+    esp_err_t error = action_label(action, label);
+    if (error != ESP_OK) {
+        return error;
+    }
+    if (s_view.action_id != action || s_view.action.enabled != enabled) {
+        ++s_navigation_revision;
+    }
+    if (s_view.action_id != action) {
+        ++s_text_generation;
+    }
+    s_view.action_id = action;
+    s_view.action_visible = action != OnboardingAction::None;
+    const auto bounds = uses_footer_action() ? kFooterBounds :
+        action == OnboardingAction::Cancel ? kBackBounds : kForwardBounds;
+    s_view.action = {bounds, {}, uses_footer_action() ? kActionBlueTop : NavigationData::top,
+        uses_footer_action() ? kActionBlueBottom : NavigationData::bottom, enabled};
+    if (label != nullptr && uses_footer_action()) {
+        const auto &font = SceneData::body_font;
+        const uint16_t length = static_cast<uint16_t>(std::strlen(label));
+        const uint16_t width = (length - 1U) * font.advance + font.width;
+        if (width > bounds.width || font.height > bounds.height) {
+            ESP_LOGE(kTag, "Action caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+            return ESP_ERR_INVALID_SIZE;
+        }
+        error = CODY2D::prepare_text_line(font, {label, length},
+            {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
+             static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)},
+            0x0001, s_view.action.caption);
+    }
+    return error;
+}
+
 // qr: Compact immutable module map from the encoder.
+// bounds: Route-owned square viewport; quiet zones and integer modules stay intact.
 // strip: Already clipped caller-owned content tile.
 // first_row: Logical y origin of the tile.
 // first_column: Logical x origin of the tile.
 // Exception: Rejects unsupported QR geometry before grid arithmetic or pixel writes.
-esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
+esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Rect bounds, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
     if (qr.side == 0) {
         return ESP_OK;
     }
-    if (qr.side < 21 || qr.side > kQrModulesMax || (qr.side - 21U) % 4U != 0) {
+    if (qr.side < 21 || qr.side > kQrModulesMax || (qr.side - 21U) % 4U != 0 ||
+        bounds.width != bounds.height || bounds.x + bounds.width > 466 || bounds.y + bounds.height > 466) {
         ESP_LOGE(kTag, "QR module extent rejected: side=%u (%s)", qr.side, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     const uint16_t grid_side = qr.side + 2U * kQrQuietModules;
-    const uint16_t scale = kQrSide / grid_side;
+    const uint16_t scale = bounds.width / grid_side;
     if (scale == 0) {
         ESP_LOGE(kTag, "QR viewport cannot fit side=%u (%s)", qr.side, esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const uint16_t inset = (kQrSide - grid_side * scale) / 2U;
-    const uint16_t top = std::max(first_row, kQrTop);
-    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, kQrTop + kQrSide);
-    const uint16_t left = std::max(first_column, kQrLeft);
-    const uint16_t right = std::min<uint16_t>(first_column + strip.width, kQrLeft + kQrSide);
+    const uint16_t inset = (bounds.width - grid_side * scale) / 2U;
+    const uint16_t top = std::max(first_row, bounds.y);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.y + bounds.height);
+    const uint16_t left = std::max(first_column, bounds.x);
+    const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.x + bounds.width);
     for (uint16_t row = top; row < bottom; ++row) {
         for (uint16_t column = left; column < right; ++column) {
-            const int module_x = (static_cast<int>(column) - kQrLeft - inset) / scale - kQrQuietModules;
-            const int module_y = (static_cast<int>(row) - kQrTop - inset) / scale - kQrQuietModules;
-            const bool inside = column >= kQrLeft + inset && row >= kQrTop + inset &&
+            const int module_x = (static_cast<int>(column) - bounds.x - inset) / scale - kQrQuietModules;
+            const int module_y = (static_cast<int>(row) - bounds.y - inset) / scale - kQrQuietModules;
+            const bool inside = column >= bounds.x + inset && row >= bounds.y + inset &&
                 module_x >= 0 && module_y >= 0 && module_x < qr.side && module_y < qr.side;
             const uint32_t bit = inside ? module_y * qr.side + module_x : 0;
             const bool dark = inside && (qr.bits[bit / 8U] & (1U << (bit % 8U))) != 0;
@@ -396,15 +454,25 @@ esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
-// Exception: Returns the first real QR or text drawing error.
+// Exception: Returns the first real QR, capsule or text drawing error.
 esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
     const auto &view = *static_cast<const ContentView *>(state);
-    esp_err_t error = draw_qr_rows(view.qr, strip, first_row, first_column);
+    esp_err_t error = draw_qr_rows(view.qr, view.qr_bounds, strip, first_row, first_column);
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
         error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
+    }
+    if (error == ESP_OK && view.action_visible && view.action.caption.valid) {
+        // Keep the full caption's centered geometry while drawing its typed prefix.
+        CODY2D::CapsuleControl capsule = view.action;
+        capsule.caption = {};
+        error = CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
+                strip, first_row, first_column);
+        }
     }
     return error;
 }
@@ -421,21 +489,34 @@ esp_err_t attach_content(SceneFrame &scene)
         s_view.visible_characters[index] = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
         preceding += s_view.lines[index].text.length;
     }
-    const DamageRect controls[] = {{10, 203, 70, 263}, {396, 203, 456, 263}};
-    const uint16_t top = s_route == Route::Install06 || s_route == Route::Scan06Bis ? 150 :
+    uint16_t content_characters = 0;
+    for (uint8_t index = 0; index < s_view.line_count; ++index) {
+        content_characters += s_view.visible_characters[index];
+    }
+    s_view.action_visible_characters = s_view.action_visible && s_view.action.caption.valid ?
+        scene_content_characters(scene, s_view.action.caption.text.length, preceding) : 0;
+    content_characters += s_view.action_visible_characters;
+    const uint16_t top = s_route == Route::Install06 ? kInstallQrBounds.y :
+        s_route == Route::Pairing07 ? kSessionQrBounds.y :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
-    if (s_route == Route::Install06 || s_route == Route::Scan06Bis) {
-        // Include the small caption above the QR. Every bounding corner remains
-        // inside the circular display, and the lateral controls stay separate.
-        content.bounds = {kQrLeft, 117, kQrLeft + kQrSide, kQrTop + kQrSide};
-    } else {
-        content.bounds = {117, top, 349, 428};
-    }
+    // This union includes the footer and QR while all corners fit the local chord.
+    content.bounds = {kFooterBounds.x, top,
+        static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
+        static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = s_navigation_revision;
-    std::copy(std::begin(controls), std::end(controls), content.control_bounds);
+    content.visible_characters = content_characters;
+    content.text_generation = s_text_generation;
+    if (uses_footer_action()) {
+        content.control_bounds[1] = {kFooterBounds.x, kFooterBounds.y,
+            static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
+            static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
+    } else {
+        content.control_bounds[0] = {10, 203, 70, 263};
+        content.control_bounds[1] = {396, 203, 456, 263};
+    }
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
 }
@@ -452,9 +533,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         break;
     case Route::Install06:
         identity = SceneId::InstallApp;
-        break;
-    case Route::Scan06Bis:
-        identity = SceneId::ScanToPair;
         break;
     case Route::Pairing07:
         identity = SceneId::Pairing;
@@ -483,6 +561,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     reset_look_screen();
     s_swipe_active = false;
     ++s_navigation_revision;
+    ++s_text_generation;
     s_route = route;
     if (route == Route::Invitation05) {
         constexpr const char *captions[] = {"We'll show a QR code.", "Scan it to install", "the pairing app."};
@@ -495,18 +574,16 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         error = prepare_action(OnboardingAction::ShowQr, true);
     } else if (route == Route::Install06) {
-        error = prepare_caption("1. Scan to install", 117, s_view.lines[0]);
+        s_view.qr_bounds = kInstallQrBounds;
+        error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
+    } else if (route == Route::Pairing07) {
+        s_view.qr_bounds = kSessionQrBounds;
+        error = prepare_caption("Starting Bluetooth", 222, s_view.lines[0]);
         s_view.lines[0].color = prepared.definition->title_color;
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::PairCody, !s_command_pending);
+            error = prepare_action(OnboardingAction::Cancel, s_pairing_owned && !s_command_pending);
         }
-    } else if (route == Route::Scan06Bis) {
-        error = prepare_caption("2. Scan in the app", 117, s_view.lines[0]);
-        s_view.lines[0].color = prepared.definition->title_color;
-        s_view.line_count = 1;
-    } else if (route == Route::Pairing07) {
-        error = prepare_action(OnboardingAction::Cancel, s_pairing_owned && !s_command_pending);
     } else if (route == Route::Failed08) {
         std::snprintf(s_view.error_text, sizeof(s_view.error_text), "Error: 0x%lx",
             static_cast<unsigned long>(s_visible_error));
@@ -571,9 +648,6 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
     case SceneId::InstallApp:
         route = Route::Install06;
         break;
-    case SceneId::ScanToPair:
-        route = Route::Scan06Bis;
-        break;
     case SceneId::Pairing:
         route = Route::Pairing07;
         break;
@@ -597,6 +671,24 @@ esp_err_t show_error(SceneFrame &scene, esp_err_t error)
 {
     s_visible_error = error;
     return enter_route(Route::Failed08, scene);
+}
+
+// scene: Screen 07 remains active while its real backend state changes.
+// message: Flash-owned status text, retained through complete frame retirement.
+// Exception: Returns the original title, caption or content preparation error.
+esp_err_t show_pairing_progress(SceneFrame &scene, const char *message)
+{
+    static constexpr char title[] = "Pairing...";
+    ++s_text_generation;
+    wipe(&s_view.qr, sizeof(s_view.qr));
+    s_view.qr_bounds = kSessionQrBounds;
+    esp_err_t error = set_scene_title(scene, {title, sizeof(title) - 1U});
+    if (error == ESP_OK) {
+        error = prepare_caption(message, 222, s_view.lines[0]);
+        s_view.lines[0].color = scene.definition->title_color;
+        s_view.line_count = 1;
+    }
+    return error == ESP_OK ? attach_content(scene) : error;
 }
 
 } // namespace
@@ -729,6 +821,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         scene.content.control_revision = s_navigation_revision;
         changed = true;
     }
+    if (s_route == Route::Look11) {
+        wipe(&result, sizeof(result));
+        return update_look_text(scene, s_navigation_revision, changed);
+    }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     bool caption_changed = false;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
@@ -736,16 +832,16 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         caption_changed = caption_changed || visible != s_view.visible_characters[index];
         preceding += s_view.lines[index].text.length;
     }
+    if (s_view.action_visible && s_view.action.caption.valid) {
+        const uint16_t visible = scene_content_characters(scene, s_view.action.caption.text.length, preceding);
+        caption_changed = caption_changed || visible != s_view.action_visible_characters;
+    }
     if (caption_changed) {
         const esp_err_t caption_error = attach_content(scene);
         if (caption_error != ESP_OK) {
             return caption_error;
         }
         changed = true;
-    }
-    if (s_route == Route::Look11) {
-        wipe(&result, sizeof(result));
-        return ESP_OK;
     }
     LUNASHELL::ConnectivityObservation observation;
     esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
@@ -786,10 +882,19 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         } else if (result.command.work == Work::SessionQr && s_pairing_owned && pairing.data_valid &&
                    pairing.attempt_id == s_attempt && pairing.state == PairState::ReadyToScan &&
                    pairing.provisioning_session_id == result.command.session) {
-            error = enter_route(Route::Scan06Bis, scene);
+            // The session QR now belongs to screen 07, not an intermediate route.
+            static constexpr char title[] = "Scan to pair";
+            // A retried QR copy may complete while the local error scene is active.
+            error = s_route == Route::Pairing07 ? ESP_OK : enter_route(Route::Pairing07, scene);
+            if (error == ESP_OK) {
+                ++s_text_generation;
+                error = set_scene_title(scene, {title, sizeof(title) - 1U});
+            }
             if (error == ESP_OK) {
                 s_local_failure = false;
                 s_view.qr = result.qr;
+                s_view.qr_bounds = kSessionQrBounds;
+                s_view.line_count = 0;
                 s_session = result.command.session;
                 error = attach_content(scene);
             }
@@ -848,7 +953,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = prepare_action(OnboardingAction::Cancel, !s_command_pending &&
                     pairing.state != PairState::Cancelling && pairing.state != PairState::Completing);
                 if (error == ESP_OK) {
-                    error = attach_content(scene);
+                    const char *message = pairing.state == PairState::Connecting ? "Connecting to Wi-Fi" :
+                        pairing.state == PairState::Completing ? "Finishing setup" :
+                        pairing.state == PairState::Cancelling ? "Closing pairing" : "Starting Bluetooth";
+                    error = show_pairing_progress(scene, message);
                 }
             }
         } else if (pairing.state == PairState::Idle) {
@@ -868,10 +976,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     if (s_route != Route::Failed08 && pairing.state == PairState::ReadyToScan &&
         pairing.provisioning_session_id != s_session &&
         !s_command_pending && !s_cancel_to_install) {
-        if (s_route == Route::Scan06Bis) {
+        if (s_view.qr.side != 0) {
             // Never leave an old session QR visible while a replacement encodes.
             changed = true;
-            error = enter_route(Route::Pairing07, scene);
+            error = show_pairing_progress(scene, "Preparing pairing QR");
             if (error != ESP_OK) {
                 return error;
             }
@@ -896,11 +1004,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                     error = prepare_action(OnboardingAction::None, false);
                 }
                 if (error == ESP_OK) {
-                    error = prepare_caption("Waiting for Wi-Fi", 350, s_view.lines[0]);
-                    s_view.line_count = 1;
-                }
-                if (error == ESP_OK) {
-                    error = attach_content(scene);
+                    error = show_pairing_progress(scene, "Waiting for Wi-Fi");
                 }
             }
         } else if (s_route != Route::Online09 || !s_online_presentation_current || online != s_online_link) {
@@ -936,7 +1040,7 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 // No parameters: only routes with a real previous destination expose Back.
 bool previous_navigation_available()
 {
-    return s_route == Route::Install06 || s_route == Route::Scan06Bis ||
+    return s_route == Route::Install06 ||
         s_route == Route::Look11 ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
 }
@@ -945,6 +1049,18 @@ bool previous_navigation_available()
 bool next_navigation_available()
 {
     return s_view.action_visible && s_view.action_id != OnboardingAction::Cancel;
+}
+
+// No parameters: hidden lateral arrows do not retain invisible touch targets.
+bool previous_control_visible()
+{
+    return previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action();
+}
+
+// No parameters: a captioned footer replaces the setup journey's right chevron.
+bool next_control_visible()
+{
+    return next_navigation_available() && !uses_footer_action();
 }
 
 // scene: Current route, never advanced on unconfirmed cancellation/cleanup.
@@ -1008,7 +1124,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     }
     if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::SessionQr &&
         pairing.state == PairState::ReadyToScan && pairing.attempt_id == s_attempt) {
-        const esp_err_t error = enqueue(Work::SessionQr, s_attempt, pairing.provisioning_session_id);
+        esp_err_t error = enqueue(Work::SessionQr, s_attempt, pairing.provisioning_session_id);
+        if (error == ESP_OK) {
+            error = enter_route(Route::Pairing07, scene);
+        }
         return error == ESP_OK ? ESP_OK : show_error(scene, error);
     }
     Work work = Work::Cancel;
@@ -1031,9 +1150,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         s_session = 0;
         return enter_route(Route::Pairing07, scene);
     }
-    if (s_route == Route::Scan06Bis) {
+    if (s_route == Route::Pairing07) {
         // Retire the session's secret immediately; navigation still awaits Cancelled.
-        return enter_route(Route::Pairing07, scene);
+        const esp_err_t action_error = prepare_action(OnboardingAction::Cancel, false);
+        return action_error == ESP_OK ? show_pairing_progress(scene, "Closing pairing") : action_error;
     }
     const esp_err_t action_error = prepare_action(OnboardingAction::Cancel, false);
     return action_error == ESP_OK ? attach_content(scene) : action_error;
@@ -1060,8 +1180,15 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
     if (pressed_edge) {
-        const bool back_hit = previous_navigation_available() && CODY2D::capsule_contains(back, point);
-        const bool next_hit = next_navigation_available() && CODY2D::capsule_contains(next, point);
+        const bool footer_hit = uses_footer_action() && s_view.action_visible &&
+            CODY2D::capsule_contains(s_view.action, point);
+        if (footer_hit) {
+            consumed = true;
+            return activate_onboarding_navigation(scene, s_view.action_id == OnboardingAction::Cancel ?
+                NavigationDirection::Previous : NavigationDirection::Next);
+        }
+        const bool back_hit = previous_control_visible() && CODY2D::capsule_contains(back, point);
+        const bool next_hit = next_control_visible() && CODY2D::capsule_contains(next, point);
         if (back_hit || next_hit) {
             consumed = true;
             return activate_onboarding_navigation(scene,
@@ -1147,12 +1274,12 @@ esp_err_t draw_onboarding_navigation(CODY2D::Surface strip, uint16_t first_row,
                                     uint16_t first_column)
 {
     esp_err_t error = ESP_OK;
-    if (previous_navigation_available()) {
+    if (previous_control_visible()) {
         const bool enabled = !s_command_pending &&
             (s_view.action_id != OnboardingAction::Cancel || s_view.action.enabled);
         error = draw_navigation_chevron(NavigationDirection::Previous, enabled, strip, first_row, first_column);
     }
-    if (error == ESP_OK && next_navigation_available()) {
+    if (error == ESP_OK && next_control_visible()) {
         error = draw_navigation_chevron(NavigationDirection::Next, !s_command_pending && s_view.action.enabled,
             strip, first_row, first_column);
     }

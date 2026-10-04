@@ -31,8 +31,12 @@ edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
 ten pixels inside the nominal circle at its widest horizontal chord.
 The complete bounding box also fits within the circle.
 
-The right navigation slot hosts Cody's discreet forward chevron. Its circular
-60-pixel touch target stays separate from the QR and central content.
+The right navigation slot can host Cody's discreet forward chevron. Its circular
+60-pixel touch target stays separate from the QR and central content. The setup
+journey instead uses a captioned footer capsule: Show QR on 05, Pair Cody on 06,
+and Cancel on 07. These routes hide the lateral chevrons and their hit targets;
+06 still accepts a previous-route swipe. The footer bounds are (113, 390),
+240 x 40, with every corner inside the occupied circular chord.
 
 The Cody Debug view currently exposes only the icon-only Screenshot control in
 the upper-center circle. Pause/Play and Skeleton retain their stable authored

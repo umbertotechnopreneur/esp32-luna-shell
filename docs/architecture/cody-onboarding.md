@@ -20,7 +20,14 @@ active animation time, then enters 05. Non-first setup instead enters Idle16.
 Sleep/wake panel fades use the shared 800-ms default. A software wake exposes an
 already-rendered Sleeping01 through that panel fade, without multiplying a second
 two-second character fade over it; Waking02 and Ready03 then receive 4 seconds each.
-Standby and pause do not advance the Hello reading hold or typewriter.
+The active route, typed prefixes and entrance/text clocks remain in RAM during
+software standby. After Ready, the host reconciles the canonical pairing/Wi-Fi
+state before exposing that retained route; a session closed while asleep can
+therefore return to installation or show its real terminal result. Standby and
+pause do not advance the Hello reading hold or typewriter, and wake does not
+restart first setup. Cold boot/software reset still follows the normal startup
+and first-boot policy. Deep sleep resets RAM; this retention is not persisted
+navigation or a promise to resume across deep sleep.
 
 05 starts with the same large Cody placement as Hello. One reusable scene
 entrance moves it upward and halves its scale over 1 second, then waits 300 ms
@@ -35,14 +42,13 @@ catalog preset are changed together, preserving the compile-time identity contra
 | --- | --- |
 | 04, intro fully displayed | 05 / Let's pair |
 | 05, Show QR | 06 / installation QR |
-| 06, Back | 05 |
-| 06, Pair Cody | Queue explicit Start (or a new Retry of a clean terminal attempt); wait for the real session |
-| ReadyToScan, current attempt/session QR encoded | 06-bis / Scan to pair |
-| 06-bis, Back | Queue Cancel; wipe the device QR; await Cancelled before returning to 06 |
-| Credentials received / Connecting / Completing | 07 / Pairing... |
+| 06, Previous swipe | 05; no lateral Back control is drawn or hit-tested |
+| 06, Pair Cody | Queue explicit Start (or a new Retry of a clean terminal attempt) and immediately enter 07 / Starting Bluetooth |
+| ReadyToScan, current attempt/session QR encoded | Remain in 07; type Scan to pair and display that session's QR |
+| Credentials received / Connecting / Completing | Remain in 07 and type the real progress message |
 | 07, Cancel | Await confirmed cleanup, then 06 |
 | Failed / TimedOut | 08 / actual error; Retry only after successful cleanup |
-| 08, Retry | New attempt and a new device QR; never replay the whole OOBE |
+| 08, Retry | Immediately enter 07 for a new admitted attempt; show its QR only after ReadyToScan and successful encoding |
 | Online plus currently valid Wi-Fi association and IP | 09 / You're online. |
 | 09, Continue | 11 / Cody's look (screen 10 preferences remain separate work) |
 | 11, vertical drag | Scroll the fixed-capacity look list only |
@@ -50,21 +56,29 @@ catalog preset are changed together, preserving the compile-time identity contra
 | 11, write fails | Keep the previous selection, display the real error and allow an explicit retry |
 | 11, Back or Done | Follow the supplied caller/Done destinations (both currently 09); wait while saving |
 
-06 uses **Get pairing app**; 06-bis uses **Link your phone**. Both have the same
-white background, black title at y=74, tiny live Cody at `(233,38,22)`, and a
-black 18px step caption at y=117. The QR viewport is **270x270 at (98,147)**,
-up from the earlier 210x210. It extends below the safe square but all bounding
-corners remain inside the nominal circle, clear of both lateral touch targets.
-There is no separate white-card border: the whole page is white. Only the
-required four-module quiet zone and centering residual remain around the
-integer-scaled symbol, per [DENSO WAVE's QR margin guidance](https://www.qrcode.com/en/howto/code.html).
-This larger viewport keeps integer modules through version 10; no framebuffer
-or resampled bitmap is introduced, and the two QR payloads remain distinct.
+05 shows a captioned **Show QR** footer. 06 is a white installation page with
+its heading hidden, a live cloud at `(233,94,58)` and a **Pair Cody** footer.
+Its scale 58 is slightly smaller than 05's final scale 65. The installation QR
+occupies **240x240 at (113,140)**. No lateral arrow or invisible lateral touch
+target exists on either 05 or 06. Footer bounds are `(113,390,240,40)` and are
+shared by rendering and hit testing.
+
+07 is entered as soon as Pair Cody is queued. Its white scene keeps a live cloud
+at `(233,80,46)` above the title at y=131. While starting, it types the actual
+progress caption. ReadyToScan replaces that message with **Scan to pair** and
+the current device/session QR in **204x204 at (131,182)**, within the same 07
+route. Credentials/progress retire that QR and display the real backend state.
+The current route has no 06-bis transition. The reusable `scan-to-pair` scene
+definition remains authoring data; it is not an active onboarding route.
+
+Both QR viewports retain integer modules through version 10 and a four-module
+quiet zone, without a QR framebuffer or resampled bitmap. The full white page
+supplies the backdrop. The two payloads remain distinct.
 
 The installation QR encodes the actual inherited
 Android provisioning-app installation URL:
 `https://play.google.com/store/apps/details?id=com.espressif.provble`.
-It does not start BLE. 06-bis encodes only the current device/session payload
+It does not start BLE. 07 encodes only the current device/session payload
 copied through `LUNASHELL_provisioning_copy_qr`, scanned inside that app.
 Neither illustrative QR drawings nor a previous attempt's QR enter firmware.
 
@@ -74,6 +88,45 @@ The broader preferences route 10 is not implemented by this increment. Screen
 09 therefore supplies the current direct Continue entry to the completed screen
 11 selector; route 10 can become the caller later without changing screen 11.
 The current development force-first-boot setting remains respected.
+
+## Scene inactivity and typed text
+
+Each immutable scene explicitly provides `standby_override_seconds`. Zero
+inherits the user's configured screen inactivity timeout; a positive value
+replaces it only while that scene is active. The pairing invitation,
+installation, reusable scan definition and 07 pairing scene author 60 seconds.
+Hello, 08, 09 and 11 inherit the configured policy. The power owner applies and
+clears this runtime override without writing NVS or changing the saved timeout.
+Scene entry supplies a fresh inactivity baseline; actual touch still refreshes
+activity. This screen policy does not extend the backend pairing deadline.
+
+Visible titles, body captions, footer labels and look-selector text use typed
+prefixes captured before rendering. A separate 64-bit active text clock survives
+long-running scenes and excludes pause/standby time. Replacing a progress message
+restarts its text without replaying the cloud entrance. Look rows retain their
+stable sequence during scroll/save; new `Saving...` or error/retry lines start
+their own bounded sequence at the current text-clock anchor. Offscreen labels
+do not contribute to the displayed character count.
+
+After a complete frame retires, newly displayed characters can notify an
+optional original 20-ms keyboard-like microclick. Its 640-byte mono PCM16 asset
+is synthesized in firmware flash. The renderer only sends bounded notifications;
+the audio owner performs codec work, preserves the existing volume and shared
+transport clock, and suppresses cues during quiet hours, zero volume or standby.
+An unavailable trusted clock suppresses cues only when both routines and
+quiet-hours policy are enabled; disabling either permits them without that clock.
+Profiles excluding audio or the speaker skip cue preparation and keep visual
+startup available. Notifications coalesce at at most 20 taps
+per second; expired/busy taps are dropped, not replayed later. Entry, message
+replacement, scroll and wake prime a silent character baseline. Runtime playback failures
+retain their real reported error without stopping this optional presentation
+effect. Audible gentleness and speaker volume still require a listening check.
+
+Ten separate archive-derived gentle SFX candidates were prepared only under
+`artifacts/audio/cody-gentle-sfx/`, with an audition and source/trim manifest.
+Their selection metadata is in `assets/cody/audio/gentle-sfx/`. These are private
+listening artifacts, not firmware assets or automatic runtime cues. Source
+redistribution rights and perceptual review remain unconfirmed.
 
 ## Screen 11 / Cody's look
 
@@ -138,23 +191,24 @@ mutations remain under the existing display ownership between complete frames.
   explicit authored `background_rgb565` belong to reusable scene definitions,
   not special-case screen rendering or a fallback theme.
 - `CODY2D::CapsuleControl` shares full bounds between drawing and hit testing.
-  OOBE uses discreet graphite circles with small light chevrons, not blue footer
-  buttons. Previous/Cancel occupies `(10,203,60,60)`; Next/Retry/Continue/Done
-  occupies `(396,203,60,60)`. Both are outside the safe square. Disabled actions
-  retain a dimmed target and cannot invoke a command. Back appears only for a
-  valid previous route; there is no synthetic navigation history.
+  Network routes 05 through 09 use a captioned blue footer at
+  `(113,390,240,40)` for Show QR, Pair Cody, Cancel, Retry or Continue, as admitted
+  by the current state. Their lateral arrows and hit targets are hidden.
+  Screen 11 keeps graphite Back/Done circles at `(10,203,60,60)` and
+  `(396,203,60,60)`, outside the safe square. Disabled actions retain a dimmed
+  target and cannot invoke a command. Back requires a valid caller destination.
 - A released horizontal swipe in the safe square invokes those same typed
   navigation actions: left is Next, right is Previous. It needs 48 pixels of
   displacement and horizontal dominance. Axis ownership locks after 12 pixels;
   vertical look-list scroll and short Cody drags are retained. Route/orientation
   changes cancel a pending gesture. Start/Retry/Cancel still await their real
   backend state and confirmed cleanup; swipe never shortcuts those gates.
-- Debug Pause/Skeleton is independent of the OOBE route's Back/Next policy.
-  Rounded 44-pixel controls occupy the top rim, initially hidden until touch,
-  with 5-second inactivity and 330-ms fades. A reveal-only touch never triggers
-  a control, and toolbar contacts cannot become navigation swipes. Release
-  excludes these inspection controls. The top area remains reserved for later
-  battery/date/time chrome; that status implementation is not included here.
+- The Debug Screenshot control is independent of the OOBE route's Back/Next
+  policy. Its rounded 44-pixel target occupies the upper center, initially hidden
+  until touch, with 5-second inactivity and 330-ms fades. A reveal-only touch
+  never triggers it, and toolbar contacts cannot become navigation swipes.
+  Pause/Skeleton remain hidden and non-interactive. Release excludes Debug
+  inspection controls; the shared battery/date/time chrome keeps its own owner.
 - Logical drawing and acquired touch share the existing rotation owner. The cloud
   remains animated/reactive at each authored scale; QR modules are never warped.
 - One static 4-KiB action-worker stack moves Start/Retry/Cancel admission, QR
@@ -163,7 +217,7 @@ mutations remain under the existing display ownership between complete frames.
   release/acquire mailbox has no per-frame
   allocations or unbounded action queue.
 - Version-10 QR modules fit in **407 bytes**, with a four-module white quiet zone
-  and integer pixel scaling in a 270x270 logical area. No RGB QR framebuffer exists.
+  and integer pixel scaling in the installation/session viewports. No RGB QR framebuffer exists.
   The pinned `espressif/qrcode` dependency is `0.1.0~2`, as in the existing full UI.
 - The same licensed JetBrains Mono source supplies an additional 18px printable-
   ASCII caption/action font: **7,125 bytes in internal flash**, no runtime glyph cache.
@@ -180,6 +234,12 @@ QR modules are wiped when retired and are never written to logs, HTTP or files.
 Snapshot-read/render failures still propagate their original errors.
 
 ## Validation status
+
+The latest footer/07 routing, runtime standby override, retained software-wake
+state, shared text clocks and original microclick changes have source review
+only. The private archive preview generator ran; that asset preparation is not
+firmware, simulator, audio-listening or hardware validation. The historical
+authorized checks and flash below apply to their stated earlier revision.
 
 The Cody-only QR manifest remains subject to the canonical dependency-lock
 comparison. Any required reviewed lock update goes through

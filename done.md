@@ -1,5 +1,24 @@
 # Done
 
+## Cody footer pairing flow, retained wake and typed audio (2026-10-04)
+
+- [x] Use Show QR / Pair Cody footers on 05/06 with no lateral targets, hide
+  the white installation heading, and enter 07 immediately while real Start/
+  Retry proceeds. Keep the current session QR inside 07; actual error/online
+  observations still gate 08/09.
+- [x] Add an authored runtime-only scene inactivity override, with 60 seconds
+  on pairing scenes and zero inheriting the configured policy. Retain software-
+  standby route/text clocks in RAM and reconcile the backend before redisplay;
+  cold boot and deep sleep retain their normal reset behavior.
+- [x] Type titles, body/footer labels and look/status text from a separate active
+  clock. Add an optional original 20-ms flash microclick through the audio owner
+  with quiet/volume suppression and clock gating when time-based policy is
+  enabled, bounded notifications and no renderer I/O. Audio-excluded profiles
+  retain visual startup; the authored fixed audio RAM budget is about 6.5 KiB.
+  Render ten archive-derived cues as private listening artifacts only; rights
+  remain unconfirmed and no archive audio enters firmware. Source review/asset
+  preparation only; no new tests, build, simulator, flash or physical review.
+
 ## Cody look persistence host regression checks (2026-10-04)
 
 - [x] Update the native harness for the five typed flash textures and the real

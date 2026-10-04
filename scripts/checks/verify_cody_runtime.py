@@ -19,6 +19,7 @@ from scripts.common.cody_response import (
 from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_contract
 from scripts.common.cody_rig_types import ContourControl, FaceChannel
 from scripts.common.asset_provenance import text_source_hash
+from scripts.common.cody_typewriter_audio_contract import check_typewriter_audio_source
 
 
 # Validate failure visibility and parked time independently from the parity fixture.
@@ -149,6 +150,7 @@ def main(argv=None):
         settings = load_settings(ROOT / "assets/cody/poc.yaml")
         check_assets(settings)
         check_boundaries()
+        check_typewriter_audio_source(ROOT)
         compiler = resolve_compiler(args.compiler)
         includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
                     "components/LUNASHELL_platform/include",
@@ -172,7 +174,8 @@ def main(argv=None):
                        "exact original cue duration", "256-color palette", "authored demo boundaries",
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
                        "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",
-                       "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles"])
+                       "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles",
+                       "original tiny typewriter cue, nonblocking coalesced admission, shared audio owner and stale-scene suppression"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

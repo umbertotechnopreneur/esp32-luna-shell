@@ -2,8 +2,10 @@
 
 The current firmware facial behavior is documented in
 [Cody face lifecycle and expression catalog](cody-face-lifecycle.md): animated
-Sleeping (2 s fade-in) -> Waking (4 s) -> Ready (4 s) on each ordinary boot, 35A / Sleep before suspension,
-35B / Wake followed by 16 / Idle. Optional greeting text reuses the scene layer
+Sleeping (2 s fade-in) -> Waking (4 s) -> Ready (4 s) on each ordinary boot, with
+35A / Sleep before suspension. Software wake finishes its visual wake phases
+and restores the retained route; 16 / Idle remains the ordinary idle destination.
+Optional greeting text reuses the scene layer
 without replaying the previous static bitmap introduction. The earlier intro
 implementation and authorized delivery records below describe preceding revisions.
 
@@ -39,7 +41,8 @@ The first scene follows page 05, screen 04 of `cody-planning-atlas-v1.pdf`:
   neither intro nor typewriter. Text, content, HUD and touch targets remain
   hidden during the intro.
 - Hide Back; the greeting is a root scene with no previous route. In Debug,
-  touch can still reveal the rounded Pause/Skeleton toolbar above the safe square.
+  touch can still reveal the rounded Screenshot control above the safe square;
+  Pause/Skeleton remain hidden and non-interactive.
   Eye interaction still uses the evaluated,
   optionally deformed face geometry. Admit the existing measured FPS/CPU readout
   below the title; its visibility remains a session preference.
@@ -51,7 +54,8 @@ uses addendum A01 and is documented in [Cody onboarding](cody-onboarding.md).
 The title's prepared bounds are `[115, 350) x [348, 388)`, inside the central
 safe square. All rendering and input retain the existing logical canvas and
 cardinal rotation owner. The same generic scene/content slot now supports the
-05/06/06-bis/07/08/09 network routes, without admitting LVGL.
+05/06/07/08/09 network routes, without admitting LVGL. There is no active 06-bis
+route: the session QR belongs to 07.
 
 The generic scene frame owns a typed intro phase and a bounded phase clock.
 The boot fade adjusts at most 64 palette entries on the worker stack; the cloud
@@ -66,14 +70,35 @@ Every source definition explicitly declares `entrance.from`, `move_ms` and
 `text_delay_ms`. A zero movement duration keeps its authored final placement;
 there is no legacy-schema fallback. The frame owns one bounded active-time
 entrance clock, independent of sensor timestamps and the wall-clock Debug toolbar.
+Its separate 64-bit `text_elapsed_us` clock drives title and content prefixes;
+changing a message restarts text without replaying the cloud entrance.
 The movement uses smoothstep between authored placements before the existing
 snapshot-based IMU/touch/breath response is composed. Pause/standby exclude time.
 
 05 / Let's pair starts at `(233,225,130)`, continuous with Hello, and moves to
 `(233,105,65)` over **1,000 ms**. After another **300 ms**, its title and three
-captions share one sequential **45 ms/character** teletype. No text or lateral
-action is admitted during the movement/wait. Later glyphs invalidate only content;
-lateral navigation has its own immutable revision and damage bounds.
+captions and the **Show QR** footer share one sequential **45 ms/character**
+teletype. No text or content action is admitted during the movement/wait. Later
+glyphs invalidate text/content; controls have a separate captured revision and
+damage bounds.
+
+The white installation scene 06 hides its heading, places the live cloud at
+`(233,94,58)` versus 05's final scale 65, and uses a **Pair Cody** footer below
+the 240x240 installation QR at `(113,140)`. Neither 05 nor 06 draws or hit-tests
+lateral arrows. Pair Cody immediately enters 07 while the real Start/Retry work
+continues. The 07 scene uses `(233,80,46)`, a title at y=131 and a 204x204 session
+QR at `(131,182)` after the current attempt reaches ReadyToScan. Progress,
+cancellation, actual failure 08 and live online 09 retain their backend gates.
+See [Cody onboarding](cody-onboarding.md) for footer and route details.
+
+Body lines, footer labels and the reusable look selector use the same prefix
+helper and cadence. Rendering borrows already-captured character counts; it does
+not read a changing clock while a frame is in flight. List scroll does not
+restart labels or the preview entrance. Saving/error/retry messages use a local
+text-clock anchor so they type correctly on a long-lived selector. Only clipped,
+displayed row prefixes contribute to the audio notification count. A captured
+text generation changes on replacement/scroll so previously displayed labels
+prime a silent baseline rather than producing fresh keyboard taps.
 
 Scene generation can explicitly use `device.ps1 generate -Generator cody-scenes
 -ToolArguments '--definitions-only'` when only layout/timing/text changes: the
@@ -83,6 +108,23 @@ not introduced. The Windows scene helper mirrors movement, text delay and cadenc
 
 This entrance/control increment has source review and asset generation only;
 firmware build, tests, simulator execution and hardware deployment remain deferred.
+
+### Scene inactivity and retained software wake
+
+Every authored scene explicitly provides `standby_override_seconds`. Zero means
+inherit the configured user timeout; a positive value replaces it only for that
+active scene. The invitation, installation, reusable scan definition and pairing
+scene use 60 seconds. The power owner receives a runtime policy with a scene-entry
+inactivity baseline and restores the configured timeout on departure/parking.
+No saved setting or NVS value is changed, and no pairing deadline is extended.
+
+Software standby retains the scene/route, prefixes and entrance/text clocks in
+RAM and excludes sleeping time from active animation. After its existing wake
+phases, the host reconciles canonical backend state before displaying the
+retained scene. A pairing session closed by the power owner must not revive its
+previous QR. Cold boot/reset keeps the normal startup/first-boot sequence;
+deep sleep resets RAM. This is software-standby retention, not persisted
+navigation across resets or deep sleep.
 
 ## Settings and failure behavior
 
@@ -130,10 +172,41 @@ observation; enabling the policy alone does not prove those behaviors.
 The two original synthesized Cody cues now use mono PCM16 at **22,050 Hz**,
 matching the already-open ES8311/ES7210 shared I2S clock, at codec volume **100**.
 `assets/cody/poc.yaml` remains the source; regeneration updates both embedded
-PCM and host WAV files. The audio owner rejects a stream rate that conflicts
+PCM and host WAV files. Generic cue playback rejects a stream rate that conflicts
 with an open peer before changing transport state, retaining the real error.
-It does not resample, silently substitute a rate, or suppress codec failures.
-The separately proposed archive SFX are not integrated into this release.
+That path does not resample or silently substitute a rate, and codec failures
+remain real failures.
+
+### Optional original keyboard microclick
+
+`CODY_typewriter_audio` supplies an original 20-ms rounded noise impulse:
+320 mono PCM16 samples at 16 kHz, **640 bytes in internal flash**. It imports no
+keyboard recording or archive sample. Newly displayed title/body/footer/look
+characters notify the audio owner only after the complete display frame retires.
+Renderer callbacks perform no codec I/O, allocation or blocking audio operation.
+
+The owner's dormant worker has a fixed 4-KiB stack, bounded transport scratch and
+a coalesced pending notification, capped at 20 taps per second. The authored
+fixed audio RAM budget is approximately **6.5 KiB**: a 4,096-byte stack,
+2,400-byte transport scratch and small fixed state. This is a source budget,
+not a measured linked-image RAM size. It converts this
+cue to the already shared transport clock without reconfiguring the microphone,
+keeps the existing codec volume, and suppresses output during quiet hours,
+zero volume, hidden/parked scenes or standby. An unavailable trusted clock
+suppresses cues only when both routines and quiet-hours policy are enabled;
+disabling either allows them without that clock. Profiles excluding
+audio or the speaker skip cue preparation and preserve visual startup.
+Busy or expired notifications are dropped rather than played as a backlog.
+Scene entry, message replacement, scrolling and wake prime a silent displayed
+baseline; duplicate/unchanged frames cannot queue more taps. A real runtime playback error
+remains logged/published, while this optional effect does not stop scene rendering.
+No perceptual or physical speaker-volume result has been verified.
+
+Ten archive-derived gentle SFX candidates were separately rendered into private
+`artifacts/audio/cody-gentle-sfx/` previews, with a combined audition and exact
+source/trim manifest. Only generator/selection metadata belongs in versioned
+source. These cues have no firmware playback integration; source redistribution
+rights and perceptual review remain unconfirmed.
 
 ## Ownership and reuse
 
@@ -148,6 +221,8 @@ characters and old schemas fail rather than select a compatibility path.
 - `begin_scene()` checks the shared rig pose, font and circle-aware layout,
   then prepares a text line. It publishes the frame only on success.
 - `advance_scene()` advances the fixed-size typewriter state with active time.
+- `scene_content_characters()` derives each bounded content prefix after its
+  preceding title/lines; `set_scene_title()` restarts only the active text clock.
 - `set_scene_content()` accepts an optional `SceneElementId::Content` slot.
 - `plan_scene_damage()` adds only changed glyph spans and changed content to
   the existing old/new cloud damage plan.
@@ -161,6 +236,10 @@ It must not allocate per frame, own a display transaction, sample hardware,
 or retain the borrowed tile. Increment `revision` when its visual state changes;
 old and new bounds are both dirtied when content changes or is removed.
 Clear the slot by passing a default `SceneContent{}`.
+Capture `visible_characters` with the prepared body state and advance
+`text_generation` when replacing or scrolling that state, preserving it during
+ordinary prefix progress. This keeps completed-frame audio notification separate
+from renderer I/O and mutable route clocks.
 
 The cloud, title and content are redrawn in that order within each dirty tile.
 Reference geometry and scene state become the next displayed-frame reference
@@ -177,7 +256,8 @@ metadata. No Unicode ranges, translations, TTF file or runtime font engine are
 linked into firmware. Glyph overhangs are preserved rather than cropped.
 
 Scene state is fixed-size. There is no new framebuffer, tile, PSRAM allocation,
-heap-owning text object, task or periodic sensor read. Text is counted and
+heap-owning text object, render task or periodic sensor read. The optional audio
+effect's separate fixed worker belongs to the audio owner. Text is counted and
 prepared once; rasterization visits only glyphs intersecting a dirty tile.
 After the typewriter finishes, title-only invalidations stop. Cloud damage can
 still cause an intersecting text/content region to be recomposited correctly.

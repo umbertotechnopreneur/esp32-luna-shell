@@ -46,15 +46,18 @@ def main(argv=None) -> None:
                         "components/LUNASHELL_platform/include", "assets/cody/scenes/generated",
                         "components/CODY_companion/include", "assets/cody/rig/generated",
                         "assets/cody/experiments/jelly-scanline/generated")
-        sources = ("scripts/tests/cody_native/raster_contract.cpp", "components/CODY2D/CODY2D.cpp",
+        sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
+                   "components/CODY2D/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",
                    "components/CODY2D/CODY2D_paths.cpp", "components/CODY2D/CODY2D_text.cpp",
                    "components/CODY2D/CODY2D_controls.cpp", "components/CODY_companion/CODY_rig.cpp",
                    "components/CODY_companion/CODY_dirty_plan.cpp",
                    "components/CODY_companion/CODY_jelly.cpp",
                    "components/CODY_companion/CODY_lifecycle.cpp",
+                   "components/CODY_companion/CODY_scene.cpp",
                    "components/CODY_companion/CODY_expression_catalog.cpp",
                    "assets/cody/scenes/generated/scene_font.cpp",
+                   "assets/cody/scenes/generated/scene_body_font.cpp",
                    "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
         command = compile_command(compiler, include_dirs, sources, executable,
                                   definitions=("CODY_ENABLE_PEARL_JELLY=1",))
@@ -75,6 +78,11 @@ def main(argv=None) -> None:
                                     "capsule gradient, bounded ASCII caption, touch gate and compact-tile parity",
                                     "continuous 3-second PWR hold, early release and failed-sample rearming",
                                     "2/4/4-second boot timeline, startup checkpoint gates and 800-ms panel wake"])
+        report["contracts"].extend(["sequential title, body and footer teletype after entrance",
+                                    "hidden installation heading and 60-second scene override",
+                                    "scene standby entry, real activity, inheritance and uint32 boundary",
+                                    "long-lived and replaced text clocks without replayed entrance",
+                                    "immutable retired character and text-generation baselines"])
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise

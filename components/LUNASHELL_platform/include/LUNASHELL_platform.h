@@ -205,6 +205,12 @@ esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
 
+// seconds: Transient scene inactivity seconds; zero restores the configured timeout.
+// Positive overrides start on scene entry and defer display dimming until standby.
+// The caller changes this only on scene transitions; saved settings remain unchanged.
+// Exception: Returns the real initialization or excluded-profile error.
+esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds);
+
 /** Select Leg Edition's motion/audio behavior; the shared idle timeout still applies. */
 esp_err_t LUNASHELL_power_manager_set_leg_mode(bool active, bool wake_on_motion);
 /** Enable or silence the movement cues without changing the screen policy. */
@@ -222,7 +228,7 @@ esp_err_t LUNASHELL_power_manager_set_timeout(
     uint32_t seconds
 );
 
-/** Read one active inactivity timeout from the power service. */
+/** Read one configured timeout; transient scene overrides are excluded. */
 esp_err_t LUNASHELL_power_manager_get_timeout(
     LUNASHELL_power_timeout_t timeout,
     uint32_t *seconds
@@ -414,6 +420,20 @@ esp_err_t LUNASHELL_audio_play_pcm16(
     uint32_t sample_rate_hz,
     int volume_percent
 );
+
+// samples: Immutable flash-owned original mono PCM16; retained for the owner lifetime.
+// sample_count: 240..400 samples, bounding the authored payload to 800 bytes.
+// sample_rate_hz: Exact authored rate, 16000 Hz.
+// Exception: Returns format, worker preparation, or selected-route errors.
+esp_err_t LUNASHELL_audio_prepare_typewriter(const int16_t *samples, size_t sample_count,
+                                           uint32_t sample_rate_hz);
+// newly_visible_characters: Newly displayed glyphs from a successfully retired frame.
+// Queue admission is nonblocking and coalesces to one pending tap, capped at 20/s.
+// Exception: Returns admission or retained asynchronous audio errors, never audible-success proof.
+esp_err_t LUNASHELL_audio_notify_typewriter(uint32_t newly_visible_characters);
+// suspended: Clears pending requests before scene hide, navigation, or standby.
+// Exception: Returns a notification error; this operation never waits for codec I/O.
+esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended);
 
 /** Capture mono signed PCM16 when the selected board exposes one microphone. */
 esp_err_t LUNASHELL_audio_capture_pcm16(

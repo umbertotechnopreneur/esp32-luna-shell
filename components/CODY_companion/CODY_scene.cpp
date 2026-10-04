@@ -132,6 +132,7 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
 
 // frame: Existing valid scene; no definition pointer or layout identity is replaced.
 // title: Caller-owned immutable ASCII text, retained through frame retirement.
+// Exception: Returns the original state, text or circular-layout preparation error.
 esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title)
 {
     if (!frame.valid || frame.definition == nullptr || frame.definition->font == nullptr ||
@@ -163,6 +164,7 @@ esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title)
     frame.visible_characters = frame.intro_phase == SceneIntroPhase::Complete &&
         definition.character_interval_ms == 0 ? title.length : 0;
     frame.character_remainder_us = 0;
+    frame.text_elapsed_us = 0;
     return ESP_OK;
 }
 
@@ -211,6 +213,7 @@ esp_err_t prepare_scene_presentation(const SceneFrame &frame, ScenePresentation 
 
 // frame: Current prepared scene; unchanged if the request is invalid.
 // active_delta_us: Nonnegative animation time, excluding pause and standby intervals.
+// Exception: Returns the real invalid clock or presentation-state error.
 esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
 {
     if (!frame.valid || frame.definition == nullptr || !frame.title.valid ||
@@ -261,6 +264,10 @@ esp_err_t advance_scene(SceneFrame &frame, int64_t active_delta_us)
             return ESP_OK;
         }
     }
+    // Text has its own active clock: changing a message must not replay Cody's
+    // entrance or expose all later captions immediately on a long-lived screen.
+    next.text_elapsed_us += std::min<uint64_t>(static_cast<uint64_t>(remaining_us),
+        std::numeric_limits<uint64_t>::max() - next.text_elapsed_us);
     if (next.visible_characters == next.title.text.length) {
         frame = next;
         return ESP_OK;
@@ -324,9 +331,9 @@ uint16_t scene_content_characters(const SceneFrame &frame, uint16_t length,
     if (interval_us == 0) {
         return length;
     }
-    const uint32_t total = (frame.entrance_elapsed_us - start_us) / interval_us;
+    const uint64_t total = frame.text_elapsed_us / interval_us;
     return total <= preceding_characters ? 0 :
-        static_cast<uint16_t>(std::min<uint32_t>(length, total - preceding_characters));
+        static_cast<uint16_t>(std::min<uint64_t>(length, total - preceding_characters));
 }
 
 // frame: Valid prepared scene whose content slot is updated after validation.

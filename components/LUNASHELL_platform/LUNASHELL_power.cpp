@@ -7,6 +7,7 @@
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_liveness.h"
 #include "LUNASHELL_power_policy.hpp"
+#include "LUNASHELL_scene_standby_policy.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_sleep.hpp"
@@ -114,6 +115,24 @@ std::atomic<uint32_t> s_screen_sleep_delay_seconds{
 std::atomic<uint32_t> s_screen_idle_timeout_seconds{
     LUNASHELL::power_policy::kDefaultScreenIdleTimeoutSeconds
 };
+
+struct SceneStandbyRequest {
+    LUNASHELL::power_policy::SceneStandbyOverride policy{};
+    uint32_t sequence = 0;
+};
+// Only this bounded intent crosses tasks. Display and activity state remain power-owned.
+portMUX_TYPE s_scene_standby_mux = portMUX_INITIALIZER_UNLOCKED;
+SceneStandbyRequest s_scene_standby_request;
+uint32_t s_consumed_scene_standby_sequence = 0;
+
+// No parameters: copy one complete scene intent without holding a lock across I/O.
+SceneStandbyRequest read_scene_standby_request()
+{
+    portENTER_CRITICAL(&s_scene_standby_mux);
+    const SceneStandbyRequest request = s_scene_standby_request;
+    portEXIT_CRITICAL(&s_scene_standby_mux);
+    return request;
+}
 
 LUNASHELL::DeviceOperatingState s_state =
     LUNASHELL::DeviceOperatingState::Active;
@@ -469,6 +488,9 @@ void publish_inputs()
 // error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
 {
+    const SceneStandbyRequest scene_request = read_scene_standby_request();
+    const uint32_t screen_idle_seconds = LUNASHELL::power_policy::scene_standby_timeout_seconds(
+        s_screen_idle_timeout_seconds.load(std::memory_order_acquire), scene_request.policy);
     LUNASHELL::DeviceSnapshotService::instance().reportPowerManagement(
         s_state,
         s_reason,
@@ -481,7 +503,7 @@ void publish_power(esp_err_t error)
         s_status_timeout_seconds.load(std::memory_order_acquire),
         s_dim_timeout_seconds.load(std::memory_order_acquire),
         s_screen_sleep_delay_seconds.load(std::memory_order_acquire),
-        s_screen_idle_timeout_seconds.load(std::memory_order_acquire),
+        screen_idle_seconds,
         s_transition_sequence,
         s_last_activity_at_us,
         error
@@ -2239,14 +2261,17 @@ esp_err_t handle_power_key_events(
     );
 }
 
-// No parameters: apply inactivity from the last real touch or qualified movement.
+// No parameters: apply real inactivity, or the active scene's independent entry interval.
 esp_err_t apply_idle_policy()
 {
     if (s_state != LUNASHELL::DeviceOperatingState::Active) {
         return ESP_OK;
     }
-    const int64_t elapsed_us =
-        esp_timer_get_time() - s_last_activity_at_us;
+    const int64_t now_us = esp_timer_get_time();
+    const int64_t elapsed_us = now_us - s_last_activity_at_us;
+    const SceneStandbyRequest scene_request = read_scene_standby_request();
+    const bool scene_policy_changed = scene_request.sequence != s_consumed_scene_standby_sequence;
+    s_consumed_scene_standby_sequence = scene_request.sequence;
     const auto expired = [elapsed_us](uint32_t seconds) {
         return seconds > 0U &&
                elapsed_us >= static_cast<int64_t>(seconds) * 1000000LL;
@@ -2266,9 +2291,11 @@ esp_err_t apply_idle_policy()
         LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
     const uint32_t dim_seconds =
         s_dim_timeout_seconds.load(std::memory_order_acquire);
-    const uint32_t screen_idle_seconds =
-        s_screen_idle_timeout_seconds.load(std::memory_order_acquire);
-    const bool standby_due = expired(screen_idle_seconds);
+    const uint32_t screen_idle_seconds = LUNASHELL::power_policy::scene_standby_timeout_seconds(
+        s_screen_idle_timeout_seconds.load(std::memory_order_acquire), scene_request.policy);
+    const bool standby_due = scene_request.policy.seconds != 0
+        ? LUNASHELL::power_policy::scene_standby_expired(now_us, s_last_activity_at_us, scene_request.policy)
+        : expired(screen_idle_seconds);
     if (standby_due) {
         const int64_t standby_requested_at_us = esp_timer_get_time();
         // A timeout commonly expires while the device is still moving. Reset
@@ -2287,12 +2314,15 @@ esp_err_t apply_idle_policy()
             LUNASHELL::DeviceStateReason::Inactivity
         );
     }
-    if (expired(dim_seconds)) {
+    // A scene's QR/text must stay readable for its full override interval. Standby
+    // above still wins at the deadline, and zero restores the configured dim policy.
+    if (scene_request.policy.seconds == 0 && expired(dim_seconds)) {
         display_stage =
             LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Dimmed;
     }
 
     bool changed =
+        scene_policy_changed ||
         command_visible != s_command_arc_visible ||
         status_visible != s_status_arc_visible;
     if (display_stage != s_display_stage) {
@@ -2968,6 +2998,27 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
         std::memory_order_relaxed
     );
     s_activity_sequence.fetch_add(1, std::memory_order_release);
+}
+
+// seconds: Scene inactivity interval; zero immediately restores configured policy.
+// Exception: Returns ESP_ERR_INVALID_STATE until the canonical power owner is initialized.
+extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds)
+{
+    if (!s_initialized.load(std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Scene standby override rejected before power init (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const int64_t entered_at_us = seconds == 0 ? 0 : esp_timer_get_time();
+    portENTER_CRITICAL(&s_scene_standby_mux);
+    s_scene_standby_request.policy = {seconds, entered_at_us};
+    ++s_scene_standby_request.sequence;
+    portEXIT_CRITICAL(&s_scene_standby_mux);
+    // Publish intent only. In particular, never acquire the display lock or wake
+    // the device from this consumer callback while the power owner awaits Sleep.
+    ESP_LOGI(kTag, "Scene standby override: %lu s, entered_at=%lld us; settings unchanged",
+             static_cast<unsigned long>(seconds), static_cast<long long>(entered_at_us));
+    return ESP_OK;
 }
 
 // active: Whether the Leg Edition view owns motion/audio interaction.

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
@@ -29,6 +30,13 @@ constexpr size_t kLookItemCapacity = 8;
 struct LookItem {
     const char *id = nullptr;
     CODY2D::CapsuleControl control{};
+    uint16_t visible_characters = 0;
+};
+struct LookTextPrefixes {
+    uint16_t look_characters[kLookItemCapacity]{};
+    uint16_t status_characters = 0;
+    uint16_t hint_characters = 0;
+    uint16_t visible_characters = 0;
 };
 struct LookView {
     LookItem look_items[kLookItemCapacity]{};
@@ -43,16 +51,96 @@ struct LookView {
     char status_text[32]{};
     CODY2D::TextLine status{};
     CODY2D::TextLine hint{};
+    uint64_t status_text_started_us = 0;
+    uint16_t status_visible_characters = 0;
+    uint16_t hint_visible_characters = 0;
+    uint32_t text_generation = 0;
     bool valid = false;
 };
 
 // One active selector, reused by any host. All borrowed text outlives its frame.
 LookView s_view;
 uint32_t s_revision = 0;
+uint32_t s_text_generation = 0;
 bool s_touch_active = false;
 bool s_touch_dragged = false;
 int16_t s_touch_start_y = 0;
 uint16_t s_touch_scroll_start = 0;
+
+// No parameters: create a new text identity without reusing a retired selector's baseline.
+// Exception: Returns ESP_ERR_INVALID_STATE if the generation namespace is exhausted.
+esp_err_t advance_text_generation()
+{
+    if (s_text_generation == std::numeric_limits<uint32_t>::max()) {
+        ESP_LOGE(kTag, "Look text generation exhausted (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_view.text_generation = ++s_text_generation;
+    return ESP_OK;
+}
+
+// item: Stable catalog row with its full prepared caption geometry.
+// scroll: Current bounded viewport displacement in logical pixels.
+bool caption_in_viewport(const LookItem &item, uint16_t scroll)
+{
+    const int32_t top = static_cast<int32_t>(item.control.caption.bounds.y) - scroll;
+    const int32_t bottom = top + item.control.caption.bounds.height;
+    return top < kLookListViewport.y + kLookListViewport.height && bottom > kLookListViewport.y;
+}
+
+// scene: Valid selector with an active text clock that never resets during scroll/save.
+// prefixes: Receives fixed-capacity counts; no renderer reads the clock during a frame.
+// Exception: Returns the real missing-view, caption or regressed-clock error.
+esp_err_t prepare_text_prefixes(const SceneFrame &scene, LookTextPrefixes &prefixes)
+{
+    if (!s_view.valid || !scene.valid || scene.definition == nullptr ||
+        scene.definition->id != SceneId::CodyLook || !scene.title.valid ||
+        !s_view.look_list_visible || s_view.look_count == 0 ||
+        s_view.look_count > kLookItemCapacity || s_view.text_generation == 0) {
+        ESP_LOGE(kTag, "Look typewriter has no prepared selector (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    LookTextPrefixes prepared;
+    uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
+    for (uint8_t index = 0; index < s_view.look_count; ++index) {
+        const auto &item = s_view.look_items[index];
+        if (item.id == nullptr || !item.control.caption.valid) {
+            ESP_LOGE(kTag, "Look typewriter row %u is unprepared (%s)", index,
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        prepared.look_characters[index] = scene_content_characters(
+            scene, item.control.caption.text.length, preceding);
+        preceding += item.control.caption.text.length;
+        // Hidden catalog labels keep their original sequence without making sound.
+        if (caption_in_viewport(item, s_view.look_scroll)) {
+            prepared.visible_characters += prepared.look_characters[index];
+        }
+    }
+    if (s_view.hint.valid && !s_view.status.valid) {
+        ESP_LOGE(kTag, "Look retry hint has no status message (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_view.status.valid) {
+        if (scene.text_elapsed_us < s_view.status_text_started_us) {
+            ESP_LOGE(kTag, "Look status text clock regressed (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        // A new save/result message starts here, even on a long-lived selector.
+        // Only the borrowed clock copy changes; Cody's entrance and row clocks stay put.
+        SceneFrame status_scene = scene;
+        status_scene.text_elapsed_us -= s_view.status_text_started_us;
+        prepared.status_characters = scene_content_characters(status_scene, s_view.status.text.length, 0);
+        if (s_view.hint.valid) {
+            prepared.hint_characters = scene_content_characters(
+                status_scene, s_view.hint.text.length, s_view.status.text.length);
+        }
+        prepared.visible_characters += prepared.status_characters + prepared.hint_characters;
+    }
+    prefixes = prepared;
+    return ESP_OK;
+}
 
 // text: Bounded immutable English text, retained through frame retirement.
 // top: Logical caption baseline container, entirely inside the shared content chord.
@@ -204,8 +292,14 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         row.top_color = selected ? kBlueTop : kLookNeutralTop;
         row.bottom_color = selected ? kBlueBottom : kLookNeutralBottom;
         row.caption.color = selected ? 0x0001 : 0xFFFF;
-        const esp_err_t error = CODY2D::draw_capsule_rows(
-            row, list_strip, clipped_top, clipped_left);
+        // Keep full-label centering while the prepared immutable prefix types in.
+        const CODY2D::TextLine caption = row.caption;
+        row.caption = {};
+        esp_err_t error = CODY2D::draw_capsule_rows(row, list_strip, clipped_top, clipped_left);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(caption, item.visible_characters,
+                list_strip, clipped_top, clipped_left);
+        }
         if (error != ESP_OK) {
             return error;
         }
@@ -244,11 +338,11 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     const auto &view = *static_cast<const LookView *>(state);
     esp_err_t error = draw_look_list(view, strip, first_row, first_column);
     if (error == ESP_OK && view.status.valid) {
-        error = CODY2D::draw_text_rows(view.status, view.status.text.length,
+        error = CODY2D::draw_text_rows(view.status, view.status_visible_characters,
                                       strip, first_row, first_column);
     }
     if (error == ESP_OK && view.hint.valid) {
-        error = CODY2D::draw_text_rows(view.hint, view.hint.text.length,
+        error = CODY2D::draw_text_rows(view.hint, view.hint_visible_characters,
                                       strip, first_row, first_column);
     }
     return error;
@@ -276,20 +370,59 @@ void cancel_look_touch()
 // Exception: Returns a real invalid-state or scene-content error.
 esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
 {
-    if (!s_view.valid || !scene.valid || scene.definition == nullptr ||
-        scene.definition->id != SceneId::CodyLook) {
-        ESP_LOGE(kTag, "Look content has no active selector (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
+    LookTextPrefixes prefixes;
+    const esp_err_t prefix_error = prepare_text_prefixes(scene, prefixes);
+    if (prefix_error != ESP_OK) {
+        return prefix_error;
     }
+    // Hosts invoke this only after the previous frame has fully retired.
+    for (uint8_t index = 0; index < s_view.look_count; ++index) {
+        s_view.look_items[index].visible_characters = prefixes.look_characters[index];
+    }
+    s_view.status_visible_characters = prefixes.status_characters;
+    s_view.hint_visible_characters = prefixes.hint_characters;
     SceneContent content;
     content.bounds = {117, 226, 349, 436};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = control_revision;
+    content.visible_characters = prefixes.visible_characters;
+    content.text_generation = s_view.text_generation;
     content.control_bounds[0] = {10, 203, 70, 263};
     content.control_bounds[1] = {396, 203, 456, 263};
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
+}
+
+// scene: Active selector advanced by its host between fully retired frames.
+// control_revision: Current host-owned lateral-control revision.
+// changed: Preserves prior changes and becomes true when visible text/control state changes.
+// Exception: Returns the original selector, clock or scene-content validation error.
+esp_err_t update_look_text(SceneFrame &scene, uint32_t control_revision, bool &changed)
+{
+    LookTextPrefixes prefixes;
+    const esp_err_t prefix_error = prepare_text_prefixes(scene, prefixes);
+    if (prefix_error != ESP_OK) {
+        return prefix_error;
+    }
+    bool prefix_changed = prefixes.status_characters != s_view.status_visible_characters ||
+        prefixes.hint_characters != s_view.hint_visible_characters ||
+        prefixes.visible_characters != scene.content.visible_characters;
+    for (uint8_t index = 0; index < s_view.look_count; ++index) {
+        const auto &item = s_view.look_items[index];
+        if (caption_in_viewport(item, s_view.look_scroll) &&
+            prefixes.look_characters[index] != item.visible_characters) {
+            prefix_changed = true;
+        }
+    }
+    if (!prefix_changed && scene.content.control_revision == control_revision) {
+        return ESP_OK;
+    }
+    const esp_err_t error = attach_look_content(scene, control_revision);
+    if (error == ESP_OK) {
+        changed = true;
+    }
+    return error;
 }
 
 // scene: Receives a complete reusable selector with no host-specific route decisions.
@@ -323,6 +456,10 @@ esp_err_t open_look_screen(SceneFrame &scene, const LookNavigationContext &navig
     reset_look_screen();
     s_view.navigation = navigation;
     error = prepare_look_list();
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = advance_text_generation();
     if (error != ESP_OK) {
         return error;
     }
@@ -398,6 +535,10 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
         if (scroll != s_view.look_scroll) {
             s_view.look_scroll = static_cast<uint16_t>(scroll);
             result.changed = true;
+            const esp_err_t generation_error = advance_text_generation();
+            if (generation_error != ESP_OK) {
+                return generation_error;
+            }
             return attach_look_content(scene, scene.content.control_revision);
         }
         return ESP_OK;
@@ -453,6 +594,10 @@ esp_err_t begin_look_save(SceneFrame &scene, const char *id, uint32_t request_id
     cancel_look_touch();
     esp_err_t error = prepare_caption("Saving...", 380, s_view.status);
     if (error == ESP_OK) {
+        s_view.status_text_started_us = scene.text_elapsed_us;
+        error = advance_text_generation();
+    }
+    if (error == ESP_OK) {
         error = attach_look_content(scene, scene.content.control_revision);
     }
     return error;
@@ -476,6 +621,7 @@ LookSaveCompletion complete_look_save(SceneFrame &scene, uint32_t request_id, es
     s_view.save_error = save_error;
     s_view.status = {};
     s_view.hint = {};
+    s_view.status_text_started_us = scene.text_elapsed_us;
     if (save_error == ESP_OK) {
         s_view.selected_look_id = s_view.pending_id;
     } else {
@@ -492,6 +638,9 @@ LookSaveCompletion complete_look_save(SceneFrame &scene, uint32_t request_id, es
         }
     }
     s_view.pending_id = nullptr;
+    if (result.presentation_error == ESP_OK) {
+        result.presentation_error = advance_text_generation();
+    }
     if (result.presentation_error == ESP_OK) {
         result.presentation_error = attach_look_content(scene, scene.content.control_revision);
     }

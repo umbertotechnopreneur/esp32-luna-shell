@@ -44,30 +44,36 @@ Original printed atlas pages and IDs remain valid together with addendum A01.
 | Route/action | Backend contract | Navigation result |
 | --- | --- | --- |
 | 05, Show QR | No pairing action | Open 06, installation QR |
-| 06, Pair Cody | Submit START using current attempt ID | Await ReadyToScan, then open 06-bis |
-| 06, Back | No active session | Return to 05 |
-| 06-bis, Back | Submit CANCEL | Return to 06 only after Cancelled |
+| 06, Pair Cody | Submit START or a clean terminal-attempt RETRY using the current attempt ID | Immediately enter 07; await the real lifecycle and QR there |
+| 06, Previous swipe | No active session | Return to 05; no lateral Back target |
 | 07, Cancel | Submit CANCEL | Return to 06 only after Cancelled |
-| 08, Retry | Submit RETRY using failed attempt ID | Await new ReadyToScan, then open 06-bis |
+| 08, Retry | Submit RETRY using failed attempt ID after successful cleanup | Immediately enter 07; await its new ReadyToScan and session QR |
 
-06 shows the app installation QR and the Pair Cody action. Remove the visible
-"Scan to install" text from that screen, as requested. 06-bis shows the title
-"Scan to pair" and a real device/session QR scanned inside the provisioning app.
+05 uses a Show QR footer; 06 shows the app installation QR and a Pair Cody
+footer, with its heading hidden on the white page. Neither draws or hit-tests
+lateral arrows. The live 06 cloud uses scale 58 versus 05's final scale 65.
+07 owns the entire starting/scan/connect flow: it is entered immediately on
+Pair Cody, then types "Scan to pair" and displays a real device/session QR only
+after that current attempt reaches ReadyToScan and encoding succeeds. There is
+no 06-bis route. The installation viewport is 240x240 at (113,140); the session
+viewport inside 07 is 204x204 at (131,182), both with integer modules and the
+four-module quiet zone.
 The inherited Android app download URL is
 `https://play.google.com/store/apps/details?id=com.espressif.provble`;
 it is installation content, never a device/session credential.
 
-The blue action capsule and semantic color variants belong to the OOBE agent's
-reusable CODY2D component. Preserve the approved palette and circular navigation
-rules. The backend action identity is independent of button color or position.
+The captioned footer is a reusable CODY2D capsule with shared draw/touch bounds.
+The backend action identity is independent of button color or position. Admission
+can replace the presentation immediately with a pending state; it never invents
+a session QR, failure or successful connection.
 
 ## States and QR ownership
 
 | Pairing state | Presentation / action availability |
 | --- | --- |
 | Idle | Installation/invitation flow; Start is available |
-| Starting | Pending BLE startup; Cancel may queue during startup |
-| ReadyToScan | 06-bis; display the exact current session QR |
+| Starting | 07 pending BLE startup; Cancel may queue during startup |
+| ReadyToScan | Remain in 07; display the exact current session QR |
 | Connecting | 07; credentials were received by the manager |
 | Completing | 07; releasing provisioning and starting telemetry |
 | Online | 09; manager succeeded and Wi-Fi has a healthy acquired IP |
@@ -97,6 +103,34 @@ Online is the completed attempt's observed result. Continue checking the live
 Wi-Fi snapshot on screen 09; a later disconnect must not leave an online label
 based only on that earlier terminal pairing result.
 
+## Presentation clocks and standby
+
+The invitation/installation/pairing scenes author a runtime
+`standby_override_seconds=60`; zero on other scenes inherits the configured
+inactivity timeout. This is a power-owner scene policy, not an NVS preference
+write, pairing keepalive or extension of the backend's five-minute deadline.
+Leaving/parking the scene clears the override and restores the saved policy.
+
+Software standby retains the route, pending operation and active text/entrance
+clocks in RAM. Wake completes the normal visual wake phases and reads the
+canonical pairing/Wi-Fi observation before exposing the retained scene. If the
+power owner closed that provisioning session, reconcile its current Idle,
+Cancelled or terminal result rather than redisplaying the previous QR or
+restarting first setup. Cold boot/reset keeps the normal startup policy; deep
+sleep resets RAM and has no persisted route-resume contract.
+
+All scene title/body/footer and look-selector text uses captured typed prefixes
+from a separate active text clock. An optional original 20-ms keyboard-like tap
+follows newly displayed characters after frame retirement. The audio owner
+suppresses it for quiet hours, zero volume or standby. Unavailable trusted time
+suppresses it only when both routines and quiet-hours policy are enabled;
+disabling either permits it without that clock. Profiles excluding audio
+or the speaker skip cue preparation and retain visual startup. The owner
+preserves codec volume/shared clock and drops late or busy taps. The
+renderer performs no codec I/O. The ten archive SFX previews stay private in
+`artifacts/audio/cody-gentle-sfx/`; they are not integrated into firmware and
+their source redistribution rights remain unconfirmed.
+
 ## HTTP configuration
 
 The API listens on the actual station IP at port 8080 when explicitly enabled.
@@ -114,6 +148,11 @@ transport is HTTP on the local network. This is the inherited diagnostics API;
 PC companion sessions/MCP transport remain deferred work.
 
 ## Review and deferred evidence
+
+The current footer/07 flow, standby retention/override and teletype microclick
+increment has source review and asset preparation only. Earlier validation
+records do not establish this revision's behavior; no new test, build, flash,
+hardware access or perceptual audio review was run for the increment.
 
 Source review covered startup admission, command identities, event ordering,
 single connection/retry ownership, cancellation, timeout, QR copying, snapshot

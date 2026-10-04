@@ -79,18 +79,22 @@ class RigContractTests(unittest.TestCase):
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_LEFT], 1)
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_RIGHT], 1)
 
-    # self: Host context; both QR pages share a white theme and bounded black titles.
+    # self: Host context; installation and active-session QR pages share the white theme.
     def test_qr_pages_share_white_layout(self):
         scenes = ScenePainter(ROOT, self.rig)
         installation = scenes.definition("install-app")
-        device = scenes.definition("scan-to-pair")
+        device = scenes.definition("pairing")
         for scene in (installation, device):
             self.assertEqual(scene["background_rgb565"], 65535)
             self.assertEqual(scene["title"]["color_rgb565"], 0)
-            self.assertTrue(scene["title"]["visible"])
-            self.assertEqual(scene["title"]["top"], 74)
-        self.assertEqual(installation["cloud"], device["cloud"])
-        self.assertEqual(device["title"]["text"], "Link your phone")
+            self.assertEqual(scene["standby_override_seconds"], 60)
+            self.assertEqual(scene["title"]["character_interval_ms"], 45)
+        self.assertFalse(installation["title"]["visible"])
+        self.assertEqual(installation["cloud"], {"x": 233, "y": 94, "scale": 58})
+        self.assertLess(installation["cloud"]["scale"], scenes.definition("pair-invitation")["cloud"]["scale"])
+        self.assertTrue(device["title"]["visible"])
+        self.assertEqual(device["title"]["top"], 131)
+        self.assertEqual(device["title"]["text"], "Pairing...")
 
     # self supplies the authored ready expression and stable channel-name mapping.
     # overrides contains only the facial channels changed by the current scenario.
