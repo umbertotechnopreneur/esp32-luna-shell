@@ -108,16 +108,16 @@ def decode_retained_point(
 
 
 def main() -> int:
-    logger = read("components/LUNASHELL_logger/LUNASHELL_logger.c")
+    logger = read("components/LUNASHELL_logger/src/LUNASHELL_logger.c")
     logger_header = read(
         "components/LUNASHELL_logger/include/LUNASHELL_logger.h"
     )
-    storage = read("components/LUNASHELL_platform/LUNASHELL_storage.cpp")
+    storage = read("components/LUNASHELL_platform/src/storage/LUNASHELL_storage.cpp")
     platform_header = read(
         "components/LUNASHELL_platform/include/LUNASHELL_platform.h"
     )
-    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
-    liveness = read("components/LUNASHELL_platform/LUNASHELL_liveness.cpp")
+    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    liveness = read("components/LUNASHELL_platform/src/runtime/LUNASHELL_liveness.cpp")
     liveness_header = read(
         "components/LUNASHELL_platform/include/LUNASHELL_liveness.h"
     )

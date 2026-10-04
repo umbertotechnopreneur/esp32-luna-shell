@@ -27,9 +27,9 @@ def require(text: str, fragment: str, source: str) -> None:
 
 
 def main() -> None:
-    memory = read("components/LUNASHELL_platform/LUNASHELL_radio_memory.hpp")
-    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
-    provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
+    memory = read("components/LUNASHELL_platform/src/network/LUNASHELL_radio_memory.hpp")
+    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
+    provisioning = read("components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
     sdkconfig = read_profile_defaults("connected")
 
     require(

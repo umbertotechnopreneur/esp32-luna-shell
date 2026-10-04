@@ -258,17 +258,17 @@ def verify_firmware_contract() -> None:
     snapshot = read(
         "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
     )
-    power = read("components/LUNASHELL_platform/LUNASHELL_power.cpp")
-    chrome = read("components/LUNASHELL_app/LUNASHELL_adaptive_chrome.cpp")
+    power = read("components/LUNASHELL_platform/src/power/LUNASHELL_power.cpp")
+    chrome = read("components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_chrome.cpp")
     command_bar = read(
-        "components/LUNASHELL_app/LUNASHELL_adaptive_command_bar.cpp"
+        "components/LUNASHELL_app/src/chrome/LUNASHELL_adaptive_command_bar.cpp"
     )
     command_bar_header = read(
         "components/LUNASHELL_app/include/LUNASHELL_adaptive_command_bar.hpp"
     )
     simulator = read("simulator/windows/LUNASHELL_simulator.py")
-    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
-    http = read("components/LUNASHELL_platform/LUNASHELL_http_json.cpp")
+    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
+    http = read("components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
 
     require(snapshot, "bool fullscreen_active = false;", "snapshot")
     require(power, "handle_boot_short_press()", "BOOT toggle")

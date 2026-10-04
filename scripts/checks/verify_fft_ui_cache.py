@@ -11,7 +11,7 @@ from common.source_contracts import read_component_source
 
 
 ROOT = Path(__file__).resolve().parents[2]
-APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp"
+APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
 APP_HEADER = (
     ROOT
     / "components"

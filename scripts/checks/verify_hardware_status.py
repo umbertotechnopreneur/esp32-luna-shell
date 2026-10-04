@@ -130,9 +130,9 @@ def verify_refresh_error_reporting() -> None:
 
 
 def main() -> None:
-    hardware = read("components/LUNASHELL_platform/LUNASHELL_hardware.cpp")
-    status_bar = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
-    scheduler = read("components/LUNASHELL_platform/LUNASHELL_snapshot_scheduler.cpp")
+    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
+    status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
+    scheduler = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_scheduler.cpp")
 
     gps_start = hardware.index("esp_err_t sample_gps(")
     gps_end = hardware.index(
@@ -223,7 +223,7 @@ def main() -> None:
         "RTC reset-state classification",
     )
 
-    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     require(
         app,
         "bool rtc_calendar_structurally_valid(",

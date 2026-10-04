@@ -1,35 +1,35 @@
 set(cody_jelly_sources "")
 if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)
     list(APPEND cody_jelly_sources
-        "CODY_jelly.cpp"
+        "src/rendering/CODY_jelly.cpp"
         "../../assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp"
     )
 endif()
 
 set(cody_onboarding_sources "")
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
-    list(APPEND cody_onboarding_sources "CODY_onboarding.cpp" "CODY_look_screen.cpp")
+    list(APPEND cody_onboarding_sources "src/scenes/CODY_onboarding.cpp" "src/scenes/CODY_look_screen.cpp")
 endif()
 
 idf_component_register(
     SRCS
-        "CODY_companion.cpp"
-        "CODY_scene.cpp"
-        "CODY_lifecycle.cpp"
-        "CODY_expression_catalog.cpp"
-        "CODY_settings.cpp"
-        "CODY_typewriter_audio.cpp"
-        "CODY_screenshot.cpp"
-        "CODY_status_overlay.cpp"
-        "CODY_debug_hud.cpp"
-        "CODY_damage.cpp"
-        "CODY_dirty_plan.cpp"
-        "CODY_rig.cpp"
-        "CODY_response.cpp"
-        "CODY_response_inputs.cpp"
-        "CODY_benchmark.cpp"
-        "CODY_demo.cpp"
-        "CODY_poc.cpp"
+        "src/runtime/CODY_companion.cpp"
+        "src/scenes/CODY_scene.cpp"
+        "src/runtime/CODY_lifecycle.cpp"
+        "src/model/CODY_expression_catalog.cpp"
+        "src/runtime/CODY_settings.cpp"
+        "src/scenes/CODY_typewriter_audio.cpp"
+        "src/diagnostics/CODY_screenshot.cpp"
+        "src/diagnostics/CODY_status_overlay.cpp"
+        "src/diagnostics/CODY_debug_hud.cpp"
+        "src/rendering/CODY_damage.cpp"
+        "src/rendering/CODY_dirty_plan.cpp"
+        "src/model/CODY_rig.cpp"
+        "src/model/CODY_response.cpp"
+        "src/model/CODY_response_inputs.cpp"
+        "src/diagnostics/CODY_benchmark.cpp"
+        "src/demos/CODY_demo.cpp"
+        "src/demos/CODY_poc.cpp"
         "../../assets/cody/boot/generated/cody_sleep_blue.cpp"
         "../../assets/cody/boot/generated/cody_waking_blue.cpp"
         "../../assets/cody/boot/generated/cody_ready_blue.cpp"

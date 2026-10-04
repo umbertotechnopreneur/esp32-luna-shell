@@ -13,7 +13,7 @@ import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
+SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
 MAIN_SOURCE = ROOT / "main" / "main.cpp"
 HEADLESS_SOURCE = ROOT / "main" / "main_headless.cpp"
 MINIMUM_MEASURED_SAMPLE_TTL_US = 5_000_000
@@ -1180,10 +1180,10 @@ def test_diagnostic_reuse_requires_successful_commits() -> None:
 # Raises AssertionError or a source-read error when a required boundary regresses.
 def verify_cody_look_source_contract() -> None:
     component = ROOT / "components" / "CODY_companion"
-    onboarding = (component / "CODY_onboarding.cpp").read_text(encoding="utf-8")
-    look = (component / "CODY_look_screen.cpp").read_text(encoding="utf-8")
-    jelly = (component / "CODY_jelly.cpp").read_text(encoding="utf-8")
-    reports = (ROOT / "components/LUNASHELL_platform/LUNASHELL_snapshot_reports.cpp").read_text(encoding="utf-8")
+    onboarding = (component / "src/scenes/CODY_onboarding.cpp").read_text(encoding="utf-8")
+    look = (component / "src/scenes/CODY_look_screen.cpp").read_text(encoding="utf-8")
+    jelly = (component / "src/rendering/CODY_jelly.cpp").read_text(encoding="utf-8")
+    reports = (ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_reports.cpp").read_text(encoding="utf-8")
     header = (ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp").read_text(encoding="utf-8")
 
     require_contains(onboarding, 'static constexpr char title[] = "No connection";', "offline title lifetime")

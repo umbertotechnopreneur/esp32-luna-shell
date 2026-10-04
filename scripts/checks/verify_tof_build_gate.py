@@ -108,8 +108,8 @@ def main() -> int:
 
     platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
     require(
-        '"LUNASHELL_distance_service.cpp"' in platform_cmake
-        and '"LUNASHELL_distance_service_stub.cpp"' in platform_cmake,
+        '"src/distance/LUNASHELL_distance_service.cpp"' in platform_cmake
+        and '"src/distance/LUNASHELL_distance_service_stub.cpp"' in platform_cmake,
         "LUNASHELL_platform must select full and stub distance services",
     )
     require(
@@ -123,7 +123,7 @@ def main() -> int:
         "the full distance service must use a private LUNASHELL_tof400f dependency",
     )
 
-    hardware = read("components/LUNASHELL_platform/LUNASHELL_hardware.cpp")
+    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
     require(
         "#if CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE && "
         "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART"

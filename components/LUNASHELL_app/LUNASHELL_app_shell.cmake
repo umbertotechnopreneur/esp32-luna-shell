@@ -1,6 +1,6 @@
 # The UI baseline compiles a single visual app and stages only its one screen.
 idf_component_register(
-    SRCS "LUNASHELL_app_shell.cpp" "LUNASHELL_mascot_asset.cpp"
+    SRCS "src/shell/LUNASHELL_app_shell.cpp" "src/assets/LUNASHELL_mascot_asset.cpp"
     INCLUDE_DIRS "include"
     REQUIRES brookesia_system_core LUNASHELL_platform lvgl
 )

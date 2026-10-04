@@ -2,8 +2,8 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND
    CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART)
     idf_component_register(
         SRCS
-            "LUNASHELL_tof400f.c"
-            "LUNASHELL_tof400f_protocol.c"
+            "src/LUNASHELL_tof400f.c"
+            "src/LUNASHELL_tof400f_protocol.c"
         INCLUDE_DIRS "include"
     )
     # These components are already discovered by the full project. Link them

@@ -321,7 +321,7 @@ def main() -> None:
     platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
     for fragment in (
         "LUNASHELL_platform_uses_waveshare_bsp OFF",
-        '"LUNASHELL_storage_stub.cpp"',
+        '"src/storage/LUNASHELL_storage_stub.cpp"',
         "CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE",
         "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API",
     ):
@@ -333,19 +333,19 @@ def main() -> None:
         "provisioning dependency gate",
     )
 
-    storage_stub = read("components/LUNASHELL_platform/LUNASHELL_storage_stub.cpp")
+    storage_stub = read("components/LUNASHELL_platform/src/storage/LUNASHELL_storage_stub.cpp")
     require(storage_stub, "reportStorage(report)", "disabled storage snapshot")
     if storage_stub.count("ESP_ERR_NOT_SUPPORTED") < 3:
         raise AssertionError("disabled storage operations must remain explicitly unsupported")
 
-    power_stub = read("components/LUNASHELL_platform/LUNASHELL_power_stub.cpp")
+    power_stub = read("components/LUNASHELL_platform/src/power/LUNASHELL_power_stub.cpp")
     require(
         power_stub,
         "LUNASHELL_power_manager_note_ui_standby_result",
         "disabled power UI acknowledgement",
     )
     provisioning_stub = read(
-        "components/LUNASHELL_platform/LUNASHELL_provisioning_stub.cpp"
+        "components/LUNASHELL_platform/src/network/LUNASHELL_provisioning_stub.cpp"
     )
     require(
         provisioning_stub,
@@ -353,7 +353,7 @@ def main() -> None:
         "disabled provisioning failure state",
     )
 
-    hardware = read("components/LUNASHELL_platform/LUNASHELL_hardware.cpp")
+    hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
     require(hardware, "Shared BSP I2C: not required by build profile", "headless I2C gate")
     require(
         hardware,
@@ -361,7 +361,7 @@ def main() -> None:
         "disabled IMU publication scope",
     )
 
-    time_source = read("components/LUNASHELL_platform/LUNASHELL_time.cpp")
+    time_source = read("components/LUNASHELL_platform/src/runtime/LUNASHELL_time.cpp")
     for fragment in (
         "#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI\n#include \"esp_netif.h\"",
         "#if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI",

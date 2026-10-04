@@ -1,31 +1,27 @@
-# Luna app source map
+# Luna app
 
-The full app targets Brookesia System Core and its declarative GUI runtime.
-These source boundaries keep screen lifecycle and event handling easy to find:
+Full diagnostic UI on Brookesia System Core and declarative GUI documents.
+Public contracts remain in `include/`; component selection stays in the root
+CMake files. Cody uses its separate standalone renderer.
 
-| File | Responsibility |
+| Folder | Responsibility |
 | --- | --- |
-| LUNASHELL_app.cpp | App lifecycle, route transitions and feature behavior |
-| LUNASHELL_app_documents.cpp | Screen/document ownership, load/unload, view bindings and app metadata |
-| LUNASHELL_app_document_actions.cpp | Named route action catalogs, setting handlers and subscription ownership |
-| LUNASHELL_navigation_service.cpp | Back/Forward history, independent from document rendering |
-| LUNASHELL_adaptive_command_bar.cpp | Command geometry, visual bindings and action hit testing |
+| [src/runtime](src/runtime/README.md) | App lifecycle, logs and alerts |
+| [src/documents](src/documents/README.md) | Document lifecycle, bindings and named actions |
+| [src/pairing](src/pairing/README.md) | Pairing presenter and QR preparation |
+| [src/chrome](src/chrome/README.md) | Navigation, arcs, status and command hit testing |
+| [src/assets](src/assets/README.md) | Background/mascot asset access |
+| [src/shell](src/shell/README.md) | UI-minimal shell composition |
 
-Document callbacks capture both the document ID and its loading generation.
-One subscription boundary checks that the app is active and the captured
-document still owns the screen before dispatching the event. Failed connection
-clears every subscription from the current loading attempt; the real error
-returns to the document orchestrator. Keep those checks together when adding
-a control.
+Document callbacks retain both document ID and loading generation. The
+subscription boundary verifies the active app and owning generation before
+dispatch. Failed connection clears the current attempt's subscriptions and
+returns the real error.
 
-Ordinary route actions have unique string IDs. Setting tables explicitly pair
-an action ID with its named handler; timing controls use AdaptiveChromeTiming.
-Table positions are traversal details and do not identify actions.
+Actions have unique names; setting actions pair explicit IDs with handlers.
+Table positions are traversal details, never action identities. The UI-minimal
+shell has its own source list and does not adopt document lifecycle ownership.
 
-CMakeLists.txt includes the new action module in the full app source list.
-The UI-minimal app keeps its own existing source list and does not use this
-document lifecycle.
-
-This organization change has static source review only. Builds and regression
-checks remain deferred until explicitly requested; hardware behavior is
-unverified.
+See [display/touch](../../docs/architecture/display-touch-runtime.md),
+[snapshots](../../docs/architecture/device-snapshot.md) and
+[pairing](../../docs/architecture/connectivity-pairing.md).

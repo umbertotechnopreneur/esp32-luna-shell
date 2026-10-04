@@ -272,8 +272,8 @@ def main() -> int:
         / "lib_utils"
         / "signal.hpp"
     )
-    app = read(APP_COMPONENT / "LUNASHELL_app.cpp")
-    app_documents = read(APP_COMPONENT / "LUNASHELL_app_documents.cpp")
+    app = read(APP_COMPONENT / "src/runtime/LUNASHELL_app.cpp")
+    app_documents = read(APP_COMPONENT / "src/documents/LUNASHELL_app_documents.cpp")
     sdkconfig_defaults = read_profile_defaults()
 
     stop_start = manager.index(

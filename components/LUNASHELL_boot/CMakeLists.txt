@@ -5,17 +5,17 @@ set(LUNASHELL_boot_requires
 )
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI)
-    list(APPEND LUNASHELL_boot_srcs "LUNASHELL_boot_ui.c")
+    list(APPEND LUNASHELL_boot_srcs "src/ui/LUNASHELL_boot_ui.c")
     list(APPEND LUNASHELL_boot_requires esp32_s3_touch_amoled_1_75)
 else()
-    list(APPEND LUNASHELL_boot_srcs "LUNASHELL_boot_ui_stub.c")
+    list(APPEND LUNASHELL_boot_srcs "src/ui/LUNASHELL_boot_ui_stub.c")
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
-    list(APPEND LUNASHELL_boot_srcs "LUNASHELL_boot_audio.c")
+    list(APPEND LUNASHELL_boot_srcs "src/audio/LUNASHELL_boot_audio.c")
     list(APPEND LUNASHELL_boot_requires esp_codec_dev)
 else()
-    list(APPEND LUNASHELL_boot_srcs "LUNASHELL_boot_audio_stub.c")
+    list(APPEND LUNASHELL_boot_srcs "src/audio/LUNASHELL_boot_audio_stub.c")
 endif()
 
 idf_component_register(

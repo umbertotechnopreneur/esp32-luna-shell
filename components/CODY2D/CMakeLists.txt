@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "CODY2D.cpp" "CODY2D_paths.cpp" "CODY2D_text.cpp" "CODY2D_controls.cpp"
+    SRCS "src/CODY2D.cpp" "src/CODY2D_paths.cpp" "src/CODY2D_text.cpp" "src/CODY2D_controls.cpp"
     INCLUDE_DIRS "include"
     REQUIRES esp_common log
 )

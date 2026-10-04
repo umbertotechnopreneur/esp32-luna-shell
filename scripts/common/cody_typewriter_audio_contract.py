@@ -25,10 +25,10 @@ def function_body(source: str, name: str) -> str:
 # Raises AssertionError for blocking render admission, a second transport owner,
 # stale-scene playback, changed cue bounds, or bypassed canonical audio policy.
 def check_typewriter_audio_source(root: Path) -> None:
-    owner = (root / "components/LUNASHELL_platform/LUNASHELL_audio.cpp").read_text(encoding="utf-8")
-    cue = (root / "components/CODY_companion/CODY_typewriter_audio.cpp").read_text(encoding="utf-8")
+    owner = (root / "components/LUNASHELL_platform/src/audio/LUNASHELL_audio.cpp").read_text(encoding="utf-8")
+    cue = (root / "components/CODY_companion/src/scenes/CODY_typewriter_audio.cpp").read_text(encoding="utf-8")
     cmake = (root / "components/CODY_companion/CMakeLists.txt").read_text(encoding="utf-8")
-    assert '"CODY_typewriter_audio.cpp"' in cmake
+    assert '"src/scenes/CODY_typewriter_audio.cpp"' in cmake
     assert "constexpr auto kOriginalTap = make_tap();" in cue
     sample_rate = int(re.search(r"kTapSampleRateHz\s*=\s*(\d+)", cue).group(1))
     sample_count = int(re.search(r"kTapSampleCount\s*=\s*(\d+)", cue).group(1))

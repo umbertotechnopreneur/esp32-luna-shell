@@ -156,12 +156,12 @@ def main(argv=None):
                     "components/LUNASHELL_platform/include",
                     "assets/cody/rig/generated", "assets/cody/poc/generated",
                     "assets/cody/experiments/jelly-scanline/generated")
-        sources = ("scripts/tests/cody_native/poc_runtime.cpp", "components/CODY2D/CODY2D.cpp",
+        sources = ("scripts/tests/cody_native/poc_runtime.cpp", "components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
-                       "components/CODY2D/CODY2D_paths.cpp", "components/CODY_companion/CODY_rig.cpp",
-                       "components/CODY_companion/CODY_response.cpp", "components/CODY_companion/CODY_demo.cpp",
-                       "components/CODY_companion/CODY_benchmark.cpp", "components/CODY_companion/CODY_damage.cpp",
-                       "components/CODY_companion/CODY_jelly.cpp",
+                       "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
+                       "components/CODY_companion/src/model/CODY_response.cpp", "components/CODY_companion/src/demos/CODY_demo.cpp",
+                       "components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "components/CODY_companion/src/rendering/CODY_damage.cpp",
+                       "components/CODY_companion/src/rendering/CODY_jelly.cpp",
                        "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
         executable = output / "poc-runtime.exe"
         command = compile_command(compiler, includes, sources, executable,

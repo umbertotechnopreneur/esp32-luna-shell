@@ -9,20 +9,21 @@ endif()
 
 idf_component_register(
     SRCS
-        "LUNASHELL_alert_service.cpp"
-        "LUNASHELL_app.cpp"
-        "LUNASHELL_app_logs.cpp"
-        "LUNASHELL_app_pairing.cpp"
-        "LUNASHELL_app_documents.cpp"
-        "LUNASHELL_app_document_actions.cpp"
-        "LUNASHELL_adaptive_chrome.cpp"
-        "LUNASHELL_adaptive_command_bar.cpp"
-        "LUNASHELL_background_asset.cpp"
-        "LUNASHELL_edge_navigation.cpp"
-        "LUNASHELL_navigation_service.cpp"
-        "LUNASHELL_pairing_qr.cpp"
-        "LUNASHELL_status_bar.cpp"
+        "src/runtime/LUNASHELL_alert_service.cpp"
+        "src/runtime/LUNASHELL_app.cpp"
+        "src/runtime/LUNASHELL_app_logs.cpp"
+        "src/pairing/LUNASHELL_app_pairing.cpp"
+        "src/documents/LUNASHELL_app_documents.cpp"
+        "src/documents/LUNASHELL_app_document_actions.cpp"
+        "src/chrome/LUNASHELL_adaptive_chrome.cpp"
+        "src/chrome/LUNASHELL_adaptive_command_bar.cpp"
+        "src/assets/LUNASHELL_background_asset.cpp"
+        "src/chrome/LUNASHELL_edge_navigation.cpp"
+        "src/chrome/LUNASHELL_navigation_service.cpp"
+        "src/pairing/LUNASHELL_pairing_qr.cpp"
+        "src/chrome/LUNASHELL_status_bar.cpp"
     INCLUDE_DIRS "include"
+    PRIV_INCLUDE_DIRS "src/runtime"
     REQUIRES
         brookesia_system_core
         LUNASHELL_platform
@@ -69,7 +70,7 @@ set(
     "${PROJECT_DIR}/main/Kconfig.projbuild"
     ${LUNASHELL_active_sdkconfig_defaults}
     "${PROJECT_DIR}/components/LUNASHELL_platform/CMakeLists.txt"
-    "${PROJECT_DIR}/components/LUNASHELL_platform/LUNASHELL_hardware.cpp"
+    "${PROJECT_DIR}/components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp"
     "${PROJECT_DIR}/scripts/generators/generate_LUNASHELL_gui_documents.py"
     "${PROJECT_DIR}/scripts/checks/verify_tof_build_gate.py"
     "${LUNASHELL_gui_document_source}"

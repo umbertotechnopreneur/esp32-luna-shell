@@ -285,9 +285,9 @@ def main() -> int:
     driver = ROOT / "components/LUNASHELL_tof400f/include/LUNASHELL_tof400f.h"
     driver_cmake = ROOT / "components/LUNASHELL_tof400f/CMakeLists.txt"
     build_kconfig = ROOT / "main/Kconfig.projbuild"
-    service = ROOT / "components/LUNASHELL_platform/LUNASHELL_distance_service.cpp"
+    service = ROOT / "components/LUNASHELL_platform/src/distance/LUNASHELL_distance_service.cpp"
     snapshot = ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp"
-    hardware = ROOT / "components/LUNASHELL_platform/LUNASHELL_hardware.cpp"
+    hardware = ROOT / "components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp"
     wiring = ROOT / "docs/hardware/tof400f-dual-uart.md"
     sdkconfig_defaults = read_profile_defaults()
     gui_root = ROOT / "components/LUNASHELL_app/gui/root.json"
@@ -304,7 +304,7 @@ def main() -> int:
     for fragment in (
         "CONFIG_LUNASHELL_BUILD_ENABLE_DISTANCE AND",
         "CONFIG_LUNASHELL_BUILD_DISTANCE_DRIVER_TOF400F_DUAL_UART",
-        'SRCS\n            "LUNASHELL_tof400f.c"',
+        'SRCS\n            "src/LUNASHELL_tof400f.c"',
         "idf_component_optional_requires(PUBLIC esp_common)",
         "esp_driver_uart\n        esp_timer\n        freertos\n        log",
         "else()\n    idf_component_register()\nendif()",

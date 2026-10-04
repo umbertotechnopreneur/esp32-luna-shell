@@ -325,16 +325,16 @@ def verify_documents() -> None:
 # Check the named Battery route and its binding contract in the current source layout.
 # Raises OSError or AssertionError for missing sources or rejected Battery contracts.
 def verify_firmware_contract() -> None:
-    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
     app_documents = read(
-        "components/LUNASHELL_app/LUNASHELL_app_documents.cpp"
+        "components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
     )
     navigation = read(
         "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
     )
-    status_bar = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
-    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
+    status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
+    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
 
     require_regex(
         navigation,

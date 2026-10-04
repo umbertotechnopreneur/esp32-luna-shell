@@ -40,9 +40,11 @@ def parse_distance(frame: bytes) -> int:
     return distance_mm
 
 
+# No parameters: inspect the portable protocol source without running hardware.
+# Raises OSError or AssertionError when the source cannot be read or loses host purity.
 def verify_protocol_source_is_host_pure() -> None:
     component_dir = Path(__file__).resolve().parents[1]
-    source = (component_dir / "LUNASHELL_tof400f_protocol.c").read_text(
+    source = (component_dir / "src" / "LUNASHELL_tof400f_protocol.c").read_text(
         encoding="utf-8"
     )
     forbidden_includes = (
@@ -57,9 +59,11 @@ def verify_protocol_source_is_host_pure() -> None:
             )
 
 
+# No parameters: inspect driver error and transaction ownership in the current source.
+# Raises OSError or AssertionError for unreadable sources or rejected invariants.
 def verify_driver_source_invariants() -> None:
     component_dir = Path(__file__).resolve().parents[1]
-    source = (component_dir / "LUNASHELL_tof400f.c").read_text(
+    source = (component_dir / "src" / "LUNASHELL_tof400f.c").read_text(
         encoding="utf-8"
     )
     transaction_start = source.index(

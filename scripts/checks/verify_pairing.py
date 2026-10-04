@@ -173,25 +173,25 @@ def verify_asset_references(
 # No parameters: read the app modules together so moving a handler does not hide its contract.
 # Raises OSError or AssertionError for missing sources or rejected pairing contracts.
 def main() -> None:
-    provisioning = read("components/LUNASHELL_platform/LUNASHELL_provisioning.cpp")
+    provisioning = read("components/LUNASHELL_platform/src/network/LUNASHELL_provisioning.cpp")
     provisioning_header = read("components/LUNASHELL_platform/include/LUNASHELL_provisioning.hpp")
-    radios = read("components/LUNASHELL_platform/LUNASHELL_radios.cpp")
+    radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
     platform_header = read("components/LUNASHELL_platform/include/LUNASHELL_platform.h")
     platform_cmake = read("components/LUNASHELL_platform/CMakeLists.txt")
     app_header = read("components/LUNASHELL_app/include/LUNASHELL_app.hpp")
-    app = read("components/LUNASHELL_app/LUNASHELL_app.cpp")
+    app = read("components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp")
     app_documents = read(
-        "components/LUNASHELL_app/LUNASHELL_app_documents.cpp"
+        "components/LUNASHELL_app/src/documents/LUNASHELL_app_documents.cpp"
     )
     app_document_actions = read(
-        "components/LUNASHELL_app/LUNASHELL_app_document_actions.cpp"
+        "components/LUNASHELL_app/src/documents/LUNASHELL_app_document_actions.cpp"
     )
     app_sources = f"{app}\n{app_documents}\n{app_document_actions}"
     simulator = read("simulator/windows/LUNASHELL_simulator.py")
     simulator_runner = read("scripts/device.ps1")
-    edge_navigation = read("components/LUNASHELL_app/LUNASHELL_edge_navigation.cpp")
+    edge_navigation = read("components/LUNASHELL_app/src/chrome/LUNASHELL_edge_navigation.cpp")
     navigation_service = read(
-        "components/LUNASHELL_app/LUNASHELL_navigation_service.cpp"
+        "components/LUNASHELL_app/src/chrome/LUNASHELL_navigation_service.cpp"
     )
     navigation_header = read(
         "components/LUNASHELL_app/include/LUNASHELL_navigation_service.hpp"
@@ -225,7 +225,7 @@ def main() -> None:
     }
     verify_asset_references(runtime_documents, package_documents)
     chrome = package_documents["templates/LUNASHELL_chrome.json"]
-    status_bar_source = read("components/LUNASHELL_app/LUNASHELL_status_bar.cpp")
+    status_bar_source = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
     main_source = read("main/main.cpp")
     sdkconfig = read_profile_defaults("connected")
 
@@ -341,7 +341,7 @@ def main() -> None:
     require(platform_header, "esp_err_t LUNASHELL_radios_init(void);", "platform API")
     require(platform_header, "esp_err_t LUNASHELL_radios_stop(void);", "platform API")
     require(platform_header, "esp_err_t LUNASHELL_wifi_stop(void);", "platform API")
-    require(platform_cmake, '"LUNASHELL_provisioning.cpp"', "platform CMake")
+    require(platform_cmake, '"src/network/LUNASHELL_provisioning.cpp"', "platform CMake")
     require(sdkconfig, "CONFIG_NETWORK_PROV_NETWORK_TYPE_WIFI=y", "sdkconfig defaults")
     require(
         sdkconfig,

@@ -1,6 +1,6 @@
 #include <cassert>
 #include <iostream>
-#include "../../../components/LUNASHELL_app/LUNASHELL_app_shell.cpp"
+#include "../../../components/LUNASHELL_app/src/shell/LUNASHELL_app_shell.cpp"
 
 using namespace shell_test;
 using namespace LUNASHELL;

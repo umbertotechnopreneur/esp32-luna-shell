@@ -27,8 +27,8 @@ from scripts.common.firmware_profile import read_profile_defaults
 
 
 ROOT = Path(__file__).resolve().parents[2]
-POWER_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_power.cpp"
-HARDWARE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_hardware.cpp"
+POWER_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "power" / "LUNASHELL_power.cpp"
+HARDWARE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_hardware.cpp"
 PLATFORM_HEADER = (
     ROOT / "components" / "LUNASHELL_platform" / "include" / "LUNASHELL_platform.h"
 )
@@ -39,9 +39,9 @@ DEVICE_SNAPSHOT_HEADER = (
     / "include"
     / "LUNASHELL_device_snapshot.hpp"
 )
-HTTP_JSON_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_http_json.cpp"
+HTTP_JSON_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "http" / "LUNASHELL_http_json.cpp"
 DISPLAY_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_display_settings.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "src" / "display" / "LUNASHELL_display_settings.cpp"
 )
 BSP_DISPLAY_SOURCE = (
     ROOT
@@ -67,7 +67,7 @@ ADAPTER_PAUSE_PATCH = (
     / "patches"
     / "esp_lvgl_adapter_pause_recovery.patch"
 )
-APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_app.cpp"
+APP_SOURCE = ROOT / "components" / "LUNASHELL_app" / "src" / "runtime" / "LUNASHELL_app.cpp"
 APP_HEADER = ROOT / "components" / "LUNASHELL_app" / "include" / "LUNASHELL_app.hpp"
 SETTINGS_SCREEN = (
     ROOT / "components" / "LUNASHELL_app" / "package" / "res" / "screen_settings.json"
@@ -82,10 +82,10 @@ SETTINGS_SWITCH = (
     / "LUNASHELL_settings_switch.json"
 )
 ADAPTIVE_CHROME_SOURCE = (
-    ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_adaptive_chrome.cpp"
+    ROOT / "components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_chrome.cpp"
 )
 ADAPTIVE_COMMAND_SOURCE = (
-    ROOT / "components" / "LUNASHELL_app" / "LUNASHELL_adaptive_command_bar.cpp"
+    ROOT / "components" / "LUNASHELL_app" / "src" / "chrome" / "LUNASHELL_adaptive_command_bar.cpp"
 )
 BROOKESIA_GUI_SOURCE = (
     ROOT
@@ -140,21 +140,21 @@ BROOKESIA_IMPL_HEADER = (
     / "system"
     / "impl.hpp"
 )
-AUDIO_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_audio.cpp"
+AUDIO_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_audio.cpp"
 VOICE_AFE_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_voice_afe.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "src" / "audio" / "LUNASHELL_voice_afe.cpp"
 )
-LOGGER_SOURCE = ROOT / "components" / "LUNASHELL_logger" / "LUNASHELL_logger.c"
+LOGGER_SOURCE = ROOT / "components" / "LUNASHELL_logger" / "src" / "LUNASHELL_logger.c"
 SNAPSHOT_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_snapshot_scheduler.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "src" / "snapshot" / "LUNASHELL_snapshot_scheduler.cpp"
 )
 DISTANCE_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_distance_service.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service.cpp"
 )
 DISTANCE_STUB_SOURCE = (
-    ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_distance_service_stub.cpp"
+    ROOT / "components" / "LUNASHELL_platform" / "src" / "distance" / "LUNASHELL_distance_service_stub.cpp"
 )
-STORAGE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "LUNASHELL_storage.cpp"
+STORAGE_SOURCE = ROOT / "components" / "LUNASHELL_platform" / "src" / "storage" / "LUNASHELL_storage.cpp"
 PLATFORM_CMAKE = ROOT / "components" / "LUNASHELL_platform" / "CMakeLists.txt"
 
 PKEY_SHORT_IRQ = 1 << 0
