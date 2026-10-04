@@ -9,10 +9,14 @@ older host/build/flash evidence does not validate the current combined image.
 ## Cody integration and release gates
 
 - [ ] Validate the personality-icons branch after explicit authorization:
-  compile/link, generated-palette/coverage contracts, every non-Micro size and
-  all fourteen cues, symbol readability, actual jelly/vector clearance,
-  circle/QR/title/status/Back separation, lag under pause/wake/rotation/stale
-  clocks, canonical device-state gating and old/new damage erasure. Profile
+  compile/link, generated-palette/coverage contracts, all fourteen cues in Main
+  and Sleep, suppression on other scenes and Micro, symbol readability, actual
+  jelly/vector clearance, circle/status/Back separation, configured face anchor,
+  bounded follow under pause/wake/rotation, stable selection, fade/hold/release,
+  canonical device-state gating and old/new damage erasure. Listen to/refine all
+  fourteen original SFX and verify completed-frame triggering, busy drops,
+  cooldown, quiet/zero-volume/standby, idle-mute restoration, expiry, retained
+  errors and codec contention. Profile
   complete frame/DMA/CPU/stack costs; static area counts are not performance
   evidence. Reconcile the independent renderer-optimization worktree before
   integrated release validation. No tests/checks/build/simulator/device run has

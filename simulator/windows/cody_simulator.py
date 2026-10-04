@@ -33,7 +33,7 @@ from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
-from cody_personality import PersonalityCue, PersonalityPainter  # noqa: E402
+from cody_personality import PersonalityCue, PersonalityPainter, PersonalityPresentation  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -385,9 +385,11 @@ class CodyRenderer:
     # personality_cue: Single explicit host symbol preview; device cues are synthetic.
     # personality_elapsed_ms: Active cue clock, frozen while animation is paused.
     # personality_nominal_scale: Unanimated authored size; None uses the supplied transform.
+    # personality_sleep: Semantic Sleep preset selection; never inferred from eyelid values.
+    # personality_paused: Freeze the icon channel and its geometry during redraws.
     # Raises ValueError for an unknown screen or invalid rig values.
     # Raises OSError for unreadable alternate PNG artwork.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0, personality_cue=PersonalityCue.NONE, personality_elapsed_ms=0, personality_nominal_scale=None):
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0, personality_cue=PersonalityCue.NONE, personality_elapsed_ms=0, personality_nominal_scale=None, personality_sleep=False, personality_paused=False):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
@@ -406,22 +408,22 @@ class CodyRenderer:
                                     navigation_visible=not boot_visible,
                                     background_rgb565=self.scene_painter.definition("greeting")["background_rgb565"]
                                     if screen == Screen.GREETING else None)
-            if self.personality_painter is not None or personality_cue != PersonalityCue.NONE:
+            if self.personality_painter is not None or personality_cue != PersonalityCue.NONE or personality_sleep:
                 if self.personality_painter is None:
                     self.personality_painter = PersonalityPainter(self.root, self.rig)
-                exclusions = [(10, 203, 70, 263)]
-                if screen == Screen.GREETING:
-                    definition = self.scene_painter.definition("greeting")
-                    text = definition["title"]
-                    if text["visible"]:
-                        exclusions.append((73, text["top"], 393, text["top"] + 40))
+                # Reserve the native status layer even while its touch opacity is zero.
+                exclusions = [(10, 203, 70, 263), (106, 37, 362, 58)]
+                presentation = PersonalityPresentation.DISABLED
+                if screen == Screen.RIG:
+                    presentation = PersonalityPresentation.SLEEP if personality_sleep else PersonalityPresentation.MAIN
                 body_top = None
                 if self.jelly_study_enabled and self.jelly_sprite is not None:
                     body_top = max(0, math.floor(self.jelly_sprite.map_rows(scene)[0].destination_y))
                 cue_frame = self.personality_painter.prepare(
                     scene, personality_cue,
                     transform[2] if personality_nominal_scale is None else personality_nominal_scale,
-                    screen, rotation, personality_elapsed_ms, exclusions, body_top)
+                    screen, rotation, personality_elapsed_ms, exclusions, body_top,
+                    presentation=presentation, paused=personality_paused)
                 self.personality_painter.paint(image, cue_frame)
             if screen == Screen.GREETING:
                 image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
@@ -431,6 +433,8 @@ class CodyRenderer:
                     self.scene_painter.paint_title(image, "greeting", scene_elapsed_ms)
         else:
             image = self.boot[screen].copy()
+            if self.personality_painter is not None:
+                self.personality_painter.disable(personality_elapsed_ms)
         circular = Image.new("L", (SIZE, SIZE))
         ImageDraw.Draw(circular).ellipse((0,0,SIZE-1,SIZE-1), fill=255)
         image = image.convert("RGB")
@@ -537,6 +541,8 @@ class CodyWindow:
         self.entity_name = next(iter(renderer.rig["entities"]))
         self.face_state = [channel["default"] for channel in renderer.rig["channels"]]
         self.face_presets = renderer.rig["boot_channels"] | renderer.rig["expression_presets"]
+        self.face_preset_name = None
+        self.personality_sleep = False
         self.response_config = deepcopy(renderer.rig["response"])
         self.response_state = make_response_state(self.response_config)
         self.stimulus_source = SyntheticStimulusSource()
@@ -637,6 +643,8 @@ class CodyWindow:
         ttk.Label(appearance, text="Manga symbol / HOST PREVIEW (device cues are synthetic)").pack(anchor="w")
         ttk.Combobox(appearance, textvariable=self.personality_cue,
                      values=tuple(cue.name for cue in PersonalityCue), state="readonly").pack(fill="x")
+        ttk.Label(appearance, text="Main view only. Sleep preset selects its symbol automatically.",
+                  wraplength=295).pack(anchor="w")
         # Targets belong to the controls; smoothing belongs to the animation state.
         if self.jelly_study:
             self.add_toggle(appearance, "Deform face with jelly body", self.face_follows_body)
@@ -653,6 +661,7 @@ class CodyWindow:
         self.values = []
         for channel in self.renderer.rig["channels"]:
             value = tk.DoubleVar(value=channel["default"])
+            value.trace_add("write", self.clear_face_preset)
             self.values.append(value)
             self.add_slider(appearance,channel["name"],channel["minimum"],channel["maximum"],value)
 
@@ -926,13 +935,20 @@ class CodyWindow:
             self.after_id = None
         self.root.destroy()
 
-    # name selects a validated boot or expression preset as smooth channel targets.
+    # self: Preview controller retaining the semantic selected expression identity.
+    # name: Validated boot or expression preset applied as smooth channel targets.
     # Raises KeyError when the requested preset is not defined in the YAML catalog.
     def preset(self, name):
         values = self.face_presets[name]
         self.screen.set(Screen.RIG.value)
         for target,value in zip(self.values,values):
             target.set(value)
+        self.face_preset_name = name
+
+    # self: Preview controller whose manual face edits end the named expression.
+    # arguments: Tk trace arguments; edits do not infer a new preset from numeric values.
+    def clear_face_preset(self, *arguments):
+        self.face_preset_name = None
 
     # restore authored targets without resetting the continuous phase.
     def reset_contour(self):
@@ -1210,13 +1226,16 @@ class CodyWindow:
     def advance_animation(self, screen, active_ms):
         face_targets = [value.get() for value in self.values]
         targets = {name: value.get() for name, value in self.contour_values.items()}
+        self.personality_sleep = screen == Screen.RIG and self.face_preset_name in ("sleep", "sleeping")
         if screen == Screen.GREETING:
             face_targets = self.renderer.scene_painter.face("greeting")
             targets = contour_defaults(self.renderer.rig)
             if self.previous_animation_screen != screen:
                 self.face_state = list(face_targets)
         elif self.demo_enabled.get() and screen == Screen.RIG:
-            _, face_targets, targets = demo_targets(self.runtime_settings, self.renderer.rig, self.elapsed_ms)
+            phase_id, face_targets, targets = demo_targets(self.runtime_settings, self.renderer.rig, self.elapsed_ms)
+            phase = next(step for step in self.runtime_settings["demo"]["steps"] if step["id"] == phase_id)
+            self.personality_sleep = phase["face"] in ("sleep", "sleeping")
         self.face_state = advance_face(
             self.renderer.rig, self.face_state, face_targets, active_ms
         )
@@ -1317,7 +1336,10 @@ class CodyWindow:
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
             self.face_follows_body.get(), self.renderer.navigation_opacity, self.playing.get(),
             self.personality_cue.get(),
-            round(self.elapsed_ms, 1) if self.personality_cue.get() != PersonalityCue.NONE.name else None,
+            self.personality_sleep,
+            round(self.elapsed_ms, 1) if screen == Screen.RIG and
+            (self.personality_cue.get() != PersonalityCue.NONE.name or self.personality_sleep or
+             self.renderer.personality_painter is not None and self.renderer.personality_painter.active) else None,
             self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
             if screen == Screen.GREETING else None,
         )
@@ -1386,6 +1408,8 @@ class CodyWindow:
                 personality_elapsed_ms=self.elapsed_ms,
                 personality_nominal_scale=self.renderer.scene_painter.definition("greeting")["cloud"]["scale"]
                 if screen == Screen.GREETING else self.transform[2].get(),
+                personality_sleep=self.personality_sleep,
+                personality_paused=not self.playing.get(),
             )
             self.present_frame(image, layout, screen, rotation)
             # Commit only after Tk accepted the image and its matching hit targets.
@@ -1396,11 +1420,15 @@ class CodyWindow:
 
         duration_ms = (time.perf_counter() - started) * 1000
         target_hz = 25 if self.jelly_study else 60
+        personality_status = "HIDDEN"
+        if self.renderer.personality_painter is not None:
+            frame = self.renderer.personality_painter.last_frame
+            personality_status = f"{frame.status.name} / {frame.cue.name} / alpha {frame.opacity}"
         self.timing.configure(
             text=f"SYNTHETIC / host tick {duration_ms:.1f} ms / "
                  f"presentation {'UPDATED' if changed else 'UNCHANGED'} / "
                  f"interval {interval_seconds * 1000:.1f} ms / "
-                 f"active target {target_hz} Hz / ESP32: UNMEASURED"
+                 f"active target {target_hz} Hz / symbol {personality_status} / ESP32: UNMEASURED"
         )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100

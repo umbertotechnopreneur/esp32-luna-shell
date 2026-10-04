@@ -23,8 +23,9 @@ Regenerate using the sole public CLI:
 
 One appearance in a successfully completed frame may request one sound. The
 audio owner drops busy requests, enforces eight seconds between playback starts
-and expires unstarted requests after 120 ms. Quiet hours, mute and display
-suspension can suppress playback. There is no replay queue. Global enable is
+and expires unstarted requests after 120 ms. Quiet hours, zero volume and display
+suspension can suppress playback. Idle codec mute is temporarily released and
+restored by its owner. There is no replay queue. Global enable is
 session-only; per-cue enable lives in the authored generator/catalog.
 
 No listening, build, simulator or hardware validation has been performed for

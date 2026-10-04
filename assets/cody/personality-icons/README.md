@@ -45,6 +45,9 @@ per-size texture copies, SD assets, runtime PNG decoding, sensor reads or
 per-frame heap allocations are introduced by the native cue renderer.
 
 `CODY_personality.hpp` owns stable cue/size enums and the public selection APIs.
+The main character view and full-size Sleep admit a single fading symbol;
+onboarding, settings, QR, boot and header scenes disable it. Original synthesized
+sound companions and a listening reel are in [audio](audio/README.md).
 The implementation and performance limits are documented in
 [personality rendering](../../../docs/architecture/cody/personality-icons.md).
 Generation and source/artwork review were performed; firmware compilation,

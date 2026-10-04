@@ -45,7 +45,7 @@ normal vector path, never a fallback after renderer error.
 ## Snapshot-driven response
 
 One optional manga personality symbol now shares the evaluated pose and dirty
-frame ownership. Its fixed-palette masters, typed sizes, 85-ms delayed follow,
+frame ownership. Its fixed-palette masters, typed sizes, bounded delayed follow,
 canonical device-cue gating and source-only budgets are documented in
 [personality symbols](personality-icons.md). It adds no second full-canvas warp.
 

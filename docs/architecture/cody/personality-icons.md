@@ -1,132 +1,180 @@
-# Cody personality symbols and delayed follow
+# Cody personality channel
 
-The native 2D renderer adds one fixed-palette manga symbol above Cody. All skins
-share the same fourteen masters. The default is `PersonalityCue::None`; a
-caller explicitly selects a single symbol through the session API. Selection
-does not alter expression presets, settings, sensor acquisition or persistence.
+Cody displays one manga symbol in the main character view or the full-size Sleep
+presentation. Onboarding, greetings, settings, QR, boot and small-header scenes
+disable the channel. Scene permission is independent of `CodySize`: the ten
+stable size identities and scalable masters remain available, while Micro still
+suppresses symbols. All skins use the same fourteen fixed-palette masters.
 
-```cpp
-#include "CODY_personality.hpp"
+## Selection and ownership
 
-// Handle each returned esp_err_t in the caller's existing error path.
-const esp_err_t narrative_result = CODY::set_personality_cue(CODY::PersonalityCue::Joy);
-const esp_err_t device_result = CODY::set_personality_device_cue(CODY::PersonalityCue::LowBattery);
-```
+`set_personality_cue()` selects a narrative target. `set_personality_device_cue()`
+selects None, LowBattery, Charging or NoWifi. Repeating the same request does not
+restart its fade, stability period or hold. Only the latest desired identity is
+retained; there is no queue of previous requests and no per-symbol animation task.
 
-The second request replaces the first; there is no stack or priority arbitration.
-The getter reports the requested cue, not proof that a display frame retired.
-Narrative selection rejects device identities. Device selection admits only
-None, LowBattery, Charging or NoWifi and never manufactures their truth.
+`get_personality_cue()` returns the explicit session request.
+`get_personality_frame()` returns the last fully retired frame, including
+opacity, bounds and `Hidden`, `Visible` or `BlockedByLayout`. It rejects reads
+while the completed-frame reference is invalid. Request admission and prepared
+geometry are not evidence that a frame reached the display.
 
-Device requests read only a coherent `DeviceSnapshotService` projection, not
-sensors/BSP/I2C. Their component must be Ready, valid, non-stale, error-free and
-have an original successful publication timestamp. LowBattery also requires a
-valid percentage in [0,100], and reuses the existing status-overlay low threshold
-of 15 percent. Charging follows the published charging state independently of
-percentage validity; unknown current states return their real contract error.
-NoWifi requires a confirmed started/configured Wi-Fi radio with no connected
-link; unknown, stale, failed and unconfigured state is not a disconnection claim.
-Unavailable or inapplicable device observations suppress the device symbol;
-the canonical status layer retains its existing truthful unavailable/error text.
-Narrative sleep, fear, hunger, thirst, heat and cold are artistic story cues,
-not measured physiological or environmental facts.
+The existing Cody worker owns the channel under the display lock. Real device
+cues use one coherent `DeviceSnapshotService` projection for both the desired
+and current channel identities, including a just-started, zero-opacity fade.
+The component must be Ready, valid, fresh, error-free and timestamped. LowBattery
+requires a measured percentage at or below the existing 15-percent threshold;
+Charging follows the actual charging state; NoWifi requires a started/configured
+radio with no connected link. Stale or disproven facts immediately invalidate
+their current symbol, so artistic hold never preserves a false device status.
+Canonical read/contract failures retain their real errors.
 
-## Typed existing sizes
+## Timing and semantic Sleep
 
-`CodySize` represents every current authored nominal presentation. Breathing,
-root motion, depth and entrance interpolation still use continuous geometry;
-they cannot accidentally turn an ordinary character into Micro.
+The channel advances through Hidden, FadeIn, Visible and FadeOut using elapsed
+active animation time. Each transition starts at zero on its entry frame;
+visible timing is quantized by frame cadence, not by a count of frames.
 
-| Stable enum | Nominal scale | Existing presentation |
-| --- | ---: | --- |
-| Micro | 22 | Scan-to-pair QR header; symbol intentionally suppressed |
-| Tiny | 30 | Debug-text header |
-| Preferences | 42 | Make-it-yours/settings header |
-| Look | 44 | Cody-look header |
-| Pairing | 46 | Pairing header |
-| Small | 58 | Install-app header |
-| Invitation | 65 | Pair-invitation header |
-| Medium | 105 | Pairing-failed/online and connection scenes |
-| Greeting | 130 | Welcome greeting |
-| Full | 145 | Ordinary rig/lifecycle placement |
+| Setting | Value |
+| --- | ---: |
+| Stable desired target before ordinary admission | 300 ms |
+| Fade in, smoothstep | 400 ms |
+| Minimum hold at full opacity | 2,500 ms |
+| Fade out, smoothstep | 600 ms |
+| Position-follow history window | 360 ms |
+| Scale-follow history window | 400 ms |
+| Maximum positional separation from current anchor | 4 pixels |
 
-Every non-Micro size supports the selected symbol. The runtime classifies the
-unanimated authored target scale; the existing free-scale rig preview selects
-the nearest named size, with stable enum-ID tie breaking. Only nominal scales
-at or below 22 are Micro. Invalid/nonfinite/out-of-contract scales are errors.
-None and Micro cause no sprite pixel work.
+Ordinary replacements let fade-in and minimum hold finish before fade-out.
+Requests received during fade-out replace the single desired target. Once the
+old cue reaches zero opacity, the latest stable target can enter. There is never
+a crossfade between two sprites. None releases the channel through the same
+ordinary hold/fade policy.
 
-## Motion, layout and frame ownership
+An explicit Sleeping expression in the main view, or `LifecyclePhase::Sleep`,
+owns `PersonalityCue::Sleep`. Eye openness and blink values never select it.
+Semantic Sleep bypasses the 300-ms stability wait. If another cue is visible,
+Sleep releases its hold and lets it fade out for 600 ms before Sleep fades in.
+An entirely transparent prior cue can be replaced immediately. Leaving semantic
+Sleep fades its current opacity out without waiting for minimum hold. The release
+intent survives pause until the controller applies it. A manually selected Sleep
+symbol outside the semantic pose follows ordinary admission timing.
 
-Cody's already evaluated crown provides the horizontal follow anchor. The
-existing upper-left/right lobes provide a small bounded squash ratio (0.9-1.1).
-Vertical clearance uses the actual prepared jelly silhouette top, or the
-evaluated vector-body extent, rather than assuming a lobe anchor is the contour
-edge. The single symbol follows position and width/height through an analytical
-first-order response with an 85-ms time constant. This creates a soft delayed
-parallax response without another body mesh, texture warp or full-canvas effect.
+Physical Sleep still closes the eyes over 400 ms and holds them for 300 ms before
+the power owner may continue standby. A 600-ms replacement plus a 400-ms entry
+cannot finish within that 700-ms preparation. Power timing is not extended: the
+panel may turn off before a replacement sequence finishes. A sustained manual
+Sleeping pose can show the complete sequence. Boot/wake presentations disable
+the channel according to their own panel-visibility ownership.
 
-Requested support is proportional to character scale, bounded to a 64 x 64
-maximum and 12-pixel minimum. Where visible chrome narrows the gap above a large
-deformed Cody, the renderer reduces the support into that actual gap, preserving
-the filtered bottom anchor and keeping it above the body. A bounded set of
-upward/lateral candidates preserves the scene title, all content/QR quiet-zone
-bounds, existing content controls, status strip and complete lateral Back target.
-For a constant-width rectangle in a convex circle, the farther endpoint row is
-the narrowest chord; one square root proves every occupied row fits the circle.
-Invalid geometry or physically impossible requested placement logs the real
-context and returns an error. It is not silently hidden as a successful frame.
-Extreme motion/layout admission and the minimum-size readability need validation.
+Pause and standby contribute zero active time. Partial-frame invalidation and
+wake may re-prime geometric following, but do not replay fade/hold clocks.
 
-Lag re-primes on cue, nominal size, route or cardinal orientation change, wake,
-invalidated frame ownership, reversed time or a gap above 250 ms. Paused frames
-do not advance it. Core graphics and coordinates stay in the shared logical
-orientation; text/touch are not rotated separately. There are no hit targets on
-the decorative symbol.
+## Configurable facial anchor and layout
 
-The immutable `PersonalityFrame` travels with `RigScene`. Changed identity or
-bounds invalidate both old and new footprints through the existing paired-row
-dirty planner. Fade invalidates symbol footprints with the other artwork;
-complete display retirement alone commits the previous frame. Rendering uses
-integer nearest sampling of the index and coverage planes and blends directly
-into the current compact RGB565 DMA tile with its declared byte order.
+`components/CODY_companion/include/CODY_personality_config.hpp` is the authored
+source for timing and Main/Sleep profiles. The simulator reads the same values.
+Each profile defines rig-local X/Y offsets from the evaluated Nose anchor and
+an icon extent per nominal character scale. The renderer scales around the
+icon's center, not a bottom edge or an automatically inferred body-top point.
 
-## Static resource estimates and limits
+The initial Main and Sleep profiles share offsets `(0.09, -1.14)` and extent
+factor `0.20`, approximately 29 pixels at nominal Full scale 145. Sharing a
+center keeps a pose transition from relocating an already visible symbol.
+Separate profiles allow later art-direction adjustments without changing assets.
+The already evaluated face/body supply motion; no sensor is read by this layer.
 
-- Master index/coverage planes: 14 x 64 x 64 x 2 = 114,688 flash bytes.
-- Exact RGB565 palette: 512 flash bytes. Total payload: 115,200 bytes, plus
-  descriptors (224 bytes under the normal 32-bit ESP ABI), alignment and code.
-- Artistic filter: one fixed state (approximately 48 bytes under the ESP ABI).
-  Each current/previous scene adds a small cue descriptor. These are source
-  estimates, not compiled structure/heap measurements.
-- One active cue visits at most 4,096 destination pixels per complete frame,
-  independent of the number of catalog symbols or skins. At the existing 25-Hz
-  jelly target this bounds cue sampling to 102,400 pixels per second; it does
-  not predict CPU time, blend cost, achieved FPS or power consumption.
-- Common placement uses one filter `expm1` and one circle `sqrt`; the bounded
-  admission search has at most 24 candidates, independent of display area.
-  Vector-only clearance also visits the already evaluated body vertices once.
-- No new full framebuffer, render task, native per-frame allocation, sensor
-  acquisition or per-pixel blob deformation is introduced.
+Small deformation follows the upper-lobe span with a 400-ms history window. Its
+bound is proportional to base extent: at most two pixels at a 58-pixel base,
+approximately one pixel at the default 29-pixel base. Position follows the same
+evaluated face direction through a 360-ms window (about 180-ms mean lag), with
+a radial separation limit of four pixels from its current authored anchor.
+This limit applies before raster rounding; integer bounds can add up to about
+0.71 pixel of center quantization.
+The maximum renderer support remains 64 x 64.
 
-The existing paired-row planner combines nearby/distant sprite and body
-footprints into conservative tile rectangles. Old/new bounds and intervening
-gaps can increase transferred pixels beyond the cue's own 4,096-pixel support.
-The display-wide upper bound remains the 466 x 466 canvas (217,156 pixels per
-complete redraw); a 1.89-percent cue area is not a CPU or transfer-overhead
-percentage. Target profiling must compare complete frames, transfer spans,
-stack headroom and actual artwork/personality substages. `RigRasterProfile`
-records personality work separately from vector work while including it in
-total artwork time.
+The follower uses fixed 25-ms time buckets and time-weighted means. Expired
+history is discarded, so an input that stops changing reaches its target within
+400 ms of active animation time, at the first available rendered frame. Bucket
+granularity can shorten the effective window by up to 25 ms. Retargeting never
+restarts a transition deadline. There is no infinite exponential tail and no
+independent drifting motion. Pause contributes no elapsed time; a geometric
+reset primes the complete history at the current anchor. A large abrupt move
+can invoke the four-pixel tether, prioritizing attachment over inertia.
 
-The Windows simulator source loads the same index/coverage planes and stable
-identities, uses the same follow/admission equations and native integer sampling,
-and offers an explicitly synthetic host-symbol selector. Host image allocation,
-Pillow compositing and timing do not establish firmware performance. It has not
-been run for this change.
+The full status footprint `(106,37)-(362,58)` and full lateral Back target are
+reserved even when chrome is transparent. Touch cannot resize or teleport the
+symbol. There is no adaptive shrinking, upward search or lateral relocation.
+The entire configured rectangle must fit the circle and stay above the actual
+jelly/vector silhouette with four pixels of clearance.
 
-The branch started from main `290b6da3` in the isolated worktree
-`E:\ESP32 Luna Cody Emotions` (`feat/personality-icons`). Another renderer
-optimization worktree is independent; integrating later main/renderer changes
-may require reconciling `RigScene`, dirty planning and draw-stage profiling.
-No merge, push or physical operation belongs to this implementation checkpoint.
+Ordinary lack of space produces `BlockedByLayout`, clears visible channel state,
+and leaves Cody rendering. Once space returns, the desired cue enters with a
+fresh fade. The runtime logs admission/recovery transitions. This explicit
+presentation outcome is not a swallowed rendering error: malformed geometry,
+invalid identities and bad surface/configuration values still return errors.
+Extreme movement may therefore suppress the decorative icon. Visual review of
+the selected profile and motion envelope remains required.
+
+## Rendering and resources
+
+`PersonalityFrame` travels with `RigScene`. Identity, opacity, status and bounds
+participate in dirty comparison; both old and new footprints are erased/redrawn.
+Rasterization multiplies stored alpha8 coverage by the channel's opacity with
+integer rounding and composites directly into the existing RGB565 tile.
+
+The fourteen 64 x 64 index/coverage pairs use 114,688 bytes, plus the exact
+512-byte RGB565 palette: 115,200 flash bytes before descriptors, alignment and
+code. There are no per-skin copies, new framebuffer or native per-frame heap
+allocations. At most 4,096 destination pixels are sampled for one complete
+visible sprite frame; the initial 29 x 29 profile normally covers much less.
+The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
+A compile-time assertion limits the entire channel/follower state to 512 bytes;
+preparation also takes one transient copy on the existing worker stack. Its work
+is bounded independently of frame frequency; it adds no layer framebuffer or
+separate animation worker. These source assertions have not yet been compiled.
+
+These are source estimates, not compiled size, stack or FPS measurements. The
+existing paired-row dirty planner can transfer gaps between the icon and body,
+so sprite area alone does not predict display cost. `ART personality=` keeps
+raster timing distinct while including it in total artwork time.
+
+## Optional symbol sound
+
+Fourteen original analytically synthesized sounds accompany the cue identities.
+The versioned WAV/PCM catalog, recipes and audition reel live in
+`assets/cody/personality-icons/audio/`. Clips are mono PCM16 at 16 kHz, 170-300 ms,
+with -18 dBFS authored peaks. Native sample payload is 103,360 bytes before
+descriptors/code. The listening reel and WAV wrappers are not firmware inputs.
+
+Only a newly visible symbol in a successfully retired frame requests playback.
+Evaluating a pose or failing a frame cannot trigger its sound. The existing
+platform audio owner handles codec access through a dormant 4-KiB worker stack,
+reusing its existing resampling scratch under the codec mutex. Render-side
+notification performs no codec I/O and never waits for playback.
+
+There is one in-flight attempt and no backlog: busy requests drop, actual starts
+have an eight-second cooldown, and requests expire after 120 ms. Hidden scenes,
+display parking and teardown suspend/cancel the channel. Quiet hours and the
+current volume policy apply; zero volume suppresses playback and saved volume
+is unchanged. The owner temporarily releases and restores idle codec mute.
+Resampling uses the
+existing codec clock. Errors remain retained and published by the audio owner;
+an optional audio failure does not stop character rendering.
+
+`CODY_personality_audio.hpp` exposes preparation, notification with explicit
+disposition, suspension, session-only global enable and retained status. Catalog
+entries also carry an authored enable flag. Dropped/suppressed attempts are not
+retried on later frames. Listening quality, physical latency, stack use, codec
+contention and PCM drain behavior remain unmeasured.
+
+## Validation and integration status
+
+This increment has asset generation and static source review only. No tests, validation scans, build, size,
+simulator run, audio playback or hardware operation has been performed. Native
+and simulator behavior, minimal readability, extreme motion, pause/rotation,
+old-pixel erasure and resource costs require explicitly authorized validation.
+
+The isolated worktree is `E:\ESP32 Luna Cody Emotions`, branch
+`feat/personality-icons`, originally based on `290b6da3`. Newer main changes and
+the independent renderer optimization worktree have not been merged here.

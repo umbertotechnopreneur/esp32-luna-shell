@@ -1,5 +1,6 @@
 #include "CODY_companion.h"
 #include "CODY_personality.hpp"
+#include "CODY_personality_audio.hpp"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -169,6 +170,11 @@ CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     CODY::PersonalityCue requested_personality = CODY::PersonalityCue::None;
     CODY::PersonalityLag personality_lag{};
+    CODY::PersonalityFrame retired_personality{};
+    CODY::PersonalityPresentationStatus personality_status = CODY::PersonalityPresentationStatus::Hidden;
+    int64_t personality_delta_us = 0;
+    bool personality_was_sleep = false;
+    bool personality_release_sleep = false;
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
     CODY::OnboardingSettings onboarding{};
@@ -238,20 +244,16 @@ bool personality_sample_current(const LUNASHELL::ComponentSnapshot &component)
         component.data_valid && !component.data_stale && component.last_success_at_us > 0;
 }
 
+// observation: One coherent canonical publication shared by desired and displayed cue admission.
 // requested: Device cue request; narrative requests pass through unchanged.
 // cue: Receives None unless the fresh canonical observation actually supports the symbol.
-// Exception: Returns the original snapshot read or invalid canonical value error.
-esp_err_t observe_personality_device_cue(CODY::PersonalityCue requested, CODY::PersonalityCue &cue)
+// Exception: Returns the original invalid canonical value error.
+esp_err_t admit_personality_device_cue(const LUNASHELL::DeviceStatusObservation &observation,
+                                      CODY::PersonalityCue requested, CODY::PersonalityCue &cue)
 {
     cue = requested;
     if (!CODY::personality_cue_is_device(requested)) {
         return ESP_OK;
-    }
-    LUNASHELL::DeviceStatusObservation observation;
-    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Personality canonical observation failed (%s)", esp_err_to_name(error));
-        return error;
     }
     cue = CODY::PersonalityCue::None;
     if (requested == CODY::PersonalityCue::NoWifi) {
@@ -286,6 +288,61 @@ esp_err_t observe_personality_device_cue(CODY::PersonalityCue requested, CODY::P
         }
     }
     return ESP_OK;
+}
+
+// requested: Latest desired symbol, after scene and semantic sleep selection.
+// displayed: Symbol owned by the channel, including a zero-opacity fade-in entry.
+// desired: Receives the currently admitted request.
+// invalidate_current: Receives true when a displayed device fact no longer has canonical support.
+// Exception: Returns the original canonical read or value-contract failure.
+esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
+                                         CODY::PersonalityCue displayed,
+                                         CODY::PersonalityCue &desired, bool &invalidate_current)
+{
+    desired = requested;
+    invalidate_current = false;
+    if (!CODY::personality_cue_is_device(requested) && !CODY::personality_cue_is_device(displayed)) {
+        return ESP_OK;
+    }
+    LUNASHELL::DeviceStatusObservation observation;
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Personality canonical observation failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    error = admit_personality_device_cue(observation, requested, desired);
+    if (error != ESP_OK) {
+        return error;
+    }
+    CODY::PersonalityCue admitted_current = displayed;
+    error = admit_personality_device_cue(observation, displayed, admitted_current);
+    if (error != ESP_OK) {
+        return error;
+    }
+    // Presentation dwell cannot preserve a stale or disproven device fact.
+    invalidate_current = CODY::personality_cue_is_device(displayed) &&
+        admitted_current == CODY::PersonalityCue::None;
+    return ESP_OK;
+}
+
+// rig_visible: The current frame really renders the evaluated character.
+// Scene permission depends on semantic route/pose identity, independently of character size.
+CODY::PersonalityPresentation personality_presentation(bool rig_visible)
+{
+    if (!rig_visible) {
+        return CODY::PersonalityPresentation::Disabled;
+    }
+    if (s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep) {
+        return CODY::PersonalityPresentation::Sleep;
+    }
+    const bool main_view = CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        !s_state.scene.valid && !s_state.resume_scene_pending;
+    if (!main_view) {
+        return CODY::PersonalityPresentation::Disabled;
+    }
+    const bool sleeping_pose = s_state.expression_override &&
+        s_state.requested_expression == CODY::ExpressionId::Sleeping;
+    return sleeping_pose ? CODY::PersonalityPresentation::Sleep : CODY::PersonalityPresentation::Main;
 }
 
 // No parameters: derive visible feedback from the independently completed SD write.
@@ -520,6 +577,71 @@ bool s_typewriter_audio_suspended = false;
 esp_err_t s_optional_typewriter_error = ESP_OK;
 uint32_t s_optional_typewriter_repeated_failures = 0;
 int64_t s_optional_typewriter_reminder_at_us = 0;
+bool s_personality_audio_prepared = false;
+bool s_personality_audio_suspended = false;
+esp_err_t s_optional_personality_error = ESP_OK;
+uint32_t s_optional_personality_repeated_failures = 0;
+int64_t s_optional_personality_reminder_at_us = 0;
+
+// error: Actual optional owner failure; dispatch success is not playback recovery.
+void log_optional_personality_error(esp_err_t error)
+{
+    if (error == ESP_OK) {
+        return;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (error != s_optional_personality_error) {
+        s_optional_personality_error = error;
+        s_optional_personality_repeated_failures = 0;
+        s_optional_personality_reminder_at_us = now_us + 60000000LL;
+        ESP_LOGE(kTag, "Optional personality audio unavailable (%s)", esp_err_to_name(error));
+        return;
+    }
+    if (s_optional_personality_repeated_failures != UINT32_MAX) {
+        ++s_optional_personality_repeated_failures;
+    }
+    if (now_us >= s_optional_personality_reminder_at_us) {
+        ESP_LOGE(kTag, "Optional personality audio still unavailable: %s; repeated_failures=%lu",
+            esp_err_to_name(error), static_cast<unsigned long>(s_optional_personality_repeated_failures));
+        s_optional_personality_reminder_at_us = now_us + 60000000LL;
+    }
+}
+
+// suspended: Visibility/power policy; optional audio errors stay owned and published by audio.
+void suspend_optional_personality_audio(bool suspended)
+{
+    if (!s_personality_audio_prepared || suspended == s_personality_audio_suspended) {
+        return;
+    }
+    const esp_err_t error = CODY::set_personality_audio_suspended(suspended);
+    if (error == ESP_OK) {
+        s_personality_audio_suspended = suspended;
+    } else {
+        // This optional component retains its real fault; visual rendering may continue.
+        log_optional_personality_error(error);
+    }
+}
+
+// previous: Last fully retired visual cue before this frame.
+// current: Newly retired visual cue; only its first visible frame can request a sound.
+void notify_completed_personality(const CODY::PersonalityFrame &previous,
+                                  const CODY::PersonalityFrame &current)
+{
+    const bool visible = current.status == CODY::PersonalityPresentationStatus::Visible &&
+        current.opacity != 0;
+    suspend_optional_personality_audio(!visible);
+    const bool appeared = visible && (previous.opacity == 0 || previous.cue != current.cue);
+    if (!s_personality_audio_prepared || !appeared) {
+        return;
+    }
+    CODY::PersonalityAudioStatus status{};
+    const esp_err_t error = CODY::notify_personality_audio(current.cue, status);
+    if (error != ESP_OK) {
+        log_optional_personality_error(error);
+    }
+    // Busy, cooldown and quiet/mute are explicit dispositions, never queued retries.
+    // The audio owner retains asynchronous completion/errors independently of the display.
+}
 
 // error: Actual audio admission/result; successful no-op frames never report recovery.
 void log_optional_typewriter_result(esp_err_t error)
@@ -896,6 +1018,7 @@ void release_companion_resources()
 // A failed lock leaves the buffer retained until reset because its ownership is ambiguous.
 esp_err_t release_worker_resources()
 {
+    suspend_optional_personality_audio(true);
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
         // The worker is retiring after a failure. Admission can be stopped even
@@ -1233,6 +1356,7 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         s_state.animation_elapsed_us += animation_delta_us;
     }
     s_state.animation_sampled_us = frame_started_us;
+    s_state.personality_delta_us = animation_delta_us;
     return ESP_OK;
 }
 
@@ -1511,6 +1635,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool frame_debug = s_state.rig_debug;
     const bool footer_blocks_readout = s_state.scene.valid &&
         s_state.scene.content.bottom_action_visible;
+    // A paused redraw has no active animation interval, even after a long wall-clock gap.
+    s_state.personality_delta_us = 0;
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
@@ -1603,45 +1729,59 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const bool frame_status_visible = !s_state.onboarding.effective_first_boot &&
         navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
-    if (frame_was_rig) {
+    if (s_state.rig_visible) {
         const int64_t cue_preparation_started_us = esp_timer_get_time();
         CODY::CodySize personality_size{};
         const float nominal_scale = frame_scene_visible
             ? s_state.scene.definition->cloud.scale : CODY::Data::placement.scale;
         esp_err_t cue_error = CODY::cody_size_for_scale(nominal_scale, personality_size);
-        CODY::PersonalityCue cue = CODY::PersonalityCue::None;
+        CODY::PersonalityContext context{};
+        context.presentation = personality_presentation(frame_was_rig);
+        context.nominal_scale = nominal_scale;
+        context.route = frame_scene_visible ? static_cast<uint32_t>(s_state.scene.definition->id) : 0;
+        context.rotation = s_state.rendered_rotation_degrees;
+        const bool sleeping = context.presentation == CODY::PersonalityPresentation::Sleep;
+        if (sleeping) {
+            s_state.personality_release_sleep = false;
+        } else if (s_state.personality_was_sleep) {
+            s_state.personality_release_sleep = true;
+        }
+        s_state.personality_was_sleep = sleeping;
+        context.release_immediately = s_state.personality_release_sleep;
+        CODY::PersonalityCue cue = sleeping ? CODY::PersonalityCue::Sleep : s_state.requested_personality;
+        if (context.presentation == CODY::PersonalityPresentation::Disabled) {
+            cue = CODY::PersonalityCue::None;
+        } else if (cue_error == ESP_OK) {
+            cue_error = resolve_personality_device_cues(cue, s_state.personality_lag.cue,
+                                                       cue, context.invalidate_current);
+        }
+        // The full-screen layout reserves status space even when its touch fade is hidden.
+        // This prevents touch from resizing or relocating an already visible symbol.
+        const CODY::DamageRect exclusions[] = {
+            {10, 203, 70, 263}, CODY::status_overlay_damage_bounds()
+        };
         if (cue_error == ESP_OK) {
-            cue_error = observe_personality_device_cue(s_state.requested_personality, cue);
-        }
-        CODY::DamageRect exclusions[6]{};
-        uint8_t exclusion_count = 0;
-        if (frame_scene_visible) {
-            if (s_state.scene.definition->title_visible && s_state.scene.title.valid) {
-                const auto &bounds = s_state.scene.title.bounds;
-                exclusions[exclusion_count++] = {bounds.x, bounds.y,
-                    static_cast<uint16_t>(bounds.x + bounds.width),
-                    static_cast<uint16_t>(bounds.y + bounds.height)};
-            }
-            exclusions[exclusion_count++] = s_state.scene.content.bounds;
-            for (const auto &bounds : s_state.scene.content.control_bounds) {
-                exclusions[exclusion_count++] = bounds;
-            }
-        }
-        // Always reserve the complete lateral Back target, independently of artwork.
-        exclusions[exclusion_count++] = {10, 203, 70, 263};
-        if (frame_status_visible) {
-            exclusions[exclusion_count++] = CODY::status_overlay_damage_bounds();
-        }
-        if (cue_error == ESP_OK) {
-            const uint32_t route = frame_scene_visible
-                ? static_cast<uint32_t>(s_state.scene.definition->id) : 0;
             cue_error = CODY::prepare_personality_frame(
-                *s_resources.rig, cue, personality_size, route, s_state.rendered_rotation_degrees,
-                timings.started_us, s_state.animation_paused, resume_animation || !previous_frame_available,
-                exclusions, exclusion_count, s_state.personality_lag, s_resources.rig->personality);
+                *s_resources.rig, cue, personality_size, context, s_state.personality_delta_us,
+                s_state.animation_paused, resume_animation || !previous_frame_available,
+                exclusions, 2, s_state.personality_lag, s_resources.rig->personality);
         }
         if (cue_error != ESP_OK) {
             return frame.finish({cue_error, false, 0});
+        }
+        const auto status = s_resources.rig->personality.status;
+        if (status != s_state.personality_status) {
+            if (status == CODY::PersonalityPresentationStatus::BlockedByLayout) {
+                ESP_LOGW(kTag, "Personality layout blocked: cue=%u presentation=%u; character remains active",
+                    static_cast<unsigned>(cue), static_cast<unsigned>(context.presentation));
+            } else if (s_state.personality_status == CODY::PersonalityPresentationStatus::BlockedByLayout) {
+                ESP_LOGI(kTag, "Personality layout admission changed: status=%u", static_cast<unsigned>(status));
+            }
+            s_state.personality_status = status;
+        }
+        if (s_state.personality_lag.cue != CODY::PersonalityCue::Sleep ||
+            s_state.personality_lag.phase == CODY::PersonalityPhase::FadeOut) {
+            s_state.personality_release_sleep = false;
         }
         timings.geometry_completed_us = esp_timer_get_time();
         timings.geometry_us += timings.geometry_completed_us - cue_preparation_started_us;
@@ -1932,6 +2072,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (frame_was_rig) {
             *s_resources.previous_rig = *s_resources.rig;
         }
+        const CODY::PersonalityFrame previous_personality = s_state.retired_personality;
+        s_state.retired_personality = frame_was_rig ? s_resources.rig->personality : CODY::PersonalityFrame{};
+        notify_completed_personality(previous_personality, s_state.retired_personality);
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
         s_cached_selected_point = s_state.selected_point;
@@ -2698,6 +2841,7 @@ void companion_worker(void *context)
             break;
         }
         if (!LUNASHELL_display_runtime_writes_allowed()) {
+            suspend_optional_personality_audio(true);
             if (!renderer_is_parked()) {
                 fail_consumer("Display readiness", ESP_ERR_INVALID_STATE, false);
                 break;
@@ -2846,6 +2990,27 @@ esp_err_t CODY::get_personality_cue(PersonalityCue &cue)
     return ESP_OK;
 }
 
+// frame: Receives only the last fully retired presentation, never a prepared or partial frame.
+// Exception: Returns the real display-lock, consumer-state or invalidated-frame error.
+esp_err_t CODY::get_personality_frame(PersonalityFrame &frame)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Personality frame read lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running || !s_resources.previous_frame_valid) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Personality retired frame unavailable (%s)", esp_err_to_name(error));
+        return error;
+    }
+    frame = s_state.retired_personality;
+    return ESP_OK;
+}
+
 // Start the single companion owner; a failed stage keeps its original error.
 // Exception: Returns the original startup failure and publishes the failed stage.
 extern "C" esp_err_t CODY_companion_start(void)
@@ -2910,6 +3075,14 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Typewriter audio preparation", typewriter_audio_error, false);
     }
     s_typewriter_audio_prepared = true;
+    const esp_err_t personality_audio_error = CODY::prepare_personality_audio();
+    if (personality_audio_error == ESP_OK) {
+        s_personality_audio_prepared = true;
+        suspend_optional_personality_audio(true);
+    } else {
+        // Decorative SFX are optional. Their owner retains/publishes the original failure.
+        log_optional_personality_error(personality_audio_error);
+    }
 #endif
     const esp_err_t capture_sound_error = CODY::prepare_capture_sound();
     if (capture_sound_error != ESP_OK) {
@@ -3215,6 +3388,16 @@ extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
 }
 
 #else
+
+// frame: Output remains untouched because this profile has no Cody consumer.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.
+esp_err_t CODY::get_personality_frame(PersonalityFrame &frame)
+{
+    (void)frame;
+    ESP_LOGE("CODY_companion", "Personality frame read rejected: consumer excluded (%s)",
+        esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // cue: Requested typed symbol; the explicitly selected profile excludes the consumer.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.

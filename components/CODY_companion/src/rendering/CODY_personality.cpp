@@ -1,4 +1,5 @@
 #include "CODY_personality.hpp"
+#include "CODY_personality_config.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -11,8 +12,259 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_personality";
-constexpr float kLagSeconds = .085f;
 constexpr uint16_t kMaximumSpriteExtent = 64;
+static_assert(PersonalityConfig::position_window_us > 0 &&
+    PersonalityConfig::position_window_us <= PersonalityConfig::scale_window_us &&
+    PersonalityConfig::scale_window_us <= 400000, "Following must settle within 400 active milliseconds");
+static_assert(PersonalityConfig::history_bucket_us > 0 &&
+    PersonalityConfig::history_bucket_us <= PersonalityConfig::position_window_us &&
+    PersonalityConfig::scale_window_us % PersonalityConfig::history_bucket_us == 0,
+    "History buckets must divide the bounded scale horizon");
+static_assert(PersonalityConfig::history_bucket_count ==
+    PersonalityConfig::scale_window_us / PersonalityConfig::history_bucket_us + 1 &&
+    PersonalityConfig::history_bucket_count <= UINT8_MAX,
+    "History needs the full scale window and one partial bucket with a bounded index");
+static_assert(sizeof(PersonalityFollowBucket) == 24, "The fixed geometry history uses 408 bytes");
+static_assert(sizeof(PersonalityLag) <= 512, "Controller and fixed geometry history stay within 512 bytes");
+
+// state: Fixed geometry history whose internal invariants must remain coherent.
+bool follow_history_valid(const PersonalityLag &state)
+{
+    if (state.current_bucket >= state.follow_history.size() ||
+        state.position_stable_us > PersonalityConfig::scale_window_us ||
+        state.scale_stable_us > PersonalityConfig::scale_window_us ||
+        !std::isfinite(state.previous_target.center_x) || !std::isfinite(state.previous_target.center_y) ||
+        !std::isfinite(state.previous_target.width) || !std::isfinite(state.previous_target.height) ||
+        state.previous_target.width < 1 || state.previous_target.width > kMaximumSpriteExtent ||
+        state.previous_target.height < 1 || state.previous_target.height > kMaximumSpriteExtent) {
+        return false;
+    }
+    const uint32_t current_duration_us = state.follow_history[state.current_bucket].duration_us;
+    if (current_duration_us >= PersonalityConfig::history_bucket_us) {
+        return false;
+    }
+    for (size_t index = 0; index < state.follow_history.size(); ++index) {
+        const auto &bucket = state.follow_history[index];
+        const size_t intervals_back = (state.current_bucket + state.follow_history.size() - index) %
+            state.follow_history.size();
+        const uint32_t expected_age_us = current_duration_us +
+            static_cast<uint32_t>(intervals_back * PersonalityConfig::history_bucket_us);
+        if (bucket.duration_us > PersonalityConfig::history_bucket_us || bucket.age_us < bucket.duration_us ||
+            bucket.age_us > PersonalityConfig::scale_window_us + PersonalityConfig::history_bucket_us + 1 ||
+            bucket.age_us != expected_age_us ||
+            (index != state.current_bucket && bucket.duration_us != PersonalityConfig::history_bucket_us) ||
+            !std::isfinite(bucket.x_integral) || !std::isfinite(bucket.y_integral) ||
+            !std::isfinite(bucket.width_integral) || !std::isfinite(bucket.height_integral) ||
+            (bucket.duration_us != 0 &&
+             (bucket.width_integral < bucket.duration_us || bucket.height_integral < bucket.duration_us ||
+              bucket.width_integral > kMaximumSpriteExtent * bucket.duration_us ||
+              bucket.height_integral > kMaximumSpriteExtent * bucket.duration_us)) ||
+            (bucket.duration_us == 0 && (bucket.x_integral != 0 || bucket.y_integral != 0 ||
+             bucket.width_integral != 0 || bucket.height_integral != 0))) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// state: Geometry state to prime; the cue phase, opacity and hold are deliberately untouched.
+// target: Current finite authored position and bounded sprite dimensions.
+void prime_follow(PersonalityLag &state, const PersonalityFollowTarget &target)
+{
+    state.center_x = target.center_x;
+    state.center_y = target.center_y;
+    state.width = target.width;
+    state.height = target.height;
+    state.previous_target = target;
+    state.position_stable_us = 0;
+    state.scale_stable_us = 0;
+    state.current_bucket = static_cast<uint8_t>(state.follow_history.size() - 1);
+    for (size_t index = 0; index < state.follow_history.size(); ++index) {
+        auto &bucket = state.follow_history[index];
+        if (index == state.current_bucket) {
+            bucket = {};
+            continue;
+        }
+        bucket.duration_us = PersonalityConfig::history_bucket_us;
+        bucket.age_us = static_cast<uint32_t>((state.follow_history.size() - 1 - index) *
+            PersonalityConfig::history_bucket_us);
+        bucket.x_integral = target.center_x * bucket.duration_us;
+        bucket.y_integral = target.center_y * bucket.duration_us;
+        bucket.width_integral = target.width * bucket.duration_us;
+        bucket.height_integral = target.height * bucket.duration_us;
+    }
+}
+
+// state: Fixed bucket history and resulting artistic transform.
+// target: Latest evaluated geometry, held over the active frame interval.
+// elapsed_us: Positive active interval; intervals covering the whole horizon prime directly.
+void advance_follow(PersonalityLag &state, const PersonalityFollowTarget &target, int64_t elapsed_us)
+{
+    if (elapsed_us >= PersonalityConfig::scale_window_us) {
+        // No history before this long frame gap can contribute to the bounded horizon.
+        prime_follow(state, target);
+        return;
+    }
+    const uint32_t delta_us = static_cast<uint32_t>(elapsed_us);
+    const bool same_position = target.center_x == state.previous_target.center_x &&
+        target.center_y == state.previous_target.center_y;
+    const bool same_scale = target.width == state.previous_target.width && target.height == state.previous_target.height;
+    state.position_stable_us = same_position ? std::min<uint32_t>(
+        state.position_stable_us + delta_us, PersonalityConfig::scale_window_us) : 0;
+    state.scale_stable_us = same_scale ? std::min<uint32_t>(
+        state.scale_stable_us + delta_us, PersonalityConfig::scale_window_us) : 0;
+    state.previous_target = target;
+    for (auto &bucket : state.follow_history) {
+        bucket.age_us = std::min<uint32_t>(bucket.age_us + delta_us,
+            PersonalityConfig::scale_window_us + PersonalityConfig::history_bucket_us + 1);
+    }
+    uint32_t remaining_us = delta_us;
+    while (remaining_us != 0) {
+        auto &bucket = state.follow_history[state.current_bucket];
+        const uint32_t accepted_us = std::min<uint32_t>(remaining_us,
+            PersonalityConfig::history_bucket_us - bucket.duration_us);
+        bucket.x_integral += target.center_x * accepted_us;
+        bucket.y_integral += target.center_y * accepted_us;
+        bucket.width_integral += target.width * accepted_us;
+        bucket.height_integral += target.height * accepted_us;
+        bucket.duration_us += accepted_us;
+        remaining_us -= accepted_us;
+        if (bucket.duration_us == PersonalityConfig::history_bucket_us) {
+            state.current_bucket = static_cast<uint8_t>((state.current_bucket + 1) % state.follow_history.size());
+            state.follow_history[state.current_bucket] = {};
+            state.follow_history[state.current_bucket].age_us = remaining_us;
+        }
+    }
+    float x_integral = 0;
+    float y_integral = 0;
+    float width_integral = 0;
+    float height_integral = 0;
+    uint32_t position_duration_us = 0;
+    uint32_t scale_duration_us = 0;
+    for (const auto &bucket : state.follow_history) {
+        // Drop the entire crossing bucket: its average may contain older samples.
+        // Keeping a partial old mean would extend a 400 ms horizon to 425 ms.
+        if (bucket.age_us <= PersonalityConfig::position_window_us) {
+            x_integral += bucket.x_integral;
+            y_integral += bucket.y_integral;
+            position_duration_us += bucket.duration_us;
+        }
+        if (bucket.age_us <= PersonalityConfig::scale_window_us) {
+            width_integral += bucket.width_integral;
+            height_integral += bucket.height_integral;
+            scale_duration_us += bucket.duration_us;
+        }
+    }
+    state.center_x = x_integral / position_duration_us;
+    state.center_y = y_integral / position_duration_us;
+    state.width = width_integral / scale_duration_us;
+    state.height = height_integral / scale_duration_us;
+    // Exact assignment at the deadline removes floating-point summation residue.
+    if (state.position_stable_us >= PersonalityConfig::position_window_us) {
+        state.center_x = target.center_x;
+        state.center_y = target.center_y;
+    }
+    if (state.scale_stable_us >= PersonalityConfig::scale_window_us) {
+        state.width = target.width;
+        state.height = target.height;
+    }
+    const float lag_x = state.center_x - target.center_x;
+    const float lag_y = state.center_y - target.center_y;
+    const float distance_squared = lag_x * lag_x + lag_y * lag_y;
+    const float maximum_lag = PersonalityConfig::maximum_position_lag_pixels;
+    if (distance_squared > maximum_lag * maximum_lag) {
+        const float reduction = maximum_lag / std::sqrt(distance_squared);
+        state.center_x = target.center_x + lag_x * reduction;
+        state.center_y = target.center_y + lag_y * reduction;
+    }
+}
+
+// elapsed_us: Nonnegative progress within a bounded transition.
+// duration_us: Positive transition duration.
+float smooth_progress(int64_t elapsed_us, int64_t duration_us)
+{
+    const float progress = std::clamp(static_cast<float>(elapsed_us) / duration_us, 0.f, 1.f);
+    return progress * progress * (3.f - 2.f * progress);
+}
+
+// state: Channel to hide without discarding the latest desired target or geometric following.
+void hide_current(PersonalityLag &state)
+{
+    state.cue = PersonalityCue::None;
+    state.phase = PersonalityPhase::Hidden;
+    state.phase_elapsed_us = 0;
+    state.opacity = 0;
+    state.fade_out_opacity = 0;
+}
+
+// state: Current display state whose opacity becomes the fade-out starting point.
+void begin_fade_out(PersonalityLag &state)
+{
+    state.phase = PersonalityPhase::FadeOut;
+    state.phase_elapsed_us = 0;
+    state.fade_out_opacity = state.opacity;
+}
+
+// state: Fixed single-target controller; no history of intermediate requests is retained.
+// context: Explicit release policy, including wake from Sleep and canonical invalidity.
+// elapsed_us: Active elapsed time only; phase entry starts at zero on its current frame.
+void advance_channel(PersonalityLag &state, const PersonalityContext &context, int64_t elapsed_us)
+{
+    const bool semantic_sleep = context.presentation == PersonalityPresentation::Sleep &&
+        state.desired == PersonalityCue::Sleep;
+    const bool desired_ready = semantic_sleep ||
+        state.desired_age_us >= PersonalityConfig::stability_us;
+    // Sleep owns the visible bedtime presentation. It can release another cue's
+    // hold, but still lets that cue disappear smoothly before the new symbol.
+    if (semantic_sleep && state.cue != PersonalityCue::Sleep &&
+        state.phase != PersonalityPhase::Hidden && state.phase != PersonalityPhase::FadeOut) {
+        if (state.opacity == 0) {
+            hide_current(state);
+        } else {
+            begin_fade_out(state);
+            return;
+        }
+    }
+    if (context.release_immediately && state.cue == PersonalityCue::Sleep &&
+        state.phase != PersonalityPhase::Hidden && state.phase != PersonalityPhase::FadeOut) {
+        begin_fade_out(state);
+        return;
+    }
+    if (state.phase == PersonalityPhase::Hidden) {
+        if (state.desired != PersonalityCue::None && desired_ready) {
+            state.cue = state.desired;
+            state.phase = PersonalityPhase::FadeIn;
+            state.phase_elapsed_us = 0;
+        }
+        return;
+    }
+    const int64_t limit = state.phase == PersonalityPhase::FadeIn ? PersonalityConfig::fade_in_us :
+        state.phase == PersonalityPhase::Visible ? PersonalityConfig::minimum_visible_us :
+        PersonalityConfig::fade_out_us;
+    state.phase_elapsed_us += std::min(elapsed_us, limit - state.phase_elapsed_us);
+    if (state.phase == PersonalityPhase::FadeIn) {
+        state.opacity = smooth_progress(state.phase_elapsed_us, PersonalityConfig::fade_in_us);
+        if (state.phase_elapsed_us == PersonalityConfig::fade_in_us) {
+            state.phase = PersonalityPhase::Visible;
+            state.phase_elapsed_us = 0;
+        }
+    } else if (state.phase == PersonalityPhase::Visible) {
+        if (state.desired != state.cue && desired_ready &&
+            state.phase_elapsed_us == PersonalityConfig::minimum_visible_us) {
+            begin_fade_out(state);
+        }
+    } else {
+        state.opacity = state.fade_out_opacity *
+            (1.f - smooth_progress(state.phase_elapsed_us, PersonalityConfig::fade_out_us));
+        if (state.phase_elapsed_us == PersonalityConfig::fade_out_us) {
+            hide_current(state);
+            if (state.desired != PersonalityCue::None && desired_ready) {
+                state.cue = state.desired;
+                state.phase = PersonalityPhase::FadeIn;
+            }
+        }
+    }
+}
 
 // cue: Stable symbol identity; integer offsets are used only for flash-table traversal.
 const PersonalityAssets::Sprite *find_sprite(PersonalityCue cue)
@@ -43,6 +295,10 @@ bool overlaps(DamageRect first, DamageRect second)
 bool admit_bounds(float left, float top, uint16_t width, uint16_t height,
                    const DamageRect *exclusions, uint8_t count, DamageRect &bounds)
 {
+    if (!std::isfinite(left) || !std::isfinite(top) || left < -.5f || top < -.5f ||
+        left > 466.f || top > 466.f) {
+        return false;
+    }
     const int x = static_cast<int>(std::round(left));
     const int y = static_cast<int>(std::round(top));
     if (x < 0 || y < 0 || x + width > 466 || y + height > 466) {
@@ -110,50 +366,50 @@ esp_err_t cody_size_for_scale(float nominal_scale, CodySize &size)
     return ESP_OK;
 }
 
-// scene: Successfully evaluated crown and neighboring lobe anchors.
-// cue: Single admitted narrative or canonical device symbol.
-// size: Nominal semantic presentation; never derived from breathing.
-// route: Stable route identity, including the ordinary rig route.
-// rotation: Shared cardinal display orientation.
-// now_us: Current monotonic sample, with no catch-up loops after stale gaps.
-// paused: Freeze the lag while the evaluated pose is frozen.
-// reset: Wake or invalidated frame ownership requests a fresh prime.
-// exclusions: Existing content/navigation footprints.
-// exclusion_count: Readable exclusions, bounded to six.
-// lag: Fixed caller-owned artistic filter state.
-// frame: Receives the one bounded destination sprite footprint.
-// Exception: Returns invalid pose, clock, enum or exclusion arguments.
+// scene: Evaluated pose with finite face and silhouette geometry.
+// cue: Latest narrative or canonically admitted device target.
+// size: Nominal presentation identity, independent of scene permission.
+// context: Scene permission, authored scale, orientation and release policy.
+// active_delta_us: Nonnegative elapsed active animation time only.
+// paused: Freeze channel and following; updates to the desired identity remain accepted.
+// reset: Re-prime geometric following without restarting the current channel phase.
+// exclusions: Permanently reserved chrome/navigation rectangles.
+// exclusion_count: Number of readable exclusions, at most six.
+// lag: Fixed caller-owned controller and geometric state, committed on success.
+// frame: Receives an admitted sprite or an explicit ordinary admission outcome.
+// Exception: Returns malformed pose/context/filter inputs with the original cause logged.
 esp_err_t prepare_personality_frame(
-    const RigScene &scene, PersonalityCue cue, CodySize size, uint32_t route,
-    uint16_t rotation, int64_t now_us, bool paused, bool reset,
+    const RigScene &scene, PersonalityCue cue, CodySize size, const PersonalityContext &context,
+    int64_t active_delta_us, bool paused, bool reset,
     const DamageRect *exclusions, uint8_t exclusion_count,
     PersonalityLag &lag, PersonalityFrame &frame)
 {
     frame = {};
-    if (!scene.valid || !std::isfinite(scene.scale) || scene.scale <= 0 || !personality_cue_valid(cue) ||
-        now_us < 0 || rotation % 90 != 0 || rotation > 270 || exclusion_count > 6 ||
-        (exclusion_count != 0 && exclusions == nullptr) ||
-        size < CodySize::Micro || size > CodySize::Full) {
-        ESP_LOGE(kTag, "Prepare rejected: valid=%u scale=%f cue=%u size=%u clock=%lld rotation=%u exclusions=%u (%s)",
-            scene.valid, scene.scale, static_cast<unsigned>(cue), static_cast<unsigned>(size),
-            static_cast<long long>(now_us), rotation, exclusion_count, esp_err_to_name(ESP_ERR_INVALID_ARG));
+    if (!scene.valid || !std::isfinite(scene.scale) || scene.scale <= 0 ||
+        !std::isfinite(context.nominal_scale) || context.nominal_scale < 20 || context.nominal_scale > 200 ||
+        !personality_cue_valid(cue) || active_delta_us < 0 || context.rotation % 90 != 0 ||
+        context.rotation > 270 || exclusion_count > 6 ||
+        (exclusion_count != 0 && exclusions == nullptr) || size < CodySize::Micro || size > CodySize::Full ||
+        context.presentation > PersonalityPresentation::Sleep) {
+        ESP_LOGE(kTag, "Prepare rejected: valid=%u scale=%f nominal=%f cue=%u size=%u delta=%lld rotation=%u exclusions=%u presentation=%u (%s)",
+            scene.valid, scene.scale, context.nominal_scale, static_cast<unsigned>(cue), static_cast<unsigned>(size),
+            static_cast<long long>(active_delta_us), context.rotation, exclusion_count,
+            static_cast<unsigned>(context.presentation), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    if (cue == PersonalityCue::None || size == CodySize::Micro) {
+    if (context.presentation == PersonalityPresentation::Disabled || size == CodySize::Micro) {
         lag = {};
         return ESP_OK;
     }
-    const auto crown = scene.world[to_index(PointId::LobeCrown)];
+    const auto nose = scene.world[to_index(PointId::Nose)];
     const auto upper_left = scene.world[to_index(PointId::LobeUpperLeft)];
     const auto upper_right = scene.world[to_index(PointId::LobeUpperRight)];
-    if (!std::isfinite(crown.x) || !std::isfinite(crown.y) ||
+    if (!std::isfinite(nose.x) || !std::isfinite(nose.y) ||
         !std::isfinite(upper_left.x) || !std::isfinite(upper_left.y) ||
         !std::isfinite(upper_right.x) || !std::isfinite(upper_right.y)) {
-        ESP_LOGE(kTag, "Nonfinite upper-lobe anchor rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        ESP_LOGE(kTag, "Nonfinite face/body anchor rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    // The crown drives motion, but clearance belongs to the visible silhouette.
-    // Lobe anchors can sit below the highest point of their Bezier curve.
     float body_top = 466.f;
 #if CODY_ENABLE_PEARL_JELLY
     if (!scene.jelly.valid || scene.jelly.bounds.empty()) {
@@ -169,90 +425,110 @@ esp_err_t prepare_personality_frame(
         return ESP_ERR_INVALID_STATE;
     }
     for (uint16_t offset = 0; offset < body.count; ++offset) {
-        body_top = std::min(body_top, scene.vertices[body.first_vertex + offset].y);
+        const float vertex_y = scene.vertices[body.first_vertex + offset].y;
+        if (!std::isfinite(vertex_y)) {
+            ESP_LOGE(kTag, "Nonfinite body vertex rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        body_top = std::min(body_top, vertex_y);
     }
 #endif
-    const float extent = std::clamp(scene.scale * .42f, 12.f, 58.f);
-    // A cheap artistic squash follows the existing lobe span; no second mesh.
+    const auto &profile = context.presentation == PersonalityPresentation::Sleep ?
+        PersonalityConfig::sleep : PersonalityConfig::main;
+    const float extent = std::clamp(context.nominal_scale * profile.extent_per_scale,
+        PersonalityConfig::minimum_extent, PersonalityConfig::maximum_base_extent);
     const float rest_span = (Data::points[to_index(PointId::LobeUpperRight)].x -
         Data::points[to_index(PointId::LobeUpperLeft)].x) * scene.scale;
-    if (!std::isfinite(rest_span) || rest_span <= 0) {
-        ESP_LOGE(kTag, "Upper-lobe rest span=%f rejected (%s)", rest_span, esp_err_to_name(ESP_ERR_INVALID_STATE));
+    if (!std::isfinite(rest_span) || rest_span <= 0 || !std::isfinite(profile.offset_x) ||
+        !std::isfinite(profile.offset_y) || !std::isfinite(profile.extent_per_scale) || profile.extent_per_scale <= 0) {
+        ESP_LOGE(kTag, "Anchor profile/rest span rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    const float squash = std::clamp((upper_right.x - upper_left.x) / rest_span, .9f, 1.1f);
-    const float target_width = extent * squash;
-    const float target_height = extent / squash;
-    const float target_y = crown.y - (crown.y - body_top) - 4.f - target_height * .5f;
-    if (!std::isfinite(body_top) || (lag.primed &&
-        (!std::isfinite(lag.center_x) || !std::isfinite(lag.center_y) ||
-         !std::isfinite(lag.width) || !std::isfinite(lag.height) || lag.sampled_at_us < 0))) {
-        ESP_LOGE(kTag, "Body extent/filter state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+    const float deformation_limit = extent * PersonalityConfig::maximum_deformation_pixels /
+        PersonalityConfig::maximum_base_extent;
+    const float deformation = std::clamp(((upper_right.x - upper_left.x) / rest_span - 1.f) * extent,
+        -deformation_limit, deformation_limit);
+    const float target_width = extent + deformation;
+    const float target_height = extent - deformation;
+    const float target_x = nose.x + profile.offset_x * scene.scale;
+    const float target_y = nose.y + profile.offset_y * scene.scale;
+    if (!std::isfinite(target_x) || !std::isfinite(target_y) || !std::isfinite(body_top) ||
+        !std::isfinite(target_x * PersonalityConfig::scale_window_us) ||
+        !std::isfinite(target_y * PersonalityConfig::scale_window_us) ||
+        (lag.primed && (!std::isfinite(lag.center_x) || !std::isfinite(lag.center_y) ||
+         !std::isfinite(lag.width) || !std::isfinite(lag.height) || lag.width < 1 || lag.height < 1 ||
+         lag.width > kMaximumSpriteExtent || lag.height > kMaximumSpriteExtent || !follow_history_valid(lag))) ||
+        !std::isfinite(lag.opacity) || lag.opacity < 0 || lag.opacity > 1 ||
+        !std::isfinite(lag.fade_out_opacity) || lag.fade_out_opacity < 0 || lag.fade_out_opacity > 1 ||
+        !personality_cue_valid(lag.cue) || !personality_cue_valid(lag.desired) ||
+        lag.desired_age_us < 0 || lag.desired_age_us > PersonalityConfig::stability_us ||
+        lag.phase_elapsed_us < 0 || lag.phase > PersonalityPhase::FadeOut) {
+        ESP_LOGE(kTag, "Anchor/controller state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const int64_t phase_limit = lag.phase == PersonalityPhase::FadeIn ? PersonalityConfig::fade_in_us :
+        lag.phase == PersonalityPhase::Visible ? PersonalityConfig::minimum_visible_us :
+        lag.phase == PersonalityPhase::FadeOut ? PersonalityConfig::fade_out_us : 0;
+    if (lag.phase_elapsed_us > phase_limit) {
+        ESP_LOGE(kTag, "Channel phase elapsed=%lld rejected (%s)",
+            static_cast<long long>(lag.phase_elapsed_us), esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     PersonalityLag next = lag;
-    const int64_t elapsed_us = now_us >= lag.sampled_at_us ? now_us - lag.sampled_at_us : -1;
-    const bool prime = reset || !lag.primed || lag.cue != cue || lag.size != size ||
-        lag.route != route || lag.rotation != rotation || elapsed_us < 0 || elapsed_us > 250000;
+    const int64_t elapsed_us = paused ? 0 : active_delta_us;
+    if (next.desired != cue) {
+        next.desired = cue;
+        next.desired_age_us = 0;
+    } else {
+        next.desired_age_us += std::min(elapsed_us, PersonalityConfig::stability_us - next.desired_age_us);
+    }
+    if (context.invalidate_current) {
+        // An invalid canonical fact cannot remain visible for an artistic minimum hold.
+        hide_current(next);
+    }
+    const bool prime = !next.primed || (!paused &&
+        (reset || next.size != size || next.route != context.route || next.rotation != context.rotation));
+    const PersonalityFollowTarget target{target_x, target_y, target_width, target_height};
     if (prime) {
-        next.center_x = crown.x;
-        next.center_y = target_y;
-        next.width = target_width;
-        next.height = target_height;
-    } else if (!paused && elapsed_us > 0) {
-        const float blend = -std::expm1(-static_cast<float>(elapsed_us) / (1000000.f * kLagSeconds));
-        next.center_x += (crown.x - next.center_x) * blend;
-        next.center_y += (target_y - next.center_y) * blend;
-        next.width += (target_width - next.width) * blend;
-        next.height += (target_height - next.height) * blend;
+        prime_follow(next, target);
+    } else if (elapsed_us > 0) {
+        advance_follow(next, target, elapsed_us);
     }
-    next.cue = cue;
     next.size = size;
-    next.route = route;
-    next.rotation = rotation;
-    next.sampled_at_us = now_us;
+    next.route = context.route;
+    next.rotation = context.rotation;
     next.primed = true;
-    uint16_t width = static_cast<uint16_t>(std::clamp(std::round(next.width), 12.f, 64.f));
-    uint16_t height = static_cast<uint16_t>(std::clamp(std::round(next.height), 12.f, 64.f));
-    float clearance_top = 0;
-    // Chrome can occupy the band above a large, upward-deformed body. Scale the
-    // cue into the real gap below that band, keeping it available on Full Cody.
-    for (uint8_t index = 0; index < exclusion_count; ++index) {
-        const auto &excluded = exclusions[index];
-        const bool crosses_x = next.center_x - width * .5f < excluded.right &&
-            next.center_x + width * .5f > excluded.left;
-        if (!excluded.empty() && crosses_x && excluded.bottom < body_top - 4.f) {
-            const float available = body_top - 4.f - excluded.bottom;
-            if (available >= 12.f) {
-                clearance_top = std::max(clearance_top, static_cast<float>(excluded.bottom));
-                if (available < height) {
-                    width = static_cast<uint16_t>(std::max(12.f, std::floor(width * available / height)));
-                    height = static_cast<uint16_t>(std::floor(available));
-                }
-            }
-        }
+    // No relocation or adaptive shrinking: the authored center and size are the contract.
+    const uint16_t width = static_cast<uint16_t>(std::round(next.width));
+    const uint16_t height = static_cast<uint16_t>(std::round(next.height));
+    if (width == 0 || height == 0 || width > kMaximumSpriteExtent || height > kMaximumSpriteExtent) {
+        ESP_LOGE(kTag, "Filtered sprite extent=%ux%u rejected (%s)", width, height, esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
     }
-    // Preserve the filtered bottom anchor when admission reduces the extent.
-    // Position into the available gap instead of preserving an obsolete center.
-    const float wanted_top = std::max(clearance_top,
-        std::min(next.center_y + next.height * .5f - height, body_top - height - 4.f));
-    // Search a fixed small set above Cody. Whole artwork bounds, including
-    // antialias coverage, must fit every chord and preserve QR quiet zones.
-    for (uint8_t step = 0; step < 8 && frame.bounds.empty(); ++step) {
-        const float top = wanted_top - step * (height * .5f + 2.f);
-        for (float shift : {0.f, -static_cast<float>(width), static_cast<float>(width)}) {
-            if (admit_bounds(next.center_x + shift - width * .5f, top,
-                             width, height, exclusions, exclusion_count, frame.bounds)) {
-                frame.cue = cue;
-                break;
-            }
-        }
+    if (next.desired == PersonalityCue::None && next.phase == PersonalityPhase::Hidden) {
+        lag = next;
+        return ESP_OK;
     }
-    if (frame.bounds.empty()) {
-        ESP_LOGE(kTag, "Cue placement unavailable: cue=%u size=%u route=%lu body_top=%f extent=%ux%u (%s)",
-            static_cast<unsigned>(cue), static_cast<unsigned>(size), static_cast<unsigned long>(route),
-            body_top, width, height, esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
+    DamageRect admitted{};
+    const float left = next.center_x - width * .5f;
+    const float top = next.center_y - height * .5f;
+    if (std::round(top) + height + PersonalityConfig::body_clearance_pixels > body_top ||
+        !admit_bounds(left, top, width, height, exclusions, exclusion_count, admitted)) {
+        // Layout admission is an expected presentation outcome, not a failed component operation.
+        hide_current(next);
+        frame.cue = next.desired;
+        frame.status = PersonalityPresentationStatus::BlockedByLayout;
+        lag = next;
+        return ESP_OK;
+    }
+    if (!paused) {
+        advance_channel(next, context, elapsed_us);
+    }
+    frame.opacity = static_cast<uint8_t>(std::round(next.opacity * 255.f));
+    if (frame.opacity != 0) {
+        frame.cue = next.cue;
+        frame.bounds = admitted;
+        frame.status = PersonalityPresentationStatus::Visible;
     }
     lag = next;
     return ESP_OK;
@@ -266,7 +542,7 @@ esp_err_t prepare_personality_frame(
 esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface strip,
                                 uint16_t first_row, uint16_t first_column)
 {
-    if (frame.bounds.empty()) {
+    if (frame.bounds.empty() || frame.opacity == 0) {
         return ESP_OK;
     }
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
@@ -296,7 +572,7 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
         for (uint16_t x = left; x < right; ++x) {
             const uint16_t source_x = (x - bounds.left) * sprite->width / width;
             const uint32_t source = source_y * sprite->width + source_x;
-            const uint8_t coverage = sprite->coverage[source];
+            const uint8_t coverage = (static_cast<uint16_t>(sprite->coverage[source]) * frame.opacity + 127) / 255;
             if (coverage == 0) {
                 continue;
             }
@@ -314,7 +590,8 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
 // current: Next immutable cue and bounds.
 bool same_personality_frame(const PersonalityFrame &previous, const PersonalityFrame &current)
 {
-    return previous.cue == current.cue && previous.bounds.left == current.bounds.left &&
+    return previous.cue == current.cue && previous.opacity == current.opacity &&
+        previous.status == current.status && previous.bounds.left == current.bounds.left &&
         previous.bounds.top == current.bounds.top && previous.bounds.right == current.bounds.right &&
         previous.bounds.bottom == current.bounds.bottom;
 }

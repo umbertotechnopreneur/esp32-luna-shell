@@ -19,6 +19,8 @@ idf_component_register(
         "src/model/CODY_expression_catalog.cpp"
         "src/runtime/CODY_settings.cpp"
         "src/runtime/CODY_capture_sound.cpp"
+        "src/runtime/CODY_personality_audio.cpp"
+        "../../assets/cody/personality-icons/audio/personality_audio.cpp"
         "src/scenes/CODY_typewriter_audio.cpp"
         "src/diagnostics/CODY_screenshot.cpp"
         "src/diagnostics/CODY_status_overlay.cpp"
@@ -45,6 +47,7 @@ idf_component_register(
         "../../assets/cody/scenes/generated"
         "../../assets/cody/appearance/jelly-scanline/generated"
         "../../assets/cody/personality-icons/generated"
+        "../../assets/cody/personality-icons/audio"
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )

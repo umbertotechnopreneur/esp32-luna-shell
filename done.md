@@ -7,6 +7,18 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Extended the personality channel to Main/full-size Sleep only, with one latest
+  target, 300-ms stability, 400-ms fade in, 2.5-second hold and 600-ms fade out.
+  Semantic Sleep has explicit priority/release; device invalidity clears false
+  facts. Configurable face anchoring, bounded geometric following, fixed chrome
+  exclusions and explicit blocked-layout status replace adaptive relocation.
+  Simulator source mirrors the channel. Created fourteen original 16-kHz mono
+  PCM SFX (103,360 sample bytes) and a 12.33-second audition reel through
+  `scripts/device.ps1 generate -Generator cody-personality-audio`. Completed
+  frames trigger an optional platform-owned worker with busy drops, expiry,
+  8-second cooldown and quiet/standby gates. Asset generation and static review
+  only; no listening, checks, builds, simulator or hardware validation.
+
 - Implemented the isolated `feat/personality-icons` worktree from `290b6da3`:
   fourteen standalone ImageGen manga groups, deterministic non-reserved shared
   palette indices with separate alpha coverage, individual indexed PNG/bin

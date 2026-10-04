@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <array>
 #include "CODY_damage.hpp"
+#include "CODY_personality_config.hpp"
 
 namespace CODY {
 
@@ -20,14 +22,52 @@ enum class CodySize : uint8_t {
     Small = 6, Invitation = 7, Medium = 8, Greeting = 9, Full = 10,
 };
 
+enum class PersonalityPresentation : uint8_t { Disabled = 0, Main = 1, Sleep = 2 };
+enum class PersonalityPresentationStatus : uint8_t { Hidden = 0, Visible = 1, BlockedByLayout = 2 };
+enum class PersonalityPhase : uint8_t { Hidden = 0, FadeIn = 1, Visible = 2, FadeOut = 3 };
+
+struct PersonalityContext {
+    PersonalityPresentation presentation = PersonalityPresentation::Disabled;
+    float nominal_scale = 145;
+    uint32_t route = 0;
+    uint16_t rotation = 0;
+    bool release_immediately = false;
+    bool invalidate_current = false;
+};
+
 struct PersonalityFrame {
     PersonalityCue cue = PersonalityCue::None;
     DamageRect bounds{};
+    uint8_t opacity = 0;
+    PersonalityPresentationStatus status = PersonalityPresentationStatus::Hidden;
+};
+
+struct PersonalityFollowTarget {
+    float center_x = 0;
+    float center_y = 0;
+    float width = 0;
+    float height = 0;
+};
+
+// Time buckets hold artistic geometry only; cue requests still have one latest target.
+struct PersonalityFollowBucket {
+    float x_integral = 0;
+    float y_integral = 0;
+    float width_integral = 0;
+    float height_integral = 0;
+    uint32_t duration_us = 0;
+    uint32_t age_us = 0;
 };
 
 // Fixed artistic state; no telemetry cache, heap ownership or frame-count clock.
 struct PersonalityLag {
     PersonalityCue cue = PersonalityCue::None;
+    PersonalityCue desired = PersonalityCue::None;
+    PersonalityPhase phase = PersonalityPhase::Hidden;
+    int64_t desired_age_us = 0;
+    int64_t phase_elapsed_us = 0;
+    float opacity = 0;
+    float fade_out_opacity = 0;
     CodySize size = CodySize::Micro;
     uint32_t route = 0;
     uint16_t rotation = 0;
@@ -35,7 +75,11 @@ struct PersonalityLag {
     float center_y = 0;
     float width = 0;
     float height = 0;
-    int64_t sampled_at_us = 0;
+    std::array<PersonalityFollowBucket, PersonalityConfig::history_bucket_count> follow_history{};
+    PersonalityFollowTarget previous_target{};
+    uint32_t position_stable_us = 0;
+    uint32_t scale_stable_us = 0;
+    uint8_t current_bucket = 0;
     bool primed = false;
 };
 
@@ -62,22 +106,25 @@ esp_err_t set_personality_device_cue(PersonalityCue cue);
 // Exception: Returns the real display lock/consumer-state error.
 esp_err_t get_personality_cue(PersonalityCue &cue);
 
-// scene: Evaluated pose owning the actual crown/upper-lobe anchors.
+// frame: Receives the last retired presentation, including layout admission status.
+// Exception: Returns the real display lock/consumer-state error.
+esp_err_t get_personality_frame(PersonalityFrame &frame);
+
+// scene: Evaluated pose owning the face and upper-lobe anchors.
 // cue: Single selected symbol after canonical device-state gating.
 // size: Stable nominal character presentation, independent of animated scale.
-// route: Stable route identity used to expire lag across navigation.
-// rotation: Shared logical orientation; a change resets the lag without rotating it separately.
-// now_us: Monotonic frame timestamp; stale/reversed intervals prime without catch-up.
-// paused: Freeze lag time while still accepting an explicit changed selection.
-// reset: Re-prime after wake or invalidated frame ownership.
-// exclusions: Visible content, title and navigation rectangles to preserve.
+// context: Scene permission, authored scale and explicit smooth-release policy.
+// active_delta_us: Elapsed active animation time; never includes paused/standby time.
+// paused: Freeze channel and follow time while still accepting an updated desired cue.
+// reset: Re-prime geometric following only; fade and hold retain their progress.
+// exclusions: Permanently reserved chrome and navigation rectangles to preserve.
 // exclusion_count: Number of readable exclusions, at most six.
 // lag: Caller-owned fixed artistic state, committed only on success.
-// frame: Receives clipped, circle-safe sprite bounds; Micro always produces an empty frame.
-// Exception: Returns invalid pose/identity/layout arguments with the real cause logged.
+// frame: Receives a single admitted sprite or explicit Hidden/BlockedByLayout outcome.
+// Exception: Returns invalid geometry/identity arguments; ordinary admission rejection is a status.
 esp_err_t prepare_personality_frame(
-    const RigScene &scene, PersonalityCue cue, CodySize size, uint32_t route,
-    uint16_t rotation, int64_t now_us, bool paused, bool reset,
+    const RigScene &scene, PersonalityCue cue, CodySize size, const PersonalityContext &context,
+    int64_t active_delta_us, bool paused, bool reset,
     const DamageRect *exclusions, uint8_t exclusion_count,
     PersonalityLag &lag, PersonalityFrame &frame);
 

@@ -7,11 +7,41 @@ not establish native pixels, FPS, CPU load or audible quality.
 
 ## Cody
 
-The Face panel offers one manga-symbol selector. It previews the same generated
-fixed-palette index/coverage assets and delayed pose follow as native Cody;
-device-symbol choices are explicitly synthetic host previews. Micro suppresses
-the symbol. The feature source is implemented, but this increment has not been
-executed in the simulator. See [personality symbols](../../docs/architecture/cody/personality-icons.md).
+The Face panel offers one manga-symbol selector in the main `rig` presentation.
+The semantic `sleep` and `sleeping` presets select Sleep automatically; blinking
+or closing the eye sliders does not. Editing a face slider clears the selected
+preset identity. Greeting and boot artwork disable the symbol; Micro always
+suppresses it. Device-symbol choices remain explicitly synthetic host previews.
+
+The single-target channel uses a 300-ms stable request, 400-ms smooth fade-in,
+2,500-ms minimum full-opacity hold and 600-ms smooth fade-out. Intermediate
+requests are overwritten without a queue. A semantic Sleep preset starts its
+fade without the stability delay; a manually selected Sleep symbol in an ordinary
+pose retains that delay. Entering the Sleep preset releases any competing symbol
+without its minimum hold, completing the old symbol's fade-out before Sleep's
+fade-in. Leaving the semantic Sleep preset also releases it without waiting for
+the minimum hold. Pause freezes the channel and following time. The interactive
+Sleep preset can show the full transition; firmware power timing is unchanged
+and may turn the panel off before a competing-symbol transition completes.
+
+The simulator reads anchor profiles and timing constants directly from
+`components/CODY_companion/include/CODY_personality_config.hpp`. The center follows
+the evaluated Nose anchor plus its configured local offset using a 360-ms finite
+history window; scale uses a 400-ms window. Seventeen fixed 25-ms geometry buckets
+hold duration-weighted target integrals. Older geometry is discarded completely,
+so a stationary target is reached within 400 ms of active time. Position lag is
+capped at four pixels radially; deformation is limited to two pixels at the
+largest base extent. Pause freezes these windows. This geometric history does
+not queue symbol requests. Symbols use the generated RGB565 palette/coverage data and the same
+integer sampling and opacity multiplication as native Cody. Pillow compositing
+remains a host preview rather than pixel-level hardware proof.
+
+The native status rectangle `(106,37)-(362,58)` is permanently reserved, along
+with Back. A symbol that cannot fit its authored position, the body's clearance
+or the circle reports `BLOCKED_BY_LAYOUT` in the host status line. It is hidden
+without shifting or shrinking abruptly; the next admitted presentation fades in
+again. This increment has been reviewed statically and has not been executed in
+the simulator. See [personality symbols](../../docs/architecture/cody/personality-icons.md).
 
 ```powershell
 .\scripts\device.ps1 simulator
