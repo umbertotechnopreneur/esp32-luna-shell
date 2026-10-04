@@ -1,125 +1,95 @@
-# Cody development console
+# Development console
 
-Run `pwsh -NoProfile -File .\scripts\device.ps1` from the checkout to open the
-interactive menu. Opening the menu/help does not load ESP-IDF, start a simulator,
-run checks or probe a serial port. Select an operation to run it explicitly.
-All labels and command help are English.
+`scripts/device.ps1` is the sole public CLI/menu for firmware, simulators,
+generators and checks. Run from the checkout in PowerShell. The menu, `help` and
+`list` are inert: no ESP-IDF load, simulator, checks or serial probing starts
+until an operation is selected. Help and labels are English.
 
-Menu items use operation-specific emoji, including settings and tool submenus.
-`help` and `list` show a colored guide with category dividers, subsections,
-complete command examples and descriptions for the current check/generator
-catalogs. Every entry starts with a bold WhiteSmoke command or option, followed
-by its extended description underneath. A single blank line separates entries;
-text wraps to the available terminal width without truncating commands or
-reserving space for a second column.
-Firmware recovery, dependency-lock updates and cleanup explain their effects.
-Help examples use only `Device.ps1`; an opening note explains that the script
-is run from the `scripts` folder with `.\Device.ps1` in PowerShell.
-Single- and double-dash parameters also use bold WhiteSmoke (`#F5F5F5`) inside
-descriptions when the terminal supports ANSI color.
-Category and subsection titles share one row with a thin rule: after a single
-space, a three-point gradient fades from the category accent toward a dark
-neutral tone. The rule fits the remaining terminal width.
-
-Firmware mode defaults to `Debug` on every CLI invocation. Release requires
-explicit `-BuildMode Release`, including for later flash/size/configuration
-commands. Session settings can explicitly select Release for the current menu
-session; the next menu starts in Debug. See the
-[mode policy and deferred validation](../docs/architecture/firmware-build-modes.md).
+## Commands
 
 ```powershell
-pwsh -NoProfile -File .\scripts\device.ps1 help
-pwsh -NoProfile -File .\scripts\device.ps1 simulator
-pwsh -NoProfile -File .\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180
-pwsh -NoProfile -File .\scripts\device.ps1 boot-screens
-pwsh -NoProfile -File .\scripts\device.ps1 check -Check cody-poc
-pwsh -NoProfile -File .\scripts\device.ps1 check -Check device-console
-pwsh -NoProfile -File .\scripts\device.ps1 generate -Generator cody-rig
-pwsh -NoProfile -File .\scripts\device.ps1 build -Jobs 8
-pwsh -NoProfile -File .\scripts\device.ps1 set-target -BuildMode Release
-pwsh -NoProfile -File .\scripts\device.ps1 build -BuildMode Release -Jobs 8
-pwsh -NoProfile -File .\scripts\device.ps1 flash -Port COM8 -Jobs 8
-pwsh -NoProfile -File .\scripts\device.ps1 capture -Port COM8 -DurationSeconds 30
-pwsh -NoProfile -File .\scripts\device.ps1 size -SizeOutputFormat json2
-pwsh -NoProfile -File .\scripts\device.ps1 clean-artifacts
+.\scripts\device.ps1 help
+.\scripts\device.ps1 list
+.\scripts\device.ps1 build -Jobs 8
+.\scripts\device.ps1 build -BuildMode Release -Jobs 8
+.\scripts\device.ps1 flash -Port COM10 -BuildMode Release -Jobs 8
+.\scripts\device.ps1 simulator
+.\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180
+.\scripts\device.ps1 check -Check cody-native
+.\scripts\device.ps1 generate -Generator cody-rig
+.\scripts\device.ps1 size -SizeOutputFormat json2
+.\scripts\device.ps1 clean-artifacts
 ```
 
-`list` prints all available checks and generators. `-Check`/`-Generator` select
-their exact displayed identifier; the registry comes from the files in the
-corresponding directory. Use `-ToolArguments` for literal tool-specific tokens.
-In a PowerShell session, arrays preserve argument boundaries:
+These are usage examples, not automatically authorized operations. Follow
+[AGENTS.md](../AGENTS.md), including fresh command-specific test approval and
+explicit device-operation permission. Confirm the actual serial port first.
+
+Firmware defaults to `Debug` and `cody-companion` on each invocation. Release
+requires `-BuildMode Release` on each corresponding command; a menu session can
+select its own mode. `-BoardConfig` owns its profile and cannot be combined with
+`-Profile`/`-Feature`. Configuration and reviewed dependency-lock gates still apply.
+See [build modes](../docs/architecture/firmware-build-modes.md).
+
+`list` exposes current check/generator identifiers. Extra arguments are literal,
+never evaluated shell code:
 
 ```powershell
 .\scripts\device.ps1 check -Check cody-poc -ToolArguments @('--previews')
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--screen', 'battery', '--capture', 'battery.png')
 ```
 
-The menu offers the same catalog and accepts extra tokens as a JSON string array,
-for example `["--previews"]`. Tokens are never evaluated as shell code. A failed
-command remains a visible failure; the interactive menu then offers another
-selection. CLI failures propagate as failures to the calling process.
+The menu accepts extra arguments as a JSON string array. CLI failures propagate
+to the caller; the menu preserves the failure before offering another selection.
 
-Use `-PythonExecutable` for Python host tools (Pillow and PyYAML for Cody),
-and `-PythonExe` for the ESP-IDF interpreter. PowerShell tools receive their own
-interpreter options through `-ToolArguments`. The host resolver first checks
-`artifacts/python/simulator/Scripts/python.exe`, then Python on PATH. No host
-environment is installed automatically by launching Cody. `package-simulator`
-explicitly prepares the local environment and packages the inherited **Luna**
-simulator EXE; Cody remains a source-based PoC.
+## Serial and stored logs
 
-The default firmware profile remains `cody-companion`. `-BoardConfig` selects its
-own profile and cannot be combined with `-Profile`/`-Feature`. Existing reviewed
-dependency-lock and SDKCONFIG gates remain mandatory. The currently outstanding
-Cody dependency-lock review is tracked in `TODO.md`; adding this menu does not
-resolve dependencies or prove that the firmware builds.
+```powershell
+.\scripts\device.ps1 capture -Port COM10 -DurationSeconds 45 -ResetBeforeCapture -OutputPath artifacts/serial/boot.log
+.\scripts\device.ps1 sd-log -Port COM10 -StoredLog current
+.\scripts\device.ps1 sd-log -Port COM10 -StoredLog previous
+```
 
-## Ownership and layout
+Capture can explicitly reset first. Stored-log download does not reset or format:
+it requires updated firmware, an awake device and a mounted SD. Close monitors
+first. Downloads default to `artifacts/serial/sd-log-<name>.log`; blocks are checked
+before replacing local output. `-WaitSeconds` bounds each USB response.
+See [logging ownership](../docs/architecture/offline-logging-usb.md).
 
-| Location | Purpose |
+## Host tools
+
+`-PythonExecutable` selects Python host tools; `-PythonExe` selects the ESP-IDF
+interpreter. Host resolution checks `artifacts/python/simulator/Scripts/python.exe`
+then PATH. Cody host tools require Pillow and PyYAML. Launching a simulator never
+installs its environment automatically. `package-simulator` explicitly prepares
+and packages the inherited Luna simulator; Cody is source-based.
+
+## Ownership and outputs
+
+| Location | Responsibility |
 | --- | --- |
-| `device.ps1` | Sole public console and CLI dispatcher |
-| `commands/` | Firmware engine, menu, executable packaging and banner maintenance |
-| `common/` | Shared parameter routing, artifact policy and Python contracts |
-| `common/Console.ps1`, `common/Help.ps1` | Shared menu icons/descriptions and categorized CLI help |
-| `common/MenuManager/` | Owned menu module copied from `E:\tools\scripts\modules\MenuManager` |
-| `generators/` | Canonical asset generators and build-time resource transformations |
-| `checks/` | Explicit checks and their budget data |
-| `tests/` | Native test fixtures used by checks |
+| `device.ps1` | Public dispatcher |
+| `commands/` | Firmware engine, menus, packaging and banner maintenance |
+| `common/` | Shared routing, console/help, artifact policy and source contracts |
+| `generators/` | Authored-resource transformations |
+| `checks/`, `tests/` | Explicit check runners and native fixtures |
 
-There is no separate serial-capture alias or simulator PowerShell menu. CMake
-uses internal generator/check files directly as build inputs; their public manual
-workflows belong to `device.ps1`. The shared menu has no runtime dependency on
-`E:\tools`.
+CMake may invoke internal generator/check inputs directly; public manual
+workflows still go through the dispatcher. The owned MenuManager copy has no
+runtime dependency on `E:\tools`. Do not add a second public capture/menu alias.
 
-## Output and cleanup
+All disposable output stays inside this checkout's `artifacts/`. Explicit
+`-BuildDir`, `-LogPath`, `-OutputPath` and `-SizeOutputFile` must stay there too;
+relative public paths are checkout-relative. Bare Python capture names default
+to `artifacts/simulator/`.
 
-All disposable project output belongs under `artifacts/`:
+Build/flash/combo/recover clean transient logs, serial captures, reports, previews,
+check output and temporary files before starting. They retain firmware build
+trees, dependency locks, configuration/board overlays and Python caches.
+`fullclean` explicitly cleans the selected firmware build. Writers hold an
+exclusive artifact lock; close an active simulator/monitor before another writer.
+Cleanup validates targets and rejects reparse points.
 
-| Location | Contents | Before build/flash |
-| --- | --- | --- |
-| `build-*-debug`, `build-*-release`, or explicitly selected `-BuildDir` | Mode-specific firmware build, binaries, working dependency lock | Retained |
-| `sdkconfig/`, `board-config/` | Generated configuration and board overlays | Retained |
-| `python/` | Host environment and package cache | Retained |
-| `logs/` | Current command logs | Replaced |
-| `serial/` | Captured device output | Removed |
-| `reports/`, `simulator/`, `checks/`, `cody-poc/`, `tmp/` | Reports, previews, host checks and temporary files | Removed |
-
-`build`, `flash`, `combo` and `recover` clean transient artifacts **before**
-starting the operation. The build required for flashing survives, as does
-incremental compilation state. `fullclean` explicitly cleans the selected
-firmware build. All command writers hold an exclusive artifact lock; close a
-running simulator/monitor before starting another command in the same checkout.
-Cleanup checks every removal target and rejects reparse points before deleting.
-
-Explicit `-BuildDir`, `-LogPath`, `-OutputPath` and `-SizeOutputFile` must remain
-inside this checkout's `artifacts/`. Relative public output paths are relative
-to the checkout. The Python simulator's own bare capture names default to
-`artifacts/simulator/`. Command logs use `logs/<action>.log`; serial captures
-default to `serial/capture.log`, and size reports to `reports/size.<format>`.
-Source assets under `assets/**/generated` are versioned firmware inputs, not
-disposable artifacts. ESP-IDF's `managed_components/` is its downloaded dependency
-source tree, not a build-output directory.
-
-Only the requested `clean-artifacts` operation was executed, in addition to static
-source review. The prepared console checks, existing checks, simulator, packaging
-and firmware builds have not been run.
+Versioned `assets/**/generated` and downloaded `managed_components/` are source
+inputs, not disposable build output. Logs default to `artifacts/logs/<action>.log`,
+captures to `artifacts/serial/capture.log` and size to `artifacts/reports/size.<format>`.

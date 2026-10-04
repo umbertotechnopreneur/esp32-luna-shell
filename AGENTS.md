@@ -1,169 +1,120 @@
 # Repository engineering rules
 
-These rules apply to the entire ESP32 Luna Shell firmware repository.
+These rules apply throughout ESP32 Luna Shell. This is the sole repository
+instruction file; do not add parallel agent or Copilot contracts.
 
-## Supported platform
+## Platform and tooling
 
-- Target ESP-IDF 6.0.2 and the official ESP-Brookesia 0.8 architecture only.
-- Do not add compatibility branches, shims, wrappers, migrations, or fallback
-  paths for ESP-IDF 5.x, Brookesia 0.6/0.7, or the removed Phone framework.
-- The Luna UI uses LVGL only below Brookesia System Super, System Core, and its
-  declarative GUI package. Physical display and touch also support a standalone path with
-  that UI disabled; this path must not admit LVGL or its adapter dependencies.
-- Run every ESP-IDF configure, build, size, flash, erase, capture, and monitor
-  workflow through `scripts/device.ps1`. Never invoke the ESP-IDF Python
-  entrypoint directly.
+- Target ESP-IDF 6.0.2 and official ESP-Brookesia 0.8 only. No compatibility
+  branches, shims, wrappers, migrations or fallbacks for IDF 5.x, Brookesia
+  0.6/0.7 or the removed Phone framework.
+- Luna uses LVGL below the official Brookesia System Super/System Core and
+  declarative GUI packages.
+  Standalone display/touch and Cody use the native 2D path without LVGL or its
+  adapter dependencies. Keep physical-device selection separate from UI selection.
+- `scripts/device.ps1` is the sole public CLI/menu for firmware, simulator,
+  generators and checks, including configure/build/size/flash/erase/capture/monitor.
+  Never invoke the ESP-IDF Python entrypoint directly. Implementation belongs in
+  `scripts/commands/`, helpers in `common/`, generators in `generators/` and
+  checks in `checks/`.
 
-## Circular display geometry
+## Authorization and validation
 
-- Use a 466 x 466 logical canvas, nominal center (233, 233), and radius 233.
-  The canonical central safe square is 320 x 320 at (73, 73): both axes use
-  half-open bounds [73, 393), corresponding to pixel indices 73 through 392.
-- Keep the rounded regions outside that square available for navigation,
-  status, and suitable artwork. At the horizontal center there are 73 pixels
-  on each side of the square; this width narrows toward the top and bottom.
-  Do not discard these regions or assume they are uniform rectangular strips.
-- Place Back in the left lateral region at logical (10, 203), with a 60 x 60
-  bounding box, circular radius 30, and center (40, 233). Keep it separate from
-  the central content and primary action. Do not place Back beside a footer
-  action or below it. Show it only when a valid previous route exists.
-- Render Back as a single left-facing chevron icon, centered in that control.
-  Do not display the word Back or another text label inside the control.
-  Preserve its full touch target independently of the icon's smaller bounds.
-- Derive the available horizontal chord from the circle at every occupied
-  vertical position. Keep the full visible control and its hit target inside
-  the display, preserve QR quiet zones, and prevent overlap with lateral
-  navigation. The safe square is the baseline, not the only usable area.
-- Rendering, clipping, and touch must share these logical coordinates through
-  0/90/180/270 degree rotation. Back stays visually on the left in the chosen
-  orientation; never mirror text or independently rotate the hit target.
-- Read `docs/architecture/circular-display-layout.md` before changing layouts.
-  Its geometry comes from the existing Luna UI; Cody layouts must use the
-  standalone 2D renderer without admitting LVGL dependencies.
+- Implementation does not authorize tests, validation scans, simulator execution,
+  configure/build/size or physical hardware/serial/flash/erase/recover/monitor.
+  Run only the operations explicitly requested. Static source review is allowed;
+  disclose deferred validation.
+- Before each individual test or suite, announce exact commands and wait for fresh
+  explicit authorization. Earlier test approval or approval to implement, build,
+  flash or capture does not authorize another test run.
+- Finish implementation, static review and cross-component integration before
+  requested final validation; no intermediate configure/build/size passes.
+  Limit compilation to eight jobs and allow at least 240 seconds per build.
+  After cancellation, confirm Ninja/Xtensa compiler processes have stopped before
+  starting later validation. Fix compiler/linker causes; never globally suppress
+  warnings to conceal them.
+- An explicitly requested complete final package comprises clean/incremental
+  builds, size, simulator checks, `git diff --check`, dependency/legacy scans and
+  a changed-files secret scan. A narrower request authorizes only its named checks.
+  Host assertions, successful builds and flashes do not prove physical behavior.
 
-## Code clarity and identities
+## Circular display
 
-- Cody currently supports English only. Use bounded printable-ASCII fonts and
-  text; do not add Unicode font ranges or localization infrastructure.
-- Prefer readable steps and clear variable/method names over fewer lines.
-  Do not compress branches or unrelated statements onto one line.
-- Address domain controls and identities with enums and unique names/IDs.
-  Raw indices belong only to internal storage traversal or API boundaries;
-  never use list position as the meaning or identity of a domain element.
-- Give authored entities unique IDs within explicit typed namespaces. Reject
-  duplicates and ambiguous references; preserve names across reordering.
-- Above each new or modified function, describe each parameter on its own
-  comment line and applicable exceptions on a separate line. Add useful
-  comments inside methods for non-obvious choices, ownership and invariants.
-- Keep comments natural and occasionally informal where helpful. Explain the
-  decision; do not narrate obvious code or add filler comments.
-- Extract helpers around a clear responsibility. Avoid speculative abstraction
-  and check that removing repetition also improves understanding.
+- Canvas: 466 x 466; center (233, 233), radius 233. Central safe square:
+  320 x 320 at (73, 73), half-open bounds [73, 393), pixels 73 through 392.
+  Rounded margins are usable for navigation/status/artwork, not uniform strips:
+  the lateral width is 73 pixels only at the horizontal center.
+- Back occupies the left lateral circle: bounds (10, 203), 60 x 60, radius 30,
+  center (40, 233). Show only with a valid previous route. Use one centered
+  left-chevron, no text; retain the full touch target. Keep it separate from
+  central content and primary/footer actions, never beside or below a footer.
+- Derive the circle's available chord at every occupied y. Keep artwork/control
+  and hit bounds inside it, preserve QR quiet zones and avoid navigation overlap.
+  The safe square is a baseline, not the only usable area.
+- Rendering, clipping and touch share logical coordinates at 0/90/180/270 degrees.
+  Back remains visually left in the chosen orientation; never mirror text or
+  rotate touch independently. Read
+  [circular-display-layout](docs/architecture/circular-display-layout.md) before
+  changing layouts.
 
-## Fail-fast and error visibility
+## Code clarity
 
-- Never convert a failure or partial failure into `ESP_OK`.
-- Never discard an initialization, read, write, persistence, or service-start
-  error. Propagate the original `esp_err_t` or a more specific error.
-- Log every rejected value and failed operation with the component, operation,
-  and real error. Logs complement structured state; they do not replace it.
-- Startup-critical failures stop the current startup stage immediately.
-- A higher-level orchestrator may explicitly continue after a component that is
-  documented as optional fails, but the component call must still return its
-  real error and publish the failure in `DeviceSnapshotService`.
-- When classification or recovery is ambiguous, fail fast. Do not guess.
+- Cody text is English, bounded printable ASCII; no Unicode/localization layer.
+- Use readable steps, descriptive names and helpers with one clear responsibility;
+  no dense branches, unrelated one-line statements or speculative abstractions.
+- Domain identities use enums and unique names/IDs in typed namespaces. Reject
+  duplicates/ambiguous references and preserve identity across reordering.
+  Raw indices are for storage traversal/API boundaries, not domain meaning.
+- Above every new/modified function, add a separate comment line for each
+  parameter and a separate line for applicable exceptions. Inside functions,
+  explain non-obvious decisions, ownership and invariants without narrating
+  obvious code or adding filler.
 
-## Sensor and runtime data
+## Errors and canonical data
 
-- The canonical `DeviceSnapshotService` snapshot is the only sensor-data source
-  for Cody, UI, animations and other consumers. Always read its published
-  values, validity/health, real errors and original sample timestamps; never
-  perform direct sensor, BSP or I2C reads from a consumer, including temporary
-  diagnostics, animation shortcuts and freshness fallbacks.
-- Only the hardware acquisition owner that publishes the canonical snapshot
-  may read sensors. If a consumer needs another field or a faster cadence,
-  extend that snapshot owner explicitly instead of opening a second read path.
-- Publish a measurement only after a successful hardware read.
-- Never manufacture, interpolate, zero-fill, or reuse a stale value as if it
-  were a current sensor reading.
-- A failed or unavailable sample must carry an explicit invalid/unavailable
-  state, the real error, and its validity or sample timestamp where applicable.
-- UI code must check validity and health before rendering numeric telemetry. It
-  must show `UNAVAILABLE`, `NO FIX`, `STALE`, or the real error instead of a
-  plausible numeric placeholder.
-- CPU usage or any other metric that is not actually measured must be labelled
-  unavailable; it must never be estimated.
-- Synthetic data is allowed only inside the Windows simulator and must remain
-  visibly labelled synthetic. It must never enter firmware snapshots.
+- Never turn a failure/partial failure into `ESP_OK`, discard an init/read/write/
+  persistence/service error or guess at ambiguous recovery. Return the original
+  `esp_err_t` or a more specific error. Log every rejected value and operation
+  failure with component, operation and real cause; logs complement structured state.
+- Startup-critical failure stops its stage. An orchestrator may continue only
+  after a documented optional failure; that component still returns its error
+  and publishes failure in `DeviceSnapshotService`.
+- The canonical snapshot is the only sensor/runtime-data source for Cody, UI,
+  animations and consumers. Only its acquisition owner reads sensors/BSP/I2C.
+  No consumer-side reads, temporary diagnostics or freshness fallbacks; extend
+  the owner explicitly for new fields/cadences.
+- Publish measurements only after successful hardware reads, with original
+  timestamps, validity/health and real errors. Failed/unavailable samples carry
+  explicit invalid/unavailable state, real error and applicable timestamps.
+  Never fabricate, interpolate, zero-fill or present stale data as current.
+  Check validity before numeric UI;
+  show `UNAVAILABLE`, `NO FIX`, `STALE` or the error. Unmeasured CPU/metrics
+  remain unavailable. Label synthetic Windows simulator data visibly and never
+  publish it into firmware snapshots.
 
-## Persistent settings
+## Settings and storage
 
-- First-boot defaults are allowed only when a key is genuinely absent. The
-  default, its key, and the first-boot decision must be logged, then persisted.
-- A missing key and a failed/corrupt read are different states. Do not treat
-  read, type, CRC, or storage errors as "not found".
-- Never silently clamp, repair, migrate, overwrite, or substitute an invalid
-  persisted value. Log it and return an error.
-- Reset or repair requires an explicit user action with a visible result.
+- Default only a genuinely absent key: log key/default/first-boot decision, then
+  persist. Read/type/CRC/storage failure is not absence. Never silently clamp,
+  repair, migrate, overwrite or substitute invalid persisted values.
+  Reset/repair requires explicit user action and a visible result.
+- Internal LittleFS/NVS and removable SD have separate owners/purposes, not
+  fallback relationships. Never implicitly format SD: require a present card,
+  verified format-required state and one explicit single-use authorization.
+  Card disappearance or inability to attempt immediately expires authorization.
 
-## Storage and destructive actions
+## Artifacts and checkpoints
 
-- Internal LittleFS/NVS and removable SD have separate owners and purposes;
-  neither is a fallback for the other.
-- Never format removable storage implicitly.
-- SD formatting requires a present card, a verified format-required state, and
-  one explicit, single-use user authorization. If the card disappears or the
-  immediate attempt cannot run, the authorization expires.
-- Do not access physical hardware, serial ports, flash, erase, recover, or
-  monitor flows unless the user explicitly authorizes that operation.
-
-## Validation
-
-- Run tests and validation workflows only when the user explicitly requests
-  them. Do not automatically run configure/build/size passes, simulator checks,
-  test suites, or validation scans during implementation or before delivery.
-  Static code review is allowed; report deferred validation clearly.
-- Before running any test suite or individual test, tell the user exactly which
-  tests and commands you intend to run and wait for fresh explicit authorization.
-  Build, flash, capture, implementation approval, or an earlier test approval
-  never implicitly authorizes another test run.
-- Treat compiler and linker errors as evidence; fix their root cause rather
-  than suppressing warnings globally.
-- Firmware compilation can take up to 240 seconds; allow at least a 240-second
-  timeout for build invocations before treating them as stalled.
-- Do not run intermediate configure, build, or size passes while implementation
-  and integration work is still in progress. Finish the code changes, static
-  review, and cross-component integration first; run a final validation
-  package only on explicit user request after the task is complete. Limit compiler parallelism to at
-  most 8 jobs, and after cancelling a build confirm that no Ninja or Xtensa
-  compiler process remains before starting any later validation.
-- When the user requests the complete final validation package, run a clean
-  build, an incremental build, the size report, simulator checks,
-  `git diff --check`, dependency/legacy scans, and a changed-files secret scan.
-  A narrower request authorizes only the requested checks.
-- Do not claim hardware behavior from host-only validation.
-
-## Work Tracking
-
-- Make focused checkpoint commits after coherent implementation steps. Do not
-  leave completed work only in the worktree; push still needs user authorization.
-- Keep `AGENTS.md` as the single repository instruction file. Do not add
-  parallel Copilot instruction files or duplicate agent contracts.
-- Keep generated firmware and simulator build output under `artifacts/`; do not
-  create profile build trees in the repository root.
-- Use `scripts/device.ps1` as the sole public CLI/menu for firmware, simulators,
-  generators and checks. Keep implementation in `commands/`, reusable helpers
-  in `common/`, generators in `generators/`, and checks in `checks/`.
-- Before every firmware build/flash (including combo/recover), clean transient
-  artifacts through the shared artifact helper. Preserve active firmware,
-  dependency locks, generated configuration and Python caches; `fullclean`
-  explicitly cleans the selected build. Keep logs, captures, reports, temporary
-  files and local simulator environments under `artifacts/`. Never delete
-  versioned source assets as runtime-output cleanup.
-- Treat `TODO.md` as the active backlog for open work.
-- Treat `planned-todo.md` as the deferred, non-priority backlog, grouped by
-  macro activity. Move an item to `TODO.md` when it becomes active work.
-- Move completed items to `done.md`, stored next to `TODO.md`, during periodic
-  cleanup so the active list stays focused.
-- Record recurring repository lessons in `lessons.md` and check it before
-  changing boot, startup, or Brookesia integration behavior.
+- Keep firmware/simulator build output, generated build state, logs, captures,
+  reports, temporary files and local simulator environments under `artifacts/`,
+  not root build trees.
+- Before every authorized firmware build/flash, including combo/recover, use the
+  shared transient-artifact cleanup helper. Preserve active firmware, locks,
+  generated configuration and Python caches. `fullclean` affects only the selected
+  build; never delete versioned assets as runtime cleanup.
+- Make focused local checkpoint commits at coherent implementation boundaries;
+  preserve unrelated work. Push needs separate user authorization.
+- `TODO.md`: active open work. `planned-todo.md`: deferred work; move an item to
+  TODO when activated. `done.md`: compact completed implementation/evidence,
+  without claiming pending validation. Keep recurring lessons in `lessons.md`
+  and read them before boot/startup/Brookesia changes.

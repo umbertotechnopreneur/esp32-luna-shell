@@ -1,640 +1,123 @@
-# Done
-
-## Cody footer pairing flow, retained wake and typed audio (2026-10-04)
-
-- [x] Use Show QR / Pair Cody footers on 05/06 with no lateral targets, hide
-  the white installation heading, and enter 07 immediately while real Start/
-  Retry proceeds. Keep the current session QR inside 07; actual error/online
-  observations still gate 08/09.
-- [x] Add an authored runtime-only scene inactivity override, with 60 seconds
-  on pairing scenes and zero inheriting the configured policy. Retain software-
-  standby route/text clocks in RAM and reconcile the backend before redisplay;
-  cold boot and deep sleep retain their normal reset behavior.
-- [x] Type titles, body/footer labels and look/status text from a separate active
-  clock. Add an optional original 20-ms flash microclick through the audio owner
-  with quiet/volume suppression and clock gating when time-based policy is
-  enabled, bounded notifications and no renderer I/O. Audio-excluded profiles
-  retain visual startup; the authored fixed audio RAM budget is about 6.5 KiB.
-  Render ten archive-derived cues as private listening artifacts only; rights
-  remain unconfirmed and no archive audio enters firmware. Source review/asset
-  preparation only; no new tests, build, simulator, flash or physical review.
-
-## Cody look persistence host regression checks (2026-10-04)
-
-- [x] Update the native harness for the five typed flash textures and the real
-  settings interface. Inject storage outcomes only in host test sources; no
-  firmware compatibility paths or sensor data are introduced.
-- [x] Exercise read/write error propagation, invalid saved identities,
-  missing-only defaults, retry and display-owned selection activation.
-- [x] Replace obsolete simulator/native lateral and upper-arc expectations with
-  the current named rounded controls, hidden Back and touch-only toolbar reveal.
-- [x] Run the explicitly authorized snapshot-integrity, cody-native,
-  cody-runtime, cody-response (15 tests) and cody-poc (32 tests) checks. Hardware
-  async races, memory growth and visual behavior are not proven by these checks.
-- [x] Build revision `0295963d` using ESP-IDF 6.0.2, Cody Debug and eight jobs,
-  then flash COM10: 3,550,736-byte app, 76% free app partition, verified data
-  hashes and hard reset. The flash's incremental build passed too. No monitor,
-  capture or physical UI/leak-soak check was requested or run.
-
-## Shared white Cody QR pages (2026-10-04)
-
-- [x] Give installation/session QR routes the same white scene theme, black
-  Get pairing app / Link your phone titles, numbered step captions and tiny
-  live Cody. Expand the symbol viewport from 210 to 270 pixels, retaining four
-  quiet modules, integer scaling and separate real payload ownership.
-- [x] Reuse one inline RGB565 source-over blend for vector coverage and Debug
-  toolbar fades against either background. Keep per-tile clear and existing
-  407-byte QR storage; no additional framebuffer or sensor reader.
-- [x] Include pending-command changes in lateral control damage revisions.
-  Regenerate scene definitions only; add deferred host/native regression cases.
-  Source review/generation only: no build, tests, simulator, flash or actual scan.
-
-## Rounded Cody controls, swipe and reusable scene entrance (2026-10-04)
-
-- [x] Replace Debug upper-rim sectors with small rounded graphite controls,
-  fully outside the safe square. Remove startup visibility priming; touch
-  reveals Pause/Skeleton on OOBE too, with existing 5-second/330-ms timing.
-- [x] Move OOBE actions to discreet lateral chevrons. Route released horizontal
-  swipes through the same gated actions, retaining vertical look-list scrolling,
-  short cloud drags and confirmed pairing cancellation/cleanup.
-- [x] Add authored reusable cloud entrance and delayed sequential teletype.
-  Let's pair moves/shrinks for 1 second, waits 300 ms, then types its title and
-  captions. Keep snapshot-based character response and bounded fixed storage.
-- [x] Open Happy's eyes across its named preset and atlas scenes, retaining blink.
-  Generate definitions without rebaking unchanged ASCII glyph assets.
-  Source review and source generation only; no tests, build, simulator run,
-  flash or post-change physical observation. QR white-theme/layout decision is
-  separate from this checkpoint.
-
-## Offline SD logging and native USB readback (2026-10-04)
-
-- [x] Enable the existing SD owner and FAT long filenames for Cody. Capture
-  before zero-wait USB output; replay the bounded internal boot backlog after
-  mount and retain the previous boot/rotated segment in LUNASHELL.log.1.
-  Preserve saved mirroring policy independently of Cody timing diagnostics.
-- [x] Add the native USB request receiver and host-only `device.ps1 sd-log`
-  route/menu entry. Use storage and logger ownership for 128-byte reads, pin
-  file revision/initial size, preserve original errors, verify every block's
-  CRC32 and replace local output only after a complete successful transfer.
-- [x] Attach monitor/combo with explicit baud and --no-reset by default;
-  -ResetBeforeMonitor opts into ESP-IDF's reset. Monitor attach uses only PNP
-  inventory waiting, without probing/opening or terminating existing owners.
-  Static review only; no test, build, configure, simulator, flash, monitor,
-  download or physical SD operation ran. Hardware validation remains in TODO.
-
-## Wake-on-word main integration (2026-10-04)
-
-- [x] Merge the optional Sophia implementation with current clock/quiet-hours,
-  body-touch, connectivity and console work. Retain Cody HTTP services in both
-  feature variants. Disable Release's automatic silicon sleep while standby
-  listening is enabled; embed generated 16 kHz boot cues in AFE builds while
-  ordinary builds retain 22.05 kHz.
-  Build-mode, power-policy, snapshot-integrity and 13 console host checks passed,
-  as did cue/model provenance and limited ESP32-S3 syntax checks of the actual
-  build-mode and Cody adapters. The complete native runtime test could not find
-  a host C++ compiler; no firmware link, dependency resolution or hardware check
-  ran. The isolated feature locks and device evidence remain open in `TODO.md`.
-
-## Device-console port selection and shared exception formatter (2026-10-04)
-
-- [x] Remove the implicit COM8 identity from the CLI and menu. Before ESP-IDF
-  initialization, list present Windows COM devices and require a deliberate
-  choice when Port is omitted, including with a single device. Accept COM10/10
-  equivalently; reject cancellation, unknown or ambiguous selections and failed
-  Windows device status without choosing a replacement. Explicit Port bypasses
-  the prompt, and non-interactive calls require it.
-- [x] Share `Write-DeviceFailure` between CLI and menu, retain the real error,
-  native tool exit codes and diagnostic stacks, and format preflight/output
-  failures as well as dispatched command failures. Preserve artifact lock
-  ownership during diagnostic writes and keep the menu open after failure.
-  Add deferred host regression coverage for COM identity, invalid selection,
-  original diagnostic causes, output ownership and secondary logging failures.
-  Static source review only; no tests, builds, monitor or hardware access ran.
-
-## Device-console menu and help presentation (2026-10-04)
-
-- [x] Restore operation-specific emoji throughout the public device menu and
-  submenus, with Exit on the main page and Back on nested pages. Organize help
-  into colored categories/subsections with dividers, readable command examples,
-  width-aware wrapping and descriptions for firmware/device commands, checks
-  and generators. Use only `Device.ps1` in help examples, with an opening note
-  for execution from `scripts`. Show every command/option in bold WhiteSmoke
-  (`#F5F5F5`) with its extended description underneath; use the full terminal
-  width with one blank line between entries instead of two columns.
-  Place category/subsection titles beside a thin, width-aware rule with a
-  three-point gradient fading toward its right edge.
-  Review source only; no CLI preview, tests, build, simulator or physical-device
-  operation ran.
-
-## HTTP and Wi-Fi pairing integration (2026-10-04)
-
-- [x] Integrate the shared Wi-Fi credential-event adoption, explicit
-  telemetry/provisioning handoff, per-attempt proof of possession, session QR,
-  asynchronous Start/Retry/Cancel controller and canonical lifecycle state into
-  `main`. Enable opt-in HTTP diagnostics in Cody without automatic first-boot
-  advertising, and document the OOBE contract. Source review only; validation,
-  UI integration and device evidence remain open in `TODO.md`.
-
-## Shared main integration (2026-10-04)
-
-- [x] Merge Luna connectivity, hardware census, Debug/Release and Deep-sleep work
-  with Cody's typed face lifecycle, branding and performance HUD on `main`.
-  Preserve the existing worktree branches. Prepare standalone Wake frames with
-  panel output enabled at zero brightness before exposing the 300-ms fade.
-  Static source review only; build, tests and physical behavior remain unverified.
-
-## Offline routines and RTC drift implementation (2026-10-04)
-
-- [x] Publish real trusted UTC/local time on the canonical Full Snapshot cadence,
-  with atomic typed timezone/quiet preferences and neutral unavailable behavior.
-  Reuse Cody's cloud/title/typewriter scene for awake-session greetings, softer
-  evening/night rhythm and quiet-controlled boot cues without changing IMU/touch,
-  saved brightness, codec volume, radios or standby. Separate mandatory drivers
-  from the explicitly optional first sample so an unset RTC can reach NTP.
-- [x] Request deferred SNTP once on the first IP connection; only its valid
-  callback confirms Internet time. Compare RTC before correction, publish signed
-  offset and session-baseline ppm with quantization uncertainty and real errors.
-  No new timer/task/framebuffer or drift-history NVS writes, no alarms,
-  automatic calibration, network duty cycling or claimed power savings.
-  Source-only checkpoint; validation and deployment remain deferred.
-  See `docs/architecture/cody-clock.md`.
-
-## Cody RTC activation and capability review (2026-10-04)
-
-- [x] Enable the existing PCF85063 calendar/UTC/snapshot pipeline in the Cody
-  profile without adding a sensor owner or task. Review the official schematic
-  and NXP alarm/countdown specifications, and document product uses plus the
-  expander interrupt's lack of a direct ESP Deep-sleep route. No alarm UI,
-  scheduler or automatic wake is implemented; build, tests and hardware remain
-  unverified. See `docs/architecture/cody-rtc.md`.
-
-## Cody facial lifecycle and expression service implementation (2026-10-04)
-
-- [x] Render Calm/Happy/Calm from the first animated boot frame on ordinary
-  starts, preserve independent breath/blink phases, and use atlas 35A / Sleep,
-  35B / Wake and 16 / Idle through explicit typed identities. Distinguish a
-  real Deep-sleep reset from ordinary startup.
-- [x] Add a single display-consumer power callback: acknowledge complete Sleep
-  frames before suspension and prepare Wake while the panel is still dark.
-  Preserve real transition errors and the existing resource rollback owner.
-- [x] Embed a strict catalog of eight implemented combinations and three atlas
-  lifecycle mappings, plus the authored 01/02/03 preview identities and real
-  04 / Greeting scene, with a runtime named expression-selection API. Generate source
-  assets through the sole dispatcher; no build, tests, checks, simulator or
-  hardware operation was authorized for this implementation.
-- [x] Keep the startup performance HUD hidden, show centered ASCII branding
-  under the animated face, fade the brand before screen 04, and start measured
-  FPS/CPU windows there in whitesmoke. Preserve the saved first-boot opt-out;
-  the branding also retires when that greeting is disabled.
-
-## Cody intro and tactile response implementation (2026-10-04)
-
-- [x] Add reusable typed scene phases: 400 ms Ready bitmap fade-out, two-second
-  animated Cody fade-in, then the existing greeting typewriter. Hide content/HUD
-  and touch targets during the intro, preserve active-time pause/standby rules,
-  and invalidate complete old/new artwork footprints when opacity changes.
-  Reuse the palette and current raster tile, without another framebuffer.
-- [x] Swap board X/Y in the authored panel mapping. Add canonical touch gesture
-  publication and bounded elastic drag/pressure springs in the shared response
-  composer; preserve eye-tap closure/annoyance and avoid double-rotating logical
-  touch vectors. Mirror the implementation in the synthetic Windows preview.
-- [x] Fix review P2: the runtime asset check now takes PCM/WAV sample rate from
-  the explicit authored audio setting instead of assuming 16 kHz. No check or
-  simulator execution was authorized for this iteration.
-- [x] Deliver checkpoint `d922d75a` on explicit request: ESP-IDF 6.0.2 build
-  and COM10 flash succeeded with at most eight jobs, a 2,081,600-byte app,
-  verified written hash and hardware RTS reset. No tests, simulator or
-  post-flash serial capture ran; physical behavior remains to be observed.
-
-## Cody greeting diagnostics, audio and orientation implementation (2026-10-04)
-
-- [x] Restore the measured FPS/CPU HUD on the greeting behind a default-on
-  session flag with a locked runtime setter/getter. Include old HUD damage when
-  hiding it. Reuse Luna's existing cardinal auto-rotation owner and API through
-  a default-on Cody startup policy after strict saved-setting restoration.
-  No new sensor reader, task, framebuffer or LVGL dependency is introduced.
-- [x] Resolve the observed boot cue format mismatch in source: regenerate both
-  original flash-owned PCM cues at the shared 22.05 kHz clock and request codec
-  volume 100. Reject peer stream clock conflicts before changing transport.
-  One authorized preceding-firmware 45-second capture showed continuous frames
-  and the I2S mismatch, not the reported freeze. This records implementation;
-  new device appearance, audible output and rotation are not yet observed.
-  Checkpoint `6f42f84d` compiled successfully (2,074,320-byte application),
-  with HUD/rotation enabled and LVGL excluded. The first flash was blocked by
-  COM10 disconnection; the subsequent `b663f2ac` retry flashed successfully with
-  a verified hash. The later live capture showed frames and rotation, no reset
-  cycle in its 45-second window; long-run behavior remains unverified.
-
-## Optional wake-on-word implementation (2026-10-04)
-
-- [x] Add shared compile-time CPU/PSRAM/codec/input capability gates and isolated
-  Cody/full wake-word variants with the official pinned Sophia v1 model in
-  internal flash. Publish real voice-owned microphone levels and recognition
-  state/events through the canonical snapshot; connect software standby wake
-  and Cody interaction without another hardware read path. Keep mono/dual and
-  output-free topology explicit, surface failures and pause recognition during
-  exclusive diagnostics/Performance Mode. Document future-board integration.
-  Source review only; dependency locks and all validation/hardware checks remain
-  open in `TODO.md`.
-
-## Cody first-boot scene implementation (2026-10-03)
-
-- [x] Implement the atlas page 05 / screen 04 greeting through a reusable
-  standalone cloud/title/optional-content compositor. Keep the existing
-  snapshot response and pearl face warp; move Cody ten pixels higher, use
-  scale 130, and reveal `Hi, I'm Cody!` in a 70 ms-per-character typewriter.
-  Schedule it two seconds after the Ready frame with a logged, strictly read
-  NVS first-boot key and an explicit development override enabled by default.
-  Pack printable ASCII coverage into 19,000 flash bytes without runtime font
-  decoding, per-frame allocation or another framebuffer. Add the shared
-  Windows preview route and document ownership/failure rules. Checkpoint
-  `1df7ee0a` subsequently compiled and flashed on COM10 at explicit user
-  request: 2,055,376-byte application, verified flash hash and hardware reset.
-  No automated tests or simulator ran; runtime/size checks remain open.
-## Release touch/motion sleep policy (2026-10-04)
-
-- [x] Implement runtime `idle_sleep_s` (default 60 seconds), shared 300-ms fades,
-  Release transactional Deep-sleep with touch GPIO11 and QMI8658 INT2/GPIO21
-  accelerometer-only WoM, wake startup pin/IMU/display restoration and rejected
-  entry recovery. Debug retains CPU/USB/logs and 10-Hz software motion observation.
-  Update Luna Settings, canonical power snapshot and HTTP diagnostics. Source
-  review and GUI document generation only; validation and device evidence remain
-  open in `TODO.md`. No board-current or wake-latency claim.
-
-## Hardware power census (2026-10-04)
-
-- [x] Add the root hardware consumption census with manufacturer datasheet
-  references, typical/maximum/peak distinctions, rail conditions and explicit
-  unavailable currents. Extend the integration/JSON inventories with schematic
-  flash/amplifier identities and touch, IMU, PMU/RTC interrupt routing. Document
-  Deep-sleep/ULP candidates and current firmware limits. Source/PDF review only;
-  no build, test, hardware or electrical validation performed.
-
-## Common firmware build modes (2026-10-04)
-
-- [x] Add profile-independent Debug/Release selection to the public firmware CLI
-  and menu. Debug is the default; Release requires explicit selection. Isolate
-  generated configuration/build output and reject mode/log/power mismatches.
-  Apply Release warning/error logs, automatic Light-sleep eligibility, disabled
-  debug-only residency/frame/HUD work and reduced Cody static/parked polling.
-  Preserve errors, watchdogs and functional wake/acquisition contracts. Source
-  implementation and static review only; validation remains in `TODO.md`.
-
-## Cody rendering checkpoint (2026-10-03)
-
-- [x] Port the approved concept-08 pearl texture to native scanline deformation,
-  with premultiplied alpha filtering and old/new sprite damage. The first
-  release was built and flashed on COM10; the user accepted its appearance.
-  Add a named build-time renderer selection, currently enabled by default,
-  and a session-scoped runtime face-follow flag, also initially enabled.
-  Facial paths and debug/touch points receive the exact forward body warp.
-  The final default/face revision was built and flashed on COM10 with both
-  options enabled (2,027,936-byte application); no new tests were run.
-  Document provenance, settings, measured older-firmware cost and the unresolved
-  intermittent freeze separately. Performance optimization remains open.
-- [x] Implement the reduced timing report and geometry-driven pre-raster damage
-  candidate: compact clipped tiles, no live pixel-cache compare/pack, and
-  reference geometry committed only after successful frame retirement.
-  Compiled/flashed on COM10; artwork capture reaches about 29 FPS with CPU1
-  45%, CPU2 0%, frame mean 26 ms and report cost 20 ms. Payload increases;
-  DMA remains a bottleneck. Regression coverage is added but not run. The
-  user observed no dirty pixels in the checked orientation.
-- [x] Capture the real skeleton view and replace byte-at-a-time RGB565 panel
-  conversion with aligned 32-bit pair swaps. On COM10, conversion falls from
-  3 ms to 2 ms, CPU1 from 68% to 66%, and sustained FPS from 27.9 to 28.7;
-  CPU2 remains 0%. Skeleton drawing stays at 15 ms and DMA wait at 11 ms.
-  The regressing `memcpy` trial was discarded. No automated tests ran.
-- [x] Prepare skeleton links and tangents once per frame and render them as
-  validated ordered batches from a separate PSRAM cache. On COM10, raster
-  falls from 15 ms to 14 ms, skeleton from 7 ms to 6 ms, CPU1 from 66% to
-  64%, and sustained FPS from 28.7 to 28.9; payload and DMA are unchanged.
-  The cache is opaque and committed only after complete preparation. No
-  automated tests ran.
-- [x] Prepare the exact marker disks in authored order in the same private
-  cache. On COM10, marker time falls from 2 ms to 1 ms, skeleton from 6 ms to
-  5 ms, raster from 14 ms to 13 ms and median CPU1 from 64% to 63%; CPU2 stays
-  0% and sustained FPS reaches 29.2. No automated tests ran.
-- [x] Shortlist only fill edges that can cross a compact tile and skip constant
-  gradient math for solid paths without changing scanline coverage. On COM10,
-  artwork CPU1 falls from 45% to 33%, artwork raster from about 7 ms to 4 ms
-  and frame mean from about 26 ms to 21 ms at 29.4 FPS. The matched skeleton
-  capture falls from CPU1 63% to 55% and draw from 13 ms to 10 ms. CPU2 remains
-  0%; the user observed no dirty pixels in the checked orientation. No
-  automated tests ran.
-- [x] Add additive skeleton links/tangents/markers probes with two extra clock
-  reads per drawn tile and no additional log line. Firmware `bc7c940b` compiled,
-  flashed on COM10 and captured for 60 seconds. Skeleton costs about 8 ms;
-  the sustained CPU/FPS target remains open. No automated tests ran.
-- [x] Checkpoint shared bounded frame ownership separately from Cody rendering.
-  Rasterize in the frame-owned DMA slot, compare conservative old/new coverage,
-  retain exact pixel reference checks, and report individual layer durations.
-- [x] Record narrow physical evidence: artwork about 27 FPS with CPU1 around
-  80%; skeleton about 19-21 FPS. This is progress, not completion of the CPU
-  performance target. The newest stroke/fill candidate needs separate results.
-
-## Cody measured diagnostics and shared input integration (2026-10-03)
-
-- [x] Add the white FPS/CPU1/CPU2 readout below the circular safe square,
-  using completed-frame timing and a read-only canonical processor projection.
-  Preserve unavailable/stale states instead of displaying numeric placeholders.
-- [x] Acquire measured idle runtime on each owning CPU with a matching clock.
-  The earlier flashed Cody capture retained valid CPU measurements through
-  the capture window; port the focused correction to Luna separately.
-- [x] Restore Luna's original CST9217 transport and connect its binary IRQ
-  flow to standalone strip rendering. Preserve report order until the frame
-  boundary, real failures and rotation/input ownership. Port shared changes
-  to Luna without incorporating the parallel review's source edits.
-- [x] Compile the current Cody candidate, including the temporary debug awake
-  policy. This records implementation/compilation only: its flash and physical
-  touch/animation/rotation checks remain open in `TODO.md`.
-
-## Code-review mitigation implementation (2026-10-02)
-
-- [x] Introduce frame-level standalone deadline/DMA/watchdog ownership and
-  structured measured results with explicit failure retention. Extract snapshot
-  reporters and the DMA lease owner, and separate Luna log/pairing presenters.
-  Use typed severity identities and readable ownership/parameter comments.
-  This records implementation only; validation is pending in `TODO.md`.
-- [x] Integrate the shared Luna changes with Cody's current response engine;
-  group companion state/resources, name touch actions, cull nonintersecting paths
-  and reduce unchanged preview presentation/Tk allocation. Prepare a native C++
-  raster/rig runner and Python geometry comparison without executing them.
-
-## Cody Response Engine implementation (2026-10-02)
-
-- [x] Add typed external-stimulus inputs, a coherent read-only view of the single
-  canonical Luna snapshot, timestamp-gated gravity-baseline/transient processing,
-  analytic three-axis springs, continuous stress/fatigue and one rig composer.
-  Preserve input health/errors, phase continuity, cardinal rotation and fixed
-  navigation. Missing charge remains unknown; charging alone does not reset it.
-- [x] Author strict named YAML response parameters and share native/host limits
-  through generated firmware data. Add the Windows Stimuli tab with synthetic
-  inputs, pulse/shake, source-health controls, model readouts and root overlays.
-- [x] Prepare focused response regressions and an English architecture blueprint.
-  Source tables were regenerated; runtime checks, simulator execution, firmware
-  builds and hardware validation have not been run for this checkpoint.
-
-- Consolidated the Cody tooling behind `scripts/device.ps1`: local shared menu,
-  host/firmware routing, grouped generators/checks/contracts, three boot captures,
-  failure logs and artifact containment. Removed the duplicate simulator menu and
-  serial-capture alias. Transient artifacts are cleaned before build/flash while
-  firmware/config/Python caches survive; compiler jobs are bounded to eight for
-  both build and flash targets. Console regressions were prepared but not run;
-  simulator, packaging, firmware and hardware validation remain deferred.
-  Executed only the requested `clean-artifacts` operation: previous PoC runtime
-  output was removed and the cleanup log saved under `artifacts/logs/`.
-  Removed the obsolete `scripts/__pycache__` output as well.
-
-## Cody responsive inspector and facial controls (2026-10-02)
-
-- [x] Fit the desktop preview to its viewport with one shared image/label/touch
-  transform. Reflow the controls below the preview at narrow widths, keep the
-  panel scrollable, and adapt label pagination without shrinking the font.
-  Factor repeated sliders and toggles into commented helpers.
-- [x] Add anchored mouth width, nose size, cheek size and cheek opacity controls.
-  Enlarge default cheeks slightly, interpolate face targets, and expose an
-  Embarrassed example while preserving independent breath and contour motion.
-  Blend partial cheek opacity in RGB565 using the fixed source palette.
-- [x] Update prepared regressions and documentation. Asset conversion and static
-  review only; no test, simulator, firmware build or hardware run in this step.
-
-## Cody contour and named debug overlays (2026-10-02)
-
-- [x] Add YAML-authored fullness, wave amplitude, cycles-per-second speed and
-  phase spread for the eleven cloud lobes, separate from the facial channels.
-  Smooth targets and integrate speed without restarting the wave phase;
-  preserve the original shape when both displacement controls are zero.
-- [x] Extend the Windows inspector with Face/Contour/Debug tabs, independent
-  contour freeze, current/target readouts, current and reference outlines,
-  selectable stable names and leader lines, filtered/paged point groups and
-  normalized/logical/rotated coordinates. Preserve cardinal touch transforms
-  and icon-only lateral navigation.
-- [x] Prepare regression coverage for contour independence, phase continuity,
-  timing, invalid inputs, reference geometry and rotated name attachment.
-  Source conversion and static review only: the expanded suite and simulator
-  have not been run. Firmware build and hardware performance remain unverified.
-
-## Cody cloud-rig PoC (2026-10-02)
-
-- [x] Add a YAML-owned front-facing cloud with 145 stable named points,
-  normalized feature anchors, 44 cubic segments and shared evaluated geometry
-  for artwork, debug links, control handles and touch selection.
-- [x] Integrate the exact 256-slot palette for the rig, named paint/debug roles,
-  independent eye/brow/mouth controls and elapsed-time breathing/blinking.
-  Keep original boot images and real startup boundaries. Add the animated rig
-  route, lateral Back/debug icons and actual device timing instrumentation.
-- [x] Add `-Cody` to the existing Windows simulator launcher, with independent
-  controls, scaling, placement, all cardinal orientations and three boot views.
-  Disable HTTP diagnostics for this local PoC, keeping Wi-Fi/BLE hardware.
-- [x] Run ten focused host checks, including actual Tk control navigation,
-  and the PowerShell boot-preview capture path. Review generated screen PNGs;
-  record a 600-frame host render sample and looping animation under
-  `artifacts/cody-poc/`. Firmware compilation, physical performance and native
-  raster parity remain explicitly open in `TODO.md`.
-
-## Cody base implementation (2026-10-02)
-
-- [x] Record the source-verified 466 x 466 circle, 320 x 320 central safe
-  square at (73, 73), variable rounded margins, and lateral Back slot in
-  `AGENTS.md` and the architecture documentation. This is a documentation
-  checkpoint from static source review, not OOBE implementation or validation.
-- [x] Specify an icon-only left-chevron Back control, preserving its lateral
-  position, gradient, and full touch target; update the geometry diagram.
-
-- [x] Carry the reusable main display/touch checkpoint into a remote-main-based
-  Cody branch. Add the standalone connected profile, local minimal CODY2D
-  surface/fill/RLE code, boot consumer and three blue Imagegen phases in flash:
-  sleeping at start, waking after local services, ready after startup completion.
-  Preserve mandatory hardware, real errors and cardinal orientation. This is
-  implementation plus static review and asset conversion only; firmware and
-  device validation remain open in `TODO.md`.
-
-## Standalone display and touch implementation (2026-10-02)
-
-- [x] Separate physical display/touch selection from the Luna GUI. Add a
-  mandatory display-touch profile, standalone RGB565/touch APIs and a
-  hardware-owned display lock, preserving the existing UI path. This is a
-  source checkpoint with static review only; dependency locks, compilation and
-  physical behavior remain pending in `TODO.md`.
-
-## Archived from the active backlog (2026-09-25)
-
-- [x] Build the Windows simulator device twin: validated synthetic snapshots,
-  deterministic scenarios and clock, semantic actions, loopback fake HTTP API,
-  and hardware-free visual/interaction checks.
-- [x] Implement BLE-only, user-started Wi-Fi provisioning with the System Core
-  wizard, dynamic QR flow, and hardware-free checks.
-- [x] Move hardware status, freshness, CPU utilization, and full-refresh
-  transaction reporting onto `DeviceSnapshotService` with deterministic tests.
-- [x] Use System Core as the sole app runtime, split the declarative GUI into a
-  resident bootstrap and lazy route documents, and stage only product assets.
-- [x] Separate internal LittleFS from removable SD and add guarded,
-  CID-bound, one-shot format authorization plus Settings status/progress.
-- [x] Add backend sensor state and non-blocking stationary calibration;
-  orientation remains unavailable without a validated reference frame.
-- [x] Implement transactional Device Standby, dim/off display modes, qualified
-  IMU wake, app/GUI quiescence, and event-driven idle workers.
-- [x] Add opt-in HTTP API settings persistence, the Audio FFT scope route, and
-  non-UI open-source branding checks and release checklist.
-
-Completed items moved out of `TODO.md` live here.
-
-## Build and resource efficiency
-
-- [x] Add versioned `headless`, `ui-minimal`, `connected`, `full`, and
-  `full-distance` compositions with isolated generated configurations,
-  build-local dependency resolution, and one reviewed canonical lock per
-  variant.
-- [x] Make runtime-package verification, staging, JSON minification, and
-  LittleFS image creation timestamp-driven; keep each profile's generated
-  resource tree inside its own build directory.
-- [x] Reuse pre-sized FFT/detail binding keys, paths, colors, strings, and
-  update vectors for the app lifetime, and skip dispatch for unchanged frames.
-- [x] Add CI resource budgets for image bytes, static DIRAM, and total/managed
-  translation-unit counts, with deterministic policy self-tests and reports.
-
-These entries record host-side implementation and validation. Device latency,
-heap behavior, and visual equivalence remain explicit hardware work in
-`TODO.md`.
-
-## Runtime efficiency and transactional recovery
-
-- [x] Coalesce repeated trusted-GNSS clock updates by explicit system-drift and
-  maximum RTC-persistence intervals while preserving oscillator-stop recovery.
-- [x] Park the empty SD logger indefinitely, drain writes in bounded watched
-  batches, and refresh FAT free space only on mount, persisted writes, an
-  explicit Storage request, or the slow safety deadline.
-- [x] Compute microphone FFT bands only while an FFT/detail diagnostic lease is
-  active, while preserving measured mean and peak telemetry for level-only
-  consumers.
-- [x] Reconcile Performance Mode, display rotation, and HTTP server lifecycle as
-  explicit transactions whose failed cleanup remains visible and retryable.
-- [x] Publish retained liveness breadcrumbs with a versioned, non-colliding
-  sentinel and cover removable-storage, logger, and formatting I/O domains.
-- [x] Preserve repeated Full Snapshot aggregate errors in return values and
-  structured state while coalescing only their duplicate scheduler log into
-  immediate transitions, counted 60-second reminders, and immediate recovery.
-- [x] Replace Brookesia's per-call `changed_updates` pointer-vector allocation
-  with a compact inline bitmap that covers up to 128 updates without heap
-  growth, while preserving the two-phase store/apply order, restoring listener
-  suppression with a guard, and retaining host coverage for unchanged values,
-  missing targets, binding errors, and dirty-node reapplication.
-
-These entries record the implemented software contracts. Interactive UI,
-rotation, removable-media, and forced-failure scenarios remain physical-device
-tests where tracked in `TODO.md`.
-
-## Audio scope visualization
-
-- [x] Improve FFT sensitivity by mapping the measured DFT range from -90 to
-  0 dBFS, so quiet valid ES7210 captures are visible without synthetic gain.
-
-## UI rotation and Performance Mode
-
-- [x] Cache the last complete RGB565 frame in PSRAM and replay it after a
-  cardinal panel/touch rotation instead of invalidating and rasterizing the
-  entire LVGL tree.
-- [x] Add the Settings Command Arc Performance Mode action. It pauses effective
-  SD log writes, periodic Full Snapshots, and the optional voice AFE while
-  preserving saved preferences and keeping connectivity and sensor services
-  available.
-- [x] Enable bounded LVGL shadow and circle caches for repeated chrome drawing.
-- [x] Replace the visible 10-row scrolling tiles with 64-row double buffers in
-  PSRAM, copied through one transient 4-row internal DMA buffer before QSPI.
-- [x] Retire the icon-only Maximum Debug preset after device monitoring showed
-  that its 100 ms diagnostics, 300 ms Full Snapshots, global verbose logging,
-  and unavailable SD mirroring could starve the UI. Keep each diagnostic
-  setting explicit and independently selectable instead.
-
-## Internal memory and diagnostic sampling
-
-- [x] Bound both the canonical logger ring and its snapshot scratch to 15
-  complete lines, and move the permanent logger, SD storage, and diagnostic
-  task stacks to PSRAM while retaining their FreeRTOS TCBs in internal RAM.
-- [x] Publish raw internal/PSRAM heap block metrics and allocation-failure hook
-  counters so fragmentation and failed requests remain explicit.
-- [x] Reuse each fresh Diagnostic IMU or microphone sample at most once in the
-  next Full Snapshot without changing its measurement timestamp, and gate the
-  two diagnostic streams independently.
-
-Device behavior for these changes has not yet been verified; completion here
-records the implementation only.
-
-## Low-power runtime acquisition
-
-- [x] Make the shared hardware monitor block indefinitely when no diagnostic,
-  adaptive-motion, or auto-rotation consumer is active, and wake it from every
-  setter that can make sampling eligible.
-- [x] Enable and read back AXP2101 battery detection, sample cell telemetry only
-  when a battery is present, and publish explicit percentage/voltage validity.
-- [x] Latch a periodic PCF85063 oscillator-stop failure until a trusted RTC
-  write succeeds and is verified by hardware readback.
-- [x] Cache immutable flash, running-image, partition, and core-count metadata
-  after the first complete successful read while retaining dynamic runtime
-  sampling.
-- [x] Move successful periodic PMU, RTC, and GNSS detail logs to `DEBUG` while
-  preserving visible errors and structured health state.
-
-These entries record the implemented software package only. Electrical savings
-and the open physical standby/wake tests require target-device measurements and
-remain tracked in `TODO.md` and `planned-todo.md`.
-
-## Runtime liveness and bounded operations
-
-- [x] Enable panic-and-reboot bootloader, interrupt, idle-core, and Task-WDT
-  policy, with a 12-second Task-WDT deadline and a best-effort retained timeout
-  breadcrumb exposed through the read-only health response.
-- [x] Add explicit liveness domains for startup, GUI, LVGL display, Full
-  Snapshot, settings NVS, provisioning, boot audio, radios, Wi-Fi operations,
-  asynchronous Wi-Fi scans, and Wi-Fi events.
-- [x] Replace indefinite application-owned mutex waits with bounded failures,
-  serialize Wi-Fi lifecycle operations, and keep the reconnect timer callback
-  non-blocking when that lifecycle is busy.
-- [x] Put potentially unbounded NVS, provisioning teardown, and boot-audio work
-  behind owned worker lifetimes and software deadlines that remain inside the
-  Task-WDT deadline.
-
-This section records host-validated implementation only. Forced-stall behavior,
-retained reset diagnostics, and worker stack margins remain hardware tests in
-`TODO.md`.
-
-## Cody offline PoC extension (2026-10-03)
-
-- Added an authored automatic animation cycle, two original PCM16 boot cues,
-  console-first boot/frame timings and optional existing SD logger mirroring.
-- Extended the canonical snapshot adapter and response composer for microphone
-  attention, confirmed playback, configurable idle yawn and real eye-tap
-  closure/annoyance. Windows controls remain explicitly synthetic.
-- Authorized host checks passed: 11 response tests, 23 PoC/Tk tests, portable
-  raster/rig contracts and 500 native/host model updates. ESP-IDF compilation,
-  physical audio/touch and measured firmware fluidity remain open in TODO.md.
-
-## Cody look selector (2026-10-04)
-
-- Implemented atlas screen 11 as `Cody's look`: a live character preview above
-  a bounded vertical single-choice list for Pearl Mist, Aurora Veil, Cosmic
-  Stardust, Enchanted Mosaic and Dreamwave.
-- Added stable-ID NVS persistence with Pearl Mist created only for an absent
-  key; read, write and unknown-ID failures remain visible and preserve the prior
-  active choice.
-- Added append-only atlas addendum A02: planning page 24 and navigation page 14.
-  All earlier pages render identically at 96 DPI. Firmware build, simulator,
-  automated tests and device behavior remain unverified.
-
-## Cody native status and screenshot chrome (2026-10-04)
-
-- Reverted the attempted LVGL/Brookesia battery/date/time/Wi-Fi extension and
-  replaced it with an independent `CODY2D` status component. Post-first-boot
-  status is sourced only from the canonical snapshot, uses semantic colors,
-  sits below Debug controls and shares their touch-activity fade.
-- Added a third upper Debug control with a camera identity. An admitted request
-  forces one complete native composition into temporary PSRAM, then the storage
-  owner writes an atomic top-down BMP to `LUNASHELL/screenshots/`; mirrored logs
-  remain separate in `LUNASHELL/logs/`.
-- Updated the canonical navigation source, generated table, native contract
-  fixtures and Windows preview icon. Build, automated tests, simulator execution,
-  SD writes and physical-device behavior remain unverified by instruction.
-- Refined the upper arc so Pause and Skeleton remain authored but hidden from
-  both raster and touch. Date/time moved left; flash-resident battery, Wi-Fi and
-  Bluetooth glyphs occupy the right. Battery uses gray absent, red low, orange
-  mid-level, green healthy and cyan charging states with a white charge mark.
+# Completed implementation and evidence
+
+This is a compact checkpoint record, not a release certificate. Open validation
+and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
+[planned-todo.md](planned-todo.md). Historical revision details remain in Git
+and referenced architecture/artifact records.
+
+## Cody and connectivity — 2026-10-02 to 2026-10-04
+
+- Implemented standalone Cody boot assets, front-facing named cloud rig, palette,
+  face/contour channels, debug overlays, responsive Windows inspector and
+  synthetic stimuli. Added the canonical-snapshot response engine, fatigue/
+  stress, charge/microphone/playback response, eye taps and elastic drag.
+  [Rig and response](docs/architecture/cody/rendering.md).
+- Implemented typed scene phases, first-boot greeting/branding, measured HUD,
+  shared cardinal auto-rotation, reusable entrance/teletype and face lifecycle:
+  ordinary Calm/Happy/Calm, completed Sleep and dark Wake preparation.
+  [Runtime and scenes](docs/architecture/cody/runtime.md).
+- Ported the user-approved pearl scanline artwork and exact face warp; added
+  pre-raster old/new damage, compact tiles, word conversion, prepared strokes/
+  markers, edge shortlists and frame-owned DMA. Narrow historical captures
+  reached about 29 FPS; CPU/frame targets remain open for the current image.
+  [Rendering](docs/architecture/cody/rendering.md).
+- Implemented screen 11's five typed internal-flash looks, stable-ID persistence,
+  display-owned activation and asynchronous save. Defaults apply only to an
+  absent key; real read/write/unknown-ID failures preserve the previous look.
+  [Onboarding](docs/architecture/cody/onboarding.md).
+- Integrated async Start/Retry/Cancel, per-attempt proof/session QR, credential
+  adoption and BLE handoff on main; HTTP remains opt-in. Added white QR themes,
+  bounded integer scaling/quiet zones, rounded controls and gesture routing.
+  [Pairing](docs/architecture/cody/onboarding.md).
+- Checkpoint `f7d1925f`: completed OOBE footer actions, immediate route 07 with
+  the current QR, real error/online gates, per-scene transient 60-second standby,
+  retained software-wake route/active clocks/paused pose, and separate title/
+  body/footer/look/status typing. Cold/deep-sleep reset remains distinct.
+  Added the original flash microclick with bounded audio-owner notifications,
+  coherent cancellation, quiet/volume/time gates and optional failure reporting.
+  Source review/asset preparation only; no new tests/build/simulator/device
+  validation. Private archive-cue auditions have unconfirmed rights and are
+  not firmware assets.
+- Implemented native snapshot-only status and Screenshot chrome with atomic SD
+  BMP writing and temporary PSRAM; recent preview evidence covers control
+  visibility only, not firmware status or storage behavior.
+- Implemented trusted clock/quiet preferences, offline greetings, optional first
+  RTC sample, deferred first-IP SNTP, measured RTC offset/rate before correction,
+  and Cody RTC profile activation. No alarm scheduler/calibration or measured
+  power-saving claim. [Clock and RTC](docs/architecture/cody/clock.md).
+- Implemented optional Sophia wake-on-word profiles, capability gates, flash
+  model, canonical microphone/events, AEC/pause ownership and software wake.
+  Locks, full firmware closure and physical behavior remain open.
+  [Wake-on-word](docs/architecture/wake-on-word.md).
+
+## Recorded validation boundaries
+
+- Authorized rig/response/native/Tk host checks passed at their checkpoints,
+  including native/host model and raster parity. On 2026-10-04, snapshot-integrity,
+  cody-native, cody-runtime, cody-response (15) and cody-poc (32) passed, covering
+  real host persistence error/retry/activation paths. They do not prove async
+  UI races, physical output or changes made afterward.
+- Cody greeting/intro/render checkpoints were explicitly built/flashed on COM10.
+  Revision `0295963d` later built in Debug with eight jobs and flashed a
+  3,550,736-byte app with verified hashes/reset; no monitor or UI/leak-soak
+  observation accompanied it. Later source increments need their own validation.
+- Earlier live captures showed continuous frames/rotation and did not reproduce
+  the intermittent stop/reset report. The first failure capture lacked the
+  trigger; neither later captures nor the working-device report establish a fix.
+  [Failure evidence](docs/architecture/cody/rendering.md).
+- Wake-word integration received build-mode/power/snapshot and console host
+  checks plus limited syntax/provenance checks, not a full firmware link/device
+  test. Physical audio, rotation, standby, electrical and stack evidence remains
+  explicitly open.
+
+## Platform, runtime and tools
+
+- Reorganized 82 owned source/private-header files under responsibility-based
+  `src/` folders; kept public headers, component IDs, configuration, vendor code
+  and assets in place. Updated CMake and source-contract consumers, added short
+  folder READMEs, consolidated 13 Cody guides into five, and shortened root
+  rules/backlogs without closing unresolved gates. Static integration review
+  only; compilation, checks and device validation remain unperformed.
+- Separated physical display/touch from LVGL UI, added standalone hardware locks/
+  RGB565/input APIs and consolidated the device console behind `scripts/device.ps1`.
+  Added deliberate COM selection, shared native-error formatting, menu/help,
+  artifact cleanup/containment and bounded compiler jobs. Recent console changes
+  have source review only.
+- Implemented SD boot-backlog/previous-log retention and CRC/revision-protected
+  native USB readback. Monitor attaches without reset by default; reset is
+  explicit. No physical SD/readback validation for this increment.
+  [Offline logging](docs/architecture/offline-logging-usb.md).
+- Added Debug/Release modes and touch/IMU Deep-sleep policy with explicit wake/
+  rejected-entry recovery. Integrated current main source policies and hardware
+  consumption inventory; actual current/wake behavior remains unverified.
+  [Build modes](docs/architecture/firmware-build-modes.md),
+  [Deep-sleep](docs/architecture/release-deep-sleep.md).
+- Implemented frame deadlines/watchdogs/DMA leases, retained failure/byte reports,
+  grouped companion state and separated snapshot reporters/log/pairing/document
+  actions. Source splits and prepared regressions do not complete their release
+  gates. [Mitigations](docs/architecture/display-touch-runtime.md).
+- Earlier Luna checkpoints implemented canonical snapshots/freshness/CPU,
+  synthetic device twin, user-started BLE provisioning, resident bootstrap/lazy
+  route documents, guarded SD formatting, stationary calibration, transactional
+  standby/Performance Mode/rotation, opt-in HTTP and measured FFT visualization.
+- Added isolated profiles/reviewed locks, timestamp-driven generated staging,
+  resource budgets, hot-path caches, bounded logger/memory reporting, diagnostic
+  sample reuse, parked idle acquisition, PMU battery validity, RTC oscillator-stop
+  retention and trusted-clock coalescing. Hardware savings are not established.
+- Implemented 12-second watchdog/liveness domains, retained breadcrumbs, bounded
+  mutex/SDK-worker lifetimes and error-preserving transactional recovery.
+  Forced-stall and stack-margin device checks remain open.
+
+## Leg Edition — 2026-09-27
+
+- Implemented the five-page measured IMU UI, activity/relative-peak indicators,
+  lower navigation, fades/dropdown styling, saved motion/sound policy, embedded
+  boot WAV and louder movement cues. Serial evidence recorded deliberate level-3
+  cues, no repeated table-vibration cue, qualified motion wake and approximately
+  25-second display-off. Playback `ESP_OK` does not prove audible output.
+- Latest recorded navigation image:
+  firmware SHA-256 `69C47732DAC8CD712F71767F16994B52AC2CCCFD0D37A174E66BD7032E7AD492`;
+  LittleFS `8282F023B283A4792C22C17B35287C0B96CE6B9701C3BC2A6C85A6BD0996FCC5`.
+  Both were verified/flashed on COM8; previews/captures are under
+  `artifacts/leg-*`. Latest physical UI, acoustics, levels 1/2, PWR,
+  persistence/rotation and disabled-RTC summary remain open.

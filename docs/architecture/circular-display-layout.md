@@ -144,13 +144,13 @@ calibration, not an additional UI inset.
 
 - `components/esp32_s3_touch_amoled_1_75/include/bsp/display.h` defines
   `BSP_LCD_H_RES` and `BSP_LCD_V_RES` as 466.
-- `components/LUNASHELL_app/LUNASHELL_app.cpp` defines `kDisplaySizeDp=466`,
+- `components/LUNASHELL_app/src/runtime/LUNASHELL_app.cpp` defines `kDisplaySizeDp=466`,
   `kChromeInsetDp=73`, and `kContentSafeSizeDp=320`.
 - `components/LUNASHELL_app/gui/root.json` declares 320-pixel content surfaces
   beginning at x=73.
 - `components/LUNASHELL_app/package/res/templates/LUNASHELL_chrome.json`
   declares the Back and right-side navigation controls and their placement.
-- `components/LUNASHELL_app/LUNASHELL_edge_navigation.cpp` updates visibility
+- `components/LUNASHELL_app/src/chrome/LUNASHELL_edge_navigation.cpp` updates visibility
   and clickability according to the navigation history.
 - `simulator/windows/lunashell_simulator.py` uses `SAFE_ORIGIN=73`,
   `SAFE_SIZE=320`, and draws Back at (10, 203).
@@ -159,5 +159,5 @@ calibration, not an additional UI inset.
 Only source files were read for these measurements. No simulator, firmware
 validation, hardware operation, or LVGL integration into Cody was performed.
 The Cody boot consumer's reusable cloud/title/content layout uses this geometry,
-documented in `cody-scenes.md`. Its network OOBE routes and separate lateral Back
-control are documented in `cody-onboarding.md`; no LVGL dependency is admitted.
+documented in `cody/runtime.md`. Its network OOBE routes and separate lateral Back
+control are documented in `cody/onboarding.md`; no LVGL dependency is admitted.

@@ -1,180 +1,47 @@
-# Pearl jelly / scanline experiment
+# Pearl-jelly artwork
 
-This opt-in Windows simulator mode applies the user's selected
-**08 / GELATINA PERLATA** concept to Cody. It replaces only the cloud body and
-four vector relief paths. The face remains vector artwork but follows the same
-body warp by default; navigation stays independent. The current pearl material
-is the default, with four additional authored skins packaged for the future
-screen 11 selector. The Windows mode is opt-in. The firmware renderer is
-selectable, currently enabled by default at the user's request. Nothing in the
-artwork renderer reads physical sensors.
+The approved 08 / GELATINA PERLATA concept supplies the front-facing face-free
+body. Highlights and shadows are baked paint and deform with texture alpha.
+Expressions remain vector geometry; face-follow uses the same body warp.
+The firmware finish is selectable and currently enabled by default; the host
+study is opt-in. Runtime selection/persistence for all five skins exists in screen 11.
 
-## Artwork and provenance
+## Source and generation
 
-`jelly-body-master.png` is a real-alpha, face-free body sprite generated on
-2026-10-03 with the built-in `image_gen` tool, following the imagegen skill.
-The user's concept image supplied the shape, milky aqua/mint crown,
-lavender/pink base and broad creamy highlights. The first edit removed the
-face, text and black matte; a second edit recovered transparent framing around
-the complete silhouette. The final image is stored here, not loaded from the
-tool's output folder.
+`jelly-body-master.png` was generated from the supplied concept on 2026-10-03:
+remove face/text/black background, then restore complete transparent framing.
+Four texture-only variants in `skins/` reuse the master's exact alpha.
+`skins.json` owns stable IDs, enum values, names and source paths.
 
-The four additional source PNGs live under `skins/`. They were generated on
-4 October 2026 with the built-in `image_gen` tool as texture-only edits, then
-received the canonical master's alpha channel pixel for pixel. They contain no
-face; expressions remain separate vector artwork. `skins.json` owns their
-stable IDs, explicit numeric enum values, user-facing names and source paths.
-
-Every source is cropped through the one canonical `(28, 206, 1229, 1082)`
-rectangle and resized with premultiplied alpha to **320 x 233**. The generator
-rejects any different canvas, RGBA mode or alpha bytes instead of inferring new
-geometry. Colors are quantized to RGB565 while alpha remains eight-bit. Each
-native texture uses 298,240 bytes (291.25 KiB); the five-skin catalog uses
-1,491,200 bytes in internal flash, plus the shared binding tables. Only the
-selected texture is sampled, so the catalog does not add a runtime framebuffer.
-The Python generator separately retains Pillow buffers while packaging.
-
-## Deformation contract
-
-- 33 named row controls have precomputed weights to the existing contour-lobe
-  anchors and pinned center. Each row stores its fixed source Y coordinate.
-- Per frame, the evaluated rig provides a destination Y and left/right extent
-  for each control row. Intermediate display rows interpolate those controls.
-- Inverse row sampling stretches or compresses the source horizontally and
-  vertically, using premultiplied bilinear filtering and the same texture alpha
-  for the visible contour. There is no independent vector body clip.
-- Highlights and shadows are baked into the sprite, so they deform with the
-  surface. No dynamic lighting, refraction, blur or height field is calculated.
-- Facial expressions still use the existing independent channels. With the
-  runtime face flag enabled, sampled facial curves and their debug/touch points
-  then receive the exact forward row warp used by the texture. Disabling the
-  flag retains the previous independent facial geometry. Navigation never warps.
-- Non-finite, collapsed or vertically folded mappings are errors.
-- This is deliberately a row-warp study, not a triangle mesh. It cannot move
-  two interior points on the same scanline independently; stronger local shear
-  may require a mesh or more specialized deformation.
-- The host uses Pillow affine row sampling; the native port uses Q16 source
-  coordinates and integer premultiplied bilinear filtering. The same master
-  and bindings feed both, but pixel-for-pixel Pillow parity is not claimed.
-  The first device capture reports roughly 17-18 FPS, not the 25 FPS target.
-  Performance optimization is explicitly deferred until the artwork is settled.
-
-## Firmware selection and runtime face flag
-
-`CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY=y` selects this material for the Cody
-profile. It is enabled by default for the current visual iteration. Set it to
-`n` in `config/sdkconfig/v1/profiles/cody-companion.defaults` to select the
-existing vector renderer instead; regenerate that profile through
-`device.ps1 set-target -Profile cody-companion` before the next authorized build.
-CMake then omits both the texture and the jelly mapping cache. That is a named
-rendering choice, not a recovery path after a failed frame.
-
-`CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY=y` supplies the initial face preference
-on each boot, also enabled by default. After the consumer starts successfully,
-call `CODY_companion_set_face_deformation(true)` to follow the body or pass
-`false` to retain the independent face. Read the requested preference through
-`CODY_companion_get_face_deformation(&enabled)`. Both return `esp_err_t`; callers
-must handle the real error. A build without jelly returns `ESP_ERR_NOT_SUPPORTED`.
-
-The setter queues a redraw under the display/state lock; only the worker changes
-geometry. Switching while paused rebuilds the saved pose without advancing
-animation clocks or observing new sensor values. A parked display redraws when
-the normal display owner permits rendering. The getter reports the requested
-choice, not a claim that DMA has already presented it. The flag is session-only:
-there is no implicit NVS write, settings migration, new device settings screen,
-or restart of a failed consumer. A future preference UI can call this API.
-
-The interactive simulator exposes the same choice in Face ->
-`Deform face with jelly body`, checked initially. Synthetic input remains
-visibly labelled; simulator speed is not device performance.
-
-## Skin catalog and future selection
-
-| Internal ID | User-facing name | Role |
-| --- | --- | --- |
-| `cody.skin.pearl_mist.v1` | Pearl Mist | Current material and boot default |
-| `cody.skin.aurora_veil.v1` | Aurora Veil | Simple aqua-to-lilac gradient |
-| `cody.skin.cosmic_stardust.v1` | Cosmic Stardust | Starfield and nebula texture |
-| `cody.skin.enchanted_mosaic.v1` | Enchanted Mosaic | Iridescent enamel mosaic |
-| `cody.skin.dreamwave.v1` | Dreamwave | Flowing pearlescent ribbons |
-
-`jelly_skin_at()` exposes names for a future selector while selection always
-uses the stable string ID. `select_jelly_skin()` rejects unknown IDs and changes
-only the session request used by subsequent evaluated frames. It does not
-persist a value, complete first boot or imply that screen 11 exists. The future
-screen must make persistence an explicit confirmed user action and preserve
-Pearl Mist when no key has ever been saved.
-
-## Reproduce through the public simulator CLI
-
-Interactive preview:
-
-```powershell
-.\scripts\device.ps1 simulator -CloudJellyStudy
-```
-
-Still image and animated preview:
-
-```powershell
-.\scripts\device.ps1 simulator -CloudJellyStudy -OutputPath artifacts/simulator/cloud-jelly-pearl-v1.png
-.\scripts\device.ps1 simulator -CloudJellyStudy -OutputPath artifacts/simulator/cloud-jelly-pearl-motion-v1.gif
-```
-
-The interactive mode starts on the synthetic contour controls with overlays
-hidden, amplitude 0.9 and speed 0.4. Its host target cadence is 25 Hz; that is not
-a measured device FPS. Synthetic status and unmeasured device performance are
-labelled in the window.
-
-The GIF contains 80 frames at 40 ms per frame: a 3.2-second loop encoded for
-25 FPS playback, not a rendering benchmark. It uses a stationary root and a
-synthetic contour sweep (amplitude 1, fullness +/-0.8); it does not replay
-recorded IMU data or characterize production response. A full-color four-pose
-PNG is saved beside it. GIF palette reduction can change subtle pearl colors;
-use PNG captures when judging color. `-AtMs` and `-SafeGuide` are not accepted
-for this fixed GIF timeline.
-
-This mode is mutually exclusive with the painted PNG/triangle mode and the
-procedural cloud-material mode. The previous experiments remain available.
-
-## Native firmware integration
+One crop `(28,206,1229,1082)` and premultiplied-alpha resize produce 320 x 233
+RGB565-quantized RGBA8 textures. Different canvas/mode/alpha fails rather than
+silently inferring new geometry. Payload is 298,240 bytes per skin, 1,491,200
+total flash bytes, excluding binding tables. Only the selected texture is sampled.
 
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-jelly
+.\scripts\device.ps1 simulator -CloudJellyStudy
+.\scripts\device.ps1 simulator -CloudJellyStudy -OutputPath artifacts/simulator/pearl.png
 ```
 
-The generator writes the immutable texture catalog, typed skin identities and
-named lobe/row binding tables under `generated/`. CMake links these into
-internal flash: no SD, PNG decoder, texture allocation or filesystem read is
-needed on the device.
-`CODY_jelly.cpp` prepares clipped logical row mappings once per evaluated frame
-in the existing caller-owned PSRAM scene, then draws into the ordinary compact
-RGB565 tiles. The face is composited afterward and the physical owner applies
-the existing shared cardinal rotation. The extra row cache is about 7.3 KiB
-per scene; there are current and last-presented scenes.
+`generated/` contains immutable textures and named row/lobe bindings, not a
+runtime PNG parser or SD dependency. Thirty-three weighted row controls feed Q16
+inverse bilinear sampling; alpha, paint and facial geometry deform coherently.
+Folded/nonfinite mappings fail without a silent vector fallback. Independent
+motion of two interior points at the same y needs a different mesh.
 
-The dirty planner compares source mappings as well as extents and redraws
-both old and new texture footprints. This is necessary even when moving
-highlights leave the bounding rectangle unchanged. Vector body/relief paths
-remain available to the rig inspector but are not painted over the texture.
-Invalid or folded row maps fail with their real error; there is no silent
-vector fallback. The existing snapshot-driven motion owner is unchanged.
+`CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY` selects the build finish;
+`CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY` selects the initial session preference.
+Runtime `CODY_companion_set_face_deformation()` /
+`CODY_companion_get_face_deformation()` preserve real errors and do not write NVS.
+Disabling jelly excludes textures/mapping state. No sensor acquisition belongs here.
 
-The firmware target period is 40 ms (25 FPS), not a throughput assertion.
-The active release configuration uses `CONFIG_COMPILER_OPTIMIZATION_PERF=y`.
-
-## Evidence and remaining work
-
-The requested PNG/GIF visual captures completed, and the still/pose sheet were
-visually reviewed during the initial host trial. After the user explicitly
-requested the port, final native checks, build and flash were authorized;
-their results are recorded in `docs/architecture/cody-cloud-finish.md` once
-completed. Physical visual approval, wider rotation coverage and real ESP32
-performance measurement remain separate from successful compilation or flash.
-Firmware sensor consumers use only the canonical device snapshot.
-The final default/face revision was built and flashed on COM10 without new test
-runs, as requested. Physical runtime switching and latest-firmware stability
-are not claimed from that successful flash; the reported intermittent stop
-remains unresolved in the diagnostic evidence.
+Current renderer/face/damage/memory contracts:
+[rendering](../../../../docs/architecture/cody/rendering.md).
+Selection/persistence: [onboarding](../../../../docs/architecture/cody/onboarding.md).
+40-ms scheduling and synthetic GIF playback are targets, not measured device FPS.
+Host captures, flashing and old measurements do not validate current physical
+output, performance or the unresolved display/touch stop.
 
 ## Exact image-generation prompts
 
