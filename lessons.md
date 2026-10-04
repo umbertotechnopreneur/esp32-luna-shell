@@ -71,6 +71,9 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   fragmentation, then drain and briefly park frame-owned display DMA during
   Wi-Fi/BLE startup. Keep BLE's free-space and largest-block preflight strict;
   aggregate free RAM alone does not prove a controller-sized block exists.
+  Explicit Pair must drain before telemetry teardown too. Capture deliberate
+  frame parking under its lock: re-reading a quickly reopened gate can turn a
+  harmless parked admission into a terminal renderer failure.
 
 ## Power, wake and audio
 

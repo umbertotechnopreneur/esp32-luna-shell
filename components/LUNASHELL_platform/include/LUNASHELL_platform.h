@@ -323,7 +323,9 @@ uint32_t LUNASHELL_display_runtime_content_revision(void);
 
 /** Begin one bounded standalone frame; the same task must finish it. */
 // budget_ms: Aggregate rendering/transfer budget, 1..1000 ms after acquiring the lock.
-esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms);
+// parked: Receives a deliberate closed-gate rejection sampled under the frame lock.
+// Exception: Non-gate failures leave parked false and retain their original error.
+esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms, bool *parked);
 /** Check the frame deadline between geometry/raster stages, without resetting it. */
 esp_err_t LUNASHELL_display_frame_check_deadline(void);
 // pixels: Receives idle internal raster storage borrowed only until this frame ends.

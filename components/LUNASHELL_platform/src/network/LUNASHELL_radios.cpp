@@ -1456,14 +1456,20 @@ esp_err_t LUNASHELL_radios_stop(void)
     return run_watched_radio_operation("shutdown", radios_stop_impl);
 }
 
-static esp_err_t radios_start_pairing_impl()
+// stage: Short admission boundary; keep each record below the logger's line limit.
+static void log_pairing_dma_checkpoint(const char *stage)
 {
-    std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
-    if (LUNASHELL_provisioning_initialized()) {
-        ESP_LOGE(TAG, "Pairing start rejected: manager still owns BLE (%s)",
-                 esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
+    constexpr uint32_t capabilities = LUNASHELL::radio_memory::kBleControllerDmaCaps;
+    ESP_LOGI(TAG, "Pairing DMA %s: free=%lu largest=%lu hold=%lu", stage,
+        static_cast<unsigned long>(heap_caps_get_free_size(capabilities)),
+        static_cast<unsigned long>(heap_caps_get_largest_free_block(capabilities)),
+        static_cast<unsigned long>(LUNASHELL::radio_memory::kBleControllerDmaHoldBytes));
+}
+
+// No parameters: transfer telemetry to provisioning under the radio lifecycle mutex.
+// Exception: Return the original admission/start error; the caller owns display parking.
+static esp_err_t start_pairing_radios_locked()
+{
 #if CONFIG_BT_NIMBLE_ENABLED
     const esp_err_t stop_error = stop_ble_telemetry();
     if (stop_error != ESP_OK) {
@@ -1471,6 +1477,7 @@ static esp_err_t radios_start_pairing_impl()
     }
     radio_operation_progress("telemetry-to-provisioning handoff");
 #endif
+    log_pairing_dma_checkpoint("after telemetry stop");
 #if CONFIG_BT_CONTROLLER_ENABLED
     LUNASHELL::radio_memory::BleControllerDmaReservation reservation;
     reservation.swap(s_deferred_ble_dma);
@@ -1479,6 +1486,7 @@ static esp_err_t radios_start_pairing_impl()
     if (reservation_error != ESP_OK) {
         return reservation_error;
     }
+    log_pairing_dma_checkpoint("reservation held");
 #endif
     esp_err_t error = LUNASHELL_wifi_init();
     radio_operation_progress("pairing Wi-Fi initialization");
@@ -1487,18 +1495,64 @@ static esp_err_t radios_start_pairing_impl()
         radio_operation_progress("pairing manager initialization");
     }
 #if CONFIG_BT_CONTROLLER_ENABLED
+    if (error != ESP_OK) {
+        // No controller handoff occurred: retain the already-owned block for
+        // the next explicit attempt without allocating during Cancel cleanup.
+        reservation.swap(s_deferred_ble_dma);
+        return error;
+    }
     LUNASHELL::radio_memory::releaseBleControllerDma(reservation, "explicit pairing");
 #endif
+    log_pairing_dma_checkpoint("before controller start");
     if (error == ESP_OK) {
         error = LUNASHELL_provisioning_start();
         radio_operation_progress("explicit pairing start");
     }
-    if (error != ESP_OK) {
-        ESP_LOGE(TAG, "Explicit pairing start failed (%s)", esp_err_to_name(error));
-    }
+    log_pairing_dma_checkpoint("after controller start");
     return error;
 }
 
+// No parameters: drain frame DMA before freeing or acquiring the BLE controller lease.
+// Exception: Preserve the radio error if display restoration also fails.
+static esp_err_t radios_start_pairing_impl()
+{
+    std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
+    if (LUNASHELL_provisioning_initialized()) {
+        ESP_LOGE(TAG, "Pairing start rejected: manager still owns BLE (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    log_pairing_dma_checkpoint("before display drain");
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // Boot owns its own gate around radios_init. Only this explicit handoff
+    // closes it here; the independent standby write gate remains untouched.
+    const esp_err_t park_error = LUNASHELL_display_runtime_set_startup_quiescent(true);
+    if (park_error != ESP_OK) {
+        ESP_LOGE(TAG, "Pairing display DMA drain failed (%s)", esp_err_to_name(park_error));
+        return park_error;
+    }
+    radio_operation_progress("pairing display DMA drained");
+    log_pairing_dma_checkpoint("after display drain");
+#endif
+    const esp_err_t radio_error = start_pairing_radios_locked();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // Restore on every normal failure path, including admission before manager init.
+    const esp_err_t resume_error = LUNASHELL_display_runtime_set_startup_quiescent(false);
+    if (resume_error != ESP_OK) {
+        ESP_LOGE(TAG, "Pairing display DMA resume failed (%s); radio result=%s",
+                 esp_err_to_name(resume_error), esp_err_to_name(radio_error));
+        if (radio_error == ESP_OK) {
+            return resume_error;
+        }
+    }
+#endif
+    if (radio_error != ESP_OK) {
+        ESP_LOGE(TAG, "Explicit pairing start failed (%s)", esp_err_to_name(radio_error));
+    }
+    return radio_error;
+}
+
+// No parameters: execute explicit pairing with the existing radio watchdog owner.
 esp_err_t LUNASHELL_radios_start_pairing(void)
 {
     return run_watched_radio_operation("pairing start", radios_start_pairing_impl);

@@ -80,8 +80,10 @@ it. Release compiles out its scene definition, text and atlas mapping and enters
 ## Backend admission and QR ownership
 
 The standalone connectivity layer compiles the HTTP server without GUI dependencies.
-Boot initializes saved-profile Wi-Fi, retains the controller DMA reservation and
-initializes the async pairing owner; it does not advertise BLE or open a session.
+Boot initializes saved-profile Wi-Fi and the async pairing owner. Without saved
+credentials it retains the controller DMA reservation until explicit Pair Cody;
+with credentials it transfers that lease to BLE telemetry. Boot does not open a
+provisioning session in the Cody profile.
 Consumers use `LUNASHELL_platform.h` and the canonical snapshot, either
 `DeviceSnapshot.radios.pairing` or `readConnectivityObservation`.
 
@@ -89,6 +91,19 @@ Consumers use `LUNASHELL_platform.h` and the canonical snapshot, either
 typed START/RETRY/CANCEL. `ESP_OK` means admitted, never Online or Cancelled. Keep
 the attempt ID in route context to reject delayed events; display code does not
 initialize radios, query SDK Wi-Fi or perform synchronous manager cleanup.
+
+Explicit Pair drains and temporarily parks native display DMA before stopping
+telemetry or acquiring the controller lease. The gate stays closed through
+Wi-Fi/manager initialization and controller startup, then reopens on success or
+failure without changing the separate standby gate. Admission still requires a
+34,816-byte contiguous hold, a 30,720-byte controller block and 4,096-byte free
+headroom. Compact `Pairing DMA` records show actual free/largest blocks at each
+boundary; insufficient memory remains a real error, not successful pairing.
+An already-held lease survives a Wi-Fi/manager failure before controller handoff;
+Cancel teardown never allocates a future lease. NimBLE host allocations use PSRAM;
+the controller DMA block must remain internal. Frame admission captures deliberate
+parking under the display lock so a fast gate reopening cannot terminate Cody.
+
 Published states are Idle, Starting, ReadyToScan, Connecting, Completing, Online,
 Cancelling, Cancelled, Failed and TimedOut. Check validity/health/staleness before
 interpretation. A valid degraded failure remains displayable with its real error.

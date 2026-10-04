@@ -7,6 +7,15 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Captured explicit Pair failure on main `a154b677`: the 34,816-byte internal
+  DMA hold failed with 70,955 bytes free but largest block 21,504, before manager
+  startup or session QR. Explicit Pair now drains/parks display DMA before BLE
+  teardown/admission and keeps the gate through controller startup; every path
+  attempts restoration and preserves real errors. Hold/headroom limits and Wi-Fi
+  configuration remain unchanged. Pre-controller failures retain an existing
+  lease; no new lease is allocated by Cancel. Frame admission captures intentional
+  parking under the lock to avoid terminating Cody after a fast failed handoff.
+  Build/flash are pending; tests and physical success are not claimed.
 - Debug `143fdb22` built with eight jobs and flashed to COM10 / ESP32-S3
   `a4:cb:8f:db:42:d8`. Esptool verified written data and reset the board.
   Application: 3,755,536 bytes, 75 percent of the app partition free. Includes

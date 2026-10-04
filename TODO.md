@@ -31,10 +31,11 @@ older host/build/flash evidence does not validate the current combined image.
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
-  Capture the original Pair Cody Start failure after reset; current evidence
-  proves repeated Cancel allocation failure, not that first Start's stage.
-  Review BLE lease lifetime across software standby and display quiescence at
-  actual provisioning admission without lowering contiguous-DMA limits.
+  Main `a154b677` capture now identifies explicit Start admission: DMA free
+  70,955 bytes, largest block 21,504, required hold 34,816. Confirm the new
+  display-drained handoff reaches the real session QR and inspect each
+  `Pairing DMA` checkpoint if another owner still prevents admission.
+  Review BLE lease lifetime across software standby without lowering limits.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.
