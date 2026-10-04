@@ -57,13 +57,14 @@ older host/build/flash evidence does not validate the current combined image.
   the fixed 100% jelly benchmark now measures a 6,235 us frame-mean gain over
   the fresh C control, but remains 10,715 us above the 40 ms budget. Separate
   jelly and face timings in the full UI before choosing another kernel.
-- [ ] Complete the finite raster validation on `feat/simd-perf-opt`. `4ac6c812`
+- [ ] Complete the finite raster validation on the combined main image. `4ac6c812`
   passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
   684 frames, full-window p95 57,611 us, first-run entry and normal completion
   with policy/look restoration and deferred greeting. SIMD coarse captures at
   50/75/100 percent are complete; detailed segmentation remains a separate,
-  intrusive experiment. Exercise touch/PWR/Sleep interruption. Test disabled
-  benchmark, non-Pearl and Release builds explicitly.
+  intrusive experiment. Exercise touch/PWR/Sleep interruption. Combined Debug
+  and Release builds with the benchmark disabled pass at `e714737`; verify the
+  disabled benchmark on the device and build non-Pearl firmware separately.
   Validate the implemented S3 interpolation kernel: `simd_verify` first checks
   65,536 weight combinations and then compares live RGBA samples; `simd` and
   `scalar` are separate timing captures. The S3 Debug build and corrected MSVC

@@ -14,9 +14,12 @@ and referenced architecture/artifact records.
   placement is retained, and RGB565 composition is unchanged. Added a host
   assertion for initial backend selection. Portable native, SIMD-model and raster
   benchmark contracts pass after updating the installation-scene expectations to
-  main's current heading and scale. Combined Debug build and device validation
-  remain pending; earlier fixed-route measurements below belong to the SIMD
-  worktree image.
+  main's current heading and scale. Combined Debug and Release builds pass at
+  `e714737` through `device.ps1` with eight jobs; both have benchmark autostart
+  disabled. Build logs, image hashes and portable reports are retained in each
+  mode's `artifacts/build-cody-companion-{debug,release}/evidence/` directory.
+  The combined image was not flashed or physically timed; earlier fixed-route
+  measurements below belong to the SIMD worktree benchmark image.
 - The same 16-pixel SIMD and row-coverage path completed fixed 40-second device
   windows at smaller scales. At 75%, 975 frames submitted 35,256 pixels each:
   mean 33,888 us, p95 34,512 us, maximum 35,147 us, and zero budget misses.

@@ -238,6 +238,11 @@ the benchmark is enabled, and completion restores the previously selected
 kernel. `scalar` selects the fused C sampler, `simd` selects the PIE assembly
 sampler, and `simd_verify` selects an explicit verification run. Unsupported
 selections return an error; they never silently substitute C.
+The combined main integration at `e714737` passed the portable native/model/
+benchmark contracts and the S3 Debug and Release builds with benchmark autostart
+disabled. Both modes retain the common `-O2` compiler optimization; Release
+excludes development frame diagnostics. The combined image has not been flashed
+or timed on the device, so these builds do not establish a Release speedup.
 The 2026-10-05 S3 verifier passed both the exhaustive weight
 contract and a completed 489-frame live comparison at 100% scale before row
 trimming was added. A fresh scalar control recorded 684 frames, mean 56,950 us,
