@@ -4,7 +4,7 @@
 namespace CODY::RuntimeData {
 inline constexpr bool autostart = true;
 inline constexpr bool raster_benchmark_enabled = true;
-inline constexpr bool raster_benchmark_profile_blocks = true;
+inline constexpr bool raster_benchmark_profile_blocks = false;
 inline constexpr JellyRasterKernel raster_benchmark_kernel = JellyRasterKernel::Simd;
 inline constexpr uint16_t raster_benchmark_cloud_scale_percent = 100U;
 inline constexpr auto execution_timings = true;

@@ -611,7 +611,7 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
     require(CODY::select_jelly_raster_kernel(kernel) == ESP_OK, "select explicit parity backend");
     const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
     constexpr uint16_t guard = 0x5a5a;
-    for (uint16_t width : {1, 15, 16, 17, 31, 33}) {
+    for (uint16_t width : {1, 15, 16, 17, 31, 33, 63, 64, 65, 127}) {
         for (int32_t fraction : {0, 16384, 49152}) {
             CODY::JellyFrame frame;
             frame.valid = true;
@@ -632,8 +632,7 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
                 for (uint16_t background : {uint16_t{0}, uint16_t{0xffff}, uint16_t{0x001f}}) {
                     for (const auto order : {
                             CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
-                        std::array<uint16_t, 38> original;
-                        original.fill(guard);
+                        std::vector<uint16_t> original(width + 2, guard);
                         std::fill(original.begin() + 1, original.begin() + 1 + visible,
                                   CODY2D::rgb565_native_to_stored(background, order));
                         auto expected = original;
@@ -667,7 +666,8 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
                                         "comparison runs are explicit and counted");
                             }
                             if (mode == 2) {
-                                const uint32_t blocks = (visible + 15U) / 16U;
+                                const uint32_t block_size = kernel == CODY::JellyRasterKernel::Scalar ? 16U : 64U;
+                                const uint32_t blocks = (visible + block_size - 1U) / block_size;
                                 require(profile.sampled_pixels == visible &&
                                         profile.transparent_pixels + profile.blended_pixels == visible &&
                                         profile.timed_blocks == blocks,

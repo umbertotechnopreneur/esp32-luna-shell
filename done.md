@@ -7,6 +7,14 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Intrusive SIMD profiling at 100% completed 508 frames. Per-frame jelly mean
+  rose to 57,052 us because 3,952 blocks triggered many clock reads. Its
+  accumulated segments divided by 508 were approximately preparation 19,673 us,
+  interpolation 6,947 us and RGB565 composition 19,216 us; the difference from
+  jelly total is unassigned instrumentation/loop time. These numbers rank work,
+  not uninstrumented costs or FPS evidence. The next source increment increases
+  SIMD blocks to 64 pixels and skips composition for all-zero packed footprints.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/cody-simd-detail-100.log`.
 - Fresh C control on the same 100% route: 684 frames, mean 56,950 us, p95
   57,634 us, jelly mean 37,106 us; all missed 40 ms. Against the 697-frame SIMD
   run below, SIMD reduced frame mean by 1,104 us (1.94%), p95 by 1,139 us

@@ -41,8 +41,10 @@ older host/build/flash evidence does not validate the current combined image.
   host suite passed. The S3 verification run compared 30,267,144 live samples
   across 489 measured frames with no mismatch. At 100% scale, the fresh A/B
   improved frame mean by 1,104 us and p95 by 1,139 us, but all frames still
-  missed 40 ms. Profile preparation/interpolation/composition separately, then
-  target the dominant cost. Confirm useful changes at 50/75% and in the full UI.
+  missed 40 ms. Detailed S3 profiling (intrusive) found preparation and RGB565
+  composition much larger than interpolation. Measure the 64-pixel SIMD block
+  and all-zero block skip without profiling, then confirm useful changes at
+  50/75% and in the full UI.
   Add deterministic animated work after trustworthy timings; include
   packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

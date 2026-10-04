@@ -223,13 +223,17 @@ verification run. Unsupported selections return an error; they never silently
 substitute C. The current authored configuration selects `simd_verify`, with
 block timing disabled. The 2026-10-05 S3 run passed both the exhaustive weight
 contract and a completed 489-frame live comparison at 100% scale. The selected
-configuration now selects `simd` with block profiling to isolate preparation,
-interpolation and composition. The completed 100% SIMD run recorded 697 frames,
+configuration now selects `simd` without block profiling for the optimized
+64-pixel-block capture. The completed 100% SIMD run recorded 697 frames,
 mean 55,846 us, p95 56,495 us and jelly mean 35,880 us. A fresh scalar control
 recorded 684 frames, mean 56,950 us, p95 57,634 us and jelly mean 37,106 us.
 The resulting fixed-pose frame gain is 1.94% by mean and 1.98% by p95; every
 frame still missed the 40 ms budget. The detailed run is a separate diagnostic
-experiment; its instrumentation perturbs whole-frame timing.
+experiment; its instrumentation perturbs whole-frame timing. It showed
+preparation and RGB565 composition near 19 ms each versus about 7 ms for
+interpolation, but those segments include clock overhead and cannot be read
+as uninstrumented stage costs. The next candidate skips composition for
+all-zero packed blocks and amortizes setup over up to 64 pixels.
 
 The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
 in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in
@@ -240,17 +244,19 @@ most 255, so the signed 16-bit extraction cannot saturate valid inputs. These
 instructions and alignment semantics come from Espressif's
 [ESP32-S3 TRM, chapter 1](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
 
-Aligned scratch is owned by one row invocation: eight 48-byte pairs, 64 bytes of
-output and 32 bytes of constants (480 bytes of data, excluding compiler spills).
+Aligned scratch is owned by one row invocation: up to 32 48-byte pairs, 256
+bytes of output and 32 bytes of constants (1,824 bytes of data, excluding
+compiler spills). The larger stack footprint needs a device high-water check.
 The C packer gathers only clamped in-bounds texels; SIMD loads never address the
 flash texture or panel buffer directly. Full pairs write eight aligned bytes;
 the odd last pixel uses the original C sampler. Entire zero-footprint blocks
-skip interpolation exactly. RGB565 composition and byte swapping remain the
+skip interpolation and composition exactly. RGB565 arithmetic and byte swapping remain the
 original code. Packing, call overhead, tails and composition are all included in
 the coarse jelly/frame duration; detailed `prep` additionally includes gathering.
 SIMD uses task-owned CP3 state through the IDF port, without disabling interrupts
-or writing CPENABLE. The benchmark worker remains pinned to core 1. Actual ABI,
-instruction execution, stack headroom and speed still need target validation.
+or writing CPENABLE. The benchmark worker remains pinned to core 1. The original
+PIE ABI and arithmetic passed target parity; stack headroom and speed for the
+enlarged blocks still need target validation.
 
 `simd_verify` first checks the actual kernel against independent per-channel C
 arithmetic over all 256x256 weight combinations and four distinct pixel

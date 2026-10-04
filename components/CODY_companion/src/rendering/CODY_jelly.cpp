@@ -21,6 +21,7 @@ constexpr char kTag[] = "CODY_jelly";
 constexpr int32_t kFixedOne = 65536;
 constexpr uint16_t kCanvasSize = 466;
 constexpr uint16_t kProfileBlockPixels = 16;
+constexpr uint16_t kSimdBlockPixels = 64;
 constexpr char kSkinSettingKey[] = "cody_skin";
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
@@ -194,7 +195,7 @@ uint16_t blend_rgba(uint32_t source, uint16_t destination)
 // lower: Next source row, possibly the same at the texture boundary.
 // source_x: First Q16 coordinate, advanced by the exact number of packed pixels.
 // step: Prepared Q16 source increment, unchanged across compact tile splits.
-// pair_count: At most eight complete pairs; no speculative tail reads.
+// pair_count: At most 32 complete pairs; no speculative tail reads.
 // pairs: Aligned scratch filled for every lane the assembly will consume.
 uint32_t prepare_simd_pairs(const uint32_t *upper, const uint32_t *lower, int32_t &source_x,
                             int32_t step, uint16_t pair_count, JellySimdPair *pairs)
@@ -240,14 +241,15 @@ esp_err_t draw_simd_row(const uint32_t *upper, const uint32_t *lower, int32_t so
     const int64_t constants_started = detail ? profile->now_us() : 0;
     JellySimdConstants constants;
     std::fill_n(constants.vertical, 8, static_cast<uint16_t>(vertical_weight));
-    alignas(16) JellySimdPair pairs[kProfileBlockPixels / 2];
-    alignas(16) uint32_t samples[kProfileBlockPixels];
+    alignas(16) JellySimdPair pairs[kSimdBlockPixels / 2];
+    alignas(16) uint32_t samples[kSimdBlockPixels];
     if (detail) {
         profile->preparation_us += profile->now_us() - constants_started;
     }
     for (uint16_t painted = 0; painted < pixel_count;) {
-        const uint16_t count = std::min<uint16_t>(kProfileBlockPixels, pixel_count - painted);
+        const uint16_t count = std::min<uint16_t>(kSimdBlockPixels, pixel_count - painted);
         const uint16_t pair_count = count / 2;
+        const uint16_t pair_pixels = pair_count * 2;
         const int32_t block_source_x = source_x;
         const int64_t preparation_started = detail ? profile->now_us() : 0;
         const uint32_t footprint = prepare_simd_pairs(upper, lower, source_x, step, pair_count, pairs);
@@ -257,8 +259,9 @@ esp_err_t draw_simd_row(const uint32_t *upper, const uint32_t *lower, int32_t so
         const int64_t interpolation_started = detail ? profile->now_us() : 0;
         if (pair_count != 0 && footprint != 0) {
             cody_jelly_bilinear_s3(pairs, samples, pair_count, &constants);
-        } else {
-            std::fill_n(samples, pair_count * 2, 0U);
+        } else if (kernel == JellyRasterKernel::SimdVerify) {
+            // Verification reads every sample; timing mode never reads the skipped pairs.
+            std::fill_n(samples, pair_pixels, 0U);
         }
         if ((count & 1U) != 0) {
             samples[count - 1] = sample_rgba(source_x, upper, lower, vertical_weight);
@@ -285,7 +288,17 @@ esp_err_t draw_simd_row(const uint32_t *upper, const uint32_t *lower, int32_t so
             }
         }
         const int64_t composition_started = detail ? profile->now_us() : 0;
-        for (uint16_t offset = 0; offset < count; ++offset) {
+        uint16_t first_composed = 0;
+        if (footprint == 0) {
+            // All four source texels of every packed pair are zero. Their alpha is
+            // exactly zero at any weight, so leave the destination span untouched.
+            destination += pair_pixels;
+            first_composed = pair_pixels;
+            if (detail) {
+                profile->transparent_pixels += pair_pixels;
+            }
+        }
+        for (uint16_t offset = first_composed; offset < count; ++offset) {
             const uint32_t sample = samples[offset];
             if ((sample >> 24U) == 0) {
                 if (detail) {
@@ -301,8 +314,8 @@ esp_err_t draw_simd_row(const uint32_t *upper, const uint32_t *lower, int32_t so
             }
         }
         if (profile != nullptr) {
-            profile->vectorized_pixels += footprint != 0 ? pair_count * 2 : 0;
-            profile->zero_footprint_pixels += footprint == 0 ? pair_count * 2 : 0;
+            profile->vectorized_pixels += footprint != 0 ? pair_pixels : 0;
+            profile->zero_footprint_pixels += footprint == 0 ? pair_pixels : 0;
             profile->scalar_tail_pixels += count & 1U;
             if (detail) {
                 profile->blend_us += profile->now_us() - composition_started;
