@@ -1,6 +1,7 @@
 #include "CODY_personality.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
+#include "CODY_petting.hpp"
 #include "cloud_rig_data.hpp"
 
 #include <array>
@@ -297,6 +298,104 @@ void check_dirty_and_raster()
     require(draw_personality_rows(previous.personality, compact, 80, 205) == ESP_OK && tile == before,
         "zero-opacity sprite never alters pixels");
 }
+// No parameters: explicit synthetic rectangle isolates gesture semantics from artwork authoring.
+RigScene make_petting_fixture()
+{
+    RigScene scene;
+    scene.valid = true;
+    scene.scale = 145.f;
+    scene.world[to_index(PointId::EyeLeft)] = {200, 200};
+    scene.world[to_index(PointId::EyeRight)] = {260, 200};
+    scene.world[to_index(PointId::Mouth)] = {230, 260};
+    scene.vertices[0] = {100, 100};
+    scene.vertices[1] = {360, 100};
+    scene.vertices[2] = {360, 360};
+    scene.vertices[3] = {100, 360};
+    scene.paths[to_index(PathId::Body)].count = 4;
+    return scene;
+}
+
+// scene: Synthetic geometry retained throughout the contact.
+// state: Actual production recognizer state.
+// x: Acquired logical x.
+// y: Acquired logical y.
+// at_us: Explicit acquisition time.
+// pressed: Acquired press/release state.
+// edge: Explicit first acquired report of the contact.
+PettingZone petting_sample(const RigScene &scene, PettingState &state, float x, float y,
+                          int64_t at_us, bool pressed = true, bool edge = false)
+{
+    PettingZone zone{};
+    require(observe_petting(scene, {x, y}, pressed, edge, at_us, state, zone) == ESP_OK,
+            "actual caress recognizer accepts valid acquired fixture report");
+    return zone;
+}
+
+// scene: Explicit displayed geometry.
+// state: Contact state retaining its cooldown.
+// at_us: Original press time for this independent stroke.
+// y: Selected body-contained upper or lower region.
+PettingZone slow_stroke(const RigScene &scene, PettingState &state, int64_t at_us, float y)
+{
+    petting_sample(scene, state, 220, y, at_us, true, true);
+    PettingZone zone{};
+    for (int index = 1; index <= 6; ++index) {
+        zone = petting_sample(scene, state, 220.f + index * 4.f, y, at_us + index * 100000);
+    }
+    return zone;
+}
+
+// No parameters: actual production gesture logic rejects accidental contacts and duplicate reactions.
+void check_petting()
+{
+    const RigScene scene = make_petting_fixture();
+    PettingState state;
+    require(slow_stroke(scene, state, 1000000, 150) == PettingZone::AboveEyes,
+            "slow upper-body stroke recognizes a caress");
+    require(petting_sample(scene, state, 248, 150, 1700000) == PettingZone::None,
+            "same contact cannot trigger twice");
+    petting_sample(scene, state, 248, 150, 1800000, false);
+    require(slow_stroke(scene, state, 2000000, 290) == PettingZone::None,
+            "second contact during cooldown is suppressed");
+    require(slow_stroke(scene, state, 8000000, 290) == PettingZone::BelowMouth,
+            "lower-body stroke works after cooldown");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    require(petting_sample(scene, state, 244, 150, 1100000, false) == PettingZone::None,
+            "tap or release displacement does not recognize a caress");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 270, 150, 1050000);
+    require(state.rejected, "fast swipe rejects the whole contact");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 221, 150, 1002000);
+    petting_sample(scene, state, 222, 150, 1004000);
+    require(state.rejected, "dense small reports cannot disguise a fast swipe through jitter filtering");
+    state = {};
+    require(slow_stroke(scene, state, 1000000, 230) == PettingZone::None,
+            "face middle band excludes petting");
+    state = {};
+    require(slow_stroke(scene, state, 1000000, 80) == PettingZone::None,
+            "stroke outside actual body excludes petting");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 150, 1400000);
+    require(state.rejected, "missing acquisition interval rejects contact");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 150, 1100000);
+    cancel_petting(state);
+    require(petting_sample(scene, state, 248, 150, 1200000) == PettingZone::None &&
+            !state.contact_active, "route rotation or park cancellation cannot resume an old contact");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    for (int index = 1; index <= 8; ++index) {
+        require(petting_sample(scene, state, 220.f + index % 2, 150,
+                               1000000 + index * 100000) == PettingZone::None,
+                "stationary noisy contact never becomes a caress");
+    }
+}
 } // namespace
 
 // No parameters: runs only when explicitly authorized through the public check CLI.
@@ -308,6 +407,7 @@ int main()
     check_follow_and_layout();
     check_rejection_and_sizes();
     check_dirty_and_raster();
+    check_petting();
     std::printf("],\"assertions\":%d}\n", assertions);
     return failures == 0 ? 0 : 1;
 }

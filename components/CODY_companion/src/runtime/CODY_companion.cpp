@@ -20,6 +20,7 @@
 #include "CODY_debug_hud.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
+#include "CODY_petting.hpp"
 #include "CODY_demo.hpp"
 #include "CODY_scene.hpp"
 #include "CODY_typewriter_audio.hpp"
@@ -169,6 +170,9 @@ std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     CODY::PersonalityCue requested_personality = CODY::PersonalityCue::None;
+    CODY::PettingState petting{};
+    int64_t affection_remaining_us = 0;
+    bool affection_owns_channel = false;
     CODY::PersonalityLag personality_lag{};
     CODY::PersonalityFrame retired_personality{};
     CODY::PersonalityPresentationStatus personality_status = CODY::PersonalityPresentationStatus::Hidden;
@@ -236,6 +240,25 @@ struct CompanionState {
     CODY::FrameRateMeasurement frame_rate{};
 };
 CompanionState s_state;
+
+// preserve_visible_handoff: Keep the current auto heart only for a visible semantic Sleep fade.
+void cancel_transient_affection(bool preserve_visible_handoff = false)
+{
+    CODY::cancel_petting(s_state.petting);
+    s_state.affection_remaining_us = 0;
+    if (preserve_visible_handoff) {
+        // Sleep owns the new target. Retain current-channel ownership so an actual
+        // park, pause or orientation boundary can still discard an unfinished heart.
+        return;
+    }
+    if (s_state.affection_owns_channel &&
+        s_state.personality_lag.cue == CODY::PersonalityCue::Affection) {
+        // A hidden/parked gesture must not replay its retained dwell on the next route.
+        // The completed-frame dirty planner still owns erasing the old footprint.
+        s_state.personality_lag = {};
+    }
+    s_state.affection_owns_channel = false;
+}
 
 // component: Canonical publication whose validity is independent of narrative animation.
 bool personality_sample_current(const LUNASHELL::ComponentSnapshot &component)
@@ -861,6 +884,9 @@ esp_err_t set_personality_request(CODY::PersonalityCue cue)
         return error;
     }
     s_state.requested_personality = cue;
+    // An explicit selector replaces transient affection without changing its own ownership.
+    s_state.affection_remaining_us = 0;
+    s_state.affection_owns_channel = false;
     s_state.frame_dirty.store(true, std::memory_order_release);
     ESP_LOGI(kTag, "Personality cue=%u selected (session request)", static_cast<unsigned>(cue));
     return ESP_OK;
@@ -1349,6 +1375,9 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     s_state.response_sources_logged = true;
     s_state.response = next_response;
     s_state.response_frame = response_frame;
+    if (s_state.rendered_rotation_degrees != inputs.rendering_rotation_degrees) {
+        cancel_transient_affection();
+    }
     s_state.rendered_rotation_degrees = inputs.rendering_rotation_degrees;
     // Route timers and teletype keep their original active clock through the
     // Sleep/Wake presentation; lifecycle breathing still has its own live clock.
@@ -1740,6 +1769,14 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         context.nominal_scale = nominal_scale;
         context.route = frame_scene_visible ? static_cast<uint32_t>(s_state.scene.definition->id) : 0;
         context.rotation = s_state.rendered_rotation_degrees;
+        if (context.presentation != CODY::PersonalityPresentation::Main || s_state.animation_paused) {
+            const bool visible_sleep_handoff =
+                context.presentation == CODY::PersonalityPresentation::Sleep && !s_state.animation_paused;
+            cancel_transient_affection(visible_sleep_handoff);
+        } else if (s_state.affection_remaining_us > 0) {
+            s_state.affection_remaining_us -= std::min(s_state.affection_remaining_us,
+                                                     s_state.personality_delta_us);
+        }
         const bool sleeping = context.presentation == CODY::PersonalityPresentation::Sleep;
         if (sleeping) {
             s_state.personality_release_sleep = false;
@@ -1749,6 +1786,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.personality_was_sleep = sleeping;
         context.release_immediately = s_state.personality_release_sleep;
         CODY::PersonalityCue cue = sleeping ? CODY::PersonalityCue::Sleep : s_state.requested_personality;
+        if (!sleeping && s_state.affection_remaining_us > 0 && cue == CODY::PersonalityCue::None) {
+            cue = CODY::PersonalityCue::Affection;
+        }
         if (context.presentation == CODY::PersonalityPresentation::Disabled) {
             cue = CODY::PersonalityCue::None;
         } else if (cue_error == ESP_OK) {
@@ -2396,6 +2436,7 @@ esp_err_t apply_scene_requests()
 
 // point: One acquired press, move or release; its original timestamp is retained.
 // pressed_edge: Whether this acquired report starts a new gesture.
+// Exception: Returns the original body/caress geometry or snapshot publication failure.
 esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool pressed_edge)
 {
     if (pressed_edge) {
@@ -2423,6 +2464,7 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
         }
     }
     if (!s_state.body_drag_active) {
+        CODY::cancel_petting(s_state.petting);
         return ESP_OK;
     }
     s_state.body_drag.pressed = point.pressed;
@@ -2432,6 +2474,34 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
         s_state.body_drag, point.sample_timestamp_us);
     if (error != ESP_OK) {
         return error;
+    }
+    const bool petting_allowed = personality_presentation(true) == CODY::PersonalityPresentation::Main &&
+        !s_state.animation_paused && !s_state.rig_debug && !s_state.resume_scene_pending;
+    if (petting_allowed) {
+        CODY::PettingZone zone{};
+        const esp_err_t petting_error = CODY::observe_petting(*s_resources.rig,
+            {static_cast<float>(point.x), static_cast<float>(point.y)}, point.pressed,
+            pressed_edge, point.sample_timestamp_us, s_state.petting, zone);
+        if (petting_error != ESP_OK) {
+            return petting_error;
+        }
+        if (zone != CODY::PettingZone::None) {
+            // No deferred reaction: an occupied symbol channel drops this contact's heart.
+            const bool channel_available = s_state.requested_personality == CODY::PersonalityCue::None &&
+                (s_state.personality_lag.cue == CODY::PersonalityCue::None ||
+                 s_state.personality_lag.cue == CODY::PersonalityCue::Affection);
+            if (channel_available) {
+                s_state.affection_remaining_us = CODY::PettingConfig::affection_us;
+                s_state.affection_owns_channel = true;
+                ESP_LOGI(kTag, "Caress zone=%u accepted: transient Affection", static_cast<unsigned>(zone));
+            } else {
+                ESP_LOGI(kTag, "Caress zone=%u recognized; heart suppressed by active symbol", static_cast<unsigned>(zone));
+            }
+        }
+    } else {
+        const bool visible_sleep_handoff = personality_presentation(true) ==
+            CODY::PersonalityPresentation::Sleep && !s_state.animation_paused;
+        cancel_transient_affection(visible_sleep_handoff);
     }
     if (!point.pressed) {
         s_state.body_drag_active = false;
@@ -2463,6 +2533,7 @@ esp_err_t apply_lifecycle_requests()
         return audio_error;
     }
     s_state.lifecycle_request = request;
+    cancel_transient_affection(sleeping);
     if (sleeping && !s_state.resume_scene_pending) {
         s_state.animation_paused_before_standby = s_state.animation_paused;
         s_state.rig_debug_before_standby = s_state.rig_debug;
@@ -2572,10 +2643,12 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.navigation_touch_active = false;
     }
     if (debug_control_contact && !pressed_edge) {
+        CODY::cancel_petting(s_state.petting);
         return ESP_OK; // A Debug-control contact never becomes an onboarding swipe.
     }
     if (reveal_only) {
         s_state.body_drag_active = false;
+        CODY::cancel_petting(s_state.petting);
         return ESP_OK;
     }
     if (!debug_control_contact && !s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready && LUNASHELL_display_runtime_writes_allowed() &&
@@ -2593,6 +2666,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
             return policy_error;
         }
         if (consumed) {
+            cancel_transient_affection();
             if (!point.pressed && s_state.body_drag_active) {
                 const esp_err_t release_error = publish_body_gesture(point, false);
                 if (release_error != ESP_OK) {
@@ -2853,6 +2927,7 @@ void companion_worker(void *context)
                 break;
             }
             const esp_err_t audio_error = set_companion_typewriter_suspended(true);
+            cancel_transient_affection();
             bsp_display_unlock();
             if (audio_error != ESP_OK) {
                 fail_consumer("Parked typewriter audio", audio_error, false);

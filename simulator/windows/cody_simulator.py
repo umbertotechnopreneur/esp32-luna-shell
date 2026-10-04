@@ -34,6 +34,7 @@ from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
 from cody_personality import PersonalityCue, PersonalityPainter, PersonalityPresentation  # noqa: E402
+from cody_petting import PettingRecognizer, PettingZone, load_petting_config  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -536,6 +537,11 @@ class CodyWindow:
         self.playing = tk.BooleanVar(value=True)
         self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
         self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
+        self.petting = PettingRecognizer(load_petting_config(ROOT))
+        self.affection_remaining_us = 0
+        self.affection_owns_channel = False
+        self.petting_context = None
+        self.petting_selected_cue = PersonalityCue.NONE
         self.contour_playing = tk.BooleanVar(value=True)
         self.contour_state = make_contour_state(renderer.rig)
         self.entity_name = next(iter(renderer.rig["entities"]))
@@ -1115,6 +1121,7 @@ class CodyWindow:
     def touch(self, event):
         self.preview_interaction()
         self.body_drag_origin = None
+        self.petting.cancel()
         clicked_name = None
         for item in self.canvas.find_withtag("current"):
             for tag in self.canvas.gettags(item):
@@ -1168,6 +1175,7 @@ class CodyWindow:
                 self.body_drag_started_us = int(time.perf_counter() * 1_000_000)
                 self.stimulus_source.publish_body_touch(True, self.body_drag_origin, (x, y),
                     self.body_drag_rotation, self.body_drag_started_us, self.body_drag_started_us)
+                self.observe_petting((x, y), True, self.body_drag_started_us)
         if clicked_name is not None:
             self.choose_point(clicked_name)
             return
@@ -1187,15 +1195,18 @@ class CodyWindow:
             return
         point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
         if point is None:
+            self.petting.cancel()
             return
         self.body_drag_point = point
         self.stimulus_source.publish_body_touch(True, self.body_drag_origin, point,
             self.body_drag_rotation, self.body_drag_started_us, int(time.perf_counter() * 1_000_000))
+        self.observe_petting(point, False, int(time.perf_counter() * 1_000_000))
 
     # self: Synthetic preview owner; release lets the shared springs settle.
     # event: Actual host pointer release, including release outside the preview.
     def release_body(self, event):
         self.navigation_visibility.interact(int(time.perf_counter() * 1_000_000))
+        self.petting.cancel()
         if self.body_drag_origin is None:
             return
         point = self.layout.to_logical(event.x, event.y, self.body_drag_rotation)
@@ -1206,6 +1217,46 @@ class CodyWindow:
         self.stimulus_source.publish_body_touch(False, self.body_drag_origin, point,
             self.body_drag_rotation, self.body_drag_started_us, int(time.perf_counter() * 1_000_000))
         self.body_drag_origin = None
+
+    # self: Synthetic pointer controller retaining manual symbol selection.
+    # point: Current logical desktop pointer coordinate.
+    # pressed_edge: First pointer report of the contact.
+    # sampled_us: Original monotonic desktop event timestamp.
+    # Raises ValueError for rejected pointer time or displayed geometry.
+    def observe_petting(self, point, pressed_edge, sampled_us):
+        if (self.scene is None or self.display_screen != Screen.RIG or not self.playing.get() or
+                self.debug.get() or self.personality_sleep or self.body_drag_rotation != self.display_rotation):
+            self.petting.cancel()
+            return
+        if not 0 <= point[0] < SIZE or not 0 <= point[1] < SIZE:
+            self.petting.cancel()
+            return
+        zone = self.petting.observe(self.scene, point, True, pressed_edge, sampled_us)
+        if zone != PettingZone.NONE:
+            painter = self.renderer.personality_painter
+            current = PersonalityCue.NONE if painter is None else painter.channel.cue
+            if (PersonalityCue[self.personality_cue.get()] == PersonalityCue.NONE and
+                    current in (PersonalityCue.NONE, PersonalityCue.AFFECTION)):
+                self.affection_remaining_us = self.petting.config["affection_us"]
+                self.affection_owns_channel = True
+
+    # self: Pointer reaction owner, preserving explicitly selected Affection.
+    # preserve_fade: Keep the current visible heart for a smooth semantic Sleep handoff.
+    def cancel_transient_affection(self, preserve_fade=False):
+        self.petting.cancel()
+        self.affection_remaining_us = 0
+        painter = self.renderer.personality_painter
+        if not preserve_fade:
+            if self.affection_owns_channel and painter is not None and painter.channel.cue == PersonalityCue.AFFECTION:
+                painter.disable(self.elapsed_ms)
+            self.affection_owns_channel = False
+
+    # self: Preview owner whose authored cue always takes precedence over affection.
+    def effective_personality_cue(self):
+        selected = PersonalityCue[self.personality_cue.get()]
+        if selected == PersonalityCue.NONE and self.affection_remaining_us > 0:
+            return PersonalityCue.AFFECTION
+        return selected
 
     # visible terminal errors stop the preview rather than retaining a false healthy state.
     def tick(self):
@@ -1312,6 +1363,7 @@ class CodyWindow:
                  f"panel  {panel_x:.1f}, {panel_y:.1f}"
         )
 
+    # self: Preview owner comparing displayed state without advancing it.
     # screen: Current typed route; boot images depend only on viewport and rotation.
     # rotation: Cardinal orientation shared by the displayed image and touch.
     # layout: Complete desktop viewport including label margins.
@@ -1335,10 +1387,10 @@ class CodyWindow:
             self.outline.get(), self.rest_outline.get(), self.names.get(),
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
             self.face_follows_body.get(), self.renderer.navigation_opacity, self.playing.get(),
-            self.personality_cue.get(),
+            self.effective_personality_cue(),
             self.personality_sleep,
             round(self.elapsed_ms, 1) if screen == Screen.RIG and
-            (self.personality_cue.get() != PersonalityCue.NONE.name or self.personality_sleep or
+            (self.effective_personality_cue() != PersonalityCue.NONE or self.personality_sleep or
              self.renderer.personality_painter is not None and self.renderer.personality_painter.active) else None,
             self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
             if screen == Screen.GREETING else None,
@@ -1367,6 +1419,20 @@ class CodyWindow:
             self.elapsed_ms += active_ms
 
         values, targets = self.advance_animation(screen, active_ms)
+        petting_context = (screen, rotation)
+        selected_cue = PersonalityCue[self.personality_cue.get()]
+        if selected_cue != self.petting_selected_cue:
+            self.affection_remaining_us = 0
+            self.affection_owns_channel = False
+        self.petting_selected_cue = selected_cue
+        if (self.petting_context != petting_context or screen != Screen.RIG or
+                not self.playing.get() or self.personality_sleep):
+            preserve_fade = (self.petting_context == petting_context and screen == Screen.RIG and
+                             self.playing.get() and self.personality_sleep)
+            self.cancel_transient_affection(preserve_fade)
+        else:
+            self.affection_remaining_us = max(0, self.affection_remaining_us - int(active_ms * 1000))
+        self.petting_context = petting_context
         transform = [value.get() for value in self.transform]
         if screen == Screen.GREETING:
             cloud = self.renderer.scene_painter.definition("greeting")["cloud"]
@@ -1404,7 +1470,7 @@ class CodyWindow:
                 rest_outline=self.rest_outline.get(),
                 response_frame=self.response_frame if self.motion_overlay.get() else None,
                 scene_elapsed_ms=self.scene_elapsed_ms,
-                personality_cue=PersonalityCue[self.personality_cue.get()],
+                personality_cue=self.effective_personality_cue(),
                 personality_elapsed_ms=self.elapsed_ms,
                 personality_nominal_scale=self.renderer.scene_painter.definition("greeting")["cloud"]["scale"]
                 if screen == Screen.GREETING else self.transform[2].get(),

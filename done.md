@@ -5,7 +5,23 @@ and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
 [planned-todo.md](planned-todo.md). Historical revision details remain in Git
 and referenced architecture/artifact records.
 
-## Cody and connectivity — 2026-10-02 to 2026-10-04
+## Cody and connectivity — 2026-10-02 to 2026-10-05
+
+- Added a source-reviewed gentle petting experiment on 2026-10-05 in normal Main view:
+  body-contained AboveEyes/BelowMouth zones, acquired-time/path/speed/gap
+  recognition, one reaction/contact and six-second cooldown. An idle symbol
+  channel admits a four-active-second Affection request; occupied channels
+  drop it, explicit selection remains authoritative, and existing fades/audio
+  admission/body drag remain in use. Native helper and Windows pointer preview
+  share authored thresholds. Added focused native and independent host gesture
+  fixtures without execution; new gesture trace parity is not claimed.
+  Needs/mood/session state exploration is documented separately and deferred.
+  No new suite, build, simulator execution or hardware action has run.
+
+- The earlier `cody-personality` suite passed before petting changes: 748 native
+  assertions, 86 native/Python parity frames and fourteen icon/fourteen audio
+  contracts. Preserved evidence:
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261004/report.json`.
 
 - Configured and built the personality implementation `2518f83a` as Debug with
   ESP-IDF 6.0.2, `scripts/device.ps1` and eight jobs. Compilation/link succeeded;
@@ -13,8 +29,9 @@ and referenced architecture/artifact records.
   `artifacts/build-cody-companion-debug/evidence/personality-icons-debug-build-20261004.log`.
   Authored a focused `cody-personality` host suite covering actual controller,
   finite following, Sleep/pause, dirty raster, native/simulator parity and icon/
-  sound asset contracts; corrected `cody-native` source linkage. Tests are not
-  executed and await fresh command-specific approval. No device upload/access.
+  sound asset contracts; corrected `cody-native` source linkage. The suite later
+  passed as recorded above; new petting tests await fresh command-specific
+  approval. No device upload/access for this branch.
 
 - Extended the personality channel to Main/full-size Sleep only, with one latest
   target, 300-ms stability, 400-ms fade in, 2.5-second hold and 600-ms fade out.

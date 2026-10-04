@@ -8,8 +8,14 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Run the authored `cody-personality` suite after fresh command-specific
-  authorization, then validate the personality-icons branch on the device:
+- [ ] Validate the new petting increment after fresh command-specific
+  authorization: focused `cody-personality` host suite, native/Python gesture
+  agreement, slow strokes above eyes/below mouth, tap/swipe/jitter/gap rejection,
+  one heart per contact, cooldown, occupied-channel drops, baseline preservation
+  and route/rotation/pause/park cancellation. Build and try the simulator only
+  after their own authorization. Thresholds and perceived smoothness require
+  separate physical review; no new build/upload has run.
+- [ ] Validate the personality-icons branch on the device:
   generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
   jelly/vector clearance, circle/status/Back separation, configured face anchor,
@@ -21,7 +27,8 @@ older host/build/flash evidence does not validate the current combined image.
   complete frame/DMA/CPU/stack costs; static area counts are not performance
   evidence. Reconcile the independent renderer-optimization worktree before
   integrated release validation. The 2026-10-04 Debug firmware build passed;
-  tests/checks, simulator and device execution remain open.
+  earlier focused host suite passed 748 assertions and 86 parity frames before
+  petting changes; current tests/checks, simulator and device execution remain open.
 
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,

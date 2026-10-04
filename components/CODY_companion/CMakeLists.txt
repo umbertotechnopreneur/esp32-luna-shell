@@ -31,6 +31,7 @@ idf_component_register(
         "src/rendering/CODY_dirty_plan.cpp"
         "src/model/CODY_rig.cpp"
         "src/model/CODY_response.cpp"
+        "src/model/CODY_petting.cpp"
         "src/model/CODY_response_inputs.cpp"
         "src/diagnostics/CODY_benchmark.cpp"
         "src/demos/CODY_demo.cpp"

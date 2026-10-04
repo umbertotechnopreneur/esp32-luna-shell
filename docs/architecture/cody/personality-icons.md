@@ -168,6 +168,41 @@ entries also carry an authored enable flag. Dropped/suppressed attempts are not
 retried on later frames. Listening quality, physical latency, stack use, codec
 contention and PCM drain behavior remain unmeasured.
 
+## Petting experiment
+
+The normal Main presentation recognizes a slow continuous drag within the
+displayed body above the eyes or below the mouth. Regions follow the evaluated
+face/body, in the existing logical touch coordinates. Shared thresholds live in
+`CODY_petting_config.hpp`; the simulator reads this same source. Above-eye and
+below-mouth margins are 0.10 and 0.08 times evaluated scale. This is gesture
+recognition from position/time, not pressure measurement.
+
+A contact must last at least 500 ms, accumulate at least 0.16 times its initial
+scale in path length and travel at least 0.08 times scale from its origin.
+Segments faster than twice scale per second, report gaps over 250 ms, contact
+over three seconds, region changes and leaving the body reject that contact.
+Movement at most 1.5 pixels is treated as jitter. At Full scale 145 this is
+approximately 23 pixels of path, 12 pixels of displacement and a 290-pixel/s
+speed ceiling. These are initial thresholds requiring device tuning.
+
+Recognize once per contact with a six-second cooldown. If both the requested
+cue and the occupied channel permit it, request Affection for four active
+seconds, then release through the existing hold/fade policy. An occupied
+non-Affection channel drops the reaction; there is no delayed heart queue.
+Explicit manual selection takes precedence and its baseline is preserved.
+Sleep, scene changes, pause, orientation changes and display parking cancel
+the transient gesture. A visible Sleep handoff keeps the normal smooth
+heart fade-out before the Sleep fade-in; hidden or parked contacts do not replay.
+Normal release ends the contact while the accepted heart
+can finish. Debug skeleton mode does not recognize petting. Body drag still
+uses its existing canonical publication and deformation response.
+
+The Windows source supports the same synthetic pointer flow in the normal Rig
+view, with Debug geometry disabled and symbol selection None. The existing
+optional Affection sound follows completed-frame audio admission; no new sound
+or direct touch-side playback was added. No simulator run, new build, listening
+or physical touch validation has been performed for this increment.
+
 ## Validation and integration status
 
 The Debug Cody firmware configured, compiled and linked successfully on
@@ -176,12 +211,18 @@ The Debug Cody firmware configured, compiled and linked successfully on
 73 percent free. Build evidence is retained under
 `artifacts/build-cody-companion-debug/evidence/personality-icons-debug-build-20261004.log`.
 
-The focused `scripts/device.ps1 check -Check cody-personality` suite has been
-authored and reviewed statically, but has not been executed. It compiles the
+The focused `scripts/device.ps1 check -Check cody-personality` suite passed
+before the petting increment on 2026-10-04: 748 native assertions and 86 native/
+Python parity frames, plus fourteen icon and fourteen audio asset contracts.
+The preserved report is under
+`artifacts/build-cody-companion-debug/evidence/personality-host-20261004/report.json`.
+The newly added native and independent host petting fixtures have source review
+only and have not run; gesture trace parity has not been established.
+historical results do not validate the new combined sources. The suite compiles the
 actual portable vector controller/raster/damage sources and compares sequential
 frames with the simulator; it also checks the icon and PCM/WAV asset contracts.
 An installed host C++ developer environment, Pillow and PyYAML are required.
-No independent size report, simulator run, audio playback, validation scans or
+No independent size report, interactive simulator run, audio playback, validation scans or
 hardware operation has been performed. Readability, physical clearance, FPS,
 stack/codec contention and Sleep behavior remain unverified on the device.
 
