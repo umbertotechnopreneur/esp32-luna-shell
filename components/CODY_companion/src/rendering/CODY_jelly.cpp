@@ -493,6 +493,7 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         return ESP_ERR_INVALID_ARG;
     }
     const int64_t jelly_started_us = profile != nullptr ? profile->now_us() : 0;
+    const bool profile_blocks = profile != nullptr && profile->blocks_enabled;
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
     if (surface_error != ESP_OK) {
         return surface_error;
@@ -518,7 +519,7 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         if (left >= right) {
             continue;
         }
-        const int64_t preparation_started_us = profile != nullptr ? profile->now_us() : 0;
+        const int64_t preparation_started_us = profile_blocks ? profile->now_us() : 0;
         const int32_t source_y = std::clamp<int32_t>(mapping.source_y, 0, (JellyData::height - 1) * kFixedOne);
         const uint32_t source_row = static_cast<uint32_t>(source_y) >> 16U;
         const uint32_t next_row = std::min(source_row + 1U, static_cast<uint32_t>(JellyData::height - 1));
@@ -527,7 +528,7 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         const auto *lower = pixels + next_row * JellyData::width;
         int32_t source_x = mapping.source_x + (left - mapping.left) * mapping.source_step;
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
-        if (profile == nullptr) {
+        if (!profile_blocks) {
             for (uint16_t column = left; column < right; ++column) {
                 const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
                 // Zero alpha is the identity over every RGB565 background. Advance

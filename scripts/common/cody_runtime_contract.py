@@ -51,12 +51,15 @@ def load_settings(path):
     if seen != identities:
         raise ValueError("All five named demo phases are required")
     benchmark = settings["benchmark"]
-    fields(benchmark, ("enabled", "cloud_scale_percent"), "benchmark")
-    if type(benchmark["enabled"]) is not bool:
-        raise ValueError("benchmark.enabled: boolean required")
+    fields(benchmark, ("enabled", "profile_blocks", "cloud_scale_percent"), "benchmark")
+    for name in ("enabled", "profile_blocks"):
+        if type(benchmark[name]) is not bool:
+            raise ValueError(f"benchmark.{name}: boolean required")
+    if benchmark["profile_blocks"] and not benchmark["enabled"]:
+        raise ValueError("benchmark.profile_blocks requires benchmark.enabled")
     if type(benchmark["cloud_scale_percent"]) is not int:
         raise ValueError("benchmark.cloud_scale_percent: integer required")
-    number(benchmark["cloud_scale_percent"], 50, 150, "benchmark.cloud_scale_percent")
+    number(benchmark["cloud_scale_percent"], 50, 100, "benchmark.cloud_scale_percent")
     diagnostics = settings["diagnostics"]
     fields(diagnostics, ("execution_timings", "mirror_to_sd_when_available", "report_interval_ms", "frame_budget_us"), "diagnostics")
     for name in ("execution_timings", "mirror_to_sd_when_available"):
@@ -66,6 +69,10 @@ def load_settings(path):
         if type(diagnostics[name]) is not int:
             raise ValueError(f"diagnostics.{name}: integer required")
         number(diagnostics[name], lower, upper, name)
+    if benchmark["enabled"] and not diagnostics["execution_timings"]:
+        raise ValueError("benchmark.enabled requires diagnostics.execution_timings")
+    if benchmark["enabled"] and diagnostics["frame_budget_us"] != 40000:
+        raise ValueError("benchmark.enabled requires diagnostics.frame_budget_us=40000 (25 FPS)")
     audio = settings["audio"]
     fields(audio, ("sample_rate_hz", "ready_duration_seconds", "eyes_open_duration_seconds", "ready_volume_percent", "eyes_open_volume_percent"), "audio")
     if type(audio["sample_rate_hz"]) is not int or audio["sample_rate_hz"] != 22050:

@@ -6,6 +6,7 @@
 #include <type_traits>
 #include "CODY2D_paths.hpp"
 #include "CODY_damage.hpp"
+#include "CODY_raster_profile.hpp"
 #if CODY_ENABLE_PEARL_JELLY
 #include "CODY_jelly.hpp"
 #endif
@@ -237,8 +238,6 @@ struct RigRasterProfile {
     JellyRasterProfile jelly{};
     // All non-jelly paths: the face in Pearl mode, also the body in native vector mode.
     int64_t vector_us = 0;
-    // In Pearl mode every remaining vector path is an independently drawn facial feature.
-    int64_t face_us = 0;
     int64_t skeleton_us = 0;
     int64_t navigation_us = 0;
     // Substages are included in skeleton_us, not additional frame work.

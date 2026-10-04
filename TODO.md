@@ -28,6 +28,15 @@ older host/build/flash evidence does not validate the current combined image.
   gains; current screen-05 artwork is about 14 ms, not a blending-only measure.
   New optimization source needs explicitly authorized final checks/build/device
   comparison; no performance improvement has yet been verified.
+- [ ] Validate the finite raster baseline on `feat/simd-perf-opt`: run the new
+  `cody-raster-benchmark` suite, then authorized firmware build/device captures.
+  Compare coarse/detail at 50/75/100 percent, confirm nonzero fixed payload,
+  full-window p95, first-run entry, touch/PWR/Sleep interruption and policy/look
+  restoration. Test disabled benchmark, non-Pearl and Release builds explicitly.
+  Add deterministic animated work and C/SIMD A/B only after trustworthy timings;
+  include packing/alignment/tails and confirm gains in the full UI. Device clock,
+  radio state, logging overhead and complete cleanup remain validation concerns.
+  [Benchmark contract](docs/architecture/cody/rendering.md).
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy
   Back/Done, route reset during writes, rotated touch, canonical errors and
   bounded memory across repeated entries. Host persistence faults are covered;

@@ -903,10 +903,6 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
         profile->vector_us += now_us - stage_started_us;
-#if CODY_ENABLE_PEARL_JELLY
-        // The pearl sprite replaces the body paths, so all remaining vector work is face work.
-        profile->face_us += now_us - stage_started_us;
-#endif
         profile->artwork_us += now_us - artwork_started_us;
         stage_started_us = now_us;
     }

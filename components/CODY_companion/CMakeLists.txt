@@ -29,6 +29,7 @@ idf_component_register(
         "src/model/CODY_response.cpp"
         "src/model/CODY_response_inputs.cpp"
         "src/diagnostics/CODY_benchmark.cpp"
+        "src/diagnostics/CODY_raster_benchmark.cpp"
         "src/demos/CODY_demo.cpp"
         "src/runtime/CODY_boot_cues.cpp"
         "../../assets/cody/boot/generated/cody_sleep_pearl.cpp"

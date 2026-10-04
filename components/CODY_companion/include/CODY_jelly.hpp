@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include "CODY_damage.hpp"
+#include "CODY_raster_profile.hpp"
 
 namespace CODY {
 
@@ -38,20 +39,6 @@ struct JellyFrame {
     DamageRect bounds{};
     uint16_t skin_id = 0;
     bool valid = false;
-};
-
-// Execution clock and counters for one completed sprite pass. All times include
-// the fixed benchmark block preparation and never represent a per-pixel timer.
-struct JellyRasterProfile {
-    int64_t (*now_us)() = nullptr;
-    int64_t total_us = 0;
-    int64_t preparation_us = 0;
-    int64_t interpolation_us = 0;
-    int64_t blend_us = 0;
-    uint32_t sampled_pixels = 0;
-    uint32_t transparent_pixels = 0;
-    uint32_t blended_pixels = 0;
-    uint32_t timed_blocks = 0;
 };
 
 // No parameters: number of authored skins available to a future selection screen.

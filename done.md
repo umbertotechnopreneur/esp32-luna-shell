@@ -7,6 +7,18 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Reworked the temporary raster benchmark in `feat/simd-perf-opt` (source review
+  only): worker-owned Debug/Pearl entry, forced fixed Ready redraw, 5-second warmup
+  and 40-second measurement, core-1 affinity, bounded PSRAM full-run p95 and
+  40 ms misses. Restores transient look/standby settings and deferred greeting;
+  power, capture, touch and workload changes interrupt rather than certify a run.
+  Coarse fused rendering is separate from opt-in 16-pixel block profiling; shared
+  profile types no longer depend on the Pearl feature gate. Added finite-window
+  and reference pixel-parity contracts through `cody-raster-benchmark`, not run.
+  Regenerated runtime settings/manifest through the public generator; its demo
+  channels now also match the already-authored/current generated rig presets.
+  No tests, firmware build or physical capture ran for this checkpoint, and no
+  SIMD implementation or measured gain is claimed.
 - Captured 28 deterministic `CODY_companion` stack overflows in 100 seconds
   after flashing `dd9f05d8`. The matching ELF shows the worker/frame/coverage
   call chain alone needs 8,176 bytes against an 8,192-byte stack; enabling cheek

@@ -587,6 +587,88 @@ void check_jelly_transparent_advance(const CODY::JellySkinDefinition &skin, uint
     }
 }
 
+int64_t profile_clock_ticks = 0;
+
+// No parameters: deterministic host clock checks timer accounting, never device speed.
+int64_t profile_clock()
+{
+    return ++profile_clock_ticks;
+}
+
+// skin: Real texture identity; every authored skin exercises both raster loops.
+// opaque_index: Real body row used to cross transparent padding and visible artwork.
+void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t opaque_index)
+{
+    const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
+    constexpr uint16_t guard = 0x5a5a;
+    for (uint16_t width : {1, 15, 16, 17, 31, 33}) {
+        for (int32_t fraction : {0, 16384, 49152}) {
+            CODY::JellyFrame frame;
+            frame.valid = true;
+            frame.skin_id = static_cast<uint16_t>(skin.id);
+            frame.bounds = {10, 10, static_cast<uint16_t>(10 + width), 11};
+            auto &row = frame.rows[10];
+            row.left = 10;
+            row.right = static_cast<uint16_t>(10 + width);
+            row.source_x = fraction - 32768;
+            row.source_y = static_cast<int32_t>(opaque_index / CODY::JellyData::width) * 65536 + fraction;
+            row.source_step = static_cast<int32_t>(CODY::JellyData::width) * 65536 /
+                std::max<uint16_t>(1, width - 1);
+            for (uint16_t inset : {0, 1}) {
+                if (width <= inset * 2) {
+                    continue;
+                }
+                const uint16_t visible = static_cast<uint16_t>(width - inset * 2);
+                for (uint16_t background : {uint16_t{0}, uint16_t{0xffff}, uint16_t{0x001f}}) {
+                    for (const auto order : {
+                            CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+                        std::array<uint16_t, 38> original;
+                        original.fill(guard);
+                        std::fill(original.begin() + 1, original.begin() + 1 + visible,
+                                  CODY2D::rgb565_native_to_stored(background, order));
+                        auto expected = original;
+                        for (uint16_t column = 0; column < visible; ++column) {
+                            const uint32_t sample = reference_jelly_sample(texture,
+                                row.source_x + (column + inset) * row.source_step, row.source_y);
+                            expected[column + 1] = CODY2D::rgb565_native_to_stored(
+                                reference_jelly_composite(sample, background), order);
+                        }
+                        for (int mode = 0; mode < 3; ++mode) {
+                            auto actual = original;
+                            const CODY2D::Surface tile{actual.data() + 1, visible, 1,
+                                static_cast<uint16_t>(visible + 2), static_cast<uint32_t>(visible + 2), order};
+                            CODY::JellyRasterProfile profile;
+                            profile.now_us = profile_clock;
+                            profile.blocks_enabled = mode == 2;
+                            profile_clock_ticks = 0;
+                            require(CODY::draw_jelly_rows(frame, tile, 10,
+                                static_cast<uint16_t>(10 + inset), mode == 0 ? nullptr : &profile) == ESP_OK,
+                                "unprofiled, coarse and block-profiled rows succeed");
+                            require(actual == expected,
+                                "profile modes preserve reference pixels, tile clipping, tails and guards");
+                            if (mode == 2) {
+                                const uint32_t blocks = (visible + 15U) / 16U;
+                                require(profile.sampled_pixels == visible &&
+                                        profile.transparent_pixels + profile.blended_pixels == visible &&
+                                        profile.timed_blocks == blocks,
+                                        "block counters cover each sample exactly once including the tail");
+                                require(profile.interpolation_us == blocks && profile.blend_us == blocks &&
+                                        profile.preparation_us == blocks + 1 &&
+                                        profile_clock_ticks == 4 + 6 * blocks,
+                                        "detail clocks operate per row/block, never per pixel");
+                            } else {
+                                require(profile.sampled_pixels == 0 && profile.timed_blocks == 0 &&
+                                        profile_clock_ticks == (mode == 0 ? 0 : 2),
+                                        "baseline has no hidden block timers or per-pixel counters");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 // skin: Authored identity selecting one real immutable packed texture.
 void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
 {
@@ -652,6 +734,7 @@ void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
     }
     if (found_opaque) {
         check_jelly_transparent_advance(skin, examples[1]);
+        check_jelly_profile_parity(skin, examples[1]);
     }
 }
 

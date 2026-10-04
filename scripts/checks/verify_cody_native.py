@@ -72,6 +72,7 @@ def main(argv=None) -> None:
                                "compact tile parity and sentinels", "dirty reconstruction and unchanged frames",
                                "overlay, selection, pause, opacity, visibility, transform and contour damage"]
         report["contracts"].extend(["premultiplied jelly texture and transparent/opaque/AA samples",
+                                    "unprofiled/coarse/block pixel parity, tile clipping, 16-pixel tails and timer counts",
                                     "all authored look textures and frame-owned skin identity",
                                     "look read/write failure propagation, missing-only default and display-owned activation",
                                     "jelly compact-tile guards and invalid mapping rejection",

@@ -152,20 +152,64 @@ do not sum into a frame percentile. The Pearl target is 40 ms (25 FPS), and its
 budget has the same value; neither establishes a measured frame rate or CPU
 reduction.
 
-`assets/cody/runtime.yaml` has a temporary Debug fixed raster route. With
-`benchmark.enabled: true`, it bypasses first-run routing after boot and repeatedly
-draws the authored Ready pose at `benchmark.cloud_scale_percent`; it does not read,
-alter or publish a synthetic snapshot. Run one capture per scale (for example 70,
-100 and 130), with the same firmware, rotation, board state and 30--60-second
-duration. Restore `enabled: false` before ordinary Cody validation.
+`assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
+Debug execution timings and the native Pearl renderer are enabled. The worker
+enters once after boot reaches Idle, independently of ordinary demo routing.
+It draws the authored Ready pose with Pearl Mist and face deformation enabled,
+forcing the same artwork damage region on every frame. Navigation, status and
+FPS/CPU text are not painted; the diagnostic readout still uses real canonical
+observations. No benchmark data enters firmware sensor snapshots.
 
-The `ART` record reports total jelly work plus block preparation, interpolation,
-blending and face/vector work in microseconds. `px` is
-sampled/transparent/composited; `ns_px` is interpolation per sampled pixel and
-blending per composited pixel. Sampling and composition are timed in 16-pixel
-blocks, so their timestamps include the temporary sample-buffer preparation rather
-than one timer call per pixel. All substage values remain within `artwork_us`, and
-must not be summed with it. Transparent-footprint/alpha skips are source-only
-optimization stage 1; exact-output checks and device gains are pending.
+Each run warms up for five seconds, then measures forty seconds. Frames crossing
+either boundary are excluded. A PSRAM-owned bounded array retains every measured
+frame (up to 2,048); `BENCH frame_us` reports the full-run nearest-rank p95, mean
+and maximum after the window. `PERF` remains the separate rolling 128-frame view.
+The payload must remain nonzero and identical, and missed frames use the 40 ms
+budget. Changed payload, invalid timestamps, empty completion and capacity
+exhaustion return errors rather than producing a successful baseline.
+
+A transient 60-second standby override covers the run without changing stored
+settings. Touch, PWR capture, display revision, expression/face changes and power
+lifecycle requests interrupt it; partial counts are not reported as a completed
+baseline. Exit restores the selected look, ordinary standby policy and a deferred
+first-run greeting. Sleep/Wake continues through its usual lifecycle. The worker
+is pinned to core 1 in this temporary benchmark configuration; CPU frequency is
+not locked or measured by the benchmark. Keep the configured clock, power mode,
+radio state, display rotation and logging sinks identical between captures.
+
+`benchmark.profile_blocks: false` is the baseline. It uses the ordinary fused C
+pixel loop, with two coarse sprite timestamps per tile and the existing vector
+timing. `ART` reports jelly, vector (face in Pearl mode), whole artwork and whether
+detail is enabled. `profile_blocks: true` is a separate diagnostic experiment:
+it stores up to 16 samples before composition, times row/block preparation,
+interpolation and composition, and counts sampled/transparent/written pixels.
+`JELLY ns_per_sample` divides both interpolation and composition by sampled pixels
+because the composition loop also visits transparent samples. Unmeasured block
+details are omitted from periodic logs and the summary when `detail=0`.
+
+Detailed profiling has six clock calls per block, two per active row and two per
+sprite pass, plus counters and temporary sample storage. Its observer cost and
+changed loop structure are included in jelly/artwork time; individual substages
+do not sum to the full sprite duration. Compare coarse and detailed runs before
+using the split to rank kernels, and use coarse mode for subsequent C/SIMD gains.
+All substage values are contained in artwork and must not be added to it.
+
+Use separate repeated captures at scales 50, 75 and 100 (the accepted range is
+50--100). After changing YAML, regenerate through
+`scripts/device.ps1 generate -Generator cody-runtime-assets`. A completed run is
+identified by `BENCH complete`; allow for normal boot plus the 45-second run.
+Restore both benchmark booleans to `false` and regenerate before ordinary UI
+validation. This fixed-pose workload is the first raster baseline; a repeatable
+animated workload and confirmation in the full UI remain open.
+
+The opt-in `scripts/device.ps1 check -Check cody-raster-benchmark` suite compiles
+the portable session with Pearl disabled, exercises finite-window/full-p95/error
+contracts, then runs `cody-native`, including reference pixel parity for the
+unprofiled, coarse and block loops across all textures, fractional samples, clipped
+tiles, RGB565 orders, backgrounds, guards and partial blocks. This suite does not
+compile the firmware worker or prove device behavior. Its execution, firmware
+builds and physical captures still require explicit authorization under AGENTS.md.
+Transparent-footprint/alpha skips remain source-only optimization stage 1;
+exact-output execution and device gains are pending. No SIMD kernel is enabled.
 Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

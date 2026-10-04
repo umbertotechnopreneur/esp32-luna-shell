@@ -11,6 +11,7 @@ demo:
 benchmark:
   # Debug-only fixed route for comparable native raster captures; it never feeds a firmware snapshot.
   enabled: true
+  profile_blocks: false
   cloud_scale_percent: 100
 diagnostics:
   execution_timings: true
