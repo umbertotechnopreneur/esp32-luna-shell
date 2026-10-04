@@ -1,9 +1,10 @@
 # Cody onboarding and connectivity
 
 The navigation atlas page 02 and addendum A01/page 13 define the network journey;
-addendum A02/page 14 defines reusable screen 11. The printed IDs remain unchanged:
-Hello is 04, and screen 10 preferences remain unimplemented. Startup/text/standby
-contracts are in [runtime](runtime.md).
+addendum A02/page 14 defines reusable screen 11, and addendum A04/page 16 records
+the pairing handoff and continued first-run route. Existing IDs remain unchanged;
+only the Debug-only pairing screen adds ID 39. Startup/text/standby contracts are
+in [runtime](runtime.md).
 
 ## Current route sequence
 
@@ -18,9 +19,16 @@ contracts are in [runtime](runtime.md).
 | 07, Cancel | Wipe QR and await confirmed closure, then 06 |
 | Failed / TimedOut / presentation error | 08 / actual error and gated Retry/Cancel |
 | 08, admitted clean Retry | Immediately 07 for the new attempt |
-| Online + healthy current Wi-Fi association/IP | 09 / You're online. |
-| 09, Continue | 11 / Cody's look when jelly is compiled |
-| 11, Back or Done | Supplied destinations, currently both 09; disabled while saving |
+| Online + healthy current Wi-Fi association/IP | Persist and read back `cody_firstboot=false` |
+| Persisted handoff + BLE advertising restored, Debug | 39 / Pairing debug; any awake tap dismisses |
+| Persisted handoff + BLE advertising restored, Release | Skip 39 and enter 09 directly |
+| 09, Continue | End pairing-route ownership and enter 10 / Make it yours |
+| 10, Next | 36 / Settings |
+| 36, Continue | 11 / Cody's look |
+| 11, explicit row choice + Done | 12 when `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=y`; otherwise 13 |
+| 12, Done | 13 / You're all set. |
+| 13, Let's go | 14 / Looking for PC; remain pending without a real session signal |
+| Real current Codex/PC session | 15 / Connected; no provisional or Wi-Fi-only promotion |
 
 05 starts at Hello's `(233,225,130)`, moves in 1,000 ms to `(233,105,65)`, waits
 300 ms, then types title, three captions and Show QR at 45 ms/character. Its live
@@ -45,6 +53,16 @@ cancellation and cleanup replace the QR rather than showing stale session data.
 association/IP replaces the online claim with No connection and Wi-Fi disconnected
 or UNAVAILABLE. Software wake reconciles these same observations before exposing
 a retained route; closed sessions return to 06 or their actual terminal state.
+Its scene override requests standby after 60 seconds. Wake restores the retained
+09 route and does not activate Continue; only a fresh user press advances to 10.
+
+After the same current attempt publishes Online with a healthy association and
+nonempty IP, the action worker writes `cody_firstboot=false`, reads it back and
+rejects any mismatch before success UI. Debug builds then show reusable text route
+39 with a micro Cody cloud and the actual copied SSID, IP and BLE name plus the
+handoff milestones. It has no button or invisible control; any awake tap dismisses
+it. Release compiles out its scene definition, text and atlas mapping and enters
+09 directly. The current BLE name is `CODY-` plus the final two MAC bytes.
 
 ## Backend admission and QR ownership
 
@@ -102,17 +120,35 @@ only. On success the display owner selects the skin between retired frames.
 `DeviceSnapshot.character_look_save` publishes stable ID, monotonic request ID,
 Saving/Saved/Failed, original error and actual start/completion timestamps. It is
 an operation result, not a sensor measurement. Failed writes retain the previous
-selection and type Error: 0x... / Tap a look to retry. Optional preference failure
+selection; the disabled footer shows the real `Error: 0x...`, and tapping a look
+starts an explicit retry. Optional preference failure
 does not hide a separate fatal identity, snapshot-publication or renderer error.
 Retiring a view does not cancel a running copied request: its result is published
 and applied between frames without reopening that view.
 
 `LookNavigationContext` supplies caller/Done destinations; there is no inferred
-navigation stack, setup-complete action or implemented screen 10/36 flow. Back/Done
-are graphite chevrons in 60×60 circles at `(10,203)` / `(396,203)`. The cloud remains
-front-facing and animated; skins never become QR decoration. Typed row/status
-prefixes and persistent text generations obey [runtime](runtime.md), including
-offscreen clipping and silent scroll baselines.
+numeric navigation stack. During first setup screen 11 exposes no Back control.
+Its 240×40 Done footer is initially disabled even though Pearl Mist is visibly
+selected. Tapping any row is mandatory; tapping the already selected row counts as
+explicit confirmation, while a different row enables Done only after its save
+succeeds. Screens 36 and 11 keep reusable entry points for later personalization.
+The cloud remains front-facing and animated; skins never become QR decoration.
+Typed row/status prefixes and persistent text generations obey [runtime](runtime.md),
+including offscreen clipping and silent scroll baselines.
+
+## Continued setup and Codex gate
+
+Screen 10 presents the compact Make it yours preference categories and advances to
+the reusable Settings route 36. Screen 36 currently admits Cody's look and advances
+to the shared selector 11. Their identities remain stable so later Settings hosts
+can reuse 36 and 11 without duplicating preference or look state.
+
+`CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX` is an explicit boolean. The Cody profile and
+Kconfig default currently set it to `y`, so Done from 11 enters screen 12; `n`
+skips to 13. Screen 12 requires an explicit Done before the local setup confirmation
+13, whose Let's go enters 14. The repository does not yet have a canonical Codex/PC
+session producer, so 14 remains `Connection pending` and screen 15 is authored but
+not promoted from Wi-Fi, BLE advertising or configuration alone.
 
 ## Input and public HTTP boundary
 
@@ -128,7 +164,7 @@ does not enable it. `httpServerSetApiKey` / `httpServerSetEnabled` run outside t
 renderer. Only absent `http_enabled` persists default false. Missing key means
 unconfigured; empty/corrupt/oversized saved key fails. Health is public; protected
 read-only endpoints use Bearer authentication and exclude QR secrets. The transport
-is local HTTP, not HTTPS or an implemented PC/MCP companion session. Endpoint and
+is local HTTP, not HTTPS or an implemented Codex/PC companion session. Endpoint and
 authentication detail belongs in [HTTP API](../http-device-api.md).
 
 Actual Android scanning, wrong credentials/missing AP, DHCP, BLE handoff, repeated

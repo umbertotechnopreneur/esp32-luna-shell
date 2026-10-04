@@ -99,6 +99,15 @@ config LUNASHELL_CODY_FORCE_FIRST_BOOT
         setting; never overwrite a user's stored zero or hide an NVS failure.
         Disable to honor the persisted cody_firstboot preference alone.
 
+config LUNA_SHELL_CODY_ENABLE_CODEX
+    bool "Include Cody's Codex connection step"
+    depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    default y
+    help
+        Include screen 12 in the first-run journey before the connection-state
+        screens. Disable it only for a Cody image that intentionally omits the
+        Codex integration route; this switch does not fabricate a connection.
+
 config LUNASHELL_CODY_DIAGNOSTICS_READOUT
     bool "Show Cody measured FPS and CPU readout at startup"
     depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION

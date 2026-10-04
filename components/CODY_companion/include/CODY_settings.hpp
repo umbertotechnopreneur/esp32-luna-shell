@@ -12,5 +12,6 @@ struct OnboardingSettings {
 esp_err_t load_onboarding_settings(OnboardingSettings &settings);
 
 // first_boot: Explicit user preference; greeting completion never writes this key.
+// Exception: Returns the original write/readback error or ESP_ERR_INVALID_RESPONSE for a mismatched value.
 esp_err_t persist_first_boot(bool first_boot);
 } // namespace CODY

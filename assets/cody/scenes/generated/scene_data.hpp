@@ -1,6 +1,7 @@
 // Generated via scripts/device.ps1 generate -Generator cody-scenes.
 #pragma once
 #include "CODY_scene.hpp"
+#include "sdkconfig.h"
 namespace CODY::SceneData {
 inline constexpr uint32_t boot_delay_ms = 2000U;
 extern const CODY2D::MonoFont title_font;
@@ -67,7 +68,7 @@ inline constexpr SceneDefinition definitions[] = {
         {"You're online.", 14},
         305, 65535, 45, false, false, true,
         {{233.000000000f, 160.000000000f, 105.000000000f}, 0, 0}, 0,
-        0U
+        60U
     },
     {
         SceneId::CodyLook, "cody-look", {233.000000000f, 172.000000000f, 44.000000000f},
@@ -77,6 +78,71 @@ inline constexpr SceneDefinition definitions[] = {
         78, 65535, 45, false, false, true,
         {{233.000000000f, 172.000000000f, 44.000000000f}, 0, 0}, 0,
         0U
+    },
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    {
+        SceneId::DebugText, "debug-text", {233.000000000f, 64.000000000f, 30.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.150000000f, 0.150000000f, 0.040000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}}, &title_font,
+        {"Debug details", 13},
+        104, 63422, 0, false, false, false,
+        {{233.000000000f, 64.000000000f, 30.000000000f}, 0, 0}, 0,
+        60U
+    },
+#endif
+    {
+        SceneId::MakeItYours, "make-it-yours", {233.000000000f, 92.000000000f, 42.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}}, &title_font,
+        {"Make it yours", 13},
+        146, 65535, 45, false, false, true,
+        {{233.000000000f, 92.000000000f, 42.000000000f}, 0, 0}, 0,
+        60U
+    },
+    {
+        SceneId::Settings, "settings", {233.000000000f, 92.000000000f, 42.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}}, &title_font,
+        {"Settings", 8},
+        146, 65535, 45, false, false, true,
+        {{233.000000000f, 92.000000000f, 42.000000000f}, 0, 0}, 0,
+        60U
+    },
+    {
+        SceneId::ConnectCodex, "connect-codex", {233.000000000f, 160.000000000f, 105.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.150000000f, 0.150000000f, 0.650000000f, 0.000000000f, 1.100000000f, 1.000000000f, 1.250000000f, 1.000000000f}}, &title_font,
+        {"Connect Codex", 13},
+        305, 65535, 45, false, false, true,
+        {{233.000000000f, 160.000000000f, 105.000000000f}, 0, 0}, 0,
+        60U
+    },
+    {
+        SceneId::SetupComplete, "setup-complete", {233.000000000f, 160.000000000f, 105.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.150000000f, 0.150000000f, 0.650000000f, 0.000000000f, 1.100000000f, 1.000000000f, 1.250000000f, 1.000000000f}}, &title_font,
+        {"You're all set.", 15},
+        305, 65535, 45, false, false, true,
+        {{233.000000000f, 160.000000000f, 105.000000000f}, 0, 0}, 0,
+        60U
+    },
+    {
+        SceneId::LookingForPc, "looking-for-pc", {233.000000000f, 160.000000000f, 105.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}}, &title_font,
+        {"Looking for PC", 14},
+        305, 65535, 45, false, false, true,
+        {{233.000000000f, 160.000000000f, 105.000000000f}, 0, 0}, 0,
+        60U
+    },
+    {
+        SceneId::Connected, "connected", {233.000000000f, 160.000000000f, 105.000000000f},
+        {0, 0},
+        {{1.000000000f, 1.000000000f, 0.150000000f, 0.150000000f, 0.650000000f, 0.000000000f, 1.100000000f, 1.000000000f, 1.250000000f, 1.000000000f}}, &title_font,
+        {"Connected", 9},
+        305, 65535, 45, false, false, true,
+        {{233.000000000f, 160.000000000f, 105.000000000f}, 0, 0}, 0,
+        60U
     },
 };
 } // namespace CODY::SceneData

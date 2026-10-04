@@ -22,9 +22,12 @@ the applicable [clock routine](clock.md), not the network introduction.
 
 `cody_firstboot` is a validated persisted boolean. Only a genuinely absent key
 logs and persists the default `true`; invalid type/value or storage failure stops
-that operation. `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=y` currently makes the
-effective flag true without rewriting a valid saved false. Completing the text
-does not clear the key; `persist_first_boot()` is an explicit preference write.
+that operation. `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT` is an explicit `y`/`n`
+development boolean. The Cody profile sets it to `n`, so a valid saved false is
+authoritative. After the current pairing attempt has healthy Wi-Fi and a nonempty
+IP, `persist_first_boot(false)` writes and reads back the value before success UI;
+write, readback or mismatch failure stays visible and retryable. Completing Hello
+text alone never clears the key.
 
 Expressions are separate from routes. Stable, case-sensitive catalog keys include
 `calm`, `happy`, `sleeping`, `drowsy`, `embarrassed`, `boot.sleep`, `boot.waking`
@@ -61,9 +64,15 @@ profile-specific silicon-sleep policy remain in
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. Invitation
 05, installation 06 and pairing 07 use 60 seconds; the unused scan definition does
-too. Hello 04, error 08, online 09 and look 11 inherit. Scene entry supplies a fresh
+too. Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
+and look 11 inherit. Scene entry supplies a fresh
 inactivity baseline and touch refreshes it. Departure/parking clears the override.
 This never writes NVS or extends the backend's five-minute pairing deadline.
+
+Standby retains the active route. In particular, wake from screen 09 returns to
+09; the wake contact does not invoke its Continue action. Screen 39 is available
+only in Debug builds and one awake tap dismisses it. Release contains no generated
+scene definition or expression-catalog mapping for 39.
 
 ## Reusable scenes and text
 

@@ -44,13 +44,27 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
 }
 
 // first_boot: Explicit user preference; greeting completion never writes this key.
+// Exception: Returns the original write/readback error or ESP_ERR_INVALID_RESPONSE for a mismatched value.
 esp_err_t persist_first_boot(bool first_boot)
 {
-    const esp_err_t error = LUNASHELL::UserSettingsService::instance().setBool(kFirstBootKey, first_boot);
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    esp_err_t error = store.setBool(kFirstBootKey, first_boot);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "First-boot preference write '%s'=%u failed (%s)",
             kFirstBootKey, first_boot, esp_err_to_name(error));
         return error;
+    }
+    bool persisted = !first_boot;
+    error = store.getBool(kFirstBootKey, &persisted);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "First-boot preference readback '%s' failed (%s)",
+            kFirstBootKey, esp_err_to_name(error));
+        return error;
+    }
+    if (persisted != first_boot) {
+        ESP_LOGE(kTag, "First-boot preference readback mismatch: '%s' requested=%u stored=%u (%s)",
+            kFirstBootKey, first_boot, persisted, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
     }
     ESP_LOGI(kTag, "Explicit first-boot preference persisted: '%s'=%u", kFirstBootKey, first_boot);
     return ESP_OK;

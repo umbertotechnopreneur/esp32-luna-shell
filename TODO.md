@@ -15,7 +15,8 @@ older host/build/flash evidence does not validate the current combined image.
   [Onboarding](docs/architecture/cody/onboarding.md).
 - [ ] Validate current OOBE pairing 05/06/07/08/09: footer actions, immediate
   entry to 07, installation versus copied live-session QR, pending/ready repaint,
-  error/online gates and navigation only after observed cancellation.
+  error/online gates, `cody_firstboot=false` write/readback, Debug-only 39,
+  Release skip to 09 and navigation only after observed cancellation.
   Check white-theme contrast, integer modules/quiet zones, circle clipping,
   translucent edges and all rotations; confirm real phone scans.
   [Pairing](docs/architecture/cody/onboarding.md).
@@ -28,6 +29,11 @@ older host/build/flash evidence does not validate the current combined image.
   Exercise software Sleep -> Wake -> Ready with retained route, text/entrance
   clocks, paused expression/geometry and backend changes while asleep.
   Verify normal wake does not reset to 04; cold/deep-sleep reset remains distinct.
+- [ ] Validate the continued first-run route 09 -> 10 -> 36 -> 11 -> optional
+  12 -> 13 -> 14: screen-09 wake retention, the explicit Codex Kconfig gate,
+  no Back on 11, mandatory row confirmation and disabled/enabled Done states.
+  Add the canonical Codex/PC session producer before admitting 15; Wi-Fi/BLE
+  alone must leave 14 pending. Exercise later re-entry through reusable 36/11.
 - [ ] Validate teletype titles/body/footer/look/status and original microclick:
   completed-frame reveal only, no clicks on scrolling/replacement/resume,
   bounded notifications, quiet/time/volume gating, excluded-audio profiles,

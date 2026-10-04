@@ -11,10 +11,13 @@
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
 #include "CODY_look_screen.hpp"
+#include "CODY_settings.hpp"
+#include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "scene_data.hpp"
 #include "navigation_data.hpp"
+#include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "qrcode.h"
@@ -34,17 +37,30 @@ constexpr CODY2D::Rect kFooterBounds{113, 390, 240, 40};
 constexpr uint16_t kActionBlueTop = 0x765E;
 constexpr uint16_t kActionBlueBottom = 0x34FC;
 constexpr uint16_t kCaptionWidth = 232;
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+constexpr uint16_t kDebugTextWidth = 386;
+constexpr uint16_t kDebugTextColor = 0xF7BE; // CSS whitesmoke (#F5F5F5) in native RGB565.
+constexpr uint8_t kPairingDebugLineCount = 6;
+#endif
+constexpr uint8_t kContentLineCapacity = 8;
+constexpr size_t kDebugLineBytes = 64;
 constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
 constexpr int64_t kHelloReadableHoldUs = 1000000;
+constexpr bool kPairingDebugEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
+constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
 using PairState = LUNASHELL::PairingSessionState;
 
 enum class Route : uint8_t {
-    None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09, Look11
+    None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09,
+    MakeItYours10, Look11, ConnectCodex12, SetupComplete13, LookingForPc14,
+    Connected15, Settings36, DebugText
 };
-enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel, SaveLook };
+enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel, SaveLook, CompleteFirstBoot };
 enum class NavigationDirection : uint8_t { Previous, Next };
-enum class OnboardingAction : uint8_t { None, ShowQr, PairCody, Cancel, Retry, Continue, Done };
+enum class OnboardingAction : uint8_t {
+    None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo
+};
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 
 struct QrModules {
@@ -65,9 +81,9 @@ struct Result {
     QrModules qr{};
 };
 struct ContentView {
-    CODY2D::TextLine lines[3]{};
+    CODY2D::TextLine lines[kContentLineCapacity]{};
     uint8_t line_count = 0;
-    uint16_t visible_characters[3]{};
+    uint16_t visible_characters[kContentLineCapacity]{};
     CODY2D::CapsuleControl action{};
     bool action_visible = false;
     uint16_t action_visible_characters = 0;
@@ -75,6 +91,7 @@ struct ContentView {
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     char error_text[32]{};
+    char debug_text[kContentLineCapacity][kDebugLineBytes]{};
 };
 ContentView s_view;
 Route s_route = Route::None;
@@ -90,6 +107,8 @@ bool s_cancel_to_install = false;
 bool s_pairing_owned = false;
 bool s_online_link = false;
 bool s_online_presentation_current = false;
+bool s_first_boot_persisted = false;
+bool s_pairing_debug_dismissed = false;
 int64_t s_hello_completed_at_us = -1;
 int64_t s_last_pairing_change_us = -1;
 esp_err_t s_visible_error = ESP_OK;
@@ -168,6 +187,32 @@ esp_err_t encode_qr(const char *payload, QrModules &qr)
 void execute_command(const Command &command, Result &result)
 {
     result.command = command;
+    if (command.work == Work::CompleteFirstBoot) {
+        LUNASHELL::ConnectivityObservation observation;
+        result.error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+        if (result.error != ESP_OK) {
+            return;
+        }
+        const auto &pairing = observation.radios.pairing;
+        const auto &wifi = observation.radios.wifi;
+        if (!pairing.data_valid || pairing.data_stale || pairing.state != PairState::Online ||
+            pairing.attempt_id != command.attempt || !wifi.data_valid || wifi.data_stale ||
+            wifi.health != LUNASHELL::DeviceHealth::Ready || wifi.last_error != ESP_OK ||
+            !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0') {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGE(kTag,
+                "First-boot completion rejected: pairing-valid=%u stale=%u state=%u attempt=%lu/%lu "
+                "wifi-valid=%u stale=%u health=%u error=%s connected=%u ip=%u (%s)",
+                pairing.data_valid, pairing.data_stale, to_index(pairing.state),
+                static_cast<unsigned long>(pairing.attempt_id),
+                static_cast<unsigned long>(command.attempt), wifi.data_valid, wifi.data_stale,
+                to_index(wifi.health), esp_err_to_name(wifi.last_error), wifi.connected,
+                wifi.ip_acquired, esp_err_to_name(result.error));
+            return;
+        }
+        result.error = persist_first_boot(false);
+        return;
+    }
     if (command.work == Work::SaveLook) {
 #if CODY_ENABLE_PEARL_JELLY
         result.error = persist_jelly_skin(command.look_save.requested_id);
@@ -328,11 +373,56 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
+// destination: Fixed route-owned buffer retaining the formatted text through frame retirement.
+// capacity: Exact writable capacity including the null terminator.
+// format: Printable-ASCII format containing exactly one string conversion.
+// value: Canonical snapshot value copied into the debug record.
+// Exception: Returns ESP_ERR_INVALID_SIZE rather than truncating a diagnostic value.
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+esp_err_t format_debug_line(char *destination, size_t capacity, const char *format, const char *value)
+{
+    if (destination == nullptr || capacity == 0 || format == nullptr || value == nullptr) {
+        ESP_LOGE(kTag, "Debug line format rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int length = std::snprintf(destination, capacity, format, value);
+    if (length <= 0 || static_cast<size_t>(length) >= capacity) {
+        ESP_LOGE(kTag, "Debug line would be truncated: length=%d capacity=%u (%s)",
+                 length, static_cast<unsigned>(capacity), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+// text: Bounded printable-ASCII line retained in ContentView.
+// top: Logical top edge selected against the circle chord at this row.
+// line: Receives the centered whitesmoke text geometry.
+// Exception: Returns the real font or circular-layout preparation error.
+esp_err_t prepare_debug_caption(const char *text, uint16_t top, CODY2D::TextLine &line)
+{
+    const auto &font = SceneData::body_font;
+    const size_t length = text == nullptr ? 0 : std::strlen(text);
+    const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
+    if (length == 0 || length >= kDebugLineBytes || width > kDebugTextWidth ||
+        top + font.height > 356) {
+        ESP_LOGE(kTag, "Debug caption rejected: length=%u width=%lu top=%u (%s)",
+                 static_cast<unsigned>(length), static_cast<unsigned long>(width), top,
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return CODY2D::prepare_text_line(font, {text, static_cast<uint16_t>(length)},
+        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)},
+        kDebugTextColor, line);
+}
+#endif
+
 // No parameters: primary setup actions use a captioned footer, not lateral arrows.
 bool uses_footer_action()
 {
     return s_route == Route::Invitation05 || s_route == Route::Install06 ||
-        s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09;
+        s_route == Route::Pairing07 || s_route == Route::Failed08 || s_route == Route::Online09 ||
+        s_route == Route::MakeItYours10 || s_route == Route::Settings36 ||
+        s_route == Route::ConnectCodex12 || s_route == Route::SetupComplete13;
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -359,8 +449,14 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Continue:
         label = "Continue";
         break;
+    case OnboardingAction::Next:
+        label = "Next";
+        break;
     case OnboardingAction::Done:
         label = "Done";
+        break;
+    case OnboardingAction::LetsGo:
+        label = "Let's go";
         break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -496,20 +592,27 @@ esp_err_t attach_content(SceneFrame &scene)
     s_view.action_visible_characters = s_view.action_visible && s_view.action.caption.valid ?
         scene_content_characters(scene, s_view.action.caption.text.length, preceding) : 0;
     content_characters += s_view.action_visible_characters;
-    const uint16_t top = s_route == Route::Install06 ? kInstallQrBounds.y :
+    const uint16_t top = s_route == Route::DebugText ? 130 :
+        (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
+        s_route == Route::Install06 ? kInstallQrBounds.y :
         s_route == Route::Pairing07 ? kSessionQrBounds.y :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
-    // This union includes the footer and QR while all corners fit the local chord.
-    content.bounds = {kFooterBounds.x, top,
-        static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
-        static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
+    // The debug page uses the wider middle chord; normal setup routes keep the
+    // QR/footer union used by their existing controls.
+    content.bounds = s_route == Route::DebugText
+        ? DamageRect{40, top, 426, 356}
+        : DamageRect{kFooterBounds.x, top,
+            static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
+            static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = s_navigation_revision;
     content.visible_characters = content_characters;
     content.text_generation = s_text_generation;
-    if (uses_footer_action()) {
+    if (s_route == Route::DebugText) {
+        // Full-screen dismissal belongs to the route owner, not an invisible control.
+    } else if (uses_footer_action()) {
         content.control_bounds[1] = {kFooterBounds.x, kFooterBounds.y,
             static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
             static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
@@ -520,6 +623,73 @@ esp_err_t attach_content(SceneFrame &scene)
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
 }
+
+// observation: One coherent canonical Wi-Fi/BLE/pairing snapshot after successful handoff.
+// scene: Receives the reusable micro-cloud debug layout and six immutable text rows.
+// Exception: Rejects unavailable identities, truncation or layout failures without inventing values.
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observation, SceneFrame &scene)
+{
+    const auto &wifi = observation.radios.wifi;
+    const auto &ble = observation.radios.ble;
+    if (wifi.ssid[0] == '\0' || wifi.ip_address[0] == '\0' || ble.device_name[0] == '\0') {
+        ESP_LOGE(kTag, "Pairing debug rejected incomplete identities (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const SceneDefinition *definition = nullptr;
+    esp_err_t error = find_scene(SceneId::DebugText, definition);
+    SceneFrame prepared;
+    if (error == ESP_OK) {
+        error = begin_scene(*definition, prepared);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    wipe(&s_view, sizeof(s_view));
+    reset_look_screen();
+    s_swipe_active = false;
+    ++s_navigation_revision;
+    ++s_text_generation;
+    s_route = Route::DebugText;
+    s_view.line_count = kPairingDebugLineCount;
+    error = format_debug_line(s_view.debug_text[0], kDebugLineBytes,
+        "1. Wi-Fi connected to `%s`", wifi.ssid);
+    if (error == ESP_OK) {
+        error = format_debug_line(s_view.debug_text[1], kDebugLineBytes,
+            "2. IP obtained: `%s`", wifi.ip_address);
+    }
+    if (error == ESP_OK) {
+        error = format_debug_line(s_view.debug_text[2], kDebugLineBytes,
+            "3. `%s`", "STA Got IP");
+    }
+    if (error == ESP_OK) {
+        error = format_debug_line(s_view.debug_text[3], kDebugLineBytes,
+            "4. `%s`", "Provisioning stopped");
+    }
+    if (error == ESP_OK) {
+        error = format_debug_line(s_view.debug_text[4], kDebugLineBytes,
+            "5. Entered `%s` screen", "online");
+    }
+    if (error == ESP_OK) {
+        error = format_debug_line(s_view.debug_text[5], kDebugLineBytes,
+            "6. BLE restarted as `%s`", ble.device_name);
+    }
+    for (uint8_t index = 0; error == ESP_OK && index < s_view.line_count; ++index) {
+        error = prepare_debug_caption(s_view.debug_text[index],
+            static_cast<uint16_t>(132U + index * 38U), s_view.lines[index]);
+    }
+    if (error == ESP_OK) {
+        error = attach_content(prepared);
+    }
+    if (error != ESP_OK) {
+        return error;
+    }
+    scene = prepared;
+    ESP_LOGI(kTag, "Reusable debug-text route entered after pairing handoff");
+    return ESP_OK;
+}
+#endif
 
 // route: Explicit atlas identity; no navigation is inferred from array position.
 // scene: Receives a fully validated immutable layout and caller-owned content.
@@ -542,6 +712,24 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         break;
     case Route::Online09:
         identity = SceneId::Online;
+        break;
+    case Route::MakeItYours10:
+        identity = SceneId::MakeItYours;
+        break;
+    case Route::Settings36:
+        identity = SceneId::Settings;
+        break;
+    case Route::ConnectCodex12:
+        identity = SceneId::ConnectCodex;
+        break;
+    case Route::SetupComplete13:
+        identity = SceneId::SetupComplete;
+        break;
+    case Route::LookingForPc14:
+        identity = SceneId::LookingForPc;
+        break;
+    case Route::Connected15:
+        identity = SceneId::Connected;
         break;
     default:
         ESP_LOGE(kTag, "Unknown content route %u (%s)", to_index(route), esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -603,6 +791,62 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::Continue, true);
         }
 #endif
+    } else if (route == Route::MakeItYours10) {
+        constexpr const char *captions[] = {
+            "Shake to wake", "Auto-rotate", "Sounds", "Orientation 0 / 180"
+        };
+        for (const char *text : captions) {
+            error = prepare_caption(text, 204 + s_view.line_count * 38U,
+                                    s_view.lines[s_view.line_count]);
+            if (error != ESP_OK) {
+                return error;
+            }
+            ++s_view.line_count;
+        }
+        error = prepare_action(OnboardingAction::Next, true);
+    } else if (route == Route::Settings36) {
+        constexpr const char *captions[] = {"Personalization", "Choose Cody's look"};
+        for (const char *text : captions) {
+            error = prepare_caption(text, 232 + s_view.line_count * 38U,
+                                    s_view.lines[s_view.line_count]);
+            if (error != ESP_OK) {
+                return error;
+            }
+            ++s_view.line_count;
+        }
+        error = prepare_action(OnboardingAction::Continue, true);
+    } else if (route == Route::ConnectCodex12) {
+        error = prepare_caption("Finish on your PC.", 350, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::Done, true);
+        }
+    } else if (route == Route::SetupComplete13) {
+        error = prepare_caption("Setup confirmed", 350, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::LetsGo, true);
+        }
+    } else if (route == Route::LookingForPc14) {
+        error = prepare_caption("Connection pending", 350, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK) {
+            error = prepare_caption("Searching...", 380, s_view.lines[1]);
+            s_view.line_count = 2;
+        }
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::None, false);
+        }
+    } else if (route == Route::Connected15) {
+        error = prepare_caption("PC / Studio", 350, s_view.lines[0]);
+        s_view.line_count = 1;
+        if (error == ESP_OK) {
+            error = prepare_caption("Session active", 380, s_view.lines[1]);
+            s_view.line_count = 2;
+        }
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::None, false);
+        }
     }
     if (error == ESP_OK) {
         error = attach_content(prepared);
@@ -628,7 +872,7 @@ esp_err_t enter_look_route(SceneFrame &scene, const LookNavigationContext &navig
     s_route = Route::Look11;
     s_swipe_active = false;
     ++s_navigation_revision;
-    error = prepare_action(OnboardingAction::Done, true);
+    error = prepare_action(OnboardingAction::None, false);
     if (error == ESP_OK) {
         error = attach_content(scene);
     }
@@ -656,6 +900,24 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
         break;
     case SceneId::Online:
         route = Route::Online09;
+        break;
+    case SceneId::MakeItYours:
+        route = Route::MakeItYours10;
+        break;
+    case SceneId::Settings:
+        route = Route::Settings36;
+        break;
+    case SceneId::ConnectCodex:
+        route = Route::ConnectCodex12;
+        break;
+    case SceneId::SetupComplete:
+        route = Route::SetupComplete13;
+        break;
+    case SceneId::LookingForPc:
+        route = Route::LookingForPc14;
+        break;
+    case SceneId::Connected:
+        route = Route::Connected15;
         break;
     default:
         ESP_LOGE(kTag, "Unsupported host destination %u (%s)",
@@ -723,6 +985,9 @@ void reset_onboarding()
     s_local_failure = false;
     s_online_link = false;
     s_online_presentation_current = false;
+    s_first_boot_persisted = false;
+    // Release builds never admit the temporary diagnostic route.
+    s_pairing_debug_dismissed = !kPairingDebugEnabled;
     reset_look_screen();
     s_swipe_active = false;
     s_swipe_route = Route::None;
@@ -782,6 +1047,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             const auto completion = complete_look_save(scene, result.command.look_save.request_id, result.error);
             if (completion.presentation_error != ESP_OK) {
                 return completion.presentation_error;
+            }
+            const esp_err_t content_error = attach_look_content(scene, s_navigation_revision);
+            if (content_error != ESP_OK) {
+                return content_error;
             }
             changed = true;
         }
@@ -903,6 +1172,9 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_attempt = result.command.attempt + 1U; // Backend admission increments exactly once.
             s_pairing_owned = true;
             s_last_pairing_change_us = -1;
+        } else if (result.command.work == Work::CompleteFirstBoot) {
+            s_local_failure = false;
+            s_first_boot_persisted = true;
         }
         wipe(&result, sizeof(result));
         if (error != ESP_OK) {
@@ -993,8 +1265,47 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     if (pairing.state == PairState::Online) {
         const auto &wifi = observation.radios.wifi;
         const bool online = wifi.data_valid && !wifi.data_stale && wifi.health == LUNASHELL::DeviceHealth::Ready &&
-            wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired;
-        if (!online && s_route != Route::Online09) {
+            wifi.last_error == ESP_OK && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
+        const auto &ble = observation.radios.ble;
+        const bool ble_restarted = ble.data_valid && !ble.data_stale &&
+            ble.health == LUNASHELL::DeviceHealth::Ready && ble.last_error == ESP_OK &&
+            ble.advertising && ble.device_name[0] != '\0';
+        if (online && !s_first_boot_persisted) {
+            if (s_local_failure && s_failed_work == Work::CompleteFirstBoot) {
+                return ESP_OK; // Retry remains an explicit action on the visible error route.
+            }
+            if (!s_command_pending) {
+                changed = true;
+                error = s_route == Route::Pairing07 ? ESP_OK : enter_route(Route::Pairing07, scene);
+                if (error == ESP_OK) {
+                    error = prepare_action(OnboardingAction::None, false);
+                }
+                if (error == ESP_OK) {
+                    error = show_pairing_progress(scene, "Saving setup");
+                }
+                if (error == ESP_OK) {
+                    error = enqueue(Work::CompleteFirstBoot, pairing.attempt_id);
+                }
+            }
+        } else if (online && s_first_boot_persisted && !ble_restarted) {
+            if (s_route != Route::Pairing07 || s_view.line_count == 0 || s_view.action_visible) {
+                changed = true;
+                error = enter_route(Route::Pairing07, scene);
+                if (error == ESP_OK) {
+                    error = prepare_action(OnboardingAction::None, false);
+                }
+                if (error == ESP_OK) {
+                    error = show_pairing_progress(scene, "Waiting for Bluetooth");
+                }
+            }
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        } else if (online && s_first_boot_persisted && !s_pairing_debug_dismissed) {
+            if (s_route != Route::DebugText) {
+                changed = true;
+                error = enter_pairing_debug(observation, scene);
+            }
+#endif
+        } else if (!online && s_route != Route::Online09) {
             // Manager completion alone is not an online route. Keep the pending
             // presentation until the same canonical observation has a live IP.
             if (s_route != Route::Pairing07 || s_view.line_count == 0 || s_view.action_visible) {
@@ -1007,7 +1318,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                     error = show_pairing_progress(scene, "Waiting for Wi-Fi");
                 }
             }
-        } else if (s_route != Route::Online09 || !s_online_presentation_current || online != s_online_link) {
+        } else if (s_pairing_debug_dismissed &&
+                   (s_route != Route::Online09 || !s_online_presentation_current || online != s_online_link)) {
             changed = true;
             error = enter_route(Route::Online09, scene);
             s_online_link = online;
@@ -1041,7 +1353,6 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 bool previous_navigation_available()
 {
     return s_route == Route::Install06 ||
-        s_route == Route::Look11 ||
         (s_view.action_visible && s_view.action_id == OnboardingAction::Cancel);
 }
 
@@ -1086,11 +1397,6 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     if (back_hit && s_route == Route::Install06) {
         return enter_route(Route::Invitation05, scene);
     }
-    if ((back_hit || action_hit) && s_route == Route::Look11) {
-        SceneId destination;
-        const esp_err_t error = look_exit_destination(back_hit ? LookExit::Back : LookExit::Done, destination);
-        return error == ESP_OK ? enter_host_destination(destination, scene) : error;
-    }
     if (action_hit && s_route == Route::Invitation05) {
         esp_err_t error = enter_route(Route::Install06, scene);
         if (error == ESP_OK) {
@@ -1102,9 +1408,24 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return ESP_OK;
     }
     if (action_hit && s_route == Route::Online09) {
-        // This increment still returns to 09. Future setup/Settings hosts supply
-        // their own caller and Done destinations without changing the selector.
-        return enter_look_route(scene, {SceneId::Online, SceneId::Online});
+        // Pairing ownership ends only after the persisted handoff and the user's
+        // explicit Continue; later journey screens must not be forced back to 09.
+        s_pairing_owned = false;
+        return enter_route(Route::MakeItYours10, scene);
+    }
+    if (action_hit && s_route == Route::MakeItYours10) {
+        return enter_route(Route::Settings36, scene);
+    }
+    if (action_hit && s_route == Route::Settings36) {
+        const SceneId done = kCodexIntegrationEnabled
+            ? SceneId::ConnectCodex : SceneId::SetupComplete;
+        return enter_look_route(scene, {SceneId::Settings, done});
+    }
+    if (action_hit && s_route == Route::ConnectCodex12) {
+        return enter_route(Route::SetupComplete13, scene);
+    }
+    if (action_hit && s_route == Route::SetupComplete13) {
+        return enter_route(Route::LookingForPc14, scene);
     }
     LUNASHELL::ConnectivityObservation observation;
     const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
@@ -1116,6 +1437,20 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         esp_err_t error = enter_route(Route::Install06, scene);
         if (error == ESP_OK) {
             error = enqueue(Work::InstallQr, 0);
+        }
+        return error == ESP_OK ? ESP_OK : show_error(scene, error);
+    }
+    if (s_route == Route::Failed08 && s_local_failure &&
+        s_failed_work == Work::CompleteFirstBoot) {
+        esp_err_t error = enter_route(Route::Pairing07, scene);
+        if (error == ESP_OK) {
+            error = prepare_action(OnboardingAction::None, false);
+        }
+        if (error == ESP_OK) {
+            error = show_pairing_progress(scene, "Saving setup");
+        }
+        if (error == ESP_OK) {
+            error = enqueue(Work::CompleteFirstBoot, pairing.attempt_id);
         }
         return error == ESP_OK ? ESP_OK : show_error(scene, error);
     }
@@ -1173,6 +1508,16 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     if (s_route == Route::None || s_route == Route::Hello04) {
         return ESP_OK;
     }
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    if (s_route == Route::DebugText) {
+        consumed = true;
+        if (!pressed_edge) {
+            return ESP_OK;
+        }
+        s_pairing_debug_dismissed = true;
+        return enter_route(Route::Online09, scene);
+    }
+#endif
     if (s_swipe_route != s_route || (s_swipe_active && s_swipe_rotation != rotation_degrees)) {
         s_swipe_active = false;
         cancel_look_touch();
@@ -1237,6 +1582,22 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         }
         if (result.save_id != nullptr) {
             return enqueue_look_save(scene, result.save_id);
+        }
+        if (result.selection_confirmed) {
+            const esp_err_t content_error = attach_look_content(scene, s_navigation_revision);
+            if (content_error != ESP_OK) {
+                return content_error;
+            }
+            consumed = true;
+        }
+        if (result.done_requested) {
+            SceneId destination;
+            const esp_err_t destination_error = look_exit_destination(LookExit::Done, destination);
+            if (destination_error != ESP_OK) {
+                return destination_error;
+            }
+            consumed = true;
+            return enter_host_destination(destination, scene);
         }
     }
     return ESP_OK;

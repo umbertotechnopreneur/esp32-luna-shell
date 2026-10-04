@@ -14,6 +14,8 @@ enum class LookExit : uint8_t { Back, Done };
 struct LookTouchResult {
     bool consumed = false;
     bool changed = false;
+    bool selection_confirmed = false;
+    bool done_requested = false;
     // Flash-owned catalog identity. No pointer into touch or stack storage.
     const char *save_id = nullptr;
 };

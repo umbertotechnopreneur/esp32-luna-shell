@@ -72,7 +72,7 @@ def bake_font(font_path: Path, document):
 def definition_header(document, width, height, advance):
     header = [
         "// Generated via scripts/device.ps1 generate -Generator cody-scenes.",
-        "#pragma once", '#include "CODY_scene.hpp"',
+        "#pragma once", '#include "CODY_scene.hpp"', '#include "sdkconfig.h"',
         "namespace CODY::SceneData {",
         f"inline constexpr uint32_t boot_delay_ms = {document['boot_delay_ms']}U;",
         "extern const CODY2D::MonoFont title_font;",
@@ -80,6 +80,8 @@ def definition_header(document, width, height, advance):
         "inline constexpr SceneDefinition definitions[] = {",
     ]
     for scene in document["scenes"]:
+        if scene["id"] == "debug-text":
+            header.append("#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG")
         cloud = scene["cloud"]
         intro = scene["intro"]
         entrance = scene["entrance"]
@@ -107,6 +109,8 @@ def definition_header(document, width, height, advance):
             f"        {scene['standby_override_seconds']}U",
             "    },",
         ])
+        if scene["id"] == "debug-text":
+            header.append("#endif")
     header.extend(["};", "} // namespace CODY::SceneData"])
     return "\n".join(header) + "\n"
 

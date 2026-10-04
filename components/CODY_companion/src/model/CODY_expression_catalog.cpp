@@ -33,10 +33,19 @@ constexpr AtlasScreenDefinition kAtlasScreens[] = {
     {AtlasScreenId::Pairing07, "07", "Pairing...", ExpressionId::Calm, SceneId::Pairing},
     {AtlasScreenId::PairingFailed08, "08", "Try again", ExpressionId::Embarrassed, SceneId::PairingFailed},
     {AtlasScreenId::Online09, "09", "You're online.", ExpressionId::Happy, SceneId::Online},
+    {AtlasScreenId::MakeItYours10, "10", "Make it yours", ExpressionId::Calm, SceneId::MakeItYours},
     {AtlasScreenId::CodyLook11, "11", "Cody's look", ExpressionId::Happy, SceneId::CodyLook},
+    {AtlasScreenId::ConnectCodex12, "12", "Connect Codex", ExpressionId::Happy, SceneId::ConnectCodex},
+    {AtlasScreenId::SetupComplete13, "13", "You're all set.", ExpressionId::Happy, SceneId::SetupComplete},
+    {AtlasScreenId::LookingForPc14, "14", "Looking for your PC...", ExpressionId::Calm, SceneId::LookingForPc},
+    {AtlasScreenId::Connected15, "15", "Connected", ExpressionId::Happy, SceneId::Connected},
     {AtlasScreenId::Idle16, "16", "Idle", ExpressionId::Calm},
     {AtlasScreenId::Sleep35A, "35A", "Sleep", ExpressionId::Sleeping},
     {AtlasScreenId::Wake35B, "35B", "Wake", ExpressionId::Drowsy},
+    {AtlasScreenId::Settings36, "36", "Settings", ExpressionId::Calm, SceneId::Settings},
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    {AtlasScreenId::PairingDebug39, "39", "Pairing debug", ExpressionId::Calm, SceneId::DebugText},
+#endif
 };
 
 // Three additional entries are the separate authored boot preview namespace.

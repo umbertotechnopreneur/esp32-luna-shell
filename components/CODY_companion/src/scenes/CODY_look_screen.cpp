@@ -26,6 +26,7 @@ constexpr uint16_t kLookScrollBarLeft = 343;
 constexpr uint16_t kLookScrollBarWidth = 4;
 constexpr uint16_t kLookDragThreshold = 5;
 constexpr size_t kLookItemCapacity = 8;
+constexpr CODY2D::Rect kDoneBounds{113, 390, 240, 40};
 
 struct LookItem {
     const char *id = nullptr;
@@ -51,10 +52,12 @@ struct LookView {
     char status_text[32]{};
     CODY2D::TextLine status{};
     CODY2D::TextLine hint{};
+    CODY2D::CapsuleControl done{};
     uint64_t status_text_started_us = 0;
     uint16_t status_visible_characters = 0;
     uint16_t hint_visible_characters = 0;
     uint32_t text_generation = 0;
+    bool choice_confirmed = false;
     bool valid = false;
 };
 
@@ -159,6 +162,35 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
     }
     return CODY2D::prepare_text_line(font, {text, static_cast<uint16_t>(length)},
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
+}
+
+// label: Bounded retained text for the footer's current Done, Saving or error state.
+// enabled: Whether the footer may request the host's Done destination.
+// Exception: Returns the real text-layout error without replacing the prior footer.
+esp_err_t prepare_done_control(const char *label, bool enabled)
+{
+    if (label == nullptr) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    const auto &font = SceneData::body_font;
+    const size_t length = std::strlen(label);
+    const uint32_t width = length == 0 ? 0 : (length - 1U) * font.advance + font.width;
+    if (length == 0 || length > 31 || width > kDoneBounds.width || font.height > kDoneBounds.height) {
+        ESP_LOGE(kTag, "Look footer rejected: length=%u width=%lu (%s)",
+                 static_cast<unsigned>(length), static_cast<unsigned long>(width),
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    CODY2D::CapsuleControl prepared{kDoneBounds, {}, kBlueTop, kBlueBottom, enabled};
+    const esp_err_t error = CODY2D::prepare_text_line(font,
+        {label, static_cast<uint16_t>(length)},
+        {static_cast<int16_t>(kDoneBounds.x + (kDoneBounds.width - width) / 2U),
+         static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U)},
+        0x0001, prepared.caption);
+    if (error == ESP_OK) {
+        s_view.done = prepared;
+    }
+    return error;
 }
 
 // No parameters: maximum list displacement that still ends on the last authored row.
@@ -345,6 +377,9 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = CODY2D::draw_text_rows(view.hint, view.hint_visible_characters,
                                       strip, first_row, first_column);
     }
+    if (error == ESP_OK) {
+        error = CODY2D::draw_capsule_rows(view.done, strip, first_row, first_column);
+    }
     return error;
 }
 } // namespace
@@ -382,14 +417,15 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
     s_view.status_visible_characters = prefixes.status_characters;
     s_view.hint_visible_characters = prefixes.hint_characters;
     SceneContent content;
-    content.bounds = {117, 226, 349, 436};
+    content.bounds = {113, 226, 353, 430};
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = control_revision;
     content.visible_characters = prefixes.visible_characters;
     content.text_generation = s_view.text_generation;
-    content.control_bounds[0] = {10, 203, 70, 263};
-    content.control_bounds[1] = {396, 203, 456, 263};
+    content.control_bounds[1] = {kDoneBounds.x, kDoneBounds.y,
+        static_cast<uint16_t>(kDoneBounds.x + kDoneBounds.width),
+        static_cast<uint16_t>(kDoneBounds.y + kDoneBounds.height)};
     content.draw_rows = draw_content;
     return set_scene_content(scene, content);
 }
@@ -463,6 +499,11 @@ esp_err_t open_look_screen(SceneFrame &scene, const LookNavigationContext &navig
     if (error != ESP_OK) {
         return error;
     }
+    static constexpr char done_label[] = "Done";
+    error = prepare_done_control(done_label, false);
+    if (error != ESP_OK) {
+        return error;
+    }
     s_view.valid = true;
     error = attach_look_content(prepared, 0);
     if (error == ESP_OK) {
@@ -510,8 +551,18 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
         return ESP_ERR_INVALID_STATE;
     }
     if (s_view.pending_request_id != 0) {
-        result.consumed = in_list(point);
+        result.consumed = in_list(point) ||
+            (point.x >= kDoneBounds.x && point.y >= kDoneBounds.y &&
+             point.x < kDoneBounds.x + kDoneBounds.width &&
+             point.y < kDoneBounds.y + kDoneBounds.height);
         return ESP_OK; // No second request was admitted.
+    }
+    if (pressed_edge && point.x >= kDoneBounds.x && point.y >= kDoneBounds.y &&
+        point.x < kDoneBounds.x + kDoneBounds.width &&
+        point.y < kDoneBounds.y + kDoneBounds.height) {
+        result.consumed = true;
+        result.done_requested = CODY2D::capsule_contains(s_view.done, point);
+        return ESP_OK;
     }
     if (pressed_edge && in_list(point)) {
         s_touch_active = true;
@@ -559,6 +610,13 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
         if (CODY2D::capsule_contains(target, point)) {
             if (std::strcmp(item.id, s_view.selected_look_id) != 0) {
                 result.save_id = item.id;
+            } else {
+                s_view.choice_confirmed = true;
+                const esp_err_t footer_error = prepare_done_control("Done", true);
+                if (footer_error != ESP_OK) {
+                    return footer_error;
+                }
+                result.selection_confirmed = true;
             }
             break;
         }
@@ -591,10 +649,10 @@ esp_err_t begin_look_save(SceneFrame &scene, const char *id, uint32_t request_id
     s_view.pending_request_id = request_id;
     s_view.save_error = ESP_OK;
     s_view.hint = {};
+    s_view.status = {};
     cancel_look_touch();
-    esp_err_t error = prepare_caption("Saving...", 380, s_view.status);
+    esp_err_t error = prepare_done_control("Saving...", false);
     if (error == ESP_OK) {
-        s_view.status_text_started_us = scene.text_elapsed_us;
         error = advance_text_generation();
     }
     if (error == ESP_OK) {
@@ -621,21 +679,18 @@ LookSaveCompletion complete_look_save(SceneFrame &scene, uint32_t request_id, es
     s_view.save_error = save_error;
     s_view.status = {};
     s_view.hint = {};
-    s_view.status_text_started_us = scene.text_elapsed_us;
     if (save_error == ESP_OK) {
         s_view.selected_look_id = s_view.pending_id;
+        s_view.choice_confirmed = true;
+        result.presentation_error = prepare_done_control("Done", true);
     } else {
         // This is an optional user preference failure, not a renderer failure.
         // The worker has published the original result in DeviceSnapshotService.
         ESP_LOGE(kTag, "Look save failed; previous selection retained (%s)", esp_err_to_name(save_error));
         std::snprintf(s_view.status_text, sizeof(s_view.status_text), "Error: 0x%x",
                       static_cast<unsigned>(save_error));
-        // Both 25-pixel lines fit below the viewport and inside the circular chord,
-        // including the full eight hexadecimal digits of a negative esp_err_t.
-        result.presentation_error = prepare_caption(s_view.status_text, 380, s_view.status);
-        if (result.presentation_error == ESP_OK) {
-            result.presentation_error = prepare_caption("Tap a look to retry", 408, s_view.hint);
-        }
+        // Keep the real error visible without overlapping the fixed Done footer.
+        result.presentation_error = prepare_done_control(s_view.status_text, false);
     }
     s_view.pending_id = nullptr;
     if (result.presentation_error == ESP_OK) {

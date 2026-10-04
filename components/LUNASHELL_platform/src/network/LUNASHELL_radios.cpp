@@ -962,7 +962,7 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
     snprintf(
         device_name,
         sizeof(device_name),
-        "DEVICE-%02X%02X",
+        "CODY-%02X%02X",
         mac[4],
         mac[5]
     );

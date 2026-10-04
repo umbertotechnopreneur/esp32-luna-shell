@@ -25,6 +25,13 @@ and referenced architecture/artifact records.
   display-owned activation and asynchronous save. Defaults apply only to an
   absent key; real read/write/unknown-ID failures preserve the previous look.
   [Onboarding](docs/architecture/cody/onboarding.md).
+- Added the post-pairing write/readback of `cody_firstboot=false`, the compile-time
+  Debug-only screen 39, screen-09 60-second standby, and the source route
+  09 -> 10 -> 36 -> 11 -> optional 12 -> 13 -> 14. Screen 11 now has a disabled
+  Done footer until an explicit row tap and no first-run Back; screen 15 remains
+  gated on a future real Codex/PC session producer. Added visually reviewed A04
+  pages to both append-only atlases. Source/artifact review only; no build,
+  simulator, automated test or device validation.
 - Integrated async Start/Retry/Cancel, per-attempt proof/session QR, credential
   adoption and BLE handoff on main; HTTP remains opt-in. Added white QR themes,
   bounded integer scaling/quiet zones, rounded controls and gesture routing.
