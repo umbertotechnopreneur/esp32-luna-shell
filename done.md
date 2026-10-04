@@ -5,7 +5,14 @@ and implementation gaps remain in [TODO.md](TODO.md); deferred work is in
 [planned-todo.md](planned-todo.md). Historical revision details remain in Git
 and referenced architecture/artifact records.
 
-## Cody and connectivity — 2026-10-02 to 2026-10-04
+## Cody and connectivity — 2026-10-02 to 2026-10-05
+
+- Lifetime BLE DMA ownership: one static 34,816-byte reserve survives standby
+  and pre-controller failures. After actual SDK teardown Cody parks display DMA
+  and rearms the budget; cleanup and reservation errors have separate outcomes
+  and canonical pairing fields, so clean Retry/known-off standby remain valid
+  if a future budget cannot be restored. Limits and Wi-Fi configuration stay
+  unchanged. Build/flash and physical pairing confirmation are pending.
 
 - Captured explicit Pair failure on main `a154b677`: the 34,816-byte internal
   DMA hold failed with 70,955 bytes free but largest block 21,504, before manager
@@ -15,7 +22,10 @@ and referenced architecture/artifact records.
   configuration remain unchanged. Pre-controller failures retain an existing
   lease; no new lease is allocated by Cancel. Frame admission captures intentional
   parking under the lock to avoid terminating Cody after a fast failed handoff.
-  Build/flash are pending; tests and physical success are not claimed.
+  Debug `7e45bf32` built and flashed with verified write hashes. The following
+  passive monitor reproduced allocation failure after the drain: 96,243 bytes
+  free, largest 21,504. No panic/reboot was observed; the standby path discarded
+  the earlier reserve. This led to the lifetime-ownership correction above.
 - Debug `143fdb22` built with eight jobs and flashed to COM10 / ESP32-S3
   `a4:cb:8f:db:42:d8`. Esptool verified written data and reset the board.
   Application: 3,755,536 bytes, 75 percent of the app partition free. Includes

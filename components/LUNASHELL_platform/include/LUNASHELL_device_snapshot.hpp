@@ -234,6 +234,7 @@ struct PairingSessionSnapshot : ComponentSnapshot {
     int64_t changed_at_us = 0;
     int64_t deadline_at_us = 0;
     esp_err_t cleanup_error = ESP_OK;
+    esp_err_t dma_reservation_error = ESP_OK;
     bool command_pending = false;
 };
 

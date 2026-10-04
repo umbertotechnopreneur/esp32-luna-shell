@@ -80,7 +80,8 @@ void closeSession(State terminal, esp_err_t primary_error, Reason reason, bool r
         s_session.failure_reason = reason;
         publishLocked(restore_telemetry ? State::Completing : State::Cancelling, attempt_error);
     }
-    const esp_err_t cleanup_error = LUNASHELL_radios_end_pairing(restore_telemetry);
+    const auto closure = LUNASHELL_radios_end_pairing(restore_telemetry);
+    const esp_err_t cleanup_error = closure.cleanup_error;
     if (cleanup_error != ESP_OK) {
         ESP_LOGE(kTag, "Pairing cleanup failed (%s), attempt result %s",
                  esp_err_to_name(cleanup_error), esp_err_to_name(attempt_error));
@@ -88,8 +89,11 @@ void closeSession(State terminal, esp_err_t primary_error, Reason reason, bool r
     std::lock_guard<std::mutex> guard(s_mutex);
     s_busy = false;
     s_session.cleanup_error = cleanup_error;
+    s_session.dma_reservation_error = closure.dma_reservation_error;
     s_session.deadline_at_us = 0;
-    const esp_err_t result = attempt_error == ESP_OK ? cleanup_error : attempt_error;
+    const esp_err_t closure_error = cleanup_error != ESP_OK ?
+        cleanup_error : closure.dma_reservation_error;
+    const esp_err_t result = attempt_error == ESP_OK ? closure_error : attempt_error;
     if (s_pending == Command::Cancel && cleanup_error == ESP_OK) {
         publishLocked(State::Cancelling, result);
     } else {
@@ -313,6 +317,7 @@ extern "C" esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action
         ++s_session.attempt_id;
         s_session.provisioning_session_id = 0;
         s_session.deadline_at_us = 0;
+        s_session.dma_reservation_error = ESP_OK;
         s_session.failure_reason = Reason::None;
         s_busy = true;
         s_pending = command;

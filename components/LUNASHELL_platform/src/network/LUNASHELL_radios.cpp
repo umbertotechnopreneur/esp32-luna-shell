@@ -37,7 +37,8 @@
 static const char *TAG = "LUNASHELL_radios";
 static std::recursive_mutex s_radios_init_mutex;
 #if CONFIG_BT_CONTROLLER_ENABLED
-// Keep the controller's contiguous block intact while Cody awaits Pair Cody.
+// One lifetime owner retains the contiguous block whenever it has not been
+// handed to the controller. Standby and failed admission must not free it.
 static LUNASHELL::radio_memory::BleControllerDmaReservation s_deferred_ble_dma;
 #endif
 
@@ -1158,13 +1159,14 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
 }
 #endif
 
+// No parameters: initialize radios while retaining unused DMA across every exit.
+// Exception: Returns the original Wi-Fi, BLE admission, or lifecycle error.
 static esp_err_t radios_init_impl(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
 
 #if CONFIG_BT_CONTROLLER_ENABLED
-    LUNASHELL::radio_memory::BleControllerDmaReservation ble_controller_dma;
-    ble_controller_dma.swap(s_deferred_ble_dma);
+    auto &ble_controller_dma = s_deferred_ble_dma;
     const esp_err_t reservation_error =
         ble_controller_dma ? ESP_OK :
             LUNASHELL::radio_memory::reserveBleControllerDma(ble_controller_dma);
@@ -1216,9 +1218,6 @@ static esp_err_t radios_init_impl(void)
     esp_err_t ble = ESP_OK;
 #if !CONFIG_LUNASHELL_PROVISIONING_START_ON_BOOT
     if (!wifi_status.credentials_configured) {
-#if CONFIG_BT_CONTROLLER_ENABLED
-        s_deferred_ble_dma.swap(ble_controller_dma);
-#endif
         ESP_LOGI(TAG, "Wi-Fi ready; BLE pairing awaits an explicit user action");
         return ESP_OK;
     }
@@ -1290,12 +1289,6 @@ static esp_err_t radios_init_impl(void)
             true
         );
     }
-#if CONFIG_BT_CONTROLLER_ENABLED
-    LUNASHELL::radio_memory::releaseBleControllerDma(
-        ble_controller_dma,
-        "radio startup cleanup"
-    );
-#endif
     log_radio_heap_checkpoint(
         ble == ESP_OK ? "after-BLE" : "after-BLE-failure"
     );
@@ -1330,13 +1323,11 @@ static esp_err_t radios_init_impl(void)
     return ESP_OK;
 }
 
+// No parameters: stop radio hardware without releasing an unused controller lease.
+// Exception: Returns the actual BLE or Wi-Fi teardown error.
 static esp_err_t radios_stop_impl(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
-#if CONFIG_BT_CONTROLLER_ENABLED
-    s_deferred_ble_dma.reset();
-#endif
-
     esp_err_t ble_result = ESP_OK;
     if (LUNASHELL_provisioning_initialized()) {
         if (LUNASHELL_provisioning_active()) {
@@ -1387,6 +1378,12 @@ static esp_err_t radios_stop_impl(void)
         false
     );
     ESP_LOGI(TAG, "Wireless services stopped");
+#if CONFIG_BT_CONTROLLER_ENABLED
+    if (s_deferred_ble_dma) {
+        ESP_LOGI(TAG, "BLE DMA reservation retained while radios are stopped: %lu bytes",
+                 static_cast<unsigned long>(LUNASHELL::radio_memory::kBleControllerDmaHoldBytes));
+    }
+#endif
     return ESP_OK;
 }
 
@@ -1451,11 +1448,6 @@ esp_err_t LUNASHELL_radios_init(void)
     return run_watched_radio_operation("startup", radios_init_impl);
 }
 
-esp_err_t LUNASHELL_radios_stop(void)
-{
-    return run_watched_radio_operation("shutdown", radios_stop_impl);
-}
-
 // stage: Short admission boundary; keep each record below the logger's line limit.
 static void log_pairing_dma_checkpoint(const char *stage)
 {
@@ -1479,8 +1471,7 @@ static esp_err_t start_pairing_radios_locked()
 #endif
     log_pairing_dma_checkpoint("after telemetry stop");
 #if CONFIG_BT_CONTROLLER_ENABLED
-    LUNASHELL::radio_memory::BleControllerDmaReservation reservation;
-    reservation.swap(s_deferred_ble_dma);
+    auto &reservation = s_deferred_ble_dma;
     const esp_err_t reservation_error = reservation ? ESP_OK :
         LUNASHELL::radio_memory::reserveBleControllerDma(reservation);
     if (reservation_error != ESP_OK) {
@@ -1496,9 +1487,8 @@ static esp_err_t start_pairing_radios_locked()
     }
 #if CONFIG_BT_CONTROLLER_ENABLED
     if (error != ESP_OK) {
-        // No controller handoff occurred: retain the already-owned block for
-        // the next explicit attempt without allocating during Cancel cleanup.
-        reservation.swap(s_deferred_ble_dma);
+        // The lifetime owner keeps the same block; unwinding this operation
+        // must not release memory needed by the next explicit attempt.
         return error;
     }
     LUNASHELL::radio_memory::releaseBleControllerDma(reservation, "explicit pairing");
@@ -1577,9 +1567,8 @@ static esp_err_t radios_end_pairing_impl(bool restore_telemetry)
         return error;
     }
     if (!restore_telemetry) {
-        // Closing this attempt must not allocate a controller lease for a
-        // future one. The next explicit Start owns that admission and its
-        // real allocation error; any already-held deferred lease stays owned.
+        // Manager closure is complete. The shared cleanup wrapper restores
+        // the lifetime DMA budget and returns its outcome separately.
         return ESP_OK;
     }
     LUNASHELL_wifi_status_t wifi{};
@@ -1596,15 +1585,95 @@ static esp_err_t radios_end_pairing_impl(bool restore_telemetry)
     return LUNASHELL_ble_init();
 }
 
-// restore_telemetry: Explicit choice to restore BLE on verified Wi-Fi.
-esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry)
+// stop_wifi: Close both radios instead of only the provisioning session.
+// restore_telemetry: Transfer a successful provisioning session to telemetry.
+// Exception: Keep hardware closure and DMA rearm failures separate for callers.
+static LUNASHELL_radio_cleanup_result_t run_radio_cleanup(
+    bool stop_wifi,
+    bool restore_telemetry
+)
 {
+    LUNASHELL_radio_cleanup_result_t result{ESP_OK, ESP_OK};
     const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(LUNASHELL_LIVENESS_RADIOS);
     if (watch_error != ESP_OK) {
-        ESP_LOGE(TAG, "Pairing cleanup watchdog start failed (%s)",
+        ESP_LOGE(TAG, "Radio cleanup watchdog start failed (%s)",
                  esp_err_to_name(watch_error));
-        return watch_error;
+        result.cleanup_error = watch_error;
+        return result;
     }
-    const esp_err_t result = radios_end_pairing_impl(restore_telemetry);
-    return LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_RADIOS, result);
+    std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    // Keep frame allocations away from the block as the SDK returns it.
+    const esp_err_t park_error = LUNASHELL_display_runtime_set_startup_quiescent(true);
+    const bool display_parked = park_error == ESP_OK;
+    result.cleanup_error = park_error;
+#endif
+    if (result.cleanup_error == ESP_OK) {
+        result.cleanup_error = stop_wifi ? radios_stop_impl() :
+            radios_end_pairing_impl(restore_telemetry);
+    }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_BT_CONTROLLER_ENABLED
+    if (result.cleanup_error == ESP_OK) {
+        const bool controller_idle =
+            esp_bt_controller_get_status() == ESP_BT_CONTROLLER_STATUS_IDLE;
+        if (controller_idle) {
+            result.dma_reservation_error =
+                LUNASHELL::radio_memory::reserveBleControllerDma(s_deferred_ble_dma);
+            if (result.dma_reservation_error == ESP_OK && !s_deferred_ble_dma) {
+                result.dma_reservation_error = ESP_ERR_INVALID_STATE;
+            }
+            if (result.dma_reservation_error == ESP_OK) {
+                ESP_LOGI(TAG, "BLE lifetime DMA reserve ready after cleanup: %lu bytes",
+                    static_cast<unsigned long>(LUNASHELL::radio_memory::kBleControllerDmaHoldBytes));
+            } else {
+                // The radios are actually closed. Publish the failed future
+                // budget without turning clean Cancel into a cleanup failure.
+                LUNASHELL::DeviceSnapshotService::instance().reportBle(
+                    false, result.dma_reservation_error);
+                ESP_LOGE(TAG, "Radios closed; BLE DMA rearm failed (%s)",
+                    esp_err_to_name(result.dma_reservation_error));
+            }
+        } else if (stop_wifi || !restore_telemetry) {
+            result.cleanup_error = ESP_ERR_INVALID_STATE;
+            LUNASHELL::DeviceSnapshotService::instance().reportBle(false, result.cleanup_error);
+            ESP_LOGE(TAG, "Radio cleanup left the BLE controller active (%s)",
+                esp_err_to_name(result.cleanup_error));
+        }
+    }
+#endif
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    if (display_parked) {
+        const esp_err_t resume_error = LUNASHELL_display_runtime_set_startup_quiescent(false);
+        if (resume_error != ESP_OK) {
+            ESP_LOGE(TAG, "Radio cleanup display resume failed (%s); cleanup=%s DMA=%s",
+                esp_err_to_name(resume_error), esp_err_to_name(result.cleanup_error),
+                esp_err_to_name(result.dma_reservation_error));
+            if (result.cleanup_error == ESP_OK) {
+                result.cleanup_error = resume_error;
+            }
+        }
+    }
+#endif
+    const esp_err_t operation_error = result.cleanup_error != ESP_OK ?
+        result.cleanup_error : result.dma_reservation_error;
+    const esp_err_t watched_error =
+        LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_RADIOS, operation_error);
+    if (operation_error == ESP_OK && watched_error != ESP_OK) {
+        result.cleanup_error = watched_error;
+    }
+    return result;
+}
+
+// No parameters: close the radio hardware and retain or rearm its lifetime DMA budget.
+// Exception: Returns both real teardown and reservation errors without conflating them.
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_stop(void)
+{
+    return run_radio_cleanup(true, false);
+}
+
+// restore_telemetry: Explicit choice to restore BLE on verified Wi-Fi.
+// Exception: A budget rearm failure does not imply the provisioning manager stayed open.
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_end_pairing(bool restore_telemetry)
+{
+    return run_radio_cleanup(false, restore_telemetry);
 }

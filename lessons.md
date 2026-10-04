@@ -74,6 +74,10 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Explicit Pair must drain before telemetry teardown too. Capture deliberate
   frame parking under its lock: re-reading a quickly reopened gate can turn a
   harmless parked admission into a terminal renderer failure.
+- Keep unused BLE DMA in one lifetime owner through standby and pre-handoff
+  errors. After confirmed SDK closure, rearm under the parked display gate.
+  Report hardware cleanup separately from the future memory budget: losing a
+  reservation must not falsely keep a closed pairing session alive.
 
 ## Power, wake and audio
 

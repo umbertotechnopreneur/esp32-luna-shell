@@ -39,9 +39,10 @@ extern "C" esp_err_t LUNASHELL_radios_init(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-extern "C" esp_err_t LUNASHELL_radios_stop(void)
+// No parameters: radio-less profiles cannot close or reserve Bluetooth resources.
+extern "C" LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_stop(void)
 {
-    return ESP_ERR_NOT_SUPPORTED;
+    return {ESP_ERR_NOT_SUPPORTED, ESP_ERR_NOT_SUPPORTED};
 }
 
 extern "C" esp_err_t LUNASHELL_radios_start_pairing(void)
@@ -50,8 +51,8 @@ extern "C" esp_err_t LUNASHELL_radios_start_pairing(void)
 }
 
 // restore_telemetry: Unused in a profile without Bluetooth.
-extern "C" esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry)
+extern "C" LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_end_pairing(bool restore_telemetry)
 {
     (void)restore_telemetry;
-    return ESP_ERR_NOT_SUPPORTED;
+    return {ESP_ERR_NOT_SUPPORTED, ESP_ERR_NOT_SUPPORTED};
 }

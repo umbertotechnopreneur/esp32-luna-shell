@@ -177,7 +177,9 @@ std::expected<void, std::string> App::show_pairing_result(
 {
     // The result page no longer owns an active BLE provisioning session.
     if (LUNASHELL_provisioning_initialized()) {
-        const esp_err_t stop_result = LUNASHELL_radios_end_pairing(success);
+        const auto closure = LUNASHELL_radios_end_pairing(success);
+        const esp_err_t stop_result = closure.cleanup_error != ESP_OK ?
+            closure.cleanup_error : closure.dma_reservation_error;
         if (stop_result != ESP_OK) {
             return std::unexpected(
                 "Failed to stop BLE provisioning before showing its result: " +

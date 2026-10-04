@@ -536,12 +536,18 @@ esp_err_t LUNASHELL_radios_reserve_startup_dma(void);
  * device-scoped name.
  */
 esp_err_t LUNASHELL_radios_init(void);
-esp_err_t LUNASHELL_radios_stop(void);
+/** Hardware closure and restoring the next BLE budget are separate outcomes. */
+typedef struct {
+    esp_err_t cleanup_error;
+    esp_err_t dma_reservation_error;
+} LUNASHELL_radio_cleanup_result_t;
+
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_stop(void);
 esp_err_t LUNASHELL_ble_init(void);
 /** Explicit telemetry-to-provisioning handoff; call from a service worker. */
 esp_err_t LUNASHELL_radios_start_pairing(void);
 /** Close provisioning before optionally restoring telemetry on verified Wi-Fi. */
-esp_err_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
+LUNASHELL_radio_cleanup_result_t LUNASHELL_radios_end_pairing(bool restore_telemetry);
 
 #define LUNASHELL_WIFI_MAX_NETWORKS 16
 #define LUNASHELL_WIFI_SSID_MAX_LEN 32

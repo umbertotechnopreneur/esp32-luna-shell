@@ -99,10 +99,21 @@ failure without changing the separate standby gate. Admission still requires a
 34,816-byte contiguous hold, a 30,720-byte controller block and 4,096-byte free
 headroom. Compact `Pairing DMA` records show actual free/largest blocks at each
 boundary; insufficient memory remains a real error, not successful pairing.
-An already-held lease survives a Wi-Fi/manager failure before controller handoff;
-Cancel teardown never allocates a future lease. NimBLE host allocations use PSRAM;
-the controller DMA block must remain internal. Frame admission captures deliberate
-parking under the display lock so a fast gate reopening cannot terminate Cody.
+One static owner retains the 34,816-byte lease across standby and every failure
+before controller handoff. It is released only immediately before controller
+initialization. Cody parks display DMA during radio/session closure, then reclaims
+the lease after the SDK confirms an idle controller. Repeated reserve calls reuse
+the held block. This is a lifetime budget, not a second allocation while the
+controller is already using its exchange memory.
+
+Radio closure returns `cleanup_error` and `dma_reservation_error` separately.
+An allocation failure remains published in BLE and pairing snapshots, but does
+not misreport a closed manager as still open or prevent clean Retry navigation.
+Known-off radios may enter standby with that explicit budget error; the next
+Start must pass strict admission again. Failed or uncertain hardware cleanup
+never attempts reallocation. NimBLE host allocations use PSRAM; the controller
+DMA block remains internal. Frame admission captures deliberate parking under
+the display lock so a fast gate reopening cannot terminate Cody.
 
 Published states are Idle, Starting, ReadyToScan, Connecting, Completing, Online,
 Cancelling, Cancelled, Failed and TimedOut. Check validity/health/staleness before

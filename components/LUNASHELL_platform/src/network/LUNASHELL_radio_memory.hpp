@@ -36,13 +36,16 @@ struct HeapCapsDeleter {
 using BleControllerDmaReservation =
     std::unique_ptr<uint8_t, HeapCapsDeleter>;
 
-// reservation: Receives the oversized DMA lease held until BLE controller startup.
+// reservation: Retains an existing lease or receives one until BLE controller startup.
 // Exception: Returns the real allocation failure; never claims a partial lease.
 inline esp_err_t reserveBleControllerDma(
     BleControllerDmaReservation &reservation
 )
 {
 #if CONFIG_BT_CONTROLLER_ENABLED
+    if (reservation) {
+        return ESP_OK;
+    }
     if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE) {
         return ESP_OK;
     }
@@ -80,6 +83,8 @@ inline esp_err_t reserveBleControllerDma(
     return ESP_OK;
 }
 
+// reservation: Owned lease ceded only immediately before controller initialization.
+// operation: Short lifecycle name recorded with the explicit handoff.
 inline void releaseBleControllerDma(
     BleControllerDmaReservation &reservation,
     const char *operation

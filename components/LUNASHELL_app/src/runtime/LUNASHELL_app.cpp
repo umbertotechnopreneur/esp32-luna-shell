@@ -2862,8 +2862,11 @@ std::expected<void, std::string> App::on_action(
         return finish_settings_command(result, "Radio startup");
     }
     if (action == "LUNASHELL.settings.radios.stop") {
+        const auto closure = LUNASHELL_radios_stop();
+        const esp_err_t result = closure.cleanup_error != ESP_OK ?
+            closure.cleanup_error : closure.dma_reservation_error;
         return finish_settings_command(
-            LUNASHELL_radios_stop(),
+            result,
             "Radio shutdown"
         );
     }
