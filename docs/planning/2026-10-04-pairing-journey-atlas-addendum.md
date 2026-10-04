@@ -35,5 +35,14 @@ The PDFs are byte-identical between `docs/cody/` and the Obsidian project atlas
 folder. Both A04 pages were rendered with Poppler at 180 DPI and visually reviewed.
 The external generation record is `source/addendum-a04-2026-10-04-review.json`.
 
+The A04 notes beside the affected screen routes also explain these configuration
+flags. `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=y` is explicitly configured and
+currently always enabled in the Cody profile: it includes screen 12 for Codex
+connection setup; `n` skips directly from 11 to 13.
+`CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT` accepts `y/n`, with `n` as the Cody
+profile default. `y` replays first setup on every boot even when flash contains
+`cody_firstboot=false`, without changing that persisted value; `n` respects it.
+The notes update the existing A04 pages, without adding pages or screen IDs.
+
 No firmware configure/build/size, simulator, automated test, flash, monitor or
 physical-device operation was performed for this increment.
