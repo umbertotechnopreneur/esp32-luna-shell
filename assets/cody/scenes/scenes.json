@@ -37,11 +37,11 @@
       "id": "install-app", "identity": 3,
       "background_rgb565": 65535,
       "standby_override_seconds": 60,
-      "entrance": { "from": { "x": 233, "y": 94, "scale": 58 }, "move_ms": 0, "text_delay_ms": 0 },
+      "entrance": { "from": { "x": 233, "y": 56, "scale": 40 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
-      "cloud": { "x": 233, "y": 94, "scale": 58 },
+      "cloud": { "x": 233, "y": 56, "scale": 40 },
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.55, "brow_right": -0.55, "mouth_open": 0.14, "breath": 0, "mouth_width": 0.55, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
-      "title": { "text": "Get pairing app", "top": 74, "color_rgb565": 0, "character_interval_ms": 45, "visible": false },
+      "title": { "text": "Scan to install", "top": 96, "color_rgb565": 0, "character_interval_ms": 45, "visible": true },
       "navigation_visible": false, "readout_visible": true
     },
     {
@@ -59,11 +59,11 @@
       "id": "pairing", "identity": 5,
       "background_rgb565": 65535,
       "standby_override_seconds": 60,
-      "entrance": { "from": { "x": 233, "y": 80, "scale": 46 }, "move_ms": 0, "text_delay_ms": 0 },
+      "entrance": { "from": { "x": 233, "y": 56, "scale": 40 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
-      "cloud": { "x": 233, "y": 80, "scale": 46 },
+      "cloud": { "x": 233, "y": 56, "scale": 40 },
       "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
-      "title": { "text": "Pairing...", "top": 131, "color_rgb565": 0, "character_interval_ms": 45, "visible": true },
+      "title": { "text": "Pairing...", "top": 115, "color_rgb565": 0, "character_interval_ms": 45, "visible": true },
       "navigation_visible": false, "readout_visible": true
     },
     {

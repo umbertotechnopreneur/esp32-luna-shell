@@ -26,6 +26,9 @@ style:
     cheek:
     - coral.level.00
     - coral.level.09
+    tongue:
+    - coral.level.00
+    - coral.level.09
     ink:
     - fixed.ink
     - fixed.ink
@@ -135,6 +138,7 @@ entities:
     anchor: mouth
     paths:
     - mouth
+    - mouth.tongue
 coordinate_system: parent-relative normalized offsets; centered root, x right, y down; names use viewer left/right
 subdivisions: 12
 channels:
@@ -1760,6 +1764,7 @@ points:
   delta:
   - 0.0
   - 0.0
+# Widen the shared lip geometry by 18%; presets retain their relative mouth character.
 # The upper lip rounds as the mouth opens, while the quiet face keeps its smile.
 - name: mouth
   position:
@@ -1773,7 +1778,7 @@ points:
   - 0
 - name: mouth.p0
   position:
-  - -0.14
+  - -0.1652
   - -0.04
   parent: mouth
   role: knot
@@ -1783,7 +1788,7 @@ points:
   - 0
 - name: mouth.p1
   position:
-  - -0.08
+  - -0.0944
   - 0.02
   parent: mouth
   role: handle
@@ -1793,7 +1798,7 @@ points:
   - -0.15
 - name: mouth.p2
   position:
-  - 0.08
+  - 0.0944
   - 0.02
   parent: mouth
   role: handle
@@ -1803,7 +1808,7 @@ points:
   - -0.15
 - name: mouth.p3
   position:
-  - 0.14
+  - 0.1652
   - -0.04
   parent: mouth
   role: knot
@@ -1813,7 +1818,7 @@ points:
   - 0
 - name: mouth.p4
   position:
-  - 0.11
+  - 0.1298
   - 0.04
   parent: mouth
   role: handle
@@ -1823,7 +1828,7 @@ points:
   - 0.055
 - name: mouth.p5
   position:
-  - 0.06
+  - 0.0708
   - 0.07
   parent: mouth
   role: handle
@@ -1843,7 +1848,7 @@ points:
   - 0.13
 - name: mouth.p7
   position:
-  - -0.06
+  - -0.0708
   - 0.07
   parent: mouth
   role: handle
@@ -1853,7 +1858,7 @@ points:
   - 0.13
 - name: mouth.p8
   position:
-  - -0.11
+  - -0.1298
   - 0.04
   parent: mouth
   role: handle
@@ -1861,6 +1866,62 @@ points:
   delta:
   - 0
   - 0.055
+# The lower tongue follows the same mouth anchor, width and opening controls.
+# Its rounded silhouette keeps a thin ink rim and is clipped by the exact lip.
+- name: mouth.tongue.p0
+  position: [-0.1003, 0.06]
+  parent: mouth
+  role: knot
+  channel: mouth_open
+  delta: [0, 0.11]
+- name: mouth.tongue.p1
+  position: [-0.0531, 0.025]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.11]
+- name: mouth.tongue.p2
+  position: [0.0531, 0.025]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.11]
+- name: mouth.tongue.p3
+  position: [0.1003, 0.06]
+  parent: mouth
+  role: knot
+  channel: mouth_open
+  delta: [0, 0.11]
+- name: mouth.tongue.p4
+  position: [0.08732, 0.067]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.13]
+- name: mouth.tongue.p5
+  position: [0.0413, 0.06]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.13]
+- name: mouth.tongue.p6
+  position: [0, 0.06]
+  parent: mouth
+  role: knot
+  channel: mouth_open
+  delta: [0, 0.13]
+- name: mouth.tongue.p7
+  position: [-0.0413, 0.06]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.13]
+- name: mouth.tongue.p8
+  position: [-0.08732, 0.067]
+  parent: mouth
+  role: handle
+  channel: mouth_open
+  delta: [0, 0.13]
 # Broad rounded volumes carry light on top and blue-grey shade underneath.
 # They follow their named lobe as a unit, leaving the central eyes and mouth clear.
 # The lower region shares the main body ramp rather than adding a parallel stripe.
@@ -2399,6 +2460,12 @@ curves:
   - mouth.p7
   - mouth.p8
   - mouth.p0
+- name: mouth.tongue.curve.0
+  points: [mouth.tongue.p0, mouth.tongue.p1, mouth.tongue.p2, mouth.tongue.p3]
+- name: mouth.tongue.curve.1
+  points: [mouth.tongue.p3, mouth.tongue.p4, mouth.tongue.p5, mouth.tongue.p6]
+- name: mouth.tongue.curve.2
+  points: [mouth.tongue.p6, mouth.tongue.p7, mouth.tongue.p8, mouth.tongue.p0]
 - name: body.shadow.lower.right_tip
   points: [body.shadow.lower.left_tip, body.shadow.lower.left_tip.out, body.shadow.lower.right_tip.in, body.shadow.lower.right_tip]
 - name: body.shadow.lower.right_base
@@ -2566,12 +2633,25 @@ paths:
   - nose.curve.3
 - name: mouth
   paint: ink
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
   - mouth.curve.0
   - mouth.curve.1
   - mouth.curve.2
+- name: mouth.tongue
+  paint: tongue
+  antialiasing: coverage
+  stroke: 0
+  visible: mouth_open
+  # Quiet/Worried remain tongue-free through the entire normal breathing cycle.
+  visible_minimum: 0.28
+  clip: mouth
+  curves:
+  - mouth.tongue.curve.0
+  - mouth.tongue.curve.1
+  - mouth.tongue.curve.2
 default_transform:
   x: 233
   y: 235

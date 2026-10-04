@@ -74,7 +74,8 @@ def emit_geometry(rig, palette):
         fields = (
             identity, json.dumps(path["name"]), cpp_identity("CurveId", first_curve),
             str(path["curve_count"]), first_color, last_color, cpp_float(path["stroke"]),
-            visible, opacity, antialiasing,
+            visible, opacity, antialiasing, cpp_identity("PathId", path["clip"]),
+            cpp_float(path["visible_minimum"]),
         )
         lines.append("    {" + ", ".join(fields) + "},")
     lines.extend(["};", "inline constexpr PointFaceTransform point_face_transforms[] = {"])

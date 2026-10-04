@@ -7,6 +7,21 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Mouth source refresh: widened the shared lip controls 18 percent, reused the
+  existing breathing phase for opening/width motion and added a coral tongue
+  clipped against the evaluated mouth. Native and host coverage intersect the
+  same geometric spans. Fixed budgets are 200 points, 62 cubics, 16 paths and
+  124 debug tangents; existing raster arrays/worker stack are unchanged.
+  Source-only implementation and independent review are complete. Rig/jelly
+  regeneration, build/flash, physical appearance and timing remain pending.
+- QR copy now distinguishes installation (`Scan to install`) from the live
+  session (`Scan to pair`, `Scan me in the app.`). Install/session routes share
+  compact cloud placement; actual 40/25-pixel font cells govern title/caption
+  separation. Existing QR quiet zones, footer bounds and white theme remain.
+  Scene regeneration and physical checks are pending. The Obsidian planning
+  atlas has corrected page 23 and a dated final errata page 27; other original
+  pages are preserved. Backup and visually inspected page renders are retained
+  under `artifacts/build-cody-companion-debug/evidence/qr-atlas/`.
 - Passive `9fde2b48` logs confirm the reported graphical wake works even after
   the BLE reservation fails (34,816 bytes requested, largest DMA block 21,504).
   Subsequent Retry contacts fail during Cancel cleanup, with primary result

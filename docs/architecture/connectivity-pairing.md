@@ -1,7 +1,7 @@
 # Shared Wi-Fi / BLE pairing lifecycle
 
-Requested by Umberto Giacobbi, 3 October 2026. Implement shared stack changes
-in the Luna worktree first, then carry the commits to Cody's HTTP/Wi-Fi branch.
+Shared pairing ownership for Luna and Cody, implemented on `main` in the
+Luna worktree. Both products use the same radio and session services.
 
 The Wi-Fi acquisition owner adopts the manager's confirmed credential event
 before its delayed connect runs. It accepts the first real IP event while

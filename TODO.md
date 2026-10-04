@@ -53,6 +53,9 @@ older host/build/flash evidence does not validate the current combined image.
   Check white-theme contrast, integer modules/quiet zones, circle clipping,
   translucent edges and all rotations; confirm real phone scans.
   [Pairing](docs/architecture/cody/onboarding.md).
+- [ ] Regenerate scene assets and physically confirm `Scan to install` on 06
+  and `Scan to pair` / `Scan me in the app.` with the actual session QR inside
+  07. Verify title/caption separation, white theme and shared compact cloud.
 - [ ] Validate connectivity end to end: first pairing, actual failure reasons,
   Retry/new QR, Back/Cancel during Start/connect, timeout, DHCP, BLE telemetry
   handoff, standby, persisted-profile reboot and explicitly enabled authenticated
@@ -79,6 +82,10 @@ older host/build/flash evidence does not validate the current combined image.
   Check measured HUD validity, native renderer/face-follow selection and old/new
   text/artwork damage.
   [Runtime and scenes](docs/architecture/cody/runtime.md).
+- [ ] Regenerate rig/jelly assets and verify wider breathing mouth/tongue across
+  every expression, all cloud sizes, overlays and pearl warp. Confirm closed
+  poses stay tongue-free, clipped coverage has no leaks and the 12 KiB worker
+  retains measured headroom; source review alone establishes none of these.
 - [ ] Validate rounded graphite navigation and touch-only Debug reveal/fades,
   swipe versus drag/vertical-scroll ownership, rotated cancellation and repeated
   press/release. Cover real Back/overlay input and power transitions on both Cody

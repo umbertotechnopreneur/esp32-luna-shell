@@ -33,6 +33,7 @@ constexpr uint16_t kQrBytes = (kQrModulesMax * kQrModulesMax + 7U) / 8U;
 constexpr uint16_t kQrQuietModules = 4;
 constexpr CODY2D::Rect kInstallQrBounds{113, 140, 240, 240};
 constexpr CODY2D::Rect kSessionQrBounds{131, 182, 204, 204};
+constexpr uint16_t kSessionCaptionTop = 156;
 constexpr CODY2D::Rect kFooterBounds{113, 390, 240, 40};
 constexpr uint16_t kActionBlueTop = 0x765E;
 constexpr uint16_t kActionBlueBottom = 0x34FC;
@@ -781,7 +782,7 @@ esp_err_t attach_content(SceneFrame &scene)
     const uint16_t top = s_route == Route::DebugText ? 130 :
         (s_route == Route::MakeItYours10 || s_route == Route::Settings36) ? 204 :
         s_route == Route::Install06 ? kInstallQrBounds.y :
-        s_route == Route::Pairing07 ? kSessionQrBounds.y :
+        s_route == Route::Pairing07 ? kSessionCaptionTop :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
     content.bottom_action_visible = uses_footer_action() && s_view.action_visible;
@@ -1679,10 +1680,15 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                 error = set_scene_title(scene, {title, sizeof(title) - 1U});
             }
             if (error == ESP_OK) {
+                error = prepare_caption("Scan me in the app.", kSessionCaptionTop, s_view.lines[0]);
+            }
+            if (error == ESP_OK) {
                 s_local_failure = false;
                 s_view.qr = result.qr;
                 s_view.qr_bounds = kSessionQrBounds;
-                s_view.line_count = 0;
+                // The session caption shares the QR route's black-on-white theme.
+                s_view.lines[0].color = scene.definition->title_color;
+                s_view.line_count = 1;
                 s_session = result.command.session;
                 error = attach_content(scene);
             }

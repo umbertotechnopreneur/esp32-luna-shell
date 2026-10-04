@@ -183,7 +183,7 @@ def load_contract(root=ROOT, skin_path="assets/cody/cody.yaml"):
         if path["paint"] not in rig["style"]["paints"]:
             raise ValueError(f"Unknown paint: {path['name']}")
         path["paint"] = rig["style"]["paints"][path["paint"]]
-    if not 1 <= len(rig["points"]) <= 192 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
+    if not 1 <= len(rig["points"]) <= 200 or not 1 <= len(rig["curves"]) <= 64 or not 1 <= len(rig["paths"]) <= 16:
         raise ValueError("Rig exceeds the bounded firmware geometry capacity")
     validate_channel_catalog(rig)
     compile_geometry(rig)
@@ -281,6 +281,7 @@ def compile_geometry(rig):
         raise ValueError("Every named curve must have exactly one path owner")
     rig["curves"] = ordered_curves
     path_names = {path["name"] for path in rig["paths"]}
+    earlier_paths = {}
     for path in rig["paths"]:
         # Ownership was compiled above. Here we inspect the actual connected geometry.
         first_curve = path["first_curve"]
@@ -304,6 +305,21 @@ def compile_geometry(rig):
             raise ValueError(f"Filled path must be closed: {path['name']}")
         if path["visible"] is not None and path["visible"] not in channel_names:
             raise ValueError(f"Unknown visibility channel: {path['name']}")
+        path["visible_minimum"] = finite(path.get("visible_minimum", .25), path["name"])
+        if not 0 <= path["visible_minimum"] <= 1:
+            raise ValueError(f"Invalid visibility threshold: {path['name']}")
+        path["clip"] = path.get("clip")
+        if path["clip"] is not None:
+            if not isinstance(path["clip"], str):
+                raise ValueError(f"Clip requires a named path identity: {path['name']}")
+            containing = earlier_paths.get(path["clip"])
+            if (containing is None or width != 0 or containing["stroke"] != 0 or
+                    containing["clip"] is not None):
+                raise ValueError(f"Clip requires an earlier independent filled path: {path['name']}")
+            combined_vertices = (path["curve_count"] + containing["curve_count"]) * rig["subdivisions"] + 2
+            if combined_vertices > 256:
+                raise ValueError(f"Clipped fill exceeds shared intersection capacity: {path['name']}")
+        earlier_paths[path["name"]] = path
     validate_identifiers(list(rig["entities"]), "entity")
     owned_paths = []
     for name, entity in rig["entities"].items():
@@ -592,6 +608,18 @@ def advance_face(rig, state, target, delta_ms):
     return result
 
 
+# values: Validated face channels, updated in place after artistic response contributions.
+# breathing: Existing rhythm's sine value in [-1,1]; no separate clock or synthetic input.
+def apply_mouth_breathing(values, breathing):
+    inhalation = .5 + .5 * breathing
+    exhalation = 1 - inhalation
+    mouth = FaceChannel.MOUTH_OPEN
+    values[mouth] *= 1 - .22 * exhalation
+    values[mouth] += (1 - values[mouth]) * .16 * inhalation
+    width = FaceChannel.MOUTH_WIDTH
+    values[width] += (1.6 - values[width]) * .035 * inhalation
+
+
 # base: Independent semantic face channels, accessed through FaceChannel.
 # elapsed_ms: Active monotonic animation time.
 # Raises ValueError if elapsed time is negative or non-finite.
@@ -604,7 +632,7 @@ def animate(base, elapsed_ms):
     values = list(base)
     values[FaceChannel.EYE_LEFT] *= 1 - blink
     values[FaceChannel.EYE_RIGHT] *= 1 - blink
-    values[FaceChannel.MOUTH_OPEN] += (1 - base[FaceChannel.MOUTH_OPEN]) * .08 * (.5 + .5 * breath)
+    apply_mouth_breathing(values, breath)
     values[FaceChannel.BREATH] += (1 - abs(base[FaceChannel.BREATH])) * breath
     return values
 
@@ -685,6 +713,10 @@ def evaluate(rig, values, transform, contour=None):
             rest_outline = sample_path(rig, definition, rest_world)
         opacity = channels[definition["opacity_channel"]] if definition["opacity_channel"] is not None else 1.0
         paths.append(dict(definition=definition, vertices=vertices,
-                          visible=definition["visible"] is None or channels[definition["visible"]] >= .25,
+                          visible=definition["visible"] is None or
+                              channels[definition["visible"]] >= definition["visible_minimum"],
                           opacity=opacity))
+        if definition["clip"] is not None:
+            containing = next(path for path in paths if path["definition"]["name"] == definition["clip"])
+            paths[-1]["visible"] = paths[-1]["visible"] and containing["visible"]
     return dict(local=local, world=world, paths=paths, scale=scale * breathing_scale, rest_outline=rest_outline)

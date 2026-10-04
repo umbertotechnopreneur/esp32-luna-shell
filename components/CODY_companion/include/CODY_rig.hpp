@@ -12,13 +12,13 @@
 
 namespace CODY {
 
-constexpr uint16_t kMaxPoints = 192;
+constexpr uint16_t kMaxPoints = 200;
 constexpr uint16_t kMaxPaths = 16;
 constexpr uint16_t kSubdivisions = 12;
 constexpr uint16_t kMaxVertices = 64 * kSubdivisions + kMaxPaths;
 // The implementation statically rejects authored tables that outgrow these arrays.
 constexpr uint16_t kRigDebugLinkCapacity = 21;
-constexpr uint16_t kRigDebugTangentCapacity = 118;
+constexpr uint16_t kRigDebugTangentCapacity = 124;
 // Domain values are always addressed by enum; integers are confined to table traversal.
 enum class FaceChannel : uint8_t {
     EyeLeft, EyeRight, BrowLeft, BrowRight, MouthOpen, Breath,
@@ -159,6 +159,8 @@ struct PathDefinition {
     FaceChannel visible_channel;
     FaceChannel opacity_channel;
     CODY2D::FillAntialiasing antialiasing = CODY2D::FillAntialiasing::Disabled;
+    PathId clip_path = static_cast<PathId>(UINT16_MAX);
+    float visible_minimum = .25f;
 };
 
 struct EvaluatedPath {
@@ -282,6 +284,10 @@ esp_err_t advance_contour(const ContourState &state, const ContourControls &targ
 // next: Receives the new controls on success; may alias state.
 esp_err_t advance_face(const Channels &state, const Channels &target,
                        float delta_ms, Channels &next);
+
+// face: Already validated expression channels, updated without changing their authored identity.
+// breathing: Existing rhythm's sine value between minus one and one.
+void apply_mouth_breathing(Channels &face, float breathing);
 
 // base: Independent caller-selected facial controls.
 // elapsed_ms: Monotonic elapsed animation time; no frame-count dependency.
