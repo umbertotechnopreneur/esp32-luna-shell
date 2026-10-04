@@ -1,4 +1,4 @@
-"""Generate strict runtime settings, original chimes and a selected private greeting."""
+"""Generate strict runtime settings, original chimes and a selected licensed greeting."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -71,7 +71,7 @@ def compose_eyes_open(settings, chime, archive_root):
     gap_frames = round(selection["chime_gap_ms"] * settings["audio"]["sample_rate_hz"] / 1000)
     gap = bytes(gap_frames * 2)
     metadata.update(
-        origin="original procedural chime plus private local SFX",
+        origin="original procedural chime plus licensed SFX",
         gap_pcm_bytes=len(gap), hello=greeting_metadata,
         licensing=selection["licensing"],
     )
@@ -137,7 +137,7 @@ def main():
     (generated / "manifest.json").write_text(json.dumps(manifest, indent=2) + '\n', encoding="utf-8")
     print(f"Generated runtime settings and boot cues: {generated}")
     if settings["audio"]["eyes_open_hello"] != "none":
-        print("Selected greeting is for private local device use; redistribution rights are unverified.")
+        print("SFX perpetual commercial-use licence is owner-confirmed; device playback remains unverified.")
 
 
 if __name__ == '__main__':

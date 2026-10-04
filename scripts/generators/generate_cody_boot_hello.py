@@ -81,7 +81,7 @@ def generate(archive_root=None):
         for candidate in stage.iterdir():
             os.replace(candidate, OUTPUT / candidate.name)
     print(f"Prepared {len(selection['cues'])} private greeting auditions: {OUTPUT}")
-    print("Source redistribution rights and device playback remain unverified.")
+    print("SFX perpetual commercial-use licence is owner-confirmed; device playback remains unverified.")
 
 
 # No parameters: expose local audio preparation through the public device dispatcher.

@@ -14,21 +14,22 @@ and referenced architecture/artifact records.
   1.3-second chime plus 100-ms gap. The selected combined asset needs 90,412
   PCM bytes at 22,050 Hz (about 2.05 seconds); no new device decoder/worker or
   canonical-clock/quiet-policy changes. Local asset generation and independent
-  static review completed; generated private PCM/WAV and their matching manifest
-  remain outside the source checkpoint. Source redistribution rights, firmware
-  build/flash, physical acoustics and updated host checks remain unverified.
+  static review completed. On 2026-10-04 the owner confirmed purchased perpetual
+  commercial-use licences for the SFX packages; the selected PCM/WAV and matching
+  manifest are now included in the asset checkpoint. Firmware build/flash,
+  physical acoustics and updated host checks remain unverified.
 - Mouth source refresh: widened the shared lip controls 18 percent, reused the
   existing breathing phase for opening/width motion and added a coral tongue
   clipped against the evaluated mouth. Native and host coverage intersect the
   same geometric spans. Fixed budgets are 200 points, 62 cubics, 16 paths and
   124 debug tangents; existing raster arrays/worker stack are unchanged.
-  Source-only implementation and independent review are complete. Rig/jelly
-  regeneration, build/flash, physical appearance and timing remain pending.
+  Source implementation, independent review and rig/jelly regeneration are
+  complete. Build/flash, physical appearance and timing remain pending.
 - QR copy now distinguishes installation (`Scan to install`) from the live
   session (`Scan to pair`, `Scan me in the app.`). Install/session routes share
   compact cloud placement; actual 40/25-pixel font cells govern title/caption
   separation. Existing QR quiet zones, footer bounds and white theme remain.
-  Scene regeneration and physical checks are pending. The Obsidian planning
+  Scene regeneration is complete; physical checks are pending. The Obsidian planning
   atlas has corrected page 23 and a dated final errata page 27; other original
   pages are preserved. Backup and visually inspected page renders are retained
   under `artifacts/build-cody-companion-debug/evidence/qr-atlas/`.
@@ -202,8 +203,8 @@ and referenced architecture/artifact records.
   Added the original flash microclick with bounded audio-owner notifications,
   coherent cancellation, quiet/volume/time gates and optional failure reporting.
   Source review/asset preparation only; no new tests/build/simulator/device
-  validation. Private archive-cue auditions have unconfirmed rights and are
-  not firmware assets.
+  validation. Archive-cue auditions are not firmware assets; their perpetual
+  commercial-use licences were subsequently confirmed by the owner on 2026-10-04.
 - Implemented native snapshot-only status and Screenshot chrome with atomic SD
   BMP writing and temporary PSRAM; recent preview evidence covers control
   visibility only, not firmware status or storage behavior.

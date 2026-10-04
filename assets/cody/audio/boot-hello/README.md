@@ -2,7 +2,7 @@
 
 Three short vocal candidates from the read-only local SFX archive, shaped with
 ffmpeg. These are pseudolanguage experiments, not verified English "hey"/"hi"
-recordings. The owner selected C (`cody-hello-murmur`) for private device use;
+recordings. The owner selected C (`cody-hello-murmur`) for the boot cue;
 A (`cody-hello-chatter`), B (`cody-hello-gurble`) and the original chime remain
 available. Perceived intelligibility and device acoustics still need listening.
 
@@ -51,9 +51,13 @@ are unchanged. An ordinary software-standby wake does not repeat the boot cue.
 Busy typewriter microclicks keep their existing nonblocking drop policy while
 the boot sound owns the codec. No extra decoder or audio worker is introduced.
 
-The source licences/redistribution rights are unverified. Selected audio is for
-the owner's private local device use only; do not push or redistribute the
-recordings/firmware until those rights are reviewed. Local source/asset preparation
-does not establish playback, perceived loudness or successful deployment.
-Until rights are verified, checkpoint source recipes only; keep generated private
-PCM/WAV files and their matching runtime manifest out of commits and pushes.
+On 2026-10-04 the owner confirmed that the source SFX packages were purchased
+with perpetual licences including commercial use. This is owner-confirmed
+provenance, not an independent inspection of the licence documents. The selected
+derived PCM/WAV and matching manifest can be checkpointed as Cody assets;
+the earlier precautionary commit/distribution block is removed. Package terms
+remain authoritative, and repository licensing does not relicense the external
+source sample packs. The source archive remains read-only.
+
+Local asset preparation does not establish playback, perceived loudness or
+successful deployment.

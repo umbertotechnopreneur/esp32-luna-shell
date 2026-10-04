@@ -1,6 +1,6 @@
 {
   "schema": "cody.runtime.v1",
-  "source_sha256": "c130b91c609eb40a15ee7b9d19cb34e00a12f5c204a1d758fd4dad5eaa0d64d2",
+  "source_sha256": "60ab1c6a11146edf6da2d193022aa3bce0a8519a930b8043814610a3705d582c",
   "cues": {
     "audio_ready": {
       "pcm_bytes": 7938,
@@ -10,11 +10,67 @@
       "origin": "original procedural synthesis"
     },
     "eyes_open": {
-      "pcm_bytes": 57330,
+      "pcm_bytes": 90412,
       "sample_rate_hz": 22050,
-      "duration_seconds": 1.3,
-      "sha256": "6b42c10b4308df88f22549176824029491f16d275018002fbe89bf316ad0786d",
-      "origin": "original procedural synthesis"
+      "duration_seconds": 2.05015873015873,
+      "sha256": "e3028755277e7d68922282acee884f44a5de9032622c1ab59823a0fa42df986e",
+      "origin": "original procedural chime plus licensed SFX",
+      "chime_pcm_bytes": 57330,
+      "chime_sha256": "6b42c10b4308df88f22549176824029491f16d275018002fbe89bf316ad0786d",
+      "gap_pcm_bytes": 4410,
+      "hello": {
+        "id": "cody-hello-murmur",
+        "source": "C:\\Users\\umber\\OneDrive\\Archivio\\Dixion\\Sfx\\1001 Sound Effects\\Vocals & Wallas\\Muffled Talking Male.wav",
+        "source_sha256": "0f4f0ac10220859c9d7d84b8b7def98d73049d2e0fc2c0f846d86c5d27422aac",
+        "trim_start_seconds": 0.15,
+        "trim_end_seconds": 1.5,
+        "pitch_ratio": 1.4,
+        "post_pitch_tempo": 1.5,
+        "expected_pcm_sha256": "5038f9a100230c6614e84b11c56d4075e455499d584df463a263142d08e7a921",
+        "expected_pcm_bytes": 28672,
+        "selection_sha256": "1cafed0ba00df89d52f5aafed85f6c5f809fc021215f8aed125ad3ecfab3fd40",
+        "sample_rate_hz": 22050,
+        "channels": 1,
+        "encoding": "PCM16LE",
+        "source_format": {
+          "programs": [],
+          "stream_groups": [],
+          "streams": [
+            {
+              "sample_rate": "44100",
+              "channels": 2
+            }
+          ],
+          "format": {
+            "duration": "3.239184"
+          }
+        },
+        "ffmpeg_filters": [
+          "atrim=start=0.15:end=1.5",
+          "asetpts=PTS-STARTPTS",
+          "pan=mono|c0=0.5*c0+0.5*c1",
+          "highpass=f=180:p=2",
+          "lowpass=f=4200:p=2",
+          "aresample=22050",
+          "asetrate=30870",
+          "aresample=22050",
+          "atempo=1.5",
+          "afade=t=in:d=0.012",
+          "areverse",
+          "afade=t=in:d=0.045",
+          "areverse"
+        ],
+        "linear_gain": 1.5636640971592486,
+        "target_peak_dbfs": -9.0,
+        "pcm_bytes": 28672,
+        "duration_seconds": 0.6501587301587302,
+        "pcm_sha256": "5038f9a100230c6614e84b11c56d4075e455499d584df463a263142d08e7a921"
+      },
+      "licensing": {
+        "status": "owner_confirmed_perpetual_commercial",
+        "scope": "On 2026-10-04 the owner confirmed purchased perpetual licences including commercial use for the source SFX packages.",
+        "restriction": "Use Cody assets under the purchased package terms; repository licensing does not relicense the external source sample packs."
+      }
     }
   }
 }

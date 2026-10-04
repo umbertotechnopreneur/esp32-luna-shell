@@ -29,8 +29,7 @@ older host/build/flash evidence does not validate the current combined image.
   audio when the canonical clock becomes trusted, quiet hours and standby races.
 - [ ] Build/flash the selected private boot greeting C and confirm acoustics,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
-  repeat. A/B/chime-only authoring alternatives remain available. Review original
-  SFX redistribution rights before pushing audio or distributing firmware.
+  repeat. A/B/chime-only authoring alternatives remain available.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
   Capture the original Pair Cody Start failure after reset; current evidence
   proves repeated Cancel allocation failure, not that first Start's stage.
@@ -57,7 +56,7 @@ older host/build/flash evidence does not validate the current combined image.
   Check white-theme contrast, integer modules/quiet zones, circle clipping,
   translucent edges and all rotations; confirm real phone scans.
   [Pairing](docs/architecture/cody/onboarding.md).
-- [ ] Regenerate scene assets and physically confirm `Scan to install` on 06
+- [ ] Physically confirm regenerated scene assets: `Scan to install` on 06
   and `Scan to pair` / `Scan me in the app.` with the actual session QR inside
   07. Verify title/caption separation, white theme and shared compact cloud.
 - [ ] Validate connectivity end to end: first pairing, actual failure reasons,
@@ -86,7 +85,7 @@ older host/build/flash evidence does not validate the current combined image.
   Check measured HUD validity, native renderer/face-follow selection and old/new
   text/artwork damage.
   [Runtime and scenes](docs/architecture/cody/runtime.md).
-- [ ] Regenerate rig/jelly assets and verify wider breathing mouth/tongue across
+- [ ] Verify regenerated rig/jelly assets and wider breathing mouth/tongue across
   every expression, all cloud sizes, overlays and pearl warp. Confirm closed
   poses stay tongue-free, clipped coverage has no leaks and the 12 KiB worker
   retains measured headroom; source review alone establishes none of these.

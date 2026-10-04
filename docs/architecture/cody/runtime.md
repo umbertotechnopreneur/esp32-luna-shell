@@ -119,7 +119,7 @@ same eyes-open PCM asset. Other catalog voices and `none` (chime only) remain
 available; invalid identity, missing source or source/rendered hash mismatch fails
 preparation rather than substituting a sound. Only the selected voice is embedded.
 See [boot greeting authoring](../../../assets/cody/audio/boot-hello/README.md) for
-the ffmpeg recipe and unverified external-source redistribution rights.
+the ffmpeg recipe and owner-confirmed perpetual commercial-use licence provenance.
 Preparation validates the
 flash PCM; completed boot requires a verified canonical clock before applying
 the quiet-hours policy. An unavailable/stale clock admits one pending boot request,
@@ -157,8 +157,8 @@ stack + 2,400-byte transport scratch + small fixed state, not measured linked-im
 RAM. Speaker loudness/gentleness remains a listening check. The separate ten
 [archive cue candidates](../../../assets/cody/audio/gentle-sfx/README.md) exist only
 as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They are
-not firmware or automatic cues; redistribution rights and perceptual review are
-unconfirmed.
+not firmware or automatic cues. Perpetual commercial-use licences were confirmed
+by the owner on 2026-10-04; perceptual review is pending.
 
 ## Device diagnostics
 

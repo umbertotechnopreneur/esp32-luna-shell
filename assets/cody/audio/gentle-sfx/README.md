@@ -46,8 +46,9 @@ no automatic triggers have been implemented.
 
 ## Source rights
 
-The original sample licences and redistribution rights have not been verified.
-These outputs are local private listening candidates. Keep the generated WAVs
-out of commits, firmware packages, downloads and public distribution until the
-source licences have been reviewed. Repository licensing does not grant rights
-to these external sample recordings.
+On 2026-10-04 the owner confirmed that the source packages were purchased with
+perpetual licences including commercial use. This records the owner's statement,
+not an independent inspection of the licence documents; the previous precautionary
+asset-commit block is removed. Use selected Cody assets under the package terms.
+Repository licensing does not relicense the external source sample packs.
+These ten candidates still require a listening review and have no firmware trigger.

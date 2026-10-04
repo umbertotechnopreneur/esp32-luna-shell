@@ -274,7 +274,7 @@ def generate_candidates(archive_root):
             os.replace(output_path, OUTPUT_ROOT / output_path.name)
     print(f"Rendered 10 local candidates: {OUTPUT_ROOT}")
     print(f"Preview storage: {preview_bytes} bytes; all audio: {preview_bytes + audition_bytes} bytes")
-    print("Listening review and source redistribution rights remain unverified.")
+    print("SFX perpetual commercial-use licence is owner-confirmed; listening review remains pending.")
 
 
 # No parameters: expose archive selection through the repository device dispatcher.

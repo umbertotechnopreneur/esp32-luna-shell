@@ -6,9 +6,9 @@
   "chime_gap_ms": 100,
   "original_chime_sha256": "6b42c10b4308df88f22549176824029491f16d275018002fbe89bf316ad0786d",
   "licensing": {
-    "status": "unverified",
-    "scope": "Private local audition and device use; source archive remains read-only.",
-    "restriction": "No public redistribution or push of these recordings until source rights are reviewed."
+    "status": "owner_confirmed_perpetual_commercial",
+    "scope": "On 2026-10-04 the owner confirmed purchased perpetual licences including commercial use for the source SFX packages.",
+    "restriction": "Use Cody assets under the purchased package terms; repository licensing does not relicense the external source sample packs."
   },
   "cues": [
     {
