@@ -4,8 +4,20 @@
 #include <cstddef>
 #include <cstdint>
 #include "CODY_damage.hpp"
+#include "CODY_raster_profile.hpp"
 
 namespace CODY {
+
+// kernel: Explicit backend selection; verification compares RGBA before composition.
+// Exception: Rejects unavailable SIMD or an unknown enum; never substitutes the C backend.
+esp_err_t select_jelly_raster_kernel(JellyRasterKernel kernel);
+// No parameters: immutable value copied once per draw under the display owner's lock.
+// Starts with SIMD in the S3 build; portable host builds start with scalar.
+JellyRasterKernel selected_jelly_raster_kernel();
+// No parameters: whether this build links the ESP32-S3 kernel (or the explicit host model).
+bool jelly_simd_available();
+// kernel: Typed backend name retained in benchmark evidence.
+const char *jelly_raster_kernel_name(JellyRasterKernel kernel);
 
 struct RigScene;
 enum class PathId : uint16_t;
@@ -81,9 +93,11 @@ esp_err_t deform_jelly_face(RigScene &scene);
 // strip: Writable native RGB565 tile, with explicit stride and capacity.
 // first_row: Logical top of the tile before shared display rotation.
 // first_column: Logical left of the tile; sampling is independent of tile boundaries.
+// profile: Optional fixed-block counters and timings, accumulated only after successful work.
 // Exception: Returns the real surface, frame, bounds or skin identity error.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
-                         uint16_t first_row, uint16_t first_column);
+                         uint16_t first_row, uint16_t first_column,
+                         JellyRasterProfile *profile = nullptr);
 
 // previous: Last successfully presented mapping.
 // current: Next successfully prepared mapping.

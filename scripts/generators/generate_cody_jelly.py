@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'simulator/windows'))
 
 from scripts.common.cody_rig_contract import load_contract, enum_identifier
+from scripts.common.asset_provenance import text_source_hash
 from cody_jelly_scanline import JellyScanlineStudy, native_texture_colors
 
 OUTPUT = ROOT / 'assets/cody/appearance/jelly-scanline/generated'
@@ -105,6 +106,28 @@ def emit_texture(source_bytes, symbol):
     return source
 
 
+# prepared_skins: Validated RGBA8 textures, including every selectable skin.
+# width: Number of packed texels in each generated row.
+# height: Number of generated rows.
+# Raises ValueError if a texture has an unexpected byte count.
+def row_coverage(prepared_skins, width, height):
+    bounds = []
+    for row in range(height):
+        first = width
+        last = 0
+        for _, _, texture in prepared_skins:
+            if len(texture) != width * height * 4:
+                raise ValueError('Jelly texture has an unexpected byte count')
+            row_start = row * width * 4
+            for column in range(width):
+                offset = row_start + column * 4
+                if any(texture[offset:offset + 4]):
+                    first = min(first, column)
+                    last = max(last, column + 1)
+        bounds.append((first, last))
+    return bounds
+
+
 # No parameters: emit versioned source assets, never firmware configuration or tests.
 # Raises OSError for asset I/O and ValueError for invalid authoring or identity data.
 def main():
@@ -179,6 +202,8 @@ def main():
         header.append(f"extern const uint32_t pixels_{skin['symbol']}[width * height];")
     header.extend([
         'const uint32_t *pixels_for(JellySkinId identity);',
+        'struct RowCoverage { uint16_t first; uint16_t last; };',
+        'extern const RowCoverage row_coverage[height];',
         'enum class RowId : uint8_t { ' + ', '.join(row_ids) + ', Count };',
         'struct Anchor { PointId point; CODY2D::Vec2 rest; };',
         'inline constexpr Anchor anchors[] = {',
@@ -204,6 +229,10 @@ def main():
               '#include "cody_jelly_data.hpp"', 'namespace CODY::JellyData {']
     for skin, _, source_bytes in prepared_skins:
         source.extend(emit_texture(source_bytes, skin['symbol']))
+    source.append('const RowCoverage row_coverage[height] = {')
+    for first, last in row_coverage(prepared_skins, width, height):
+        source.append(f'    {{{first}, {last}}},')
+    source.append('};')
     source.extend(['const uint32_t *pixels_for(JellySkinId identity)', '{', '    switch (identity) {'])
     for skin in skins:
         source.extend([
@@ -215,10 +244,10 @@ def main():
     total_texture_bytes = sum(len(source_bytes) for _, _, source_bytes in prepared_skins)
     manifest = {
         'catalog': CATALOG.relative_to(ROOT).as_posix(),
-        'catalog_sha256': hashlib.sha256(CATALOG.read_bytes()).hexdigest(),
+        'catalog_sha256': text_source_hash(CATALOG),
         'default_id': catalog['default_id'],
         'alpha_sha256': alpha_sha256,
-        'skin_sha256': hashlib.sha256((ROOT / 'assets/cody/cody.yaml').read_bytes()).hexdigest(),
+        'skin_sha256': text_source_hash(ROOT / 'assets/cody/cody.yaml'),
         'source_crop': study.source_crop, 'width': width, 'height': height,
         'encoding': 'premultiplied RGBA8 in little-endian uint32, RGB565-quantized source',
         'texture_bytes_each': width * height * 4,

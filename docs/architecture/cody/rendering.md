@@ -171,11 +171,153 @@ Debug stage benchmarks count 128 completed frames per overlay mode, then report
 mean, lower-middle median, nearest-rank p95, maximum, population deviation and
 budget misses after releasing the lock. Partial/paused diagnostic frames are not
 animation evidence. DMA wait is blocked elapsed time, not CPU work; stage medians
-do not sum into a frame percentile. Current 40-ms jelly scheduling is a target,
-not proof of 25 FPS or a CPU reduction. `ART us jelly/vector/total` separates
-sprite work from vector paths in microseconds; both are included in artwork,
-not added to it. Vector paths are facial features with Pearl enabled, but also
-include the body in the native renderer. Transparent-footprint/alpha skips are
-source-only optimization stage 1; exact-output checks and device gains are pending.
-Physical motion/rotation, long-run buffer
+do not sum into a frame percentile. The Pearl target is 40 ms (25 FPS), and its
+budget has the same value; neither establishes a measured frame rate or CPU
+reduction.
+
+`assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
+Debug execution timings and the native Pearl renderer are enabled. The worker
+enters once after boot reaches Idle, independently of ordinary demo routing.
+It draws the authored Ready pose with Pearl Mist and face deformation enabled,
+forcing the same artwork damage region on every frame. Navigation, status and
+FPS/CPU text are not painted; the diagnostic readout still uses real canonical
+observations. No benchmark data enters firmware sensor snapshots.
+
+Each run warms up for five seconds, then measures forty seconds. Frames crossing
+either boundary are excluded. A PSRAM-owned bounded array retains every measured
+frame (up to 2,048); `BENCH frame_us` reports the full-run nearest-rank p95, mean
+and maximum after the window. `PERF` remains the separate rolling 128-frame view.
+The payload must remain nonzero and identical, and missed frames use the 40 ms
+budget. Changed payload, invalid timestamps, empty completion and capacity
+exhaustion return errors rather than producing a successful baseline.
+
+A transient 60-second standby override covers the run without changing stored
+settings. Touch, PWR capture, display revision, expression/face changes and power
+lifecycle requests interrupt it; partial counts are not reported as a completed
+baseline. Exit restores the selected look, ordinary standby policy and a deferred
+first-run greeting. Sleep/Wake continues through its usual lifecycle. The worker
+is pinned to core 1 in this temporary benchmark configuration; CPU frequency is
+not locked or measured by the benchmark. Keep the configured clock, power mode,
+radio state, display rotation and logging sinks identical between captures.
+
+`benchmark.profile_blocks: false` is the baseline. It uses the ordinary fused C
+pixel loop, with two coarse sprite timestamps per tile and the existing vector
+timing. `ART` reports jelly, vector (face in Pearl mode), whole artwork and whether
+detail is enabled. `profile_blocks: true` is a separate diagnostic experiment:
+it stores up to 16 samples before composition, times row/block preparation,
+interpolation and composition, and counts sampled/transparent/written pixels.
+`JELLY ns_per_sample` divides both interpolation and composition by sampled pixels
+because the composition loop also visits transparent samples. Unmeasured block
+details are omitted from periodic logs and the summary when `detail=0`.
+
+Detailed profiling has six clock calls per block, two per active row and two per
+sprite pass, plus counters and temporary sample storage. Its observer cost and
+changed loop structure are included in jelly/artwork time; individual substages
+do not sum to the full sprite duration. Compare coarse and detailed runs before
+using the split to rank kernels, and use coarse mode for subsequent C/SIMD gains.
+All substage values are contained in artwork and must not be added to it.
+
+Use separate repeated captures at scales 50, 75 and 100 (the accepted range is
+50--100). After changing YAML, regenerate through
+`scripts/device.ps1 generate -Generator cody-runtime-assets`. A completed run is
+identified by `BENCH complete`; allow for normal boot plus the 45-second run.
+Restore both benchmark booleans to `false`, set `kernel: scalar`, and regenerate before ordinary UI
+validation. This fixed-pose workload is the first raster baseline; a repeatable
+animated workload and confirmation in the full UI remain open.
+
+The opt-in `scripts/device.ps1 check -Check cody-raster-benchmark` suite compiles
+the portable session with Pearl disabled, exercises finite-window/full-p95/error
+contracts, then runs `cody-native`, including reference pixel parity for the
+unprofiled, coarse and block loops across all textures, fractional samples, clipped
+tiles, RGB565 orders, backgrounds, guards and partial blocks. It then repeats the
+native contracts with an explicit host SIMD arithmetic model, exercising the real
+packer, kernel dispatch, odd tails, alignment and injected mismatch rejection.
+That model does not execute or validate ESP32-S3 instructions. This suite does not
+compile the firmware worker or prove device behavior. Its execution, firmware
+builds and physical captures still require explicit authorization under AGENTS.md.
+The ESP32-S3 Pearl renderer starts with the 16-pixel SIMD kernel and generated
+row coverage in ordinary Debug and Release rendering. Portable host builds
+start with the scalar sampler. The benchmark is disabled in the authored runtime
+configuration; it allocates no measurement buffer and does not interrupt the
+normal startup/UI. `benchmark.kernel` selects a diagnostic override only when
+the benchmark is enabled, and completion restores the previously selected
+kernel. `scalar` selects the fused C sampler, `simd` selects the PIE assembly
+sampler, and `simd_verify` selects an explicit verification run. Unsupported
+selections return an error; they never silently substitute C.
+The combined main integration at `e714737` passed the portable native/model/
+benchmark contracts and the S3 Debug and Release builds with benchmark autostart
+disabled. Both modes retain the common `-O2` compiler optimization; Release
+excludes development frame diagnostics. The combined image has not been flashed
+or timed on the device, so these builds do not establish a Release speedup.
+The 2026-10-05 S3 verifier passed both the exhaustive weight
+contract and a completed 489-frame live comparison at 100% scale before row
+trimming was added. A fresh scalar control recorded 684 frames, mean 56,950 us,
+p95 57,634 us and jelly mean 37,106 us. The first 16-pixel SIMD run recorded
+697 frames, mean 55,846 us and p95 56,495 us. Skipping composition for all-zero
+16-pixel blocks lowered frame mean to 55,612 us and p95 to 56,374 us over 699
+frames; enlarging blocks to 64 pixels regressed to 59,794 us mean because fewer
+blocks were entirely transparent. Generated per-row coverage for all five skins
+then removed spans that cannot affect the destination. This run completed 766
+frames at mean 50,715 us, p95 51,463 us and jelly mean 30,736 us, skipping
+14,544,808 transparent pixels before packing. It is 6,235 us faster by frame
+mean than the fresh scalar control, but every frame still exceeded 40 ms. An
+exact shift/add replacement for `/255` in RGB565 composition regressed to
+51,497 us mean and was removed. The detailed run is a separate diagnostic
+experiment; its clock calls perturb whole-frame timing. It ranked preparation
+and composition ahead of interpolation, without measuring their uninstrumented
+standalone costs.
+
+The same 40-second fixed route with SIMD and row coverage submitted 35,256
+pixels per frame at 75% scale: mean 33,888 us, p95 34,512 us, maximum 35,147
+us, with zero frames over the 40 ms budget. At 50% it submitted 15,600 pixels
+per frame: mean 21,834 us, p95 22,335 us, maximum 23,179 us, again with zero
+misses. These scale captures do not isolate a C/SIMD gain. The authored benchmark
+configuration and device were restored to 100% afterward. A UI-wide performance
+claim still requires measurement outside the fixed benchmark route.
+
+The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
+in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in
+40-bit QACC lanes. Each of the two horizontal lerps and the final vertical lerp
+starts with 128 and shifts by eight, preserving the original separate rounding
+steps. The maximum accumulator value is 65,408 and the extracted channel is at
+most 255, so the signed 16-bit extraction cannot saturate valid inputs. These
+instructions and alignment semantics come from Espressif's
+[ESP32-S3 TRM, chapter 1](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
+
+Aligned scratch is owned by one row invocation: up to eight 48-byte pairs, 64
+bytes of output and 32 bytes of constants (480 bytes of data, excluding compiler
+spills). Generated per-row coverage is a union of all five skin textures, using
+nonzero packed RGBA words and an exclusive right bound. Positive-step SIMD rows
+skip only spans whose two bilinear source rows contain no contributing texel;
+`simd_verify` retains the full visible row for live comparison. The host suite
+checks coverage across every generated row and skin and compares final pixels
+across scalar, SIMD and verification modes.
+The C packer gathers only clamped in-bounds texels; SIMD loads never address the
+flash texture or panel buffer directly. Full pairs write eight aligned bytes;
+the odd last pixel uses the original C sampler. Entire zero-footprint blocks
+skip interpolation and composition exactly. RGB565 arithmetic and byte swapping remain the
+original code. Packing, call overhead, tails and composition are all included in
+the coarse jelly/frame duration; detailed `prep` additionally includes gathering.
+SIMD uses task-owned CP3 state through the IDF port, without disabling interrupts
+or writing CPENABLE. The benchmark worker remains pinned to core 1. The original
+PIE ABI and arithmetic passed target parity before row trimming; the new
+coverage skip still needs a fresh physical pixel-parity run. The 16-pixel
+scratch size restores the original stack footprint.
+
+`simd_verify` first checks the actual kernel against independent per-channel C
+arithmetic over all 256x256 weight combinations and four distinct pixel
+footprints (262,144 samples), including zero-count, output guards and immutable
+input checks. It then compares every live RGBA sample before composition during
+the fixed route. Any difference returns `ESP_ERR_INVALID_RESPONSE`; the frame
+is rejected rather than replaced with scalar output. Successful completion
+requires nonzero compared and vectorized counts and logs `BENCH verification
+complete`. PERF/STAGE timing results are suppressed during this run, because
+running both implementations would contaminate a performance comparison.
+
+After an explicitly authorized verification passes, change only `kernel: simd`
+for a separately authorized timing capture with detail disabled, then compare
+with a fresh `scalar` run under identical conditions. Keep the distinction between
+source-level arithmetic bounds, host-model contracts and executed S3 evidence;
+none is interchangeable with another. The fixed-route gains above do not
+establish frame times in the combined main UI. Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

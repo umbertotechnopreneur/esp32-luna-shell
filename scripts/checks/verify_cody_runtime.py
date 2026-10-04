@@ -187,13 +187,16 @@ def main(argv=None):
         includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
                     "components/LUNASHELL_platform/include",
                     "assets/cody/rig/generated", "assets/cody/runtime/generated",
-                    "assets/cody/appearance/jelly-scanline/generated")
+                    "assets/cody/appearance/jelly-scanline/generated",
+                    "assets/cody/personality-icons/generated")
         includes += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/runtime_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
                        "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
                        "components/CODY_companion/src/model/CODY_response.cpp", "components/CODY_companion/src/demos/CODY_demo.cpp",
                        "components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "components/CODY_companion/src/rendering/CODY_damage.cpp",
+                       "components/CODY_companion/src/rendering/CODY_personality.cpp",
+                       "assets/cody/personality-icons/generated/personality_icons.cpp",
                        "components/CODY_companion/src/rendering/CODY_jelly.cpp",
                        "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
         executable = output / "runtime-contract.exe"

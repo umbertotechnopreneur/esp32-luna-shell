@@ -1,4 +1,5 @@
 #include "CODY_jelly.hpp"
+#include "CODY_jelly_simd.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -19,12 +20,17 @@ namespace {
 constexpr char kTag[] = "CODY_jelly";
 constexpr int32_t kFixedOne = 65536;
 constexpr uint16_t kCanvasSize = 466;
+constexpr uint16_t kProfileBlockPixels = 16;
+constexpr uint16_t kSimdBlockPixels = 16;
 constexpr char kSkinSettingKey[] = "cody_skin";
+constexpr JellyRasterKernel kDefaultRasterKernel = CODY_JELLY_SIMD_AVAILABLE
+    ? JellyRasterKernel::Simd : JellyRasterKernel::Scalar;
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
 
 static_assert(std::size(JellyFrame{}.controls) == std::size(JellyData::rows));
 std::atomic<JellySkinId> s_selected_skin{JellySkinCatalog::default_skin};
+std::atomic<JellyRasterKernel> s_raster_kernel{kDefaultRasterKernel};
 
 // id: Exact stable authored ID, never a display name or catalog position.
 const JellySkinDefinition *find_skin(const char *id)
@@ -186,7 +192,189 @@ uint16_t blend_rgba(uint32_t source, uint16_t destination)
     return static_cast<uint16_t>((native_red << 11U) | (native_green << 5U) | native_blue);
 }
 
+#if CODY_JELLY_SIMD_AVAILABLE
+// upper: Immutable RGBA8 source row; only clamped texels are read.
+// lower: Next source row, possibly the same at the texture boundary.
+// source_x: First Q16 coordinate, advanced by the exact number of packed pixels.
+// step: Prepared Q16 source increment, unchanged across compact tile splits.
+// pair_count: Complete pairs in one 16-pixel block; no speculative tail reads.
+// pairs: Aligned scratch filled for every lane the assembly will consume.
+uint32_t prepare_simd_pairs(const uint32_t *upper, const uint32_t *lower, int32_t &source_x,
+                            int32_t step, uint16_t pair_count, JellySimdPair *pairs)
+{
+    uint32_t footprint = 0;
+    for (uint16_t pair_index = 0; pair_index < pair_count; ++pair_index) {
+        auto &pair = pairs[pair_index];
+        for (uint16_t pixel = 0; pixel < 2; ++pixel) {
+            const int32_t clipped = std::clamp<int32_t>(source_x, 0, (JellyData::width - 1) * kFixedOne);
+            const uint32_t column = static_cast<uint32_t>(clipped) >> 16U;
+            const uint32_t next = std::min(column + 1U, static_cast<uint32_t>(JellyData::width - 1));
+            pair.first[pixel] = upper[column];
+            pair.first[pixel + 2] = lower[column];
+            pair.second[pixel] = upper[next];
+            pair.second[pixel + 2] = lower[next];
+            footprint |= pair.first[pixel] | pair.first[pixel + 2] |
+                         pair.second[pixel] | pair.second[pixel + 2];
+            const uint16_t weight = static_cast<uint16_t>((static_cast<uint32_t>(clipped) >> 8U) & 255U);
+            std::fill_n(pair.horizontal + pixel * 4, 4, weight);
+            source_x += step;
+        }
+    }
+    return footprint;
+}
+
+// upper: First immutable source scanline.
+// lower: Adjacent source scanline selected by the existing sampler clamp.
+// source_x: Exact Q16 coordinate of this clipped destination span.
+// step: Existing Q16 horizontal increment.
+// vertical_weight: Existing Q8 row fraction in [0,255].
+// destination: Writable span with exactly pixel_count valid pixels.
+// byte_order: Storage order; composition still uses the existing RGB565 arithmetic.
+// pixel_count: Visible span length, including an optional odd final pixel.
+// kernel: SIMD performance or explicit C/SIMD verification mode.
+// profile: Optional counters/clock; preparing aligned data is inside whole-sprite time.
+// Exception: Returns ESP_ERR_INVALID_RESPONSE on the first RGBA mismatch, before painting that block.
+esp_err_t draw_simd_row(const uint32_t *upper, const uint32_t *lower, int32_t source_x,
+                        int32_t step, uint32_t vertical_weight, uint16_t *destination,
+                        CODY2D::Rgb565ByteOrder byte_order, uint16_t pixel_count,
+                        JellyRasterKernel kernel, JellyRasterProfile *profile)
+{
+    const bool detail = profile != nullptr && profile->blocks_enabled;
+    const int64_t constants_started = detail ? profile->now_us() : 0;
+    JellySimdConstants constants;
+    std::fill_n(constants.vertical, 8, static_cast<uint16_t>(vertical_weight));
+    alignas(16) JellySimdPair pairs[kSimdBlockPixels / 2];
+    alignas(16) uint32_t samples[kSimdBlockPixels];
+    if (detail) {
+        profile->preparation_us += profile->now_us() - constants_started;
+    }
+    for (uint16_t painted = 0; painted < pixel_count;) {
+        const uint16_t count = std::min<uint16_t>(kSimdBlockPixels, pixel_count - painted);
+        const uint16_t pair_count = count / 2;
+        const uint16_t pair_pixels = pair_count * 2;
+        const int32_t block_source_x = source_x;
+        const int64_t preparation_started = detail ? profile->now_us() : 0;
+        const uint32_t footprint = prepare_simd_pairs(upper, lower, source_x, step, pair_count, pairs);
+        if (detail) {
+            profile->preparation_us += profile->now_us() - preparation_started;
+        }
+        const int64_t interpolation_started = detail ? profile->now_us() : 0;
+        if (pair_count != 0 && footprint != 0) {
+            cody_jelly_bilinear_s3(pairs, samples, pair_count, &constants);
+        } else if (kernel == JellyRasterKernel::SimdVerify) {
+            // Verification reads every sample; timing mode never reads the skipped pairs.
+            std::fill_n(samples, pair_pixels, 0U);
+        }
+        if ((count & 1U) != 0) {
+            samples[count - 1] = sample_rgba(source_x, upper, lower, vertical_weight);
+            source_x += step;
+        }
+        if (detail) {
+            profile->interpolation_us += profile->now_us() - interpolation_started;
+        }
+        if (kernel == JellyRasterKernel::SimdVerify) {
+            int32_t reference_x = block_source_x;
+            for (uint16_t offset = 0; offset < count; ++offset) {
+                const uint32_t expected = sample_rgba(reference_x, upper, lower, vertical_weight);
+                if (samples[offset] != expected) {
+                    ESP_LOGE(kTag, "SIMD mismatch x_q16=%ld y_weight=%lu expected=%08lx actual=%08lx (%s)",
+                        static_cast<long>(reference_x), static_cast<unsigned long>(vertical_weight),
+                        static_cast<unsigned long>(expected), static_cast<unsigned long>(samples[offset]),
+                        esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+                    return ESP_ERR_INVALID_RESPONSE;
+                }
+                reference_x += step;
+            }
+            if (profile != nullptr) {
+                profile->verified_samples += count;
+            }
+        }
+        const int64_t composition_started = detail ? profile->now_us() : 0;
+        uint16_t first_composed = 0;
+        if (footprint == 0) {
+            // All four source texels of every packed pair are zero. Their alpha is
+            // exactly zero at any weight, so leave the destination span untouched.
+            destination += pair_pixels;
+            first_composed = pair_pixels;
+            if (detail) {
+                profile->transparent_pixels += pair_pixels;
+            }
+        }
+        for (uint16_t offset = first_composed; offset < count; ++offset) {
+            const uint32_t sample = samples[offset];
+            if ((sample >> 24U) == 0) {
+                if (detail) {
+                    ++profile->transparent_pixels;
+                }
+                ++destination;
+                continue;
+            }
+            const uint16_t native = CODY2D::rgb565_stored_to_native(*destination, byte_order);
+            *destination++ = CODY2D::rgb565_native_to_stored(blend_rgba(sample, native), byte_order);
+            if (detail) {
+                ++profile->blended_pixels;
+            }
+        }
+        if (profile != nullptr) {
+            profile->vectorized_pixels += footprint != 0 ? pair_pixels : 0;
+            profile->zero_footprint_pixels += footprint == 0 ? pair_pixels : 0;
+            profile->scalar_tail_pixels += count & 1U;
+            if (detail) {
+                profile->blend_us += profile->now_us() - composition_started;
+                profile->sampled_pixels += count;
+                ++profile->timed_blocks;
+            }
+        }
+        painted = static_cast<uint16_t>(painted + count);
+    }
+    return ESP_OK;
+}
+#endif
+
 }  // namespace
+
+// No parameters: explicit capability, never an automatic scalar substitution.
+bool jelly_simd_available()
+{
+    return CODY_JELLY_SIMD_AVAILABLE != 0;
+}
+
+// kernel: Typed identity copied into measurement evidence.
+const char *jelly_raster_kernel_name(JellyRasterKernel kernel)
+{
+    switch (kernel) {
+        case JellyRasterKernel::Scalar: return "scalar";
+        case JellyRasterKernel::Simd: return "simd";
+        case JellyRasterKernel::SimdVerify: return "simd_verify";
+    }
+    return "invalid";
+}
+
+// kernel: Explicit implementation selected by the display owner between frames.
+// Exception: Rejects invalid identities or SIMD in a build without that kernel.
+esp_err_t select_jelly_raster_kernel(JellyRasterKernel kernel)
+{
+    if (kernel != JellyRasterKernel::Scalar && kernel != JellyRasterKernel::Simd &&
+        kernel != JellyRasterKernel::SimdVerify) {
+        ESP_LOGE(kTag, "Raster kernel rejected: %u (%s)", static_cast<unsigned>(kernel),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (kernel != JellyRasterKernel::Scalar && !jelly_simd_available()) {
+        ESP_LOGE(kTag, "Raster kernel unavailable: %s (%s)", jelly_raster_kernel_name(kernel),
+                 esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    s_raster_kernel.store(kernel, std::memory_order_release);
+    ESP_LOGI(kTag, "Raster kernel selected: %s", jelly_raster_kernel_name(kernel));
+    return ESP_OK;
+}
+
+// No parameters: per-draw snapshot avoids mixing implementations inside one sprite pass.
+JellyRasterKernel selected_jelly_raster_kernel()
+{
+    return s_raster_kernel.load(std::memory_order_acquire);
+}
 
 // No parameters: expose bounded catalog size without treating position as identity.
 size_t jelly_skin_count()
@@ -482,9 +670,21 @@ esp_err_t deform_jelly_face(RigScene &scene)
 // first_row: Logical tile y origin, independent of the framebuffer's row stride.
 // first_column: Logical tile x origin, preserving identical samples across tile splits.
 // Exception: Returns the original surface error or rejects invalid geometry and skin identity.
+// profile: Optional execution clock and block-level accounting for this sprite pass.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
-                         uint16_t first_row, uint16_t first_column)
+                         uint16_t first_row, uint16_t first_column,
+                         JellyRasterProfile *profile)
 {
+    if (profile != nullptr && profile->now_us == nullptr) {
+        ESP_LOGE(kTag, "Jelly profile clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int64_t jelly_started_us = profile != nullptr ? profile->now_us() : 0;
+    const bool profile_blocks = profile != nullptr && profile->blocks_enabled;
+    const JellyRasterKernel kernel = selected_jelly_raster_kernel();
+    if (profile != nullptr) {
+        profile->kernel = kernel;
+    }
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
     if (surface_error != ESP_OK) {
         return surface_error;
@@ -505,11 +705,12 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
     const uint16_t last = std::min(static_cast<uint16_t>(first_row + strip.height), frame.bounds.bottom);
     for (uint16_t row = first; row < last; ++row) {
         const auto &mapping = frame.rows[row];
-        const uint16_t left = std::max(first_column, mapping.left);
-        const uint16_t right = std::min(static_cast<uint16_t>(first_column + strip.width), mapping.right);
+        uint16_t left = std::max(first_column, mapping.left);
+        uint16_t right = std::min(static_cast<uint16_t>(first_column + strip.width), mapping.right);
         if (left >= right) {
             continue;
         }
+        const int64_t preparation_started_us = profile_blocks ? profile->now_us() : 0;
         const int32_t source_y = std::clamp<int32_t>(mapping.source_y, 0, (JellyData::height - 1) * kFixedOne);
         const uint32_t source_row = static_cast<uint32_t>(source_y) >> 16U;
         const uint32_t next_row = std::min(source_row + 1U, static_cast<uint32_t>(JellyData::height - 1));
@@ -518,21 +719,105 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         const auto *lower = pixels + next_row * JellyData::width;
         int32_t source_x = mapping.source_x + (left - mapping.left) * mapping.source_step;
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
-        for (uint16_t column = left; column < right; ++column) {
-            const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
-            // Zero alpha is the identity over every RGB565 background. Advance
-            // both cursors without reading or rewriting that destination pixel.
-            if ((sample >> 24U) != 0) {
-                // Alpha blending uses native channels even when the tile is ready for the panel.
+#if CODY_JELLY_SIMD_AVAILABLE
+        if (kernel != JellyRasterKernel::Scalar) {
+            const auto &upper_coverage = JellyData::row_coverage[source_row];
+            const auto &lower_coverage = JellyData::row_coverage[next_row];
+            const uint16_t first_texel = std::min(upper_coverage.first, lower_coverage.first);
+            const uint16_t last_texel = std::max(upper_coverage.last, lower_coverage.last);
+            if (last_texel == 0 && kernel == JellyRasterKernel::Simd) {
+                if (profile != nullptr) {
+                    profile->coverage_skipped_pixels += right - left;
+                }
+                continue;
+            }
+            if (kernel == JellyRasterKernel::Simd && mapping.source_step > 0) {
+                const uint16_t untrimmed_pixels = right - left;
+                // Bilinear sampling can reach the first nonzero texel from its
+                // preceding column. The bounds cover every authored skin.
+                const int32_t first_possible_x = (first_texel - 1) * kFixedOne;
+                const int32_t first_impossible_x = last_texel * kFixedOne;
+                while (left < right && first_texel > 0 && source_x < first_possible_x) {
+                    ++left;
+                    ++destination;
+                    source_x += mapping.source_step;
+                }
+                while (left < right && last_texel < JellyData::width &&
+                       static_cast<int64_t>(source_x) +
+                           static_cast<int64_t>(right - left - 1) * mapping.source_step >= first_impossible_x) {
+                    --right;
+                }
+                if (profile != nullptr) {
+                    profile->coverage_skipped_pixels += untrimmed_pixels - (right - left);
+                }
+                if (left == right) {
+                    continue;
+                }
+            }
+            if (profile_blocks) {
+                profile->preparation_us += profile->now_us() - preparation_started_us;
+            }
+            const esp_err_t error = draw_simd_row(upper, lower, source_x, mapping.source_step,
+                vertical_weight, destination, strip.byte_order, right - left, kernel, profile);
+            if (error != ESP_OK) {
+                return error;
+            }
+            continue;
+        }
+#endif
+        if (!profile_blocks) {
+            for (uint16_t column = left; column < right; ++column) {
+                const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
+                // Zero alpha is the identity over every RGB565 background. Advance
+                // both cursors without reading or rewriting that destination pixel.
+                if ((sample >> 24U) != 0) {
+                    const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
+                        *destination, strip.byte_order
+                    );
+                    const uint16_t blended_color = blend_rgba(sample, native_destination);
+                    *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+                }
+                ++destination;
+                source_x += mapping.source_step;
+            }
+            continue;
+        }
+        profile->preparation_us += profile->now_us() - preparation_started_us;
+        for (uint16_t column = left; column < right;) {
+            const uint16_t block_pixels = std::min<uint16_t>(kProfileBlockPixels, right - column);
+            const int64_t block_preparation_started_us = profile->now_us();
+            std::array<uint32_t, kProfileBlockPixels> samples{};
+            profile->preparation_us += profile->now_us() - block_preparation_started_us;
+            const int64_t interpolation_started_us = profile->now_us();
+            for (uint16_t offset = 0; offset < block_pixels; ++offset) {
+                samples[offset] = sample_rgba(source_x, upper, lower, vertical_weight);
+                source_x += mapping.source_step;
+            }
+            profile->interpolation_us += profile->now_us() - interpolation_started_us;
+            const int64_t blend_started_us = profile->now_us();
+            for (uint16_t offset = 0; offset < block_pixels; ++offset) {
+                const uint32_t sample = samples[offset];
+                if ((sample >> 24U) == 0) {
+                    ++profile->transparent_pixels;
+                    ++destination;
+                    continue;
+                }
                 const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
                     *destination, strip.byte_order
                 );
                 const uint16_t blended_color = blend_rgba(sample, native_destination);
                 *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+                ++profile->blended_pixels;
+                ++destination;
             }
-            ++destination;
-            source_x += mapping.source_step;
+            profile->blend_us += profile->now_us() - blend_started_us;
+            profile->sampled_pixels += block_pixels;
+            ++profile->timed_blocks;
+            column = static_cast<uint16_t>(column + block_pixels);
         }
+    }
+    if (profile != nullptr) {
+        profile->total_us += profile->now_us() - jelly_started_us;
     }
     return ESP_OK;
 }

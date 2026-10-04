@@ -14,6 +14,8 @@ extern const uint32_t pixels_cosmic_stardust[width * height];
 extern const uint32_t pixels_enchanted_mosaic[width * height];
 extern const uint32_t pixels_dreamwave[width * height];
 const uint32_t *pixels_for(JellySkinId identity);
+struct RowCoverage { uint16_t first; uint16_t last; };
+extern const RowCoverage row_coverage[height];
 enum class RowId : uint8_t { JellyRow00, JellyRow01, JellyRow02, JellyRow03, JellyRow04, JellyRow05, JellyRow06, JellyRow07, JellyRow08, JellyRow09, JellyRow10, JellyRow11, JellyRow12, JellyRow13, JellyRow14, JellyRow15, JellyRow16, JellyRow17, JellyRow18, JellyRow19, JellyRow20, JellyRow21, JellyRow22, JellyRow23, JellyRow24, JellyRow25, JellyRow26, JellyRow27, JellyRow28, JellyRow29, JellyRow30, JellyRow31, JellyRow32, Count };
 struct Anchor { PointId point; CODY2D::Vec2 rest; };
 inline constexpr Anchor anchors[] = {

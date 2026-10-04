@@ -35,8 +35,9 @@ older host/build/flash evidence does not validate the current combined image.
   cooldown, quiet/zero-volume/standby, idle-mute restoration, expiry, retained
   errors and codec contention. Profile
   complete frame/DMA/CPU/stack costs; static area counts are not performance
-  evidence. Reconcile the independent renderer-optimization worktree before
-  integrated release validation. The 2026-10-05 merged Debug firmware build
+  evidence. Remote main `649cbc7f` renderer optimizations are integrated;
+  current combined build/flash evidence is tracked in Done and physical checks
+  still need separate authorization. The earlier 2026-10-05 merged Debug firmware build
   and focused suite passed (1,041 native assertions, 122 controller parity
   frames and 118 independent host assertions). The interactive simulator
   opened after its boot-artwork references were corrected. Hardware execution,
@@ -88,11 +89,36 @@ older host/build/flash evidence does not validate the current combined image.
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.
 - [ ] Optimize the raster in separate checkpoints, preserving exact output:
-  transparent jelly work first, then Coverage/span preparation, then SIMD only
-  for measured common kernels. Separate jelly and face timings before ranking
-  gains; current screen-05 artwork is about 14 ms, not a blending-only measure.
-  Optimization stage 1 was built/flashed in `9fde2b48`; final checks and device
-  comparison remain unauthorized/unrun. No performance improvement is verified.
+  the fixed 100% jelly benchmark now measures a 6,235 us frame-mean gain over
+  the fresh C control, but remains 10,715 us above the 40 ms budget. Separate
+  jelly and face timings in the full UI before choosing another kernel.
+- [ ] Complete the finite raster validation on the combined main image. `4ac6c812`
+  passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
+  684 frames, full-window p95 57,611 us, first-run entry and normal completion
+  with policy/look restoration and deferred greeting. SIMD coarse captures at
+  50/75/100 percent are complete; detailed segmentation remains a separate,
+  intrusive experiment. Exercise touch/PWR/Sleep interruption. Combined Debug
+  and Release builds with the benchmark disabled pass at `e714737`; verify the
+  disabled benchmark on the device and build non-Pearl firmware separately.
+  Validate the implemented S3 interpolation kernel: `simd_verify` first checks
+  65,536 weight combinations and then compares live RGBA samples; `simd` and
+  `scalar` are separate timing captures. The S3 Debug build and corrected MSVC
+  host suite passed. The S3 verification run compared 30,267,144 live samples
+  across 489 measured frames with no mismatch. At 100% scale, the fresh A/B
+  improved frame mean by 1,104 us and p95 by 1,139 us, but all frames still
+  missed 40 ms. Detailed S3 profiling (intrusive) found preparation and RGB565
+  composition much larger than interpolation. The 64-pixel block regressed;
+  16-pixel blocks with generated row coverage now pass host parity and measured
+  50,715 us mean, 51,463 us p95 at 100%. The 75% and 50% SIMD-only captures
+  stayed under 40 ms throughout, with means of 33,888 us and 21,834 us.
+  SIMD is now selected for ordinary S3 rendering, with benchmark autostart off.
+  Confirm full-UI behavior and timings on the combined main image. The generated
+  coverage table and current SIMD path still need a fresh physical pixel-parity
+  run after this optimization; earlier S3 verification predates row trimming.
+  Add deterministic animated work after trustworthy timings; include
+  packing/alignment/tails and confirm gains in the full UI. Device clock,
+  radio state, logging overhead and complete cleanup remain validation concerns.
+  [Benchmark contract](docs/architecture/cody/rendering.md).
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy
   Back/Done, route reset during writes, rotated touch, canonical errors and
   bounded memory across repeated entries. Host persistence faults are covered;

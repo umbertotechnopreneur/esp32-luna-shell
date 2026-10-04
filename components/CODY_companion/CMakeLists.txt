@@ -2,6 +2,8 @@ set(cody_jelly_sources "")
 if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)
     list(APPEND cody_jelly_sources
         "src/rendering/CODY_jelly.cpp"
+        "src/rendering/CODY_jelly_simd_s3.S"
+        "src/diagnostics/CODY_jelly_simd_validation.cpp"
         "../../assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp"
     )
 endif()
@@ -36,6 +38,7 @@ idf_component_register(
         "src/model/CODY_wellbeing.cpp"
         "src/model/CODY_response_inputs.cpp"
         "src/diagnostics/CODY_benchmark.cpp"
+        "src/diagnostics/CODY_raster_benchmark.cpp"
         "src/demos/CODY_demo.cpp"
         "src/runtime/CODY_boot_cues.cpp"
         "../../assets/cody/boot/generated/cody_sleep_pearl.cpp"
@@ -62,9 +65,14 @@ endif()
 
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY)
+    if(NOT IDF_TARGET STREQUAL "esp32s3")
+        message(FATAL_ERROR "The native Pearl SIMD kernel requires ESP32-S3")
+    endif()
     target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_ENABLE_PEARL_JELLY=1)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_JELLY_SIMD_AVAILABLE=1)
 else()
     target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_ENABLE_PEARL_JELLY=0)
+    target_compile_definitions(${COMPONENT_LIB} PUBLIC CODY_JELLY_SIMD_AVAILABLE=0)
 endif()
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/assets/cody/runtime/generated/cody-audio_ready.pcm16le" BINARY RENAME_TO cody_audio_ready)
 target_add_binary_data(${COMPONENT_LIB} "${PROJECT_DIR}/assets/cody/runtime/generated/cody-eyes_open.pcm16le" BINARY RENAME_TO cody_eyes_open)

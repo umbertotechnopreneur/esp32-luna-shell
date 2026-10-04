@@ -7,6 +7,15 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Integrated remote main `649cbc7f` into `feat/personality-icons`, preserving
+  petting, happiness, symbol arbitration and the Studio DPI/renderer changes.
+  Ordinary S3 Pearl rendering now uses the upstream SIMD kernel and transparent
+  row/block skipping; automatic benchmark and detailed block profiling remain
+  disabled. Resolved native profiling conflicts and added missing personality
+  sources/includes to two host-check recipes. Static integration reviewed;
+  current-branch build and flash are authorized and pending. No new tests or
+  simulator session have run, and physical performance remains unverified.
+
 - The first Studio UI `679fbda2` opened and responded after the authorized
   restart; the user reported blurred Windows text and ~100 ms host ticks, then
   closed it. Implemented explicit PMv2 before Tk, actual startup DPI point/pixel
@@ -136,6 +145,129 @@ and referenced architecture/artifact records.
   synthetic. Only generation and static source/artwork review were performed;
   compilation, automated checks, simulator and physical behavior remain open.
 
+- Integrated the selected 16-pixel SIMD and transparent row/block skips with
+  current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
+  Pearl rendering now starts on SIMD in Debug and Release; portable host
+  rendering starts on scalar. Benchmark autostart/detail are disabled, normal
+  placement is retained, and RGB565 composition is unchanged. Added a host
+  assertion for initial backend selection. Portable native, SIMD-model and raster
+  benchmark contracts pass after updating the installation-scene expectations to
+  main's current heading and scale. Combined Debug and Release builds pass at
+  `e714737` through `device.ps1` with eight jobs; both have benchmark autostart
+  disabled. Build logs, image hashes and portable reports are retained in each
+  mode's `artifacts/build-cody-companion-{debug,release}/evidence/` directory.
+  The combined image was not flashed or physically timed; earlier fixed-route
+  measurements below belong to the SIMD worktree benchmark image.
+- The same 16-pixel SIMD and row-coverage path completed fixed 40-second device
+  windows at smaller scales. At 75%, 975 frames submitted 35,256 pixels each:
+  mean 33,888 us, p95 34,512 us, maximum 35,147 us, and zero budget misses.
+  At 50%, 975 frames submitted 15,600 pixels each: mean 21,834 us, p95
+  22,335 us, maximum 23,179 us, and zero misses. These are SIMD-only scale
+  measurements, not new C/SIMD A/B comparisons. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-coverage-75.log`
+  and `cody-simd-coverage-50.log` beside it. The authored scale and flashed
+  firmware were returned to 100%; the restored app payload matches the
+  measured 100% payload, with only image metadata/checksum bytes differing.
+- The fixed 100% Pearl Mist S3 run with 16-pixel SIMD blocks and generated
+  per-row coverage completed 766 frames at 63,000 submitted pixels per frame:
+  mean 50,715 us, p95 51,463 us, jelly mean 30,736 us, and 766/766 frames over
+  40 ms. Coverage skipped 14,544,808 pixels (18,988 per frame) before packing;
+  host scalar/SIMD-model parity and full generated coverage checks passed. The
+  frame mean is 4,897 us lower than the 16-pixel zero-skip version and 6,235 us
+  lower than the fresh C control. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-coverage-100.log`.
+- The intermediate 16-pixel all-zero skip completed 699 frames: mean 55,612 us,
+  p95 56,374 us. Enlarging blocks to 64 pixels regressed to 59,794 us mean and
+  p95 60,519 us over 652 frames because fewer transparent blocks were excluded.
+  Replacing constant `/255` in RGB565 composition with an exact shift/add form
+  preserved host pixels but regressed to 51,497 us mean and p95 52,299 us over
+  752 frames, so that source change was removed. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-16-zero-skip-100-2.log`,
+  `cody-simd-64-100.log`, and `cody-simd-coverage-div255-100.log` beside it.
+- Intrusive SIMD profiling at 100% completed 508 frames. Per-frame jelly mean
+  rose to 57,052 us because 3,952 blocks triggered many clock reads. Its
+  accumulated segments divided by 508 were approximately preparation 19,673 us,
+  interpolation 6,947 us and RGB565 composition 19,216 us; the difference from
+  jelly total is unassigned instrumentation/loop time. These numbers rank work,
+  not uninstrumented costs or FPS evidence. The 64-pixel experiment above
+  demonstrated why larger packed blocks are unsuitable for this artwork.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/cody-simd-detail-100.log`.
+- Fresh C control on the same 100% route: 684 frames, mean 56,950 us, p95
+  57,634 us, jelly mean 37,106 us; all missed 40 ms. Against the 697-frame SIMD
+  run below, SIMD reduced frame mean by 1,104 us (1.94%), p95 by 1,139 us
+  (1.98%) and jelly mean by 1,226 us (3.30%). Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-scalar-100-fresh.log`.
+  This is a measured fixed-pose gain; it does not meet the 25 FPS budget.
+- Measured the S3 `simd` kernel on the same fixed 100% Pearl Mist route for 40
+  seconds: 697 frames, 63,000 submitted pixels each, frame mean 55,846 us and
+  full-run p95 56,495 us. Jelly mean 35,880 us; 31,434,700 pixels used SIMD,
+  139,400 used scalar tails and 11,567,412 skipped all-zero footprints. All
+  697 frames exceeded the 40 ms budget. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-100.log`.
+  The fresh C control above confirms a small gain for this fixed scene.
+- Flashed the S3 Debug verifier with all written hashes accepted. In the second
+  80-second reset/capture, the actual PIE kernel passed 65,536 weight pairs and
+  262,144 reference samples, then compared 30,267,144 live RGBA samples across
+  489 measured frames without a mismatch. The benchmark finished, restored the
+  scalar renderer and excluded contaminated timing data. The first capture was
+  interrupted by touch after 229 measured frames; neither capture reported a
+  panic. Evidence: `artifacts/build-cody-companion-debug/evidence/cody-simd-verify-2.log`.
+  This proves observed parity for the fixed workload, not a performance gain.
+- Built `0883de76` as ESP32-S3 Cody Debug with ESP-IDF 6.0.2 and eight jobs.
+  The S3 assembly and C++ validation source compiled; the final ELF links
+  `cody_jelly_bilinear_s3`. App image: 3,725,904 bytes, 75% partition free;
+  ELF SHA256 `5f615d5437f90b4d762642b9647f92db319751f3b657f0c75bb591d964b94908`.
+  The authorized host-check attempt stopped before assertions with Windows
+  `WinError 216`: the specified ESP Clang produced an executable Windows cannot
+  launch. After updating one stale screenshot-control assertion to the authored
+  hidden behavior, the full `cody-raster-benchmark` suite passed with MSVC,
+  including the host SIMD arithmetic model over all 65,536 weight pairs. Reports
+  were retained under `artifacts/build-cody-companion-debug/evidence/` before
+  transient-artifact cleanup. Target execution is still pending.
+- Implemented an opt-in ESP32-S3 PIE bilinear sampler (source review only):
+  two RGBA pixels per eight 16-bit lanes, 40-bit accumulation with the same three
+  rounded lerps, aligned row scratch, unchanged RGB565 composition and scalar
+  odd tails. Explicit `scalar`, `simd_verify` and `simd` benchmark selections
+  preserve backend identity and restore the ordinary scalar path on exit.
+  Added an independently computed 256x256-weight/guard contract and live sample
+  comparisons for `simd_verify`; this mode suppresses performance summaries.
+  Extended host contracts with a labeled arithmetic model, packer/byte-order/
+  clipping/tail checks and deliberate mismatch injection. Generated configuration
+  selects verification, not a claimed fast path. At the source checkpoint,
+  tests, build and S3 execution had not run; no speed or target parity is claimed.
+  The preceding `5947db83` detail-only flash command was cancelled during CMake
+  reconfiguration, before flashing, when the user withdrew COM access. No build/
+  flasher processes remained. Last verified device image remains `4ac6c812`.
+- Built and flashed raster baseline `4ac6c812` with ESP-IDF 6.0.2, Debug, eight
+  jobs and COM10 at 460800 baud; all written hashes verified. App: 3,721,952
+  bytes, 75% partition free. Matching ELF SHA256:
+  `ecce55a8922eaffe430db7531c2084f9c2618b29c8fa3decf8c1b956a7d7bf97`.
+  The completed 80-second reset/capture contains one boot and no captured panic
+  or reboot. Fixed Ready/Pearl Mist at 100%, coarse profiling, produced 684
+  measured frames in the 40-second window, each submitting 63,000 pixels:
+  mean 56,922 us, p95 57,611 us, max 58,605 us, all 684 over the 40 ms budget.
+  Stage means: geometry 2,781 us, raster 40,886 us, transfer 12,243 us;
+  artwork subsets: jelly 37,080 us, vector face 3,003 us. Logged steady FPS was
+  about 17.0--17.2, with worker-core CPU around 85--86%. The run completed,
+  restored the transient standby override/look and entered the deferred greeting.
+  Minimum logged worker free stack: 3,440 of 12,288 bytes. SD initialization
+  timed out three times and unrelated long log records were truncated; these
+  conditions remain part of this baseline. Host contracts, interruption cases,
+  other sizes/detail mode and SIMD gains remain unverified. Evidence and exact
+  ELF/bin are retained under
+  `artifacts/build-cody-companion-debug/evidence/cody-4ac6c812*`.
+- Reworked the temporary raster benchmark in `feat/simd-perf-opt` (source review
+  only): worker-owned Debug/Pearl entry, forced fixed Ready redraw, 5-second warmup
+  and 40-second measurement, core-1 affinity, bounded PSRAM full-run p95 and
+  40 ms misses. Restores transient look/standby settings and deferred greeting;
+  power, capture, touch and workload changes interrupt rather than certify a run.
+  Coarse fused rendering is separate from opt-in 16-pixel block profiling; shared
+  profile types no longer depend on the Pearl feature gate. Added finite-window
+  and reference pixel-parity contracts through `cody-raster-benchmark`, not run.
+  Regenerated runtime settings/manifest through the public generator; its demo
+  channels now also match the already-authored/current generated rig presets.
+  No tests, firmware build or physical capture ran for this checkpoint, and no
+  SIMD implementation or measured gain is claimed.
 - Real pairing 07 now allows 90 awake seconds without genuine activity; 05/06
   retain 30 seconds. Its scene standby override is also 90 seconds and refreshes
   on canonical progress, without synthesizing touch or changing saved settings.

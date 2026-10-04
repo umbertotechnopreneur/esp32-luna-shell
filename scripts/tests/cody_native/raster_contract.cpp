@@ -2,6 +2,7 @@
 #include "CODY2D_paths.hpp"
 #include "CODY_dirty_plan.hpp"
 #include "CODY_rig.hpp"
+#include "CODY_jelly_simd.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_jelly_data.hpp"
 #include "host_settings.hpp"
@@ -17,6 +18,12 @@
 #include <iterator>
 #include <limits>
 #include <vector>
+
+#if CODY_JELLY_SIMD_AVAILABLE
+namespace CODY {
+extern bool corrupt_next_simd_model_output;
+}
+#endif
 
 namespace {
 int failures = 0;
@@ -587,6 +594,160 @@ void check_jelly_transparent_advance(const CODY::JellySkinDefinition &skin, uint
     }
 }
 
+int64_t profile_clock_ticks = 0;
+
+// No parameters: deterministic host clock checks timer accounting, never device speed.
+int64_t profile_clock()
+{
+    return ++profile_clock_ticks;
+}
+
+// skin: Real texture identity; every authored skin exercises both raster loops.
+// opaque_index: Real body row used to cross transparent padding and visible artwork.
+// kernel: Explicit scalar or host-modeled SIMD implementation; restored after the fixture.
+void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t opaque_index,
+                               CODY::JellyRasterKernel kernel)
+{
+    require(CODY::select_jelly_raster_kernel(kernel) == ESP_OK, "select explicit parity backend");
+    const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
+    constexpr uint16_t guard = 0x5a5a;
+    for (uint16_t width : {1, 15, 16, 17, 31, 33, 63, 64, 65, 127}) {
+        for (int32_t fraction : {0, 16384, 49152}) {
+            CODY::JellyFrame frame;
+            frame.valid = true;
+            frame.skin_id = static_cast<uint16_t>(skin.id);
+            frame.bounds = {10, 10, static_cast<uint16_t>(10 + width), 11};
+            auto &row = frame.rows[10];
+            row.left = 10;
+            row.right = static_cast<uint16_t>(10 + width);
+            row.source_x = fraction - 32768;
+            row.source_y = static_cast<int32_t>(opaque_index / CODY::JellyData::width) * 65536 + fraction;
+            row.source_step = static_cast<int32_t>(CODY::JellyData::width) * 65536 /
+                std::max<uint16_t>(1, width - 1);
+            for (uint16_t inset : {0, 1}) {
+                if (width <= inset * 2) {
+                    continue;
+                }
+                const uint16_t visible = static_cast<uint16_t>(width - inset * 2);
+                for (uint16_t background : {uint16_t{0}, uint16_t{0xffff}, uint16_t{0x001f}}) {
+                    for (const auto order : {
+                            CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+                        std::vector<uint16_t> original(width + 2, guard);
+                        std::fill(original.begin() + 1, original.begin() + 1 + visible,
+                                  CODY2D::rgb565_native_to_stored(background, order));
+                        auto expected = original;
+                        for (uint16_t column = 0; column < visible; ++column) {
+                            const uint32_t sample = reference_jelly_sample(texture,
+                                row.source_x + (column + inset) * row.source_step, row.source_y);
+                            expected[column + 1] = CODY2D::rgb565_native_to_stored(
+                                reference_jelly_composite(sample, background), order);
+                        }
+                        for (int mode = 0; mode < 3; ++mode) {
+                            auto actual = original;
+                            const CODY2D::Surface tile{actual.data() + 1, visible, 1,
+                                static_cast<uint16_t>(visible + 2), static_cast<uint32_t>(visible + 2), order};
+                            CODY::JellyRasterProfile profile;
+                            profile.now_us = profile_clock;
+                            profile.blocks_enabled = mode == 2;
+                            profile_clock_ticks = 0;
+                            require(CODY::draw_jelly_rows(frame, tile, 10,
+                                static_cast<uint16_t>(10 + inset), mode == 0 ? nullptr : &profile) == ESP_OK,
+                                "unprofiled, coarse and block-profiled rows succeed");
+                            require(actual == expected,
+                                "profile modes preserve reference pixels, tile clipping, tails and guards");
+                            const uint32_t drawn = visible - profile.coverage_skipped_pixels;
+                            if (mode != 0 && kernel != CODY::JellyRasterKernel::Scalar) {
+                                require(profile.vectorized_pixels + profile.scalar_tail_pixels +
+                                        profile.zero_footprint_pixels + profile.coverage_skipped_pixels == visible,
+                                        "SIMD counters account for pairs, tails and skipped coverage");
+                                require(profile.scalar_tail_pixels == (drawn & 1U),
+                                        "SIMD never reads beyond an odd visible span");
+                                require(profile.verified_samples ==
+                                        (kernel == CODY::JellyRasterKernel::SimdVerify ? visible : 0U),
+                                        "comparison runs are explicit and counted");
+                            }
+                            if (mode == 2) {
+                                const uint32_t block_size = 16U;
+                                const uint32_t blocks = (drawn + block_size - 1U) / block_size;
+                                require(profile.sampled_pixels == drawn &&
+                                        profile.transparent_pixels + profile.blended_pixels == drawn &&
+                                        profile.timed_blocks == blocks,
+                                        "block counters cover each sample exactly once including the tail");
+                                if (drawn == 0) {
+                                    require(profile.interpolation_us == 0 && profile.blend_us == 0 &&
+                                            profile.preparation_us == 0 && profile_clock_ticks == 3,
+                                            "fully skipped row has no interpolation or composition clocks");
+                                } else {
+                                    const uint32_t row_preparation = kernel == CODY::JellyRasterKernel::Scalar ? 1 : 2;
+                                    require(profile.interpolation_us == blocks && profile.blend_us == blocks &&
+                                            profile.preparation_us == blocks + row_preparation &&
+                                            profile_clock_ticks == 2 + 2 * row_preparation + 6 * blocks,
+                                            "detail clocks operate per row/block, never per pixel");
+                                }
+                            } else {
+                                require(profile.sampled_pixels == 0 && profile.timed_blocks == 0 &&
+                                        profile_clock_ticks == (mode == 0 ? 0 : 2),
+                                        "baseline has no hidden block timers or per-pixel counters");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    require(CODY::select_jelly_raster_kernel(CODY::JellyRasterKernel::Scalar) == ESP_OK,
+            "parity fixture restores ordinary scalar rendering");
+}
+
+// No parameters: capability rejection and verifier faults cannot silently select scalar rendering.
+void check_jelly_kernel_contract()
+{
+    require(CODY::select_jelly_raster_kernel(CODY::JellyRasterKernel::Scalar) == ESP_OK,
+            "start kernel contract from scalar");
+    require(CODY::select_jelly_raster_kernel(static_cast<CODY::JellyRasterKernel>(255)) == ESP_ERR_INVALID_ARG &&
+            CODY::selected_jelly_raster_kernel() == CODY::JellyRasterKernel::Scalar,
+            "unknown kernel is rejected without changing selection");
+#if CODY_JELLY_SIMD_AVAILABLE
+    require(CODY::verify_jelly_simd_kernel() == ESP_OK,
+            "host model accepts all 65536 weight pairs and guarded pair layout");
+    const auto &skin = CODY::JellySkinCatalog::definitions[0];
+    const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
+    uint32_t visible_index = 0;
+    while (visible_index < CODY::JellyData::width * CODY::JellyData::height && texture[visible_index] == 0) {
+        ++visible_index;
+    }
+    require(visible_index < CODY::JellyData::width * CODY::JellyData::height,
+            "fault fixture has real visible texture data");
+    if (visible_index == CODY::JellyData::width * CODY::JellyData::height) {
+        return;
+    }
+    CODY::JellyFrame frame;
+    frame.valid = true;
+    frame.skin_id = static_cast<uint16_t>(skin.id);
+    frame.bounds = {10, 10, 12, 11};
+    frame.rows[10].left = 10;
+    frame.rows[10].right = 12;
+    frame.rows[10].source_x = static_cast<int32_t>(visible_index % CODY::JellyData::width) * 65536;
+    frame.rows[10].source_y = static_cast<int32_t>(visible_index / CODY::JellyData::width) * 65536;
+    frame.rows[10].source_step = 65536;
+    std::array<uint16_t, 4> pixels{0x5a5a, 0x001f, 0x001f, 0x5a5a};
+    const auto unchanged = pixels;
+    const CODY2D::Surface tile{pixels.data() + 1, 2, 1, 2, 2};
+    require(CODY::select_jelly_raster_kernel(CODY::JellyRasterKernel::SimdVerify) == ESP_OK,
+            "select explicit compare mode");
+    CODY::corrupt_next_simd_model_output = true;
+    require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_ERR_INVALID_RESPONSE && pixels == unchanged &&
+            !CODY::corrupt_next_simd_model_output,
+            "first SIMD mismatch returns failure before painting the block");
+    require(CODY::select_jelly_raster_kernel(CODY::JellyRasterKernel::Scalar) == ESP_OK,
+            "fault fixture restores scalar mode");
+#else
+    require(CODY::select_jelly_raster_kernel(CODY::JellyRasterKernel::Simd) == ESP_ERR_NOT_SUPPORTED &&
+            CODY::selected_jelly_raster_kernel() == CODY::JellyRasterKernel::Scalar,
+            "missing SIMD kernel is rejected instead of silently substituted");
+#endif
+}
+
 // skin: Authored identity selecting one real immutable packed texture.
 void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
 {
@@ -652,12 +813,35 @@ void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
     }
     if (found_opaque) {
         check_jelly_transparent_advance(skin, examples[1]);
+        check_jelly_profile_parity(skin, examples[1], CODY::JellyRasterKernel::Scalar);
+        if (CODY::jelly_simd_available()) {
+            check_jelly_profile_parity(skin, examples[1], CODY::JellyRasterKernel::Simd);
+            check_jelly_profile_parity(skin, examples[1], CODY::JellyRasterKernel::SimdVerify);
+        }
     }
 }
 
 // No parameters: all authored textures retain alpha, tile guards and bounded geometry.
 void check_jelly_texture_contract()
 {
+    for (uint16_t row = 0; row < CODY::JellyData::height; ++row) {
+        const auto coverage = CODY::JellyData::row_coverage[row];
+        bool within_bounds = coverage.first <= coverage.last && coverage.last <= CODY::JellyData::width;
+        bool first_occupied = false;
+        bool last_occupied = false;
+        for (const auto &skin : CODY::JellySkinCatalog::definitions) {
+            const uint32_t *pixels = CODY::JellyData::pixels_for(skin.id);
+            for (uint16_t column = 0; column < CODY::JellyData::width; ++column) {
+                const bool occupied = pixels[row * CODY::JellyData::width + column] != 0;
+                within_bounds &= !occupied || (column >= coverage.first && column < coverage.last);
+                first_occupied |= occupied && column == coverage.first;
+                last_occupied |= occupied && column + 1 == coverage.last;
+            }
+        }
+        require(within_bounds && (coverage.first == CODY::JellyData::width || first_occupied) &&
+                (coverage.last == 0 || last_occupied),
+                "generated row coverage bounds every skin without excluding texture data");
+    }
     for (const auto &skin : CODY::JellySkinCatalog::definitions) {
         check_jelly_texture_samples(skin);
     }
@@ -747,8 +931,8 @@ void check_navigation_visibility_contract()
             "Back remains defined but hidden and non-interactive by default");
     require(CODY::rig_control_at({160, 52}) == CODY::RigControl::None,
             "Pause remains authored but hidden and non-interactive");
-    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot,
-            "Screenshot uses its independent upper-center target");
+    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::None,
+            "Screenshot is authored but hidden and non-interactive");
     require(CODY::rig_control_at({306, 52}) == CODY::RigControl::None,
             "Skeleton remains authored but hidden and non-interactive");
     require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
@@ -927,13 +1111,20 @@ void check_scene_typewriter_contract()
             "body and footer use the same sequential typing clock");
 
     require(CODY::find_scene(CODY::SceneId::InstallApp, definition) == ESP_OK &&
-            !definition->title_visible && definition->cloud.scale == 58 &&
+            definition->title_visible && definition->cloud.scale == 40 &&
             definition->standby_override_seconds == 60 &&
             CODY::begin_scene(*definition, scene) == ESP_OK,
-            "installation scene enlarges Cody without a visible installation heading");
+            "installation scene preserves the current visible heading and bounded Cody placement");
+    require(CODY::advance_scene(scene, 45000) == ESP_OK && scene.visible_characters == 1 &&
+            CODY::scene_content_characters(scene, 9, scene.title.text.length) == 0,
+            "installation heading starts before the following caption");
+    auto hidden_heading = *definition;
+    hidden_heading.title_visible = false;
+    require(CODY::begin_scene(hidden_heading, scene) == ESP_OK,
+            "prepare an explicit hidden-heading fixture without changing the authored scene");
     require(CODY::advance_scene(scene, 45000) == ESP_OK &&
             CODY::scene_content_characters(scene, 9, 0) == 1,
-            "a hidden title does not delay Pair Cody's typed caption");
+            "a hidden title does not delay the following typed caption");
 
     require(CODY::find_scene(CODY::SceneId::Pairing, definition) == ESP_OK &&
             definition->standby_override_seconds == 90 &&
@@ -965,12 +1156,17 @@ void check_scene_typewriter_contract()
 int main()
 {
     try {
+        const auto expected_default = CODY::jelly_simd_available()
+            ? CODY::JellyRasterKernel::Simd : CODY::JellyRasterKernel::Scalar;
+        require(CODY::selected_jelly_raster_kernel() == expected_default,
+                "initial backend selects SIMD where compiled and portable scalar on the host");
         check_fill_contract();
         check_coverage_rectangle_contract();
         check_coverage_concave_tiles_contract();
         check_rig_contract();
         check_compact_raster_contract();
         check_dirty_plan_contract();
+        check_jelly_kernel_contract();
         check_jelly_texture_contract();
         check_jelly_settings_contract();
         check_capsule_contract();

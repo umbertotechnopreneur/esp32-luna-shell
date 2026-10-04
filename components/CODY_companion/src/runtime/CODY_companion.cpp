@@ -35,6 +35,8 @@
 #include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
+#include "CODY_raster_benchmark.hpp"
+#include "CODY_jelly_simd.hpp"
 #include "runtime_settings.hpp"
 #include "cloud_rig_data.hpp"
 #include "personality_rules.hpp"
@@ -63,6 +65,8 @@ constexpr uint16_t kTouchPollRows = 32;
 constexpr uint16_t kPaletteLimit = 64;
 constexpr bool kRenderDiagnosticsEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
 constexpr bool kExecutionTimingsEnabled = kRenderDiagnosticsEnabled && CODY::RuntimeData::execution_timings;
+constexpr bool kRasterBenchmarkEnabled = kExecutionTimingsEnabled &&
+    CODY_ENABLE_PEARL_JELLY && CODY::RuntimeData::raster_benchmark_enabled;
 // Touch IRQs wake immediately. Release polls only the functional display gate
 // at 1 Hz on static/paused routes and in standby, instead of refreshing diagnostics.
 constexpr uint32_t kSamplePeriodMs = kRenderDiagnosticsEnabled ? 50U : 1000U;
@@ -138,6 +142,7 @@ struct CompanionResources {
     bool previous_frame_valid = false;
     CODY::RigScene *rig = nullptr;
     CODY::RigDebugStrokeCache *rig_debug_strokes = nullptr;
+    CODY::RasterBenchmarkRun *raster_benchmark = nullptr;
 };
 CompanionResources s_resources;
 std::atomic<uint32_t> s_rendered_revision{0};
@@ -198,6 +203,12 @@ struct CompanionState {
 #endif
     bool rig_visible = false;
     bool rig_debug = false;
+    bool raster_benchmark_active = false;
+    bool raster_benchmark_attempted = false;
+    bool raster_benchmark_resume_greeting = false;
+    uint32_t raster_benchmark_revision = 0;
+    const char *raster_benchmark_previous_skin = nullptr;
+    CODY::JellyRasterKernel raster_benchmark_previous_kernel = CODY::JellyRasterKernel::Scalar;
     bool animation_paused = false;
     CODY::NavigationVisibility navigation_visibility{};
     CODY::StatusOverlay status_overlay{};
@@ -770,6 +781,177 @@ esp_err_t apply_scene_standby_policy(const CODY::SceneFrame &scene)
     return ESP_OK;
 }
 
+// completed: True only after the entire measurement interval and successful final summary.
+// reason: Explicit end/interrupt source, retained in the diagnostic log.
+// Exception: Returns policy/skin/kernel restoration or verification errors without claiming completion.
+esp_err_t stop_raster_benchmark(bool completed, const char *reason)
+{
+    if (!s_state.raster_benchmark_active) {
+        return ESP_OK;
+    }
+    if (!completed) {
+        s_resources.raster_benchmark->interrupt();
+    }
+    const esp_err_t policy_error = LUNASHELL_power_manager_set_scene_standby_override(0);
+    if (policy_error != ESP_OK) {
+        ESP_LOGE(kTag, "BENCH policy restore failed: reason=%s (%s)", reason, esp_err_to_name(policy_error));
+        return policy_error;
+    }
+#if CODY_ENABLE_PEARL_JELLY
+    const esp_err_t skin_error = CODY::select_jelly_skin(s_state.raster_benchmark_previous_skin);
+    if (skin_error != ESP_OK) {
+        ESP_LOGE(kTag, "BENCH skin restore failed: reason=%s (%s)", reason, esp_err_to_name(skin_error));
+        return skin_error;
+    }
+    const esp_err_t kernel_error = CODY::select_jelly_raster_kernel(s_state.raster_benchmark_previous_kernel);
+    if (kernel_error != ESP_OK) {
+        return kernel_error;
+    }
+#endif
+    s_state.raster_benchmark_active = false;
+    s_state.raster_benchmark_previous_skin = nullptr;
+    if (s_state.raster_benchmark_resume_greeting) {
+        s_greeting_scheduled.store(true, std::memory_order_release);
+        s_state.raster_benchmark_resume_greeting = false;
+    }
+    s_state.animation_sampled_us = 0;
+    s_state.frame_rate = {};
+    s_benchmark.reset();
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    s_resources.previous_frame_valid = false;
+    const auto &summary = s_resources.raster_benchmark->summary();
+    if (!completed) {
+        ESP_LOGW(kTag, "BENCH interrupted reason=%s n=%lu; no completed baseline",
+                 reason, static_cast<unsigned long>(summary.frames));
+        return ESP_OK;
+    }
+    if (summary.kernel == CODY::JellyRasterKernel::SimdVerify) {
+        if (summary.verified_samples == 0 || summary.vectorized_pixels == 0) {
+            ESP_LOGE(kTag, "BENCH verification rejected: no compared SIMD samples (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        ESP_LOGI(kTag, "BENCH verification complete n=%lu compared=%llu vectorized=%llu tail=%llu zero=%llu; timings excluded",
+                 static_cast<unsigned long>(summary.frames),
+                 static_cast<unsigned long long>(summary.verified_samples),
+                 static_cast<unsigned long long>(summary.vectorized_pixels),
+                 static_cast<unsigned long long>(summary.scalar_tail_pixels),
+                 static_cast<unsigned long long>(summary.zero_footprint_pixels));
+        return ESP_OK;
+    }
+    ESP_LOGI(kTag, "BENCH complete n=%lu window_us=%lld pixels=%lu budget_us=%lu missed=%lu",
+             static_cast<unsigned long>(summary.frames),
+             static_cast<long long>(CODY::RasterBenchmarkRun::kMeasurementUs),
+             static_cast<unsigned long>(summary.pixels_per_frame),
+             static_cast<unsigned long>(CODY::RasterBenchmarkRun::kBudgetUs),
+             static_cast<unsigned long>(summary.missed));
+    ESP_LOGI(kTag, "BENCH frame_us mean=%llu p95=%lu max=%lu geo=%llu raster=%llu transfer=%llu",
+             static_cast<unsigned long long>(summary.total_us / summary.frames),
+             static_cast<unsigned long>(summary.p95_us), static_cast<unsigned long>(summary.maximum_us),
+             static_cast<unsigned long long>(summary.geometry_us / summary.frames),
+             static_cast<unsigned long long>(summary.raster_us / summary.frames),
+             static_cast<unsigned long long>(summary.transfer_us / summary.frames));
+    ESP_LOGI(kTag, "BENCH artwork_us jelly_mean=%llu vector_mean=%llu detail=%u",
+             static_cast<unsigned long long>(summary.jelly_us / summary.frames),
+             static_cast<unsigned long long>(summary.vector_us / summary.frames),
+             static_cast<unsigned>(CODY::RuntimeData::raster_benchmark_profile_blocks));
+    if (CODY::RuntimeData::raster_benchmark_profile_blocks) {
+        ESP_LOGI(kTag, "BENCH detail prep_us=%llu interp_us=%llu compose_us=%llu sampled=%llu written=%llu",
+                 static_cast<unsigned long long>(summary.preparation_us),
+                 static_cast<unsigned long long>(summary.interpolation_us),
+                 static_cast<unsigned long long>(summary.composition_us),
+                 static_cast<unsigned long long>(summary.sampled_pixels),
+                 static_cast<unsigned long long>(summary.composited_pixels));
+    }
+    if (summary.kernel == CODY::JellyRasterKernel::Simd) {
+        ESP_LOGI(kTag, "BENCH SIMD vectorized=%llu tail=%llu zero=%llu coverage=%llu; packing included in frame/jelly time",
+                 static_cast<unsigned long long>(summary.vectorized_pixels),
+                 static_cast<unsigned long long>(summary.scalar_tail_pixels),
+                 static_cast<unsigned long long>(summary.zero_footprint_pixels),
+                 static_cast<unsigned long long>(summary.coverage_skipped_pixels));
+    }
+    return ESP_OK;
+}
+
+// No parameters: enter once after boot animations settle, under the shared display lock.
+// Exception: Returns real profile, policy, skin, kernel verification, clock or allocation-state errors.
+esp_err_t begin_raster_benchmark()
+{
+    if (!kRasterBenchmarkEnabled || s_resources.raster_benchmark == nullptr ||
+        !CODY::lifecycle_is_resting(s_state.lifecycle) || s_state.raster_benchmark_attempted) {
+        ESP_LOGE(kTag, "BENCH entry state rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_state.raster_benchmark_attempted = true;
+    esp_err_t error = apply_scene_standby_policy({});
+    if (error != ESP_OK) {
+        return error;
+    }
+#if CODY_ENABLE_PEARL_JELLY
+    CODY::JellySkinSelection previous;
+    error = CODY::selected_jelly_skin(previous);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_state.raster_benchmark_previous_skin = previous.id;
+    s_state.raster_benchmark_previous_kernel = CODY::selected_jelly_raster_kernel();
+#endif
+    error = LUNASHELL_power_manager_set_scene_standby_override(
+        CODY::RasterBenchmarkRun::kStandbyOverrideSeconds);
+    if (error != ESP_OK) {
+        return error;
+    }
+    // From this point the ordinary failure cleanup owns policy and skin restoration.
+    s_state.raster_benchmark_active = true;
+#if CODY_ENABLE_PEARL_JELLY
+    error = CODY::select_jelly_skin("cody.skin.pearl_mist.v1");
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = CODY::select_jelly_raster_kernel(CODY::RuntimeData::raster_benchmark_kernel);
+    if (error != ESP_OK) {
+        return error;
+    }
+    ESP_LOGI(kTag, "BENCH kernel=%s; mode=%s",
+             CODY::jelly_raster_kernel_name(CODY::RuntimeData::raster_benchmark_kernel),
+             CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify
+                 ? "pixel-verification-no-performance-result" : "timing");
+    if (CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify) {
+        error = CODY::verify_jelly_simd_kernel();
+        if (error != ESP_OK) {
+            return error;
+        }
+    }
+#endif
+    error = s_resources.raster_benchmark->begin(esp_timer_get_time());
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_state.raster_benchmark_resume_greeting = s_greeting_scheduled.exchange(false, std::memory_order_acq_rel);
+    s_demo_requested.store(false, std::memory_order_release);
+    s_state.scene = {};
+    s_state.resume_scene_pending = false;
+    s_state.routine_greeting_pending = false;
+    s_state.routine_scene = false;
+    s_state.rig_visible = true;
+    s_state.rig_debug = false;
+    s_state.animation_paused = false;
+    s_state.animation_elapsed_us = 0;
+    s_state.animation_sampled_us = 0;
+    s_state.rig_frame_count = 0;
+    s_state.last_timing_log_us = 0;
+    s_state.frame_rate = {};
+    s_benchmark.reset();
+    s_resources.previous_frame_valid = false;
+    s_state.raster_benchmark_revision = LUNASHELL_display_runtime_content_revision();
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    ESP_LOGI(kTag, "BENCH begin pose=ready scale=%u skin=pearl_mist detail=%u core=1 revision=%lu warmup_s=5 measure_s=40 face=follow",
+             static_cast<unsigned>(CODY::RuntimeData::raster_benchmark_cloud_scale_percent),
+             static_cast<unsigned>(CODY::RuntimeData::raster_benchmark_profile_blocks),
+             static_cast<unsigned long>(s_state.raster_benchmark_revision));
+    return ESP_OK;
+}
+
 // suspended: Clear queued clicks while parked; resuming primes a fresh displayed baseline.
 // Exception: Returns the audio owner's real suspension error for an admitted feature.
 esp_err_t set_companion_typewriter_suspended(bool suspended)
@@ -1085,6 +1267,11 @@ const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
 void release_companion_resources()
 {
     s_resources.previous_frame_valid = false;
+    if (s_resources.raster_benchmark != nullptr) {
+        s_resources.raster_benchmark->~RasterBenchmarkRun();
+        heap_caps_free(s_resources.raster_benchmark);
+        s_resources.raster_benchmark = nullptr;
+    }
     if (s_resources.previous_rig != nullptr) {
         s_resources.previous_rig->~RigScene();
         heap_caps_free(s_resources.previous_rig);
@@ -1117,7 +1304,8 @@ esp_err_t release_worker_resources()
                 ESP_LOGE(kTag, "Typewriter cleanup suspension failed (%s)", esp_err_to_name(audio_error));
             }
         }
-        if (s_standby_scene_definition != nullptr && s_standby_scene_definition->standby_override_seconds != 0) {
+        if (s_state.raster_benchmark_active ||
+            (s_standby_scene_definition != nullptr && s_standby_scene_definition->standby_override_seconds != 0)) {
             const esp_err_t policy_error = LUNASHELL_power_manager_set_scene_standby_override(0);
             if (policy_error != ESP_OK) {
                 ESP_LOGE(kTag, "Scene standby cleanup failed (%s)", esp_err_to_name(policy_error));
@@ -1126,13 +1314,25 @@ esp_err_t release_worker_resources()
         const uint32_t retained_bytes =
             (s_resources.previous_rig != nullptr ? sizeof(CODY::RigScene) : 0) +
             (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0) +
-            (s_resources.rig_debug_strokes != nullptr ? sizeof(CODY::RigDebugStrokeCache) : 0);
+            (s_resources.rig_debug_strokes != nullptr ? sizeof(CODY::RigDebugStrokeCache) : 0) +
+            (s_resources.raster_benchmark != nullptr ? sizeof(CODY::RasterBenchmarkRun) : 0);
         LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
             retained_bytes, lock_error
         );
         ESP_LOGE(kTag, "Companion cleanup retained PSRAM until reset: %s",
                  esp_err_to_name(lock_error));
         return lock_error;
+    }
+    const esp_err_t benchmark_error = stop_raster_benchmark(false, "renderer-cleanup");
+    if (benchmark_error != ESP_OK) {
+        const uint32_t retained_bytes = sizeof(CODY::RasterBenchmarkRun) +
+            (s_resources.previous_rig != nullptr ? sizeof(CODY::RigScene) : 0) +
+            (s_resources.rig != nullptr ? sizeof(CODY::RigScene) : 0) +
+            (s_resources.rig_debug_strokes != nullptr ? sizeof(CODY::RigDebugStrokeCache) : 0);
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplayConsumerRetention(
+            retained_bytes, benchmark_error);
+        bsp_display_unlock();
+        return benchmark_error;
     }
     const esp_err_t audio_error = set_companion_typewriter_suspended(true);
     if (audio_error != ESP_OK) {
@@ -1291,6 +1491,25 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
 {
     if (s_resources.rig == nullptr) {
         return ESP_ERR_INVALID_STATE;
+    }
+    if (s_state.raster_benchmark_active && CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        !s_state.resume_scene_pending) {
+        CODY::Transform placement = CODY::Data::placement;
+        placement.scale *= static_cast<float>(CODY::RuntimeData::raster_benchmark_cloud_scale_percent) / 100.f;
+        CODY::ContourState contour = CODY::make_contour_state();
+        const esp_err_t geometry_error = CODY::evaluate_rig(
+            CODY::Data::ready, placement, *s_resources.rig, &contour, true
+        );
+        if (geometry_error != ESP_OK) {
+            return geometry_error;
+        }
+        // This route is an authored fixed pose. It neither reads nor publishes synthetic sensors.
+        s_state.contour = contour;
+        s_state.face = CODY::Data::ready;
+        s_state.response_frame.face = CODY::Data::ready;
+        s_state.response_frame.transform = placement;
+        s_state.animation_sampled_us = frame_started_us;
+        return ESP_OK;
     }
     const int64_t animation_delta_us = resume_animation || s_state.animation_sampled_us == 0
         ? 0 : frame_started_us - s_state.animation_sampled_us;
@@ -1506,7 +1725,32 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     // Let late frames go. Schedule from this frame's real timestamp.
     const uint32_t period_ms = s_state.animation_paused ? kPausedReadoutPeriodMs : kRigFramePeriodMs;
     s_state.next_frame_us = timings.started_us + period_ms * 1000LL;
-    if (!s_state.greeting_entered) {
+    if (s_state.raster_benchmark_active) {
+        const CODY::FrameCosts measured{
+            static_cast<uint32_t>(timings.geometry_us),
+            static_cast<uint32_t>(timings.raster_us),
+            static_cast<uint32_t>(timings.transfer_us),
+            static_cast<uint32_t>(log.completed_us - timings.started_us)};
+        const auto previous_phase = s_resources.raster_benchmark->phase();
+        const esp_err_t sample_error = s_resources.raster_benchmark->record(
+            timings.started_us, log.completed_us, measured, timings.submitted_pixels,
+            timings.raster_profile.jelly, timings.raster_profile.vector_us);
+        if (sample_error != ESP_OK) {
+            return sample_error;
+        }
+        if (CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify) {
+            // Comparing both implementations perturbs this run. Never publish PERF/STAGE as a baseline.
+            return ESP_OK;
+        }
+        if (s_resources.raster_benchmark->phase() == CODY::RasterRunPhase::Warmup) {
+            return ESP_OK;
+        }
+        if (previous_phase == CODY::RasterRunPhase::Warmup) {
+            s_benchmark.reset();
+            s_state.frame_rate = {};
+        }
+    }
+    if (!s_state.greeting_entered && !s_state.raster_benchmark_active) {
         return ESP_OK;
     }
     ++s_state.rig_frame_count;
@@ -1609,11 +1853,30 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         timings.dirty_rectangles, timings.rasterized_tiles, timings.visited_tiles);
     // Substages are part of artwork, not extra work. Keep microseconds and a
     // separate short record so the sink's 255-byte limit cannot hide the split.
-    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld personality=%lld total=%lld",
-        static_cast<long long>(timings.raster_profile.jelly_us),
+    const auto &jelly = timings.raster_profile.jelly;
+    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld personality=%lld total=%lld detail=%u",
+        static_cast<long long>(jelly.total_us),
         static_cast<long long>(timings.raster_profile.vector_us),
         static_cast<long long>(timings.raster_profile.personality_us),
-        static_cast<long long>(timings.raster_profile.artwork_us));
+        static_cast<long long>(timings.raster_profile.artwork_us),
+        static_cast<unsigned>(jelly.blocks_enabled));
+    if (!jelly.blocks_enabled) {
+        return;
+    }
+    ESP_LOGI(kTag, "JELLY us prep=%lld interp=%lld compose=%lld sampled=%lu transparent=%lu written=%lu blocks=%lu",
+        static_cast<long long>(jelly.preparation_us),
+        static_cast<long long>(jelly.interpolation_us),
+        static_cast<long long>(jelly.blend_us),
+        static_cast<unsigned long>(jelly.sampled_pixels),
+        static_cast<unsigned long>(jelly.transparent_pixels),
+        static_cast<unsigned long>(jelly.blended_pixels),
+        static_cast<unsigned long>(jelly.timed_blocks));
+    if (jelly.sampled_pixels != 0) {
+        // Composition visits transparent samples too. Both rates describe the same input population.
+        ESP_LOGI(kTag, "JELLY ns_per_sample interp=%llu compose=%llu",
+            static_cast<unsigned long long>(jelly.interpolation_us) * 1000U / jelly.sampled_pixels,
+            static_cast<unsigned long long>(jelly.blend_us) * 1000U / jelly.sampled_pixels);
+    }
 }
 
 // plan: Frame-local damage coverage, before any tile is rasterized.
@@ -1687,6 +1950,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         return frame.finish({audio_resume_error, false, 0});
     }
     const uint32_t revision = LUNASHELL_display_runtime_content_revision();
+    // Capture requests can arrive between scene dispatch and capture-timeline advancement.
+    const bool capture_interrupted = capture_visual() != CaptureVisual::None ||
+        s_capture_sequence_active.load(std::memory_order_acquire);
+    if (s_state.raster_benchmark_active &&
+        (revision != s_state.raster_benchmark_revision || capture_interrupted)) {
+        const esp_err_t benchmark_error = stop_raster_benchmark(false,
+            capture_interrupted ? "power-capture" : "display-revision");
+        if (benchmark_error != ESP_OK) {
+            return frame.finish({benchmark_error, false, 0});
+        }
+    }
+    timings.raster_profile.jelly.blocks_enabled = s_state.raster_benchmark_active &&
+        CODY::RuntimeData::raster_benchmark_profile_blocks;
     if (revision == 0) {
         return frame.finish({ESP_ERR_INVALID_RESPONSE, false, 0});
     }
@@ -1732,7 +2008,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_benchmark.reset();
         }
         if constexpr (kRenderDiagnosticsEnabled) {
-            if (s_state.greeting_entered && s_state.debug_readout_enabled &&
+            if ((s_state.raster_benchmark_active || (s_state.greeting_entered && s_state.debug_readout_enabled)) &&
                 !footer_blocks_readout) {
                 const esp_err_t readout_error = CODY::prepare_debug_readout(
                     s_state.frame_rate, timings.started_us, debug_readout
@@ -1814,9 +2090,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const uint8_t navigation_opacity = s_state.navigation_visibility.opacity(timings.started_us);
     const uint16_t scene_background = frame_scene_visible ? s_state.scene.definition->background_rgb565 :
         CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
-    const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
+    const bool frame_navigation_visible = !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
-    const bool frame_status_visible = !s_state.onboarding.effective_first_boot &&
+    const bool frame_status_visible = !s_state.raster_benchmark_active && !s_state.onboarding.effective_first_boot &&
         navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
     if (s_state.rig_visible) {
         const int64_t cue_preparation_started_us = esp_timer_get_time();
@@ -1935,7 +2211,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return frame.finish({feedback_error, false, 0});
         }
     }
-    const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
+    const bool frame_readout_visible = !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && s_state.greeting_entered &&
         s_state.debug_readout_enabled && presentation.content_visible && !footer_blocks_readout &&
         (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     // Fade a bounded palette once, not 466x466 boot pixels or the physical
@@ -1960,6 +2236,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     esp_err_t plan_error = ESP_OK;
     if (!reuse_previous || presentation.boot_bitmap_visible || screenshot_capture_active) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
+    } else if (s_state.raster_benchmark_active) {
+        // A static pose would otherwise disappear from the dirty plan after its first frame.
+        // Force the exact same artwork region; warmup excludes the initial full-canvas clear.
+        plan_error = CODY::include_rig_artwork_damage(*s_resources.rig, dirty_plan);
     } else {
         plan_error = CODY::plan_rig_damage(*s_resources.previous_rig, *s_resources.rig,
             s_cached_rig_debug, frame_debug, s_cached_selected_point, s_state.selected_point,
@@ -2374,6 +2654,32 @@ esp_err_t apply_scene_requests()
             s_state.onboarding_sampled_us = 0;
             return ESP_OK;
         }
+        if constexpr (kRasterBenchmarkEnabled) {
+            if (s_state.boot_phase == BootPhase::Ready && !s_state.raster_benchmark_attempted) {
+                return begin_raster_benchmark();
+            }
+            if (s_state.raster_benchmark_active) {
+                if (s_capture_request_pending.load(std::memory_order_acquire) ||
+                    s_capture_sequence_active.load(std::memory_order_acquire) ||
+                    capture_visual() != CaptureVisual::None) {
+                    return stop_raster_benchmark(false, "power-capture");
+                }
+                if (s_lifecycle_request.load(std::memory_order_acquire) != s_state.lifecycle_request) {
+                    return stop_raster_benchmark(false, "power-lifecycle");
+                }
+                if (LUNASHELL_display_runtime_content_revision() != s_state.raster_benchmark_revision) {
+                    return stop_raster_benchmark(false, "display-revision");
+                }
+                if (s_resources.raster_benchmark->due(esp_timer_get_time())) {
+                    const esp_err_t result = s_resources.raster_benchmark->finish(esp_timer_get_time());
+                    if (result != ESP_OK) {
+                        return result;
+                    }
+                    return stop_raster_benchmark(true, "window-complete");
+                }
+                return ESP_OK;
+            }
+        }
         // Inactivity is awake time, independent of the Debug animation pause.
         // Reset sampling while hidden so a long standby never expires a route.
         const int64_t onboarding_now_us = esp_timer_get_time();
@@ -2608,6 +2914,10 @@ esp_err_t apply_lifecycle_requests()
     if (policy_error != ESP_OK) {
         return policy_error;
     }
+    const esp_err_t benchmark_error = stop_raster_benchmark(false, "power-lifecycle");
+    if (benchmark_error != ESP_OK) {
+        return benchmark_error;
+    }
     const bool sleeping = (request & 1U) != 0;
     const esp_err_t audio_error = set_companion_typewriter_suspended(sleeping);
     if (audio_error != ESP_OK) {
@@ -2692,6 +3002,10 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    if (s_state.raster_benchmark_active && point.pressed) {
+        s_state.touch_pressed = point.pressed;
+        return stop_raster_benchmark(false, "touch");
+    }
     if (!s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready &&
         LUNASHELL_display_runtime_writes_allowed() && CODY::lifecycle_is_resting(s_state.lifecycle)) {
         const esp_err_t activity_error = CODY::observe_onboarding_touch_activity(
@@ -3263,6 +3577,8 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (look_error != ESP_OK) {
         return fail_consumer("Cody look setting", look_error, false);
     }
+    ESP_LOGI(kTag, "Jelly raster kernel: %s", CODY::jelly_raster_kernel_name(
+        CODY::selected_jelly_raster_kernel()));
 #endif
     for (const auto &definition : CODY::SceneData::definitions) {
         CODY::SceneFrame preflight_scene{};
@@ -3322,6 +3638,15 @@ extern "C" esp_err_t CODY_companion_start(void)
         return fail_consumer("Rig debug stroke cache allocation", ESP_ERR_NO_MEM, false);
     }
     s_resources.rig_debug_strokes = new (debug_stroke_storage) CODY::RigDebugStrokeCache{};
+    if constexpr (kRasterBenchmarkEnabled) {
+        void *benchmark_storage = heap_caps_malloc(
+            sizeof(CODY::RasterBenchmarkRun), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (benchmark_storage == nullptr) {
+            release_companion_resources();
+            return fail_consumer("Raster benchmark allocation", ESP_ERR_NO_MEM, false);
+        }
+        s_resources.raster_benchmark = new (benchmark_storage) CODY::RasterBenchmarkRun{};
+    }
     s_state.rig_visible = true;
     s_state.deep_sleep_wake = esp_reset_reason() == ESP_RST_DEEPSLEEP;
     s_state.lifecycle = s_state.deep_sleep_wake
@@ -3360,9 +3685,10 @@ extern "C" esp_err_t CODY_companion_start(void)
     }
     s_start_state.store(StartState::Running, std::memory_order_release);
     TaskHandle_t worker = nullptr;
-    if (xTaskCreateWithCaps(
+    if (xTaskCreatePinnedToCoreWithCaps(
             companion_worker, "CODY_companion", kWorkerStackBytes,
-            nullptr, 2, &worker, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
+            nullptr, 2, &worker, kRasterBenchmarkEnabled ? 1 : tskNO_AFFINITY,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT
         ) != pdPASS) {
         release_companion_resources();
         return fail_consumer("Worker creation", ESP_ERR_NO_MEM, false);
@@ -3387,9 +3713,11 @@ extern "C" esp_err_t CODY_companion_boot_completed(void)
 }
 
 // Automatic route entry is configurable; ready-frame completion remains a prerequisite.
+// Exception: Returns the real display-lock or state error.
 extern "C" esp_err_t CODY_companion_demo_start(void)
 {
-    if (!CODY::RuntimeData::autostart) {
+    if (kRasterBenchmarkEnabled || !CODY::RuntimeData::autostart) {
+        // The worker enters the benchmark once Idle is actually reached, even with a visible boot rig.
         return ESP_OK;
     }
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
@@ -3407,7 +3735,7 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
         return ESP_OK; // A real touch may already have entered while startup finishes.
     }
     if (s_state.onboarding.effective_first_boot) {
-        // The first-boot scene has priority over optional automatic demo routing.
+        // Ordinary demo requests retain the first-run routing priority.
         return ESP_OK;
     }
     s_demo_requested.store(true, std::memory_order_release);
@@ -3446,6 +3774,7 @@ extern "C" esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled)
 }
 
 // expression_key: Exact implemented catalog key, resolved once into a typed identity.
+// Exception: Returns lookup/state/lock errors or failure to end an interrupted benchmark.
 extern "C" esp_err_t CODY_companion_set_expression(const char *expression_key)
 {
     const CODY::ExpressionDefinition *definition = nullptr;
@@ -3468,6 +3797,10 @@ extern "C" esp_err_t CODY_companion_set_expression(const char *expression_key)
         ESP_LOGE(kTag, "Expression %s rejected during lifecycle/power transition (%s)",
             definition->key, esp_err_to_name(error));
         return error;
+    }
+    const esp_err_t benchmark_error = stop_raster_benchmark(false, "expression-selection");
+    if (benchmark_error != ESP_OK) {
+        return benchmark_error;
     }
     s_state.requested_expression = definition->id;
     s_state.expression_override = true;
@@ -3536,6 +3869,7 @@ extern "C" esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled)
 }
 
 // enabled: Runtime preference applied by the worker under the shared display/state lock.
+// Exception: Returns state/lock/feature errors or failure to end an interrupted benchmark.
 extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
 {
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
@@ -3551,6 +3885,10 @@ extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
             ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
         ESP_LOGE(kTag, "Face deformation state rejected: %s", esp_err_to_name(error));
         return error;
+    }
+    const esp_err_t benchmark_error = stop_raster_benchmark(false, "face-deformation");
+    if (benchmark_error != ESP_OK) {
+        return benchmark_error;
     }
     s_state.face_follows_body = enabled;
     s_state.frame_dirty.store(true, std::memory_order_release);
