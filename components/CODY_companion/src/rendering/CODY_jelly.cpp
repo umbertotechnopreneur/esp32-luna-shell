@@ -21,7 +21,7 @@ constexpr char kTag[] = "CODY_jelly";
 constexpr int32_t kFixedOne = 65536;
 constexpr uint16_t kCanvasSize = 466;
 constexpr uint16_t kProfileBlockPixels = 16;
-constexpr uint16_t kSimdBlockPixels = 64;
+constexpr uint16_t kSimdBlockPixels = 16;
 constexpr char kSkinSettingKey[] = "cody_skin";
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);

@@ -666,7 +666,7 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
                                         "comparison runs are explicit and counted");
                             }
                             if (mode == 2) {
-                                const uint32_t block_size = kernel == CODY::JellyRasterKernel::Scalar ? 16U : 64U;
+                                const uint32_t block_size = 16U;
                                 const uint32_t blocks = (visible + block_size - 1U) / block_size;
                                 require(profile.sampled_pixels == visible &&
                                         profile.transparent_pixels + profile.blended_pixels == visible &&
