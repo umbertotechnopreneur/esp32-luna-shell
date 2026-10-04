@@ -62,24 +62,34 @@ bool awaitingConnection(State state)
 // primary_error: Cause of closure, preserved if cleanup fails too.
 // reason: Manager's actual credential failure classification, when available.
 // restore_telemetry: True only after provisioning success and a usable Wi-Fi IP.
+// Exception: Publishes the retained attempt error and actual cleanup error separately.
 void closeSession(State terminal, esp_err_t primary_error, Reason reason, bool restore_telemetry)
 {
+    esp_err_t attempt_error = primary_error;
     {
         std::lock_guard<std::mutex> guard(s_mutex);
+        if (terminal == State::Cancelled && primary_error == ESP_OK) {
+            // Explicit cleanup recovery closes ownership without erasing the
+            // failed attempt. Only admission of a new attempt clears its cause.
+            attempt_error = s_session.last_error;
+            if (attempt_error != ESP_OK && reason == Reason::None) {
+                reason = s_session.failure_reason;
+            }
+        }
         s_busy = true;
         s_session.failure_reason = reason;
-        publishLocked(restore_telemetry ? State::Completing : State::Cancelling, primary_error);
+        publishLocked(restore_telemetry ? State::Completing : State::Cancelling, attempt_error);
     }
     const esp_err_t cleanup_error = LUNASHELL_radios_end_pairing(restore_telemetry);
     if (cleanup_error != ESP_OK) {
-        ESP_LOGE(kTag, "Pairing cleanup failed (%s), primary result %s",
-                 esp_err_to_name(cleanup_error), esp_err_to_name(primary_error));
+        ESP_LOGE(kTag, "Pairing cleanup failed (%s), attempt result %s",
+                 esp_err_to_name(cleanup_error), esp_err_to_name(attempt_error));
     }
     std::lock_guard<std::mutex> guard(s_mutex);
     s_busy = false;
     s_session.cleanup_error = cleanup_error;
     s_session.deadline_at_us = 0;
-    const esp_err_t result = primary_error == ESP_OK ? cleanup_error : primary_error;
+    const esp_err_t result = attempt_error == ESP_OK ? cleanup_error : attempt_error;
     if (s_pending == Command::Cancel && cleanup_error == ESP_OK) {
         publishLocked(State::Cancelling, result);
     } else {
@@ -256,6 +266,7 @@ extern "C" esp_err_t LUNASHELL_pairing_service_init(void)
 
 // action: Explicit Start, Retry or Cancel action from the active product route.
 // expected_attempt_id: Identity read from the canonical pairing session snapshot.
+// Exception: Returns actual action admission errors without claiming operation completion.
 extern "C" esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action, uint32_t expected_attempt_id)
 {
     Command command = Command::None;
@@ -286,7 +297,9 @@ extern "C" esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);
         }
         s_pending = command;
-        publishLocked(State::Cancelling, ESP_OK);
+        // Cancellation acknowledges cleanup intent, not recovery of the failed
+        // attempt. Keep its cause through confirmed closure and navigation.
+        publishLocked(State::Cancelling, s_session.last_error);
     } else {
         if (s_busy || s_pending != Command::None || s_session.cleanup_error != ESP_OK) {
             return reject(action, expected_attempt_id, ESP_ERR_INVALID_STATE);

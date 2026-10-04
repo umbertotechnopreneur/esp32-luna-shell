@@ -7,6 +7,17 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Passive `9fde2b48` logs confirm the reported graphical wake works even after
+  the BLE reservation fails (34,816 bytes requested, largest DMA block 21,504).
+  Subsequent Retry contacts fail during Cancel cleanup, with primary result
+  `ESP_OK`: teardown incorrectly reserves memory for a future session.
+  Removed that future admission from teardown; next Start retains strict
+  reservation/preflight and its original error. Cancel now retains the failed
+  attempt's cause alongside the actual cleanup result, allowing clean Retry
+  navigation to 05. Source integration reviewed; this correction is not yet
+  built/flashed. Capture starts after the original Pair Cody failure, so its
+  exact startup stage is not established:
+  `artifacts/build-cody-companion-debug/evidence/cody-9fde2b48-pairing-before-reset.log`.
 - Passive monitoring of `d766e08c` recorded wake input followed by failed BLE
   DMA reservation (34,816 bytes required; largest block about 21-22 KiB), then
   rollback to standby. A later Interrupt-WDT backtrace enters the log mutex

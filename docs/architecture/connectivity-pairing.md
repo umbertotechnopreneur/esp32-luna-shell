@@ -14,6 +14,11 @@ Wi-Fi connect, scan and stop calls are rejected while provisioning owns them.
 manager before another host may use BLE. Cleanup errors block the handoff.
 Telemetry restoration requires a confirmed Wi-Fi lease. These calls are
 synchronous service operations and must not run in the display renderer.
+Closing without telemetry restoration does not allocate the contiguous DMA
+reservation for a future attempt. It leaves any existing reservation owned;
+the next explicit Start acquires a missing reservation before Wi-Fi and
+provisioning initialization. A failed future allocation remains a Start failure,
+separate from successful teardown of the previous attempt.
 
 `LUNASHELL_PROVISIONING_START_ON_BOOT` keeps the existing automatic behavior
 for connected Luna profiles and defaults off for Cody. Cody retains the
@@ -60,6 +65,12 @@ a valid, healthy Wi-Fi snapshot with association and a real nonzero IP; the
 provisioning manager is released before telemetry starts. A cleanup failure
 remains visible separately from the original failure and blocks reuse. A power
 transition out of Active closes the attempt; wake never silently reopens it.
+Explicit Cancel recovery retains the failed attempt's original error through
+Cancelling and confirmed Cancelled. A valid Cancelled snapshot may therefore
+remain degraded while `cleanup_error=ESP_OK` confirms closure. Consumers gate
+return navigation on the confirmed state and cleanup result; admission of the
+next Start or Retry clears the prior attempt error. Genuine teardown failure
+continues to publish Failed with its separate cleanup error and blocks reuse.
 
 New UI consumers read `DeviceSnapshot.radios.pairing` or the same canonical
 connectivity projection. No callback into the renderer is necessary. The
@@ -67,7 +78,9 @@ pairing snapshot contains no QR or authentication secret.
 
 ## Delivery boundary
 
-Implementation has received source review only. No configure, build, size,
-tests, simulator checks or hardware operation was requested or performed.
-First provisioning, wrong password, missing AP, cancellation, retry, timeout,
-telemetry handoff, standby/wake and HTTP LAN behavior remain unverified.
+The cleanup/admission separation and retained-error cancellation behavior have
+received static source review only. These edits have not received configure,
+build, size, automated-test, simulator or physical-device validation. Existing
+observations of the previous firmware do not verify the new behavior. First
+provisioning, wrong password, missing AP, cancellation, retry, timeout, telemetry
+handoff, standby/wake and HTTP LAN behavior remain end-to-end validation gates.

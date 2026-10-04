@@ -27,6 +27,11 @@ older host/build/flash evidence does not validate the current combined image.
   real touch/pairing progress, including animation pause, standby, late worker
   results, cancellation errors and a fresh tap to restart. Verify deferred boot
   audio when the canonical clock becomes trusted, quiet hours and standby races.
+- [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
+  Capture the original Pair Cody Start failure after reset; current evidence
+  proves repeated Cancel allocation failure, not that first Start's stage.
+  Review BLE lease lifetime across software standby and display quiescence at
+  actual provisioning admission without lowering contiguous-DMA limits.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.

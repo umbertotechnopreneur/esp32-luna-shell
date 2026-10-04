@@ -1505,6 +1505,7 @@ esp_err_t LUNASHELL_radios_start_pairing(void)
 }
 
 // restore_telemetry: Explicit choice to restore BLE after a verified Wi-Fi lease.
+// Exception: Returns actual manager cleanup and requested telemetry handoff errors.
 static esp_err_t radios_end_pairing_impl(bool restore_telemetry)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
@@ -1522,11 +1523,9 @@ static esp_err_t radios_end_pairing_impl(bool restore_telemetry)
         return error;
     }
     if (!restore_telemetry) {
-#if CONFIG_BT_CONTROLLER_ENABLED
-        if (!s_deferred_ble_dma) {
-            return LUNASHELL::radio_memory::reserveBleControllerDma(s_deferred_ble_dma);
-        }
-#endif
+        // Closing this attempt must not allocate a controller lease for a
+        // future one. The next explicit Start owns that admission and its
+        // real allocation error; any already-held deferred lease stays owned.
         return ESP_OK;
     }
     LUNASHELL_wifi_status_t wifi{};
