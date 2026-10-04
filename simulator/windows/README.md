@@ -41,8 +41,11 @@ The native status rectangle `(106,37)-(362,58)` is permanently reserved, along
 with Back. A symbol that cannot fit its authored position, the body's clearance
 or the circle reports `BLOCKED_BY_LAYOUT` in the host status line. It is hidden
 without shifting or shrinking abruptly; the next admitted presentation fades in
-again. This increment has been reviewed statically and has not been executed in
-the simulator. See [personality symbols](../../docs/architecture/cody/personality-icons.md).
+again. The 2026-10-05 focused suite passed 122 native/Python controller parity
+frames, and the interactive Rig window opened using the versioned pearl boot
+artwork. Gesture feel, audio playback and hardware behavior remain unverified.
+Disable Debug geometry and select symbol None to try automatic caress hearts.
+See [personality symbols](../../docs/architecture/cody/personality-icons.md).
 
 ```powershell
 .\scripts\device.ps1 simulator

@@ -8,35 +8,14 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Finish final validation of YAML personality/catalog, priority arbitration,
-  repeated-cue suppression across hide/layout/pause, canonical low-battery
-  hysteresis and audio authoring gates. First suite attempt compiled, then
-  failed two new zero-opacity expectations; corrected assertions await fresh
-  command-specific rerun authorization. Firmware build, interactive
-  simulator and hardware still require separate command-specific authorization.
-
-- [ ] Validate dormant wellbeing session/reminder transitions, minute boundaries,
-  cadence independence, pause/end freezing, explicit acknowledgement/snooze,
-  disabled-engine rejection and overflow/identity rejection. Runtime adapters
-  and visible delivery remain deferred.
-
-- [ ] Validate the single-value happiness MVP after fresh authorization:
-  actual generated YAML/config provenance, initial/gain values, exact minute
-  boundaries, retained partial minute after a carezza, 0/100 saturation,
-  sadness complement, equal decay at different tick cadences, invalid authoring/
-  state/time rejection, awake pause/route behavior and park/resume rebasing.
-  Confirm recognized carezze increase mood even if the heart channel is busy.
-  Face influence and persistence are deliberately absent. Generator ran;
-  native sources compiled in the first suite attempt; independent host fixtures
-  were not reached. Corrected suite, current firmware build and simulator remain open.
-
-- [ ] Validate the new petting increment after fresh command-specific
-  authorization: focused `cody-personality` host suite, native/Python gesture
-  agreement, slow strokes above eyes/below mouth, tap/swipe/jitter/gap rejection,
-  one heart per contact, cooldown, occupied-channel drops, baseline preservation
-  and route/rotation/pause/park cancellation. Build and try the simulator only
-  after their own authorization. Thresholds and perceived smoothness require
-  separate physical review; no new build/upload has run.
+- [ ] Review petting interactively and on the physical display after the
+  2026-10-05 merged Debug build and focused host suite passed. Verify slow
+  strokes above eyes/below mouth, threshold feel, heart clearance and perceived
+  smoothness. The Rig simulator is open; disable Debug geometry and select
+  symbol None for automatic hearts. Native/host gesture trace parity remains
+  unestablished. Confirm actual touch, busy-channel mood gain and park/resume
+  timing on hardware only after separate authorization. Facial influence and
+  persistence remain deferred; dormant wellbeing has no runtime adapter or UI.
 - [ ] Validate the personality-icons branch on the device:
   generated-palette/coverage contracts, all fourteen cues in Main
   and Sleep, suppression on other scenes and Micro, symbol readability, actual
@@ -48,9 +27,11 @@ older host/build/flash evidence does not validate the current combined image.
   errors and codec contention. Profile
   complete frame/DMA/CPU/stack costs; static area counts are not performance
   evidence. Reconcile the independent renderer-optimization worktree before
-  integrated release validation. The 2026-10-04 Debug firmware build passed;
-  earlier focused host suite passed 748 assertions and 86 parity frames before
-  petting changes; current tests/checks, simulator and device execution remain open.
+  integrated release validation. The 2026-10-05 merged Debug firmware build
+  and focused suite passed (1,041 native assertions, 122 controller parity
+  frames and 118 independent host assertions). The interactive simulator
+  opened after its boot-artwork references were corrected. Hardware execution,
+  interactive gesture evaluation and audio playback remain open.
 
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,

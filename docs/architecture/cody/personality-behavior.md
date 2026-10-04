@@ -50,9 +50,16 @@ Generation has run. The focused suite compiled the portable native sources on
 cue identity in an empty zero-opacity frame. The trace shows the intended cue
 is owned by the FadeIn controller, while the rendered frame is correctly None.
 Both assertions now inspect that controller identity and require an empty
-frame. The corrected suite has not rerun; Python parity and independent host
-fixtures were not reached. Combined firmware, interactive simulator and device
-behavior remain unverified. The first-attempt report and trace are retained at
+frame. That first attempt did not reach Python parity or independent host
+fixtures. After merging `origin/main`, the corrected suite passed 1,041 native
+assertions, 122 controller parity frames, 32 host petting, 32 happiness and
+54 wellbeing assertions. The merged Debug firmware built successfully at
+`355c7f04`; the interactive Rig window opened after its boot-artwork references
+were corrected. Interactive gesture evaluation, audio playback and physical
+device behavior remain unverified; no COM access occurred. The passing report
+and traces are retained at
+`artifacts/build-cody-companion-debug/evidence/personality-host-20261005-merged-main/`.
+The first-attempt report and trace are retained at
 `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
 
 ## Permanent identities and configurable policy

@@ -12,8 +12,17 @@ and referenced architecture/artifact records.
   pairing and BLE/display DMA fixes. Resolved the worker conflict using main's
   atomic parked-frame observation while retaining happiness advancement,
   audio suspension and transient heart cleanup. Both Done histories are kept.
-  Static native/host integration review completed; merged build/check/simulator
-  are separately authorized and pending execution. COM access is excluded.
+  Merge checkpoint `355c7f04` passed the authorized Debug build with eight jobs
+  on ESP-IDF6.0.2: image `0x3d02e0` bytes, 73% application partition free.
+  The authorized focused suite passed 1,041 native assertions, 122 native/Python
+  controller parity frames, 32 host petting, 32 happiness and 54 wellbeing
+  assertions, plus fourteen icon/audio contracts. Evidence is preserved under
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-merged-main/`
+  and `personality-main-merge-debug-build-20261005.log` in its parent.
+  Corrected the Windows simulator's obsolete blue boot PNG references to the
+  versioned pearl frames; the Rig window opened and was responding. That
+  host-only reference correction occurred after the suite and has startup
+  evidence, not another suite run. No COM access, flash or hardware validation.
 
 - Expanded build-time personality authoring to strict `cody.personality.v2`:
   permanent typed event/zone/metric/icon IDs, `caress = 1` for both anatomical
@@ -22,7 +31,7 @@ and referenced architecture/artifact records.
   arbitration (LowBattery900 > Affection200 > Charging100), smooth urgent
   handoff, per-identity repeat cooldown retained across hidden scenes and
   canonical low-battery hysteresis (enter15%, exit20%). Native/host fixtures
-  and simulator sources are integrated; the corrected final suite remains pending.
+  and simulator sources are integrated; the corrected suite passed as recorded above.
 
 - Authored commented dormant wellbeing policies with explicit session events,
   minute-based fatigue, screen break 60min/5min, movement 30min and eye 20min/20s/
@@ -34,8 +43,9 @@ and referenced architecture/artifact records.
 - The expanded focused suite compiled native portable sources on 2026-10-05
   and ran 1,041 native assertions. Two handoff expectations incorrectly checked
   rendered cue identity at zero opacity; corrected them to inspect the channel
-  identity and require an empty frame. No corrected rerun yet; Python parity
-  and independent host fixtures were not reached. Host controller state is616B,
+  identity and require an empty frame. This first attempt did not reach Python
+  parity or independent host fixtures; the corrected post-merge suite subsequently
+  passed as recorded above. Host controller state is616B,
   including112B repeat timestamps, not a firmware stack result. Failed-run
   report/trace retained under
   `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
@@ -47,8 +57,8 @@ and referenced architecture/artifact records.
   one point, with intentional 0/100 saturation and retained partial minutes.
   Sadness is derived as 100 minus happiness. Facial/motion bindings remain
   disabled. Native and synthetic host source expose values independently of
-  heart occupancy; the expanded suite status is recorded above. No new
-  build, simulator execution or hardware action.
+  heart occupancy; the passing expanded suite, build and simulator startup are
+  recorded above. Physical hardware behavior remains unverified.
 
 - Added a source-reviewed gentle petting experiment on 2026-10-05 in normal Main view:
   body-contained AboveEyes/BelowMouth zones, acquired-time/path/speed/gap

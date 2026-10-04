@@ -208,8 +208,9 @@ uses its existing canonical publication and deformation response.
 The Windows source supports the same synthetic pointer flow in the normal Rig
 view, with Debug geometry disabled and symbol selection None. The existing
 optional Affection sound follows completed-frame audio admission; no new sound
-or direct touch-side playback was added. No simulator run, new build, listening
-or physical touch validation has been performed for this increment.
+or direct touch-side playback was added. The merged Debug build and host suite
+passed on 2026-10-05 and the Rig simulator opened; listening, interactive gesture
+evaluation and physical touch validation remain open.
 
 ## Validation and integration status
 
@@ -226,17 +227,28 @@ The preserved report is under
 `artifacts/build-cody-companion-debug/evidence/personality-host-20261004/report.json`.
 On 2026-10-05 the expanded suite compiled and ran 1,041 native assertions, with
 two failures in new zero-opacity handoff expectations. Those assertions now
-check the controller identity and empty rendered frame; a corrected run awaits
-fresh authorization. Native/Python parity and independent host fixtures were
-not reached. First-attempt evidence is preserved at
+check the controller identity and empty rendered frame. That first attempt did
+not reach Native/Python parity or independent host fixtures. Its evidence is preserved at
 `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
-Gesture trace parity has not been established. Historical results do not
-validate the new combined sources. The suite compiles the
+The corrected post-merge suite passed on 2026-10-05: 1,041 native assertions,
+122 native/Python controller parity frames and 118 independent host assertions
+(32 petting, 32 happiness, 54 wellbeing), including fourteen icon/audio contracts.
+Its report and traces are preserved at
+`artifacts/build-cody-companion-debug/evidence/personality-host-20261005-merged-main/`.
+The merged Debug firmware at `355c7f04` also built successfully with eight jobs
+on ESP-IDF6.0.2: `0x3d02e0` bytes, 73 percent application partition free.
+Build log: `artifacts/build-cody-companion-debug/evidence/personality-main-merge-debug-build-20261005.log`.
+Gesture trace parity has not been established. The suite compiles the
 actual portable vector controller/raster/damage sources and compares sequential
 frames with the simulator; it also checks the icon and PCM/WAV asset contracts.
 An installed host C++ developer environment, Pillow and PyYAML are required.
-No independent size report, interactive simulator run, audio playback, validation scans or
-hardware operation has been performed. Readability, physical clearance, FPS,
+The interactive Rig simulator opened after correcting obsolete blue artwork
+references to versioned pearl frames; its window was responding. This host-only
+reference correction followed the suite and was verified by startup, without
+another suite run. For automatic hearts, disable Debug geometry and select None.
+No independent size report, audio playback, additional validation scans or
+hardware operation has been performed. Interactive gesture feel, readability,
+physical clearance, FPS,
 stack/codec contention and Sleep behavior remain unverified on the device.
 
 The isolated worktree is `E:\ESP32 Luna Cody Emotions`, branch

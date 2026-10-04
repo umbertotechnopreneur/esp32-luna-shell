@@ -47,7 +47,11 @@ from runtime_paths import resolve_runtime_output  # noqa: E402
 
 SCREEN_NAMES = tuple(screen.value for screen in Screen)
 ANIMATED_SCREENS = (Screen.RIG, Screen.GREETING)
-BOOT_NAMES = {"boot-sleep": "cody-sleep-blue.png", "boot-waking": "cody-waking-blue.png", "boot-ready": "cody-ready-blue.png"}
+BOOT_NAMES = {
+    "boot-sleep": "cody-sleep-pearl.png",
+    "boot-waking": "cody-waking-pearl.png",
+    "boot-ready": "cody-ready-pearl.png",
+}
 LABEL_SCOPES = tuple(scope.value for scope in LabelScope)
 
 
