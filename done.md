@@ -13,7 +13,11 @@ and referenced architecture/artifact records.
   ELF SHA256 `5f615d5437f90b4d762642b9647f92db319751f3b657f0c75bb591d964b94908`.
   The authorized host-check attempt stopped before assertions with Windows
   `WinError 216`: the specified ESP Clang produced an executable Windows cannot
-  launch. A native host compiler retry and target execution are still pending.
+  launch. After updating one stale screenshot-control assertion to the authored
+  hidden behavior, the full `cody-raster-benchmark` suite passed with MSVC,
+  including the host SIMD arithmetic model over all 65,536 weight pairs. Reports
+  were retained under `artifacts/build-cody-companion-debug/evidence/` before
+  transient-artifact cleanup. Target execution is still pending.
 - Implemented an opt-in ESP32-S3 PIE bilinear sampler (source review only):
   two RGBA pixels per eight 16-bit lanes, 40-bit accumulation with the same three
   rounded lerps, aligned row scratch, unchanged RGB565 composition and scalar

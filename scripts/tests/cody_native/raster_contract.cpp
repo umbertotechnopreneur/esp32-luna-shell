@@ -906,8 +906,8 @@ void check_navigation_visibility_contract()
             "Back remains defined but hidden and non-interactive by default");
     require(CODY::rig_control_at({160, 52}) == CODY::RigControl::None,
             "Pause remains authored but hidden and non-interactive");
-    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot,
-            "Screenshot uses its independent upper-center target");
+    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::None,
+            "Screenshot is authored but hidden and non-interactive");
     require(CODY::rig_control_at({306, 52}) == CODY::RigControl::None,
             "Skeleton remains authored but hidden and non-interactive");
     require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
