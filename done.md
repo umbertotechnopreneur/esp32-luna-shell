@@ -12,9 +12,17 @@ and referenced architecture/artifact records.
   Ordinary S3 Pearl rendering now uses the upstream SIMD kernel and transparent
   row/block skipping; automatic benchmark and detailed block profiling remain
   disabled. Resolved native profiling conflicts and added missing personality
-  sources/includes to two host-check recipes. Static integration reviewed;
-  current-branch build and flash are authorized and pending. No new tests or
-  simulator session have run, and physical performance remains unverified.
+  sources/includes to two host-check recipes. Static integration reviewed.
+  Debug firmware `99342b7a` built through `scripts/device.ps1 build` with eight
+  jobs and flashed through `scripts/device.ps1 flash` to the USB ESP32-S3 on
+  COM10; both commands returned success, all written hashes verified, and
+  esptool performed its final hard reset. App size is `0x3d2330` bytes
+  (4,006,704), with 73% of the app partition free. Evidence is in
+  `artifacts/build-cody-companion-debug/evidence/` as
+  `personality-simd-main-merge-build-20261005.log` and
+  `personality-simd-main-merge-flash-20261005.log`. No new tests, monitor,
+  capture or simulator session ran. Startup behavior and physical performance
+  of this combined image remain unverified.
 
 - The first Studio UI `679fbda2` opened and responded after the authorized
   restart; the user reported blurred Windows text and ~100 ms host ticks, then
