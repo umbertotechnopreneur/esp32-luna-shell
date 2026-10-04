@@ -17,8 +17,12 @@ from scripts.common.cody_native_checks import resolve_compiler, run_stage
 # signature: Unique function definition prefix including its return type.
 # Raises ValueError when the function is missing or its body is unbalanced.
 def function_text(source: str, signature: str) -> str:
-    start = source.index(signature)
-    body = source.index("{", start + len(signature))
+    # A prior declaration is not executable code; skip signatures ending in a semicolon.
+    match = re.search(re.escape(signature) + r"[^;{]*\{", source)
+    if not match:
+        raise ValueError(f"Missing function definition: {signature}")
+    start = match.start()
+    body = match.end() - 1
     depth = 0
     for index in range(body, len(source)):
         if source[index] == "{":

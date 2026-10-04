@@ -15,7 +15,7 @@
 #define pdTRUE 1
 #define pdFALSE 0
 #define pdMS_TO_TICKS(ms) (ms)
-#define ESP_LOGE(...) ((void)0)
+#define ESP_LOGE(...) host_log(__VA_ARGS__)
 typedef void *TaskHandle_t;
 typedef void *SemaphoreHandle_t;
 typedef void *esp_lcd_panel_io_handle_t;
@@ -49,6 +49,21 @@ static size_t dma_bytes;
 static uint32_t dma_hash;
 static int64_t dma_completes_at_us;
 static esp_err_t submission_error;
+static const char *TAG = "HOST_BSP";
+
+// tag: Actual production component label, retained at the host log boundary.
+// format: Actual production failure description; values are not needed by the fixture.
+static void host_log(const char *tag, const char *format, ...)
+{
+    (void)tag;
+    (void)format;
+}
+// error: Actual production error used in the source's diagnostic paths.
+static const char *esp_err_to_name(esp_err_t error)
+{
+    (void)error;
+    return "HOST_ERROR";
+}
 
 // No parameters: fake task clock; elapsed time is advanced explicitly by the test.
 static int64_t esp_timer_get_time(void) { return now_us; }
