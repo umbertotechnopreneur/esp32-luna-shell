@@ -1178,6 +1178,8 @@ def test_diagnostic_reuse_requires_successful_commits() -> None:
 
 # No parameters: inspect optional look-save ownership without running firmware or NVS.
 # Raises AssertionError or a source-read error when a required boundary regresses.
+# No parameters: inspect the actual look-save worker, footer and retry admission.
+# Raises AssertionError when ownership, error preservation or confirmation gates regress.
 def verify_cody_look_source_contract() -> None:
     component = ROOT / "components" / "CODY_companion"
     onboarding = (component / "src/scenes/CODY_onboarding.cpp").read_text(encoding="utf-8")
@@ -1213,7 +1215,14 @@ def verify_cody_look_source_contract() -> None:
     require_contains(look, "request_id != s_view.pending_request_id", "late UI completion rejection")
     require_contains(look, "destination = s_view.navigation.caller;", "caller-based Back")
     require_contains(look, "destination = s_view.navigation.done;", "independent Done destination")
-    require_contains(look, 'prepare_caption("Tap a look to retry", 408, s_view.hint)', "explicit retry guidance")
+    completion = function_text(look, "LookSaveCompletion complete_look_save(", "look completion")
+    require_contains(completion, '"Error: 0x%x"', "original save error presentation")
+    require_contains(completion, "prepare_done_control(s_view.status_text, false)", "failed save disables Done")
+    require_contains(look, 'prepare_done_control("Saving...", false)', "pending save disables Done")
+    look_touch = function_text(look, "esp_err_t handle_look_touch(", "look retry admission")
+    require_contains(look_touch, "result.save_id = item.id;", "explicit row tap retries a failed save")
+    require_contains(look_touch, "s_view.choice_confirmed = true;", "current selection requires explicit confirmation")
+    require_contains(look_touch, "s_view.pending_request_id != 0", "busy look ignores a second request")
 
 
 # No parameters: run only through the explicitly authorized public check command.

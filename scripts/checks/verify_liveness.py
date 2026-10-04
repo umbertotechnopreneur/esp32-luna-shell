@@ -51,6 +51,8 @@ def require_order(text: str, first: str, second: str, source: str) -> None:
     require(first_at < second_at, f"{first!r} must precede {second!r} in {source}")
 
 
+# No parameters: check watchdog progress and serialized Wi-Fi reconnect ownership.
+# Raises AssertionError when source ordering, bounded waits or real-error propagation regress.
 def main() -> int:
     defaults = read_profile_defaults()
     for setting in (
@@ -249,12 +251,17 @@ def main() -> int:
         "under one Wi-Fi status transaction",
     )
     schedule_intent_guard_at = schedule_reconnect.find(
-        "if (!s_initialized || !s_status.started || !s_connect_requested)"
+        "if (!s_initialized || !s_status.started || !s_connect_requested ||"
     )
     require(
         0 <= schedule_lock_at < schedule_intent_guard_at < schedule_timer_at,
         "reconnect scheduling must revalidate connection intent under the "
         "timer-command lock",
+    )
+    require_contains(
+        schedule_reconnect[schedule_intent_guard_at:schedule_timer_at],
+        "s_provisioning_owns_connection",
+        "provisioning retains reconnect ownership under the same lock",
     )
     cancel_timer_at = cancel_reconnect.find("xTimerStop(")
     cancel_lock_at = cancel_reconnect.rfind(
@@ -369,6 +376,16 @@ def main() -> int:
     )
     require_contains(
         wifi_disconnect,
+        "return wifi_disconnect_owned_impl();",
+        "explicit disconnect delegates under the lifecycle owner",
+    )
+    owned_disconnect = function_text(
+        wifi,
+        "static esp_err_t wifi_disconnect_owned_impl(",
+        "LUNASHELL_wifi.cpp",
+    )
+    require_contains(
+        owned_disconnect,
         "cancel_reconnect(true, false)",
         "atomic explicit Wi-Fi disconnect intent cancellation",
     )

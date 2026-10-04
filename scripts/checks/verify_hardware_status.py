@@ -129,6 +129,8 @@ def verify_refresh_error_reporting() -> None:
         raise AssertionError("minimum-cadence reminder count is not deterministic")
 
 
+# No parameters: check snapshot classification and the current status/settings consumers.
+# Raises AssertionError when unavailable measurements or deferred radios are misrepresented.
 def main() -> None:
     hardware = read("components/LUNASHELL_platform/src/snapshot/LUNASHELL_hardware.cpp")
     status_bar = read("components/LUNASHELL_app/src/chrome/LUNASHELL_status_bar.cpp")
@@ -242,17 +244,17 @@ def main() -> None:
         "RTC detail recovery guidance",
     )
 
-    # The status ribbon uses separate visual classes, not one red catch-all.
+    # Status and settings distinguish standby/deferred policy from hardware faults.
     require(status_bar, "bool component_standby(", "status semantics")
-    require(status_bar, "bool radio_deferred_by_policy(", "status semantics")
+    require(app, "bool radio_deferred_by_policy(", "settings radio semantics")
     require(
-        status_bar,
-        "ble_color = palette::kStatusMuted;",
+        app,
+        'std::snprintf(ble_state.data(), ble_state.size(), "off");',
         "deferred BLE status",
     )
     require(
-        status_bar,
-        "wifi_color = palette::kStatusMuted;",
+        app,
+        'std::snprintf(wifi_state.data(), wifi_state.size(), "off");',
         "deferred Wi-Fi status",
     )
     require(

@@ -2,6 +2,7 @@
 """Validate the versioned firmware-profile and dependency-closure contract."""
 
 import json
+import argparse
 from pathlib import Path
 
 import sys
@@ -36,8 +37,15 @@ def resolve_relative(relative: object, label: str) -> Path:
     return resolved
 
 
-# Raises AssertionError when a profile or its resolved dependency lock violates the contract.
-def main() -> None:
+# argv: Optional explicit variant selection; absence validates the entire catalog.
+# Raises AssertionError when a selected profile or its dependency lock violates the contract.
+def main(argv=None) -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--variant", choices=(
+        "headless", "display-touch", "cody-companion", "leg-edition", "ui-minimal",
+        "connected", "full", "full-distance", "cody-companion-wake-word", "full-wake-word",
+    ))
+    args = parser.parse_args(argv)
     catalog = json.loads(CATALOG_PATH.read_text(encoding="utf-8"))
     if catalog.get("schema_version") != 1:
         raise AssertionError("profile catalog schema_version must be 1")
@@ -63,6 +71,8 @@ def main() -> None:
     sdkconfigs: set[Path] = set()
     build_dirs: set[str] = set()
     for variant_name, variant in variants.items():
+        if args.variant is not None and variant_name != args.variant:
+            continue
         if not isinstance(variant, dict):
             raise AssertionError(f"variant {variant_name} must be an object")
         profile_name = variant.get("profile")
@@ -92,8 +102,17 @@ def main() -> None:
                 if required_root not in roots:
                     raise AssertionError(f"{variant_name} is missing root {required_root}")
         if profile_name == "cody-companion":
-            if "espressif__network_provisioning" not in roots or "esp_http_server" in roots:
-                raise AssertionError("Cody rig PoC requires provisioning with HTTP diagnostics excluded")
+            if "espressif__network_provisioning" not in roots:
+                raise AssertionError("Cody requires the provisioning owner")
+            http_enabled = False
+            for default in defaults:
+                for line in read(default).splitlines():
+                    if line == "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=y":
+                        http_enabled = True
+                    elif line == "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=n":
+                        http_enabled = False
+            if ("esp_http_server" in roots) != http_enabled:
+                raise AssertionError(f"{variant_name} HTTP root disagrees with its ordered profile defaults")
         if profile_name not in {"headless", "display-touch", "cody-companion"} and "espressif__esp_board_manager" not in roots:
             raise AssertionError(f"{variant_name} is missing the HAL board-manager root")
         if profile_name in {"display-touch", "cody-companion"}:
@@ -369,7 +388,7 @@ def main() -> None:
     ):
         require(time_source, fragment, "headless time-service network gate")
 
-    print("Firmware build profile verification passed")
+    print(f"Firmware build profile verification passed ({args.variant or 'entire catalog'})")
 
 
 if __name__ == "__main__":
