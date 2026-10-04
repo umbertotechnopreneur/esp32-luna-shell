@@ -8,6 +8,16 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] Diagnose the reported caress freeze on firmware `99342b7a`. The authorized
+  60-second COM10 capture without reset on 2026-10-05 attached after failure:
+  periodic snapshots continued, touch/display were already in error, and
+  rotation repeatedly reported pending/pressed contact with
+  `ESP_ERR_INVALID_RESPONSE`. No initial malformed packet or panic was captured.
+  Static review confirms a failed touch sample terminates the Cody consumer and
+  leaves subsequent IRQs pending; obtain the first acquisition error after a
+  separately authorized restart before changing driver acceptance or recovery.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/caress-crash-20261005.log`.
+
 - [ ] After fresh command-specific authorization, run the pure host
   `scripts/device.ps1 check -Check cody-preview-raster` regression checks for
   sparse coverage and RGB565 composition. DPI and renderer corrections have
