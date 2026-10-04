@@ -28,10 +28,22 @@ and referenced architecture/artifact records.
 - Added the post-pairing write/readback of `cody_firstboot=false`, the compile-time
   Debug-only screen 39, screen-09 60-second standby, and the source route
   09 -> 10 -> 36 -> 11 -> optional 12 -> 13 -> 14. Screen 11 now has a disabled
-  Done footer until an explicit row tap and no first-run Back; screen 15 remains
-  gated on a future real Codex/PC session producer. Added visually reviewed A04
+  Done footer until an explicit row tap and no first-run Back. At checkpoint
+  `ce6ac300`, screen 15 still remained gated on a future real Codex/PC producer;
+  the later CCP checkpoint below replaces that gap. Added visually reviewed A04
   pages to both append-only atlases. Source/artifact review only; no build,
   simulator, automated test or device validation.
+- Added isolated Cody's Codex Plugin (CCP) packaging with portable and Codex
+  compatibility manifests, a standard-library Python MCP STDIO server, a bounded
+  CCP1 UDP protocol and DPAPI-protected PC state. Firmware now owns a canonical
+  non-secret Codex-link snapshot, six-character display-code pairing, retained
+  PC identity and authenticated FIND/READY liveness. The PAIRED/CONFIRM/ACTIVE
+  commit reports success only after both retained records exist. Screen 12
+  cannot self-advance; verified pairing enters 13, Let's go shows native Idle
+  for ten active seconds, 14 searches for the retained PC and only authenticated
+  READY enters 15. This is commissioning/liveness, not the future Codex
+  message/session transport. Source review only; plugin install/run, checks, build,
+  simulator, firewall, LAN and physical-device behavior remain unverified.
 - Integrated async Start/Retry/Cancel, per-attempt proof/session QR, credential
   adoption and BLE handoff on main; HTTP remains opt-in. Added white QR themes,
   bounded integer scaling/quiet zones, rounded controls and gesture routing.

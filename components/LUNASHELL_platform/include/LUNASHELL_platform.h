@@ -642,6 +642,29 @@ esp_err_t LUNASHELL_pairing_service_init(void);
 /** Submit one explicit action against the currently observed attempt identity. */
 esp_err_t LUNASHELL_pairing_request(LUNASHELL_pairing_action_t action, uint32_t expected_attempt_id);
 
+typedef enum {
+    LUNASHELL_CODEX_LINK_ACTION_START_PAIRING,
+    LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY,
+    LUNASHELL_CODEX_LINK_ACTION_CANCEL,
+} LUNASHELL_codex_link_action_t;
+
+/** No parameters: initialize the bounded CCP1 commissioning and liveness owner. */
+esp_err_t LUNASHELL_codex_link_service_init(void);
+/** action: Explicit pairing, discovery, or cancellation request. */
+/** expected_attempt_id: Exact canonical attempt observed by the caller. */
+esp_err_t LUNASHELL_codex_link_request(
+    LUNASHELL_codex_link_action_t action,
+    uint32_t expected_attempt_id
+);
+/** buffer: Caller-owned destination for six characters and a terminator. */
+/** buffer_size: Exact writable destination capacity. */
+/** expected_attempt_id: Exact active pairing attempt observed by the caller. */
+esp_err_t LUNASHELL_codex_link_copy_pairing_code(
+    char *buffer,
+    size_t buffer_size,
+    uint32_t expected_attempt_id
+);
+
 #ifdef __cplusplus
 }
 #endif

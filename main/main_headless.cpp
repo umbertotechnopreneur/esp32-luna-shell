@@ -238,6 +238,14 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(LUNASHELL_pairing_service_init());
     startup_watch.progress("Cody pairing controller");
 #endif
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
+    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    report_optional_startup_failure(
+        "Cody Codex link",
+        LUNASHELL_codex_link_service_init()
+    );
+    startup_watch.progress("Cody Codex link");
+#endif
     report_optional_startup_failure(
         "standalone hardware refresh",
         LUNASHELL_hardware_refresh("standalone")

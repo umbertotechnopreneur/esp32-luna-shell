@@ -104,9 +104,10 @@ config LUNA_SHELL_CODY_ENABLE_CODEX
     depends on LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     default y
     help
-        Include screen 12 in the first-run journey before the connection-state
-        screens. Disable it only for a Cody image that intentionally omits the
-        Codex integration route; this switch does not fabricate a connection.
+        Include Cody's CCP1 display-code commissioning and authenticated local
+        PC liveness route. Screen 12 publishes no success until the matching
+        plugin confirms the code; screens 14/15 use retained PC identity rather
+        than promoting Wi-Fi presence alone.
 
 config LUNASHELL_CODY_DIAGNOSTICS_READOUT
     bool "Show Cody measured FPS and CPU readout at startup"

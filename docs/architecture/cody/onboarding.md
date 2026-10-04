@@ -26,9 +26,11 @@ in [runtime](runtime.md).
 | 10, Next | 36 / Settings |
 | 36, Continue | 11 / Cody's look |
 | 11, explicit row choice + Done | 12 when `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX=y`; otherwise 13 |
-| 12, Done | 13 / You're all set. |
-| 13, Let's go | 14 / Looking for PC; remain pending without a real session signal |
-| Real current Codex/PC session | 15 / Connected; no provisional or Wi-Fi-only promotion |
+| 12, CCP1 pairing starts | Show the six-character display-only code; no manual success action |
+| Matching CCP proof + two-sided persisted-link confirmation | 13 / You're all set. |
+| 13, Let's go | 16 / native Idle animation for 10 active seconds |
+| 16, ten active seconds elapsed | 14 / authenticated search for the retained PC identity |
+| Matching authenticated READY | 15 / CCP is ready; Wi-Fi presence alone never promotes it |
 
 05 starts at Hello's `(233,225,130)`, moves in 1,000 ms to `(233,105,65)`, waits
 300 ms, then types title, three captions and Show QR at 45 ms/character. Its live
@@ -145,10 +147,36 @@ can reuse 36 and 11 without duplicating preference or look state.
 
 `CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX` is an explicit boolean. The Cody profile and
 Kconfig default currently set it to `y`, so Done from 11 enters screen 12; `n`
-skips to 13. Screen 12 requires an explicit Done before the local setup confirmation
-13, whose Let's go enters 14. The repository does not yet have a canonical Codex/PC
-session producer, so 14 remains `Connection pending` and screen 15 is authored but
-not promoted from Wi-Fi, BLE advertising or configuration alone.
+skips to 13. With the gate enabled, screen 12 starts a five-minute CCP1 pairing
+window and displays six characters from
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. The code never enters the canonical snapshot,
+HTTP, logs or a datagram. There is no Done button. Cody first persists the link
+and authenticates `PAIRED`; CCP then protects its matching PC record and returns
+`CONFIRM`. Only the authenticated `ACTIVE` completion can enter 13, so neither
+side presents a one-sided retained link as complete.
+
+Let's go from 13 retires the setup scene and leaves the normal native Idle
+animation visible for ten seconds of the existing active clock. Standby does not
+consume that hold. At expiry Cody enters 14 and broadcasts authenticated FIND
+messages for the one retained PC ID. Only a plugin with that PC ID and link key
+can return a valid READY and promote screen 15. READY is repeated liveness evidence,
+not evidence of a Codex task, project, chat or message transport; loss of liveness
+returns the presentation to 14.
+
+The `LUNASHELL_codex_link` owner binds UDP 42117 and publishes only non-secret
+`DeviceSnapshot.radios.codex_link` state. It generates the display code, salt and
+verifier, validates proofs, persists one versioned CRC-protected `ccp_pairing`
+record through the internal-stack settings owner, and wipes attempt secrets at
+success, timeout or cancellation. A genuinely absent record is unpaired; wrong
+size, version, CRC or contents is a visible failure requiring explicit repair.
+The PC plugin listens on UDP 42118 and retains its independently generated PC ID.
+The complete field order and proof inputs are versioned in
+[`plugins/cody-codex-plugin/protocol/CCP1.md`](../../../plugins/cody-codex-plugin/protocol/CCP1.md).
+
+CCP1 uses PBKDF2-HMAC-SHA256 and HMAC proofs but is a compact commissioning and
+liveness protocol, not a formal PAKE, TLS replacement or security certification.
+The future bidirectional context/status/message transport remains a separate
+product and security boundary.
 
 ## Input and public HTTP boundary
 
@@ -163,11 +191,13 @@ HTTP listens on the actual station IP at 8080 only when explicitly enabled; pair
 does not enable it. `httpServerSetApiKey` / `httpServerSetEnabled` run outside the
 renderer. Only absent `http_enabled` persists default false. Missing key means
 unconfigured; empty/corrupt/oversized saved key fails. Health is public; protected
-read-only endpoints use Bearer authentication and exclude QR secrets. The transport
-is local HTTP, not HTTPS or an implemented Codex/PC companion session. Endpoint and
+read-only endpoints use Bearer authentication and exclude QR and CCP1 secrets.
+`radios.codex_link` exposes state, identities and liveness timestamps only. The
+transport is local HTTP, not HTTPS or the future Codex message/session transport. Endpoint and
 authentication detail belongs in [HTTP API](../http-device-api.md).
 
 Actual Android scanning, wrong credentials/missing AP, DHCP, BLE handoff, repeated
-retry/cancel, wake reconciliation, LAN access and asynchronous NVS/rotation/route
-retirement races still need approved end-to-end device observation. No host fixture
-or successful flash proves those properties.
+retry/cancel, wake reconciliation, CCP firewall/broadcast behavior, concurrent
+plugin instances, LAN access and asynchronous NVS/rotation/route retirement races
+still need approved end-to-end device observation. No host fixture or successful
+flash proves those properties.

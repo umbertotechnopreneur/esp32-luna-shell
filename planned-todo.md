@@ -13,10 +13,10 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   canonical time. Schedule Deep-sleep wake through the existing power/timer
   owner; external RTC INT is not directly connected to ESP.
   [RTC](docs/architecture/cody/clock.md).
-- [ ] Define/version a real companion session/event contract and MCP transport
-  for context/status/messages and confirmed responses; diagnostics HTTP is not
-  that transport. Add push-to-talk, PC transcription/confirmation/session
-  targeting and precomputed cues; credentials stay on the PC.
+- [ ] Build the post-CCP1 companion session/event transport for context/status/
+  messages and confirmed responses; authenticated commissioning/liveness and
+  diagnostics HTTP are not that transport. Add push-to-talk, PC transcription/
+  confirmation/session targeting and precomputed cues; credentials stay on the PC.
 - [ ] Choose rig antialiasing/tessellation/dirty-region policy from target
   timings; extend validity-aware environmental composition while retaining
   shared palette, independent face channels and time-based animation.

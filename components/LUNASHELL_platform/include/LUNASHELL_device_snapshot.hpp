@@ -237,11 +237,27 @@ struct PairingSessionSnapshot : ComponentSnapshot {
     bool command_pending = false;
 };
 
+struct CodexLinkSnapshot : ComponentSnapshot {
+    CodexLinkState state = CodexLinkState::Idle;
+    uint32_t attempt_id = 0;
+    int64_t changed_at_us = 0;
+    int64_t deadline_at_us = 0;
+    int64_t ready_at_us = 0;
+    bool command_pending = false;
+    bool pairing_window_active = false;
+    bool retained_link_present = false;
+    char device_id[13] = {};
+    char paired_pc_id[33] = {};
+    char peer_ip_address[16] = {};
+    // The displayed code, verifier, salt and link key never enter the snapshot.
+};
+
 struct RadioSnapshot {
     WifiSnapshot wifi;
     BleSnapshot ble;
     ProvisioningSnapshot provisioning;
     PairingSessionSnapshot pairing;
+    CodexLinkSnapshot codex_link;
 };
 
 enum class StorageMountOutcome : uint8_t {
@@ -813,6 +829,8 @@ public:
     void reportProvisioning(const ProvisioningSnapshot &provisioning);
     // pairing: Coherent async controller observation, without any secret payload.
     void reportPairingSession(const PairingSessionSnapshot &pairing);
+    // codex_link: Coherent commissioning/liveness state, without code or key material.
+    void reportCodexLink(const CodexLinkSnapshot &codex_link);
     void reportBle(
         bool ready,
         esp_err_t error,

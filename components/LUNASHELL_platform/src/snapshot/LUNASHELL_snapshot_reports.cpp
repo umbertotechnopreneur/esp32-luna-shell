@@ -774,6 +774,17 @@ void DeviceSnapshotService::reportPairingSession(const PairingSessionSnapshot &p
     log_snapshot_publication_failure("Pairing session report", publication_error);
 }
 
+// codex_link: Original CCP1 controller result without display code or cryptographic material.
+void DeviceSnapshotService::reportCodexLink(const CodexLinkSnapshot &codex_link)
+{
+    const esp_err_t publication_error = update_snapshot(
+        [=](DeviceSnapshot &snapshot) {
+            snapshot.radios.codex_link = codex_link;
+        }
+    );
+    log_snapshot_publication_failure("Codex link report", publication_error);
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 void DeviceSnapshotService::reportDisplay(bool ready, esp_err_t error)

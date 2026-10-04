@@ -30,10 +30,12 @@ older host/build/flash evidence does not validate the current combined image.
   clocks, paused expression/geometry and backend changes while asleep.
   Verify normal wake does not reset to 04; cold/deep-sleep reset remains distinct.
 - [ ] Validate the continued first-run route 09 -> 10 -> 36 -> 11 -> optional
-  12 -> 13 -> 14: screen-09 wake retention, the explicit Codex Kconfig gate,
-  no Back on 11, mandatory row confirmation and disabled/enabled Done states.
-  Add the canonical Codex/PC session producer before admitting 15; Wi-Fi/BLE
-  alone must leave 14 pending. Exercise later re-entry through reusable 36/11.
+  12 -> 13 -> 16 (10 active seconds) -> 14 -> 15: screen-09 wake retention,
+  the explicit Codex Kconfig gate, display-code timeout/retry, no Back on 11,
+  mandatory row confirmation and disabled/enabled Done states. Exercise CCP1
+  with one and many PCs, Windows private-firewall rules, wrong/expired codes,
+  corrupt persisted records, packet loss, liveness loss/recovery and later
+  re-entry through reusable 36/11. Wi-Fi/BLE alone must leave 14 pending.
 - [ ] Validate teletype titles/body/footer/look/status and original microclick:
   completed-frame reveal only, no clicks on scrolling/replacement/resume,
   bounded notifications, quiet/time/volume gating, excluded-audio profiles,

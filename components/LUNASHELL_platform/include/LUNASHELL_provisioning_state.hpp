@@ -39,4 +39,15 @@ enum class PairingSessionState : uint8_t {
     TimedOut,
 };
 
+enum class CodexLinkState : uint8_t {
+    Idle,
+    StartingPairing,
+    Pairing,
+    Paired,
+    Discovering,
+    Connected,
+    Failed,
+    TimedOut,
+};
+
 }  // namespace LUNASHELL

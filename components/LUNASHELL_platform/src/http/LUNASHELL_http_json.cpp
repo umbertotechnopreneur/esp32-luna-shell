@@ -675,6 +675,55 @@ void writePairingSession(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::Pairi
     (void)json.raw("}");
 }
 
+// state: Typed CCP1 commissioning/liveness state from the canonical snapshot.
+const char *codexLinkStateName(LUNASHELL::CodexLinkState state)
+{
+    using State = LUNASHELL::CodexLinkState;
+    switch (state) {
+    case State::Idle: return "idle";
+    case State::StartingPairing: return "starting-pairing";
+    case State::Pairing: return "pairing";
+    case State::Paired: return "paired";
+    case State::Discovering: return "discovering";
+    case State::Connected: return "connected";
+    case State::Failed: return "failed";
+    case State::TimedOut: return "timed-out";
+    }
+    return "unknown";
+}
+
+// json: Bounded writer retaining all transport errors.
+// codex_link: Canonical non-secret CCP1 status; code, salt, proofs and keys are excluded.
+void writeCodexLink(
+    LUNASHELL::HttpJsonWriter &json,
+    const LUNASHELL::CodexLinkSnapshot &codex_link
+)
+{
+    writeComponentStart(json, codex_link);
+    (void)json.raw(",\"state\":");
+    (void)json.quoted(codexLinkStateName(codex_link.state));
+    (void)json.raw(",\"command_pending\":");
+    (void)json.boolean(codex_link.command_pending);
+    (void)json.raw(",\"pairing_window_active\":");
+    (void)json.boolean(codex_link.pairing_window_active);
+    (void)json.raw(",\"retained_link_present\":");
+    (void)json.boolean(codex_link.retained_link_present);
+    (void)json.format(
+        ",\"attempt_id\":%lu,\"changed_at_us\":%lld,\"deadline_at_us\":%lld,\"ready_at_us\":%lld",
+        static_cast<unsigned long>(codex_link.attempt_id),
+        static_cast<long long>(codex_link.changed_at_us),
+        static_cast<long long>(codex_link.deadline_at_us),
+        static_cast<long long>(codex_link.ready_at_us)
+    );
+    (void)json.raw(",\"device_id\":");
+    (void)json.quoted(codex_link.device_id);
+    (void)json.raw(",\"paired_pc_id\":");
+    (void)json.quoted(codex_link.paired_pc_id);
+    (void)json.raw(",\"peer_ip_address\":");
+    (void)json.quoted(codex_link.peer_ip_address);
+    (void)json.raw("}");
+}
+
 const char *storageMountOutcomeName(LUNASHELL::StorageMountOutcome outcome)
 {
     switch (outcome) {
@@ -1297,6 +1346,8 @@ void writeSnapshotData(
     writeProvisioning(json, snapshot.radios.provisioning);
     (void)json.raw(",\"pairing\":");
     writePairingSession(json, snapshot.radios.pairing);
+    (void)json.raw(",\"codex_link\":");
+    writeCodexLink(json, snapshot.radios.codex_link);
     (void)json.raw("},\"storage\":");
     writeStorage(json, snapshot.storage);
     if (complete_diagnostics) {

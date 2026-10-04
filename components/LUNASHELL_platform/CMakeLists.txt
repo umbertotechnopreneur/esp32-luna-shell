@@ -10,6 +10,7 @@ set(LUNASHELL_platform_srcs
     "src/display/LUNASHELL_display_runtime.cpp"
     "src/runtime/LUNASHELL_sleep.cpp"
     "src/network/LUNASHELL_pairing_service.cpp"
+    "src/network/LUNASHELL_codex_link.cpp"
 )
 
 set(LUNASHELL_platform_requires
@@ -90,9 +91,14 @@ endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_WIFI)
     list(APPEND LUNASHELL_platform_srcs "src/network/LUNASHELL_wifi.cpp")
-    list(APPEND LUNASHELL_platform_requires esp_netif esp_wifi)
+    list(APPEND LUNASHELL_platform_requires esp_netif esp_wifi lwip)
 else()
     list(APPEND LUNASHELL_platform_srcs "src/network/LUNASHELL_wifi_stub.cpp")
+endif()
+
+if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
+   CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
+    list(APPEND LUNASHELL_platform_requires mbedtls)
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)
@@ -151,7 +157,11 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS)
     idf_component_optional_requires(PUBLIC esp_pm)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_WIFI)
-    idf_component_optional_requires(PUBLIC esp_netif esp_wifi)
+    idf_component_optional_requires(PUBLIC esp_netif esp_wifi lwip)
+endif()
+if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
+   CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
+    idf_component_optional_requires(PRIVATE mbedtls)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)
     idf_component_optional_requires(PUBLIC network_provisioning)

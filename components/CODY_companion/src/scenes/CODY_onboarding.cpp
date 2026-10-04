@@ -47,16 +47,29 @@ constexpr size_t kDebugLineBytes = 64;
 constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
 constexpr int64_t kHelloReadableHoldUs = 1000000;
+constexpr int64_t kCodexIdleHoldUs = 10LL * 1000000LL;
 constexpr bool kPairingDebugEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
 constexpr bool kCodexIntegrationEnabled = CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX;
 using PairState = LUNASHELL::PairingSessionState;
+using CodexState = LUNASHELL::CodexLinkState;
 
 enum class Route : uint8_t {
     None, Hello04, Invitation05, Install06, Pairing07, Failed08, Online09,
     MakeItYours10, Look11, ConnectCodex12, SetupComplete13, LookingForPc14,
-    Connected15, Settings36, DebugText
+    Connected15, Idle16, Settings36, DebugText
 };
-enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel, SaveLook, CompleteFirstBoot };
+enum class Work : uint8_t {
+    InstallQr,
+    SessionQr,
+    Start,
+    Retry,
+    Cancel,
+    SaveLook,
+    CompleteFirstBoot,
+    CodexStart,
+    CodexCopyCode,
+    CodexDiscover,
+};
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo
@@ -79,6 +92,7 @@ struct Result {
     esp_err_t error = ESP_OK;
     esp_err_t publication_error = ESP_OK;
     QrModules qr{};
+    char codex_code[7]{};
 };
 struct ContentView {
     CODY2D::TextLine lines[kContentLineCapacity]{};
@@ -111,6 +125,13 @@ bool s_first_boot_persisted = false;
 bool s_pairing_debug_dismissed = false;
 int64_t s_hello_completed_at_us = -1;
 int64_t s_last_pairing_change_us = -1;
+uint32_t s_codex_attempt = 0;
+int64_t s_last_codex_change_us = -1;
+int64_t s_codex_idle_started_at_us = -1;
+bool s_codex_owned = false;
+bool s_codex_error_visible = false;
+esp_err_t s_codex_visible_error = ESP_OK;
+char s_codex_code[7]{};
 esp_err_t s_visible_error = ESP_OK;
 Work s_failed_work = Work::Start;
 bool s_local_failure = false;
@@ -253,6 +274,21 @@ void execute_command(const Command &command, Result &result)
         wipe(payload, sizeof(payload));
         return;
     }
+    if (command.work == Work::CodexCopyCode) {
+        result.error = LUNASHELL_codex_link_copy_pairing_code(
+            result.codex_code,
+            sizeof(result.codex_code),
+            command.attempt
+        );
+        return;
+    }
+    if (command.work == Work::CodexStart || command.work == Work::CodexDiscover) {
+        const LUNASHELL_codex_link_action_t action = command.work == Work::CodexStart
+            ? LUNASHELL_CODEX_LINK_ACTION_START_PAIRING
+            : LUNASHELL_CODEX_LINK_ACTION_START_DISCOVERY;
+        result.error = LUNASHELL_codex_link_request(action, command.attempt);
+        return;
+    }
     LUNASHELL_pairing_action_t action;
     switch (command.work) {
     case Work::Start:
@@ -296,9 +332,9 @@ void action_worker(void *context)
     }
 }
 
-// work: Explicit radio or QR preparation action.
+// work: Explicit radio, Codex-link or QR preparation action.
 // attempt: Current canonical attempt identity; never an inferred UI list position.
-// session: Current canonical provisioning-session identity, or zero for non-QR actions.
+// session: Current canonical provisioning-session identity, or zero for other actions.
 esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
 {
     if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire)) {
@@ -816,10 +852,17 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         }
         error = prepare_action(OnboardingAction::Continue, true);
     } else if (route == Route::ConnectCodex12) {
-        error = prepare_caption("Finish on your PC.", 350, s_view.lines[0]);
+        const char *message = s_codex_code[0] == '\0'
+            ? "Preparing secure code"
+            : "Enter code in Codex";
+        error = prepare_caption(message, 350, s_view.lines[0]);
         s_view.line_count = 1;
+        if (error == ESP_OK && s_codex_code[0] != '\0') {
+            error = prepare_caption(s_codex_code, 380, s_view.lines[1]);
+            s_view.line_count = 2;
+        }
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::Done, true);
+            error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::SetupComplete13) {
         error = prepare_caption("Setup confirmed", 350, s_view.lines[0]);
@@ -828,20 +871,20 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::LetsGo, true);
         }
     } else if (route == Route::LookingForPc14) {
-        error = prepare_caption("Connection pending", 350, s_view.lines[0]);
+        error = prepare_caption("Looking for paired PC", 350, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Searching...", 380, s_view.lines[1]);
+            error = prepare_caption("Authenticated search", 380, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption("PC / Studio", 350, s_view.lines[0]);
+        error = prepare_caption("Codex PC found", 350, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Session active", 380, s_view.lines[1]);
+            error = prepare_caption("CCP is ready", 380, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -857,6 +900,75 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     scene = prepared;
     ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
     return ESP_OK;
+}
+
+// scene: Current screen replaced by a truthful retry view on screen 12.
+// error: Original CCP1 operation or canonical-state failure.
+// Exception: Returns content preparation errors without replacing the real CCP1 error.
+esp_err_t show_codex_error(SceneFrame &scene, esp_err_t error)
+{
+    s_codex_error_visible = true;
+    s_codex_visible_error = error == ESP_OK ? ESP_ERR_INVALID_STATE : error;
+    wipe(s_codex_code, sizeof(s_codex_code));
+    esp_err_t presentation_error = enter_route(Route::ConnectCodex12, scene);
+    if (presentation_error != ESP_OK) {
+        return presentation_error;
+    }
+    wipe(&s_view, sizeof(s_view));
+    std::snprintf(
+        s_view.error_text,
+        sizeof(s_view.error_text),
+        "Error: 0x%lx",
+        static_cast<unsigned long>(s_codex_visible_error)
+    );
+    presentation_error = prepare_caption(s_view.error_text, 350, s_view.lines[0]);
+    s_view.line_count = 1;
+    if (presentation_error == ESP_OK) {
+        presentation_error = prepare_action(OnboardingAction::Retry, true);
+    }
+    return presentation_error == ESP_OK ? attach_content(scene) : presentation_error;
+}
+
+// scene: Current atlas frame retired while the native idle animation remains visible.
+// Exception: This route owns no scene content and performs no backend action itself.
+esp_err_t enter_codex_idle(SceneFrame &scene)
+{
+    wipe(&s_view, sizeof(s_view));
+    reset_look_screen();
+    scene = {};
+    s_route = Route::Idle16;
+    s_codex_idle_started_at_us = -1;
+    s_swipe_active = false;
+    ++s_navigation_revision;
+    ++s_text_generation;
+    ESP_LOGI(kTag, "Atlas route entered: 16 Idle; authenticated discovery waits 10 active seconds");
+    return ESP_OK;
+}
+
+// scene: Host frame that starts a fresh display-code pairing attempt.
+// Exception: Returns canonical snapshot, mailbox or presentation errors unchanged.
+esp_err_t begin_codex_pairing(SceneFrame &scene)
+{
+    LUNASHELL::ConnectivityObservation observation{};
+    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
+        .readConnectivityObservation(observation);
+    if (error != ESP_OK) {
+        return show_codex_error(scene, error);
+    }
+    const auto &codex_link = observation.radios.codex_link;
+    if (!codex_link.data_valid || codex_link.data_stale) {
+        return show_codex_error(
+            scene,
+            codex_link.last_error != ESP_OK ? codex_link.last_error : ESP_ERR_INVALID_STATE
+        );
+    }
+    s_codex_error_visible = false;
+    wipe(s_codex_code, sizeof(s_codex_code));
+    error = enter_route(Route::ConnectCodex12, scene);
+    if (error == ESP_OK) {
+        error = enqueue(Work::CodexStart, codex_link.attempt_id);
+    }
+    return error == ESP_OK ? ESP_OK : show_codex_error(scene, error);
 }
 
 // scene: Active host frame, replaced only after the reusable selector is prepared.
@@ -924,6 +1036,9 @@ esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
                  static_cast<unsigned>(destination), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
         return ESP_ERR_NOT_SUPPORTED;
     }
+    if (route == Route::ConnectCodex12) {
+        return begin_codex_pairing(scene);
+    }
     return enter_route(route, scene);
 }
 
@@ -981,6 +1096,13 @@ void reset_onboarding()
     s_attempt = 0;
     s_session = 0;
     s_last_pairing_change_us = -1;
+    s_codex_attempt = 0;
+    s_last_codex_change_us = -1;
+    s_codex_idle_started_at_us = -1;
+    s_codex_owned = false;
+    s_codex_error_visible = false;
+    s_codex_visible_error = ESP_OK;
+    wipe(s_codex_code, sizeof(s_codex_code));
     s_hello_completed_at_us = -1;
     s_local_failure = false;
     s_online_link = false;
@@ -1082,6 +1204,40 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         changed = true;
         return enter_route(Route::Invitation05, scene);
     }
+    if (s_route == Route::Idle16) {
+        wipe(&result, sizeof(result));
+        if (s_codex_idle_started_at_us < 0) {
+            s_codex_idle_started_at_us = active_time_us;
+        }
+        if (active_time_us - s_codex_idle_started_at_us < kCodexIdleHoldUs) {
+            return ESP_OK;
+        }
+        LUNASHELL::ConnectivityObservation observation{};
+        esp_err_t error = LUNASHELL::DeviceSnapshotService::instance()
+            .readConnectivityObservation(observation);
+        if (error != ESP_OK) {
+            changed = true;
+            return show_codex_error(scene, error);
+        }
+        const auto &codex_link = observation.radios.codex_link;
+        if (!codex_link.data_valid || codex_link.data_stale ||
+            codex_link.attempt_id != s_codex_attempt ||
+            codex_link.state != CodexState::Paired) {
+            changed = true;
+            return show_codex_error(
+                scene,
+                codex_link.last_error != ESP_OK
+                    ? codex_link.last_error
+                    : ESP_ERR_INVALID_STATE
+            );
+        }
+        error = enter_route(Route::LookingForPc14, scene);
+        if (error == ESP_OK) {
+            error = enqueue(Work::CodexDiscover, codex_link.attempt_id);
+        }
+        changed = true;
+        return error == ESP_OK ? ESP_OK : show_codex_error(scene, error);
+    }
     if (!scene.valid || scene.definition == nullptr) {
         ESP_LOGE(kTag, "Active route has no prepared scene (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -1119,18 +1275,28 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         return error;
     }
     const auto &pairing = observation.radios.pairing;
+    const auto &codex_link = observation.radios.codex_link;
     if (have_result && result.command.generation == s_generation) {
         s_command_pending = false;
         scene.content.control_revision = ++s_navigation_revision;
         changed = true;
         if (result.error != ESP_OK) {
+            const bool codex_work = result.command.work == Work::CodexStart ||
+                result.command.work == Work::CodexCopyCode ||
+                result.command.work == Work::CodexDiscover;
+            const bool expired_codex_code = result.command.work == Work::CodexCopyCode &&
+                result.error == ESP_ERR_INVALID_STATE && codex_link.data_valid &&
+                codex_link.attempt_id == result.command.attempt &&
+                codex_link.state == CodexState::Paired;
             // A QR copy can race credentials/cancellation: follow the newer real
             // state instead of treating an expired session as a renderer crash.
             const bool expired_qr = result.command.work == Work::SessionQr &&
                 result.error == ESP_ERR_INVALID_STATE && pairing.data_valid &&
                 (pairing.state != PairState::ReadyToScan || pairing.attempt_id != result.command.attempt ||
                  pairing.provisioning_session_id != result.command.session);
-            if (!expired_qr) {
+            if (codex_work && !expired_codex_code) {
+                error = show_codex_error(scene, result.error);
+            } else if (!expired_qr && !expired_codex_code) {
                 s_failed_work = result.command.work;
                 s_local_failure = true;
                 error = show_error(scene, result.error);
@@ -1175,6 +1341,20 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         } else if (result.command.work == Work::CompleteFirstBoot) {
             s_local_failure = false;
             s_first_boot_persisted = true;
+        } else if (result.command.work == Work::CodexStart) {
+            s_codex_error_visible = false;
+            s_codex_attempt = result.command.attempt + 1U;
+            s_codex_owned = true;
+            s_last_codex_change_us = -1;
+            wipe(s_codex_code, sizeof(s_codex_code));
+        } else if (result.command.work == Work::CodexCopyCode &&
+                   codex_link.data_valid && !codex_link.data_stale &&
+                   codex_link.attempt_id == result.command.attempt &&
+                   codex_link.state == CodexState::Pairing) {
+            std::memcpy(s_codex_code, result.codex_code, sizeof(s_codex_code));
+            error = enter_route(Route::ConnectCodex12, scene);
+        } else if (result.command.work == Work::CodexDiscover) {
+            s_codex_error_visible = false;
         }
         wipe(&result, sizeof(result));
         if (error != ESP_OK) {
@@ -1182,6 +1362,65 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
     } else {
         wipe(&result, sizeof(result));
+    }
+    if (s_codex_owned) {
+        if (s_command_pending && codex_link.data_valid &&
+            codex_link.attempt_id != s_codex_attempt) {
+            return ESP_OK;
+        }
+        if (!codex_link.data_valid || codex_link.data_stale ||
+            codex_link.attempt_id != s_codex_attempt) {
+            changed = true;
+            return show_codex_error(
+                scene,
+                codex_link.last_error != ESP_OK
+                    ? codex_link.last_error
+                    : ESP_ERR_INVALID_STATE
+            );
+        }
+        if (codex_link.changed_at_us != s_last_codex_change_us) {
+            changed = true;
+            s_last_codex_change_us = codex_link.changed_at_us;
+            if (codex_link.state == CodexState::Paired &&
+                s_route == Route::ConnectCodex12) {
+                s_codex_error_visible = false;
+                error = enter_route(Route::SetupComplete13, scene);
+            } else if (codex_link.state == CodexState::Connected &&
+                       s_route == Route::LookingForPc14) {
+                error = enter_route(Route::Connected15, scene);
+            } else if (codex_link.state == CodexState::Discovering &&
+                       s_route == Route::Connected15) {
+                error = enter_route(Route::LookingForPc14, scene);
+            } else if ((codex_link.state == CodexState::Failed ||
+                        codex_link.state == CodexState::TimedOut) &&
+                       !s_codex_error_visible) {
+                error = show_codex_error(
+                    scene,
+                    codex_link.last_error != ESP_OK
+                        ? codex_link.last_error
+                        : ESP_ERR_INVALID_STATE
+                );
+            } else if (codex_link.state == CodexState::Idle) {
+                error = show_codex_error(scene, ESP_ERR_INVALID_STATE);
+            }
+            if (error != ESP_OK) {
+                return error;
+            }
+        }
+        if (codex_link.state == CodexState::Pairing &&
+            s_codex_code[0] == '\0' && !s_command_pending) {
+            error = enqueue(Work::CodexCopyCode, codex_link.attempt_id);
+            if (error != ESP_OK) {
+                changed = true;
+                return show_codex_error(scene, error);
+            }
+        }
+        if (s_route == Route::ConnectCodex12 ||
+            s_route == Route::SetupComplete13 ||
+            s_route == Route::LookingForPc14 ||
+            s_route == Route::Connected15) {
+            return ESP_OK;
+        }
     }
     if (!s_pairing_owned) {
         return ESP_OK;
@@ -1422,10 +1661,18 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_look_route(scene, {SceneId::Settings, done});
     }
     if (action_hit && s_route == Route::ConnectCodex12) {
-        return enter_route(Route::SetupComplete13, scene);
+        if (s_view.action_id != OnboardingAction::Retry) {
+            return ESP_OK;
+        }
+        return begin_codex_pairing(scene);
     }
     if (action_hit && s_route == Route::SetupComplete13) {
-        return enter_route(Route::LookingForPc14, scene);
+        if (!kCodexIntegrationEnabled) {
+            scene = {};
+            reset_onboarding();
+            return ESP_OK;
+        }
+        return enter_codex_idle(scene);
     }
     LUNASHELL::ConnectivityObservation observation;
     const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
