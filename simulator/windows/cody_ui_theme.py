@@ -35,6 +35,30 @@ FONTS = {
 }
 
 
+# root: Tk root whose point scaling describes the actual startup display DPI.
+# Raises tk.TclError if the root's scaling cannot be read.
+def _pixel_factor(root):
+    factor = getattr(root, "_cody_ui_pixel_scale", None)
+    if factor is None:
+        factor = float(root.tk.call("tk", "scaling")) * 72.0 / 96.0
+    return factor
+
+
+# root: Tk root configured for the actual startup monitor.
+# logical_pixels: Positive host-interface dimension authored at 96 DPI.
+# Raises tk.TclError if the root's scaling cannot be read.
+def scale_pixels(root, logical_pixels):
+    """Convert host-interface pixels without changing the 466-pixel scene space."""
+    return max(1, round(logical_pixels * _pixel_factor(root)))
+
+
+# root: Tk root owning the startup display scale.
+# values: Padding or margin dimensions; zero remains an intentional absent gap.
+# Raises tk.TclError if the root's scaling cannot be read.
+def _spacing(root, values):
+    return tuple(0 if value == 0 else scale_pixels(root, value) for value in values)
+
+
 # root: Tk interpreter that owns the image throughout the window lifetime.
 # selected: Whether the switch represents an enabled setting.
 # hovered: Whether the pointer is over the switch.
@@ -42,7 +66,10 @@ FONTS = {
 # Raises tk.TclError if the interpreter cannot allocate or paint the image.
 def _switch_image(root, *, selected, hovered=False, disabled=False):
     # The transparent right edge separates the switch from its text label.
-    image = tk.PhotoImage(master=root, width=42, height=20)
+    height = scale_pixels(root, 20)
+    track_width = scale_pixels(root, 34)
+    factor = _pixel_factor(root)
+    image = tk.PhotoImage(master=root, width=scale_pixels(root, 42), height=height)
     track_color = PALETTE["accent"] if selected else PALETTE["border"]
     knob_color = PALETTE["background"] if selected else PALETTE["text"]
     if hovered:
@@ -52,15 +79,19 @@ def _switch_image(root, *, selected, hovered=False, disabled=False):
         knob_color = PALETTE["muted"]
 
     # Transparent corners let the same control sit on a panel or a card.
-    for y in range(20):
-        for x in range(34):
-            closest_center = min(24, max(9, x))
-            if (x - closest_center) ** 2 + (y - 9.5) ** 2 <= 81:
+    for y in range(height):
+        logical_y = (y + 0.5) / factor - 0.5
+        for x in range(track_width):
+            logical_x = (x + 0.5) / factor - 0.5
+            closest_center = min(24, max(9, logical_x))
+            if (logical_x - closest_center) ** 2 + (logical_y - 9.5) ** 2 <= 81:
                 image.put(track_color, (x, y))
     knob_center = 24 if selected else 9
-    for y in range(20):
-        for x in range(34):
-            if (x - knob_center) ** 2 + (y - 9.5) ** 2 <= 36:
+    for y in range(height):
+        logical_y = (y + 0.5) / factor - 0.5
+        for x in range(track_width):
+            logical_x = (x + 0.5) / factor - 0.5
+            if (logical_x - knob_center) ** 2 + (logical_y - 9.5) ** 2 <= 36:
                 image.put(knob_color, (x, y))
     return image
 
@@ -69,10 +100,14 @@ def _switch_image(root, *, selected, hovered=False, disabled=False):
 # color: Fill color of the circular thumb.
 # Raises tk.TclError if the interpreter cannot allocate or paint the image.
 def _scale_image(root, color):
-    image = tk.PhotoImage(master=root, width=16, height=16)
-    for y in range(16):
-        for x in range(16):
-            if (x - 7.5) ** 2 + (y - 7.5) ** 2 <= 49:
+    side = scale_pixels(root, 16)
+    factor = _pixel_factor(root)
+    image = tk.PhotoImage(master=root, width=side, height=side)
+    for y in range(side):
+        logical_y = (y + 0.5) / factor - 0.5
+        for x in range(side):
+            logical_x = (x + 0.5) / factor - 0.5
+            if (logical_x - 7.5) ** 2 + (logical_y - 7.5) ** 2 <= 49:
                 image.put(color, (x, y))
     return image
 
@@ -81,18 +116,22 @@ def _scale_image(root, color):
 # color: Fill color of the two-pixel track.
 # Raises tk.TclError if the interpreter cannot allocate or paint the image.
 def _scale_track_image(root, color):
-    image = tk.PhotoImage(master=root, width=2, height=16)
-    image.put(color, to=(0, 7, 2, 9))
+    width = scale_pixels(root, 2)
+    height = scale_pixels(root, 16)
+    top = (height - width) // 2
+    image = tk.PhotoImage(master=root, width=width, height=height)
+    image.put(color, to=(0, top, width, top + width))
     return image
 
 
-# root: Simulator Tk root; no device, renderer or DPI state is accessed.
+# root: Simulator Tk root whose point scaling has already been configured.
 # Raises tk.TclError if the installed Tk cannot provide the required clam theme.
 def install_theme(root):
     """Install the session theme and return its host-interface color palette."""
     if hasattr(root, "_cody_studio_palette"):
         return root._cody_studio_palette
 
+    root._cody_ui_pixel_scale = _pixel_factor(root)
     style = ttk.Style(root)
     style.theme_use("clam")
     root.configure(background=PALETTE["background"])
@@ -112,8 +151,8 @@ def install_theme(root):
     style.configure("Card.TFrame", background=PALETTE["card"])
     style.configure("Toolbar.TFrame", background=PALETTE["panel"])
     style.configure(
-        "Card.TLabelframe", background=PALETTE["panel"], padding=14,
-        bordercolor=PALETTE["border"], borderwidth=1, relief="solid",
+        "Card.TLabelframe", background=PALETTE["panel"], padding=scale_pixels(root, 14),
+        bordercolor=PALETTE["border"], borderwidth=scale_pixels(root, 1), relief="solid",
     )
     style.configure(
         "Card.TLabelframe.Label", background=PALETTE["panel"],
@@ -127,11 +166,11 @@ def install_theme(root):
     style.configure("Value.TLabel", font=FONTS["value"], foreground=PALETTE["accent"])
     style.configure(
         "Badge.TLabel", font=FONTS["badge"], foreground=PALETTE["accent"],
-        background=PALETTE["accent_dark"], padding=(10, 5),
+        background=PALETTE["accent_dark"], padding=_spacing(root, (10, 5)),
     )
     style.configure(
         "Status.TLabel", font=FONTS["status"], foreground=PALETTE["muted"],
-        background=PALETTE["background"], padding=(0, 4),
+        background=PALETTE["background"], padding=_spacing(root, (0, 4)),
     )
     style.configure("Card.TLabel", background=PALETTE["card"])
     style.configure("Studio.TLabel", background=PALETTE["background"])
@@ -139,7 +178,8 @@ def install_theme(root):
 
     style.configure(
         "TButton", background=PALETTE["card"], foreground=PALETTE["text"],
-        borderwidth=1, relief="flat", padding=(12, 8), focusthickness=1,
+        borderwidth=scale_pixels(root, 1), relief="flat",
+        padding=_spacing(root, (12, 8)), focusthickness=scale_pixels(root, 1),
         focuscolor=PALETTE["accent"],
     )
     style.map(
@@ -149,8 +189,8 @@ def install_theme(root):
         foreground=[("disabled", PALETTE["disabled"])],
         bordercolor=[("focus", PALETTE["accent"]), ("active", PALETTE["disabled"])],
     )
-    style.configure("Compact.TButton", font=FONTS["small"], padding=(10, 6))
-    style.configure("Preset.TButton", font=FONTS["small"], padding=(10, 6))
+    style.configure("Compact.TButton", font=FONTS["small"], padding=_spacing(root, (10, 6)))
+    style.configure("Preset.TButton", font=FONTS["small"], padding=_spacing(root, (10, 6)))
     style.configure(
         "Primary.TButton", background=PALETTE["accent"], foreground=PALETTE["background"],
         font=FONTS["value"], bordercolor=PALETTE["accent"],
@@ -166,7 +206,8 @@ def install_theme(root):
         "TCombobox", fieldbackground=PALETTE["field"], background=PALETTE["card"],
         foreground=PALETTE["text"], arrowcolor=PALETTE["muted"],
         selectbackground=PALETTE["accent_dark"], selectforeground=PALETTE["text"],
-        padding=(10, 7), borderwidth=1, arrowsize=14, relief="flat",
+        padding=_spacing(root, (10, 7)), borderwidth=scale_pixels(root, 1),
+        arrowsize=scale_pixels(root, 14), relief="flat",
     )
     style.map(
         "TCombobox",
@@ -183,13 +224,19 @@ def install_theme(root):
     root.option_add("*TCombobox*Listbox.font", FONTS["body"])
     root.option_add("*TCombobox*Listbox.relief", "flat")
     root.option_add("*TCombobox*Listbox.borderWidth", 0)
-    style.configure("TEntry", fieldbackground=PALETTE["field"], padding=(8, 6), borderwidth=1)
+    style.configure(
+        "TEntry", fieldbackground=PALETTE["field"],
+        padding=_spacing(root, (8, 6)), borderwidth=scale_pixels(root, 1),
+    )
     style.map("TEntry", bordercolor=[("focus", PALETTE["accent"])])
 
-    style.configure("TNotebook", background=PALETTE["panel"], borderwidth=0, tabmargins=(0, 6, 0, 12))
+    style.configure(
+        "TNotebook", background=PALETTE["panel"], borderwidth=0,
+        tabmargins=_spacing(root, (0, 6, 0, 12)),
+    )
     style.configure(
         "TNotebook.Tab", background=PALETTE["panel"], foreground=PALETTE["muted"],
-        padding=(16, 10), font=FONTS["value"], borderwidth=0,
+        padding=_spacing(root, (16, 10)), font=FONTS["value"], borderwidth=0,
     )
     style.map(
         "TNotebook.Tab",
@@ -224,12 +271,15 @@ def install_theme(root):
             ]}),
         ]}),
     ])
-    style.configure("TCheckbutton", background=PALETTE["panel"], padding=(0, 7), indicatorrelief="flat")
+    style.configure(
+        "TCheckbutton", background=PALETTE["panel"],
+        padding=_spacing(root, (0, 7)), indicatorrelief="flat",
+    )
     style.map(
         "TCheckbutton", background=[("active", PALETTE["panel"])],
         foreground=[("disabled", PALETTE["disabled"])],
     )
-    style.configure("Toolbar.TCheckbutton", background=PALETTE["background"], padding=(0, 7))
+    style.configure("Toolbar.TCheckbutton", background=PALETTE["background"], padding=_spacing(root, (0, 7)))
     style.map("Toolbar.TCheckbutton", background=[("active", PALETTE["background"])])
 
     scale_images = {
@@ -238,7 +288,13 @@ def install_theme(root):
         "disabled": _scale_image(root, PALETTE["disabled"]),
     }
     scale_track = _scale_track_image(root, PALETTE["border"])
-    style.element_create("Cody.Scale.trough", "image", scale_track, border=(0, 7, 0, 7), sticky="we")
+    track_height = scale_pixels(root, 2)
+    track_top = (scale_track.height() - track_height) // 2
+    track_bottom = scale_track.height() - track_top - track_height
+    style.element_create(
+        "Cody.Scale.trough", "image", scale_track,
+        border=(0, track_top, 0, track_bottom), sticky="we",
+    )
     # Tk's scale behavior locates elements by their trough/slider suffixes.
     style.element_create(
         "Cody.Scale.slider", "image", scale_images["normal"],
@@ -264,7 +320,8 @@ def install_theme(root):
         ])
         style.configure(
             style_name, background=PALETTE["border"], troughcolor=PALETTE["panel"],
-            borderwidth=0, arrowsize=9, width=9, relief="flat", gripcount=0,
+            borderwidth=0, arrowsize=scale_pixels(root, 9),
+            width=scale_pixels(root, 9), relief="flat", gripcount=0,
         )
         style.map(style_name, background=[("active", PALETTE["disabled"]), ("pressed", PALETTE["muted"])])
     style.configure("TSeparator", background=PALETTE["border"])

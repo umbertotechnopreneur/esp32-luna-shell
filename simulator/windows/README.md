@@ -17,9 +17,38 @@ overlays and opens Face, so the character and automatic caress experiment can
 be tried without first clearing the diagnostic view. Stable point names remain
 available under Inspect. These changes affect desktop widgets only.
 
-The UI refresh has static source review only; it has not been restarted or
-interactively checked. Earlier simulator startup and controller parity evidence
-refer to the preceding UI revision.
+The first Studio UI at `679fbda2` opened after an authorized restart; the user
+reported blurry Windows scaling and about 100 ms host ticks, then closed it.
+The subsequent DPI/performance corrections have static source review only.
+Windows startup now explicitly requires Per Monitor v2 awareness before Tk,
+then sets point scaling from the actual window DPI. Custom indicators, sidebar
+dimensions, wrapping and spacing use that startup scale. Window dimensions are
+bounded by the monitor's physical work area; compact side-by-side layout is used
+when the stacked minimum cannot fit. The character's native
+466 x 466 geometry and pointer mapping stay independent of UI scaling. Moving
+between monitors with different DPI still needs a separate Tk scaling transition.
+
+The exact four-sample coverage accumulator buckets edges by scanline and emits
+disjoint coverage runs. Opaque RGB565 interiors use Pillow's C-backed copy; only
+partial pixels use the original native channel blend. Visible inspector text
+updates at most 10 Hz, status at 5 Hz; model, gesture and cue clocks still advance
+each tick. The footer reports observed host FPS separately from the target.
+The desktop frame limit defaults to30Hz (25Hz for the jelly study), with explicit
+15/25/30/60 choices in the inspector. This limits host redraw demand without
+changing firmware cadence or elapsed-time personality/gesture rules.
+No improvement in FPS or CPU use has been measured yet.
+
+A focused regression check is available through the public CLI, after explicit
+authorization. It opens no Tk window and runs no benchmark:
+
+```powershell
+.\scripts\device.ps1 check -Check cody-preview-raster
+```
+
+It compares final RGB pixels against the established per-pixel compositor across
+clipped/concave/fractional polygons and four opacities, plus analytic coverage,
+winding reversal and an independent per-pixel coverage oracle on 32 x 32 masks.
+Native firmware performance remains unmeasured.
 
 The Face panel offers one manga-symbol selector in the main `rig` presentation.
 The semantic `sleep` and `sleeping` presets select Sleep automatically; blinking

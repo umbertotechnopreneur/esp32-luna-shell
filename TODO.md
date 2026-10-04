@@ -8,17 +8,19 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] After separate authorization, restart the refreshed Cody Studio inspector
-  through `scripts/device.ps1 simulator -Screen rig`. Review dark controls,
-  expression grids, scene/rotation, animation/rig switches, per-tab scrolling,
-  narrow/wide layouts and automatic caresses. UI source review only; the previous
-  simulator remains the preceding interface revision. No new tests, simulator
-  execution or COM operations are authorized by the UI implementation request.
+- [ ] After fresh command-specific authorization, run the pure host
+  `scripts/device.ps1 check -Check cody-preview-raster` regression checks for
+  sparse coverage and RGB565 composition. DPI and renderer corrections have
+  static review only. The first Studio UI opened but the user reported blurred
+  Windows scaling and ~100 ms host ticks, then closed it; leave it closed until
+  a new restart is requested. Measure actual host timings and review DPI,
+  controls, per-tab scrolling and gesture feel only after separate authorization.
+  Different-DPI monitor transitions remain unimplemented.
 
 - [ ] Review petting interactively and on the physical display after the
   2026-10-05 merged Debug build and focused host suite passed. Verify slow
   strokes above eyes/below mouth, threshold feel, heart clearance and perceived
-  smoothness. The Rig simulator is open; disable Debug geometry and select
+  smoothness. When the Rig simulator is reopened, disable Debug geometry and select
   symbol None for automatic hearts. Native/host gesture trace parity remains
   unestablished. Confirm actual touch, busy-channel mood gain and park/resume
   timing on hardware only after separate authorization. Facial influence and

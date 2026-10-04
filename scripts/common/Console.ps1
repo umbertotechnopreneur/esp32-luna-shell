@@ -33,6 +33,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'cody-alpha' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Cody Alpha contracts and optional preview artifacts.' }
             'cody-native' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Compile the portable C++ renderer and compare geometry with Python.' }
             'cody-personality' = @{ Category = 'Cody and simulators'; Emoji = '✨'; Description = 'Native symbol timing, bounded follow, layout, dirty raster and simulator parity contracts.' }
+            'cody-preview-raster' = @{ Category = 'Cody and simulators'; Emoji = '🎨'; Description = 'Pure host sparse-coverage RGB565 regression checks; no GUI, device or benchmark.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
             'cody-runtime' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Native response, demo, statistics and original boot-cue checks.' }
             simulator = @{ Category = 'Cody and simulators'; Emoji = '🖥️'; Description = 'Windows Luna model and loopback fake-device contracts.' }

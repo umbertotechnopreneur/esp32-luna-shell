@@ -7,6 +7,19 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- The first Studio UI `679fbda2` opened and responded after the authorized
+  restart; the user reported blurred Windows text and ~100 ms host ticks, then
+  closed it. Implemented explicit PMv2 before Tk, actual startup DPI point/pixel
+  scaling and physical monitor work-area bounds, scanline edge buckets and sparse
+  coverage composition with C-backed
+  opaque copy and the original exact partial RGB565 blend. Visible inspector
+  readouts are capped at10Hz, status at5Hz; model/gesture clocks retain per-tick
+  advancement. Desktop redraw defaults to30Hz with an explicit15/25/30/60 limit;
+  native firmware cadence is unchanged. Added pure host raster regression check source through the public
+  CLI. Static review only for these corrections; no new suite, restart, benchmark,
+  firmware build or COM access. No claimed FPS/CPU improvement. Different-DPI
+  monitor transitions remain open.
+
 - Created requested pre-UI checkpoint `b4a7a75` on `feat/personality-icons`.
   Refreshed the Windows inspector in source with a local Tkinter/ttk dark theme,
   navy/teal palette, Segoe UI, image-backed switches and slim sliders. Added a
@@ -14,8 +27,9 @@ and referenced architecture/artifact records.
   expression grid, target-value readouts and a two-line diagnostic footer.
   Clean view/Face are initial desktop preferences; inspection remains explicit.
   Firmware, native character geometry and model rules are unchanged. Static
-  integration review only; no new test, build, simulator execution or COM access.
-  Previous build/parity/startup results below belong to the preceding UI revision.
+  integration review completed; subsequent startup is recorded above. No new
+  suite, build or COM access. Earlier build/parity results below belong to the
+  preceding UI revision.
 
 - Integrated remote `origin/main` at `4d026d13` into `feat/personality-icons`.
   Preserved both personality/YAML work and upstream mouth/tongue, greeting,

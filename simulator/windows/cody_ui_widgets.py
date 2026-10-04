@@ -12,27 +12,34 @@ class InspectorTab(ttk.Frame):
     # self: New inspector surface retaining its canvas and embedded content.
     # parent: Notebook owning this tab's widget lifetime.
     # background: Theme color used outside the embedded ttk content.
+    # pixel_scale: Startup monitor scale relative to 96-DPI UI spacing.
     # Raises tk.TclError if Tk cannot construct or bind the widgets.
-    def __init__(self, parent, background):
+    def __init__(self, parent, background, pixel_scale):
         super().__init__(parent, style="Panel.TFrame")
+        self.pixel_scale = pixel_scale
         self.columnconfigure(0, weight=1)
         self.rowconfigure(0, weight=1)
         self.viewport = tk.Canvas(
-            self, width=376, height=320, background=background,
-            highlightthickness=0, borderwidth=0, yscrollincrement=24,
+            self, width=self.pixels(376), height=self.pixels(320), background=background,
+            highlightthickness=0, borderwidth=0, yscrollincrement=self.pixels(24),
         )
         self.viewport.grid(row=0, column=0, sticky="nsew")
         self.scrollbar = ttk.Scrollbar(
             self, orient="vertical", command=self.viewport.yview,
         )
-        self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(2, 0))
+        self.scrollbar.grid(row=0, column=1, sticky="ns", padx=(self.pixels(2), 0))
         self.viewport.configure(yscrollcommand=self.scrollbar.set)
-        self.content = ttk.Frame(self.viewport, style="Panel.TFrame", padding=(16, 18))
+        self.content = ttk.Frame(self.viewport, style="Panel.TFrame", padding=(self.pixels(16), self.pixels(18)))
         self.content_item = self.viewport.create_window(
             0, 0, window=self.content, anchor="nw",
         )
         self.viewport.bind("<Configure>", self.resize_viewport)
         self.content.bind("<Configure>", self.resize_content)
+
+    # self: Tab retaining the startup monitor's UI pixel scale.
+    # value: Pixel spacing specified at 96 DPI, independent of the logical character.
+    def pixels(self, value):
+        return round(value * self.pixel_scale)
 
     # self: Tab whose embedded content follows its visible width.
     # event: Canvas configure event supplying allocated dimensions.

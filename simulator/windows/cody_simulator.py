@@ -44,7 +44,8 @@ from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
-from cody_ui_theme import install_theme  # noqa: E402
+from cody_ui_theme import install_theme, scale_pixels  # noqa: E402
+from cody_ui_dpi import prepare_display, configure_tk_scaling, window_work_area  # noqa: E402
 from cody_ui_widgets import InspectorTab  # noqa: E402
 
 SCREEN_NAMES = tuple(screen.value for screen in Screen)
@@ -131,8 +132,9 @@ class CodyRenderer:
         if first == last and opacity == 255 and not uses_coverage and clip_vertices is None:
             ImageDraw.Draw(image).polygon(vertices, fill=self.paint(image, first))
             return
+        coverage_runs = [] if uses_coverage else None
         if uses_coverage:
-            mask = coverage_mask(vertices, (SIZE, SIZE), clip_vertices)
+            mask = coverage_mask(vertices, (SIZE, SIZE), clip_vertices, coverage_runs)
         else:
             mask = Image.new("L", (SIZE, SIZE))
             ImageDraw.Draw(mask).polygon(vertices, fill=255)
@@ -152,7 +154,7 @@ class CodyRenderer:
         if opacity == 255 and not uses_coverage:
             image.paste(ramp if image.mode == "P" else ramp.convert("RGB"), (0, 0), mask)
             return
-        self.composite_fill(image, ramp, mask, opacity)
+        self.composite_fill(image, ramp, mask, opacity, coverage_runs)
 
     # image determines whether the drawing backend expects a palette index or RGB tuple.
     # slot is an authored source color from the shared 256-entry palette.
@@ -164,12 +166,18 @@ class CodyRenderer:
     # source: Indexed source colors for the current polygon.
     # mask: Binary L mask or integer I geometric coverage in the range 0..1024.
     # opacity: Previously validated source opacity, from one through 255.
+    # coverage_runs: Optional exact nonzero runs collected during geometric coverage.
     # Raises ValueError for an unsupported mask or a destination not expanded to RGB.
-    def composite_fill(self, image, source, mask, opacity):
+    def composite_fill(self, image, source, mask, opacity, coverage_runs=None):
         if image.mode != "RGB":
             raise ValueError("Coverage and partial opacity require an RGB565-quantized RGB destination")
         if mask.mode not in ("L", "I"):
             raise ValueError(f"Unsupported polygon coverage mask: {mask.mode}")
+        if coverage_runs is not None:
+            if mask.mode != "I":
+                raise ValueError("Exact coverage runs require an integer coverage mask")
+            self.composite_coverage_runs(image, source, coverage_runs, opacity)
+            return
         bounds = mask.getbbox()
         if bounds is None:
             return
@@ -204,6 +212,51 @@ class CodyRenderer:
                         word |= mixed << shift
                     mixed_colors[key] = rgb565(word)
                 pixels[x, y] = mixed_colors[key]
+
+    # self: Renderer owning the canonical RGB565 palette.
+    # image: RGB destination expanded from native RGB565 words.
+    # source: Indexed ramp carrying the polygon's authored colors.
+    # coverage_runs: Disjoint nonzero scanline runs from the exact coverage accumulator.
+    # opacity: Validated polygon opacity in the range one through 255.
+    # Raises ValueError if an internal run contains invalid coverage.
+    def composite_coverage_runs(self, image, source, coverage_runs, opacity):
+        opaque_mask = Image.new("L", image.size, 0)
+        opaque_draw = ImageDraw.Draw(opaque_mask)
+        has_opaque = False
+        partial_runs = []
+        for row, left, right, coverage in coverage_runs:
+            if not 0 < coverage <= FULL_COVERAGE:
+                raise ValueError(f"Invalid scanline coverage: {coverage}")
+            alpha = (opacity * coverage + FULL_COVERAGE // 2) // FULL_COVERAGE
+            if alpha == 255:
+                opaque_draw.line((left, row, right - 1, row), fill=255)
+                has_opaque = True
+            elif alpha:
+                partial_runs.append((row, left, right, alpha))
+        # Runs are disjoint: copying opaque interiors cannot change any boundary
+        # background. Pillow copies their exact palette RGB in C, without blending.
+        if has_opaque:
+            image.paste(source.convert("RGB"), (0, 0), opaque_mask)
+        pixels = image.load()
+        sources = source.load()
+        mixed_colors = {}
+        for row, left, right, alpha in partial_runs:
+            for column in range(left, right):
+                slot = sources[column, row]
+                background = pixels[column, row]
+                key = (slot, background, alpha)
+                if key not in mixed_colors:
+                    red, green, blue = background
+                    destination = ((red >> 3) << 11) | ((green >> 2) << 5) | (blue >> 3)
+                    source_word = self.native_palette[slot]
+                    word = 0
+                    for shift, mask_bits in ((11, 31), (5, 63), (0, 31)):
+                        foreground = (source_word >> shift) & mask_bits
+                        beneath = (destination >> shift) & mask_bits
+                        mixed = (foreground * alpha + beneath * (255 - alpha) + 127) // 255
+                        word |= mixed << shift
+                    mixed_colors[key] = rgb565(word)
+                pixels[column, row] = mixed_colors[key]
 
     # self: Renderer owning the immutable skin and palette for this scene.
     # scene is evaluated once and shared by artwork, outlines and point overlays.
@@ -539,6 +592,8 @@ class CodyWindow:
     # renderer owns immutable authored tables and the shared scene drawing code.
     # args selects the initial screen, rotation, safe-square overlay and rendering study.
     # Raises tk.TclError for failed widget construction or lost Tk ownership.
+    # Raises OSError or AttributeError if required Windows monitor APIs are unavailable.
+    # Raises RuntimeError if the window DPI context or work-area bounds are invalid.
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
         self.jelly_study = renderer.jelly_study_enabled
@@ -556,6 +611,7 @@ class CodyWindow:
         self.label_page = tk.IntVar(value=0)
         self.guide = tk.BooleanVar(value=args.safe_guide)
         self.playing = tk.BooleanVar(value=True)
+        self.preview_hz = tk.IntVar(value=25 if self.jelly_study else 30)
         self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
         self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
         self.petting = PettingRecognizer(load_petting_config(ROOT))
@@ -584,6 +640,11 @@ class CodyWindow:
         self.scene_elapsed_ms = 0.0
         self.previous_animation_screen = None
         self.last_tick = time.perf_counter()
+        self.readout_tab = None
+        self.next_readout_at = 0.0
+        self.next_status_at = 0.0
+        self.status_sampled_at = self.last_tick
+        self.completed_preview_frames = 0
         self.navigation_visibility = NavigationVisibility(renderer.navigation)
         self.renderer.navigation_opacity = 0  # Touch, not startup, reveals Debug tools.
         self.selected = None
@@ -602,20 +663,21 @@ class CodyWindow:
         self.label_items = {}
         self.last_presentation_key = None
         self.photo = None
-        self.workspace = ttk.Frame(root, style="Studio.TFrame", padding=(20, 0, 20, 16))
+        self.workspace = ttk.Frame(root, style="Studio.TFrame",
+                                    padding=self.ui_pixels((20, 0, 20, 16)))
         self.workspace.grid(row=1, column=0, sticky="nsew")
         self.build_studio_header(preview_name)
         self.preview_host = ttk.Frame(self.workspace, style="Studio.TFrame")
         self.preview_host.grid(row=0, column=0, sticky="nsew")
         self.preview_host.columnconfigure(0, weight=1)
         self.preview_host.rowconfigure(1, weight=1)
-        preview_header = ttk.Frame(self.preview_host, style="Studio.TFrame", padding=(0, 0, 0, 12))
+        preview_header = ttk.Frame(self.preview_host, style="Studio.TFrame", padding=self.ui_pixels((0, 0, 0, 12)))
         preview_header.grid(row=0, column=0, sticky="ew")
         ttk.Label(preview_header, text="LIVE PREVIEW", style="Section.TLabel",
                   background=self.ui_colors["background"]).pack(side="left")
         ttk.Label(preview_header, text="466 x 466 / local touch", style="Subtitle.TLabel",
                   background=self.ui_colors["background"]).pack(side="right")
-        self.canvas = tk.Canvas(self.preview_host, width=600, height=420,
+        self.canvas = tk.Canvas(self.preview_host, width=self.ui_pixels(600), height=self.ui_pixels(420),
                                 highlightthickness=0, borderwidth=0, bg=self.ui_colors["canvas"])
         self.canvas.grid(row=1, column=0, sticky="nsew")
         self.canvas.bind("<Button-1>", self.touch)
@@ -624,7 +686,7 @@ class CodyWindow:
         self.canvas.bind("<Configure>",self.resize_preview)
         self.image_item = self.canvas.create_image(0,0,anchor="nw")
         self.controls_host = ttk.Frame(self.workspace, style="Panel.TFrame")
-        self.controls_host.grid(row=0, column=1, sticky="nsew", padx=(20, 0))
+        self.controls_host.grid(row=0, column=1, sticky="nsew", padx=self.ui_pixels((20, 0)))
         self.controls_host.rowconfigure(1, weight=1)
         self.controls_host.columnconfigure(0, weight=1)
         font = renderer.rig["style"]["host_font"]
@@ -635,7 +697,7 @@ class CodyWindow:
         self.tabs.grid(row=1, column=0, sticky="nsew")
         self.inspector_tabs = []
         for name in ("Face", "Shape", "Inputs", "Inspect"):
-            tab = InspectorTab(self.tabs, self.ui_colors["panel"])
+            tab = InspectorTab(self.tabs, self.ui_colors["panel"], self.root._cody_ui_pixel_scale)
             self.tabs.add(tab, text=name)
             self.inspector_tabs.append(tab)
         appearance, contour, stimuli, overlay = (tab.content for tab in self.inspector_tabs)
@@ -644,15 +706,16 @@ class CodyWindow:
         self.build_stimulus_controls(stimuli)
         self.build_debug_controls(overlay)
         self.tabs.select(self.inspector_tabs[0])
+        self.tabs.bind("<<NotebookTabChanged>>", self.inspector_tab_changed)
         if self.jelly_study:
             # Artistic host controls only; no firmware defaults or sensor samples change.
             self.contour_values['amplitude'].set(.9)
             self.contour_values['speed'].set(.4)
             self.tabs.select(self.inspector_tabs[1])
         self.info = ttk.Label(overlay, text="Select a point to inspect its stable name.",
-                              style="Muted.TLabel", wraplength=330)
+                              style="Muted.TLabel", wraplength=self.ui_pixels(330))
         self.info.pack(fill="x", pady=(18, 0))
-        status_bar = ttk.Frame(root, style="Studio.TFrame", padding=(20, 10, 20, 12))
+        status_bar = ttk.Frame(root, style="Studio.TFrame", padding=self.ui_pixels((20, 10, 20, 12)))
         status_bar.grid(row=2, column=0, sticky="ew")
         self.timing = ttk.Label(status_bar, text="SYNTHETIC / host timings only", style="Status.TLabel")
         self.timing.pack(fill="x")
@@ -660,20 +723,59 @@ class CodyWindow:
         self.root.bind("<Configure>",self.resize_window)
         self.root.bind("<MouseWheel>",self.scroll_controls)
         self.root.protocol("WM_DELETE_WINDOW",self.close)
-        width = min(1440,max(700,self.root.winfo_screenwidth()-80))
-        height = min(900,max(720,self.root.winfo_screenheight()-100))
-        self.root.minsize(700,560)
+        work_left, work_top, work_right, work_bottom = window_work_area(root)
+        self.available_ui_width = max(1, work_right - work_left - self.ui_pixels(40))
+        self.available_ui_height = max(1, work_bottom - work_top - self.ui_pixels(60))
+        width = min(self.ui_pixels(1440), self.available_ui_width)
+        height = min(self.ui_pixels(900), self.available_ui_height)
+        self.root.minsize(min(self.ui_pixels(700), width), min(self.ui_pixels(560), height))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(1, weight=1)
-        self.root.geometry(f"{width}x{height}")
+        left = work_left + (work_right - work_left - width) // 2
+        top = work_top + (work_bottom - work_top - height) // 2
+        self.root.geometry(f"{width}x{height}{left:+d}{top:+d}")
         self.arrange_panels(width)
         self.tick()
+
+    # self: Desktop controller converting UI spacing without changing the logical scene.
+    # value: One 96-DPI pixel count or a tuple of counts used for widget padding.
+    # Raises tk.TclError if the startup UI scale cannot be read.
+    def ui_pixels(self, value):
+        if isinstance(value, tuple):
+            return tuple(self.ui_pixels(count) for count in value)
+        return 0 if value == 0 else scale_pixels(self.root, value)
+
+    # self: Desktop controller requesting fresh readouts for the newly visible tab.
+    # event: Notebook selection notification, independent of synthetic model time.
+    def inspector_tab_changed(self, event):
+        self.next_readout_at = 0.0
+
+    # self: Desktop controller updating only the visible inspector at a bounded cadence.
+    # inputs: The exact current synthetic snapshot, never a cached firmware observation.
+    # targets: Current contour targets from the response composer.
+    # screen: Current presentation route controlling model readout availability.
+    # now: Monotonic host time at the beginning of this animation tick.
+    # Raises tk.TclError or ValueError if an inspector readout cannot be updated.
+    def refresh_inspector_readouts(self, inputs, targets, screen, now):
+        selected = self.tabs.select()
+        if selected == self.readout_tab and now < self.next_readout_at:
+            return
+        self.readout_tab = selected
+        self.next_readout_at = now + .1
+        # Only display text is throttled. Model, pointer and channel clocks still
+        # advance on every tick using the current synthetic snapshot.
+        if selected == str(self.inspector_tabs[1]):
+            self.update_contour_readouts(targets, screen)
+        elif selected == str(self.inspector_tabs[2]):
+            self.update_stimulus_readouts(inputs, screen)
+        elif selected == str(self.inspector_tabs[3]):
+            self.update_point_inspector()
 
     # self: Desktop controller owning the fixed studio header and quick switches.
     # preview_name: Human-readable identity of the selected host rendering mode.
     # Raises tk.TclError if Tk cannot construct the header.
     def build_studio_header(self, preview_name):
-        header = ttk.Frame(self.root, style="Studio.TFrame", padding=(20, 18, 20, 18))
+        header = ttk.Frame(self.root, style="Studio.TFrame", padding=self.ui_pixels((20, 18, 20, 18)))
         header.grid(row=0, column=0, sticky="ew")
         title = ttk.Frame(header, style="Studio.TFrame")
         title.pack(side="left")
@@ -689,7 +791,7 @@ class CodyWindow:
     # self: Desktop controller retaining the permanent scene and orientation controls.
     # Raises tk.TclError if Tk cannot construct the inspector header.
     def build_inspector_header(self):
-        header = ttk.Frame(self.controls_host, style="Panel.TFrame", padding=(18, 16, 18, 16))
+        header = ttk.Frame(self.controls_host, style="Panel.TFrame", padding=self.ui_pixels((18, 16, 18, 16)))
         header.grid(row=0, column=0, sticky="ew")
         ttk.Label(header, text="Character controls", style="Section.TLabel").pack(anchor="w")
         ttk.Label(header, text="Local preview / no device connection", style="Muted.TLabel").pack(anchor="w", pady=(4, 14))
@@ -702,6 +804,12 @@ class CodyWindow:
                      state="readonly", width=20).grid(row=1, column=0, sticky="ew")
         ttk.Combobox(selection, textvariable=self.rotation, values=(0, 90, 180, 270),
                      state="readonly", width=5).grid(row=1, column=1, sticky="ew", padx=(12, 0))
+        ttk.Label(selection, text="Preview limit / FPS", style="Muted.TLabel").grid(
+            row=2, column=0, sticky="w", pady=self.ui_pixels((12, 0)))
+        ttk.Combobox(selection, textvariable=self.preview_hz, values=(15, 25, 30, 60),
+                     state="readonly", width=5).grid(
+                         row=2, column=1, sticky="ew", padx=self.ui_pixels((12, 0)),
+                         pady=self.ui_pixels((12, 0)))
 
     # self: Inspector controller grouping related controls without changing their state.
     # parent: Tab content owning the section.
@@ -709,10 +817,10 @@ class CodyWindow:
     # description: Optional explanatory text beneath the section label.
     # Raises tk.TclError if Tk cannot construct the section.
     def add_section(self, parent, title, description=None):
-        section = ttk.Labelframe(parent, text=title, style="Card.TLabelframe", padding=14)
-        section.pack(fill="x", pady=(0, 16))
+        section = ttk.Labelframe(parent, text=title, style="Card.TLabelframe", padding=self.ui_pixels(14))
+        section.pack(fill="x", pady=self.ui_pixels((0, 16)))
         if description:
-            ttk.Label(section, text=description, style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(0, 12))
+            ttk.Label(section, text=description, style="Muted.TLabel", wraplength=self.ui_pixels(310)).pack(fill="x", pady=self.ui_pixels((0, 12)))
         return section
 
     # self: Preview controller owning runtime appearance preferences.
@@ -724,7 +832,7 @@ class CodyWindow:
         ttk.Combobox(symbols, textvariable=self.personality_cue,
                      values=tuple(cue.name for cue in PersonalityCue), state="readonly").pack(fill="x")
         ttk.Label(symbols, text="Device alerts here are synthetic previews.",
-                  style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(10, 0))
+                  style="Muted.TLabel", wraplength=self.ui_pixels(310)).pack(fill="x", pady=(10, 0))
         # Targets belong to the controls; smoothing belongs to the animation state.
         presets = self.add_section(appearance, "Expressions")
         phase_row = ttk.Frame(presets)
@@ -774,7 +882,7 @@ class CodyWindow:
             self.contour_values[name]=value
             self.contour_readouts[name]=self.add_slider(shape,control["label"],control["minimum"],control["maximum"],value,readout=True)
         ttk.Label(shape, text="Values: current > target. Speed in cycles/s.\nFullness changes the resting shape.",
-                  style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(12, 0))
+                  style="Muted.TLabel", wraplength=self.ui_pixels(310)).pack(fill="x", pady=(12, 0))
         self.contour_info = ttk.Label(contour, text="", style="Muted.TLabel")
         self.contour_info.pack(anchor="w",pady=4)
         ttk.Button(contour, text="Restore shape defaults", command=self.reset_contour).pack(fill="x", pady=10)
@@ -875,7 +983,7 @@ class CodyWindow:
         for cue, label in (("audio_ready", "Preview audio-ready cue"), ("eyes_open", "Preview eyes-open strings")):
             ttk.Button(cues, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
         ttk.Button(stimuli, text="Interaction / cancel idle yawn", command=self.preview_interaction).pack(fill="x", pady=3)
-        self.response_info = ttk.Label(stimuli, text="", style="Muted.TLabel", wraplength=330)
+        self.response_info = ttk.Label(stimuli, text="", style="Muted.TLabel", wraplength=self.ui_pixels(330))
         self.response_info.pack(fill="x", pady=8)
         ttk.Button(stimuli, text="Reset response model", command=self.reset_response).pack(fill="x")
 
@@ -981,7 +1089,7 @@ class CodyWindow:
         if not readout:
             # Model readouts are updated by the frame owner; ordinary sliders show their targets.
             variable.trace_add("write", lambda *_: self.update_slider_value(variable, output))
-        ttk.Scale(parent, from_=minimum, to=maximum, variable=variable, length=280).pack(fill="x", pady=(0, 4))
+        ttk.Scale(parent, from_=minimum, to=maximum, variable=variable, length=self.ui_pixels(280)).pack(fill="x", pady=(0, 4))
         return output
 
     # self: Inspector controller updating an ordinary authored target label.
@@ -995,22 +1103,27 @@ class CodyWindow:
     # width is the current outer-window width used only to choose panel arrangement.
     # Raises tk.TclError if Tk cannot update the grid.
     def arrange_panels(self, width):
-        mode = "wide" if width>=1000 else "stacked"
+        stack_fits = self.available_ui_height >= self.ui_pixels(720)
+        compact_wide = not stack_fits and width >= self.ui_pixels(760)
+        mode = "wide" if width >= self.ui_pixels(1000) or compact_wide else "stacked"
         if mode==self.layout_mode:
             return
         self.layout_mode = mode
         # Stacking needs enough height for both the character and a usable scroll viewport.
-        self.root.minsize(700, 560 if mode == "wide" else 720)
+        self.root.minsize(
+            min(self.ui_pixels(700), self.available_ui_width),
+            min(self.ui_pixels(560 if mode == "wide" else 720), self.available_ui_height),
+        )
         self.workspace.columnconfigure(0, weight=1, minsize=0)
         self.workspace.columnconfigure(1, weight=0, minsize=0)
         if mode=="wide":
             self.workspace.rowconfigure(0, weight=1, minsize=0)
             self.workspace.rowconfigure(1, weight=0, minsize=0)
-            self.controls_host.grid(row=0, column=1, sticky="nsew", padx=(20, 0), pady=0)
+            self.controls_host.grid(row=0, column=1, sticky="nsew", padx=self.ui_pixels((20, 0)), pady=0)
         else:
-            self.workspace.rowconfigure(0, weight=1, minsize=160)
-            self.workspace.rowconfigure(1, weight=2, minsize=300)
-            self.controls_host.grid(row=1, column=0, sticky="nsew", padx=0, pady=(16, 0))
+            self.workspace.rowconfigure(0, weight=1, minsize=self.ui_pixels(160))
+            self.workspace.rowconfigure(1, weight=2, minsize=self.ui_pixels(300))
+            self.controls_host.grid(row=1, column=0, sticky="nsew", padx=0, pady=self.ui_pixels((16, 0)))
 
     # self: Desktop controller whose root width determines the panel arrangement.
     # event is a root Configure notification; child notifications do not change panel layout.
@@ -1019,7 +1132,7 @@ class CodyWindow:
         if event.widget is not self.root:
             return
         self.arrange_panels(event.width)
-        self.timing.configure(wraplength=max(160,event.width-40))
+        self.timing.configure(wraplength=max(self.ui_pixels(160),event.width-self.ui_pixels(40)))
 
     # event supplies the allocated preview dimensions, coalesced until the next normal frame.
     def resize_preview(self, event):
@@ -1411,6 +1524,7 @@ class CodyWindow:
         # The single response composer adds effects before the contour transition.
         return values, targets
 
+    # self: Presentation owner retaining Tk image storage across unchanged viewports.
     # image: Completed logical framebuffer; its geometry and hit targets stay unchanged.
     # layout: Desktop viewport computed for this frame.
     # screen: Route associated with the displayed scene.
@@ -1423,20 +1537,22 @@ class CodyWindow:
             Image.Resampling.NEAREST,
         )
         # Reuse Tk's image storage while the viewport size stays unchanged.
-        if (self.photo is None or self.photo.width() != layout.image_size or
-                self.photo.height() != layout.image_size):
+        new_photo = (self.photo is None or self.photo.width() != layout.image_size or
+                     self.photo.height() != layout.image_size)
+        if new_photo:
             self.photo = ImageTk.PhotoImage(display_image)
+            self.canvas.itemconfigure(self.image_item, image=self.photo)
         else:
             self.photo.paste(display_image)
         if layout != self.layout:
             self.label_text_cache.clear()
+            self.canvas.coords(self.image_item, layout.left, layout.top)
 
         self.layout = layout
         self.display_rotation = rotation
         self.display_screen = screen
-        self.canvas.coords(self.image_item, layout.left, layout.top)
-        self.canvas.itemconfigure(self.image_item, image=self.photo)
-        self.draw_labels()
+        if self.names.get() or self.label_items:
+            self.draw_labels()
 
     # targets: Current named outline targets shown beside the evaluated controls.
     # screen: Displayed route deciding whether the contour is running.
@@ -1599,24 +1715,30 @@ class CodyWindow:
                 personality_paused=not self.playing.get(),
             )
             self.present_frame(image, layout, screen, rotation)
+            self.completed_preview_frames += 1
             # Commit only after Tk accepted the image and its matching hit targets.
             self.last_presentation_key = presentation_key
-        self.update_contour_readouts(targets, screen)
-        self.update_stimulus_readouts(inputs, screen)
-        self.update_point_inspector()
+        self.refresh_inspector_readouts(inputs, targets, screen, started)
 
-        duration_ms = (time.perf_counter() - started) * 1000
-        target_hz = 25 if self.jelly_study else 60
+        finished = time.perf_counter()
+        duration_ms = (finished - started) * 1000
+        target_hz = self.preview_hz.get()
         personality_status = "HIDDEN"
         if self.renderer.personality_painter is not None:
             frame = self.renderer.personality_painter.last_frame
             personality_status = f"{frame.status.name} / {frame.cue.name} / alpha {frame.opacity}"
-        self.timing.configure(
-            text=f"SYNTHETIC / symbol {personality_status} / "
-                 f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
-                 f"Host tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
-                 f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED"
-        )
+        if started >= self.next_status_at:
+            self.next_status_at = started + .2
+            elapsed = finished - self.status_sampled_at
+            observed_fps = self.completed_preview_frames / elapsed if elapsed > 0 else 0
+            self.completed_preview_frames = 0
+            self.status_sampled_at = finished
+            self.timing.configure(
+                text=f"SYNTHETIC / symbol {personality_status} / "
+                     f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
+                     f"Host presented {observed_fps:.1f} fps / tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
+                     f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED"
+            )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100
         delay_ms = max(1, math.ceil(interval_ms - duration_ms))
@@ -1626,6 +1748,7 @@ class CodyWindow:
 # argv: Explicit Cody argument list from the common Windows launcher.
 # Raises ValueError for an invalid authored rig or evaluated scene.
 # Raises OSError for a failed capture write and tk.TclError for unavailable window resources.
+# Raises AttributeError or RuntimeError if required Windows DPI setup cannot be established.
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skin", default="assets/cody/cody.yaml")
@@ -1701,8 +1824,12 @@ def main(argv=None):
             print(f'HOST ONLY: {len(study.rows)} scanline supports, no triangles; '
                   f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
         return
+    prepare_display()
     root = tk.Tk()
+    root.withdraw()
+    configure_tk_scaling(root)
     CodyWindow(root,renderer,args)
+    root.deiconify()
     root.mainloop()
 
 
