@@ -27,6 +27,10 @@ older host/build/flash evidence does not validate the current combined image.
   real touch/pairing progress, including animation pause, standby, late worker
   results, cancellation errors and a fresh tap to restart. Verify deferred boot
   audio when the canonical clock becomes trusted, quiet hours and standby races.
+- [ ] Build/flash the selected private boot greeting C and confirm acoustics,
+  chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
+  repeat. A/B/chime-only authoring alternatives remain available. Review original
+  SFX redistribution rights before pushing audio or distributing firmware.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
   Capture the original Pair Cody Start failure after reset; current evidence
   proves repeated Cancel allocation failure, not that first Start's stage.

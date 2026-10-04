@@ -1,4 +1,4 @@
-"""Explicit host checks for real native response/demo/statistics and original boot cues."""
+"""Explicit host checks for native response/demo/statistics and authored boot cues."""
 from pathlib import Path
 import argparse
 import hashlib
@@ -20,6 +20,8 @@ from scripts.common.cody_rig_contract import contour_defaults, evaluate, load_co
 from scripts.common.cody_rig_types import ContourControl, FaceChannel
 from scripts.common.asset_provenance import text_source_hash
 from scripts.common.cody_typewriter_audio_contract import check_typewriter_audio_source
+from scripts.common.cody_boot_audio import load_selection
+from scripts.generators.generate_cody_runtime_assets import synthesize
 
 
 # Validate failure visibility and parked time independently from the parity fixture.
@@ -123,7 +125,37 @@ def check_assets(settings):
         digest = hashlib.sha256(raw).hexdigest()
         hashes.append(digest)
         assert digest == manifest["cues"][cue]["sha256"]
-        assert len(raw) == round(settings["audio"][duration_key] * sample_rate_hz) * 2
+        cue_metadata = manifest["cues"][cue]
+        chime_bytes = round(settings["audio"][duration_key] * sample_rate_hz) * 2
+        assert raw[:chime_bytes] == synthesize(settings, cue)
+        expected_bytes = chime_bytes
+        if cue == "eyes_open":
+            assert cue_metadata["chime_pcm_bytes"] == chime_bytes
+            assert cue_metadata["chime_sha256"] == hashlib.sha256(raw[:chime_bytes]).hexdigest()
+            selected_hello = settings["audio"]["eyes_open_hello"]
+            if selected_hello == "none":
+                assert cue_metadata["hello"] is None and cue_metadata["gap_pcm_bytes"] == 0
+            else:
+                selection = load_selection()
+                assert cue_metadata["chime_sha256"] == selection["original_chime_sha256"]
+                selected_cue = next(item for item in selection["cues"] if item["id"] == selected_hello)
+                hello_metadata = cue_metadata["hello"]
+                assert hello_metadata["id"] == selected_hello
+                assert hello_metadata["selection_sha256"] == selection["selection_sha256"]
+                assert hello_metadata["source_sha256"] == selected_cue["source_sha256"]
+                gap_bytes = round(selection["chime_gap_ms"] * sample_rate_hz / 1000) * 2
+                assert cue_metadata["gap_pcm_bytes"] == gap_bytes
+                assert raw[chime_bytes:chime_bytes + gap_bytes] == bytes(gap_bytes)
+                hello = raw[chime_bytes + gap_bytes:]
+                assert len(hello) == hello_metadata["pcm_bytes"]
+                assert len(hello) == selected_cue["expected_pcm_bytes"]
+                assert hashlib.sha256(hello).hexdigest() == hello_metadata["pcm_sha256"]
+                assert hashlib.sha256(hello).hexdigest() == selected_cue["expected_pcm_sha256"]
+                expected_bytes += gap_bytes + len(hello)
+        assert len(raw) == expected_bytes
+        assert len(raw) == cue_metadata["pcm_bytes"]
+        assert cue_metadata["sample_rate_hz"] == sample_rate_hz
+        assert math.isclose(cue_metadata["duration_seconds"], len(raw) / 2 / sample_rate_hz)
         with wave.open(str(generated / f"cody-{cue}.wav"), "rb") as wav:
             assert (wav.getnchannels(), wav.getsampwidth(), wav.getframerate()) == (1, 2, sample_rate_hz)
             assert wav.readframes(wav.getnframes()) == raw
@@ -171,7 +203,7 @@ def main(argv=None):
         compare_response(json.loads(native.stdout))
         report.update(status="passed", response_ticks=500, fixture_seconds=50,
             contracts=["native/host audio, fatigue and idle parity", "smooth interruption",
-                       "exact original cue duration", "256-color palette", "authored demo boundaries",
+                       "exact original chime and selected greeting composition", "256-color palette", "authored demo boundaries",
                        "rolling stage statistics, percentiles and overlay separation", "shared eye hit targets and transient annoyance",
                        "dirty-region packing, stride guards, full redraw after cache invalidation and rig framebuffer parity",
                        "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles",

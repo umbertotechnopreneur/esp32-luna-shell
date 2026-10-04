@@ -111,8 +111,16 @@ already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
 
-Boot cues are original procedural `audio-ready` (0.18 s) and `eyes-open` (1.3 s),
-authored in `assets/cody/runtime.yaml` and stored in flash. Preparation validates the
+Boot cues start with original procedural `audio-ready` (0.18 s) and `eyes-open`
+chime (1.3 s), authored in `assets/cody/runtime.yaml` and stored in flash. The explicit
+`audio.eyes_open_hello` selector currently appends `cody-hello-murmur`: 100 ms of
+silence and a 650-ms private vocal, for about 2.05 seconds / 90,412 bytes in the
+same eyes-open PCM asset. Other catalog voices and `none` (chime only) remain
+available; invalid identity, missing source or source/rendered hash mismatch fails
+preparation rather than substituting a sound. Only the selected voice is embedded.
+See [boot greeting authoring](../../../assets/cody/audio/boot-hello/README.md) for
+the ffmpeg recipe and unverified external-source redistribution rights.
+Preparation validates the
 flash PCM; completed boot requires a verified canonical clock before applying
 the quiet-hours policy. An unavailable/stale clock admits one pending boot request,
 not a playback completion. The existing companion worker checks only that pending

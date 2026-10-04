@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "archive_root": "C:/Users/umber/OneDrive/Archivio/Dixion/Sfx",
+  "sample_rate_hz": 22050,
+  "target_peak_dbfs": -9.0,
+  "chime_gap_ms": 100,
+  "original_chime_sha256": "6b42c10b4308df88f22549176824029491f16d275018002fbe89bf316ad0786d",
+  "licensing": {
+    "status": "unverified",
+    "scope": "Private local audition and device use; source archive remains read-only.",
+    "restriction": "No public redistribution or push of these recordings until source rights are reviewed."
+  },
+  "cues": [
+    {
+      "id": "cody-hello-chatter",
+      "source": "SONY Loops/Vocals - Humanoid/Chatterbug 01.wav",
+      "source_sha256": "d4a584d0102203a47fb85b9d0407fff4110aebb48a843c965712f519b1ac1b4f",
+      "trim_start_seconds": 0.10,
+      "trim_end_seconds": 1.29,
+      "pitch_ratio": 1.35,
+      "post_pitch_tempo": 0.95,
+      "expected_pcm_sha256": "c2eb65000b7ee3459a18b6e1f22bff3e9b6831c1affb7e0510d988b446571bb1",
+      "expected_pcm_bytes": 40146
+    },
+    {
+      "id": "cody-hello-gurble",
+      "source": "SONY Loops/Vintage Cartoon/Comedy Vocals/LoFi Gurbles 01.wav",
+      "source_sha256": "574afc444ede185d4aa3973daef5380a60d459ce8c91cd6f66f39578ba922860",
+      "trim_start_seconds": 0.03,
+      "trim_end_seconds": 1.25,
+      "pitch_ratio": 1.18,
+      "post_pitch_tempo": 1.35,
+      "expected_pcm_sha256": "b7de32d222a2333cab5ef73fac00618bfce367cd41189a5c17962b7cb79e2d65",
+      "expected_pcm_bytes": 33922
+    },
+    {
+      "id": "cody-hello-murmur",
+      "source": "1001 Sound Effects/Vocals & Wallas/Muffled Talking Male.wav",
+      "source_sha256": "0f4f0ac10220859c9d7d84b8b7def98d73049d2e0fc2c0f846d86c5d27422aac",
+      "trim_start_seconds": 0.15,
+      "trim_end_seconds": 1.50,
+      "pitch_ratio": 1.40,
+      "post_pitch_tempo": 1.50,
+      "expected_pcm_sha256": "5038f9a100230c6614e84b11c56d4075e455499d584df463a263142d08e7a921",
+      "expected_pcm_bytes": 28672
+    }
+  ]
+}

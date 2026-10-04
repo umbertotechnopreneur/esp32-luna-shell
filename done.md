@@ -7,6 +7,16 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Prepared three private vocal greetings with ffmpeg and explicit read-only
+  source recipes. The owner selected C (`cody-hello-murmur`) for the boot cue;
+  A/B and chime-only remain configurable. Shared authoring helpers pin source
+  and rendered identities, while runtime composition retains the original
+  1.3-second chime plus 100-ms gap. The selected combined asset needs 90,412
+  PCM bytes at 22,050 Hz (about 2.05 seconds); no new device decoder/worker or
+  canonical-clock/quiet-policy changes. Local asset generation and independent
+  static review completed; generated private PCM/WAV and their matching manifest
+  remain outside the source checkpoint. Source redistribution rights, firmware
+  build/flash, physical acoustics and updated host checks remain unverified.
 - Mouth source refresh: widened the shared lip controls 18 percent, reused the
   existing breathing phase for opening/width motion and added a coral tongue
   clipped against the evaluated mouth. Native and host coverage intersect the
