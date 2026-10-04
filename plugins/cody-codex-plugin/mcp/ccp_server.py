@@ -495,19 +495,13 @@ class CcpService:
             self._offers = found
         return sorted(found.values(), key=lambda value: (value.device_id, value.address))
 
-    # code: Six-character value read by the user from Cody's physical display.
-    # Raises ValueError, RuntimeError, TimeoutError, or OSError for invalid, ambiguous, rejected, or failed pairing.
-    def pair(self, code: str) -> dict[str, Any]:
-        normalized = code.strip().upper()
-        if CODE_PATTERN.fullmatch(normalized) is None:
-            raise ValueError("The Cody code must contain six characters from A-H, J-N, P-Z, or 2-9")
-        with self._offers_lock:
-            offers = list(self._offers.values())
-        if not offers:
-            offers = self.discover(1200)
+    # code: Normalized six-character value supplied from Cody's physical display.
+    # offers: Bounded offers from one discovery window.
+    # Returns every cryptographically matching offer and its derived verifier.
+    def _matching_offers(self, code: str, offers: list[Offer]) -> list[tuple[Offer, bytes]]:
         matches: list[tuple[Offer, bytes]] = []
         for offer in offers:
-            verifier = derive_verifier(normalized, offer.salt)
+            verifier = derive_verifier(code, offer.salt)
             expected = make_proof(
                 verifier,
                 "offer",
@@ -518,6 +512,24 @@ class CcpService:
             )
             if hmac.compare_digest(expected, offer.tag):
                 matches.append((offer, verifier))
+        return matches
+
+    # code: Six-character value read by the user from Cody's physical display.
+    # Raises ValueError, RuntimeError, TimeoutError, or OSError for invalid, ambiguous, rejected, or failed pairing.
+    def pair(self, code: str) -> dict[str, Any]:
+        normalized = code.strip().upper()
+        if CODE_PATTERN.fullmatch(normalized) is None:
+            raise ValueError("The Cody code must contain six characters from A-H, J-N, P-Z, or 2-9")
+        with self._offers_lock:
+            offers = list(self._offers.values())
+        used_cached_offers = bool(offers)
+        if not offers:
+            offers = self.discover(1200)
+        matches = self._matching_offers(normalized, offers)
+        if not matches and used_cached_offers:
+            # A display-code retry rotates the device session. Refresh once so
+            # an older MCP discovery result cannot hide the current offer.
+            matches = self._matching_offers(normalized, self.discover(1200))
         if not matches:
             raise ValueError("No current Cody offer matches the displayed code")
         if len(matches) != 1:
