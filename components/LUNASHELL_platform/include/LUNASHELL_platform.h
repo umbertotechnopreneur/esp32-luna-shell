@@ -329,9 +329,19 @@ uint32_t LUNASHELL_display_runtime_content_revision(void);
 esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms, bool *parked);
 /** Check the frame deadline between geometry/raster stages, without resetting it. */
 esp_err_t LUNASHELL_display_frame_check_deadline(void);
-// pixels: Receives idle internal raster storage borrowed only until this frame ends.
+// pixels: Receives idle internal raster storage borrowed until submission or frame end.
 // capacity_bytes: Actual usable capacity; never an assumed preferred tile size.
+// Exception: Returns ownership/deadline/completion errors without lending an active slot.
 esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capacity_bytes);
+// x_start: First included horizontal pixel coordinate.
+// y_start: First included vertical pixel coordinate.
+// x_end: First excluded horizontal pixel coordinate.
+// y_end: First excluded vertical pixel coordinate, fitting the borrowed capacity.
+// pixels: Current borrowed slot in panel RGB565 order; never modify after submission.
+// Borrow again for each strip. Frame end retires the final queued DMA before return.
+// Exception: Returns real geometry/owner/DMA errors; failure is published canonically.
+esp_err_t LUNASHELL_display_frame_submit_rgb565(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels);
 // frame_error: First geometry/raster/transfer error; partial frames cannot report success.
 esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error);
 

@@ -224,6 +224,7 @@ extern "C" esp_err_t LUNASHELL_display_frame_check_deadline(void)
 
 // pixels: Receives idle internal raster storage borrowed only by the frame owner.
 // capacity_bytes: Actual capacity, including an explicitly degraded DMA row count.
+// Exception: Publishes and returns real ownership/deadline/completion errors.
 extern "C" esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capacity_bytes)
 {
     if (pixels == nullptr || capacity_bytes == nullptr) {
@@ -245,7 +246,38 @@ extern "C" esp_err_t LUNASHELL_display_frame_buffer(void **pixels, size_t *capac
 #endif
 }
 
+// x_start: First included horizontal pixel coordinate.
+// y_start: First included vertical pixel coordinate.
+// x_end: First excluded horizontal pixel coordinate.
+// y_end: First excluded vertical pixel coordinate, fitting the borrowed capacity.
+// pixels: Current idle borrowed slot in panel order; ownership passes to DMA on submission.
+// Exception: A rejected or failed submission is published without claiming a completed frame.
+extern "C" esp_err_t LUNASHELL_display_frame_submit_rgb565(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (!owns_display_frame()) {
+        return log_operation_result("Frame RGB565 submission owner", ESP_ERR_INVALID_STATE);
+    }
+    const esp_err_t error = bsp_display_frame_submit_rgb565(
+        x_start, y_start, x_end, y_end, pixels);
+    if (error != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportDisplay(false, error);
+    }
+    // A queued rectangle is not a completed frame. Success is published by frame end.
+    return log_operation_result("Frame RGB565 submission", error);
+#else
+    (void)x_start;
+    (void)y_start;
+    (void)x_end;
+    (void)y_end;
+    (void)pixels;
+    return log_operation_result("Frame RGB565 submission", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
 // frame_error: Original failure from the renderer, or success after its final strip.
+// Exception: Drains outstanding DMA before ending the watchdog and preserves real errors.
 extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -256,8 +288,8 @@ extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
     bsp_display_frame_result_t metrics{};
     const esp_err_t deadline_error = bsp_display_frame_check_deadline();
     const esp_err_t render_error = frame_error != ESP_OK ? frame_error : deadline_error;
-    const esp_err_t watched_error = LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_DISPLAY, render_error);
-    const esp_err_t end_error = bsp_display_frame_end(watched_error, &metrics);
+    const esp_err_t drained_error = bsp_display_frame_end(render_error, &metrics);
+    const esp_err_t end_error = LUNASHELL_liveness_watch_end(LUNASHELL_LIVENESS_DISPLAY, drained_error);
     // State and metric publication must precede releasing our platform owner below.
     s_frame_metrics.measured = true;
     s_frame_metrics.last_duration_us = metrics.duration_us;
@@ -265,6 +297,9 @@ extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
     s_frame_metrics.last_conversion_us = metrics.conversion_us;
     s_frame_metrics.last_submission_us = metrics.submission_us;
     s_frame_metrics.last_completion_wait_us = metrics.completion_wait_us;
+    s_frame_metrics.last_buffer_count = metrics.buffer_count;
+    s_frame_metrics.last_transfer_rows = metrics.transfer_rows;
+    s_frame_metrics.last_completion_error = metrics.completion_error;
     s_frame_metrics.retained_dma_bytes = metrics.retained_dma_bytes;
     s_frame_metrics.reset_required = metrics.retained_dma_bytes != 0;
     s_frame_metrics.last_error = end_error;

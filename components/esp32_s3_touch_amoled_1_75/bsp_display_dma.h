@@ -8,9 +8,11 @@
 
 #define BSP_DISPLAY_DRAW_BUFFER_HEIGHT     64U
 #define BSP_DISPLAY_DMA_TRANSFER_HEIGHT    8U
-// Standalone rendering amortizes command/completion overhead with a larger
-// transient slot. Luna's UI keeps its existing 8-row two-slot pipeline.
+// Synchronous standalone writes use up to 32 rows. Native frames overlap two
+// 16-row slots; Luna's UI keeps its existing 8-row two-slot pipeline.
 #define BSP_DISPLAY_STANDALONE_DMA_TRANSFER_HEIGHT 32U
+// Two 16-row render slots retain the previous 32-row internal DMA budget.
+#define BSP_DISPLAY_STANDALONE_FRAME_SLOT_HEIGHT 16U
 #define BSP_DISPLAY_DMA_PIPELINE_DEPTH     2U
 #define BSP_DISPLAY_DMA_ALIGNMENT          64U
 #define BSP_DISPLAY_DMA_HEADROOM_BYTES     4096U

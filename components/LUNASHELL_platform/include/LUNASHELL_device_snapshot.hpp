@@ -382,6 +382,9 @@ struct DisplayFrameSnapshot {
     uint32_t last_conversion_us = 0;
     uint32_t last_submission_us = 0;
     uint32_t last_completion_wait_us = 0;
+    uint16_t last_buffer_count = 0;
+    uint16_t last_transfer_rows = 0;
+    esp_err_t last_completion_error = ESP_ERR_INVALID_STATE;
     uint32_t retained_dma_bytes = 0;
     uint32_t retained_consumer_bytes = 0;
     esp_err_t retained_consumer_error = ESP_OK;

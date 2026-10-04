@@ -1543,6 +1543,13 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         rounded_ms(timings.raster_us), rounded_ms(log.transfer.last_conversion_us),
         rounded_ms(log.transfer.last_submission_us), rounded_ms(log.transfer.last_completion_wait_us),
         rounded_ms(log.completed_us - timings.started_us), rounded_ms(timings.previous_log_output_us));
+    ESP_LOGI(kTag, "DMA slots=%u rows=%u rects=%lu owner_us=%lu completion=%s retained=%lu",
+        static_cast<unsigned>(log.transfer.last_buffer_count),
+        static_cast<unsigned>(log.transfer.last_transfer_rows),
+        static_cast<unsigned long>(log.transfer.last_rectangle_count),
+        static_cast<unsigned long>(log.transfer.last_duration_us),
+        esp_err_to_name(log.transfer.last_completion_error),
+        static_cast<unsigned long>(log.transfer.retained_dma_bytes));
     ESP_LOGI(kTag, "DRAW ms clear=%ld art=%ld skel=%ld nav=%ld links=%ld tangents=%ld markers=%ld px=%lu bytes=%lu rects=%u tiles=%u/%u",
         rounded_ms(timings.raster_profile.clear_us), rounded_ms(timings.raster_profile.artwork_us),
         rounded_ms(timings.raster_profile.skeleton_us), rounded_ms(timings.raster_profile.navigation_us),
@@ -1962,6 +1969,22 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             ++timings.skipped_tiles;
         } else {
             ++timings.rasterized_tiles;
+            // Reborrow for every dirty tile. The previously submitted slot is
+            // immutable until DMA completion; a second slot overlaps its transfer.
+            const int64_t borrow_started_us = esp_timer_get_time();
+            size_t slot_capacity_bytes = 0;
+            result = LUNASHELL_display_frame_buffer(&raster_storage, &slot_capacity_bytes);
+            timings.transfer_us += esp_timer_get_time() - borrow_started_us;
+            if (result != ESP_OK) {
+                break;
+            }
+            if (raster_storage == nullptr || slot_capacity_bytes != raster_capacity_bytes ||
+                reinterpret_cast<uintptr_t>(raster_storage) % alignof(uint16_t) != 0) {
+                ESP_LOGE(kTag, "Borrowed frame slot changed capacity/alignment: bytes=%u (%s)",
+                    static_cast<unsigned>(slot_capacity_bytes), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+                result = ESP_ERR_INVALID_SIZE;
+                break;
+            }
             const uint16_t width = damage.right - damage.left;
             const uint16_t height = damage.bottom - damage.top;
             // Raster directly into the leased DMA base with a compact stride.
@@ -2027,10 +2050,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             }
             if (result == ESP_OK) {
                 const int64_t transfer_started_us = esp_timer_get_time();
-                result = LUNASHELL_display_write_rgb565(
-                    damage.left, damage.top, damage.right, damage.bottom, strip.pixels,
-                    LUNASHELL_DISPLAY_RGB565_BYTE_ORDER_PANEL
-                );
+                result = LUNASHELL_display_frame_submit_rgb565(
+                    damage.left, damage.top, damage.right, damage.bottom, strip.pixels);
                 timings.transfer_us += esp_timer_get_time() - transfer_started_us;
                 if (result == ESP_OK) {
                     timings.submitted_pixels += static_cast<uint32_t>(width) * height;
@@ -2064,6 +2085,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     timings.frame_end_started_us = esp_timer_get_time();
     const DrawResult completed = frame.finish({result, parked_during_frame, completed_revision});
     timings.frame_end_completed_us = esp_timer_get_time();
+    // The last queued strip must retire inside the measured frame, not after it.
+    timings.transfer_us += timings.frame_end_completed_us - timings.frame_end_started_us;
     if (screenshot_capture_active) {
         const esp_err_t screenshot_finish_error = CODY::finish_screenshot_capture(
             screenshot_capture, completed.error

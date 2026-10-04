@@ -90,6 +90,9 @@ typedef struct {
     uint32_t submission_us;
     uint32_t completion_wait_us;
     uint32_t retained_dma_bytes;
+    uint16_t buffer_count;
+    uint16_t transfer_rows;
+    esp_err_t completion_error;
     esp_err_t error;
 } bsp_display_frame_result_t;
 
@@ -99,9 +102,21 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms);
 esp_err_t bsp_display_frame_check_deadline(void);
 // pixels: Receives frame-borrowed internal RGB565 storage, never caller-freed.
 // capacity_bytes: Receives usable bytes; raster rows must fit this actual capacity.
-// Borrow expires at frame end. A native-order synchronous write consumes pixels
-// in place; a panel-order write can submit the already encoded slot unchanged.
+// Borrow ends at submission or frame end. Submitted storage belongs to DMA;
+// borrow again before rasterizing another strip, even if its capacity is unchanged.
+// A native-order synchronous write consumes the first slot in place, or copies
+// an idle second slot into it after retiring earlier DMA.
+// Exception: Returns owner/deadline/completion errors without lending an active slot.
 esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes);
+// x_start: First included physical column.
+// y_start: First included physical row.
+// x_end: Exclusive column, bounded by the panel.
+// y_end: Exclusive row, fitting one borrowed slot.
+// pixels: Current borrowed slot, already encoded in panel RGB565 byte order.
+// Queues the slot; completion is required before reusing it or ending the frame.
+// Exception: Returns real geometry/owner/DMA errors; uncertain DMA retains its lease.
+esp_err_t bsp_display_frame_submit_rgb565(
+    int x_start, int y_start, int x_end, int y_end, const void *pixels);
 // frame_error: Original render/transfer failure; success still checks the deadline.
 // result: Receives measured duration and quarantined DMA bytes before lock release.
 esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result);

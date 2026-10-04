@@ -7,6 +7,14 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Implemented native frame DMA overlap with two borrowed 16-row slots and at most
+  one outstanding color transfer. The renderer reborrows before each tile; frame
+  end drains DMA before releasing the lease, ending the watchdog and committing
+  geometry. Synchronous callers drain before reuse. Uncertain submission/completion
+  retains the entire lease until reset; real capacity and DMA error are published
+  canonically. Added an actual-BSP host ownership/fault suite through `device.ps1`
+  and integrated final drain into frame timing. Source review completed; host,
+  firmware and physical measurements for this increment remain pending.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host

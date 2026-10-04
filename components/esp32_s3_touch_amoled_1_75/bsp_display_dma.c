@@ -61,7 +61,7 @@ void bsp_display_release_dma_pipeline(
     *lease = (bsp_display_dma_lease_t){0};
 }
 
-// UI flushes may request two transient slots; standalone frames reuse one.
+// UI flushes and standalone frames may request two transient slots.
 // source_row_bytes: Nonzero RGB565 row length, bounded by the physical panel.
 // maximum_transfer_rows: Maximum rows in one slot, bounded by the panel transfer limit.
 // preferred_buffer_count: One or two independently aligned pipeline slots.
