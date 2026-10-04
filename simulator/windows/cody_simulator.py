@@ -33,6 +33,7 @@ from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
+from cody_personality import PersonalityCue, PersonalityPainter  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -89,6 +90,7 @@ class CodyRenderer:
         self.jelly_study_enabled = jelly_study
         self.jelly_sprite = None
         self.face_follows_body = True
+        self.personality_painter = None
         self.scene_painter = ScenePainter(root, self.rig)
 
     # color is the initial palette slot of a fresh full logical canvas.
@@ -380,9 +382,12 @@ class CodyRenderer:
     # png_mesh_study: Opt-in PNG/triangle body; the existing face remains independent.
     # mesh_overlay: Show triangle topology rather than just the painted result.
     # scene_elapsed_ms: Active intro/typewriter time, independent of the shared rig clock.
+    # personality_cue: Single explicit host symbol preview; device cues are synthetic.
+    # personality_elapsed_ms: Active cue clock, frozen while animation is paused.
+    # personality_nominal_scale: Unanimated authored size; None uses the supplied transform.
     # Raises ValueError for an unknown screen or invalid rig values.
     # Raises OSError for unreadable alternate PNG artwork.
-    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0):
+    def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0, personality_cue=PersonalityCue.NONE, personality_elapsed_ms=0, personality_nominal_scale=None):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
         scene = evaluate(self.rig, values, transform, contour=contour)
@@ -401,6 +406,23 @@ class CodyRenderer:
                                     navigation_visible=not boot_visible,
                                     background_rgb565=self.scene_painter.definition("greeting")["background_rgb565"]
                                     if screen == Screen.GREETING else None)
+            if self.personality_painter is not None or personality_cue != PersonalityCue.NONE:
+                if self.personality_painter is None:
+                    self.personality_painter = PersonalityPainter(self.root, self.rig)
+                exclusions = [(10, 203, 70, 263)]
+                if screen == Screen.GREETING:
+                    definition = self.scene_painter.definition("greeting")
+                    text = definition["title"]
+                    if text["visible"]:
+                        exclusions.append((73, text["top"], 393, text["top"] + 40))
+                body_top = None
+                if self.jelly_study_enabled and self.jelly_sprite is not None:
+                    body_top = max(0, math.floor(self.jelly_sprite.map_rows(scene)[0].destination_y))
+                cue_frame = self.personality_painter.prepare(
+                    scene, personality_cue,
+                    transform[2] if personality_nominal_scale is None else personality_nominal_scale,
+                    screen, rotation, personality_elapsed_ms, exclusions, body_top)
+                self.personality_painter.paint(image, cue_frame)
             if screen == Screen.GREETING:
                 image = self.boot[Screen.BOOT_READY].copy() if boot_visible else image
                 image = image.convert("RGB")
@@ -509,6 +531,7 @@ class CodyWindow:
         self.guide = tk.BooleanVar(value=args.safe_guide)
         self.playing = tk.BooleanVar(value=True)
         self.face_follows_body = tk.BooleanVar(value=renderer.face_follows_body)
+        self.personality_cue = tk.StringVar(value=PersonalityCue.NONE.name)
         self.contour_playing = tk.BooleanVar(value=True)
         self.contour_state = make_contour_state(renderer.rig)
         self.entity_name = next(iter(renderer.rig["entities"]))
@@ -611,6 +634,9 @@ class CodyWindow:
     # self: Preview controller owning runtime appearance preferences.
     # appearance: Face tab owning the named sliders and expression buttons.
     def build_face_controls(self, appearance):
+        ttk.Label(appearance, text="Manga symbol / HOST PREVIEW (device cues are synthetic)").pack(anchor="w")
+        ttk.Combobox(appearance, textvariable=self.personality_cue,
+                     values=tuple(cue.name for cue in PersonalityCue), state="readonly").pack(fill="x")
         # Targets belong to the controls; smoothing belongs to the animation state.
         if self.jelly_study:
             self.add_toggle(appearance, "Deform face with jelly body", self.face_follows_body)
@@ -1290,6 +1316,8 @@ class CodyWindow:
             self.outline.get(), self.rest_outline.get(), self.names.get(),
             self.label_scope.get(), self.label_page.get(), self.entity_name, overlay,
             self.face_follows_body.get(), self.renderer.navigation_opacity, self.playing.get(),
+            self.personality_cue.get(),
+            round(self.elapsed_ms, 1) if self.personality_cue.get() != PersonalityCue.NONE.name else None,
             self.renderer.scene_painter.visible_characters("greeting", self.scene_elapsed_ms)
             if screen == Screen.GREETING else None,
         )
@@ -1354,6 +1382,10 @@ class CodyWindow:
                 rest_outline=self.rest_outline.get(),
                 response_frame=self.response_frame if self.motion_overlay.get() else None,
                 scene_elapsed_ms=self.scene_elapsed_ms,
+                personality_cue=PersonalityCue[self.personality_cue.get()],
+                personality_elapsed_ms=self.elapsed_ms,
+                personality_nominal_scale=self.renderer.scene_painter.definition("greeting")["cloud"]["scale"]
+                if screen == Screen.GREETING else self.transform[2].get(),
             )
             self.present_frame(image, layout, screen, rotation)
             # Commit only after Tk accepted the image and its matching hit targets.

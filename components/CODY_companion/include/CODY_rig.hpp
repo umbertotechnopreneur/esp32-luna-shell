@@ -6,6 +6,7 @@
 #include <type_traits>
 #include "CODY2D_paths.hpp"
 #include "CODY_damage.hpp"
+#include "CODY_personality.hpp"
 #if CODY_ENABLE_PEARL_JELLY
 #include "CODY_jelly.hpp"
 #endif
@@ -172,6 +173,7 @@ struct EvaluatedPath {
 
 // Allocate this once in caller-owned PSRAM. It contains no heap-owning objects.
 struct RigScene {
+    PersonalityFrame personality{};
     std::array<CODY2D::Vec2, kMaxPoints> local{};
     std::array<CODY2D::Vec2, kMaxPoints> world{};
     std::array<CODY2D::Vec2, kMaxVertices> vertices{};
@@ -237,6 +239,7 @@ struct RigRasterProfile {
     int64_t jelly_us = 0;
     // All non-jelly paths: the face in Pearl mode, also the body in native vector mode.
     int64_t vector_us = 0;
+    int64_t personality_us = 0;
     int64_t skeleton_us = 0;
     int64_t navigation_us = 0;
     // Substages are included in skeleton_us, not additional frame work.

@@ -333,6 +333,10 @@ esp_err_t include_rig_artwork_damage(const RigScene &scene, DirtyPlan &plan)
     if (error != ESP_OK) {
         return error;
     }
+    error = include_damage(plan, scene.personality.bounds);
+    if (error != ESP_OK) {
+        return error;
+    }
 #if CODY_ENABLE_PEARL_JELLY
     error = include_damage(plan, scene.jelly.bounds);
     if (error != ESP_OK) {
@@ -381,6 +385,16 @@ esp_err_t plan_rig_damage(const RigScene &previous, const RigScene &current,
     result = validate_scene(current, current_selected, "Current scene");
     if (result != ESP_OK) {
         return result;
+    }
+    if (!same_personality_frame(previous.personality, current.personality)) {
+        result = include_damage(plan, previous.personality.bounds);
+        if (result != ESP_OK) {
+            return result;
+        }
+        result = include_damage(plan, current.personality.bounds);
+        if (result != ESP_OK) {
+            return result;
+        }
     }
 #if CODY_ENABLE_PEARL_JELLY
     if (!same_jelly_frame(previous.jelly, current.jelly)) {

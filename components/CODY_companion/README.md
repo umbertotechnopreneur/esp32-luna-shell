@@ -15,3 +15,9 @@ and service APIs; does not admit LVGL. Public contracts remain in `include/`.
 Assets stay under `assets/cody`; generated resources are versioned firmware
 inputs. See [Cody architecture](../../docs/architecture/cody/README.md) for behavior
 and [the console](../../scripts/README.md) for authorized workflows.
+
+[`CODY_personality.hpp`](include/CODY_personality.hpp) exposes typed single-symbol
+session selection. Narrative requests are separate from fresh canonical device
+state. All existing sizes except Micro support the delayed above-body cue;
+[personality rendering](../../docs/architecture/cody/personality-icons.md)
+documents layout admission and unmeasured resource/performance limits.

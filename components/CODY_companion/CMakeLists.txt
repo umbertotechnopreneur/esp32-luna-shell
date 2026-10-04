@@ -24,6 +24,8 @@ idf_component_register(
         "src/diagnostics/CODY_status_overlay.cpp"
         "src/diagnostics/CODY_debug_hud.cpp"
         "src/rendering/CODY_damage.cpp"
+        "src/rendering/CODY_personality.cpp"
+        "../../assets/cody/personality-icons/generated/personality_icons.cpp"
         "src/rendering/CODY_dirty_plan.cpp"
         "src/model/CODY_rig.cpp"
         "src/model/CODY_response.cpp"
@@ -42,6 +44,7 @@ idf_component_register(
     PRIV_INCLUDE_DIRS "../../assets/cody/boot/generated" "../../assets/cody/rig/generated" "../../assets/cody/runtime/generated"
         "../../assets/cody/scenes/generated"
         "../../assets/cody/appearance/jelly-scanline/generated"
+        "../../assets/cody/personality-icons/generated"
     REQUIRES CODY2D LUNASHELL_platform heap
     PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system
 )

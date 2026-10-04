@@ -1,4 +1,5 @@
 #include "CODY_companion.h"
+#include "CODY_personality.hpp"
 
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -166,6 +167,8 @@ std::atomic<bool> s_capture_sequence_active{false};
 std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
+    CODY::PersonalityCue requested_personality = CODY::PersonalityCue::None;
+    CODY::PersonalityLag personality_lag{};
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
     BootPhase boot_phase = BootPhase::Sleeping;
     CODY::OnboardingSettings onboarding{};
@@ -227,6 +230,63 @@ struct CompanionState {
     CODY::FrameRateMeasurement frame_rate{};
 };
 CompanionState s_state;
+
+// component: Canonical publication whose validity is independent of narrative animation.
+bool personality_sample_current(const LUNASHELL::ComponentSnapshot &component)
+{
+    return component.health == LUNASHELL::DeviceHealth::Ready && component.last_error == ESP_OK &&
+        component.data_valid && !component.data_stale && component.last_success_at_us > 0;
+}
+
+// requested: Device cue request; narrative requests pass through unchanged.
+// cue: Receives None unless the fresh canonical observation actually supports the symbol.
+// Exception: Returns the original snapshot read or invalid canonical value error.
+esp_err_t observe_personality_device_cue(CODY::PersonalityCue requested, CODY::PersonalityCue &cue)
+{
+    cue = requested;
+    if (!CODY::personality_cue_is_device(requested)) {
+        return ESP_OK;
+    }
+    LUNASHELL::DeviceStatusObservation observation;
+    const esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Personality canonical observation failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    cue = CODY::PersonalityCue::None;
+    if (requested == CODY::PersonalityCue::NoWifi) {
+        if (personality_sample_current(observation.wifi) && observation.wifi.started &&
+            observation.wifi.credentials_configured && !observation.wifi.connected) {
+            cue = requested;
+        }
+        return ESP_OK;
+    }
+    const auto &battery = observation.battery;
+    if (!personality_sample_current(battery) || !battery.battery_present) {
+        return ESP_OK;
+    }
+    if (requested == CODY::PersonalityCue::Charging) {
+        // Charging is independent of whether a charge percentage was measured.
+        if (std::strcmp(battery.power_state, "charging") == 0) {
+            cue = requested;
+        } else if (std::strcmp(battery.power_state, "discharging") != 0 &&
+                   std::strcmp(battery.power_state, "standby") != 0) {
+            ESP_LOGE(kTag, "Personality charge state='%s' rejected (%s)",
+                battery.power_state, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+    } else if (battery.level_percent_valid) {
+        if (battery.level_percent < 0 || battery.level_percent > 100) {
+            ESP_LOGE(kTag, "Personality battery percentage=%d rejected (%s)",
+                battery.level_percent, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        if (battery.level_percent <= 15) {
+            cue = requested;
+        }
+    }
+    return ESP_OK;
+}
 
 // No parameters: derive visible feedback from the independently completed SD write.
 CaptureVisual capture_visual()
@@ -661,6 +721,30 @@ public:
 private:
     bool active_ = true;
 };
+// cue: Already validated typed identity for a single narrative or device request.
+// Exception: Returns the real consumer-state or display lock failure.
+esp_err_t set_personality_request(CODY::PersonalityCue cue)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Personality request lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Personality request state rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    s_state.requested_personality = cue;
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    ESP_LOGI(kTag, "Personality cue=%u selected (session request)", static_cast<unsigned>(cue));
+    return ESP_OK;
+}
+
+
 
 // Own only the frame acquired by this call; every return passes its original result.
 class StandaloneFrameOnExit final {
@@ -1310,9 +1394,10 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         timings.dirty_rectangles, timings.rasterized_tiles, timings.visited_tiles);
     // Substages are part of artwork, not extra work. Keep microseconds and a
     // separate short record so the sink's 255-byte limit cannot hide the split.
-    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld total=%lld",
+    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld personality=%lld total=%lld",
         static_cast<long long>(timings.raster_profile.jelly_us),
         static_cast<long long>(timings.raster_profile.vector_us),
+        static_cast<long long>(timings.raster_profile.personality_us),
         static_cast<long long>(timings.raster_profile.artwork_us));
 }
 
@@ -1518,6 +1603,49 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const bool frame_status_visible = !s_state.onboarding.effective_first_boot &&
         navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
+    if (frame_was_rig) {
+        const int64_t cue_preparation_started_us = esp_timer_get_time();
+        CODY::CodySize personality_size{};
+        const float nominal_scale = frame_scene_visible
+            ? s_state.scene.definition->cloud.scale : CODY::Data::placement.scale;
+        esp_err_t cue_error = CODY::cody_size_for_scale(nominal_scale, personality_size);
+        CODY::PersonalityCue cue = CODY::PersonalityCue::None;
+        if (cue_error == ESP_OK) {
+            cue_error = observe_personality_device_cue(s_state.requested_personality, cue);
+        }
+        CODY::DamageRect exclusions[6]{};
+        uint8_t exclusion_count = 0;
+        if (frame_scene_visible) {
+            if (s_state.scene.definition->title_visible && s_state.scene.title.valid) {
+                const auto &bounds = s_state.scene.title.bounds;
+                exclusions[exclusion_count++] = {bounds.x, bounds.y,
+                    static_cast<uint16_t>(bounds.x + bounds.width),
+                    static_cast<uint16_t>(bounds.y + bounds.height)};
+            }
+            exclusions[exclusion_count++] = s_state.scene.content.bounds;
+            for (const auto &bounds : s_state.scene.content.control_bounds) {
+                exclusions[exclusion_count++] = bounds;
+            }
+        }
+        // Always reserve the complete lateral Back target, independently of artwork.
+        exclusions[exclusion_count++] = {10, 203, 70, 263};
+        if (frame_status_visible) {
+            exclusions[exclusion_count++] = CODY::status_overlay_damage_bounds();
+        }
+        if (cue_error == ESP_OK) {
+            const uint32_t route = frame_scene_visible
+                ? static_cast<uint32_t>(s_state.scene.definition->id) : 0;
+            cue_error = CODY::prepare_personality_frame(
+                *s_resources.rig, cue, personality_size, route, s_state.rendered_rotation_degrees,
+                timings.started_us, s_state.animation_paused, resume_animation || !previous_frame_available,
+                exclusions, exclusion_count, s_state.personality_lag, s_resources.rig->personality);
+        }
+        if (cue_error != ESP_OK) {
+            return frame.finish({cue_error, false, 0});
+        }
+        timings.geometry_completed_us = esp_timer_get_time();
+        timings.geometry_us += timings.geometry_completed_us - cue_preparation_started_us;
+    }
     if (frame_status_visible &&
         (s_state.status_sampled_at_us == 0 ||
          timings.started_us - s_state.status_sampled_at_us >= kStatusRefreshUs)) {
@@ -2675,6 +2803,49 @@ void companion_worker(void *context)
 
 }  // namespace
 
+// cue: Single narrative symbol; real device facts use the separate snapshot-gated selector.
+// Exception: Returns invalid cue/category or the real state/lock error.
+esp_err_t CODY::set_personality_cue(PersonalityCue cue)
+{
+    if (!personality_cue_valid(cue) || personality_cue_is_device(cue)) {
+        ESP_LOGE(kTag, "Narrative cue=%u rejected (%s)", static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return set_personality_request(cue);
+}
+
+// cue: None or a device-state symbol whose visibility follows the canonical snapshot.
+// Exception: Returns invalid cue/category or the real state/lock error.
+esp_err_t CODY::set_personality_device_cue(PersonalityCue cue)
+{
+    if (!personality_cue_valid(cue) || (cue != PersonalityCue::None && !personality_cue_is_device(cue))) {
+        ESP_LOGE(kTag, "Device cue=%u rejected (%s)", static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    return set_personality_request(cue);
+}
+
+// cue: Receives the current request on success only, independent of displayed-frame retirement.
+// Exception: Returns the real display lock or consumer-state failure.
+esp_err_t CODY::get_personality_cue(PersonalityCue &cue)
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(kTag, "Personality read lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    const DisplayUnlockOnExit lock;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "Personality read state rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    cue = s_state.requested_personality;
+    return ESP_OK;
+}
+
 // Start the single companion owner; a failed stage keeps its original error.
 // Exception: Returns the original startup failure and publishes the failed stage.
 extern "C" esp_err_t CODY_companion_start(void)
@@ -3044,6 +3215,33 @@ extern "C" esp_err_t CODY_companion_get_face_deformation(bool *enabled)
 }
 
 #else
+
+// cue: Requested typed symbol; the explicitly selected profile excludes the consumer.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.
+esp_err_t CODY::set_personality_cue(PersonalityCue cue)
+{
+    ESP_LOGE("CODY_companion", "Narrative cue=%u rejected: consumer excluded (%s)",
+        static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// cue: Requested device symbol; the explicitly selected profile excludes the consumer.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.
+esp_err_t CODY::set_personality_device_cue(PersonalityCue cue)
+{
+    ESP_LOGE("CODY_companion", "Device cue=%u rejected: consumer excluded (%s)",
+        static_cast<unsigned>(cue), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// cue: Output remains untouched because this profile has no Cody consumer.
+// Exception: Returns ESP_ERR_NOT_SUPPORTED and logs the rejected operation.
+esp_err_t CODY::get_personality_cue(PersonalityCue &cue)
+{
+    (void)cue;
+    ESP_LOGE("CODY_companion", "Personality read rejected: consumer excluded (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // expression_key: Requested catalog key; this profile excludes the Cody consumer.
 extern "C" esp_err_t CODY_companion_set_expression(const char *expression_key)

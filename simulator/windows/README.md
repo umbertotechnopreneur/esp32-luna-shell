@@ -7,6 +7,12 @@ not establish native pixels, FPS, CPU load or audible quality.
 
 ## Cody
 
+The Face panel offers one manga-symbol selector. It previews the same generated
+fixed-palette index/coverage assets and delayed pose follow as native Cody;
+device-symbol choices are explicitly synthetic host previews. Micro suppresses
+the symbol. The feature source is implemented, but this increment has not been
+executed in the simulator. See [personality symbols](../../docs/architecture/cody/personality-icons.md).
+
 ```powershell
 .\scripts\device.ps1 simulator
 .\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180

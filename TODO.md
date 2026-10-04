@@ -8,6 +8,16 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] Validate the personality-icons branch after explicit authorization:
+  compile/link, generated-palette/coverage contracts, every non-Micro size and
+  all fourteen cues, symbol readability, actual jelly/vector clearance,
+  circle/QR/title/status/Back separation, lag under pause/wake/rotation/stale
+  clocks, canonical device-state gating and old/new damage erasure. Profile
+  complete frame/DMA/CPU/stack costs; static area counts are not performance
+  evidence. Reconcile the independent renderer-optimization worktree before
+  integrated release validation. No tests/checks/build/simulator/device run has
+  been performed for this increment.
+
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and

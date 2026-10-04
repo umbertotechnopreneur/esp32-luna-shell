@@ -7,6 +7,19 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Implemented the isolated `feat/personality-icons` worktree from `290b6da3`:
+  fourteen standalone ImageGen manga groups, deterministic non-reserved shared
+  palette indices with separate alpha coverage, individual indexed PNG/bin
+  assets, exact crop/component/hash provenance and internal-flash tables.
+  Generation ran through `scripts/device.ps1 generate -Generator
+  cody-personality-icons`; payload is 115,200 bytes plus descriptors/code.
+  Native rendering uses one selected typed cue, every existing size except
+  Micro, bounded above-body admission, 85-ms delayed position/squash and old/new
+  frame damage. Session narrative/device selectors keep device truth canonical.
+  Simulator source mirrors the feature and labels host device-cue previews
+  synthetic. Only generation and static source/artwork review were performed;
+  compilation, automated checks, simulator and physical behavior remain open.
+
 - Passive monitoring of `d766e08c` recorded wake input followed by failed BLE
   DMA reservation (34,816 bytes required; largest block about 21-22 KiB), then
   rollback to standby. A later Interrupt-WDT backtrace enters the log mutex
