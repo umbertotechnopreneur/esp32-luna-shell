@@ -239,6 +239,14 @@ experiment; its clock calls perturb whole-frame timing. It ranked preparation
 and composition ahead of interpolation, without measuring their uninstrumented
 standalone costs.
 
+The same 40-second fixed route with SIMD and row coverage submitted 35,256
+pixels per frame at 75% scale: mean 33,888 us, p95 34,512 us, maximum 35,147
+us, with zero frames over the 40 ms budget. At 50% it submitted 15,600 pixels
+per frame: mean 21,834 us, p95 22,335 us, maximum 23,179 us, again with zero
+misses. These scale captures do not isolate a C/SIMD gain. The authored benchmark
+configuration and device were restored to 100% afterward. A UI-wide performance
+claim still requires measurement outside the fixed benchmark route.
+
 The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
 in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in
 40-bit QACC lanes. Each of the two horizontal lerps and the final vertical lerp

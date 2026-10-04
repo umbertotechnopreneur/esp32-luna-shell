@@ -7,6 +7,16 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- The same 16-pixel SIMD and row-coverage path completed fixed 40-second device
+  windows at smaller scales. At 75%, 975 frames submitted 35,256 pixels each:
+  mean 33,888 us, p95 34,512 us, maximum 35,147 us, and zero budget misses.
+  At 50%, 975 frames submitted 15,600 pixels each: mean 21,834 us, p95
+  22,335 us, maximum 23,179 us, and zero misses. These are SIMD-only scale
+  measurements, not new C/SIMD A/B comparisons. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-coverage-75.log`
+  and `cody-simd-coverage-50.log` beside it. The authored scale and flashed
+  firmware were returned to 100%; the restored app payload matches the
+  measured 100% payload, with only image metadata/checksum bytes differing.
 - The fixed 100% Pearl Mist S3 run with 16-pixel SIMD blocks and generated
   per-row coverage completed 766 frames at 63,000 submitted pixels per frame:
   mean 50,715 us, p95 51,463 us, jelly mean 30,736 us, and 766/766 frames over

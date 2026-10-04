@@ -26,12 +26,12 @@ older host/build/flash evidence does not validate the current combined image.
   the fixed 100% jelly benchmark now measures a 6,235 us frame-mean gain over
   the fresh C control, but remains 10,715 us above the 40 ms budget. Separate
   jelly and face timings in the full UI before choosing another kernel.
-- [ ] Validate the finite raster baseline on `feat/simd-perf-opt`: run the new
-  `cody-raster-benchmark` suite and repeated device comparisons. `4ac6c812`
+- [ ] Complete the finite raster validation on `feat/simd-perf-opt`. `4ac6c812`
   passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
   684 frames, full-window p95 57,611 us, first-run entry and normal completion
-  with policy/look restoration and deferred greeting. Compare coarse/detail at
-  50/75/100 percent and exercise touch/PWR/Sleep interruption. Test disabled
+  with policy/look restoration and deferred greeting. SIMD coarse captures at
+  50/75/100 percent are complete; detailed segmentation remains a separate,
+  intrusive experiment. Exercise touch/PWR/Sleep interruption. Test disabled
   benchmark, non-Pearl and Release builds explicitly.
   Validate the implemented S3 interpolation kernel: `simd_verify` first checks
   65,536 weight combinations and then compares live RGBA samples; `simd` and
@@ -42,8 +42,9 @@ older host/build/flash evidence does not validate the current combined image.
   missed 40 ms. Detailed S3 profiling (intrusive) found preparation and RGB565
   composition much larger than interpolation. The 64-pixel block regressed;
   16-pixel blocks with generated row coverage now pass host parity and measured
-  50,715 us mean, 51,463 us p95 at 100%. Confirm scale 50/75% and full-UI
-  behavior before enabling this path outside the benchmark. The generated
+  50,715 us mean, 51,463 us p95 at 100%. The 75% and 50% SIMD-only captures
+  stayed under 40 ms throughout, with means of 33,888 us and 21,834 us.
+  Confirm full-UI behavior before enabling this path outside the benchmark. The generated
   coverage table and current SIMD path still need a fresh physical pixel-parity
   run after this optimization; earlier S3 verification predates row trimming.
   Add deterministic animated work after trustworthy timings; include
