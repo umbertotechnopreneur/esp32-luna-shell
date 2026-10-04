@@ -147,8 +147,17 @@ uint32_t sample_rgba(int32_t source_x, const uint32_t *upper,
     const uint32_t column = static_cast<uint32_t>(clipped) >> 16U;
     const uint32_t next = std::min(column + 1U, static_cast<uint32_t>(JellyData::width - 1));
     const uint32_t horizontal_weight = (static_cast<uint32_t>(clipped) >> 8U) & 255U;
-    const uint32_t above = lerp_rgba(upper[column], upper[next], horizontal_weight);
-    const uint32_t below = lerp_rgba(lower[column], lower[next], horizontal_weight);
+    const uint32_t upper_first = upper[column];
+    const uint32_t upper_next = upper[next];
+    const uint32_t lower_first = lower[column];
+    const uint32_t lower_next = lower[next];
+    // Transparent padding has an exact zero result at every sampling weight.
+    // Keep the original three rounded lerps for every nonzero footprint.
+    if ((upper_first | upper_next | lower_first | lower_next) == 0) {
+        return 0;
+    }
+    const uint32_t above = lerp_rgba(upper_first, upper_next, horizontal_weight);
+    const uint32_t below = lerp_rgba(lower_first, lower_next, horizontal_weight);
     return lerp_rgba(above, below, vertical_weight);
 }
 
@@ -472,6 +481,7 @@ esp_err_t deform_jelly_face(RigScene &scene)
 // strip: RGB565 output with caller-owned writable storage and explicit byte order.
 // first_row: Logical tile y origin, independent of the framebuffer's row stride.
 // first_column: Logical tile x origin, preserving identical samples across tile splits.
+// Exception: Returns the original surface error or rejects invalid geometry and skin identity.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
                          uint16_t first_row, uint16_t first_column)
 {
@@ -510,12 +520,16 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
         for (uint16_t column = left; column < right; ++column) {
             const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
-            // Alpha blending uses native channels even when the tile is ready for the panel.
-            const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
-                *destination, strip.byte_order
-            );
-            const uint16_t blended_color = blend_rgba(sample, native_destination);
-            *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+            // Zero alpha is the identity over every RGB565 background. Advance
+            // both cursors without reading or rewriting that destination pixel.
+            if ((sample >> 24U) != 0) {
+                // Alpha blending uses native channels even when the tile is ready for the panel.
+                const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
+                    *destination, strip.byte_order
+                );
+                const uint16_t blended_color = blend_rgba(sample, native_destination);
+                *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+            }
             ++destination;
             source_x += mapping.source_step;
         }

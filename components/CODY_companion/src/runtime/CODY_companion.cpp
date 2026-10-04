@@ -1265,7 +1265,7 @@ long rounded_ms(int64_t elapsed_us)
 }
 
 // timings: Actual frame-stage durations; no timing is inferred from CPU usage.
-// log: Bounded copied state; these three compact records run outside the panel lock.
+// log: Bounded copied state; these compact records run outside the panel lock.
 void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &log)
 {
     if (!log.rig) {
@@ -1304,6 +1304,12 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         static_cast<unsigned long>(timings.submitted_pixels),
         static_cast<unsigned long>(timings.submitted_pixels * sizeof(uint16_t)),
         timings.dirty_rectangles, timings.rasterized_tiles, timings.visited_tiles);
+    // Substages are part of artwork, not extra work. Keep microseconds and a
+    // separate short record so the sink's 255-byte limit cannot hide the split.
+    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld total=%lld",
+        static_cast<long long>(timings.raster_profile.jelly_us),
+        static_cast<long long>(timings.raster_profile.vector_us),
+        static_cast<long long>(timings.raster_profile.artwork_us));
 }
 
 // plan: Frame-local damage coverage, before any tile is rasterized.

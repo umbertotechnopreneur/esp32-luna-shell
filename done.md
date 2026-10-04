@@ -27,6 +27,13 @@ and referenced architecture/artifact records.
   geometry around 3 ms; this is a narrow baseline, not a full-scene guarantee.
   Repeated wake/visual/audio/storage checks remain open. Retained ELF and logs:
   `artifacts/build-cody-companion-debug/evidence/cody-d766e08c*`.
+- Raster optimization stage 1 (source only): all-zero bilinear footprints skip
+  the original three packed lerps; zero-alpha samples preserve destination bytes
+  without load/swap/store. Other samples retain their arithmetic. Added separate
+  jelly/vector microsecond timings within artwork and reference contracts for
+  transparent prefixes, fractional samples, backgrounds, byte order and guards.
+  No test/build/device comparison ran; an extra nonzero-footprint branch may
+  offset the saving. The device still runs `d766e08c`, not this optimization.
 - The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
   block before display startup and parked display frames during radio startup.
   It passed an eight-job Debug build, flash and short capture, but a later

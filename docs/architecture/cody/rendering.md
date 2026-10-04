@@ -113,10 +113,10 @@ cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain
 | Five jelly textures | 298,240 bytes each; 1,491,200 total internal-flash data |
 | Title font | 95 printable ASCII glyphs, 19×40, 18-pixel advance, packed 2-bit coverage; 19,000 flash bytes |
 | Caption/action font | 18-pixel printable ASCII coverage; 7,125 flash bytes |
-| Three boot RLE payloads | 91,264 flash data bytes, excluding descriptors/alignment |
+| Three pearl boot resources | 181,207 flash data bytes, excluding descriptors/alignment |
 | Jelly destination supports | 33×12 = 396 bytes per prepared scene in PSRAM |
 | Vector coverage scratch | 3,718 bounded bytes, not supersampled whole-frame storage |
-| Display worker | 8-KiB PSRAM stack; display buffers require their own internal DMA budget |
+| Display worker | 12-KiB PSRAM stack; display buffers require their own internal DMA budget |
 | Screenshot exception | 434,312-byte PSRAM buffer allocated only on explicit capture |
 
 These are authored payload/structure budgets, not a current linked-image size or
@@ -149,5 +149,10 @@ mean, lower-middle median, nearest-rank p95, maximum, population deviation and
 budget misses after releasing the lock. Partial/paused diagnostic frames are not
 animation evidence. DMA wait is blocked elapsed time, not CPU work; stage medians
 do not sum into a frame percentile. Current 40-ms jelly scheduling is a target,
-not proof of 25 FPS or a CPU reduction. Physical motion/rotation, long-run buffer
+not proof of 25 FPS or a CPU reduction. `ART us jelly/vector/total` separates
+sprite work from vector paths in microseconds; both are included in artwork,
+not added to it. Vector paths are facial features with Pearl enabled, but also
+include the body in the native renderer. Transparent-footprint/alpha skips are
+source-only optimization stage 1; exact-output checks and device gains are pending.
+Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

@@ -480,6 +480,113 @@ void check_rig_contract()
             "invalid face channel is rejected");
     require(!scene.valid, "failed evaluation invalidates the previous scene");
 }
+// texture: Immutable authored premultiplied RGBA8 samples.
+// source_x: Q16 source coordinate, clipped to the texture footprint.
+// source_y: Q16 source row, clipped to the texture footprint.
+uint32_t reference_jelly_sample(const uint32_t *texture, int32_t source_x, int32_t source_y)
+{
+    const int32_t clipped_x = std::clamp<int32_t>(
+        source_x, 0, (CODY::JellyData::width - 1) * 65536);
+    const int32_t clipped_y = std::clamp<int32_t>(
+        source_y, 0, (CODY::JellyData::height - 1) * 65536);
+    const uint32_t column = static_cast<uint32_t>(clipped_x) / 65536U;
+    const uint32_t row = static_cast<uint32_t>(clipped_y) / 65536U;
+    const uint32_t next_column = std::min(column + 1U,
+        static_cast<uint32_t>(CODY::JellyData::width - 1));
+    const uint32_t next_row = std::min(row + 1U,
+        static_cast<uint32_t>(CODY::JellyData::height - 1));
+    const uint32_t horizontal_weight = static_cast<uint32_t>(clipped_x) / 256U % 256U;
+    const uint32_t vertical_weight = static_cast<uint32_t>(clipped_y) / 256U % 256U;
+    const uint32_t upper_first = texture[row * CODY::JellyData::width + column];
+    const uint32_t upper_next = texture[row * CODY::JellyData::width + next_column];
+    const uint32_t lower_first = texture[next_row * CODY::JellyData::width + column];
+    const uint32_t lower_next = texture[next_row * CODY::JellyData::width + next_column];
+    uint32_t result = 0;
+    // The reference interpolates each channel separately, exposing packed-lane
+    // carry errors and preserving both horizontal rounds before the vertical round.
+    for (uint32_t shift : {0U, 8U, 16U, 24U}) {
+        const uint32_t upper = (((upper_first >> shift) & 255U) * (256U - horizontal_weight) +
+            ((upper_next >> shift) & 255U) * horizontal_weight + 128U) / 256U;
+        const uint32_t lower = (((lower_first >> shift) & 255U) * (256U - horizontal_weight) +
+            ((lower_next >> shift) & 255U) * horizontal_weight + 128U) / 256U;
+        const uint32_t channel = (upper * (256U - vertical_weight) +
+            lower * vertical_weight + 128U) / 256U;
+        result |= channel << shift;
+    }
+    return result;
+}
+
+// source: Reference bilinear premultiplied RGBA8 sample.
+// background: Native RGB565 color under this sample.
+uint16_t reference_jelly_composite(uint32_t source, uint16_t background)
+{
+    const uint32_t alpha = source >> 24U;
+    if (alpha == 0) {
+        return background;
+    }
+    constexpr uint32_t channel_maximum[] = {31U, 63U, 31U};
+    constexpr uint32_t native_shift[] = {11U, 5U, 0U};
+    constexpr uint32_t source_shift[] = {0U, 8U, 16U};
+    uint16_t result = 0;
+    for (uint32_t channel = 0; channel < 3; ++channel) {
+        const uint32_t maximum = channel_maximum[channel];
+        const uint32_t background_channel =
+            ((background >> native_shift[channel]) & maximum) * 255U / maximum;
+        const uint32_t foreground_channel = (source >> source_shift[channel]) & 255U;
+        const uint32_t composed_channel = std::min(255U, foreground_channel +
+            (background_channel * (255U - alpha) + 127U) / 255U);
+        const uint32_t quantized_channel = (composed_channel * maximum + 127U) / 255U;
+        result |= static_cast<uint16_t>(quantized_channel << native_shift[channel]);
+    }
+    return result;
+}
+
+// skin: Authored identity selecting one real immutable packed texture.
+// opaque_index: Existing real opaque sample whose row also crosses transparent padding.
+void check_jelly_transparent_advance(const CODY::JellySkinDefinition &skin, uint32_t opaque_index)
+{
+    const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
+    constexpr uint16_t guard = 0x5a5a;
+    for (int32_t fraction : {0, 16384}) {
+        CODY::JellyFrame frame;
+        frame.valid = true;
+        frame.skin_id = static_cast<uint16_t>(skin.id);
+        frame.bounds = {10, 10, 13, 11};
+        auto &row = frame.rows[10];
+        row.left = 10;
+        row.right = 13;
+        row.source_x = fraction;
+        row.source_y = static_cast<int32_t>(opaque_index / CODY::JellyData::width) * 65536 +
+            fraction * 3;
+        row.source_step = static_cast<int32_t>(std::max<uint32_t>(
+            1U, opaque_index % CODY::JellyData::width)) * 65536;
+        require((reference_jelly_sample(texture, row.source_x, row.source_y) >> 24U) == 0,
+            "jelly advance fixture begins inside transparent padding");
+        for (uint16_t background : {uint16_t{0}, uint16_t{0xffff}, uint16_t{0x001f}}) {
+            for (const auto order : {
+                    CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
+                std::array<uint16_t, 7> storage;
+                storage.fill(guard);
+                const uint16_t stored_background = CODY2D::rgb565_native_to_stored(background, order);
+                std::fill(storage.begin() + 1, storage.begin() + 4, stored_background);
+                const CODY2D::Surface tile{storage.data() + 1, 3, 1, 5, 5, order};
+                require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_OK,
+                    "jelly transparent-prefix row renders in both byte orders");
+                for (int32_t column = 0; column < 3; ++column) {
+                    const uint32_t sample = reference_jelly_sample(texture,
+                        row.source_x + column * row.source_step, row.source_y);
+                    const uint16_t expected = reference_jelly_composite(sample, background);
+                    require(storage[column + 1] == CODY2D::rgb565_native_to_stored(expected, order),
+                        "jelly skips transparent samples without shifting later pixels or interpolation");
+                }
+                require(storage[0] == guard && storage[4] == guard &&
+                        storage[5] == guard && storage[6] == guard,
+                    "jelly transparent-prefix rows preserve padding and both outer guards");
+            }
+        }
+    }
+}
+
 // skin: Authored identity selecting one real immutable packed texture.
 void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
 {
@@ -542,6 +649,9 @@ void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
         require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_ERR_INVALID_ARG,
                 "jelly refuses an invalid prepared mapping");
         require(pixels == unchanged, "invalid jelly draw does not modify the destination");
+    }
+    if (found_opaque) {
+        check_jelly_transparent_advance(skin, examples[1]);
     }
 }
 

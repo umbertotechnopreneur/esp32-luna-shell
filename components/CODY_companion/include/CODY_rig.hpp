@@ -233,6 +233,10 @@ struct RigRasterProfile {
     int64_t (*now_us)() = nullptr;
     int64_t clear_us = 0;
     int64_t artwork_us = 0;
+    // These substages are included in artwork_us, not additional frame work.
+    int64_t jelly_us = 0;
+    // All non-jelly paths: the face in Pearl mode, also the body in native vector mode.
+    int64_t vector_us = 0;
     int64_t skeleton_us = 0;
     int64_t navigation_us = 0;
     // Substages are included in skeleton_us, not additional frame work.

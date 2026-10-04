@@ -794,6 +794,7 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // navigation_opacity: Debug toolbar fade applied without advancing the character clock.
 // background_rgb565: Native color for the current logical scene, cleared once per tile.
 // screenshot_state: Visible result of the independent on-demand capture operation.
+// Exception: Returns the original surface, geometry, profiling or primitive drawing error.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
@@ -847,10 +848,16 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         profile->clear_us += now_us - stage_started_us;
         stage_started_us = now_us;
     }
+    const int64_t artwork_started_us = stage_started_us;
 #if CODY_ENABLE_PEARL_JELLY
     result = draw_jelly_rows(scene.jelly, strip, first_row, first_column);
     if (result != ESP_OK) {
         return result;
+    }
+    if (profile != nullptr) {
+        const int64_t now_us = profile->now_us();
+        profile->jelly_us += now_us - stage_started_us;
+        stage_started_us = now_us;
     }
 #endif
     for (uint16_t index = 0; index < std::size(Data::paths); ++index) {
@@ -892,7 +899,8 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
-        profile->artwork_us += now_us - stage_started_us;
+        profile->vector_us += now_us - stage_started_us;
+        profile->artwork_us += now_us - artwork_started_us;
         stage_started_us = now_us;
     }
     const int64_t skeleton_started_us = stage_started_us;
