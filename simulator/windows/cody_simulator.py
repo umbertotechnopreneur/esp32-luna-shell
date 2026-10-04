@@ -44,6 +44,8 @@ from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
+from cody_ui_theme import install_theme  # noqa: E402
+from cody_ui_widgets import InspectorTab  # noqa: E402
 
 SCREEN_NAMES = tuple(screen.value for screen in Screen)
 ANIMATED_SCREENS = (Screen.RIG, Screen.GREETING)
@@ -542,12 +544,14 @@ class CodyWindow:
         self.jelly_study = renderer.jelly_study_enabled
         preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
         self.root.title(f"{renderer.rig['character']['name']} / {preview_name} / SYNTHETIC")
+        self.ui_colors = install_theme(root)
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
-        self.debug = tk.BooleanVar(value=not self.jelly_study)
-        self.names = tk.BooleanVar(value=not self.jelly_study)
-        self.outline = tk.BooleanVar(value=not self.jelly_study)
-        self.rest_outline = tk.BooleanVar(value=not self.jelly_study)
+        # The first view is the character; inspection overlays are explicit desktop choices.
+        self.debug = tk.BooleanVar(value=False)
+        self.names = tk.BooleanVar(value=False)
+        self.outline = tk.BooleanVar(value=False)
+        self.rest_outline = tk.BooleanVar(value=False)
         self.label_scope = tk.StringVar(value=LabelScope.CONTOUR.value)
         self.label_page = tk.IntVar(value=0)
         self.guide = tk.BooleanVar(value=args.safe_guide)
@@ -575,7 +579,7 @@ class CodyWindow:
         self.runtime_settings = load_settings(ROOT / "assets/cody/runtime.yaml")
         self.demo_enabled = tk.BooleanVar(value=False)
         self.response_frame = None
-        self.motion_overlay = tk.BooleanVar(value=not self.jelly_study)
+        self.motion_overlay = tk.BooleanVar(value=False)
         self.elapsed_ms = 0.0
         self.scene_elapsed_ms = 0.0
         self.previous_animation_screen = None
@@ -598,105 +602,169 @@ class CodyWindow:
         self.label_items = {}
         self.last_presentation_key = None
         self.photo = None
-        self.canvas = tk.Canvas(root, width=600, height=420,
-                                highlightthickness = 0, bg="#101820")
-        self.canvas.grid(row=0,column=0,sticky="nsew")
+        self.workspace = ttk.Frame(root, style="Studio.TFrame", padding=(20, 0, 20, 16))
+        self.workspace.grid(row=1, column=0, sticky="nsew")
+        self.build_studio_header(preview_name)
+        self.preview_host = ttk.Frame(self.workspace, style="Studio.TFrame")
+        self.preview_host.grid(row=0, column=0, sticky="nsew")
+        self.preview_host.columnconfigure(0, weight=1)
+        self.preview_host.rowconfigure(1, weight=1)
+        preview_header = ttk.Frame(self.preview_host, style="Studio.TFrame", padding=(0, 0, 0, 12))
+        preview_header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(preview_header, text="LIVE PREVIEW", style="Section.TLabel",
+                  background=self.ui_colors["background"]).pack(side="left")
+        ttk.Label(preview_header, text="466 x 466 / local touch", style="Subtitle.TLabel",
+                  background=self.ui_colors["background"]).pack(side="right")
+        self.canvas = tk.Canvas(self.preview_host, width=600, height=420,
+                                highlightthickness=0, borderwidth=0, bg=self.ui_colors["canvas"])
+        self.canvas.grid(row=1, column=0, sticky="nsew")
         self.canvas.bind("<Button-1>", self.touch)
         self.canvas.bind("<B1-Motion>", self.drag_body)
         self.canvas.bind("<ButtonRelease-1>", self.release_body)
         self.canvas.bind("<Configure>",self.resize_preview)
         self.image_item = self.canvas.create_image(0,0,anchor="nw")
-        self.controls_host = ttk.Frame(root)
-        self.controls_host.grid(row=0,column=1,sticky="nsew")
-        self.controls_host.rowconfigure(0,weight=1)
-        self.controls_host.columnconfigure(0,weight=1)
-        self.controls_view = tk.Canvas(self.controls_host,width=360,height=160,highlightthickness=0)
-        self.controls_view.grid(row=0,column=0,sticky="nsew")
-        scroll = ttk.Scrollbar(self.controls_host,orient="vertical",command=self.controls_view.yview)
-        scroll.grid(row=0,column=1,sticky="ns")
-        self.controls_view.configure(yscrollcommand=scroll.set)
-        controls = ttk.Frame(self.controls_view,padding=12)
-        self.controls_item = self.controls_view.create_window(0,0,window=controls,anchor="nw")
-        self.controls_view.bind("<Configure>",self.resize_controls)
-        controls.bind("<Configure>",self.update_controls_scroll)
+        self.controls_host = ttk.Frame(self.workspace, style="Panel.TFrame")
+        self.controls_host.grid(row=0, column=1, sticky="nsew", padx=(20, 0))
+        self.controls_host.rowconfigure(1, weight=1)
+        self.controls_host.columnconfigure(0, weight=1)
         font = renderer.rig["style"]["host_font"]
         self.label_font = tkfont.Font(root=root,family=font["family"],size=font["size"])
         self.label_row_height = self.label_font.metrics("linespace")+6
-        ttk.Label(controls,text=f"{renderer.rig['character']['name']} / LOCAL RIG",font=(font["family"],12,"bold")).pack(anchor="w")
-        ttk.Label(controls,text="SYNTHETIC INPUT / no sensor or PC link").pack(anchor="w")
-        if self.jelly_study:
-            ttk.Label(controls,text="PEARL JELLY / scanlines / ESP32 unmeasured").pack(anchor="w")
-        ttk.Combobox(controls,textvariable=self.screen,values=SCREEN_NAMES,state="readonly",width=27).pack(fill="x",pady=6)
-        ttk.Combobox(controls,textvariable=self.rotation,values=(0,90,180,270),state="readonly").pack(fill="x")
-        tabs = ttk.Notebook(controls)
-        tabs.pack(fill="both",pady=8)
-        appearance = ttk.Frame(tabs,padding=8)
-        contour = ttk.Frame(tabs,padding=8)
-        stimuli = ttk.Frame(tabs,padding=8)
-        overlay = ttk.Frame(tabs,padding=8)
-        tabs.add(appearance,text="Face")
-        tabs.add(contour,text="Contour")
-        tabs.add(stimuli,text="Stimuli")
-        tabs.add(overlay,text="Debug")
-        tabs.select(stimuli)
+        self.build_inspector_header()
+        self.tabs = ttk.Notebook(self.controls_host)
+        self.tabs.grid(row=1, column=0, sticky="nsew")
+        self.inspector_tabs = []
+        for name in ("Face", "Shape", "Inputs", "Inspect"):
+            tab = InspectorTab(self.tabs, self.ui_colors["panel"])
+            self.tabs.add(tab, text=name)
+            self.inspector_tabs.append(tab)
+        appearance, contour, stimuli, overlay = (tab.content for tab in self.inspector_tabs)
         self.build_face_controls(appearance)
         self.build_contour_controls(contour)
         self.build_stimulus_controls(stimuli)
         self.build_debug_controls(overlay)
+        self.tabs.select(self.inspector_tabs[0])
         if self.jelly_study:
             # Artistic host controls only; no firmware defaults or sensor samples change.
             self.contour_values['amplitude'].set(.9)
             self.contour_values['speed'].set(.4)
-            tabs.select(contour)
-        self.info = ttk.Label(controls,text="Select a point to inspect its stable name.",width=38,font=self.label_font)
-        self.info.pack(anchor="w",pady=6)
-        self.timing = ttk.Label(root,text="SYNTHETIC / host timings only")
-        self.timing.grid(row=1,column=0,columnspan=2,sticky="w",padx=8,pady=8)
+            self.tabs.select(self.inspector_tabs[1])
+        self.info = ttk.Label(overlay, text="Select a point to inspect its stable name.",
+                              style="Muted.TLabel", wraplength=330)
+        self.info.pack(fill="x", pady=(18, 0))
+        status_bar = ttk.Frame(root, style="Studio.TFrame", padding=(20, 10, 20, 12))
+        status_bar.grid(row=2, column=0, sticky="ew")
+        self.timing = ttk.Label(status_bar, text="SYNTHETIC / host timings only", style="Status.TLabel")
+        self.timing.pack(fill="x")
         self.root.bind("<Escape>",self.back)
         self.root.bind("<Configure>",self.resize_window)
         self.root.bind("<MouseWheel>",self.scroll_controls)
         self.root.protocol("WM_DELETE_WINDOW",self.close)
-        width = min(1280,max(640,self.root.winfo_screenwidth()-80))
-        height = min(760,max(480,self.root.winfo_screenheight()-100))
-        self.root.minsize(640,480)
+        width = min(1440,max(700,self.root.winfo_screenwidth()-80))
+        height = min(900,max(720,self.root.winfo_screenheight()-100))
+        self.root.minsize(700,560)
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(1, weight=1)
         self.root.geometry(f"{width}x{height}")
         self.arrange_panels(width)
         self.tick()
 
+    # self: Desktop controller owning the fixed studio header and quick switches.
+    # preview_name: Human-readable identity of the selected host rendering mode.
+    # Raises tk.TclError if Tk cannot construct the header.
+    def build_studio_header(self, preview_name):
+        header = ttk.Frame(self.root, style="Studio.TFrame", padding=(20, 18, 20, 18))
+        header.grid(row=0, column=0, sticky="ew")
+        title = ttk.Frame(header, style="Studio.TFrame")
+        title.pack(side="left")
+        ttk.Label(title, text="Cody Studio", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title, text=preview_name + " / character playground", style="Subtitle.TLabel",
+                  background=self.ui_colors["background"]).pack(anchor="w", pady=(2, 0))
+        actions = ttk.Frame(header, style="Studio.TFrame")
+        actions.pack(side="right")
+        ttk.Label(actions, text="SYNTHETIC", style="Badge.TLabel").pack(side="left", padx=(0, 16))
+        ttk.Checkbutton(actions, text="Animate", variable=self.playing, style="Toolbar.TCheckbutton").pack(side="left", padx=(0, 12))
+        ttk.Checkbutton(actions, text="Rig", variable=self.debug, style="Toolbar.TCheckbutton").pack(side="left")
+
+    # self: Desktop controller retaining the permanent scene and orientation controls.
+    # Raises tk.TclError if Tk cannot construct the inspector header.
+    def build_inspector_header(self):
+        header = ttk.Frame(self.controls_host, style="Panel.TFrame", padding=(18, 16, 18, 16))
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Label(header, text="Character controls", style="Section.TLabel").pack(anchor="w")
+        ttk.Label(header, text="Local preview / no device connection", style="Muted.TLabel").pack(anchor="w", pady=(4, 14))
+        selection = ttk.Frame(header, style="Panel.TFrame")
+        selection.pack(fill="x")
+        selection.columnconfigure(0, weight=1)
+        ttk.Label(selection, text="Scene", style="Muted.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Label(selection, text="Rotation", style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=(12, 0), pady=(0, 6))
+        ttk.Combobox(selection, textvariable=self.screen, values=SCREEN_NAMES,
+                     state="readonly", width=20).grid(row=1, column=0, sticky="ew")
+        ttk.Combobox(selection, textvariable=self.rotation, values=(0, 90, 180, 270),
+                     state="readonly", width=5).grid(row=1, column=1, sticky="ew", padx=(12, 0))
+
+    # self: Inspector controller grouping related controls without changing their state.
+    # parent: Tab content owning the section.
+    # title: Short English label for the group.
+    # description: Optional explanatory text beneath the section label.
+    # Raises tk.TclError if Tk cannot construct the section.
+    def add_section(self, parent, title, description=None):
+        section = ttk.Labelframe(parent, text=title, style="Card.TLabelframe", padding=14)
+        section.pack(fill="x", pady=(0, 16))
+        if description:
+            ttk.Label(section, text=description, style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(0, 12))
+        return section
+
     # self: Preview controller owning runtime appearance preferences.
     # appearance: Face tab owning the named sliders and expression buttons.
+    # Raises tk.TclError if Tk cannot construct the face controls.
     def build_face_controls(self, appearance):
-        ttk.Label(appearance, text="Manga symbol / HOST PREVIEW (device cues are synthetic)").pack(anchor="w")
-        ttk.Combobox(appearance, textvariable=self.personality_cue,
+        symbols = self.add_section(appearance, "Emotion symbol",
+            "One symbol at a time. None allows automatic caress hearts; Sleep selects its own symbol.")
+        ttk.Combobox(symbols, textvariable=self.personality_cue,
                      values=tuple(cue.name for cue in PersonalityCue), state="readonly").pack(fill="x")
-        ttk.Label(appearance, text="Main view only. Sleep preset selects its symbol automatically.",
-                  wraplength=295).pack(anchor="w")
+        ttk.Label(symbols, text="Device alerts here are synthetic previews.",
+                  style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(10, 0))
         # Targets belong to the controls; smoothing belongs to the animation state.
+        presets = self.add_section(appearance, "Expressions")
+        phase_row = ttk.Frame(presets)
+        phase_row.pack(fill="x", pady=(0, 10))
+        for column, phase in enumerate(("sleep", "waking", "ready")):
+            phase_row.columnconfigure(column, weight=1, uniform="phase")
+            ttk.Button(phase_row, text=phase.title(), style="Preset.TButton",
+                       command=lambda value=phase: self.preset(value)).grid(
+                           row=0, column=column, sticky="ew", padx=(0 if column == 0 else 4, 0))
+        expression_grid = ttk.Frame(presets)
+        expression_grid.pack(fill="x")
+        for index, name in enumerate(self.renderer.rig["expression_presets"]):
+            column = index % 2
+            expression_grid.columnconfigure(column, weight=1, uniform="expression")
+            ttk.Button(expression_grid, text=name.replace("_", " ").title(), style="Preset.TButton",
+                       command=lambda value=name: self.preset(value)).grid(
+                           row=index // 2, column=column, sticky="ew", pady=3,
+                           padx=(0 if column == 0 else 6, 0))
+        animation = self.add_section(appearance, "Animation")
         if self.jelly_study:
-            self.add_toggle(appearance, "Deform face with jelly body", self.face_follows_body)
-        self.add_toggle(appearance,"Animate breath and blink",self.playing)
-        self.add_toggle(appearance,"Run authored hardware demo cycle",self.demo_enabled)
-        phase_row = ttk.Frame(appearance)
-        phase_row.pack(fill="x",pady=6)
-        for phase in ("sleep","waking","ready"):
-            ttk.Button(phase_row,text=phase.title(),command=lambda value=phase:self.preset(value)).pack(side="left")
-        expression_row = ttk.Frame(appearance)
-        expression_row.pack(fill="x",pady=(0,6))
-        for name in self.renderer.rig["expression_presets"]:
-            ttk.Button(expression_row,text=name.replace("_"," ").title(),command=lambda value=name:self.preset(value)).pack(side="left")
+            self.add_toggle(animation, "Face follows jelly body", self.face_follows_body)
+        self.add_toggle(animation, "Breathing and blinking", self.playing)
+        self.add_toggle(animation, "Authored demo cycle", self.demo_enabled)
+        channels = self.add_section(appearance, "Fine tuning", "Manual edits release the selected expression preset.")
         self.values = []
         for channel in self.renderer.rig["channels"]:
             value = tk.DoubleVar(value=channel["default"])
             value.trace_add("write", self.clear_face_preset)
             self.values.append(value)
-            self.add_slider(appearance,channel["name"],channel["minimum"],channel["maximum"],value)
+            self.add_slider(channels, channel["name"].replace("_", " ").title(),
+                            channel["minimum"], channel["maximum"], value)
 
+    # self: Inspector controller retaining independent contour targets.
     # contour: Outline tab owning the independent wave controls.
+    # Raises tk.TclError if Tk cannot construct the shape controls.
     def build_contour_controls(self, contour):
         # A new target nudges the wave; it never starts the clock over.
-        ttk.Label(contour,text="Change the cloud shape independently.\nTargets blend without restarting the wave.",wraplength=295).pack(anchor="w",pady=(0,8))
-        self.add_toggle(contour,"Run contour / uncheck to freeze",self.contour_playing)
-        ttk.Label(contour,text="While paused, targets apply on resume.").pack(anchor="w",pady=(0,8))
+        motion = self.add_section(contour, "Cloud motion", "Targets blend without restarting the wave. Paused edits apply on resume.")
+        self.add_toggle(motion, "Animate cloud shape", self.contour_playing)
+        shape = self.add_section(contour, "Shape tuning")
         self.contour_values = {}
         self.contour_readouts = {}
         defaults = contour_defaults(self.renderer.rig)
@@ -704,101 +772,110 @@ class CodyWindow:
             name = control["name"]
             value = tk.DoubleVar(value=defaults[name])
             self.contour_values[name]=value
-            self.contour_readouts[name]=self.add_slider(contour,control["label"],control["minimum"],control["maximum"],value,readout=True)
-        ttk.Label(contour,text="Readouts: current > target\nSpeed: cycles/s; phase spread: normalized\nFullness changes the resting shape.",wraplength=295).pack(anchor="w",pady=8)
-        self.contour_info = ttk.Label(contour,text="",font=self.label_font)
+            self.contour_readouts[name]=self.add_slider(shape,control["label"],control["minimum"],control["maximum"],value,readout=True)
+        ttk.Label(shape, text="Values: current > target. Speed in cycles/s.\nFullness changes the resting shape.",
+                  style="Muted.TLabel", wraplength=310).pack(fill="x", pady=(12, 0))
+        self.contour_info = ttk.Label(contour, text="", style="Muted.TLabel")
         self.contour_info.pack(anchor="w",pady=4)
-        ttk.Button(contour,text="Restore contour targets",command=self.reset_contour).pack(fill="x",pady=6)
+        ttk.Button(contour, text="Restore shape defaults", command=self.reset_contour).pack(fill="x", pady=10)
 
     # self: Preview controller owning shared geometry/response overlay switches.
     # overlay: Debug tab owning point selection, labels and placement.
     # Raises tk.TclError when widgets cannot be constructed.
     def build_debug_controls(self, overlay):
+        geometry = self.add_section(overlay, "Geometry overlays",
+            "Desktop inspection only. Disable rig points to recognize caresses.")
         for text,variable in (("Points, links and curve handles",self.debug),
                               ("Stable point names + leader lines",self.names),
                               ("Current contour / mint",self.outline),
                               ("Original contour / dashed amber",self.rest_outline),
                               ("Resting root + inertia vector",self.motion_overlay),
                               ("320 x 320 safe square",self.guide)):
-            self.add_toggle(overlay,text,variable)
-        scope = ttk.Combobox(overlay,textvariable=self.label_scope,values=LABEL_SCOPES,state="readonly")
+            self.add_toggle(geometry,text,variable)
+        selection = self.add_section(overlay, "Point inspector")
+        ttk.Label(selection, text="Label scope", style="Muted.TLabel").pack(anchor="w")
+        scope = ttk.Combobox(selection,textvariable=self.label_scope,values=LABEL_SCOPES,state="readonly")
         scope.pack(fill="x",pady=(8,2))
         scope.bind("<<ComboboxSelected>>",self.reset_label_page)
-        pages = ttk.Frame(overlay)
+        pages = ttk.Frame(selection)
         pages.pack(fill="x",pady=2)
-        ttk.Button(pages,text="<",width=3,command=lambda:self.change_label_page(-1)).pack(side="left")
+        ttk.Button(pages,text="<",width=3,style="Compact.TButton",command=lambda:self.change_label_page(-1)).pack(side="left")
         self.page_info = ttk.Label(pages,text="")
         self.page_info.pack(side="left",padx=8)
-        ttk.Button(pages,text=">",width=3,command=lambda:self.change_label_page(1)).pack(side="right")
+        ttk.Button(pages,text=">",width=3,style="Compact.TButton",command=lambda:self.change_label_page(1)).pack(side="right")
         self.entity_choices = {
             f"{entity['label']} [{name}]": name
             for name, entity in self.renderer.rig["entities"].items()
         }
         self.entity_picker = ttk.Combobox(
-            overlay, values=list(self.entity_choices), state="readonly"
+            selection, values=list(self.entity_choices), state="readonly"
         )
         self.entity_picker.pack(fill="x",pady=(6,2))
         self.entity_picker.current(0)
         self.entity_picker.bind("<<ComboboxSelected>>",self.select_entity)
-        self.point_picker = ttk.Combobox(overlay,values=[point["name"] for point in self.renderer.rig["points"]],state="readonly")
+        self.point_picker = ttk.Combobox(selection,values=[point["name"] for point in self.renderer.rig["points"]],state="readonly")
         self.point_picker.pack(fill="x",pady=(2,6))
         self.point_picker.bind("<<ComboboxSelected>>",self.select_point)
+        placement = self.add_section(overlay, "Character placement", "Logical display coordinates; the native canvas remains 466 x 466.")
         self.transform = []
         for key,minimum,maximum in (("x",80,386),("y",100,360),("scale",60,180)):
             value = tk.DoubleVar(value=self.renderer.rig['default_transform'][key])
             self.transform.append(value)
-            self.add_slider(overlay,key,minimum,maximum,value)
+            self.add_slider(placement, key.title(), minimum, maximum, value)
 
     # self: Preview controller whose source targets stay separate from artistic model state.
     # stimuli: Responsive, scrollable tab owning synthetic source controls and model readouts.
     # Raises tk.TclError when widgets cannot be constructed.
     def build_stimulus_controls(self, stimuli):
-        ttk.Label(stimuli, text="SYNTHETIC SNAPSHOT / 50 Hz\nAxes: board frame, m/s2 offsets.\nZ includes a 9.81 m/s2 gravity baseline.", wraplength=295).pack(anchor="w")
+        motion = self.add_section(stimuli, "Motion / synthetic",
+            "50 Hz host snapshot. Board axes in m/s2; Z includes 9.81 m/s2 gravity.")
         health_choices = tuple(health.value for health in SampleHealth)
         self.motion_health = tk.StringVar(value=SampleHealth.CURRENT.value)
-        ttk.Combobox(stimuli, textvariable=self.motion_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
+        ttk.Combobox(motion, textvariable=self.motion_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
         self.acceleration = {}
         self.acceleration_readouts = {}
         for axis in Axis:
             variable = tk.DoubleVar(value=0)
             self.acceleration[axis] = variable
-            self.acceleration_readouts[axis] = self.add_slider(stimuli, f"Acceleration {axis.value.upper()}", -20, 20, variable, readout=True)
+            self.acceleration_readouts[axis] = self.add_slider(motion, f"Acceleration {axis.value.upper()}", -20, 20, variable, readout=True)
         self.motion_sensitivity = tk.DoubleVar(value=self.response_config["motion"]["sensitivity"])
-        self.sensitivity_readout = self.add_slider(stimuli, "Motion sensitivity", 0, 4, self.motion_sensitivity, readout=True)
-        pulse_row = ttk.Frame(stimuli)
+        self.sensitivity_readout = self.add_slider(motion, "Sensitivity", 0, 4, self.motion_sensitivity, readout=True)
+        pulse_row = ttk.Frame(motion)
         pulse_row.pack(fill="x", pady=6)
         self.pulse_axis = tk.StringVar(value=Axis.X.value)
         ttk.Combobox(pulse_row, textvariable=self.pulse_axis, values=tuple(axis.value for axis in Axis), state="readonly", width=4).pack(side="left")
-        ttk.Button(pulse_row, text="Pulse +8 m/s2", command=self.pulse_motion).pack(side="right", fill="x", expand=True)
+        ttk.Button(pulse_row, text="Pulse +8 m/s2", command=self.pulse_motion).pack(side="right", fill="x", expand=True, padx=(8, 0))
         self.shaking = tk.BooleanVar(value=False)
-        self.add_toggle(stimuli, "Continuous shake / all axes", self.shaking)
-        ttk.Separator(stimuli).pack(fill="x", pady=10)
-        ttk.Label(stimuli, text="SYNTHETIC BATTERY / percent").pack(anchor="w")
+        self.add_toggle(motion, "Continuous shake / all axes", self.shaking)
+        power = self.add_section(stimuli, "Battery / synthetic")
         self.power_health = tk.StringVar(value=SampleHealth.CURRENT.value)
-        ttk.Combobox(stimuli, textvariable=self.power_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
+        ttk.Combobox(power, textvariable=self.power_health, values=health_choices, state="readonly").pack(fill="x", pady=6)
         self.charge_percent = tk.DoubleVar(value=100)
-        self.charge_readout = self.add_slider(stimuli, "Charge level", 0, 100, self.charge_percent, readout=True)
+        self.charge_readout = self.add_slider(power, "Charge level", 0, 100, self.charge_percent, readout=True)
         self.charging = tk.BooleanVar(value=False)
-        self.add_toggle(stimuli, "Charging / fatigue follows charge level", self.charging)
+        self.add_toggle(power, "Charging", self.charging)
         self.battery_present = tk.BooleanVar(value=True)
-        self.add_toggle(stimuli, "Battery present / otherwise UNAVAILABLE", self.battery_present)
-        ttk.Separator(stimuli).pack(fill="x", pady=10)
-        ttk.Label(stimuli, text="SYNTHETIC AUDIO / normalized PCM means").pack(anchor="w")
+        self.add_toggle(power, "Battery present", self.battery_present)
+        ttk.Label(power, text="Missing battery reports UNAVAILABLE.", style="Muted.TLabel").pack(anchor="w", pady=(6, 0))
+        audio = self.add_section(stimuli, "Audio / synthetic", "Normalized PCM means; these controls are host inputs.")
         self.microphone_health = tk.StringVar(value=SampleHealth.CURRENT.value)
-        ttk.Combobox(stimuli, textvariable=self.microphone_health, values=health_choices, state="readonly").pack(fill="x")
+        ttk.Label(audio, text="Microphone health", style="Muted.TLabel").pack(anchor="w", pady=(0, 6))
+        ttk.Combobox(audio, textvariable=self.microphone_health, values=health_choices, state="readonly").pack(fill="x")
         self.microphone_levels = (tk.DoubleVar(value=0), tk.DoubleVar(value=0))
         for channel, variable in zip(("Left", "Right"), self.microphone_levels):
-            self.add_slider(stimuli, f"Microphone {channel}", 0, 1, variable)
+            self.add_slider(audio, f"Microphone {channel}", 0, 1, variable)
         self.playback_health = tk.StringVar(value=SampleHealth.CURRENT.value)
-        ttk.Combobox(stimuli, textvariable=self.playback_health, values=health_choices, state="readonly").pack(fill="x")
+        ttk.Label(audio, text="Playback health", style="Muted.TLabel").pack(anchor="w", pady=(14, 6))
+        ttk.Combobox(audio, textvariable=self.playback_health, values=health_choices, state="readonly").pack(fill="x")
         self.playback_active = tk.BooleanVar(value=False)
-        self.add_toggle(stimuli, "Synthetic playback active", self.playback_active)
+        self.add_toggle(audio, "Playback active", self.playback_active)
         self.playback_level = tk.DoubleVar(value=.18)
-        self.add_slider(stimuli, "Playback PCM mean", 0, 1, self.playback_level)
+        self.add_slider(audio, "Playback PCM mean", 0, 1, self.playback_level)
+        cues = self.add_section(stimuli, "Local sound previews", "These buttons use the PC speaker, never Cody's speaker.")
         for cue, label in (("audio_ready", "Preview audio-ready cue"), ("eyes_open", "Preview eyes-open strings")):
-            ttk.Button(stimuli, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
+            ttk.Button(cues, text=label, command=lambda selected=cue: self.preview_cue(selected)).pack(fill="x", pady=3)
         ttk.Button(stimuli, text="Interaction / cancel idle yawn", command=self.preview_interaction).pack(fill="x", pady=3)
-        self.response_info = ttk.Label(stimuli, text="", font=self.label_font, wraplength=295)
+        self.response_info = ttk.Label(stimuli, text="", style="Muted.TLabel", wraplength=330)
         self.response_info.pack(fill="x", pady=8)
         ttk.Button(stimuli, text="Reset response model", command=self.reset_response).pack(fill="x")
 
@@ -879,80 +956,86 @@ class CodyWindow:
             f"MODEL annoyance: {state.annoyance:.3f} / eye closure: {state.protective_eye_closure:.3f}\n"
             f"MODEL stress: {state.stress:.3f}\nMODEL fatigue: {fatigue_text}{body_text}")
 
+    # self: Inspector controller creating an independent setting row.
     # parent owns the shared checkbox row.
     # text describes the independent setting in English.
     # variable is the existing BooleanVar that owns the setting.
+    # Raises tk.TclError if Tk cannot construct the toggle.
     def add_toggle(self, parent, text, variable):
-        ttk.Checkbutton(parent,text=text,variable=variable).pack(anchor="w")
+        ttk.Checkbutton(parent, text=text, variable=variable).pack(fill="x", pady=5)
 
+    # self: Inspector controller creating a target slider with a stable value readout.
     # parent owns the shared label/slider row.
     # label identifies the authored control.
     # minimum is the lower bound accepted by the underlying contract.
     # maximum is the upper bound accepted by the underlying contract.
     # variable owns the target value independently from rendered state.
     # readout requests a right-aligned label for current/target values.
+    # Raises tk.TclError if Tk cannot construct or observe the slider.
     def add_slider(self, parent, label, minimum, maximum, variable, readout=False):
         header = ttk.Frame(parent)
-        header.pack(fill="x",pady=(8,0))
+        header.pack(fill="x",pady=(14,6))
         ttk.Label(header,text=label).pack(side="left")
-        output = None
-        if readout:
-            output = ttk.Label(header,text="",font=self.label_font)
-            output.pack(side="right")
-        ttk.Scale(parent,from_=minimum,to=maximum,variable=variable,length=280).pack(fill="x")
+        output = ttk.Label(header, text=f"{variable.get():.2f}", style="Value.TLabel")
+        output.pack(side="right", padx=(8, 0))
+        if not readout:
+            # Model readouts are updated by the frame owner; ordinary sliders show their targets.
+            variable.trace_add("write", lambda *_: self.update_slider_value(variable, output))
+        ttk.Scale(parent, from_=minimum, to=maximum, variable=variable, length=280).pack(fill="x", pady=(0, 4))
         return output
 
+    # self: Inspector controller updating an ordinary authored target label.
+    # variable: Existing DoubleVar owning the slider target.
+    # output: Value label retained by the same widget tree.
+    # Raises tk.TclError if the target cannot be read or the label has been destroyed.
+    def update_slider_value(self, variable, output):
+        output.configure(text=f"{variable.get():.2f}")
+
+    # self: Desktop controller arranging preview and inspector within the workspace.
     # width is the current outer-window width used only to choose panel arrangement.
+    # Raises tk.TclError if Tk cannot update the grid.
     def arrange_panels(self, width):
-        mode = "wide" if width>=1040 else "stacked"
+        mode = "wide" if width>=1000 else "stacked"
         if mode==self.layout_mode:
             return
         self.layout_mode = mode
-        self.root.columnconfigure(0,weight=1,minsize=0)
-        self.root.columnconfigure(1,weight=0,minsize=0)
-        self.root.rowconfigure(2,weight=0,minsize=0)
+        # Stacking needs enough height for both the character and a usable scroll viewport.
+        self.root.minsize(700, 560 if mode == "wide" else 720)
+        self.workspace.columnconfigure(0, weight=1, minsize=0)
+        self.workspace.columnconfigure(1, weight=0, minsize=0)
         if mode=="wide":
-            self.root.rowconfigure(0,weight=1,minsize=0)
-            self.root.rowconfigure(1,weight=0,minsize=0)
-            self.controls_host.grid(row=0,column=1,sticky="nsew")
-            self.timing.grid(row=1,column=0,columnspan=2,sticky="ew")
+            self.workspace.rowconfigure(0, weight=1, minsize=0)
+            self.workspace.rowconfigure(1, weight=0, minsize=0)
+            self.controls_host.grid(row=0, column=1, sticky="nsew", padx=(20, 0), pady=0)
         else:
-            self.root.rowconfigure(0,weight=3,minsize=200)
-            self.root.rowconfigure(1,weight=2,minsize=120)
-            self.controls_host.grid(row=1,column=0,sticky="nsew")
-            self.timing.grid(row=2,column=0,columnspan=1,sticky="ew")
+            self.workspace.rowconfigure(0, weight=1, minsize=160)
+            self.workspace.rowconfigure(1, weight=2, minsize=300)
+            self.controls_host.grid(row=1, column=0, sticky="nsew", padx=0, pady=(16, 0))
 
+    # self: Desktop controller whose root width determines the panel arrangement.
     # event is a root Configure notification; child notifications do not change panel layout.
+    # Raises tk.TclError if Tk cannot resize the status label or grid.
     def resize_window(self, event):
         if event.widget is not self.root:
             return
         self.arrange_panels(event.width)
-        self.timing.configure(wraplength=max(160,event.width-24))
+        self.timing.configure(wraplength=max(160,event.width-40))
 
     # event supplies the allocated preview dimensions, coalesced until the next normal frame.
     def resize_preview(self, event):
         self.pending_canvas_size = (max(1,event.width),max(1,event.height))
 
-    # event supplies the visible control viewport width, independent of its scrolling height.
-    def resize_controls(self, event):
-        self.controls_view.itemconfigure(self.controls_item,width=max(1,event.width))
-
-    # event reports a controls-content size change after a tab or viewport resize.
-    def update_controls_scroll(self, event):
-        bounds = self.controls_view.bbox(self.controls_item)
-        if bounds is not None:
-            self.controls_view.configure(scrollregion=bounds)
-
+    # self: Desktop controller routing wheel input to the tab under the pointer.
     # event supplies a wheel delta; only descendants of the controls pane are scrolled.
+    # Raises tk.TclError if Tk cannot locate the hovered widget or update the viewport.
     def scroll_controls(self, event):
-        widget = event.widget
-        if isinstance(widget,(ttk.Scale,ttk.Combobox)):
+        widget = self.root.winfo_containing(event.x_root, event.y_root)
+        if isinstance(widget, (ttk.Scale, ttk.Combobox)):
             return
-        while widget is not None and widget is not self.controls_host:
-            widget = getattr(widget,"master",None)
-        if widget is self.controls_host and event.delta:
-            self.controls_view.yview_scroll(-1 if event.delta>0 else 1,"units")
-            return "break"
+        for tab in self.inspector_tabs:
+            if tab.contains(widget) and event.delta:
+                tab.scroll(event.delta)
+                return "break"
 
     # cancel the scheduled callback before destroying the interactive preview.
     def close(self):
@@ -1372,12 +1455,12 @@ class CodyWindow:
             text=f"{status} / phase {phase:.2f} rad\nBlend: {blend_seconds:.2f} s"
         )
 
-    # Show coordinates from the frame on screen, not a newly evaluated pose.
+    # self: Inspector owner showing coordinates from the drawn frame, not a pending pose.
     # Raises ValueError for unsupported rotation, or tk.TclError on a lost inspector.
     def update_point_inspector(self):
         if self.selected is None or self.scene is None:
             self.info.configure(
-                text="Click a point, its name or use Debug.\n"
+                text="Enable Rig and select a point or its name.\n"
                      "Mint: contour / amber: original\n"
                      "Names are desktop-only annotations.\n"
                      "Coordinates follow the drawn scene."
@@ -1529,12 +1612,10 @@ class CodyWindow:
             frame = self.renderer.personality_painter.last_frame
             personality_status = f"{frame.status.name} / {frame.cue.name} / alpha {frame.opacity}"
         self.timing.configure(
-            text=f"SYNTHETIC / host tick {duration_ms:.1f} ms / "
-                 f"presentation {'UPDATED' if changed else 'UNCHANGED'} / "
-                 f"interval {interval_seconds * 1000:.1f} ms / "
-                 f"active target {target_hz} Hz / symbol {personality_status} / "
-                 f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)} / "
-                 f"ESP32: UNMEASURED"
+            text=f"SYNTHETIC / symbol {personality_status} / "
+                 f"happiness {self.happiness_state.happiness} / sadness {sadness(self.personality_rules, self.happiness_state)}\n"
+                 f"Host tick {duration_ms:.1f} ms / interval {interval_seconds * 1000:.1f} ms / "
+                 f"target {target_hz} Hz / frame {'UPDATED' if changed else 'UNCHANGED'} / ESP32 UNMEASURED"
         )
         # Boot artwork has no animation. Keep controls responsive without 60 full images/s.
         interval_ms = 1000 / target_hz if screen in ANIMATED_SCREENS else 100

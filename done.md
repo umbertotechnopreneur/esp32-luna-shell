@@ -7,6 +7,16 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Created requested pre-UI checkpoint `b4a7a75` on `feat/personality-icons`.
+  Refreshed the Windows inspector in source with a local Tkinter/ttk dark theme,
+  navy/teal palette, Segoe UI, image-backed switches and slim sliders. Added a
+  fixed studio header, grouped controls, independent tab scrolling, a wrapping
+  expression grid, target-value readouts and a two-line diagnostic footer.
+  Clean view/Face are initial desktop preferences; inspection remains explicit.
+  Firmware, native character geometry and model rules are unchanged. Static
+  integration review only; no new test, build, simulator execution or COM access.
+  Previous build/parity/startup results below belong to the preceding UI revision.
+
 - Integrated remote `origin/main` at `4d026d13` into `feat/personality-icons`.
   Preserved both personality/YAML work and upstream mouth/tongue, greeting,
   pairing and BLE/display DMA fixes. Resolved the worker conflict using main's

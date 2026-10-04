@@ -8,6 +8,13 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] After separate authorization, restart the refreshed Cody Studio inspector
+  through `scripts/device.ps1 simulator -Screen rig`. Review dark controls,
+  expression grids, scene/rotation, animation/rig switches, per-tab scrolling,
+  narrow/wide layouts and automatic caresses. UI source review only; the previous
+  simulator remains the preceding interface revision. No new tests, simulator
+  execution or COM operations are authorized by the UI implementation request.
+
 - [ ] Review petting interactively and on the physical display after the
   2026-10-05 merged Debug build and focused host suite passed. Verify slow
   strokes above eyes/below mouth, threshold feel, heart clearance and perceived

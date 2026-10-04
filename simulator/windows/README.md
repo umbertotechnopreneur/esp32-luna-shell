@@ -7,6 +7,20 @@ not establish native pixels, FPS, CPU load or audible quality.
 
 ## Cody
 
+The desktop inspector uses Tkinter/ttk with the local Cody Studio dark theme:
+navy surfaces, teal accents, Segoe UI text, thin sliders and switch controls.
+The fixed header keeps animation, rig inspection, scene and rotation accessible.
+Face, Shape, Inputs and Inspect each retain a separate scroll position, and
+expression presets wrap into a grid instead of overflowing the sidebar. Narrow
+windows stack the inspector below the preview. The initial view hides geometry
+overlays and opens Face, so the character and automatic caress experiment can
+be tried without first clearing the diagnostic view. Stable point names remain
+available under Inspect. These changes affect desktop widgets only.
+
+The UI refresh has static source review only; it has not been restarted or
+interactively checked. Earlier simulator startup and controller parity evidence
+refer to the preceding UI revision.
+
 The Face panel offers one manga-symbol selector in the main `rig` presentation.
 The semantic `sleep` and `sleeping` presets select Sleep automatically; blinking
 or closing the eye sliders does not. Editing a face slider clears the selected
