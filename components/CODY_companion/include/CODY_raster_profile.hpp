@@ -16,6 +16,7 @@ struct JellyRasterProfile {
     uint32_t vectorized_pixels = 0;
     uint32_t scalar_tail_pixels = 0;
     uint32_t zero_footprint_pixels = 0;
+    uint32_t coverage_skipped_pixels = 0;
     int64_t total_us = 0;
     int64_t preparation_us = 0;
     int64_t interpolation_us = 0;

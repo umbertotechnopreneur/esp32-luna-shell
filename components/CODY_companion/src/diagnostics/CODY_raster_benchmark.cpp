@@ -93,6 +93,7 @@ esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
     summary_.vectorized_pixels += jelly.vectorized_pixels;
     summary_.scalar_tail_pixels += jelly.scalar_tail_pixels;
     summary_.zero_footprint_pixels += jelly.zero_footprint_pixels;
+    summary_.coverage_skipped_pixels += jelly.coverage_skipped_pixels;
     return ESP_OK;
 }
 

@@ -7,13 +7,29 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- The fixed 100% Pearl Mist S3 run with 16-pixel SIMD blocks and generated
+  per-row coverage completed 766 frames at 63,000 submitted pixels per frame:
+  mean 50,715 us, p95 51,463 us, jelly mean 30,736 us, and 766/766 frames over
+  40 ms. Coverage skipped 14,544,808 pixels (18,988 per frame) before packing;
+  host scalar/SIMD-model parity and full generated coverage checks passed. The
+  frame mean is 4,897 us lower than the 16-pixel zero-skip version and 6,235 us
+  lower than the fresh C control. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-coverage-100.log`.
+- The intermediate 16-pixel all-zero skip completed 699 frames: mean 55,612 us,
+  p95 56,374 us. Enlarging blocks to 64 pixels regressed to 59,794 us mean and
+  p95 60,519 us over 652 frames because fewer transparent blocks were excluded.
+  Replacing constant `/255` in RGB565 composition with an exact shift/add form
+  preserved host pixels but regressed to 51,497 us mean and p95 52,299 us over
+  752 frames, so that source change was removed. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-16-zero-skip-100-2.log`,
+  `cody-simd-64-100.log`, and `cody-simd-coverage-div255-100.log` beside it.
 - Intrusive SIMD profiling at 100% completed 508 frames. Per-frame jelly mean
   rose to 57,052 us because 3,952 blocks triggered many clock reads. Its
   accumulated segments divided by 508 were approximately preparation 19,673 us,
   interpolation 6,947 us and RGB565 composition 19,216 us; the difference from
   jelly total is unassigned instrumentation/loop time. These numbers rank work,
-  not uninstrumented costs or FPS evidence. The next source increment increases
-  SIMD blocks to 64 pixels and skips composition for all-zero packed footprints.
+  not uninstrumented costs or FPS evidence. The 64-pixel experiment above
+  demonstrated why larger packed blocks are unsuitable for this artwork.
   Evidence: `artifacts/build-cody-companion-debug/evidence/cody-simd-detail-100.log`.
 - Fresh C control on the same 100% route: 684 frames, mean 56,950 us, p95
   57,634 us, jelly mean 37,106 us; all missed 40 ms. Against the 697-frame SIMD

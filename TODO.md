@@ -23,11 +23,9 @@ older host/build/flash evidence does not validate the current combined image.
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.
 - [ ] Optimize the raster in separate checkpoints, preserving exact output:
-  transparent jelly work first, then Coverage/span preparation, then SIMD only
-  for measured common kernels. Separate jelly and face timings before ranking
-  gains; current screen-05 artwork is about 14 ms, not a blending-only measure.
-  New optimization source needs explicitly authorized final checks/build/device
-  comparison; no performance improvement has yet been verified.
+  the fixed 100% jelly benchmark now measures a 6,235 us frame-mean gain over
+  the fresh C control, but remains 10,715 us above the 40 ms budget. Separate
+  jelly and face timings in the full UI before choosing another kernel.
 - [ ] Validate the finite raster baseline on `feat/simd-perf-opt`: run the new
   `cody-raster-benchmark` suite and repeated device comparisons. `4ac6c812`
   passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
@@ -42,9 +40,12 @@ older host/build/flash evidence does not validate the current combined image.
   across 489 measured frames with no mismatch. At 100% scale, the fresh A/B
   improved frame mean by 1,104 us and p95 by 1,139 us, but all frames still
   missed 40 ms. Detailed S3 profiling (intrusive) found preparation and RGB565
-  composition much larger than interpolation. Measure the 64-pixel SIMD block
-  and all-zero block skip without profiling, then confirm useful changes at
-  50/75% and in the full UI.
+  composition much larger than interpolation. The 64-pixel block regressed;
+  16-pixel blocks with generated row coverage now pass host parity and measured
+  50,715 us mean, 51,463 us p95 at 100%. Confirm scale 50/75% and full-UI
+  behavior before enabling this path outside the benchmark. The generated
+  coverage table and current SIMD path still need a fresh physical pixel-parity
+  run after this optimization; earlier S3 verification predates row trimming.
   Add deterministic animated work after trustworthy timings; include
   packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

@@ -31,6 +31,7 @@ struct RasterRunSummary {
     uint64_t vectorized_pixels = 0;
     uint64_t scalar_tail_pixels = 0;
     uint64_t zero_footprint_pixels = 0;
+    uint64_t coverage_skipped_pixels = 0;
 };
 
 // Firmware allocates this bounded run in PSRAM. No per-frame allocation or logging.

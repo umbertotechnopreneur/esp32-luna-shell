@@ -655,11 +655,12 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
                                 "unprofiled, coarse and block-profiled rows succeed");
                             require(actual == expected,
                                 "profile modes preserve reference pixels, tile clipping, tails and guards");
+                            const uint32_t drawn = visible - profile.coverage_skipped_pixels;
                             if (mode != 0 && kernel != CODY::JellyRasterKernel::Scalar) {
                                 require(profile.vectorized_pixels + profile.scalar_tail_pixels +
-                                        profile.zero_footprint_pixels == visible,
-                                        "SIMD counters account for pairs, odd tails and zero footprints");
-                                require(profile.scalar_tail_pixels == (visible & 1U),
+                                        profile.zero_footprint_pixels + profile.coverage_skipped_pixels == visible,
+                                        "SIMD counters account for pairs, tails and skipped coverage");
+                                require(profile.scalar_tail_pixels == (drawn & 1U),
                                         "SIMD never reads beyond an odd visible span");
                                 require(profile.verified_samples ==
                                         (kernel == CODY::JellyRasterKernel::SimdVerify ? visible : 0U),
@@ -667,16 +668,22 @@ void check_jelly_profile_parity(const CODY::JellySkinDefinition &skin, uint32_t 
                             }
                             if (mode == 2) {
                                 const uint32_t block_size = 16U;
-                                const uint32_t blocks = (visible + block_size - 1U) / block_size;
-                                require(profile.sampled_pixels == visible &&
-                                        profile.transparent_pixels + profile.blended_pixels == visible &&
+                                const uint32_t blocks = (drawn + block_size - 1U) / block_size;
+                                require(profile.sampled_pixels == drawn &&
+                                        profile.transparent_pixels + profile.blended_pixels == drawn &&
                                         profile.timed_blocks == blocks,
                                         "block counters cover each sample exactly once including the tail");
-                                const uint32_t row_preparation = kernel == CODY::JellyRasterKernel::Scalar ? 1 : 2;
-                                require(profile.interpolation_us == blocks && profile.blend_us == blocks &&
-                                        profile.preparation_us == blocks + row_preparation &&
-                                        profile_clock_ticks == 2 + 2 * row_preparation + 6 * blocks,
-                                        "detail clocks operate per row/block, never per pixel");
+                                if (drawn == 0) {
+                                    require(profile.interpolation_us == 0 && profile.blend_us == 0 &&
+                                            profile.preparation_us == 0 && profile_clock_ticks == 3,
+                                            "fully skipped row has no interpolation or composition clocks");
+                                } else {
+                                    const uint32_t row_preparation = kernel == CODY::JellyRasterKernel::Scalar ? 1 : 2;
+                                    require(profile.interpolation_us == blocks && profile.blend_us == blocks &&
+                                            profile.preparation_us == blocks + row_preparation &&
+                                            profile_clock_ticks == 2 + 2 * row_preparation + 6 * blocks,
+                                            "detail clocks operate per row/block, never per pixel");
+                                }
                             } else {
                                 require(profile.sampled_pixels == 0 && profile.timed_blocks == 0 &&
                                         profile_clock_ticks == (mode == 0 ? 0 : 2),
@@ -817,6 +824,24 @@ void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
 // No parameters: all authored textures retain alpha, tile guards and bounded geometry.
 void check_jelly_texture_contract()
 {
+    for (uint16_t row = 0; row < CODY::JellyData::height; ++row) {
+        const auto coverage = CODY::JellyData::row_coverage[row];
+        bool within_bounds = coverage.first <= coverage.last && coverage.last <= CODY::JellyData::width;
+        bool first_occupied = false;
+        bool last_occupied = false;
+        for (const auto &skin : CODY::JellySkinCatalog::definitions) {
+            const uint32_t *pixels = CODY::JellyData::pixels_for(skin.id);
+            for (uint16_t column = 0; column < CODY::JellyData::width; ++column) {
+                const bool occupied = pixels[row * CODY::JellyData::width + column] != 0;
+                within_bounds &= !occupied || (column >= coverage.first && column < coverage.last);
+                first_occupied |= occupied && column == coverage.first;
+                last_occupied |= occupied && column + 1 == coverage.last;
+            }
+        }
+        require(within_bounds && (coverage.first == CODY::JellyData::width || first_occupied) &&
+                (coverage.last == 0 || last_occupied),
+                "generated row coverage bounds every skin without excluding texture data");
+    }
     for (const auto &skin : CODY::JellySkinCatalog::definitions) {
         check_jelly_texture_samples(skin);
     }

@@ -703,8 +703,8 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
     const uint16_t last = std::min(static_cast<uint16_t>(first_row + strip.height), frame.bounds.bottom);
     for (uint16_t row = first; row < last; ++row) {
         const auto &mapping = frame.rows[row];
-        const uint16_t left = std::max(first_column, mapping.left);
-        const uint16_t right = std::min(static_cast<uint16_t>(first_column + strip.width), mapping.right);
+        uint16_t left = std::max(first_column, mapping.left);
+        uint16_t right = std::min(static_cast<uint16_t>(first_column + strip.width), mapping.right);
         if (left >= right) {
             continue;
         }
@@ -719,6 +719,39 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
 #if CODY_JELLY_SIMD_AVAILABLE
         if (kernel != JellyRasterKernel::Scalar) {
+            const auto &upper_coverage = JellyData::row_coverage[source_row];
+            const auto &lower_coverage = JellyData::row_coverage[next_row];
+            const uint16_t first_texel = std::min(upper_coverage.first, lower_coverage.first);
+            const uint16_t last_texel = std::max(upper_coverage.last, lower_coverage.last);
+            if (last_texel == 0 && kernel == JellyRasterKernel::Simd) {
+                if (profile != nullptr) {
+                    profile->coverage_skipped_pixels += right - left;
+                }
+                continue;
+            }
+            if (kernel == JellyRasterKernel::Simd && mapping.source_step > 0) {
+                const uint16_t untrimmed_pixels = right - left;
+                // Bilinear sampling can reach the first nonzero texel from its
+                // preceding column. The bounds cover every authored skin.
+                const int32_t first_possible_x = (first_texel - 1) * kFixedOne;
+                const int32_t first_impossible_x = last_texel * kFixedOne;
+                while (left < right && first_texel > 0 && source_x < first_possible_x) {
+                    ++left;
+                    ++destination;
+                    source_x += mapping.source_step;
+                }
+                while (left < right && last_texel < JellyData::width &&
+                       static_cast<int64_t>(source_x) +
+                           static_cast<int64_t>(right - left - 1) * mapping.source_step >= first_impossible_x) {
+                    --right;
+                }
+                if (profile != nullptr) {
+                    profile->coverage_skipped_pixels += untrimmed_pixels - (right - left);
+                }
+                if (left == right) {
+                    continue;
+                }
+            }
             if (profile_blocks) {
                 profile->preparation_us += profile->now_us() - preparation_started_us;
             }

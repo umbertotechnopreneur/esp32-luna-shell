@@ -645,10 +645,11 @@ esp_err_t stop_raster_benchmark(bool completed, const char *reason)
                  static_cast<unsigned long long>(summary.composited_pixels));
     }
     if (summary.kernel == CODY::JellyRasterKernel::Simd) {
-        ESP_LOGI(kTag, "BENCH SIMD vectorized=%llu tail=%llu zero=%llu; packing included in frame/jelly time",
+        ESP_LOGI(kTag, "BENCH SIMD vectorized=%llu tail=%llu zero=%llu coverage=%llu; packing included in frame/jelly time",
                  static_cast<unsigned long long>(summary.vectorized_pixels),
                  static_cast<unsigned long long>(summary.scalar_tail_pixels),
-                 static_cast<unsigned long long>(summary.zero_footprint_pixels));
+                 static_cast<unsigned long long>(summary.zero_footprint_pixels),
+                 static_cast<unsigned long long>(summary.coverage_skipped_pixels));
     }
     return ESP_OK;
 }
