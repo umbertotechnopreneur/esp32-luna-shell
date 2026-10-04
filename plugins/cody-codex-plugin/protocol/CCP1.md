@@ -70,6 +70,38 @@ The confirmation proof uses the link key over:
 paired|<device>|<session>|<pc>|<nonce>
 ```
 
+`PAIRED` proves Cody stored the relationship, but does not finish pairing. CCP
+first protects the matching record with Windows DPAPI, then sends:
+
+```text
+CCP1|CONFIRM|device=<12 hex>|session=<8 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
+```
+
+The proof uses the persisted link key over:
+
+```text
+confirm|<device>|<session>|<pc>|<nonce>
+```
+
+Cody keeps the pairing screen active until that proof succeeds, then replies:
+
+```text
+CCP1|ACTIVE|device=<12 hex>|session=<8 hex>|pc=<32 hex>|nonce=<32 hex>|proof=<64 hex>
+```
+
+The activation proof covers:
+
+```text
+active|<device>|<session>|<pc>|<nonce>
+```
+
+Only authenticated `ACTIVE` closes the plugin tool successfully, and only a
+successfully sent `ACTIVE` promotes Cody to the paired screen. This two-way
+commit prevents either side from presenting a one-sided retained link as done.
+Cody retains only the non-secret session/PC/nonce activation tuple for a short
+replay window, allowing a repeated valid `CONFIRM` to recover a lost `ACTIVE`
+without retaining the display code, salt or verifier.
+
 The displayed code, verifier and pairing salt are wiped when the attempt ends.
 Neither side logs them.
 

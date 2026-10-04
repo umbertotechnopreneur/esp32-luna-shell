@@ -383,7 +383,10 @@ class CompanionResponder:
         self._state = state
         self._stop = threading.Event()
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            # One PC identity has one liveness owner. Ambiguous same-host CCP
+            # processes must fail visibly instead of sharing the fixed port.
+            self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
         self._socket.bind(("", PLUGIN_PORT))
         self._socket.settimeout(0.25)
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
@@ -564,14 +567,17 @@ class CcpService:
             ),
             hashlib.sha256,
         ).digest()
-        response = self._exchange_pairing_request(offer, request, nonce, link_key)
+        self._exchange_pairing_request(offer, request, nonce, link_key)
+        # Cody's PAIRED response proves its NVS write. Protect the matching PC
+        # record before sending CONFIRM so neither UI can report a one-sided link.
         self.state.remember_pairing(offer.device_id, link_key, offer.address)
+        confirmed_at = self._exchange_confirmation(offer, nonce, link_key)
         return {
             "paired": True,
             "device_id": offer.device_id,
             "address": offer.address,
             "session_id": offer.session_id,
-            "confirmed_at": response,
+            "confirmed_at": confirmed_at,
         }
 
     # offer: Exact cached offer selected by the user's code.
@@ -623,6 +629,71 @@ class CcpService:
                     raise ValueError("Cody returned an invalid pairing confirmation proof")
                 return time.time()
         raise TimeoutError("Cody did not confirm pairing before the bounded timeout")
+
+    # offer: Exact offer whose device-side persistence was authenticated.
+    # nonce: Pairing nonce shared by PAIR, PAIRED, CONFIRM, and ACTIVE.
+    # link_key: Persisted key used to authenticate the final two-way commit.
+    # Raises TimeoutError, ValueError, or OSError when Cody cannot activate the persisted link.
+    def _exchange_confirmation(self, offer: Offer, nonce: str, link_key: bytes) -> float:
+        proof = make_proof(
+            link_key,
+            "confirm",
+            offer.device_id,
+            offer.session_id,
+            self.state.pc_id,
+            nonce,
+        )
+        request = encode_datagram(
+            "CONFIRM",
+            [
+                ("device", offer.device_id),
+                ("session", offer.session_id),
+                ("pc", self.state.pc_id),
+                ("nonce", nonce),
+                ("proof", proof),
+            ],
+        )
+        deadline = time.monotonic() + 3.0
+        next_send = 0.0
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as transport:
+            transport.bind(("", 0))
+            transport.settimeout(0.15)
+            while time.monotonic() < deadline:
+                if time.monotonic() >= next_send:
+                    transport.sendto(request, (offer.address, DEVICE_PORT))
+                    next_send = time.monotonic() + 0.5
+                try:
+                    payload, source = transport.recvfrom(MAX_DATAGRAM_BYTES + 1)
+                except socket.timeout:
+                    continue
+                if source[0] != offer.address:
+                    continue
+                try:
+                    kind, fields = parse_datagram(payload)
+                except ValueError:
+                    continue
+                expected_fields = {"device", "session", "pc", "nonce", "proof"}
+                if kind != "ACTIVE" or set(fields) != expected_fields:
+                    continue
+                if (
+                    fields["device"] != offer.device_id
+                    or fields["session"] != offer.session_id
+                    or fields["pc"] != self.state.pc_id
+                    or fields["nonce"] != nonce
+                ):
+                    continue
+                expected = make_proof(
+                    link_key,
+                    "active",
+                    offer.device_id,
+                    offer.session_id,
+                    self.state.pc_id,
+                    nonce,
+                )
+                if not hmac.compare_digest(expected, fields["proof"]):
+                    raise ValueError("Cody returned an invalid activation proof")
+                return time.time()
+        raise TimeoutError("Cody did not activate the persisted pairing before timeout")
 
 
 # offers: Current unique offers returned by one discovery request.

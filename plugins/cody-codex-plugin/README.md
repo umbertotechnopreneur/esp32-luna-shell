@@ -24,6 +24,11 @@ protects stored link keys with the current user's DPAPI account boundary. The
 runtime file is kept outside the repository under
 `%LOCALAPPDATA%\CodyCodexPlugin\state.json`.
 
+One CCP process owns the fixed listener on a PC. A second local process fails
+visibly instead of sharing that identity. On a LAN with many Codex PCs, every
+PC keeps a different random ID; Cody's retained PC ID and link key ensure that
+only the paired instance can answer its authenticated liveness request.
+
 Windows Firewall must allow private-network UDP receive/send for Python on
 ports 42117 and 42118. Do not enable public-network access.
 
@@ -31,8 +36,8 @@ ports 42117 and 42118. Do not enable public-network access.
 
 - `ccp_discover_devices`: broadcasts one bounded discovery request and returns
   current pairing offers.
-- `ccp_pair_device`: matches the code shown on Cody, confirms the device proof,
-  and stores the resulting link identity.
+- `ccp_pair_device`: matches the code shown on Cody and completes the two-sided
+  persisted-link confirmation before reporting success.
 - `ccp_connection_status`: reports stored identities and authenticated liveness
   observed by the running plugin.
 
