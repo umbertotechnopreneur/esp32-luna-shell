@@ -35,10 +35,11 @@ older host/build/flash evidence does not validate the current combined image.
   Do not treat that single success as a fix or hide terminal errors with restart.
 - [ ] Resolve removable-SD transport before screenshot persistence: `bb8fd327`
   repeatedly times out in `sdmmc_card_init`/OCR, before card identity and FAT;
-  both FRESULT fields remain -1. Formatting is user-authorized only if needed,
-  but no responding card/FormatRequired state has been verified and nothing was
-  formatted. Cody currently has no exposed format control. Recheck the inserted
-  card, then use the storage owner's identity-bound one-shot authorization only
+  both FRESULT fields remain -1. The owner showed existing log files on Windows
+  and reinserted the readable SD; `0a4f1b87` still has the same OCR timeout after
+  restart. No responding card/FormatRequired state has been verified on-device;
+  nothing was formatted. Cody currently has no exposed format control. Diagnose
+  the board/card transport, then use identity-bound one-shot authorization only
   for a verified missing filesystem; confirm an actual saved BMP afterward.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake

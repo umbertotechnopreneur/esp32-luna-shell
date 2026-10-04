@@ -10,8 +10,13 @@ and referenced architecture/artifact records.
 - Real pairing 07 now allows 90 awake seconds without genuine activity; 05/06
   retain 30 seconds. Its scene standby override is also 90 seconds and refreshes
   on canonical progress, without synthesizing touch or changing saved settings.
-  Backend deadline remains five minutes. Source assertions updated but not run;
-  new firmware build/flash and physical 90-second behavior remain pending.
+  Backend deadline remains five minutes. Debug `0a4f1b87` built with eight jobs,
+  flashed to COM10 with verified hashes and booted with the matching ELF identity.
+  Source assertions updated but not run; physical 90-second behavior is pending.
+  Saved Wi-Fi credentials reconnect with DHCP and SNTP in this boot capture.
+  SD still times out before FAT after the owner's reinsertion; no format was
+  performed. Ordinary idle standby completes at 64.697 s with BLE budget rearm.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/cody-0a4f1b8-deploy.md`.
 - Captured the intermittent wake complaint: the earlier renderer had already
   stopped with INVALID_ARG before standby was requested; the first terminating
   operation was outside the capture. After an explicit reset, `bb8fd327` entered
