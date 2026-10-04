@@ -137,10 +137,21 @@ extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// No parameters: report the explicitly unavailable selected output route.
-// Exception: Returns the selected-route error and publishes that real optional failure.
-extern "C" esp_err_t LUNASHELL_audio_prepare_personality(void)
+// policy: Build-authored settings for an explicitly unavailable selected output route.
+// Exception: Returns rejected policy or selected-route error and publishes that optional failure.
+extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy)
 {
+    if (policy == nullptr || policy->cooldown_us < 0 || policy->request_expiry_us <= 0) {
+        ESP_LOGE("LUNASHELL_audio", "Personality preparation policy rejected (%s)",
+            esp_err_to_name(ESP_ERR_INVALID_ARG));
+        const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+            false, 0, 16000, 0, ESP_ERR_INVALID_ARG);
+        if (publication_error != ESP_OK) {
+            ESP_LOGE("LUNASHELL_audio", "Personality policy failure publication failed (%s)",
+                esp_err_to_name(publication_error));
+        }
+        return ESP_ERR_INVALID_ARG;
+    }
     ESP_LOGE("LUNASHELL_audio", "Personality audio unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
         false, 0, 16000, 0, ESP_ERR_NOT_SUPPORTED);

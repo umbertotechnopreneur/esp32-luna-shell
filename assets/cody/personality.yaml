@@ -1,20 +1,172 @@
-# Session-only character mood. It does not measure the person's emotions.
-# Carezza recognition is configured separately in CODY_petting_config.hpp.
-schema: cody.personality.v1
+# Build-time character personality. These values do not measure human emotions.
+schema: cody.personality.v2
 scope: session
 face_binding: disabled
 
+# Identity is a contract: list order can change; these IDs and names cannot.
+# caress always means one gentle stroke above the eyes OR below the mouth.
+catalog:
+  events:
+    - {id: 1, name: caress}
+    - {id: 2, name: work_session_start}
+    - {id: 3, name: work_session_pause}
+    - {id: 4, name: work_session_resume}
+    - {id: 5, name: work_session_end}
+    - {id: 6, name: reminder_acknowledge}
+    - {id: 7, name: reminder_snooze}
+  zones:
+    - {id: 1, name: above_eyes}
+    - {id: 2, name: below_mouth}
+  metrics:
+    - {id: 1, name: happiness}
+    - {id: 2, name: sadness}
+    - {id: 3, name: fatigue_minutes}
+  reminders:
+    - {id: 1, name: screen_break}
+    - {id: 2, name: movement_break}
+    - {id: 3, name: eye_rest}
+    - {id: 4, name: drink_water}
+  icons:
+    - {id: 1, name: sleep, priority: 1000, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
+    - {id: 2, name: fear, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 3, name: joy, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 4, name: hunger, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 5, name: thirst, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 6, name: heat, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 7, name: cold, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 8, name: low_battery, priority: 900, interrupts: true, repeat_cooldown_seconds: 0, sfx_enabled: true}
+    - {id: 9, name: charging, priority: 100, interrupts: false, repeat_cooldown_seconds: 20, sfx_enabled: true}
+    - {id: 10, name: no_wifi, priority: 100, interrupts: false, repeat_cooldown_seconds: 20, sfx_enabled: true}
+    - {id: 11, name: curiosity, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 12, name: confusion, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 13, name: affection, priority: 200, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+    - {id: 14, name: frustration, priority: 100, interrupts: false, repeat_cooldown_seconds: 15, sfx_enabled: true}
+
+# The only currently active mood value. A caress never restarts its decay clock.
 happiness:
+  metric: happiness
   minimum: 0
   maximum: 100
   initial: 50
-  on_caress:
-    add: 10
-  decay:
-    subtract: 1
-    every_seconds: 60
-    clock: awake
-
-# A derived view, never a second independently stored mood value.
+  on_caress: {event: caress, add: 10}
+  decay: {subtract: 1, every_seconds: 60, clock: awake}
+# Read-only complement: no independent counter or conflicting decay rule.
 sadness:
+  metric: sadness
   rule: complement_of_happiness
+
+# Acquired touch/time geometry: no finger pressure is measured.
+# Either anatomical zone dispatches the same permanent caress event.
+caress:
+  event: caress
+  zones: [above_eyes, below_mouth]
+  minimum_contact_ms: 500
+  maximum_contact_ms: 3000
+  maximum_sample_gap_ms: 250
+  cooldown_seconds: 6
+  affection_seconds: 4
+  upper_margin_per_scale: 0.10
+  lower_margin_per_scale: 0.08
+  minimum_path_per_scale: 0.16
+  minimum_displacement_per_scale: 0.08
+  maximum_speed_per_scale: 2.0
+  jitter_pixels: 1.5
+
+# One current desired icon, never an event queue. Urgent cues still fade smoothly.
+icons:
+  channel:
+    stability_ms: 300
+    fade_in_ms: 400
+    minimum_visible_ms: 2500
+    fade_out_ms: 600
+    repeat_clock: active
+  follow:
+    # Finite history reaches a stationary target within 400 active milliseconds.
+    # At most 17 buckets; no extra framebuffer or unbounded per-frame storage.
+    position_window_ms: 360
+    scale_window_ms: 400
+    history_bucket_ms: 25
+    maximum_position_lag_pixels: 4.0
+    minimum_extent: 12.0
+    maximum_base_extent: 58.0
+    maximum_deformation_pixels: 2.0
+    body_clearance_pixels: 4.0
+  anchors:
+    # Center offsets from Cody's evaluated Nose anchor in local scale units.
+    main: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
+    sleep: {offset_x: 0.09, offset_y: -1.14, extent_per_scale: 0.20}
+  # Hysteresis uses valid current canonical measurements only.
+  low_battery: {enter_percent: 15, exit_percent: 20}
+
+# Sound is admitted only for a newly visible, successfully retired frame.
+# Both this global switch and each catalog icon's sfx_enabled must be true.
+audio:
+  enabled: true
+  cooldown_seconds: 8
+  request_expiry_ms: 120
+
+# Dormant internal logic: no work-session adapter, icon delivery or UI yet.
+# An open Codex chat does not establish an active human work session.
+# These rules consume explicit session start/pause/resume/end events only.
+wellbeing:
+  enabled: false
+  clock: active_work_session
+  fatigue:
+    metric: fatigue_minutes
+    unit: minutes
+    # Elapsed active session time since an explicitly acknowledged screen break.
+    # This is a character timer, not measured physiological fatigue.
+    # Eye/movement/water acknowledgement and caress do not reset this metric.
+    reset_on: acknowledged_screen_break
+  delivery:
+    # Presentation is reserved for a later increment even if logic is enabled.
+    enabled: false
+    combine_due: true
+    repeat_until_acknowledged: false
+    # Snooze is one active-time deadline; a due state is never an icon queue.
+    snooze_minutes: 10
+  reminders:
+    # HSE gives 5-10 minutes each hour as an example of short frequent breaks.
+    # Defaults choose 60 minutes of active work, then a 5-minute invitation.
+    - reminder: screen_break
+      enabled: true
+      every_minutes: 60
+      duration_seconds: 300
+      distance_feet: 0
+      cue: sleep
+      priority: 80
+      interval_basis: guidance
+      source: https://www.hse.gov.uk/msd/dse/work-routine.htm
+    # NHS suggests a reminder to get up every 30 minutes.
+    # Duration 0 means the source does not specify a fixed movement duration.
+    - reminder: movement_break
+      enabled: true
+      every_minutes: 30
+      duration_seconds: 0
+      distance_feet: 0
+      cue: curiosity
+      priority: 60
+      interval_basis: guidance
+      source: https://www.nhs.uk/live-well/exercise/why-sitting-too-much-is-bad-for-us/
+    # NEI: every 20 minutes, look 20 feet (about 6 metres) away for 20 seconds.
+    - reminder: eye_rest
+      enabled: true
+      every_minutes: 20
+      duration_seconds: 20
+      distance_feet: 20
+      cue: curiosity
+      priority: 60
+      interval_basis: guidance
+      source: https://www.nei.nih.gov/eye-health-information/healthy-vision/nei-for-kids/healthy-vision-tips
+    # NHS says drink regularly throughout the day; it specifies no hourly rule.
+    # 60 minutes is Cody's configurable product default, not NHS medical advice.
+    # There is no fixed drinking quantity or claim that drinking was measured.
+    - reminder: drink_water
+      enabled: true
+      every_minutes: 60
+      duration_seconds: 0
+      distance_feet: 0
+      cue: thirst
+      priority: 70
+      interval_basis: product_default
+      source: https://www.nhs.uk/live-well/eat-well/food-guidelines-and-food-labels/water-drinks-nutrition/

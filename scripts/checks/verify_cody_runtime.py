@@ -156,6 +156,7 @@ def main(argv=None):
                     "components/LUNASHELL_platform/include",
                     "assets/cody/rig/generated", "assets/cody/runtime/generated",
                     "assets/cody/appearance/jelly-scanline/generated")
+        includes += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/runtime_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
                        "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",

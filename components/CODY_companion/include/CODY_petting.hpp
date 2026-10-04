@@ -3,10 +3,9 @@
 #include <cstdint>
 #include "CODY_rig.hpp"
 #include "CODY_petting_config.hpp"
+#include "personality_catalog.hpp"
 
 namespace CODY {
-
-enum class PettingZone : uint8_t { None = 0, AboveEyes = 1, BelowMouth = 2 };
 
 // Artistic gesture state; no additional sensor owner, allocation or event queue.
 struct PettingState {

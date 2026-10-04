@@ -15,6 +15,7 @@ from scripts.common.cody_native_checks import compile_command, resolve_compiler,
 from scripts.tests.cody_personality_parity import compare_personality_fixture
 from scripts.tests.cody_petting_contract import check_host_petting
 from scripts.tests.cody_happiness_contract import check_host_happiness
+from scripts.tests.cody_wellbeing_contract import check_host_wellbeing
 
 
 # root: Checkout containing the exact authored manifests and generated binary assets.
@@ -105,6 +106,7 @@ def main(argv=None):
                    "components/CODY_companion/src/model/CODY_response.cpp",
                    "components/CODY_companion/src/model/CODY_petting.cpp",
                    "components/CODY_companion/src/model/CODY_happiness.cpp",
+                   "components/CODY_companion/src/model/CODY_wellbeing.cpp",
                    "components/CODY_companion/src/rendering/CODY_dirty_plan.cpp",
                    "components/CODY_companion/src/rendering/CODY_personality.cpp",
                    "assets/cody/personality-icons/generated/personality_icons.cpp")
@@ -116,8 +118,12 @@ def main(argv=None):
         compare_personality_fixture(ROOT, fixture)
         report["host_petting_assertions"] = check_host_petting(ROOT)
         report["host_happiness_assertions"] = check_host_happiness(ROOT, output)
+        report["host_wellbeing_assertions"] = check_host_wellbeing(ROOT)
         report["status"] = "passed"
         report["native_assertions"] = fixture["assertions"]
+        report["host_controller_bytes"] = fixture["host_controller_bytes"]
+        report["repeat_slots"] = fixture["repeat_slots"]
+        report["repeat_bytes"] = fixture["repeat_bytes"]
         report["parity_frames"] = len(fixture["samples"])
         report["contracts"] = ["400/600 ms fade and 2500 ms hold", "latest target without a queue",
             "semantic Sleep entry and paused release", "finite 360/400 ms following and 4 px radius",
@@ -127,6 +133,9 @@ def main(argv=None):
             "caress zones, gesture rejection, one trigger and cooldown",
             "independent host-preview caress scenarios (no native gesture trace parity claim)",
             "native happiness gain, elapsed-minute decay, bounded phase and domain rejection",
+            "portable heart/charging selection and urgent admitted low-battery smooth transitions",
+            "generated typed event identities, low-battery hysteresis and fixed per-cue repeat history",
+            "dormant pure wellbeing session lifecycle, independent reminders, snooze and fatigue acknowledgment",
             "independent host happiness, monotonic clock, strict authoring and generated provenance scenarios",
             "native/Python controller, transform, alpha and admission parity",
             "14 fixed-palette icon hashes/identity and14 PCM/WAV formats/hashes/audition offsets"]

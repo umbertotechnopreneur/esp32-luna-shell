@@ -469,9 +469,15 @@ typedef struct {
     uint32_t cue_id;
 } lunashell_audio_cue_status_t;
 
-// No parameters: prepares the dormant symbol worker without opening or playing the codec.
-// Exception: Returns and canonically publishes an actual worker preparation failure.
-esp_err_t LUNASHELL_audio_prepare_personality(void);
+typedef struct {
+    bool enabled;
+    int64_t cooldown_us;
+    int64_t request_expiry_us;
+} lunashell_personality_audio_policy_t;
+
+// policy: Immutable build-authored admission settings; copied before the dormant worker starts.
+// Exception: Returns and publishes invalid policy, changed preparation or worker preparation failures.
+esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy);
 // samples: Immutable flash-owned PCM retained for the firmware lifetime.
 // sample_count: Exact mono samples, bounded to 5600 (350 ms at 16 kHz).
 // sample_rate_hz: Exact authored rate, 16000 Hz.

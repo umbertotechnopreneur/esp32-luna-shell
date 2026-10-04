@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include "esp_err.h"
+#include "personality_catalog.hpp"
 
 namespace CODY {
 
@@ -42,9 +43,10 @@ esp_err_t initialize_happiness(const HappinessConfig &config, HappinessState &st
 esp_err_t advance_happiness(const HappinessConfig &config, int64_t elapsed_us, HappinessState &state);
 
 // config: Valid authored bounds and gain per recognized caress.
+// event: Stable authored event identity; only Caress dispatches a gain in this MVP.
 // state: Receives the bounded gain while retaining its partial decay interval.
-// Exception: Returns invalid config or existing state without mutation.
-esp_err_t apply_happiness_caress(const HappinessConfig &config, HappinessState &state);
+// Exception: Returns invalid event, config or existing state without mutation.
+esp_err_t apply_happiness_event(const HappinessConfig &config, PersonalityEvent event, HappinessState &state);
 
 // snapshot: Receives the owner state and derived sadness under the display/state lock.
 // Exception: Returns the actual lock/consumer-state error; excluded profiles return not-supported.

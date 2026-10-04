@@ -3,6 +3,7 @@
 #include "CODY_rig.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_happiness.hpp"
+#include "CODY_wellbeing.hpp"
 #include "personality_rules.hpp"
 #include "cloud_rig_data.hpp"
 
@@ -93,13 +94,20 @@ PersonalityFrame step(Scenario &scenario, const char *name, PersonalityCue cue, 
         "\"target_dx\":%.9g,\"target_dy\":%.9g,\"target_squash\":%.9g,\"expected\":{"
         "\"cue\":%u,\"opacity\":%u,\"status\":%u,\"left\":%u,\"top\":%u,"
         "\"right\":%u,\"bottom\":%u,\"phase\":%u,\"desired\":%u,"
-        "\"x\":%.9g,\"y\":%.9g,\"width\":%.9g,\"height\":%.9g}}",
+        "\"x\":%.9g,\"y\":%.9g,\"width\":%.9g,\"height\":%.9g,"
+        "\"active_elapsed_us\":%lld,\"last_admitted_at_us\":[",
         first_sample ? "" : ",", scenario.name, name, static_cast<unsigned>(cue), scale,
         static_cast<unsigned>(presentation), static_cast<long long>(delta_us), paused ? "true" : "false",
         dx, dy, squash, static_cast<unsigned>(frame.cue), frame.opacity, static_cast<unsigned>(frame.status),
         frame.bounds.left, frame.bounds.top, frame.bounds.right, frame.bounds.bottom,
         static_cast<unsigned>(lag.phase), static_cast<unsigned>(lag.desired),
-        lag.center_x, lag.center_y, lag.width, lag.height);
+        lag.center_x, lag.center_y, lag.width, lag.height,
+        static_cast<long long>(lag.active_elapsed_us));
+    for (size_t index = 0; index < lag.last_admitted_at_us.size(); ++index) {
+        std::printf("%s%lld", index == 0 ? "" : ",",
+                    static_cast<long long>(lag.last_admitted_at_us[index]));
+    }
+    std::printf("]}}");
     first_sample = false;
     return frame;
 }
@@ -398,9 +406,101 @@ void check_petting()
                 "stationary noisy contact never becomes a caress");
     }
 }
+// No parameters: portable arbitration checks the single canonical-admitted latest target.
+void check_symbol_arbitration()
+{
+    PersonalityCue desired = PersonalityCue::Joy;
+    bool release = true;
+    require(select_personality_target(PersonalityCue::None, false, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Affection && !release, "active caress owns an otherwise empty channel");
+    require(select_personality_target(PersonalityCue::Charging, false, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Affection && !release, "charging waits behind a live auto heart");
+    require(select_personality_target(PersonalityCue::Charging, false, false, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Charging, "charging becomes latest target after the heart lifetime");
+    require(select_personality_target(PersonalityCue::LowBattery, false, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::LowBattery && release, "admitted low battery cancels the automatic heart request");
+    require(select_personality_target(PersonalityCue::LowBattery, true, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Sleep && release, "semantic Sleep retains precedence over low battery");
+    require(select_personality_target(PersonalityCue::Joy, false, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Affection && !release, "authored higher-priority heart retains a lower-priority latest baseline");
+    require(select_personality_target(PersonalityCue::Joy, false, false, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Joy && release, "latest baseline replaces any waiting charge without a queue");
+    require(select_personality_target(PersonalityCue::None, false, true, desired, release) == ESP_OK &&
+            desired == PersonalityCue::Affection, "canonical rejection represented as None does not block a valid heart");
+    desired = PersonalityCue::Joy;
+    release = false;
+    require(select_personality_target(static_cast<PersonalityCue>(255), false, true,
+                                     desired, release) == ESP_ERR_INVALID_ARG &&
+            desired == PersonalityCue::Joy && !release, "invalid arbitration identity preserves caller outputs");
+
+    Scenario urgent{"low-battery-affection"};
+    step(urgent, "heart-request", PersonalityCue::Affection, 0);
+    step(urgent, "heart-stable", PersonalityCue::Affection, 300000);
+    step(urgent, "heart-half-in", PersonalityCue::Affection, 200000);
+    const uint8_t before = urgent.frame.opacity;
+    step(urgent, "low-battery-preempts", PersonalityCue::LowBattery, 0);
+    require(urgent.lag.phase == PersonalityPhase::FadeOut && urgent.lag.cue == PersonalityCue::Affection &&
+            urgent.frame.opacity == before, "urgent battery releases an incomplete heart fade without an opacity jump");
+    step(urgent, "heart-half-out", PersonalityCue::LowBattery, 300000);
+    require(urgent.frame.cue == PersonalityCue::Affection && urgent.frame.opacity == 64,
+            "urgent battery keeps one departing half-opacity heart sprite");
+    step(urgent, "battery-entry", PersonalityCue::LowBattery, 300000);
+    require(urgent.lag.cue == PersonalityCue::LowBattery && urgent.frame.cue == PersonalityCue::None &&
+            urgent.frame.opacity == 0 && urgent.frame.bounds.empty() &&
+            urgent.lag.phase == PersonalityPhase::FadeIn, "urgent battery enters only after heart reaches zero");
+    step(urgent, "battery-half-in", PersonalityCue::LowBattery, 200000);
+    require(urgent.frame.opacity == 128, "urgent battery retains its authored 400 ms fade-in");
+    step(urgent, "battery-visible", PersonalityCue::LowBattery, 200000);
+
+    Scenario hidden{"low-battery-empty"};
+    step(hidden, "immediate-entry", PersonalityCue::LowBattery, 0);
+    require(hidden.lag.phase == PersonalityPhase::FadeIn && hidden.lag.cue == PersonalityCue::LowBattery,
+            "admitted low battery bypasses narrative request stability");
+
+    Scenario hold{"low-battery-hold"};
+    step(hold, "heart-request", PersonalityCue::Affection, 0);
+    step(hold, "heart-stable", PersonalityCue::Affection, 300000);
+    step(hold, "heart-visible", PersonalityCue::Affection, 400000);
+    step(hold, "battery-releases-hold", PersonalityCue::LowBattery, 0);
+    require(hold.lag.phase == PersonalityPhase::FadeOut && hold.frame.opacity == 255,
+            "admitted low battery releases minimum artistic hold while preserving full current alpha");
+
+    Scenario charging{"charging-after-affection"};
+    step(charging, "heart-request", PersonalityCue::Affection, 0);
+    step(charging, "heart-stable", PersonalityCue::Affection, 300000);
+    step(charging, "heart-visible", PersonalityCue::Affection, 400000);
+    require(select_personality_target(PersonalityCue::Charging, false, true, desired, release) == ESP_OK,
+            "charging baseline selects a portable waiting target");
+    step(charging, "charging-waits-auto-heart", desired, 2000000);
+    require(charging.lag.phase == PersonalityPhase::Visible && charging.lag.cue == PersonalityCue::Affection,
+            "charging baseline cannot release a still-live automatic heart");
+    require(select_personality_target(PersonalityCue::Charging, false, false, desired, release) == ESP_OK,
+            "expired automatic lifetime exposes latest charging baseline");
+    step(charging, "heart-expired", desired, 0);
+    require(charging.lag.phase == PersonalityPhase::Visible, "normal charging respects remaining heart dwell");
+    step(charging, "heart-finishes-hold", desired, 500000);
+    require(charging.lag.phase == PersonalityPhase::FadeOut && charging.frame.opacity == 255,
+            "charging transition begins through a smooth existing heart fade");
+    step(charging, "heart-half-out", desired, 300000);
+    require(charging.frame.cue == PersonalityCue::Affection && charging.frame.opacity == 128,
+            "waiting charge does not overlap the departing heart");
+    step(charging, "charge-entry", desired, 300000);
+    require(charging.lag.cue == PersonalityCue::Charging && charging.frame.cue == PersonalityCue::None &&
+            charging.frame.opacity == 0 && charging.frame.bounds.empty(),
+            "charging enters at zero only after the heart fade completes");
+    step(charging, "charge-visible", desired, 400000);
+    require(charging.frame.opacity == 255, "waiting charging retains normal fade-in");
+}
+
 // No parameters: actual portable mood arithmetic is checked against elapsed-time and domain outcomes.
 void check_happiness()
 {
+    require(static_cast<unsigned>(PersonalityEvent::Caress) == 1 &&
+            static_cast<unsigned>(PettingZone::AboveEyes) == 1 &&
+            static_cast<unsigned>(PettingZone::BelowMouth) == 2 &&
+            static_cast<unsigned>(PersonalityMetric::Happiness) == 1 &&
+            static_cast<unsigned>(PersonalityMetric::Sadness) == 2,
+            "generated event, zone and metric identities remain stable independent of ordering");
     HappinessState state;
     require(initialize_happiness(PersonalityData::happiness, state) == ESP_OK &&
             state.happiness == PersonalityData::happiness.initial && state.decay_remainder_us == 0,
@@ -414,17 +514,17 @@ void check_happiness()
             state.decay_remainder_us == 0, "exact full minute decays one point");
     require(advance_happiness(config, 30000000, state) == ESP_OK,
             "half minute advances the artistic clock");
-    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 59 &&
+    require(apply_happiness_event(config, PersonalityEvent::Caress, state) == ESP_OK && state.happiness == 59 &&
             state.decay_remainder_us == 30000000, "caress gains ten without resetting the minute phase");
     require(advance_happiness(config, 30000000, state) == ESP_OK && state.happiness == 58 &&
             state.decay_remainder_us == 0, "caress does not postpone the already scheduled next decay");
     state = {99, 13000000};
-    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 100 &&
+    require(apply_happiness_event(config, PersonalityEvent::Caress, state) == ESP_OK && state.happiness == 100 &&
             state.decay_remainder_us == 13000000, "authored ceiling bounds gain while retaining phase");
     state = {0, 20000000};
     require(advance_happiness(config, 125000000, state) == ESP_OK && state.happiness == 0 &&
             state.decay_remainder_us == 25000000, "floor discards unpaid full decay while retaining bounded phase");
-    require(apply_happiness_caress(config, state) == ESP_OK && state.happiness == 10 &&
+    require(apply_happiness_event(config, PersonalityEvent::Caress, state) == ESP_OK && state.happiness == 10 &&
             state.decay_remainder_us == 25000000, "a caress at the floor creates no replayed decay debt");
     require(advance_happiness(config, 35000000, state) == ESP_OK && state.happiness == 9 &&
             state.decay_remainder_us == 0, "floor recovery pays only the next actual full minute");
@@ -457,14 +557,324 @@ void check_happiness()
     require(initialize_happiness(invalid, partitioned) == ESP_ERR_INVALID_ARG,
             "out-of-domain authored initial value is rejected");
     state = {101, 0};
-    require(apply_happiness_caress(config, state) == ESP_ERR_INVALID_STATE && state.happiness == 101,
+    require(apply_happiness_event(config, PersonalityEvent::Caress, state) == ESP_ERR_INVALID_STATE && state.happiness == 101,
             "invalid existing happiness is rejected rather than clamped as a repair");
     state = {50, 60000000};
     require(advance_happiness(config, 0, state) == ESP_ERR_INVALID_STATE &&
             state.decay_remainder_us == 60000000, "invalid phase is rejected without repair");
     state = {93, 40000000};
+    const HappinessState before_invalid_event = state;
+    require(apply_happiness_event(config, static_cast<PersonalityEvent>(255), state) == ESP_ERR_INVALID_ARG &&
+            state.happiness == before_invalid_event.happiness &&
+            state.decay_remainder_us == before_invalid_event.decay_remainder_us,
+            "unknown typed event cannot change mood or silently dispatch a caress");
     require(initialize_happiness(config, state) == ESP_OK && state.happiness == 50 &&
             state.decay_remainder_us == 0, "new session deliberately starts from authored initial mood");
+}
+// No parameters: canonical percentage admission has hysteresis and never fabricates missing values.
+void check_battery_hysteresis()
+{
+    PersonalityBatteryLatch latch;
+    bool alert = false;
+    const int enter = PersonalityConfig::low_battery_enter_percent;
+    const int exit = PersonalityConfig::low_battery_exit_percent;
+    require(update_personality_battery_latch(true, enter + 1, latch, alert) == ESP_OK && !alert,
+            "initial percentage inside hysteresis band does not invent a prior alert");
+    require(update_personality_battery_latch(true, enter, latch, alert) == ESP_OK && alert,
+            "fresh percentage enters low-battery alert at the inclusive authored boundary");
+    require(update_personality_battery_latch(true, exit - 1, latch, alert) == ESP_OK && alert,
+            "fresh percentage inside recovery band retains a confirmed low-battery alert");
+    require(update_personality_battery_latch(true, exit, latch, alert) == ESP_OK && !alert,
+            "fresh percentage clears at the inclusive authored recovery boundary");
+    require(update_personality_battery_latch(true, enter + 1, latch, alert) == ESP_OK && !alert,
+            "small discharge after recovery does not chatter into a new alert");
+    require(update_personality_battery_latch(true, enter, latch, alert) == ESP_OK && alert,
+            "later genuine low percentage can re-enter alert");
+    require(update_personality_battery_latch(false, 101, latch, alert) == ESP_OK && !alert &&
+            !latch.low_battery_active, "unavailable sample clears alert without interpreting an unmeasured number");
+    require(update_personality_battery_latch(true, enter + 1, latch, alert) == ESP_OK && !alert,
+            "unknown interval clears hysteresis memory before a mid-band recovery sample");
+    require(update_personality_battery_latch(true, enter, latch, alert) == ESP_OK && alert,
+            "new current low measurement restores the alert");
+    require(update_personality_battery_latch(true, 101, latch, alert) == ESP_ERR_INVALID_RESPONSE &&
+            latch.low_battery_active && alert, "invalid actual percentage is rejected without silently repairing the latch");
+    require(update_personality_battery_latch(true, -1, latch, alert) == ESP_ERR_INVALID_RESPONSE &&
+            latch.low_battery_active && alert, "negative actual percentage is rejected with its real cause");
+}
+
+// cue: Stable identity whose authored repeat interval is requested by a fixture.
+int64_t repeat_interval(PersonalityCue cue)
+{
+    for (const auto &rule : PersonalityConfig::cue_rules) {
+        if (rule.cue == cue) {
+            return rule.repeat_cooldown_us;
+        }
+    }
+    require(false, "fixture identity has an authored repeat rule");
+    return 0;
+}
+
+// No parameters: exact admission timestamps exercise repeat suppression without retaining old events.
+void check_repeat_suppression()
+{
+    Scenario repeat{"affection-repeat"};
+    step(repeat, "first-request", PersonalityCue::Affection, 0);
+    step(repeat, "first-admission", PersonalityCue::Affection, 300000);
+    const size_t slot = static_cast<size_t>(PersonalityCue::Affection) - 1U;
+    const int64_t first_stamp = repeat.lag.last_admitted_at_us[slot];
+    require(first_stamp == 300001, "first zero-alpha admission starts the cue repeat interval");
+    step(repeat, "first-visible", PersonalityCue::Affection, 400000);
+    step(repeat, "release-target", PersonalityCue::None, 0);
+    step(repeat, "finish-hold", PersonalityCue::None, 2500000);
+    step(repeat, "hidden", PersonalityCue::None, 600000);
+    step(repeat, "repeat-request", PersonalityCue::Affection, 0);
+    require(repeat.frame.status == PersonalityPresentationStatus::SuppressedByCooldown &&
+            repeat.lag.phase == PersonalityPhase::Hidden && repeat.frame.opacity == 0,
+            "repeated heart is explicitly suppressed without flashing or replaying a sprite");
+    const int64_t clock_before_pause = repeat.lag.active_elapsed_us;
+    step(repeat, "paused-cooldown", PersonalityCue::Affection, 20000000,
+         PersonalityPresentation::Main, true);
+    require(repeat.lag.active_elapsed_us == clock_before_pause &&
+            repeat.lag.last_admitted_at_us[slot] == first_stamp,
+            "paused animation cannot pay a repeat cooldown using wall-clock time");
+    step(repeat, "expire-auto-request", PersonalityCue::None, 0);
+    require(repeat.frame.status == PersonalityPresentationStatus::Hidden &&
+            repeat.lag.desired == PersonalityCue::None, "expired auto event leaves no queued heart");
+    step(repeat, "disabled-route", PersonalityCue::None, 1000000, PersonalityPresentation::Disabled);
+    require(repeat.lag.last_admitted_at_us[slot] == first_stamp && !repeat.lag.primed,
+            "route disable clears presentation but retains per-cue repeat identity");
+    step(repeat, "micro-route", PersonalityCue::None, 1000000,
+         PersonalityPresentation::Main, false, 0, 0, 0, 22);
+    require(repeat.lag.last_admitted_at_us[slot] == first_stamp && !repeat.lag.primed,
+            "Micro exclusion cannot reset repeat history");
+    step(repeat, "new-live-request", PersonalityCue::Affection, 0);
+    const int64_t until_ready = first_stamp - 1 + repeat_interval(PersonalityCue::Affection) -
+        repeat.lag.active_elapsed_us;
+    require(until_ready > 300000, "fixture retains a real remaining authored heart cooldown");
+    step(repeat, "one-us-before-ready", PersonalityCue::Affection, until_ready - 1);
+    require(repeat.frame.status == PersonalityPresentationStatus::SuppressedByCooldown,
+            "new live target remains suppressed until the exact repeat boundary");
+    step(repeat, "repeat-boundary", PersonalityCue::Affection, 1);
+    require(repeat.lag.phase == PersonalityPhase::FadeIn && repeat.frame.opacity == 0 &&
+            repeat.lag.last_admitted_at_us[slot] == repeat.lag.active_elapsed_us + 1,
+            "eligible latest target re-enters gently and records its new admission");
+
+    const int64_t clock = repeat.lag.active_elapsed_us;
+    const auto timestamps = repeat.lag.last_admitted_at_us;
+    clear_personality_presentation(repeat.lag);
+    require(repeat.lag.phase == PersonalityPhase::Hidden && !repeat.lag.primed &&
+            repeat.lag.active_elapsed_us == clock && repeat.lag.last_admitted_at_us == timestamps,
+            "explicit route orientation or parked reset preserves all repeat records");
+    RigScene scene = make_scene();
+    PersonalityContext context;
+    context.presentation = PersonalityPresentation::Main;
+    PersonalityFrame frame;
+    const PersonalityLag unchanged = repeat.lag;
+    require(prepare_personality_frame(scene, PersonalityCue::None, CodySize::Full, context,
+        INT64_MAX, false, false, exclusions, 2, repeat.lag, frame) == ESP_ERR_INVALID_STATE &&
+        repeat.lag.active_elapsed_us == unchanged.active_elapsed_us,
+        "active clock overflow is rejected without destroying repeat history");
+}
+// state: Pure fixture state whose stable identity is requested.
+// reminder: Typed reminder, independent of configured storage ordering.
+const WellbeingReminderState &wellbeing_item(const WellbeingState &state, PersonalityReminder reminder)
+{
+    for (const auto &item : state.reminders) {
+        if (item.reminder == reminder) {
+            return item;
+        }
+    }
+    require(false, "wellbeing fixture contains the requested stable identity");
+    return state.reminders[0];
+}
+
+// first: One complete state from the pure engine.
+// second: Expected unchanged state or an independently partitioned elapsed sequence.
+bool same_wellbeing(const WellbeingState &first, const WellbeingState &second)
+{
+    if (first.session != second.session || first.active_elapsed_us != second.active_elapsed_us ||
+        first.fatigue_elapsed_us != second.fatigue_elapsed_us) {
+        return false;
+    }
+    for (const auto &item : first.reminders) {
+        const auto &other = wellbeing_item(second, item.reminder);
+        if (item.phase != other.phase || item.deadline_us != other.deadline_us) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// No parameters: dormant authored configuration and pure session/deadline semantics remain separate from UI.
+void check_wellbeing()
+{
+    const auto none = PersonalityReminder::None;
+    WellbeingState state;
+    require(!PersonalityData::wellbeing.enabled &&
+            initialize_wellbeing(PersonalityData::wellbeing, state) == ESP_OK,
+            "authored wellbeing engine is intentionally dormant and initializes without a runtime connection");
+    const WellbeingState dormant = state;
+    require(apply_wellbeing_event(PersonalityData::wellbeing, PersonalityEvent::WorkSessionStart,
+                                 none, state) == ESP_ERR_NOT_SUPPORTED && same_wellbeing(state, dormant),
+            "disabled authored engine explicitly rejects starting work without mutation");
+    require(advance_wellbeing(PersonalityData::wellbeing, 900000000, state) == ESP_OK &&
+            same_wellbeing(state, dormant), "disabled dormant state does not accumulate invented work time");
+    WellbeingConfig config = PersonalityData::wellbeing;
+    config.enabled = true; // Explicit synthetic fixture configuration, never firmware runtime activation.
+    require(initialize_wellbeing(config, state) == ESP_OK &&
+            apply_wellbeing_event(config, PersonalityEvent::WorkSessionStart, none, state) == ESP_OK,
+            "pure fixture starts a new identified work session");
+    require(advance_wellbeing(config, 20 * kWellbeingMinuteUs - 1, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::EyeRest).phase == WellbeingReminderPhase::Counting,
+            "eye reminder does not become due before its actual active-work boundary");
+    WellbeingSnapshot snapshot;
+    require(read_wellbeing_snapshot(config, state, snapshot) == ESP_OK && snapshot.fatigue_minutes == 19 &&
+            snapshot.fatigue_remainder_us == kWellbeingMinuteUs - 1,
+            "fatigue is a derived active-work minute count with its original sub-minute remainder");
+    require(advance_wellbeing(config, 1, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::EyeRest).phase == WellbeingReminderPhase::Due &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).phase == WellbeingReminderPhase::Counting,
+            "independent eye deadline becomes due at twenty minutes");
+    const int64_t eye_deadline = wellbeing_item(state, PersonalityReminder::EyeRest).deadline_us;
+    require(advance_wellbeing(config, 10 * kWellbeingMinuteUs, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).phase == WellbeingReminderPhase::Due &&
+            wellbeing_item(state, PersonalityReminder::EyeRest).deadline_us == eye_deadline,
+            "overdue eye reminder stays latched while independent movement timer becomes due");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::EyeRest, state) == ESP_OK &&
+            state.fatigue_elapsed_us == 30 * kWellbeingMinuteUs,
+            "acknowledging eye rest restarts its timer but cannot reset fatigue");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderSnooze,
+                                 PersonalityReminder::MovementBreak, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).phase == WellbeingReminderPhase::Snoozed &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).deadline_us == 40 * kWellbeingMinuteUs,
+            "due movement reminder snoozes on the authored active-work clock");
+    require(advance_wellbeing(config, 10 * kWellbeingMinuteUs - 1, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).phase == WellbeingReminderPhase::Snoozed,
+            "snooze cannot expire one microsecond before its deadline");
+    require(advance_wellbeing(config, 1, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::MovementBreak).phase == WellbeingReminderPhase::Due,
+            "snooze re-enters due at its exact deadline without an event queue");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionPause, none, state) == ESP_OK,
+            "active session explicitly pauses");
+    const WellbeingState paused = state;
+    WellbeingState paused_ack = paused;
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::MovementBreak, paused_ack) == ESP_OK &&
+            paused_ack.session == WorkSessionPhase::Paused &&
+            paused_ack.active_elapsed_us == paused.active_elapsed_us &&
+            paused_ack.fatigue_elapsed_us == paused.fatigue_elapsed_us,
+            "an explicit due acknowledgment can resolve a paused reminder without resuming work");
+    require(advance_wellbeing(config, INT64_MAX, state) == ESP_OK && same_wellbeing(state, paused),
+            "paused work freezes fatigue and every reminder despite an arbitrary wall-clock gap");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionResume, none, state) == ESP_OK &&
+            advance_wellbeing(config, 20 * kWellbeingMinuteUs, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::ScreenBreak).phase == WellbeingReminderPhase::Due &&
+            wellbeing_item(state, PersonalityReminder::DrinkWater).phase == WellbeingReminderPhase::Due,
+            "resumed session reaches independent screen and water deadlines on actual work time");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::DrinkWater, state) == ESP_OK &&
+            state.fatigue_elapsed_us == 60 * kWellbeingMinuteUs,
+            "water acknowledgment cannot reset fatigue");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::MovementBreak, state) == ESP_OK &&
+            state.fatigue_elapsed_us == 60 * kWellbeingMinuteUs,
+            "movement acknowledgment cannot reset fatigue");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::ScreenBreak, state) == ESP_OK &&
+            state.fatigue_elapsed_us == 0 && state.active_elapsed_us == 60 * kWellbeingMinuteUs,
+            "only acknowledged screen break resets fatigue while retaining the active-work clock");
+    require(advance_wellbeing(config, 90000000, state) == ESP_OK &&
+            read_wellbeing_snapshot(config, state, snapshot) == ESP_OK &&
+            snapshot.fatigue_minutes == 1 && snapshot.fatigue_remainder_us == 30000000,
+            "fatigue resumes with an independent minute phase after acknowledged screen break");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionEnd, none, state) == ESP_OK,
+            "explicit end freezes the retained session state");
+    const WellbeingState ended = state;
+    WellbeingState ended_ack = ended;
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::EyeRest, ended_ack) == ESP_OK &&
+            ended_ack.session == WorkSessionPhase::Inactive &&
+            ended_ack.active_elapsed_us == ended.active_elapsed_us &&
+            ended_ack.fatigue_elapsed_us == ended.fatigue_elapsed_us,
+            "retained due acknowledgment after End does not restart or add work time");
+    require(advance_wellbeing(config, 20 * kWellbeingMinuteUs, state) == ESP_OK && same_wellbeing(state, ended),
+            "ended sessions cannot accumulate further work time or reminders");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionPause, none, state) == ESP_ERR_INVALID_STATE &&
+            same_wellbeing(state, ended), "inactive session cannot silently accept a pause");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionStart, none, state) == ESP_OK &&
+            state.active_elapsed_us == 0 && state.fatigue_elapsed_us == 0,
+            "new session deliberately resets elapsed work and all reminder cycles");
+    const WellbeingState started = state;
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionStart, none, state) == ESP_ERR_INVALID_STATE &&
+            same_wellbeing(state, started), "duplicate Start cannot reset an active session");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::ScreenBreak, state) == ESP_ERR_INVALID_STATE &&
+            same_wellbeing(state, started), "counting screen break cannot be acknowledged before it is due");
+    require(apply_wellbeing_event(config, PersonalityEvent::Caress, none, state) == ESP_ERR_INVALID_ARG &&
+            same_wellbeing(state, started), "a caress cannot acknowledge a reminder or affect wellbeing state");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderSnooze,
+                                 static_cast<PersonalityReminder>(255), state) == ESP_ERR_INVALID_ARG &&
+            same_wellbeing(state, started), "unknown typed reminder cannot select a raw storage slot");
+    require(apply_wellbeing_event(config, PersonalityEvent::WorkSessionPause,
+                                 PersonalityReminder::DrinkWater, state) == ESP_ERR_INVALID_ARG &&
+            same_wellbeing(state, started), "lifecycle events reject ambiguous reminder payloads");
+    require(advance_wellbeing(config, -1, state) == ESP_ERR_INVALID_ARG && same_wellbeing(state, started),
+            "negative work interval fails without modifying clocks or deadlines");
+
+    WellbeingState batched = started;
+    WellbeingState partitioned = started;
+    require(advance_wellbeing(config, 75 * kWellbeingMinuteUs, batched) == ESP_OK &&
+            advance_wellbeing(config, 5 * kWellbeingMinuteUs, partitioned) == ESP_OK &&
+            advance_wellbeing(config, 19 * kWellbeingMinuteUs, partitioned) == ESP_OK &&
+            advance_wellbeing(config, 51 * kWellbeingMinuteUs, partitioned) == ESP_OK &&
+            same_wellbeing(batched, partitioned), "deadline and fatigue outcomes are independent of update cadence");
+    WellbeingConfig reordered = config;
+    const WellbeingRule original_first = reordered.rules[0];
+    reordered.rules[0] = reordered.rules[3];
+    reordered.rules[3] = original_first;
+    require(initialize_wellbeing(reordered, state) == ESP_OK &&
+            apply_wellbeing_event(reordered, PersonalityEvent::WorkSessionStart, none, state) == ESP_OK &&
+            advance_wellbeing(reordered, 75 * kWellbeingMinuteUs, state) == ESP_OK && same_wellbeing(state, batched),
+            "reordering authored rule storage preserves reminder identities and outcomes");
+    WellbeingConfig invalid = config;
+    invalid.rules[1].reminder = invalid.rules[0].reminder;
+    const WellbeingState before_invalid = state;
+    require(initialize_wellbeing(invalid, state) == ESP_ERR_INVALID_ARG && same_wellbeing(state, before_invalid),
+            "duplicate authored reminder identities fail without replacing session state");
+    invalid = config;
+    invalid.snooze_us = 90000000;
+    require(initialize_wellbeing(invalid, state) == ESP_ERR_INVALID_ARG && same_wellbeing(state, before_invalid),
+            "fractional-minute authored snooze cannot bypass the whole-minute configuration domain");
+    invalid = config;
+    invalid.rules[0].interval_us = 1441 * kWellbeingMinuteUs;
+    require(initialize_wellbeing(invalid, state) == ESP_ERR_INVALID_ARG && same_wellbeing(state, before_invalid),
+            "authored interval above one day is rejected without a default or repair");
+    WellbeingConfig disabled_rule = config;
+    for (auto &rule : disabled_rule.rules) {
+        if (rule.reminder == PersonalityReminder::EyeRest) {
+            rule.enabled = false;
+        }
+    }
+    require(initialize_wellbeing(disabled_rule, state) == ESP_OK &&
+            apply_wellbeing_event(disabled_rule, PersonalityEvent::WorkSessionStart, none, state) == ESP_OK &&
+            advance_wellbeing(disabled_rule, 60 * kWellbeingMinuteUs, state) == ESP_OK &&
+            wellbeing_item(state, PersonalityReminder::EyeRest).phase == WellbeingReminderPhase::Disabled,
+            "disabled reminder remains identified and never becomes due when other timers advance");
+    const WellbeingState disabled_eye = state;
+    require(apply_wellbeing_event(disabled_rule, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::EyeRest, state) == ESP_ERR_INVALID_STATE &&
+            same_wellbeing(state, disabled_eye), "disabled reminder cannot be acknowledged as though measured due");
+    require(initialize_wellbeing(config, state) == ESP_OK &&
+            apply_wellbeing_event(config, PersonalityEvent::WorkSessionStart, none, state) == ESP_OK &&
+            advance_wellbeing(config, INT64_MAX, state) == ESP_OK,
+            "representable batched work interval can make all enabled reminders due without multiplication overflow");
+    const WellbeingState maximum = state;
+    require(advance_wellbeing(config, 1, state) == ESP_ERR_INVALID_STATE && same_wellbeing(state, maximum),
+            "elapsed clock overflow is rejected atomically");
+    require(apply_wellbeing_event(config, PersonalityEvent::ReminderAcknowledge,
+                                 PersonalityReminder::ScreenBreak, state) == ESP_ERR_INVALID_STATE &&
+            same_wellbeing(state, maximum), "acknowledgment deadline overflow cannot partially reset fatigue");
 }
 } // namespace
 
@@ -479,6 +889,13 @@ int main()
     check_dirty_and_raster();
     check_petting();
     check_happiness();
-    std::printf("],\"assertions\":%d}\n", assertions);
+    check_symbol_arbitration();
+    check_battery_hysteresis();
+    check_repeat_suppression();
+    check_wellbeing();
+    std::printf("],\"assertions\":%d,\"host_controller_bytes\":%llu,\"repeat_slots\":%llu,\"repeat_bytes\":%llu}\n",
+                assertions, static_cast<unsigned long long>(sizeof(PersonalityLag)),
+                static_cast<unsigned long long>(PersonalityConfig::cue_rule_count),
+                static_cast<unsigned long long>(sizeof(PersonalityLag{}.last_admitted_at_us)));
     return failures == 0 ? 0 : 1;
 }

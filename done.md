@@ -7,6 +7,31 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Expanded build-time personality authoring to strict `cody.personality.v2`:
+  permanent typed event/zone/metric/icon IDs, `caress = 1` for both anatomical
+  zones, gesture/mood/channel/follow/anchor policies and global/per-cue SFX gates.
+  Generated four immutable headers through the public CLI. Added priority
+  arbitration (LowBattery900 > Affection200 > Charging100), smooth urgent
+  handoff, per-identity repeat cooldown retained across hidden scenes and
+  canonical low-battery hysteresis (enter15%, exit20%). Native/host fixtures
+  and simulator sources are integrated; the corrected final suite remains pending.
+
+- Authored commented dormant wellbeing policies with explicit session events,
+  minute-based fatigue, screen break 60min/5min, movement 30min and eye 20min/20s/
+  20ft. Recorded HSE/NHS/NEI sources. Water 60min is labeled a product default,
+  since NHS specifies no hourly cadence. Engine and delivery stay disabled;
+  pure native/host deadline logic is implemented without a runtime adapter
+  or visible reminders. This does not change the sole active happiness MVP.
+
+- The expanded focused suite compiled native portable sources on 2026-10-05
+  and ran 1,041 native assertions. Two handoff expectations incorrectly checked
+  rendered cue identity at zero opacity; corrected them to inspect the channel
+  identity and require an empty frame. No corrected rerun yet; Python parity
+  and independent host fixtures were not reached. Host controller state is616B,
+  including112B repeat timestamps, not a firmware stack result. Failed-run
+  report/trace retained under
+  `artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
+
 - Added a source-reviewed single-value happiness MVP: canonical
   `assets/cody/personality.yaml`, strict schema and immutable generated flash
   rules (generation through `scripts/device.ps1` completed). Session happiness
@@ -14,7 +39,7 @@ and referenced architecture/artifact records.
   one point, with intentional 0/100 saturation and retained partial minutes.
   Sadness is derived as 100 minus happiness. Facial/motion bindings remain
   disabled. Native and synthetic host source expose values independently of
-  heart occupancy; authored behavior/config fixtures have not run. No new
+  heart occupancy; the expanded suite status is recorded above. No new
   build, simulator execution or hardware action.
 
 - Added a source-reviewed gentle petting experiment on 2026-10-05 in normal Main view:
@@ -24,9 +49,10 @@ and referenced architecture/artifact records.
   drop it, explicit selection remains authoritative, and existing fades/audio
   admission/body drag remain in use. Native helper and Windows pointer preview
   share authored thresholds. Added focused native and independent host gesture
-  fixtures without execution; new gesture trace parity is not claimed.
+  fixtures; new gesture trace parity is not claimed.
   Needs/mood/session state exploration is documented separately and deferred.
-  No new suite, build, simulator execution or hardware action has run.
+  The expanded suite attempt is recorded above; no new firmware build,
+  interactive simulator execution or hardware action has run.
 
 - The earlier `cody-personality` suite passed before petting changes: 748 native
   assertions, 86 native/Python parity frames and fourteen icon/fourteen audio

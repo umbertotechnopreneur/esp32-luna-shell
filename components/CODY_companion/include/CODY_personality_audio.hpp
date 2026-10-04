@@ -16,17 +16,17 @@ struct PersonalityAudioStatus {
     PersonalityCue cue = PersonalityCue::None;
 };
 
-// No parameters: prepares the optional owner worker without starting sound or codec I/O.
+// No parameters: passes immutable YAML policy to the optional owner without sound or codec I/O.
 // Exception: Returns the original preparation error, retained and canonically published by its owner.
 esp_err_t prepare_personality_audio();
-// cue: One newly visible symbol in a successfully retired frame, never an evaluated-only cue.
+// cue: Newly visible retired symbol; its YAML sfx_enabled gate and fixed asset eligibility both apply.
 // status: Receives explicit dispatch/drop/suppression disposition; completion remains asynchronous.
 // Exception: Returns an invalid cue or retained owner error; no deferred retry is created.
 esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &status);
 // suspended: Cancels pending symbols when their scene hides or display parks.
 // Exception: Returns the original retained owner error.
 esp_err_t set_personality_audio_suspended(bool suspended);
-// enabled: Explicit global sound policy, independent of symbol visibility.
+// enabled: Explicit session gate, independent of visibility; cannot override YAML disabled policy.
 // Exception: Returns the original retained owner error.
 esp_err_t set_personality_audio_enabled(bool enabled);
 // status: Receives the coherent retained completion/outcome and original error.

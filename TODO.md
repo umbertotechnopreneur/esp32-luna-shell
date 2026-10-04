@@ -8,6 +8,18 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
+- [ ] Finish final validation of YAML personality/catalog, priority arbitration,
+  repeated-cue suppression across hide/layout/pause, canonical low-battery
+  hysteresis and audio authoring gates. First suite attempt compiled, then
+  failed two new zero-opacity expectations; corrected assertions await fresh
+  command-specific rerun authorization. Firmware build, interactive
+  simulator and hardware still require separate command-specific authorization.
+
+- [ ] Validate dormant wellbeing session/reminder transitions, minute boundaries,
+  cadence independence, pause/end freezing, explicit acknowledgement/snooze,
+  disabled-engine rejection and overflow/identity rejection. Runtime adapters
+  and visible delivery remain deferred.
+
 - [ ] Validate the single-value happiness MVP after fresh authorization:
   actual generated YAML/config provenance, initial/gain values, exact minute
   boundaries, retained partial minute after a carezza, 0/100 saturation,
@@ -15,7 +27,8 @@ older host/build/flash evidence does not validate the current combined image.
   state/time rejection, awake pause/route behavior and park/resume rebasing.
   Confirm recognized carezze increase mood even if the heart channel is busy.
   Face influence and persistence are deliberately absent. Generator ran;
-  focused native/host fixtures, current build and simulator remain unexecuted.
+  native sources compiled in the first suite attempt; independent host fixtures
+  were not reached. Corrected suite, current firmware build and simulator remain open.
 
 - [ ] Validate the new petting increment after fresh command-specific
   authorization: focused `cody-personality` host suite, native/Python gesture

@@ -5,27 +5,16 @@ from enum import IntEnum
 import hashlib
 import json
 import math
-import re
+from pathlib import Path
 
 from PIL import Image
+from scripts.common.cody_personality_contract import load_personality_rules
 
 
-class PersonalityCue(IntEnum):
-    NONE = 0
-    SLEEP = 1
-    FEAR = 2
-    JOY = 3
-    HUNGER = 4
-    THIRST = 5
-    HEAT = 6
-    COLD = 7
-    LOW_BATTERY = 8
-    CHARGING = 9
-    NO_WIFI = 10
-    CURIOSITY = 11
-    CONFUSION = 12
-    AFFECTION = 13
-    FRUSTRATION = 14
+PERSONALITY_RULES = load_personality_rules(Path(__file__).resolve().parents[2] / "assets/cody/personality.yaml")
+PersonalityCue = IntEnum("PersonalityCue", {"NONE": 0} | {
+    item["name"].upper(): item["id"] for item in PERSONALITY_RULES["catalog"]["icons"]}, module=__name__)
+CUE_RULES = {PersonalityCue(item["id"]): item for item in PERSONALITY_RULES["catalog"]["icons"]}
 
 
 class CodySize(IntEnum):
@@ -51,6 +40,7 @@ class PersonalityPresentationStatus(IntEnum):
     HIDDEN = 0
     VISIBLE = 1
     BLOCKED_BY_LAYOUT = 2
+    SUPPRESSED_BY_COOLDOWN = 3
 
 
 class PersonalityPhase(IntEnum):
@@ -58,6 +48,23 @@ class PersonalityPhase(IntEnum):
     FADE_IN = 1
     VISIBLE = 2
     FADE_OUT = 3
+
+
+# admitted_request: Typed synthetic cue; firmware gates device requests before this selection.
+# semantic_sleep: Explicit lifecycle/preset permission, independent of eyelid values.
+# affection_active: Whether a recognized contact still owns its temporary heart request.
+# Raises ValueError for invalid identity or untyped selection flags.
+def select_personality_target(admitted_request, semantic_sleep, affection_active):
+    if (not isinstance(admitted_request, PersonalityCue) or type(semantic_sleep) is not bool or
+            type(affection_active) is not bool):
+        raise ValueError("Personality target selection rejected")
+    if semantic_sleep:
+        return PersonalityCue.SLEEP, True
+    requested_priority = 0 if admitted_request == PersonalityCue.NONE else CUE_RULES[admitted_request]["priority"]
+    if affection_active and CUE_RULES[PersonalityCue.AFFECTION]["priority"] > requested_priority:
+        return PersonalityCue.AFFECTION, False
+    release_affection = affection_active and admitted_request != PersonalityCue.NONE
+    return admitted_request, release_affection
 
 
 SIZES = {CodySize.MICRO: 22, CodySize.TINY: 30, CodySize.PREFERENCES: 42,
@@ -120,45 +127,19 @@ class PersonalityFrame:
     status: PersonalityPresentationStatus = PersonalityPresentationStatus.HIDDEN
 
 
-# root: Checkout containing the single native personality authoring header.
+# root: Checkout containing the validated build-time personality YAML.
 # Raises OSError for unreadable configuration and ValueError for missing/duplicate values.
 def load_personality_config(root):
-    path = root / "components/CODY_companion/include/CODY_personality_config.hpp"
-    source = path.read_text(encoding="utf-8")
-    profiles = {}
-    for name, values in re.findall(r"inline constexpr AnchorProfile (\w+)\{([^}]+)\};", source):
-        if name in profiles:
-            raise ValueError(f"Duplicate personality anchor profile: {name}")
-        profile = tuple(float(value.strip().removesuffix("f")) for value in values.split(","))
-        if len(profile) != 3 or not all(math.isfinite(value) for value in profile) or profile[2] <= 0:
-            raise ValueError(f"Invalid personality anchor profile: {name}")
-        profiles[name] = profile
-    if set(profiles) != {"main", "sleep"}:
-        raise ValueError("Personality anchor profile catalog is incomplete")
-    constants = {}
-    for kind, name, value in re.findall(r"inline constexpr (int64_t|float) (\w+) = ([^;]+);", source):
-        if name in constants:
-            raise ValueError(f"Duplicate personality configuration: {name}")
-        number = float(value.strip().removesuffix("f"))
-        if not math.isfinite(number) or number <= 0:
-            raise ValueError(f"Invalid personality configuration: {name}")
-        if kind == "int64_t" and number != int(number):
-            raise ValueError(f"Noninteger personality configuration: {name}")
-        constants[name] = int(number) if kind == "int64_t" else number
-    expected = {"stability_us", "fade_in_us", "minimum_visible_us", "fade_out_us",
-                "position_window_us", "scale_window_us", "history_bucket_us", "history_bucket_count",
-                "maximum_position_lag_pixels", "minimum_extent", "maximum_base_extent",
-                "maximum_deformation_pixels", "body_clearance_pixels"}
-    if set(constants) != expected:
-        raise ValueError("Personality timing/geometry configuration is incomplete")
-    position_window_us = constants["position_window_us"]
-    scale_window_us = constants["scale_window_us"]
-    bucket_us = constants["history_bucket_us"]
-    bucket_count = constants["history_bucket_count"]
-    if not bucket_us <= position_window_us <= scale_window_us <= 400000:
-        raise ValueError("Personality follow windows must fit the 400-ms active-time bound")
-    if scale_window_us % bucket_us or bucket_count != scale_window_us // bucket_us + 1 or bucket_count > 255:
-        raise ValueError("Personality history requires whole window buckets and one partial bucket")
+    rules = load_personality_rules(root / "assets/cody/personality.yaml")
+    icons = rules["icons"]
+    profiles = {name: tuple(profile[key] for key in ("offset_x", "offset_y", "extent_per_scale"))
+                for name, profile in icons["anchors"].items()}
+    constants = {name.removesuffix("_ms") + "_us": icons["channel"][name] * 1000
+                 for name in ("stability_ms", "fade_in_ms", "minimum_visible_ms", "fade_out_ms")}
+    for name, value in icons["follow"].items():
+        constants[name.removesuffix("_ms") + "_us" if name.endswith("_ms") else name] = (
+            value * 1000 if name.endswith("_ms") else value)
+    constants["history_bucket_count"] = constants["scale_window_us"] // constants["history_bucket_us"] + 1
     return profiles, constants
 
 
@@ -172,9 +153,13 @@ class PersonalityPainter:
         self.lag = PersonalityLag()
         self.channel = PersonalityChannel()
         self.profiles, self.config = load_personality_config(root)
+        rules = load_personality_rules(root / "assets/cody/personality.yaml")
+        self.cue_rules = {PersonalityCue(item["id"]): item for item in rules["catalog"]["icons"]}
+        self.active_elapsed_us = 0
+        self.last_admitted_at_us = {cue: 0 for cue in PersonalityCue if cue != PersonalityCue.NONE}
         self.presentation = PersonalityPresentation.DISABLED
         self.release_sleep = False
-        self.sampled_us = None
+        self.sampled_us = 0
         self.last_frame = PersonalityFrame()
         self.images = {}
         directory = root / "assets/cody/personality-icons/generated"
@@ -307,15 +292,59 @@ class PersonalityPainter:
         self.channel.phase_elapsed_us = 0
         self.channel.fade_out_opacity = self.channel.opacity
 
+    # self: Session repeat history whose clock survives presentation and geometry resets.
+    # elapsed_ms: Cumulative active animation clock supplied by the host controller.
+    # paused: Exclude the interval while rebasing its sampled endpoint.
+    # Raises ValueError for backwards clocks, overflow or invalid repeat timestamps.
+    def advance_active_clock(self, elapsed_ms, paused=False):
+        if not math.isfinite(elapsed_ms) or elapsed_ms < 0:
+            raise ValueError(f"Personality clock rejected: {elapsed_ms}")
+        sampled_us = math.floor(elapsed_ms * 1000 + .5)
+        delta_us = sampled_us - self.sampled_us
+        if delta_us < 0:
+            raise ValueError("Personality active clock moved backwards")
+        if paused:
+            delta_us = 0
+        maximum_clock = (1 << 63) - 2
+        if not 0 <= self.active_elapsed_us <= maximum_clock or delta_us > maximum_clock - self.active_elapsed_us:
+            raise ValueError("Personality repeat clock overflow")
+        if any(not 0 <= timestamp <= self.active_elapsed_us + 1 for timestamp in self.last_admitted_at_us.values()):
+            raise ValueError("Personality repeat timestamp exceeds its active clock")
+        self.active_elapsed_us += delta_us
+        self.sampled_us = sampled_us
+        return delta_us
+
+    # self: Session repeat timestamps and per-cue authored policy.
+    # cue: Typed identity considered for a new zero-opacity admission.
+    def repeat_ready(self, cue):
+        if cue == PersonalityCue.NONE:
+            return True
+        previous = self.last_admitted_at_us[cue]
+        cooldown_us = self.cue_rules[cue]["repeat_cooldown_seconds"] * 1_000_000
+        return previous == 0 or self.active_elapsed_us - (previous - 1) >= cooldown_us
+
+    # self: Single desired target whose admission starts both fade and repeat cooldown.
+    def begin_fade_in(self):
+        state = self.channel
+        state.cue = state.desired
+        state.phase = PersonalityPhase.FADE_IN
+        state.phase_elapsed_us = 0
+        self.last_admitted_at_us[state.cue] = self.active_elapsed_us + 1
+
     # self: Single desired target controller; intermediate requests have no queue.
     # elapsed_us: Nonnegative active time, excluding pause and non-rig presentations.
     # release_immediately: Semantic Sleep exit bypasses hold, including mid-fade release.
     def advance_channel(self, elapsed_us, release_immediately):
         state = self.channel
         semantic_sleep = self.presentation == PersonalityPresentation.SLEEP and state.desired == PersonalityCue.SLEEP
-        ready = semantic_sleep or state.desired_age_us >= self.config["stability_us"]
-        # Entering the bedtime pose releases a competing symbol smoothly, without its hold.
-        if semantic_sleep and state.cue != PersonalityCue.SLEEP and state.phase not in (
+        desired_rule = self.cue_rules.get(state.desired)
+        current_rule = self.cue_rules.get(state.cue)
+        interrupts = desired_rule is not None and desired_rule["interrupts"] and (
+            current_rule is None or desired_rule["priority"] > current_rule["priority"])
+        priority_replacement = semantic_sleep or interrupts
+        ready = priority_replacement or state.desired_age_us >= self.config["stability_us"]
+        # Urgent state bypasses dwell while preserving the current opacity and smooth release.
+        if priority_replacement and state.cue != state.desired and state.phase not in (
                 PersonalityPhase.HIDDEN, PersonalityPhase.FADE_OUT):
             if state.opacity == 0:
                 self.hide_current()
@@ -327,15 +356,14 @@ class PersonalityPainter:
             self.begin_fade_out()
             return
         if state.phase == PersonalityPhase.HIDDEN:
-            if state.desired != PersonalityCue.NONE and ready:
-                state.cue = state.desired
-                state.phase = PersonalityPhase.FADE_IN
-                state.phase_elapsed_us = 0
+            if state.desired != PersonalityCue.NONE and ready and self.repeat_ready(state.desired):
+                self.begin_fade_in()
             return
         duration = self.config["fade_in_us"] if state.phase == PersonalityPhase.FADE_IN else (
             self.config["minimum_visible_us"] if state.phase == PersonalityPhase.VISIBLE else self.config["fade_out_us"])
         state.phase_elapsed_us += min(elapsed_us, duration - state.phase_elapsed_us)
-        progress = state.phase_elapsed_us / duration
+        # A zero authored hold is valid; only fades consume normalized progress.
+        progress = 0 if state.phase == PersonalityPhase.VISIBLE else state.phase_elapsed_us / duration
         smooth = progress * progress * (3 - 2 * progress)
         if state.phase == PersonalityPhase.FADE_IN:
             state.opacity = smooth
@@ -349,21 +377,19 @@ class PersonalityPainter:
             state.opacity = state.fade_out_opacity * (1 - smooth)
             if state.phase_elapsed_us == duration:
                 self.hide_current()
-                if state.desired != PersonalityCue.NONE and ready:
-                    state.cue = state.desired
-                    state.phase = PersonalityPhase.FADE_IN
+                if state.desired != PersonalityCue.NONE and ready and self.repeat_ready(state.desired):
+                    self.begin_fade_in()
 
     # self: Painter whose non-main scene relinquishes all symbol presentation ownership.
     # elapsed_ms: Active host clock at the scene switch, used only to rebase following time.
+    # paused: Preserve cooldown time when an explicit paused redraw clears presentation.
     # Raises ValueError for an invalid clock.
-    def disable(self, elapsed_ms):
-        if not math.isfinite(elapsed_ms) or elapsed_ms < 0:
-            raise ValueError(f"Personality clock rejected: {elapsed_ms}")
+    def disable(self, elapsed_ms, paused=False):
+        self.advance_active_clock(elapsed_ms, paused)
         self.channel = PersonalityChannel()
         self.lag = PersonalityLag()
         self.presentation = PersonalityPresentation.DISABLED
         self.release_sleep = False
-        self.sampled_us = math.floor(elapsed_ms * 1000 + .5)
         self.last_frame = PersonalityFrame()
 
     # self: Fixed host artistic filter and decoded symbol masters.
@@ -388,15 +414,9 @@ class PersonalityPainter:
         if not math.isfinite(scene["scale"]) or scene["scale"] <= 0 or len(exclusions) > 6:
             raise ValueError("Personality scene scale/exclusions rejected")
         if presentation == PersonalityPresentation.DISABLED or size == CodySize.MICRO:
-            self.disable(elapsed_ms)
+            self.disable(elapsed_ms, paused)
             return self.last_frame
-        sampled_us = math.floor(elapsed_ms * 1000 + .5)
-        delta_us = 0 if self.sampled_us is None else sampled_us - self.sampled_us
-        if delta_us < 0:
-            raise ValueError("Personality active clock moved backwards")
-        if paused:
-            delta_us = 0
-        self.sampled_us = sampled_us
+        delta_us = self.advance_active_clock(elapsed_ms, paused)
         if presentation == PersonalityPresentation.SLEEP:
             cue = PersonalityCue.SLEEP
             self.release_sleep = False
@@ -479,6 +499,9 @@ class PersonalityPainter:
         if opacity:
             self.last_frame = PersonalityFrame(state.cue, left, top, width, height, opacity,
                                                PersonalityPresentationStatus.VISIBLE)
+        elif state.phase == PersonalityPhase.HIDDEN and state.desired != PersonalityCue.NONE and not self.repeat_ready(state.desired):
+            self.last_frame = PersonalityFrame(cue=state.desired,
+                status=PersonalityPresentationStatus.SUPPRESSED_BY_COOLDOWN)
         return self.last_frame
 
     # self: Immutable decoded fixed-palette symbol masters.

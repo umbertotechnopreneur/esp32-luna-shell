@@ -178,6 +178,7 @@ struct CompanionState {
     CODY::HappinessState happiness{};
     int64_t happiness_sampled_at_us = 0;
     CODY::PersonalityLag personality_lag{};
+    CODY::PersonalityBatteryLatch personality_battery{};
     CODY::PersonalityFrame retired_personality{};
     CODY::PersonalityPresentationStatus personality_status = CODY::PersonalityPresentationStatus::Hidden;
     int64_t personality_delta_us = 0;
@@ -259,7 +260,7 @@ void cancel_transient_affection(bool preserve_visible_handoff = false)
         s_state.personality_lag.cue == CODY::PersonalityCue::Affection) {
         // A hidden/parked gesture must not replay its retained dwell on the next route.
         // The completed-frame dirty planner still owns erasing the old footprint.
-        s_state.personality_lag = {};
+        CODY::clear_personality_presentation(s_state.personality_lag);
     }
     s_state.affection_owns_channel = false;
 }
@@ -304,15 +305,8 @@ esp_err_t admit_personality_device_cue(const LUNASHELL::DeviceStatusObservation 
                 battery.power_state, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
             return ESP_ERR_INVALID_RESPONSE;
         }
-    } else if (battery.level_percent_valid) {
-        if (battery.level_percent < 0 || battery.level_percent > 100) {
-            ESP_LOGE(kTag, "Personality battery percentage=%d rejected (%s)",
-                battery.level_percent, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        if (battery.level_percent <= 15) {
-            cue = requested;
-        }
+    } else if (s_state.personality_battery.low_battery_active) {
+        cue = requested;
     }
     return ESP_OK;
 }
@@ -334,8 +328,20 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
     LUNASHELL::DeviceStatusObservation observation;
     esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
     if (error != ESP_OK) {
+        s_state.personality_battery.low_battery_active = false;
         ESP_LOGE(kTag, "Personality canonical observation failed (%s)", esp_err_to_name(error));
         return error;
+    }
+    if (requested == CODY::PersonalityCue::LowBattery || displayed == CODY::PersonalityCue::LowBattery) {
+        const auto &battery = observation.battery;
+        const bool current_percentage = personality_sample_current(battery) && battery.battery_present &&
+            battery.level_percent_valid;
+        bool alert = false;
+        error = CODY::update_personality_battery_latch(current_percentage, battery.level_percent,
+                                                      s_state.personality_battery, alert);
+        if (error != ESP_OK) {
+            return error;
+        }
     }
     error = admit_personality_device_cue(observation, requested, desired);
     if (error != ESP_OK) {
@@ -937,9 +943,12 @@ esp_err_t set_personality_request(CODY::PersonalityCue cue)
         return error;
     }
     s_state.requested_personality = cue;
-    // An explicit selector replaces transient affection without changing its own ownership.
-    s_state.affection_remaining_us = 0;
-    s_state.affection_owns_channel = false;
+    // Priority arbitration follows canonical admission. An unavailable device request
+    // cannot cancel an artistic reaction merely because its raw identity was selected.
+    if (cue == CODY::PersonalityCue::None || cue == CODY::PersonalityCue::Affection) {
+        s_state.affection_remaining_us = 0;
+        s_state.affection_owns_channel = false;
+    }
     s_state.frame_dirty.store(true, std::memory_order_release);
     ESP_LOGI(kTag, "Personality cue=%u selected (session request)", static_cast<unsigned>(cue));
     return ESP_OK;
@@ -1839,14 +1848,22 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.personality_was_sleep = sleeping;
         context.release_immediately = s_state.personality_release_sleep;
         CODY::PersonalityCue cue = sleeping ? CODY::PersonalityCue::Sleep : s_state.requested_personality;
-        if (!sleeping && s_state.affection_remaining_us > 0 && cue == CODY::PersonalityCue::None) {
-            cue = CODY::PersonalityCue::Affection;
-        }
         if (context.presentation == CODY::PersonalityPresentation::Disabled) {
             cue = CODY::PersonalityCue::None;
         } else if (cue_error == ESP_OK) {
+            // Device truth is checked before artistic arbitration, including while
+            // Charging waits behind a still-live heart. No device fact bypasses validity.
             cue_error = resolve_personality_device_cues(cue, s_state.personality_lag.cue,
                                                        cue, context.invalidate_current);
+            if (cue_error == ESP_OK) {
+                bool release_affection = false;
+                cue_error = CODY::select_personality_target(cue, sleeping,
+                    s_state.affection_remaining_us > 0, cue, release_affection);
+                if (cue_error == ESP_OK && release_affection) {
+                    // Retain current opacity/ownership; the channel completes its smooth exit.
+                    s_state.affection_remaining_us = 0;
+                }
+            }
         }
         // The full-screen layout reserves status space even when its touch fade is hidden.
         // This prevents touch from resizing or relocating an already visible symbol.
@@ -2544,8 +2561,8 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
             if (clock_error != ESP_OK) {
                 return clock_error;
             }
-            const esp_err_t happiness_error = CODY::apply_happiness_caress(
-                CODY::PersonalityData::happiness, s_state.happiness);
+            const esp_err_t happiness_error = CODY::apply_happiness_event(
+                CODY::PersonalityData::happiness, CODY::PettingConfig::event, s_state.happiness);
             if (happiness_error != ESP_OK) {
                 return happiness_error;
             }

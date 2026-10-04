@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
+#include <limits>
 #include "CODY_rig.hpp"
 #include "cloud_rig_data.hpp"
 #include "personality_icons.hpp"
@@ -24,8 +25,9 @@ static_assert(PersonalityConfig::history_bucket_count ==
     PersonalityConfig::scale_window_us / PersonalityConfig::history_bucket_us + 1 &&
     PersonalityConfig::history_bucket_count <= UINT8_MAX,
     "History needs the full scale window and one partial bucket with a bounded index");
-static_assert(sizeof(PersonalityFollowBucket) == 24, "The fixed geometry history uses 408 bytes");
-static_assert(sizeof(PersonalityLag) <= 512, "Controller and fixed geometry history stay within 512 bytes");
+static_assert(sizeof(PersonalityFollowBucket) == 24, "Each fixed geometry history bucket uses 24 bytes");
+static_assert(PersonalityConfig::cue_rule_count == 14, "Repeat storage follows the fourteen stable cue IDs");
+static_assert(sizeof(PersonalityLag) <= 768, "Controller, geometry and fourteen repeat timestamps stay bounded");
 
 // state: Fixed geometry history whose internal invariants must remain coherent.
 bool follow_history_valid(const PersonalityLag &state)
@@ -205,6 +207,64 @@ void begin_fade_out(PersonalityLag &state)
     state.fade_out_opacity = state.opacity;
 }
 
+// cue: Typed identity in the generated configuration catalog; None has no authored rule.
+const PersonalityConfig::CueRule *cue_rule(PersonalityCue cue)
+{
+    for (const auto &rule : PersonalityConfig::cue_rules) {
+        if (rule.cue == cue) {
+            return &rule;
+        }
+    }
+    return nullptr;
+}
+
+// state: Fixed clock/repeat history whose timestamps use admission time plus one.
+// elapsed_us: Nonnegative unpaused active interval to accumulate exactly once.
+// Exception: Returns invalid history or active-clock overflow without changing state.
+esp_err_t advance_active_clock(PersonalityLag &state, int64_t elapsed_us)
+{
+    constexpr int64_t maximum_clock = std::numeric_limits<int64_t>::max() - 1;
+    if (state.active_elapsed_us < 0 || state.active_elapsed_us > maximum_clock || elapsed_us < 0 ||
+        elapsed_us > maximum_clock - state.active_elapsed_us) {
+        ESP_LOGE(kTag, "Repeat clock rejected: clock_us=%lld delta_us=%lld (%s)",
+                 static_cast<long long>(state.active_elapsed_us), static_cast<long long>(elapsed_us),
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    for (const auto timestamp : state.last_admitted_at_us) {
+        if (timestamp < 0 || timestamp > state.active_elapsed_us + 1) {
+            ESP_LOGE(kTag, "Repeat timestamp=%lld exceeds active clock=%lld (%s)",
+                     static_cast<long long>(timestamp), static_cast<long long>(state.active_elapsed_us),
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+    }
+    state.active_elapsed_us += elapsed_us;
+    return ESP_OK;
+}
+
+// state: One presentation plus fixed per-cue repeat timestamps.
+// cue: Valid generated cue identity requested for a new admission.
+bool repeat_ready(const PersonalityLag &state, PersonalityCue cue)
+{
+    const auto *rule = cue_rule(cue);
+    if (rule == nullptr) {
+        return cue == PersonalityCue::None;
+    }
+    const auto slot = static_cast<size_t>(cue) - 1U;
+    const int64_t previous = state.last_admitted_at_us[slot];
+    return previous == 0 || state.active_elapsed_us - (previous - 1) >= rule->repeat_cooldown_us;
+}
+
+// state: Channel ready to enter its latest eligible target, with no deferred event queue.
+void begin_fade_in(PersonalityLag &state)
+{
+    state.cue = state.desired;
+    state.phase = PersonalityPhase::FadeIn;
+    state.phase_elapsed_us = 0;
+    state.last_admitted_at_us[static_cast<size_t>(state.cue) - 1U] = state.active_elapsed_us + 1;
+}
+
 // state: Fixed single-target controller; no history of intermediate requests is retained.
 // context: Explicit release policy, including wake from Sleep and canonical invalidity.
 // elapsed_us: Active elapsed time only; phase entry starts at zero on its current frame.
@@ -212,11 +272,15 @@ void advance_channel(PersonalityLag &state, const PersonalityContext &context, i
 {
     const bool semantic_sleep = context.presentation == PersonalityPresentation::Sleep &&
         state.desired == PersonalityCue::Sleep;
-    const bool desired_ready = semantic_sleep ||
+    const auto *desired_rule = cue_rule(state.desired);
+    const auto *current_rule = cue_rule(state.cue);
+    const bool interrupts = desired_rule != nullptr && desired_rule->interrupts &&
+        (current_rule == nullptr || desired_rule->priority > current_rule->priority);
+    const bool desired_ready = semantic_sleep || interrupts ||
         state.desired_age_us >= PersonalityConfig::stability_us;
-    // Sleep owns the visible bedtime presentation. It can release another cue's
-    // hold, but still lets that cue disappear smoothly before the new symbol.
-    if (semantic_sleep && state.cue != PersonalityCue::Sleep &&
+    // Semantic Sleep and an authored higher-priority interruption release an artistic hold.
+    // They retain the exact current opacity and never overlap the departing sprite.
+    if ((semantic_sleep || interrupts) && state.cue != state.desired &&
         state.phase != PersonalityPhase::Hidden && state.phase != PersonalityPhase::FadeOut) {
         if (state.opacity == 0) {
             hide_current(state);
@@ -231,10 +295,8 @@ void advance_channel(PersonalityLag &state, const PersonalityContext &context, i
         return;
     }
     if (state.phase == PersonalityPhase::Hidden) {
-        if (state.desired != PersonalityCue::None && desired_ready) {
-            state.cue = state.desired;
-            state.phase = PersonalityPhase::FadeIn;
-            state.phase_elapsed_us = 0;
+        if (state.desired != PersonalityCue::None && desired_ready && repeat_ready(state, state.desired)) {
+            begin_fade_in(state);
         }
         return;
     }
@@ -258,9 +320,8 @@ void advance_channel(PersonalityLag &state, const PersonalityContext &context, i
             (1.f - smooth_progress(state.phase_elapsed_us, PersonalityConfig::fade_out_us));
         if (state.phase_elapsed_us == PersonalityConfig::fade_out_us) {
             hide_current(state);
-            if (state.desired != PersonalityCue::None && desired_ready) {
-                state.cue = state.desired;
-                state.phase = PersonalityPhase::FadeIn;
+            if (state.desired != PersonalityCue::None && desired_ready && repeat_ready(state, state.desired)) {
+                begin_fade_in(state);
             }
         }
     }
@@ -337,6 +398,90 @@ bool personality_cue_is_device(PersonalityCue cue)
         cue == PersonalityCue::NoWifi;
 }
 
+// lag: Current presentation whose artistic repeat history must survive route/geometry resets.
+void clear_personality_presentation(PersonalityLag &lag)
+{
+    const auto repeats = lag.last_admitted_at_us;
+    const int64_t active_elapsed_us = lag.active_elapsed_us;
+    lag = {};
+    lag.last_admitted_at_us = repeats;
+    lag.active_elapsed_us = active_elapsed_us;
+}
+
+// current_percentage: True only for a current canonical percentage on a present battery.
+// percentage: Original measured value, not a substitute for an unavailable reading.
+// latch: Single caller-owned threshold latch.
+// alert: Receives current low-battery state on success only.
+// Exception: Returns invalid authored thresholds or measured percentage without repairing either.
+esp_err_t update_personality_battery_latch(bool current_percentage, int percentage,
+                                         PersonalityBatteryLatch &latch, bool &alert)
+{
+    if (PersonalityConfig::low_battery_enter_percent >= PersonalityConfig::low_battery_exit_percent ||
+        PersonalityConfig::low_battery_exit_percent > 100) {
+        ESP_LOGE(kTag, "Battery thresholds rejected: enter=%u exit=%u (%s)",
+                 static_cast<unsigned>(PersonalityConfig::low_battery_enter_percent),
+                 static_cast<unsigned>(PersonalityConfig::low_battery_exit_percent),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!current_percentage) {
+        latch.low_battery_active = false;
+        alert = false;
+        return ESP_OK;
+    }
+    if (percentage < 0 || percentage > 100) {
+        ESP_LOGE(kTag, "Measured battery percentage=%d rejected (%s)", percentage,
+                 esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (percentage <= PersonalityConfig::low_battery_enter_percent) {
+        latch.low_battery_active = true;
+    } else if (percentage >= PersonalityConfig::low_battery_exit_percent) {
+        latch.low_battery_active = false;
+    }
+    alert = latch.low_battery_active;
+    return ESP_OK;
+}
+
+// admitted_request: Canonical-admitted baseline; this helper never samples a driver or snapshot.
+// semantic_sleep: Authored Sleep presentation, above device and artistic selections.
+// affection_active: Current automatic caress lifetime, independent of an explicit Affection request.
+// desired: Receives the one selected target on success.
+// release_affection: Receives true when the auto request must stop requesting its heart.
+// Exception: Returns invalid cue without changing outputs and logs the actual rejected identity.
+esp_err_t select_personality_target(PersonalityCue admitted_request, bool semantic_sleep,
+                                   bool affection_active, PersonalityCue &desired, bool &release_affection)
+{
+    if (!personality_cue_valid(admitted_request)) {
+        ESP_LOGE(kTag, "Target selection cue=%u rejected (%s)",
+                 static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    PersonalityCue selected = admitted_request;
+    bool release = false;
+    if (semantic_sleep) {
+        selected = PersonalityCue::Sleep;
+        release = true;
+    } else {
+        const auto *baseline_rule = cue_rule(admitted_request);
+        const auto *affection_rule = cue_rule(PersonalityCue::Affection);
+        if (affection_rule == nullptr || (admitted_request != PersonalityCue::None && baseline_rule == nullptr)) {
+            ESP_LOGE(kTag, "Target selection authored rule missing: cue=%u (%s)",
+                     static_cast<unsigned>(admitted_request), esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        const uint16_t baseline_priority = baseline_rule == nullptr ? 0 : baseline_rule->priority;
+        if (affection_active && affection_rule->priority > baseline_priority) {
+            selected = PersonalityCue::Affection;
+        } else if (admitted_request != PersonalityCue::None) {
+            release = true;
+        }
+    }
+    desired = selected;
+    release_affection = release;
+    return ESP_OK;
+}
+
 // nominal_scale: Unanimated authored rig scale.
 // size: Receives a stable named presentation on success only.
 // Exception: Returns invalid argument for nonfinite or unsupported rig scale.
@@ -398,7 +543,13 @@ esp_err_t prepare_personality_frame(
         return ESP_ERR_INVALID_ARG;
     }
     if (context.presentation == PersonalityPresentation::Disabled || size == CodySize::Micro) {
-        lag = {};
+        PersonalityLag cleared = lag;
+        const esp_err_t clock_error = advance_active_clock(cleared, paused ? 0 : active_delta_us);
+        if (clock_error != ESP_OK) {
+            return clock_error;
+        }
+        clear_personality_presentation(cleared);
+        lag = cleared;
         return ESP_OK;
     }
     const auto nose = scene.world[to_index(PointId::Nose)];
@@ -476,6 +627,10 @@ esp_err_t prepare_personality_frame(
     }
     PersonalityLag next = lag;
     const int64_t elapsed_us = paused ? 0 : active_delta_us;
+    const esp_err_t clock_error = advance_active_clock(next, elapsed_us);
+    if (clock_error != ESP_OK) {
+        return clock_error;
+    }
     if (next.desired != cue) {
         next.desired = cue;
         next.desired_age_us = 0;
@@ -529,6 +684,10 @@ esp_err_t prepare_personality_frame(
         frame.cue = next.cue;
         frame.bounds = admitted;
         frame.status = PersonalityPresentationStatus::Visible;
+    } else if (next.phase == PersonalityPhase::Hidden && next.desired != PersonalityCue::None &&
+               !repeat_ready(next, next.desired)) {
+        frame.cue = next.desired;
+        frame.status = PersonalityPresentationStatus::SuppressedByCooldown;
     }
     lag = next;
     return ESP_OK;

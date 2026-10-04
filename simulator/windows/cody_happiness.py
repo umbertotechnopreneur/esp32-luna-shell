@@ -1,6 +1,17 @@
 """Session-only artistic mood preview; it does not publish device measurements."""
 
 from dataclasses import dataclass
+from enum import IntEnum
+from pathlib import Path
+
+from scripts.common.cody_personality_contract import load_personality_rules
+
+
+PERSONALITY_RULES = load_personality_rules(Path(__file__).resolve().parents[2] / "assets/cody/personality.yaml")
+PersonalityEvent = IntEnum("PersonalityEvent", {
+    item["name"].upper(): item["id"] for item in PERSONALITY_RULES["catalog"]["events"]}, module=__name__)
+PersonalityMetric = IntEnum("PersonalityMetric", {
+    item["name"].upper(): item["id"] for item in PERSONALITY_RULES["catalog"]["metrics"]}, module=__name__)
 
 
 @dataclass(frozen=True)
@@ -41,12 +52,15 @@ def advance_happiness(rules, state, elapsed_us):
     return HappinessState(value, remainder_us)
 
 
-# rules: Validated authoring providing the gain for a recognized caress.
+# rules: Validated authoring providing the gain and its explicit event binding.
 # state: Immutable mood state; the existing minute phase remains intact.
-# Raises ValueError for invalid state.
-def apply_caress(rules, state):
+# event: Typed catalog identity of the recognized interaction.
+# Raises ValueError for invalid state, an untyped identity or an unbound event.
+def apply_event(rules, state, event):
     validate_state(rules, state)
     config = rules["happiness"]
+    if not isinstance(event, PersonalityEvent) or event.name.lower() != config["on_caress"]["event"]:
+        raise ValueError(f"Happiness event rejected: {event!r}")
     value = min(config["maximum"], state.happiness + config["on_caress"]["add"])
     return HappinessState(value, state.decay_elapsed_us)
 

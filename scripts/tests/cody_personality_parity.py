@@ -77,11 +77,15 @@ def compare_personality_fixture(root, fixture):
             "phase": int(painter.channel.phase), "desired": int(painter.channel.desired),
             "x": painter.lag.x, "y": painter.lag.y,
             "width": painter.lag.width, "height": painter.lag.height,
+            "active_elapsed_us": painter.active_elapsed_us,
+            "last_admitted_at_us": [painter.last_admitted_at_us[cue]
+                for cue in sorted(PersonalityCue, key=int) if cue != PersonalityCue.NONE],
         }
         expected = sample["expected"]
         assert isinstance(expected, dict) and required <= expected.keys(), (
             f"{identity}: incomplete native expectation")
-        for field in sorted(required):
+        compared_fields = required | ({"active_elapsed_us", "last_admitted_at_us"} & expected.keys())
+        for field in sorted(compared_fields):
             observed = actual[field]
             wanted = expected[field]
             if field in geometry_fields:

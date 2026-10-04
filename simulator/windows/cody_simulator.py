@@ -34,9 +34,11 @@ from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
 from cody_png_mesh import PngMeshStudy  # noqa: E402
 from cody_jelly_scanline import JellyScanlineStudy  # noqa: E402
-from cody_personality import PersonalityCue, PersonalityPainter, PersonalityPresentation  # noqa: E402
+from cody_personality import (  # noqa: E402
+    PersonalityCue, PersonalityPainter, PersonalityPresentation, select_personality_target,
+)
 from cody_petting import PettingRecognizer, PettingZone, load_petting_config  # noqa: E402
-from cody_happiness import initial_state, advance_happiness, apply_caress, sadness  # noqa: E402
+from cody_happiness import initial_state, advance_happiness, apply_event, PersonalityEvent, sadness  # noqa: E402
 from cody_scene import ScenePainter  # noqa: E402
 from cody_preview_layout import (  # noqa: E402
     SIZE, PreviewLayout, logical_touch, physical_point,
@@ -1239,11 +1241,13 @@ class CodyWindow:
         zone = self.petting.observe(self.scene, point, True, pressed_edge, sampled_us)
         if zone != PettingZone.NONE:
             self.advance_happiness_clock(sampled_us)
-            self.happiness_state = apply_caress(self.personality_rules, self.happiness_state)
+            event = PersonalityEvent[self.personality_rules["caress"]["event"].upper()]
+            self.happiness_state = apply_event(self.personality_rules, self.happiness_state, event)
+            selected = PersonalityCue[self.personality_cue.get()]
             painter = self.renderer.personality_painter
             current = PersonalityCue.NONE if painter is None else painter.channel.cue
-            if (PersonalityCue[self.personality_cue.get()] == PersonalityCue.NONE and
-                    current in (PersonalityCue.NONE, PersonalityCue.AFFECTION)):
+            # A new contact cannot extend a heart behind a pending Charging or visible urgent cue.
+            if selected == PersonalityCue.NONE and current in (PersonalityCue.NONE, PersonalityCue.AFFECTION):
                 self.affection_remaining_us = self.petting.config["affection_us"]
                 self.affection_owns_channel = True
 
@@ -1266,12 +1270,11 @@ class CodyWindow:
                 painter.disable(self.elapsed_ms)
             self.affection_owns_channel = False
 
-    # self: Preview owner whose authored cue always takes precedence over affection.
+    # self: Synthetic preview owner selecting urgent alerts or a finishing interaction.
     def effective_personality_cue(self):
         selected = PersonalityCue[self.personality_cue.get()]
-        if selected == PersonalityCue.NONE and self.affection_remaining_us > 0:
-            return PersonalityCue.AFFECTION
-        return selected
+        desired, _ = select_personality_target(selected, self.personality_sleep, self.affection_remaining_us > 0)
+        return desired
 
     # visible terminal errors stop the preview rather than retaining a false healthy state.
     def tick(self):
@@ -1438,8 +1441,14 @@ class CodyWindow:
         petting_context = (screen, rotation)
         selected_cue = PersonalityCue[self.personality_cue.get()]
         if selected_cue != self.petting_selected_cue:
-            self.affection_remaining_us = 0
-            self.affection_owns_channel = False
+            if selected_cue in (PersonalityCue.NONE, PersonalityCue.AFFECTION):
+                self.affection_remaining_us = 0
+                self.affection_owns_channel = False
+            else:
+                _, release_affection = select_personality_target(
+                    selected_cue, self.personality_sleep, self.affection_remaining_us > 0)
+                if release_affection:
+                    self.affection_remaining_us = 0
         self.petting_selected_cue = selected_cue
         if (self.petting_context != petting_context or screen != Screen.RIG or
                 not self.playing.get() or self.personality_sleep):

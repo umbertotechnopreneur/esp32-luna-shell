@@ -4,17 +4,11 @@
 #include <array>
 #include "CODY_damage.hpp"
 #include "CODY_personality_config.hpp"
+#include "personality_catalog.hpp"
 
 namespace CODY {
 
 struct RigScene;
-
-// Explicit IDs survive catalog reordering. None consumes no sprite work.
-enum class PersonalityCue : uint8_t {
-    None = 0, Sleep = 1, Fear = 2, Joy = 3, Hunger = 4, Thirst = 5,
-    Heat = 6, Cold = 7, LowBattery = 8, Charging = 9, NoWifi = 10,
-    Curiosity = 11, Confusion = 12, Affection = 13, Frustration = 14,
-};
 
 // Names identify the existing authored presentations, not an array position.
 enum class CodySize : uint8_t {
@@ -23,7 +17,9 @@ enum class CodySize : uint8_t {
 };
 
 enum class PersonalityPresentation : uint8_t { Disabled = 0, Main = 1, Sleep = 2 };
-enum class PersonalityPresentationStatus : uint8_t { Hidden = 0, Visible = 1, BlockedByLayout = 2 };
+enum class PersonalityPresentationStatus : uint8_t {
+    Hidden = 0, Visible = 1, BlockedByLayout = 2, SuppressedByCooldown = 3,
+};
 enum class PersonalityPhase : uint8_t { Hidden = 0, FadeIn = 1, Visible = 2, FadeOut = 3 };
 
 struct PersonalityContext {
@@ -66,6 +62,9 @@ struct PersonalityLag {
     PersonalityPhase phase = PersonalityPhase::Hidden;
     int64_t desired_age_us = 0;
     int64_t phase_elapsed_us = 0;
+    int64_t active_elapsed_us = 0;
+    // Storage slots use stable cue IDs; zero means never admitted, otherwise time + one.
+    std::array<int64_t, PersonalityConfig::cue_rule_count> last_admitted_at_us{};
     float opacity = 0;
     float fade_out_opacity = 0;
     CodySize size = CodySize::Micro;
@@ -83,11 +82,35 @@ struct PersonalityLag {
     bool primed = false;
 };
 
+struct PersonalityBatteryLatch {
+    bool low_battery_active = false;
+};
+
+// lag: Presentation and geometry to clear while preserving repeat admission times and active clock.
+void clear_personality_presentation(PersonalityLag &lag);
+
+// current_percentage: Whether the canonical owner supplies a current, present, valid measurement.
+// percentage: Original measured percentage; ignored when the measurement is unavailable.
+// latch: Caller-owned hysteresis state, cleared on unavailable samples.
+// alert: Receives the latched low-battery decision only after validation.
+// Exception: Returns invalid thresholds or a real invalid measured percentage without mutation.
+esp_err_t update_personality_battery_latch(bool current_percentage, int percentage,
+                                         PersonalityBatteryLatch &latch, bool &alert);
+
 // cue: Typed identity whose catalog membership is requested.
 bool personality_cue_valid(PersonalityCue cue);
 
 // cue: Typed identity to classify as a device observation rather than narrative.
 bool personality_cue_is_device(PersonalityCue cue);
+
+// admitted_request: Latest baseline after canonical device validity has already been checked.
+// semantic_sleep: True only for the authored Sleep presentation, which owns final precedence.
+// affection_active: Whether the current auto caress request still has active lifetime.
+// desired: Receives the single target; Charging waits behind active auto affection.
+// release_affection: Receives whether the admitted target cancels the auto request.
+// Exception: Returns invalid cue identity without modifying either output.
+esp_err_t select_personality_target(PersonalityCue admitted_request, bool semantic_sleep,
+                                   bool affection_active, PersonalityCue &desired, bool &release_affection);
 
 // nominal_scale: Finite authored scale before breathing, motion and entrance interpolation.
 // size: Receives the nearest existing presentation; Micro applies only at scale <= 22.

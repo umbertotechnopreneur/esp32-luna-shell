@@ -129,10 +129,12 @@ code. There are no per-skin copies, new framebuffer or native per-frame heap
 allocations. At most 4,096 destination pixels are sampled for one complete
 visible sprite frame; the initial 29 x 29 profile normally covers much less.
 The geometric follower stores seventeen fixed 24-byte buckets (408 bytes).
-A compile-time assertion limits the entire channel/follower state to 512 bytes;
+A compile-time assertion limits the entire channel/follower state to 768 bytes;
 preparation also takes one transient copy on the existing worker stack. Its work
 is bounded independently of frame frequency; it adds no layer framebuffer or
-separate animation worker. These source assertions have not yet been compiled.
+separate animation worker. The 2026-10-05 native host compile reports 616 bytes
+for this state, including fourteen 8-byte repeat timestamps (112 bytes).
+These are host ABI sizes, not a firmware stack measurement.
 
 These are source estimates, not compiled size, stack or FPS measurements. The
 existing paired-row dirty planner can transfer gaps between the icon and body,
@@ -172,8 +174,10 @@ contention and PCM drain behavior remain unmeasured.
 
 The normal Main presentation recognizes a slow continuous drag within the
 displayed body above the eyes or below the mouth. Regions follow the evaluated
-face/body, in the existing logical touch coordinates. Shared thresholds live in
-`CODY_petting_config.hpp`; the simulator reads this same source. Above-eye and
+face/body, in the existing logical touch coordinates. Shared thresholds are
+authored in `assets/cody/personality.yaml` and emitted into
+`assets/cody/personality/generated/CODY_petting_config.hpp`; the simulator reads
+the validated YAML. Above-eye and
 below-mouth margins are 0.10 and 0.08 times evaluated scale. This is gesture
 recognition from position/time, not pressure measurement.
 
@@ -189,7 +193,11 @@ Recognize once per contact with a six-second cooldown. If both the requested
 cue and the occupied channel permit it, request Affection for four active
 seconds, then release through the existing hold/fade policy. An occupied
 non-Affection channel drops the reaction; there is no delayed heart queue.
-Explicit manual selection takes precedence and its baseline is preserved.
+The latest explicit baseline is preserved. YAML priority arbitration lets an
+admitted LowBattery900 release an automatic Affection200, while Charging100
+waits for its expiry. Urgent transitions bypass stability/hold but keep the
+smooth outgoing fade. Repeat admission cooldown and battery enter/exit
+hysteresis prevent chatter; see [personality behavior](personality-behavior.md).
 Sleep, scene changes, pause, orientation changes and display parking cancel
 the transient gesture. A visible Sleep handoff keeps the normal smooth
 heart fade-out before the Sleep fade-in; hidden or parked contacts do not replay.
@@ -216,9 +224,14 @@ before the petting increment on 2026-10-04: 748 native assertions and 86 native/
 Python parity frames, plus fourteen icon and fourteen audio asset contracts.
 The preserved report is under
 `artifacts/build-cody-companion-debug/evidence/personality-host-20261004/report.json`.
-The newly added native and independent host petting fixtures have source review
-only and have not run; gesture trace parity has not been established.
-historical results do not validate the new combined sources. The suite compiles the
+On 2026-10-05 the expanded suite compiled and ran 1,041 native assertions, with
+two failures in new zero-opacity handoff expectations. Those assertions now
+check the controller identity and empty rendered frame; a corrected run awaits
+fresh authorization. Native/Python parity and independent host fixtures were
+not reached. First-attempt evidence is preserved at
+`artifacts/build-cody-companion-debug/evidence/personality-host-20261005-first-attempt/`.
+Gesture trace parity has not been established. Historical results do not
+validate the new combined sources. The suite compiles the
 actual portable vector controller/raster/damage sources and compares sequential
 frames with the simulator; it also checks the icon and PCM/WAV asset contracts.
 An installed host C++ developer environment, Pillow and PyYAML are required.

@@ -100,10 +100,16 @@ esp_err_t advance_happiness(const HappinessConfig &config, int64_t elapsed_us, H
 }
 
 // config: Authored domain and caress gain.
+// event: Stable authored identity; the MVP accepts only the Caress event.
 // state: Receives saturated arithmetic without resetting its existing minute remainder.
-// Exception: Returns original configuration or state validation error.
-esp_err_t apply_happiness_caress(const HappinessConfig &config, HappinessState &state)
+// Exception: Returns invalid event or the original configuration/state error.
+esp_err_t apply_happiness_event(const HappinessConfig &config, PersonalityEvent event, HappinessState &state)
 {
+    if (event != PersonalityEvent::Caress) {
+        ESP_LOGE(kTag, "Event=%u rejected (%s)", static_cast<unsigned>(event),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
     esp_err_t error = validate_happiness_config(config);
     if (error != ESP_OK) {
         return error;

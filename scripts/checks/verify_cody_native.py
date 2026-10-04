@@ -47,6 +47,7 @@ def main(argv=None) -> None:
                         "components/CODY_companion/include", "assets/cody/rig/generated",
                         "assets/cody/appearance/jelly-scanline/generated",
                         "assets/cody/personality-icons/generated")
+        include_dirs += ("assets/cody/personality/generated",)
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
                    "components/CODY2D/src/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",

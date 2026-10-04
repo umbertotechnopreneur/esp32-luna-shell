@@ -24,8 +24,9 @@ the minimum hold. Pause freezes the channel and following time. The interactive
 Sleep preset can show the full transition; firmware power timing is unchanged
 and may turn the panel off before a competing-symbol transition completes.
 
-The simulator reads anchor profiles and timing constants directly from
-`components/CODY_companion/include/CODY_personality_config.hpp`. The center follows
+The simulator reads its stable IDs, priorities, gesture/mood rules, anchor
+profiles and timing directly from validated `assets/cody/personality.yaml`.
+Firmware receives generated immutable headers from the same source. The center follows
 the evaluated Nose anchor plus its configured local offset using a 360-ms finite
 history window; scale uses a 400-ms window. Seventeen fixed 25-ms geometry buckets
 hold duration-weighted target integrals. Older geometry is discarded completely,

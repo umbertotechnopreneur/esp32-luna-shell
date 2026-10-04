@@ -2,41 +2,34 @@
 
 from enum import IntEnum
 import math
-import re
+from pathlib import Path
 
 from scripts.common.cody_response import hit_test_body
+from scripts.common.cody_personality_contract import load_personality_rules
 
 
-class PettingZone(IntEnum):
-    NONE = 0
-    ABOVE_EYES = 1
-    BELOW_MOUTH = 2
+PERSONALITY_RULES = load_personality_rules(Path(__file__).resolve().parents[2] / "assets/cody/personality.yaml")
+PettingZone = IntEnum("PettingZone", {"NONE": 0} | {
+    item["name"].upper(): item["id"] for item in PERSONALITY_RULES["catalog"]["zones"]}, module=__name__)
 
 
-# root: Checkout containing the native authored petting thresholds.
+# root: Checkout containing the validated personality YAML caress rule.
 # Raises OSError for unreadable source or ValueError for incomplete/invalid values.
 def load_petting_config(root):
-    source = (root / "components/CODY_companion/include/CODY_petting_config.hpp").read_text(encoding="utf-8")
-    config = {}
-    for kind, name, literal in re.findall(r"inline constexpr (int64_t|float) (\w+) = ([^;]+);", source):
-        value = float(literal.strip().removesuffix("f"))
-        if name in config or not math.isfinite(value) or value <= 0:
-            raise ValueError(f"Petting configuration rejected: {name}")
-        if kind == "int64_t" and value != int(value):
-            raise ValueError(f"Petting duration rejected: {name}")
-        config[name] = int(value) if kind == "int64_t" else value
-    expected = {"minimum_contact_us", "maximum_contact_us", "maximum_sample_gap_us",
-                "cooldown_us", "affection_us", "upper_margin_per_scale", "lower_margin_per_scale",
-                "minimum_path_per_scale", "minimum_displacement_per_scale", "maximum_speed_per_scale",
-                "jitter_pixels"}
-    if set(config) != expected or config["minimum_contact_us"] > config["maximum_contact_us"]:
-        raise ValueError("Petting configuration catalog or contact interval rejected")
+    caress = load_personality_rules(root / "assets/cody/personality.yaml")["caress"]
+    config = {name.removesuffix("_ms") + "_us": caress[name] * 1000
+              for name in ("minimum_contact_ms", "maximum_contact_ms", "maximum_sample_gap_ms")}
+    config.update({"cooldown_us": caress["cooldown_seconds"] * 1_000_000,
+                   "affection_us": caress["affection_seconds"] * 1_000_000})
+    for name in ("upper_margin_per_scale", "lower_margin_per_scale", "minimum_path_per_scale",
+                 "minimum_displacement_per_scale", "maximum_speed_per_scale", "jitter_pixels"):
+        config[name] = caress[name]
     return config
 
 
 class PettingRecognizer:
     # self: Synthetic gesture owner; it never publishes firmware observations.
-    # config: Thresholds read from the native authoring header.
+    # config: Thresholds projected from the validated shared YAML caress rule.
     def __init__(self, config):
         self.config = config
         self.last_triggered_us = 0
