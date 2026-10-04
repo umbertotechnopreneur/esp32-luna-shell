@@ -32,6 +32,16 @@ authorization.
   Start/Retry/Cancel cleanup gates. Verify Hello's open happy eyes and blink.
   Only source review and asset generation ran for this increment.
 
+- [ ] After fresh explicit authorization, build and exercise the standalone
+  Cody status/capture chrome: post-first-boot date/time plus battery/Wi-Fi/BLE
+  semantics, flash-resident glyphs, shared touch fade, the single Screenshot
+  hit target, hidden Pause/Skeleton targets, 0/90/180/270 mapping, and atomic
+  BMP output under `LUNASHELL/screenshots/`. Cover missing/removed/full SD,
+  concurrent log mirroring, Performance Mode, standby and PSRAM-allocation
+  failure. The source-based simulator capture covered only the visible Screenshot
+  control and hidden Pause/Skeleton controls; firmware status, BMP persistence,
+  build, automated tests and hardware behavior remain unverified.
+
 - [ ] After fresh explicit authorization, validate offline SD logging and native
   USB readback: build the updated Cody profile; observe boot with the cable
   connected and monitor closed; compare current/previous downloads and CRCs;

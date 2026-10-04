@@ -27,7 +27,9 @@ enum class FaceChannel : uint8_t {
 enum class ContourControl : uint8_t { Fullness, Amplitude, Speed, PhaseSpread, Count };
 enum class PointRole : uint8_t { Anchor, Knot, Handle };
 
-enum class RigControl : uint8_t { None, Back, Overlay, Pause };
+enum class RigControl : uint8_t { None, Back, Overlay, Pause, Screenshot };
+
+enum class RigControlState : uint8_t { Idle, Busy, Succeeded, Failed };
 
 struct RigControlGeometry {
     RigControl identity;
@@ -293,13 +295,37 @@ Channels animate_rig(const Channels &base, uint32_t elapsed_ms);
 // navigation_visible: Render the existing controls only when the active Debug scene exposes them.
 // navigation_opacity: Wall-clock toolbar fade, independent of character/animation pause.
 // background_rgb565: Logical scene background; the default plain rig is black.
+// screenshot_state: Visible result of the independent on-demand capture operation.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected = kNoPoint,
                         RigRasterProfile *profile = nullptr, bool paused = false,
                         uint16_t first_column = 0,
                         const RigDebugStrokeCache *debug_cache = nullptr,
                         bool navigation_visible = true, uint8_t navigation_opacity = 255,
-                        uint16_t background_rgb565 = 0);
+                        uint16_t background_rgb565 = 0,
+                        RigControlState screenshot_state = RigControlState::Idle);
+
+// strip: Valid compact destination receiving controls above all informational chrome.
+// first_row: Logical tile y origin in the canonical circular canvas.
+// debug: Current skeleton-overlay state shown by the right control.
+// paused: Show Play while geometry is frozen, otherwise show Pause.
+// first_column: Logical tile x origin used for clipping.
+// opacity: Shared wall-clock toolbar fade.
+// background_rgb565: Authored scene color beneath the controls.
+// screenshot_state: Visible capture/write outcome for the center camera control.
+// profile: Optional frame-wide accumulator using the caller's execution clock.
+// Exception: Returns the real surface or primitive drawing error.
+esp_err_t draw_rig_navigation_rows(
+    CODY2D::Surface strip,
+    uint16_t first_row,
+    bool debug,
+    bool paused,
+    uint16_t first_column,
+    uint8_t opacity,
+    uint16_t background_rgb565,
+    RigControlState screenshot_state,
+    RigRasterProfile *profile = nullptr
+);
 
 // scene: Successfully evaluated geometry, shared unchanged with the renderer.
 // debug: Include every bone, tangent and selected marker when the overlay is visible.

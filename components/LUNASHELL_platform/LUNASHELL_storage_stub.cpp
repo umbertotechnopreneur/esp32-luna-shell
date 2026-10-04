@@ -76,3 +76,29 @@ extern "C" esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended)
     (void)suspended;
     return reject_operation("power suspension");
 }
+
+// pixels: Caller retains this complete frame because disabled storage rejects it.
+// width: Requested visible width.
+// height: Requested visible height.
+// stride: Requested source row stride.
+// byte_swapped: Requested source byte order.
+// capture_id: Requested monotonic capture identity.
+// completion: Completion is not called because ownership never transfers.
+// context: Opaque callback value retained by the caller.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED without taking ownership.
+extern "C" esp_err_t LUNASHELL_storage_queue_screenshot_rgb565(
+    uint16_t *pixels, uint16_t width, uint16_t height, uint16_t stride,
+    bool byte_swapped, uint32_t capture_id,
+    LUNASHELL_screenshot_completion_t completion, void *context
+)
+{
+    (void)pixels;
+    (void)width;
+    (void)height;
+    (void)stride;
+    (void)byte_swapped;
+    (void)capture_id;
+    (void)completion;
+    (void)context;
+    return reject_operation("screenshot write");
+}

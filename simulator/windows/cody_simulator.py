@@ -349,6 +349,11 @@ class CodyRenderer:
                 else:
                     for bar in (x-7, x+7):
                         draw.line([(bar,y-11),(bar,y+11)], fill=back_ink, width=stroke)
+            elif control["id"] == "screenshot":
+                draw.rectangle((x-11, y-7, x+11, y+8), outline=back_ink, width=stroke)
+                draw.line([(x-5,y-7),(x-2,y-11),(x+4,y-11),(x+7,y-7)],
+                    fill=back_ink, width=stroke)
+                draw.ellipse((x-5,y-5,x+5,y+5), outline=back_ink, width=stroke)
             else:
                 nodes = [(x-10,y+9),(x,y-11),(x+10,y+9)]
                 draw.line(nodes + [nodes[0]], fill=back_ink,
@@ -1095,7 +1100,7 @@ class CodyWindow:
         self.navigation_visibility.interact(now_us)
         if self.renderer.debug_controls_enabled:
             control = next((control for control in self.renderer.navigation["controls"]
-                if control_contains(control, x, y)), None)
+                if control["visible_by_default"] and control_contains(control, x, y)), None)
             if control is not None:
                 if previous_opacity != 255:
                     return  # Reveal a hidden/fading toolbar without activating its button.
@@ -1104,6 +1109,8 @@ class CodyWindow:
                 elif control["id"] == "overlay":
                     self.debug.set(not self.debug.get())
                     self.choose_point(None)
+                elif control["id"] == "screenshot":
+                    self.info.configure(text="Firmware camera writes BMP files to SD; host preview does not emulate storage.")
                 else:
                     self.playing.set(not self.playing.get())
                 return

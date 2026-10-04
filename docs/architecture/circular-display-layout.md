@@ -21,8 +21,10 @@ file or a dependency on the Luna GUI.
 | Left navigation / Back | Origin (10, 203), 60 x 60, circular radius 30 |
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
-| Cody Debug Pause/Play | Circle centered at (158, 47), radius 22 |
-| Cody Debug Skeleton | Circle centered at (308, 47), radius 22 |
+| Cody Debug Pause/Play | Authored at center (158, 47), currently hidden and non-interactive |
+| Cody Debug Screenshot | Center (233, 47), circular radius 22, bounds [211,255) x [25,69) |
+| Cody Debug Skeleton | Authored at center (308, 47), currently hidden and non-interactive |
+| Cody status overlay | Date/time left at x=110; battery, Wi-Fi and Bluetooth right at y=37–58 |
 
 The 60-pixel Back fits entirely to the left of the square: its right exclusive
 edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
@@ -32,27 +34,40 @@ The complete bounding box also fits within the circle.
 The right navigation slot hosts Cody's discreet forward chevron. Its circular
 60-pixel touch target stays separate from the QR and central content.
 
-The Cody Debug view places rounded, graphite Pause/Play and Skeleton controls
-along the upper rim. The source `assets/cody/navigation.json` generates the
-native table and supplies the simulator geometry and neutral RGB565 material.
-Rendering and hit testing share the circles. Both targets remain inside radius
-223 and completely above the safe square. Their logical bounds are
-`[136,180) x [25,69)` and `[286,330) x [25,69)`; the actual circle, not its
-rectangular damage box, defines the hit target. The physical owner maps these
-same targets through all cardinal rotations. The debug-view Back remains at
-its canonical position but `visible_by_default` is false, disabling paint and
-touch together. Route-specific OOBE Back/Cancel remains a separate control.
+The Cody Debug view currently exposes only the icon-only Screenshot control in
+the upper-center circle. Pause/Play and Skeleton retain their stable authored
+identities but set `visible_by_default` false, which disables both raster and
+hit testing. The source
+`assets/cody/navigation.json` generates the native table and supplies the
+simulator geometry; rendering and hit testing share the exact visible circle.
+The target stays above the central safe square and within the circle's local chord.
+The physical owner maps the same targets through all cardinal rotations. The
+debug-view Back remains at its canonical position but `visible_by_default` is
+false, disabling paint and touch together. Route-specific OOBE Back/Cancel
+remains a separate control.
 
-These inspection controls are visible/interactable only in Debug firmware,
-not Release, including OOBE screens. They start hidden: only touch reveals them.
-Five seconds without touch starts a 330-ms fade-out. Touch reveals
-them with a 330-ms fade-in; a press on a hidden/fading button reveals it without
-activating the action. The clock keeps running while the character is paused.
-Pause freezes the evaluated character and its animation clocks.
-The CPU readout remains live at one update per second, displaying `PAUSED` in
-place of animation FPS. Resume excludes the paused interval from animation and
-motion integration. A fresh touch reveals the toolbar while paused, so Play
-and Skeleton remain accessible without leaving paused mode.
+After first boot, Cody's standalone status component renders canonical local
+English date/time on the left and battery percentage, Wi-Fi field strength and
+Bluetooth activity on the right. Battery is gray when absent, red when low,
+orange in the middle range, green when healthy and cyan with a white charging
+glyph while charging. All text and icon row masks are compile-time glyphs kept
+in firmware flash rodata. The component contains no LVGL or Brookesia
+dependency and reads only one coherent `DeviceSnapshotService` projection. The
+status layer is composed before the Screenshot control, so that control remains
+visually and interactively above it.
+Both layers use the same touch-activity opacity: touch reveals them and five
+seconds without activity starts the same 330-ms fade. Release firmware omits
+the Debug controls but retains the post-first-boot informational layer.
+
+The Screenshot control is visible/interactable only in Debug firmware, not
+Release. Five seconds without touch starts a 330-ms fade-out. Touch reveals it
+with a 330-ms fade-in; a press on a hidden/fading button reveals it without
+activating the action. Screenshot forces one complete native composition into
+a temporary 466 x 466 RGB565 PSRAM buffer, then transfers ownership to the SD
+service. That owner publishes a top-down 24-bit BMP atomically under
+`LUNASHELL/screenshots/`; existing mirrored logs remain under
+`LUNASHELL/logs/`. The camera is amber while capture/write is active, teal on
+success, and red after a real failure.
 
 ## Rounded space
 

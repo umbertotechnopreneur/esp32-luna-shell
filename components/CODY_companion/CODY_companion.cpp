@@ -23,6 +23,8 @@
 #include "CODY_navigation_visibility.hpp"
 #include "CODY_lifecycle.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_screenshot.hpp"
+#include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
 #include "poc_settings.hpp"
@@ -71,6 +73,7 @@ constexpr uint32_t kPausedReadoutPeriodMs = 1000;
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kLifecyclePreparationTimeoutMs = 3000;
 constexpr uint32_t kBrandingFadeDurationUs = 300000;
+constexpr int64_t kStatusRefreshUs = 1000000;
 constexpr char kStartupBranding[] = "umbertogiacobbi.biz";
 constexpr uint16_t kStartupBrandingTop = 348;
 constexpr uint16_t kWhitesmoke = 0xF7BE; // #F5F5F5 quantized to RGB565.
@@ -142,13 +145,15 @@ CODY::FrameBenchmark s_benchmark;
 // They are never advanced by a failed frame or a deferred touch event.
 bool s_cache_was_rig = false;
 bool s_cached_rig_debug = false;
-bool s_cached_rig_paused = false;
 CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
 bool s_cached_navigation_visible = false;
 uint8_t s_cached_navigation_opacity = 0;
 uint8_t s_cached_branding_opacity = 0;
+CODY::StatusOverlay s_cached_status_overlay;
+bool s_cached_status_visible = false;
+CODY::ScreenshotState s_cached_screenshot_state = CODY::ScreenshotState::Idle;
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
@@ -164,6 +169,8 @@ struct CompanionState {
     bool rig_debug = false;
     bool animation_paused = false;
     CODY::NavigationVisibility navigation_visibility{};
+    CODY::StatusOverlay status_overlay{};
+    int64_t status_sampled_at_us = 0;
 #if CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY
     bool face_follows_body = true;
 #else
@@ -914,6 +921,23 @@ esp_err_t include_control_damage(CODY::DirtyPlan &plan, CODY::RigControl control
     return CODY::include_damage(plan, bounds);
 }
 
+// state: Asynchronous screenshot lifecycle to expose through the camera icon.
+CODY::RigControlState screenshot_control_state(CODY::ScreenshotState state)
+{
+    switch (state) {
+    case CODY::ScreenshotState::Idle:
+        return CODY::RigControlState::Idle;
+    case CODY::ScreenshotState::Capturing:
+    case CODY::ScreenshotState::Saving:
+        return CODY::RigControlState::Busy;
+    case CODY::ScreenshotState::Saved:
+        return CODY::RigControlState::Succeeded;
+    case CODY::ScreenshotState::Failed:
+        return CODY::RigControlState::Failed;
+    }
+    return CODY::RigControlState::Failed;
+}
+
 // Hold the shared recursive panel lock across every strip so rotation and standby
 // cannot alter the panel/touch mapping in the middle of one complete redraw.
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
@@ -1073,6 +1097,35 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         CODY::Data::palette[CODY::to_index(CODY::Data::background_color)];
     const bool frame_navigation_visible = kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
+    const bool frame_status_visible = !s_state.onboarding.effective_first_boot &&
+        navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
+    if (frame_status_visible &&
+        (s_state.status_sampled_at_us == 0 ||
+         timings.started_us - s_state.status_sampled_at_us >= kStatusRefreshUs)) {
+        LUNASHELL::DeviceStatusObservation observation;
+        const esp_err_t observation_error =
+            LUNASHELL::DeviceSnapshotService::instance().readDeviceStatusObservation(observation);
+        if (observation_error != ESP_OK) {
+            return frame.finish({observation_error, false, 0});
+        }
+        CODY::StatusOverlay next_status;
+        const esp_err_t status_error = CODY::prepare_status_overlay(observation, next_status);
+        if (status_error != ESP_OK) {
+            return frame.finish({status_error, false, 0});
+        }
+        s_state.status_overlay = next_status;
+        s_state.status_sampled_at_us = timings.started_us;
+    }
+    CODY::ScreenshotCapture screenshot_capture;
+    const esp_err_t screenshot_begin_error = CODY::begin_screenshot_capture(
+        kPanelWidth, kPanelHeight, screenshot_capture
+    );
+    if (screenshot_begin_error != ESP_OK && screenshot_begin_error != ESP_ERR_NOT_FOUND) {
+        ESP_LOGE(kTag, "On-demand screenshot capture start failed (%s)",
+                 esp_err_to_name(screenshot_begin_error));
+    }
+    const bool screenshot_capture_active = screenshot_capture.pixels != nullptr;
+    const CODY::ScreenshotState frame_screenshot_state = CODY::screenshot_state();
     const uint8_t branding_opacity = startup_branding_opacity();
     const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
         s_state.debug_readout_enabled && presentation.content_visible &&
@@ -1096,7 +1149,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_scene.valid == s_state.scene.valid &&
         s_cached_scene.definition == s_state.scene.definition;
     esp_err_t plan_error = ESP_OK;
-    if (!reuse_previous || presentation.boot_bitmap_visible) {
+    if (!reuse_previous || presentation.boot_bitmap_visible || screenshot_capture_active) {
         plan_error = CODY::include_damage(dirty_plan, {0, 0, kPanelWidth, kPanelHeight});
     } else {
         plan_error = CODY::plan_rig_damage(*s_resources.previous_rig, *s_resources.rig,
@@ -1130,29 +1183,46 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 static_cast<uint16_t>(bounds.x + bounds.width),
                 static_cast<uint16_t>(bounds.y + bounds.height)});
         }
-        if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_debug != frame_debug) {
-            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Overlay);
-        }
-        if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_paused != s_state.animation_paused) {
-            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Pause);
-        }
         if (plan_error == ESP_OK && s_cached_navigation_visible != frame_navigation_visible) {
-            for (const auto control : {CODY::RigControl::Back, CODY::RigControl::Overlay, CODY::RigControl::Pause}) {
-                plan_error = include_control_damage(dirty_plan, control);
-                if (plan_error != ESP_OK) {
-                    break;
-                }
-            }
+            plan_error = include_control_damage(
+                dirty_plan, CODY::RigControl::Screenshot
+            );
         }
         if (plan_error == ESP_OK && s_cached_navigation_opacity != navigation_opacity) {
-            plan_error = CODY::include_damage(dirty_plan, CODY::rig_navigation_damage_bounds());
+            if (frame_navigation_visible || s_cached_navigation_visible) {
+                plan_error = CODY::include_damage(
+                    dirty_plan, CODY::rig_navigation_damage_bounds()
+                );
+            }
+            if (plan_error == ESP_OK &&
+                (frame_status_visible || s_cached_status_visible)) {
+                plan_error = CODY::include_damage(
+                    dirty_plan, CODY::status_overlay_damage_bounds()
+                );
+            }
+        }
+        if (plan_error == ESP_OK &&
+            (s_cached_status_visible != frame_status_visible ||
+             (frame_status_visible && !CODY::status_overlay_equal(
+                 s_cached_status_overlay, s_state.status_overlay)))) {
+            plan_error = CODY::include_damage(
+                dirty_plan, CODY::status_overlay_damage_bounds()
+            );
+        }
+        if (plan_error == ESP_OK && frame_navigation_visible &&
+            s_cached_screenshot_state != frame_screenshot_state) {
+            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Screenshot);
         }
     }
     timings.damage_us = esp_timer_get_time() - damage_started_us;
     if (plan_error != ESP_OK) {
+        if (screenshot_capture_active) {
+            (void)CODY::finish_screenshot_capture(screenshot_capture, plan_error);
+        }
         return frame.finish({plan_error, false, 0});
     }
     esp_err_t result = ESP_OK;
+    bool parked_during_frame = false;
     uint32_t next_touch_poll_row = kTouchPollRows;
     for (uint32_t row = 0; row < kPanelHeight; row += timings.tile_rows) {
         ++timings.visited_tiles;
@@ -1167,8 +1237,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         // This guard remains explicit even though the shared lock prevents a
         // standby request from closing the gate until the complete frame ends.
         if (!LUNASHELL_display_runtime_writes_allowed()) {
-            const bool parked = renderer_is_parked();
-            return frame.finish({ESP_ERR_INVALID_STATE, parked, 0});
+            parked_during_frame = renderer_is_parked();
+            result = ESP_ERR_INVALID_STATE;
+            break;
         }
         const uint32_t remaining_rows = kPanelHeight - row;
         const uint16_t strip_rows = static_cast<uint16_t>(
@@ -1199,7 +1270,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                     kExecutionTimingsEnabled ? &timings.raster_profile : nullptr,
                     s_state.animation_paused, damage.left,
                     frame_debug ? s_resources.rig_debug_strokes : nullptr,
-                    frame_navigation_visible, navigation_opacity, scene_background
+                    false, navigation_opacity, scene_background,
+                    screenshot_control_state(frame_screenshot_state)
                 );
                 if (result == ESP_OK && presentation.opacity != 255) {
                     result = CODY2D::fade_to_black(strip, presentation.opacity);
@@ -1209,6 +1281,20 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 }
                 if (result == ESP_OK && presentation.content_visible) {
                     result = CODY::draw_onboarding_navigation(strip, damage.top, damage.left);
+                }
+                if (result == ESP_OK && frame_status_visible) {
+                    result = CODY::draw_status_overlay_rows(
+                        s_state.status_overlay, navigation_opacity, scene_background,
+                        strip, damage.top, damage.left
+                    );
+                }
+                if (result == ESP_OK && frame_navigation_visible) {
+                    result = CODY::draw_rig_navigation_rows(
+                        strip, damage.top, frame_debug, s_state.animation_paused,
+                        damage.left, navigation_opacity, scene_background,
+                        screenshot_control_state(frame_screenshot_state),
+                        kExecutionTimingsEnabled ? &timings.raster_profile : nullptr
+                    );
                 }
                 if (result == ESP_OK && branding_opacity != 0) {
                     CODY2D::TextLine branding = s_state.branding;
@@ -1227,6 +1313,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 result = CODY2D::decode_rows(boot_image, damage.top, strip);
             }
             timings.raster_us += esp_timer_get_time() - raster_started_us;
+            if (result == ESP_OK && screenshot_capture_active) {
+                result = CODY::capture_screenshot_rows(
+                    screenshot_capture, strip, damage.top, damage.left
+                );
+            }
             if (result == ESP_OK) {
                 const int64_t transfer_started_us = esp_timer_get_time();
                 result = LUNASHELL_display_write_rgb565(
@@ -1264,8 +1355,19 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     const uint32_t completed_revision = result == ESP_OK ? revision : 0;
     timings.frame_end_started_us = esp_timer_get_time();
-    const DrawResult completed = frame.finish({result, false, completed_revision});
+    const DrawResult completed = frame.finish({result, parked_during_frame, completed_revision});
     timings.frame_end_completed_us = esp_timer_get_time();
+    if (screenshot_capture_active) {
+        const esp_err_t screenshot_finish_error = CODY::finish_screenshot_capture(
+            screenshot_capture, completed.error
+        );
+        if (screenshot_finish_error != ESP_OK && completed.error == ESP_OK) {
+            // Screenshot persistence is an explicit optional operation. Its own
+            // control remains red while the successfully completed display frame lives on.
+            ESP_LOGE(kTag, "Completed frame screenshot submission failed (%s)",
+                     esp_err_to_name(screenshot_finish_error));
+        }
+    }
     s_resources.previous_frame_valid = completed.error == ESP_OK;
     if (completed.error == ESP_OK) {
         // Commit geometry only after every panel write and frame retirement.
@@ -1275,13 +1377,15 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
-        s_cached_rig_paused = s_state.animation_paused;
         s_cached_selected_point = s_state.selected_point;
         s_cached_readout = debug_readout;
         s_cached_readout_visible = frame_readout_visible;
         s_cached_branding_opacity = branding_opacity;
         s_cached_navigation_visible = frame_navigation_visible;
         s_cached_navigation_opacity = navigation_opacity;
+        s_cached_status_overlay = s_state.status_overlay;
+        s_cached_status_visible = frame_status_visible;
+        s_cached_screenshot_state = frame_screenshot_state;
         s_cached_scene = s_state.scene;
     }
     CompletedFrameLog log{};
@@ -1378,6 +1482,8 @@ enum class TouchAction : uint8_t {
     ReturnToIdle,
     ToggleOverlay,
     TogglePause,
+    SaveScreenshot,
+    ScreenshotBusy,
     SelectPoint,
 };
 
@@ -1400,6 +1506,12 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
         return TouchAction::ToggleOverlay;
     case CODY::RigControl::Pause:
         return TouchAction::TogglePause;
+    case CODY::RigControl::Screenshot: {
+        const CODY::ScreenshotState state = CODY::screenshot_state();
+        return state == CODY::ScreenshotState::Capturing ||
+            state == CODY::ScreenshotState::Saving
+            ? TouchAction::ScreenshotBusy : TouchAction::SaveScreenshot;
+    }
     case CODY::RigControl::None:
         break;
     }
@@ -1439,11 +1551,16 @@ esp_err_t apply_scene_requests()
             return route_lock_error;
         }
         const DisplayUnlockOnExit route_lock;
-        if constexpr (kRenderDiagnosticsEnabled) {
+        if (kRenderDiagnosticsEnabled || !s_state.onboarding.effective_first_boot) {
             const int64_t now_us = esp_timer_get_time();
-            // No startup priming: only a real touch may reveal these controls.
+            // No startup priming: only real touch reveals shared status/debug chrome.
             s_state.navigation_visibility.update(now_us);
             if (s_state.navigation_visibility.opacity(now_us) != s_cached_navigation_opacity) {
+                s_state.frame_dirty.store(true, std::memory_order_release);
+            }
+        }
+        if constexpr (kRenderDiagnosticsEnabled) {
+            if (CODY::screenshot_state() != s_cached_screenshot_state) {
                 s_state.frame_dirty.store(true, std::memory_order_release);
             }
         }
@@ -1671,19 +1788,21 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
     bool reveal_only = false;
+    const bool chrome_eligible = s_state.rig_visible &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        (kRenderDiagnosticsEnabled || !s_state.onboarding.effective_first_boot);
     if constexpr (kRenderDiagnosticsEnabled) {
-        const bool eligible = s_state.rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle);
         const uint8_t previous_opacity = s_state.navigation_visibility.opacity(point.sample_timestamp_us);
-        reveal_only = eligible && pressed_edge && previous_opacity != 255 &&
+        reveal_only = chrome_eligible && pressed_edge && previous_opacity != 255 &&
             CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;
         if (pressed_edge) {
-            s_state.navigation_touch_active = eligible &&
+            s_state.navigation_touch_active = chrome_eligible &&
                 CODY::rig_control_at({static_cast<float>(point.x), static_cast<float>(point.y)}) != CODY::RigControl::None;
         }
-        if (point.pressed || s_state.touch_pressed) {
-            s_state.navigation_visibility.interact(point.sample_timestamp_us);
-            s_state.frame_dirty.store(true, std::memory_order_release);
-        }
+    }
+    if (chrome_eligible && (point.pressed || s_state.touch_pressed)) {
+        s_state.navigation_visibility.interact(point.sample_timestamp_us);
+        s_state.frame_dirty.store(true, std::memory_order_release);
     }
     s_state.touch_pressed = point.pressed;
     const bool debug_control_contact = s_state.navigation_touch_active;
@@ -1691,7 +1810,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         s_state.navigation_touch_active = false;
     }
     if (debug_control_contact && !pressed_edge) {
-        return ESP_OK; // A Pause/Skeleton contact never becomes an onboarding swipe.
+        return ESP_OK; // A Debug-control contact never becomes an onboarding swipe.
     }
     if (reveal_only) {
         s_state.body_drag_active = false;
@@ -1753,6 +1872,15 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.selected_point = CODY::kNoPoint;
                 s_state.last_timing_log_us = 0;
                 ESP_LOGI(kTag, "Rig geometry overlay=%u", s_state.rig_debug);
+            } else if (action == TouchAction::SaveScreenshot) {
+                const esp_err_t screenshot_error = CODY::request_screenshot();
+                if (screenshot_error != ESP_OK) {
+                    return screenshot_error;
+                }
+                ESP_LOGI(kTag, "On-demand screenshot admitted by touch=(%u,%u)",
+                         point.x, point.y);
+            } else if (action == TouchAction::ScreenshotBusy) {
+                ESP_LOGW(kTag, "Screenshot touch ignored while capture/write is active");
             } else if (action == TouchAction::SelectPoint) {
                 const esp_err_t selection_error = CODY::nearest_rig_point(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_state.selected_point);
@@ -1769,7 +1897,8 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete;
             if (interactive_scene && !s_state.animation_paused && s_state.rig_frame_count != 0 &&
                 action != TouchAction::ReturnToIdle && action != TouchAction::ToggleOverlay &&
-                action != TouchAction::TogglePause) {
+                action != TouchAction::TogglePause && action != TouchAction::SaveScreenshot &&
+                action != TouchAction::ScreenshotBusy) {
                 CODY::EyeId eye = CODY::EyeId::None;
                 const esp_err_t hit_error = CODY::hit_test_eye(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)},

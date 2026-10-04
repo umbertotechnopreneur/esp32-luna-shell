@@ -245,8 +245,10 @@ bool navigation_contains(const RigControlGeometry &control, CODY2D::Vec2 point)
 // first_column: Logical x origin used to clip controls into the compact destination.
 // opacity: Debug toolbar visibility; geometry and hit targets never move during fading.
 // background: Authored scene color beneath the toolbar, including white QR pages.
+// screenshot_state: Semantic feedback for the on-demand camera control.
 esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
-                              bool debug, bool paused, uint16_t first_column, uint8_t opacity, uint16_t background)
+                               bool debug, bool paused, uint16_t first_column, uint8_t opacity,
+                               uint16_t background, RigControlState screenshot_state)
 {
     esp_err_t result = ESP_OK;
     if (opacity == 0) {
@@ -292,9 +294,25 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             }
         }
         const auto center = control.icon_center;
+        uint16_t icon_color = NavigationData::ink;
+        if (control.identity == RigControl::Screenshot) {
+            switch (screenshot_state) {
+            case RigControlState::Idle:
+                break;
+            case RigControlState::Busy:
+                icon_color = 0xF5A9; // Luna semantic warning #f0b44d.
+                break;
+            case RigControlState::Succeeded:
+                icon_color = 0x26F8; // Luna semantic ready #20dfc1.
+                break;
+            case RigControlState::Failed:
+                icon_color = 0xF9CB; // Luna semantic fault #ff3859.
+                break;
+            }
+        }
         // Source-over against the authored background makes opacity zero truly
         // disappear on white too, instead of leaving black ghost icons behind.
-        const uint16_t ink = CODY2D::blend_rgb565(NavigationData::ink, background, opacity);
+        const uint16_t ink = CODY2D::blend_rgb565(icon_color, background, opacity);
         if (control.identity == RigControl::Overlay) {
             const CODY2D::Vec2 nodes[] = {{center.x-10, center.y+9}, {center.x, center.y-11}, {center.x+10, center.y+9}};
             for (uint16_t index = 0; index < 3; ++index) {
@@ -306,6 +324,31 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
                     result = CODY2D::stroke_rows(strip, first_row, nodes[index], nodes[index],
                         Data::overlay_marker_diameter, marker, first_column);
                 }
+                if (result != ESP_OK) {
+                    return result;
+                }
+            }
+        } else if (control.identity == RigControl::Screenshot) {
+            const CODY2D::Vec2 camera[][2] = {
+                {{center.x-11, center.y-7}, {center.x+11, center.y-7}},
+                {{center.x+11, center.y-7}, {center.x+11, center.y+8}},
+                {{center.x+11, center.y+8}, {center.x-11, center.y+8}},
+                {{center.x-11, center.y+8}, {center.x-11, center.y-7}},
+                {{center.x-5, center.y-7}, {center.x-2, center.y-11}},
+                {{center.x-2, center.y-11}, {center.x+4, center.y-11}},
+                {{center.x+4, center.y-11}, {center.x+7, center.y-7}},
+                {{center.x-5, center.y}, {center.x-3, center.y-5}},
+                {{center.x-3, center.y-5}, {center.x+3, center.y-5}},
+                {{center.x+3, center.y-5}, {center.x+5, center.y}},
+                {{center.x+5, center.y}, {center.x+3, center.y+5}},
+                {{center.x+3, center.y+5}, {center.x-3, center.y+5}},
+                {{center.x-3, center.y+5}, {center.x-5, center.y}},
+            };
+            for (const auto &segment : camera) {
+                result = CODY2D::stroke_rows(
+                    strip, first_row, segment[0], segment[1],
+                    Data::back_stroke, ink, first_column
+                );
                 if (result != ESP_OK) {
                     return result;
                 }
@@ -341,6 +384,38 @@ RigControl rig_control_at(CODY2D::Vec2 point)
         }
     }
     return RigControl::None;
+}
+
+// strip: Valid compact destination receiving controls above all informational chrome.
+// first_row: Logical tile y origin in the canonical circular canvas.
+// debug: Current skeleton-overlay state shown by the right control.
+// paused: Show Play while geometry is frozen, otherwise show Pause.
+// first_column: Logical tile x origin used for clipping.
+// opacity: Shared wall-clock toolbar fade.
+// background_rgb565: Authored scene color beneath the controls.
+// screenshot_state: Visible capture/write outcome for the center camera control.
+// profile: Optional frame-wide accumulator using the caller's execution clock.
+// Exception: Returns the real surface or primitive drawing error.
+esp_err_t draw_rig_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
+                                   bool debug, bool paused, uint16_t first_column,
+                                   uint8_t opacity, uint16_t background_rgb565,
+                                   RigControlState screenshot_state,
+                                   RigRasterProfile *profile)
+{
+    if (profile != nullptr && profile->now_us == nullptr) {
+        ESP_LOGE(kTag, "Navigation profiling clock rejected (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int64_t started_us = profile != nullptr ? profile->now_us() : 0;
+    const esp_err_t result = draw_navigation_rows(
+        strip, first_row, debug, paused, first_column, opacity,
+        background_rgb565, screenshot_state
+    );
+    if (profile != nullptr) {
+        profile->navigation_us += profile->now_us() - started_us;
+    }
+    return result;
 }
 
 // Return immutable YAML-authored contour defaults.
@@ -718,11 +793,13 @@ esp_err_t prepare_rig_debug_strokes(const RigScene &scene, PointId selected,
 // navigation_visible: Hidden scene controls have no raster footprint.
 // navigation_opacity: Debug toolbar fade applied without advancing the character clock.
 // background_rgb565: Native color for the current logical scene, cleared once per tile.
+// screenshot_state: Visible result of the independent on-demand capture operation.
 esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
                         uint16_t first_row, bool debug, PointId selected, RigRasterProfile *profile,
                         bool paused, uint16_t first_column,
-                        const RigDebugStrokeCache *debug_cache, bool navigation_visible, uint8_t navigation_opacity,
-                        uint16_t background_rgb565)
+                        const RigDebugStrokeCache *debug_cache, bool navigation_visible,
+                        uint8_t navigation_opacity, uint16_t background_rgb565,
+                        RigControlState screenshot_state)
 {
     if (profile != nullptr && profile->now_us == nullptr) {
         ESP_LOGE(kTag, "Raster profiling clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -834,13 +911,12 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
         if (debug) {
             profile->skeleton_markers_us += now_us - stage_started_us;
         }
-        stage_started_us = now_us;
     }
     if (navigation_visible) {
-        result = draw_navigation_rows(strip, first_row, debug, paused, first_column, navigation_opacity, background_rgb565);
-    }
-    if (profile != nullptr) {
-        profile->navigation_us += profile->now_us() - stage_started_us;
+        result = draw_rig_navigation_rows(
+            strip, first_row, debug, paused, first_column,
+            navigation_opacity, background_rgb565, screenshot_state, profile
+        );
     }
     return result;
 }

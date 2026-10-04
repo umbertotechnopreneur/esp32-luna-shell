@@ -27,7 +27,7 @@ struct NavigationVisibility {
             target_opacity * elapsed + kFadeUs / 2) / kFadeUs);
     }
 
-    // now_us: Original successful touch-report time; startup never reveals controls.
+    // now_us: Original successful touch-report time for shared status/debug chrome; startup never reveals it.
     void interact(int64_t now_us)
     {
         const uint8_t current = opacity(now_us);

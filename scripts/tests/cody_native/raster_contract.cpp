@@ -243,7 +243,7 @@ void check_coverage_concave_tiles_contract()
 // strip_rows: Partition size, including sizes that leave an incomplete final strip.
 // debug: Whether bone/point overlays and navigation are included.
 // selected: Stable marker identity to highlight, or kNoPoint.
-// paused: Whether the navigation exposes Resume instead of Pause.
+// paused: Current animation pause state; its authored navigation control stays hidden.
 // Exceptions: std::bad_alloc if host framebuffer allocation fails.
 std::vector<uint16_t> render(const CODY::RigScene &scene, uint16_t strip_rows, bool debug,
                              CODY::PointId selected = CODY::kNoPoint, bool paused = false)
@@ -330,19 +330,7 @@ void check_compact_raster_contract()
             }
         }
         require(compact == reference,
-                "disjoint compact tiles preserve artwork, skeleton, selection and paused navigation");
-    }
-}
-
-// plan: Existing geometry damage to extend with a changed navigation control.
-// control: Named control whose bounds come from the renderer's shared geometry table.
-void include_control(CODY::DirtyPlan &plan, CODY::RigControl control)
-{
-    CODY::DamageRect bounds;
-    const esp_err_t result = CODY::rig_control_damage_bounds(control, bounds);
-    require(result == ESP_OK, "changed navigation control has valid bounds");
-    if (result == ESP_OK) {
-        require(CODY::include_damage(plan, bounds) == ESP_OK, "navigation damage is accumulated");
+                "disjoint compact tiles preserve artwork, skeleton and selection");
     }
 }
 
@@ -358,13 +346,6 @@ void check_dirty_transition(FrameView previous, FrameView current, const char *m
     require(result == ESP_OK, "valid frame transition produces a dirty plan");
     if (result != ESP_OK) {
         return;
-    }
-    // Navigation has its own owner, matching the firmware integration boundary.
-    if (previous.debug != current.debug) {
-        include_control(plan, CODY::RigControl::Overlay);
-    }
-    if (previous.paused != current.paused) {
-        include_control(plan, CODY::RigControl::Pause);
     }
     const auto reference = render(current.scene, 466, current.debug, current.selected, current.paused);
     for (const uint16_t tile_rows : {uint16_t{2}, uint16_t{32}, uint16_t{64}}) {
@@ -653,10 +634,12 @@ void check_navigation_visibility_contract()
 {
     require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None,
             "Back remains defined but hidden and non-interactive by default");
-    require(CODY::rig_control_at({160, 52}) == CODY::RigControl::Pause,
-            "Pause uses its shared rounded upper-left target");
-    require(CODY::rig_control_at({306, 52}) == CODY::RigControl::Overlay,
-            "Skeleton toggle uses its shared rounded upper-right target");
+    require(CODY::rig_control_at({160, 52}) == CODY::RigControl::None,
+            "Pause remains authored but hidden and non-interactive");
+    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot,
+            "Screenshot uses its independent upper-center target");
+    require(CODY::rig_control_at({306, 52}) == CODY::RigControl::None,
+            "Skeleton remains authored but hidden and non-interactive");
     require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
             "old lateral skeleton target cannot activate");
     require(CODY::rig_control_at({158, 74}) == CODY::RigControl::None &&
