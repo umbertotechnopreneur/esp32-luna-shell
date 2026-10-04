@@ -6794,8 +6794,8 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
-// observation: Receives a coherent, aged projection for informational UI chrome.
-// The renderer never samples the PMU, system clock or Wi-Fi driver through this path.
+// observation: Receives coherent battery, clock, Wi-Fi and BLE for informational chrome.
+// The renderer never samples the PMU, system clock, Wi-Fi or BLE driver through this path.
 esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     DeviceStatusObservation &observation
 ) const
@@ -6810,6 +6810,7 @@ esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     copy.battery = s_snapshot.battery;
     copy.clock = s_snapshot.clock;
     copy.wifi = s_snapshot.radios.wifi;
+    copy.ble = s_snapshot.radios.ble;
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     const esp_err_t release_error = give_snapshot_mutex("device status read");
     if (release_error != ESP_OK) {

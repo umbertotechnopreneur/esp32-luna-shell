@@ -1093,7 +1093,7 @@ class CodyWindow:
         self.navigation_visibility.interact(now_us)
         if self.renderer.debug_controls_enabled:
             control = next((control for control in self.renderer.navigation["controls"]
-                if control_contains(control, x, y)), None)
+                if control["visible_by_default"] and control_contains(control, x, y)), None)
             if control is not None:
                 if previous_opacity != 255:
                     return  # Reveal a hidden/fading toolbar without activating its button.

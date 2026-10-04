@@ -145,7 +145,6 @@ CODY::FrameBenchmark s_benchmark;
 // They are never advanced by a failed frame or a deferred touch event.
 bool s_cache_was_rig = false;
 bool s_cached_rig_debug = false;
-bool s_cached_rig_paused = false;
 CODY::PointId s_cached_selected_point = CODY::kNoPoint;
 CODY::DebugReadout s_cached_readout;
 bool s_cached_readout_visible = false;
@@ -1166,23 +1165,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 static_cast<uint16_t>(bounds.x + bounds.width),
                 static_cast<uint16_t>(bounds.y + bounds.height)});
         }
-        if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_debug != frame_debug) {
-            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Overlay);
-        }
-        if (plan_error == ESP_OK && frame_navigation_visible && s_cached_rig_paused != s_state.animation_paused) {
-            plan_error = include_control_damage(dirty_plan, CODY::RigControl::Pause);
-        }
         if (plan_error == ESP_OK && s_cached_navigation_visible != frame_navigation_visible) {
-            for (const auto control : {
-                    CODY::RigControl::Back,
-                    CODY::RigControl::Overlay,
-                    CODY::RigControl::Pause,
-                    CODY::RigControl::Screenshot}) {
-                plan_error = include_control_damage(dirty_plan, control);
-                if (plan_error != ESP_OK) {
-                    break;
-                }
-            }
+            plan_error = include_control_damage(
+                dirty_plan, CODY::RigControl::Screenshot
+            );
         }
         if (plan_error == ESP_OK && s_cached_navigation_opacity != navigation_opacity) {
             if (frame_navigation_visible || s_cached_navigation_visible) {
@@ -1373,7 +1359,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
         s_cache_was_rig = frame_was_rig;
         s_cached_rig_debug = frame_debug;
-        s_cached_rig_paused = s_state.animation_paused;
         s_cached_selected_point = s_state.selected_point;
         s_cached_readout = debug_readout;
         s_cached_readout_visible = frame_readout_visible;

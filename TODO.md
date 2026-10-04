@@ -7,8 +7,9 @@ authorization.
 ## Current integration
 
 - [ ] After fresh explicit authorization, build and exercise the standalone
-  Cody status/capture chrome: post-first-boot battery/date/time/Wi-Fi semantics,
-  shared touch fade, three Debug hit targets, 0/90/180/270 mapping, and atomic
+  Cody status/capture chrome: post-first-boot date/time plus battery/Wi-Fi/BLE
+  semantics, flash-resident glyphs, shared touch fade, the single Screenshot
+  hit target, hidden Pause/Skeleton targets, 0/90/180/270 mapping, and atomic
   BMP output under `LUNASHELL/screenshots/`. Cover missing/removed/full SD,
   concurrent log mirroring, Performance Mode, standby and PSRAM-allocation
   failure; no build, automated test, simulator or hardware check has run yet.

@@ -659,6 +659,7 @@ struct DeviceStatusObservation {
     BatterySnapshot battery;
     ClockSnapshot clock;
     WifiSnapshot wifi;
+    BleSnapshot ble;
 };
 
 struct MotionPowerObservation {
@@ -702,7 +703,7 @@ public:
     DeviceSnapshot snapshot() const;
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
-    // observation: Receives battery, local calendar and Wi-Fi from one canonical lock.
+    // observation: Receives battery, local calendar, Wi-Fi and BLE from one canonical lock.
     // No hardware read, live-clock read or renderer-specific cache is introduced here.
     esp_err_t readDeviceStatusObservation(DeviceStatusObservation &observation) const;
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.

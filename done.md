@@ -568,3 +568,7 @@ retained reset diagnostics, and worker stack margins remain hardware tests in
 - Updated the canonical navigation source, generated table, native contract
   fixtures and Windows preview icon. Build, automated tests, simulator execution,
   SD writes and physical-device behavior remain unverified by instruction.
+- Refined the upper arc so Pause and Skeleton remain authored but hidden from
+  both raster and touch. Date/time moved left; flash-resident battery, Wi-Fi and
+  Bluetooth glyphs occupy the right. Battery uses gray absent, red low, orange
+  mid-level, green healthy and cyan charging states with a white charge mark.

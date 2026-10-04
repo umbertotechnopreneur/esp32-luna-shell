@@ -13,28 +13,67 @@ namespace {
 
 constexpr char kTag[] = "CODY_status";
 constexpr uint16_t kPanelSize = 466;
-constexpr uint16_t kPanelCenter = 233;
 constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = 6;
-constexpr uint16_t kDateTop = 5;
-constexpr uint16_t kTimeTop = 15;
-constexpr uint16_t kBatteryLeft = 96;
+constexpr uint16_t kDateLeft = 110;
+constexpr uint16_t kDateTop = 37;
+constexpr uint16_t kTimeLeft = 130;
+constexpr uint16_t kTimeTop = 49;
+constexpr uint16_t kBatteryLeft = 270;
 constexpr uint16_t kBatteryTop = 43;
-constexpr uint16_t kBatteryTextLeft = 123;
+constexpr uint16_t kBatteryTextLeft = 294;
 constexpr uint16_t kBatteryTextTop = 45;
-constexpr uint16_t kWifiCenterX = 351;
-constexpr uint16_t kWifiCenterY = 56;
-constexpr uint16_t kReady = 0x26F8;   // #20dfc1 in native RGB565.
+constexpr uint16_t kWifiLeft = 326;
+constexpr uint16_t kWifiTop = 43;
+constexpr uint16_t kBluetoothLeft = 351;
+constexpr uint16_t kBluetoothTop = 40;
+constexpr uint16_t kReady = 0x3E8A;   // #39d353 green in native RGB565.
 constexpr uint16_t kWarning = 0xF5A9; // #f0b44d in native RGB565.
 constexpr uint16_t kMissing = 0xEA6B; // #eb4d5c in native RGB565.
 constexpr uint16_t kFault = 0xF9CB;   // #ff3859 in native RGB565.
 constexpr uint16_t kMuted = 0x63F2;   // #617f91 in native RGB565.
-constexpr uint16_t kCharge = 0xFFFF;
+constexpr uint16_t kActive = 0x07FF;  // Cyan active/charging state.
+constexpr uint16_t kChargeMark = 0xFFFF;
 
 struct MonoGlyph {
     char character;
     uint8_t columns[kGlyphColumns];
+};
+
+// Compact icon rows are compile-time constants, so ESP-IDF keeps the glyphs in flash rodata.
+struct IconGlyph {
+    uint8_t width;
+    uint8_t height;
+    uint32_t rows[17];
+};
+
+constexpr IconGlyph kBatteryGlyph = {
+    22, 12,
+    {
+        0x0007FFFF, 0x00040001, 0x00040001, 0x00040001,
+        0x003C0001, 0x003C0001, 0x003C0001, 0x003C0001,
+        0x00040001, 0x00040001, 0x00040001, 0x0007FFFF,
+    },
+};
+
+constexpr IconGlyph kChargeGlyph = {
+    7, 9,
+    {0x10, 0x18, 0x1C, 0x0E, 0x7F, 0x38, 0x1C, 0x0C, 0x04},
+};
+
+constexpr IconGlyph kWifiGlyphs[] = {
+    {17, 13, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x380, 0x380, 0x100}},
+    {17, 13, {0, 0, 0, 0, 0, 0x7C0, 0x1830, 0x2008, 0x1010, 0, 0x380, 0x380, 0x100}},
+    {17, 13, {0xFE0, 0x3018, 0x4004, 0x8002, 0, 0x7C0, 0x1830, 0x2008, 0x1010, 0, 0x380, 0x380, 0x100}},
+};
+
+constexpr IconGlyph kBluetoothGlyph = {
+    11, 17,
+    {
+        0x020, 0x060, 0x0A0, 0x130, 0x222, 0x124, 0x0A8, 0x070, 0x020,
+        0x070, 0x0A8, 0x124, 0x222, 0x130, 0x0A0, 0x060, 0x020,
+    },
 };
 
 // Full uppercase ASCII needed by dates and explicit unavailable states.
@@ -129,6 +168,8 @@ uint16_t tone_color(StatusTone tone)
         return kFault;
     case StatusTone::Muted:
         return kMuted;
+    case StatusTone::Active:
+        return kActive;
     }
     return kFault;
 }
@@ -158,6 +199,28 @@ void put_pixel(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column,
         return;
     }
     strip.pixels[(canvas_y - first_row) * strip.stride + canvas_x - first_column] = stored_color;
+}
+
+// glyph: Immutable row-mask icon stored in flash rodata.
+// left: Logical x coordinate of the icon's left edge.
+// top: Logical y coordinate of the icon's top edge.
+// strip: Validated compact RGB565 target.
+// first_row: Logical y origin of the compact target.
+// first_column: Logical x origin of the compact target.
+// stored_color: Color already encoded for the target byte order.
+void draw_icon_glyph(const IconGlyph &glyph, int left, int top,
+                     CODY2D::Surface strip, uint16_t first_row,
+                     uint16_t first_column, uint16_t stored_color)
+{
+    for (uint8_t row = 0; row < glyph.height; ++row) {
+        const uint32_t row_mask = glyph.rows[row];
+        for (uint8_t column = 0; column < glyph.width; ++column) {
+            if ((row_mask & (1UL << column)) != 0) {
+                put_pixel(strip, first_row, first_column,
+                          left + column, top + row, stored_color);
+            }
+        }
+    }
 }
 
 // text: Bounded null-terminated status text.
@@ -198,23 +261,6 @@ esp_err_t draw_text(const char *text, int left, int top, CODY2D::Surface strip,
     return ESP_OK;
 }
 
-// text: Bounded null-terminated status text to center on the display axis.
-// top: Logical y coordinate of the first glyph row.
-// strip: Validated compact RGB565 target.
-// first_row: Logical y origin of the compact target.
-// first_column: Logical x origin of the compact target.
-// stored_color: Color already encoded for the target byte order.
-// Exception: Returns the real bounded-text drawing error.
-esp_err_t draw_centered_text(const char *text, int top, CODY2D::Surface strip,
-                             uint16_t first_row, uint16_t first_column,
-                             uint16_t stored_color)
-{
-    const size_t length = std::strlen(text);
-    const int width = static_cast<int>(length * kCharacterAdvance - 1U);
-    return draw_text(text, kPanelCenter - width / 2, top, strip,
-                     first_row, first_column, stored_color);
-}
-
 // overlay: Prepared battery level, validity and charging state.
 // strip: Validated compact RGB565 target.
 // first_row: Logical y origin of the compact target.
@@ -225,27 +271,15 @@ void draw_battery(const StatusOverlay &overlay, CODY2D::Surface strip,
                   uint16_t first_row, uint16_t first_column,
                   uint16_t stored_color, uint16_t charge_color)
 {
-    constexpr int width = 20;
-    constexpr int height = 12;
-    for (int x = 0; x < width; ++x) {
-        put_pixel(strip, first_row, first_column, kBatteryLeft + x, kBatteryTop, stored_color);
-        put_pixel(strip, first_row, first_column, kBatteryLeft + x,
-                  kBatteryTop + height - 1, stored_color);
-    }
-    for (int y = 1; y < height - 1; ++y) {
-        put_pixel(strip, first_row, first_column, kBatteryLeft, kBatteryTop + y, stored_color);
-        put_pixel(strip, first_row, first_column, kBatteryLeft + width - 1,
-                  kBatteryTop + y, stored_color);
-    }
-    for (int y = 4; y < 8; ++y) {
-        put_pixel(strip, first_row, first_column, kBatteryLeft + width, kBatteryTop + y,
-                  stored_color);
-        put_pixel(strip, first_row, first_column, kBatteryLeft + width + 1,
-                  kBatteryTop + y, stored_color);
-    }
-    if (overlay.battery_percent_valid) {
-        const int fill_width = (overlay.battery_percent * (width - 4) + 99) / 100;
-        for (int y = 3; y < height - 3; ++y) {
+    draw_icon_glyph(
+        kBatteryGlyph, kBatteryLeft, kBatteryTop,
+        strip, first_row, first_column, stored_color
+    );
+    if (overlay.battery_present && overlay.battery_percent_valid) {
+        constexpr int interior_width = 15;
+        const int fill_width =
+            (overlay.battery_percent * interior_width + 99) / 100;
+        for (int y = 2; y <= 9; ++y) {
             for (int x = 0; x < fill_width; ++x) {
                 put_pixel(strip, first_row, first_column, kBatteryLeft + 2 + x,
                           kBatteryTop + y, stored_color);
@@ -253,11 +287,10 @@ void draw_battery(const StatusOverlay &overlay, CODY2D::Surface strip,
         }
     }
     if (overlay.battery_charging) {
-        const int bolt[][2] = {{10, 2}, {7, 7}, {10, 7}, {8, 11}, {14, 5}, {11, 5}};
-        for (const auto &point : bolt) {
-            put_pixel(strip, first_row, first_column, kBatteryLeft + point[0],
-                      kBatteryTop + point[1], charge_color);
-        }
+        draw_icon_glyph(
+            kChargeGlyph, kBatteryLeft + 7, kBatteryTop + 1,
+            strip, first_row, first_column, charge_color
+        );
     }
 }
 
@@ -270,21 +303,23 @@ void draw_wifi(uint8_t bars, CODY2D::Surface strip, uint16_t first_row,
                uint16_t first_column, uint16_t stored_color)
 {
     const uint8_t visible_bars = bars == 0 ? 3 : std::min<uint8_t>(bars, 3);
-    for (int y = kWifiCenterY - 13; y <= kWifiCenterY; ++y) {
-        for (int x = kWifiCenterX - 13; x <= kWifiCenterX + 13; ++x) {
-            const int dx = x - kWifiCenterX;
-            const int dy = y - kWifiCenterY;
-            const int distance_squared = dx * dx + dy * dy;
-            const bool dot = distance_squared <= 4;
-            const bool inner = visible_bars >= 2 && distance_squared >= 30 &&
-                distance_squared <= 49 && dy <= -3;
-            const bool outer = visible_bars >= 3 && distance_squared >= 110 &&
-                distance_squared <= 156 && dy <= -5;
-            if ((visible_bars >= 1 && dot) || inner || outer) {
-                put_pixel(strip, first_row, first_column, x, y, stored_color);
-            }
-        }
-    }
+    draw_icon_glyph(
+        kWifiGlyphs[visible_bars - 1], kWifiLeft, kWifiTop,
+        strip, first_row, first_column, stored_color
+    );
+}
+
+// strip: Validated compact RGB565 target.
+// first_row: Logical y origin of the compact target.
+// first_column: Logical x origin of the compact target.
+// stored_color: Semantic Bluetooth color encoded for the target byte order.
+void draw_bluetooth(CODY2D::Surface strip, uint16_t first_row,
+                    uint16_t first_column, uint16_t stored_color)
+{
+    draw_icon_glyph(
+        kBluetoothGlyph, kBluetoothLeft, kBluetoothTop,
+        strip, first_row, first_column, stored_color
+    );
 }
 
 // destination: Bounded output string.
@@ -308,10 +343,10 @@ esp_err_t format_number(char *destination, size_t capacity, const char *format, 
 // No parameters: return the complete half-open footprint shared by damage planning.
 DamageRect status_overlay_damage_bounds()
 {
-    return {91, 5, 365, 64};
+    return {106, 37, 362, 58};
 }
 
-// observation: Coherent canonical battery, local calendar and Wi-Fi state.
+// observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.
 // overlay: Receives a complete truthful presentation only after bounded formatting.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
 esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &observation,
@@ -322,14 +357,16 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
     next.battery_tone = component_tone(battery);
     if (battery.data_stale) {
         std::snprintf(next.battery, sizeof(next.battery), "STALE");
+        next.battery_tone = StatusTone::Warning;
     } else if (battery.health == LUNASHELL::DeviceHealth::Ready &&
                battery.last_error == ESP_OK && battery.data_valid) {
+        next.battery_present = battery.battery_present;
         if (!battery.battery_present) {
-            std::snprintf(next.battery, sizeof(next.battery), "NO BATTERY");
+            next.battery[0] = '\0';
             next.battery_tone = StatusTone::Muted;
         } else if (!battery.level_percent_valid || battery.level_percent < 0 ||
                    battery.level_percent > 100) {
-            std::snprintf(next.battery, sizeof(next.battery), "UNAVAILABLE");
+            std::snprintf(next.battery, sizeof(next.battery), "ERR");
             next.battery_tone = StatusTone::Fault;
         } else {
             const esp_err_t format_error = format_number(
@@ -340,11 +377,21 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
             }
             next.battery_percent_valid = true;
             next.battery_percent = static_cast<uint8_t>(battery.level_percent);
-            next.battery_tone = battery.level_percent <= 12 ? StatusTone::Fault :
-                battery.level_percent <= 30 ? StatusTone::Warning : StatusTone::Ready;
+            next.battery_tone = battery.level_percent <= 15 ? StatusTone::Fault :
+                battery.level_percent <= 50 ? StatusTone::Warning : StatusTone::Ready;
         }
         next.battery_charging = battery.battery_present && battery.usb_present &&
             std::strcmp(battery.power_state, "charging") == 0;
+        if (next.battery_charging) {
+            next.battery_tone = StatusTone::Active;
+        }
+    } else if (battery.health == LUNASHELL::DeviceHealth::Missing ||
+               next.battery_tone == StatusTone::Muted) {
+        next.battery[0] = '\0';
+        next.battery_tone = StatusTone::Muted;
+    } else {
+        std::snprintf(next.battery, sizeof(next.battery), "ERR");
+        next.battery_tone = StatusTone::Fault;
     }
 
     const auto &clock = observation.clock;
@@ -404,6 +451,21 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
         } else {
             next.wifi_tone = StatusTone::Muted;
         }
+    } else if (wifi.health == LUNASHELL::DeviceHealth::Missing ||
+               next.wifi_tone == StatusTone::Muted) {
+        next.wifi_tone = StatusTone::Muted;
+    }
+
+    const auto &bluetooth = observation.ble;
+    next.bluetooth_tone = component_tone(bluetooth);
+    if (bluetooth.health == LUNASHELL::DeviceHealth::Ready &&
+        bluetooth.last_error == ESP_OK && bluetooth.data_valid) {
+        next.bluetooth_active = true;
+        next.bluetooth_tone = bluetooth.connected
+            ? StatusTone::Ready : StatusTone::Active;
+    } else if (bluetooth.health == LUNASHELL::DeviceHealth::Missing ||
+               next.bluetooth_tone == StatusTone::Muted) {
+        next.bluetooth_tone = StatusTone::Muted;
     }
 
     overlay = next;
@@ -420,10 +482,13 @@ bool status_overlay_equal(const StatusOverlay &left, const StatusOverlay &right)
         left.clock_tone == right.clock_tone &&
         left.battery_tone == right.battery_tone &&
         left.wifi_tone == right.wifi_tone &&
+        left.bluetooth_tone == right.bluetooth_tone &&
         left.battery_percent == right.battery_percent &&
         left.wifi_bars == right.wifi_bars &&
         left.battery_percent_valid == right.battery_percent_valid &&
-        left.battery_charging == right.battery_charging;
+        left.battery_present == right.battery_present &&
+        left.battery_charging == right.battery_charging &&
+        left.bluetooth_active == right.bluetooth_active;
 }
 
 // overlay: Prepared immutable text and semantic icon state.
@@ -462,28 +527,37 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
         CODY2D::fade_rgb565_to_black(tone_color(overlay.wifi_tone), opacity),
         strip.byte_order
     );
+    const uint16_t bluetooth_color = CODY2D::rgb565_native_to_stored(
+        CODY2D::fade_rgb565_to_black(tone_color(overlay.bluetooth_tone), opacity),
+        strip.byte_order
+    );
     const uint16_t charge_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::fade_rgb565_to_black(kCharge, opacity), strip.byte_order
+        CODY2D::fade_rgb565_to_black(kChargeMark, opacity), strip.byte_order
     );
 
-    esp_err_t result = draw_centered_text(
-        overlay.date, kDateTop, strip, first_row, first_column, clock_color
+    esp_err_t result = draw_text(
+        overlay.date, kDateLeft, kDateTop,
+        strip, first_row, first_column, clock_color
     );
     if (result == ESP_OK) {
-        result = draw_centered_text(
-            overlay.time, kTimeTop, strip, first_row, first_column, clock_color
+        result = draw_text(
+            overlay.time, kTimeLeft, kTimeTop,
+            strip, first_row, first_column, clock_color
         );
     }
     if (result != ESP_OK) {
         return result;
     }
     draw_battery(overlay, strip, first_row, first_column, battery_color, charge_color);
-    result = draw_text(overlay.battery, kBatteryTextLeft, kBatteryTextTop,
-                       strip, first_row, first_column, battery_color);
-    if (result != ESP_OK) {
-        return result;
+    if (overlay.battery[0] != '\0') {
+        result = draw_text(overlay.battery, kBatteryTextLeft, kBatteryTextTop,
+                           strip, first_row, first_column, battery_color);
+        if (result != ESP_OK) {
+            return result;
+        }
     }
     draw_wifi(overlay.wifi_bars, strip, first_row, first_column, wifi_color);
+    draw_bluetooth(strip, first_row, first_column, bluetooth_color);
     return ESP_OK;
 }
 

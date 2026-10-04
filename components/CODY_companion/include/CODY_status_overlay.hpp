@@ -14,6 +14,7 @@ enum class StatusTone : uint8_t {
     Missing,
     Fault,
     Muted,
+    Active,
 };
 
 // Prepared text and icon semantics contain no renderer or hardware ownership.
@@ -24,16 +25,19 @@ struct StatusOverlay {
     StatusTone clock_tone = StatusTone::Muted;
     StatusTone battery_tone = StatusTone::Muted;
     StatusTone wifi_tone = StatusTone::Muted;
+    StatusTone bluetooth_tone = StatusTone::Muted;
     uint8_t battery_percent = 0;
     uint8_t wifi_bars = 0;
     bool battery_percent_valid = false;
+    bool battery_present = false;
     bool battery_charging = false;
+    bool bluetooth_active = false;
 };
 
 // No parameters: return the complete half-open footprint shared by damage planning.
 DamageRect status_overlay_damage_bounds();
 
-// observation: Coherent canonical battery, local calendar and Wi-Fi state.
+// observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.
 // overlay: Receives a complete truthful presentation only after bounded formatting.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
 esp_err_t prepare_status_overlay(
