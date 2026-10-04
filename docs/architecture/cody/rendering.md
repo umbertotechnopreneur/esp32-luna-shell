@@ -208,7 +208,10 @@ Evidence resides in the DMA worktree's
 `artifacts/build-cody-companion-debug/evidence/dma{,-adaptive}-benchmark-100.log`.
 These windows establish performance on the fixed route, not physical animation,
 touch latency or visual correctness in all routes. Normal UI verification remains
-separate.
+separate. The benchmark-disabled Debug boot capture at `6261cdb2` admitted two
+8-row startup slots, completed initialization and inactivity standby, and showed
+no display fault or panic. This confirms adaptive capacity and retirement in
+ordinary startup, not the fixed route's timing in the complete UI.
 
 `assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
 Debug execution timings and the native Pearl renderer are enabled. The worker

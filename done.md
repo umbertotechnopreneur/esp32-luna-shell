@@ -33,8 +33,16 @@ and referenced architecture/artifact records.
   No display completion/quarantine failure or panic was captured; normal idle
   standby drained the renderer and rearmed the BLE reserve. SD transport timeouts
   and I2S disable diagnostics were also observed, matching existing open issues.
-  Benchmark autostart/detail have been restored to false; final ordinary-image
-  Debug/Release verification, flash and boot capture remain pending.
+  Benchmark autostart/detail have been restored to false. Normal Debug and Release
+  builds pass at `6261cdb2`; only Debug was flashed, with hash verification. Its
+  95-second `dma-normal-boot.log` capture identifies that version, ordinary SIMD,
+  two 8-row startup slots, DISPLAY/TOUCH/WIFI/BLE ready and completed inactivity
+  standby with the BLE reserve restored. No benchmark entry, display fault or
+  panic was captured. Normal-route performance, visual/touch/PWR correctness and
+  repeated wake cycles remain unverified. The stored normal Debug SHA256 is
+  `6377266e447ea059f94b94406c07fca13c8335072e07f13ddb8cce84dada2bdf`;
+  Release is `7b8a8d5c282ff5157b1be7823409adc4e5b0ba9eab964478f015a5d6b6e6521f`.
+  `git diff --check` and the changed-files secret scan pass for this increment.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host
