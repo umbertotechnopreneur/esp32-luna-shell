@@ -195,10 +195,16 @@ Debug fade still require authorized simulator/device checks. Pending-command
 changes also advance the separate control revision, so dimmed lateral controls
 are repainted when admission/QR work completes.
 
-The selector extraction, explicit caller/Done context and asynchronous preference
-write have static source review only. Source regression guards were added to the
-existing snapshot-integrity check but have not been executed. Pending checks:
+On 2026-10-04, the authorized `snapshot-integrity`, `cody-native`, `cody-runtime`,
+`cody-response` and `cody-poc` checks passed. This includes the selector source
+ownership guards, all five real look textures, actual C++ persistence with
+host-injected read/write failures, missing-only default persistence, retry, and
+the requirement that a successful write cannot activate the renderer selection.
+The host suites also cover 32 preview contracts, 15 response tests and a
+500-tick native/Python response fixture. Their settings fixture has no real NVS
+driver and does not establish hardware write timing or asynchronous UI behavior.
+Pending runtime checks:
 repeated success/failure/retry, an eight-digit error code, busy navigation, route
 reset during NVS work, rotation during a gesture, completed-frame ownership,
 canonical result ordering, and no RAM growth across repeated entries. None of
-these runtime properties is claimed as validated on host or hardware.
+these end-to-end properties is claimed as validated by the host checks.

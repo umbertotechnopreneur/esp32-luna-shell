@@ -390,17 +390,18 @@ void damage_contracts()
 }
 } // namespace
 
-// Emit a fifty-second fixture from the actual C++ model for independent Python parity.
+// No parameters: emit fifty seconds from the actual C++ model for independent Python parity.
 int main()
 {
-    require(CODY::rig_control_at({233, 40}) == CODY::RigControl::Pause &&
-            CODY::rig_control_at({233, 69}) == CODY::RigControl::Pause &&
-            CODY::rig_control_at({233, 73}) == CODY::RigControl::None,
-            "pause target must stay in the upper arc outside the safe square");
-    require(CODY::rig_control_at({40, 233}) == CODY::RigControl::Back &&
-            CODY::rig_control_at({426, 233}) == CODY::RigControl::Overlay &&
+    require(CODY::rig_control_at({160, 52}) == CODY::RigControl::Pause &&
+            CODY::rig_control_at({306, 52}) == CODY::RigControl::Overlay &&
+            CODY::rig_control_at({158, 74}) == CODY::RigControl::None &&
+            CODY::rig_control_at({308, 74}) == CODY::RigControl::None,
+            "rounded Debug controls stay above the central safe square");
+    require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None &&
+            CODY::rig_control_at({426, 233}) == CODY::RigControl::None &&
             CODY::rig_control_at({233, 233}) == CODY::RigControl::None,
-            "pause target must not steal lateral controls or character taps");
+            "hidden lateral controls cannot steal character taps");
     benchmark_contracts();
     demo_contracts();
     damage_contracts();

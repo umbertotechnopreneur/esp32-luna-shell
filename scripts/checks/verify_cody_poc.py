@@ -640,7 +640,7 @@ class RigContractTests(unittest.TestCase):
         self.assertEqual(legacy.mode, 'P')
         self.assertEqual(legacy.getpixel((1, 1)), white)
 
-    # self receives the test context: navigation must hit the controls in the last displayed viewport.
+    # self: Test context checking current named controls against the last displayed viewport.
     def test_tk_boot_back_and_point_inspection(self):
         root=tk.Tk(); root.withdraw()
         window=CodyWindow(root,CodyRenderer(),SimpleNamespace(screen='boot-ready',rotation=180,safe_guide=True))
@@ -652,19 +652,33 @@ class RigContractTests(unittest.TestCase):
             window.touch(SimpleNamespace(x=x,y=y))
             self.assertEqual(window.screen.get(),'rig')
             self.render_preview_frame(window)
+            initial_debug = window.debug.get()
             x, y = window.layout.to_canvas(426, 233, window.display_rotation)
             window.rotation.set(0)
             window.touch(SimpleNamespace(x=x,y=y))
-            self.assertFalse(window.debug.get())
+            self.assertEqual(window.debug.get(), initial_debug)
             self.assertEqual(window.display_rotation, 180)
-            window.touch(SimpleNamespace(x=x,y=y))
-            self.assertTrue(window.debug.get())
+            overlay = next(control for control in window.renderer.navigation['controls']
+                           if control['id'] == 'overlay')
+            x, y = window.layout.to_canvas(*overlay['icon_center'], window.display_rotation)
+            window.navigation_visibility = NavigationVisibility(window.renderer.navigation)
+            window.touch(SimpleNamespace(x=x, y=y))
+            self.assertEqual(window.debug.get(), initial_debug)
+            # Seed a fully revealed toolbar without sleeping or advancing the stimulus clock.
+            window.navigation_visibility = NavigationVisibility(window.renderer.navigation)
+            now_us = int(time.perf_counter() * 1_000_000)
+            window.navigation_visibility.interact(now_us - window.navigation_visibility.fade_us - 1000)
+            window.touch(SimpleNamespace(x=x, y=y))
+            self.assertEqual(window.debug.get(), not initial_debug)
             window.preset('sleep')
             self.assertEqual([value.get() for value in window.values][:2],[0,0])
             x, y = window.layout.to_canvas(40, 233, window.display_rotation)
             # The selector can request a new route before its first frame is presented.
             window.screen.set('boot-waking')
             window.touch(SimpleNamespace(x=x,y=y))
+            self.assertEqual(window.screen.get(),'boot-waking')
+            # Lateral Back is intentionally hidden; Escape remains the host's back action.
+            window.back()
             self.assertEqual(window.screen.get(),'boot-ready')
             for screen in ('boot-sleep','boot-waking','boot-ready','rig'):
                 window.screen.set(screen)

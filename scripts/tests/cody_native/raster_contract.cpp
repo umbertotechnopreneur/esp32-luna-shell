@@ -4,6 +4,7 @@
 #include "CODY_rig.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_jelly_data.hpp"
+#include "host_settings.hpp"
 #include "CODY_lifecycle.hpp"
 #include "CODY_navigation_visibility.hpp"
 #include "LUNASHELL_button_hold.hpp"
@@ -497,16 +498,21 @@ void check_rig_contract()
             "invalid face channel is rejected");
     require(!scene.valid, "failed evaluation invalidates the previous scene");
 }
-// No parameters: inspect the real packed asset and sample its three alpha cases.
-void check_jelly_texture_contract()
+// skin: Authored identity selecting one real immutable packed texture.
+void check_jelly_texture_samples(const CODY::JellySkinDefinition &skin)
 {
+    const uint32_t *texture = CODY::JellyData::pixels_for(skin.id);
+    require(texture != nullptr, "every authored look has a real flash texture");
+    if (texture == nullptr) {
+        return;
+    }
     std::array<uint32_t, 3> examples{};
     bool found_transparent = false;
     bool found_opaque = false;
     bool found_edge = false;
     bool valid_premultiplication = true;
-    for (uint32_t index = 0; index < std::size(CODY::JellyData::pixels); ++index) {
-        const uint32_t pixel = CODY::JellyData::pixels[index];
+    for (uint32_t index = 0; index < CODY::JellyData::width * CODY::JellyData::height; ++index) {
+        const uint32_t pixel = texture[index];
         const uint32_t alpha = pixel >> 24U;
         valid_premultiplication = valid_premultiplication &&
             (pixel & 255U) <= alpha && ((pixel >> 8U) & 255U) <= alpha &&
@@ -529,6 +535,7 @@ void check_jelly_texture_contract()
     for (uint32_t index : examples) {
         CODY::JellyFrame frame;
         frame.valid = true;
+        frame.skin_id = static_cast<uint16_t>(skin.id);
         frame.bounds = {10, 10, 11, 11};
         auto &row = frame.rows[10];
         row.left = 10;
@@ -540,7 +547,7 @@ void check_jelly_texture_contract()
         std::array<uint16_t, 3> pixels{0x001f, guard, guard};
         const CODY2D::Surface tile{pixels.data(), 1, 1, 3, 3};
         require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_OK, "jelly alpha sample renders in a compact tile");
-        const uint32_t source = CODY::JellyData::pixels[index];
+        const uint32_t source = texture[index];
         const double alpha = static_cast<double>(source >> 24U);
         const auto red = std::lround((source & 255U) * 31.0 / 255.0);
         const auto green = std::lround(((source >> 8U) & 255U) * 63.0 / 255.0);
@@ -553,6 +560,14 @@ void check_jelly_texture_contract()
         require(CODY::draw_jelly_rows(frame, tile, 10, 10) == ESP_ERR_INVALID_ARG,
                 "jelly refuses an invalid prepared mapping");
         require(pixels == unchanged, "invalid jelly draw does not modify the destination");
+    }
+}
+
+// No parameters: all authored textures retain alpha, tile guards and bounded geometry.
+void check_jelly_texture_contract()
+{
+    for (const auto &skin : CODY::JellySkinCatalog::definitions) {
+        check_jelly_texture_samples(skin);
     }
     CODY::RigScene scene;
     require(CODY::evaluate_rig(CODY::Data::defaults, CODY::Data::placement, scene) == ESP_OK,
@@ -668,6 +683,66 @@ void check_navigation_visibility_contract()
     require(visibility.opacity(11495000) == partially_hidden && visibility.opacity(11825000) == 255,
             "touch during fade-out reverses from the existing opacity without a flash");
 }
+// No parameters: execute actual look persistence against explicit host fault injection.
+void check_jelly_settings_contract()
+{
+    const auto original_entry = std::find_if(std::begin(CODY::JellySkinCatalog::definitions),
+        std::end(CODY::JellySkinCatalog::definitions), [](const auto &skin) {
+            return skin.id == CODY::JellySkinId::PearlMist;
+        });
+    const auto requested_entry = std::find_if(std::begin(CODY::JellySkinCatalog::definitions),
+        std::end(CODY::JellySkinCatalog::definitions), [](const auto &skin) {
+            return skin.id == CODY::JellySkinId::AuroraVeil;
+        });
+    require(original_entry != std::end(CODY::JellySkinCatalog::definitions) &&
+            requested_entry != std::end(CODY::JellySkinCatalog::definitions),
+            "the fixture's typed authored identities exist");
+    if (original_entry == std::end(CODY::JellySkinCatalog::definitions) ||
+        requested_entry == std::end(CODY::JellySkinCatalog::definitions)) {
+        return;
+    }
+    const auto &original = *original_entry;
+    const auto &requested = *requested_entry;
+    require(CODY::select_jelly_skin(original.key) == ESP_OK, "fixture selects its initial look");
+    HostSettings::reset();
+    auto &storage = HostSettings::state();
+    require(CODY::load_persisted_jelly_skin() == ESP_OK && storage.write_attempts == 1,
+            "only an absent look key persists the first-boot default");
+
+    storage.read_error = ESP_ERR_INVALID_RESPONSE;
+    storage.write_attempts = 0;
+    require(CODY::load_persisted_jelly_skin() == ESP_ERR_INVALID_RESPONSE &&
+            storage.write_attempts == 0, "a failed settings read is not repaired or treated as missing");
+    storage.read_error = ESP_OK;
+    storage.saved_value = "unknown.look.id";
+    require(CODY::load_persisted_jelly_skin() == ESP_ERR_INVALID_STATE &&
+            storage.write_attempts == 0, "an invalid saved identity is never overwritten");
+
+    storage.write_error = ESP_FAIL;
+    require(CODY::persist_jelly_skin(requested.key) == ESP_FAIL,
+            "failed look persistence returns the exact storage error");
+    CODY::JellySkinSelection selection;
+    require(CODY::selected_jelly_skin(selection) == ESP_OK &&
+            std::string(selection.id) == original.key, "a failed save keeps the displayed look");
+    storage.write_error = ESP_OK;
+    require(CODY::persist_jelly_skin(requested.key) == ESP_OK &&
+            storage.saved_value == requested.key, "retry persists the requested stable identity");
+    require(CODY::selected_jelly_skin(selection) == ESP_OK &&
+            std::string(selection.id) == original.key,
+            "successful persistence alone cannot change renderer selection");
+    require(CODY::select_jelly_skin(requested.key) == ESP_OK,
+            "the display owner explicitly activates a confirmed save");
+    require(CODY::selected_jelly_skin(selection) == ESP_OK &&
+            std::string(selection.id) == requested.key, "confirmed activation selects the requested look");
+
+    const unsigned writes_before_rejection = storage.write_attempts;
+    require(CODY::persist_jelly_skin(nullptr) == ESP_ERR_INVALID_ARG &&
+            CODY::persist_jelly_skin("unknown.look.id") == ESP_ERR_NOT_FOUND &&
+            storage.write_attempts == writes_before_rejection,
+            "invalid requests never reach the settings owner");
+    require(CODY::select_jelly_skin(original.key) == ESP_OK, "restore the initial look for later contracts");
+    HostSettings::reset();
+}
 
 // No parameters: exercise the same allocation-free hold detector used by PWR.
 void check_button_hold_contract()
@@ -746,6 +821,7 @@ int main()
         check_compact_raster_contract();
         check_dirty_plan_contract();
         check_jelly_texture_contract();
+        check_jelly_settings_contract();
         check_capsule_contract();
         check_navigation_visibility_contract();
         check_button_hold_contract();

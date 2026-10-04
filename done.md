@@ -1,5 +1,18 @@
 # Done
 
+## Cody look persistence host regression checks (2026-10-04)
+
+- [x] Update the native harness for the five typed flash textures and the real
+  settings interface. Inject storage outcomes only in host test sources; no
+  firmware compatibility paths or sensor data are introduced.
+- [x] Exercise read/write error propagation, invalid saved identities,
+  missing-only defaults, retry and display-owned selection activation.
+- [x] Replace obsolete simulator/native lateral and upper-arc expectations with
+  the current named rounded controls, hidden Back and touch-only toolbar reveal.
+- [x] Run the explicitly authorized snapshot-integrity, cody-native,
+  cody-runtime, cody-response (15 tests) and cody-poc (32 tests) checks. Hardware
+  async races, memory growth and visual behavior are not proven by these checks.
+
 ## Shared white Cody QR pages (2026-10-04)
 
 - [x] Give installation/session QR routes the same white scene theme, black

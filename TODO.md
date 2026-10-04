@@ -10,8 +10,10 @@ authorization.
   extraction and asynchronous save: success/failure/retry, busy Back/Done,
   route reset during a write, rotation during touch, original error visibility
   in the canonical snapshot, and bounded memory across repeated entries.
-  Include the added snapshot-integrity source guards. Implementation received
-  static review only; no build, tests, simulator or hardware checks ran.
+  On 2026-10-04, snapshot-integrity, cody-native, cody-runtime, cody-response
+  (15 tests) and cody-poc (32 tests) passed. Actual C++ host fault injection
+  covers persistence errors/retry and display-owned activation; async UI races
+  and repeated-entry memory behavior remain unverified on the device.
   See `docs/architecture/cody-onboarding.md`.
 
 - [ ] After fresh authorization, validate the shared white QR pages: installation

@@ -15,3 +15,4 @@ inline void host_error_log(const char *tag, const char *format, ...)
     std::fputc('\n', stderr);
 }
 #define ESP_LOGE(tag, ...) host_error_log(tag, __VA_ARGS__)
+#define ESP_LOGI(tag, ...) host_error_log(tag, __VA_ARGS__)
