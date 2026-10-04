@@ -7,6 +7,12 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Created the 14-page English Codex Connection Atlas with three ImageGen
+  concept scenes, circular previews, visual flows and handwriting space on
+  every page. All pages were rendered and visually reviewed; the PDF is mirrored
+  in Obsidian and `docs/Cody/`. Existing atlases remain unchanged. Document
+  review does not validate runtime/LAN/device behavior.
+  [Artifact record](docs/planning/2026-10-04-codex-connection-atlas.md).
 - Implemented standalone Cody boot assets, front-facing named cloud rig, palette,
   face/contour channels, debug overlays, responsive Windows inspector and
   synthetic stimuli. Added the canonical-snapshot response engine, fatigue/
