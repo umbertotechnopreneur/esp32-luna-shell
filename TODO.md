@@ -39,8 +39,10 @@ older host/build/flash evidence does not validate the current combined image.
   65,536 weight combinations and then compares live RGBA samples; `simd` and
   `scalar` are separate timing captures. The S3 Debug build and corrected MSVC
   host suite passed. The S3 verification run compared 30,267,144 live samples
-  across 489 measured frames with no mismatch. Capture independent `simd` and
-  fresh `scalar` timings under the same workload; no speed gain is established.
+  across 489 measured frames with no mismatch. At 100% scale, the fresh A/B
+  improved frame mean by 1,104 us and p95 by 1,139 us, but all frames still
+  missed 40 ms. Profile preparation/interpolation/composition separately, then
+  target the dominant cost. Confirm useful changes at 50/75% and in the full UI.
   Add deterministic animated work after trustworthy timings; include
   packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

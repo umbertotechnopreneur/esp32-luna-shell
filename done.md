@@ -7,13 +7,19 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Fresh C control on the same 100% route: 684 frames, mean 56,950 us, p95
+  57,634 us, jelly mean 37,106 us; all missed 40 ms. Against the 697-frame SIMD
+  run below, SIMD reduced frame mean by 1,104 us (1.94%), p95 by 1,139 us
+  (1.98%) and jelly mean by 1,226 us (3.30%). Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-scalar-100-fresh.log`.
+  This is a measured fixed-pose gain; it does not meet the 25 FPS budget.
 - Measured the S3 `simd` kernel on the same fixed 100% Pearl Mist route for 40
   seconds: 697 frames, 63,000 submitted pixels each, frame mean 55,846 us and
   full-run p95 56,495 us. Jelly mean 35,880 us; 31,434,700 pixels used SIMD,
   139,400 used scalar tails and 11,567,412 skipped all-zero footprints. All
   697 frames exceeded the 40 ms budget. Evidence:
   `artifacts/build-cody-companion-debug/evidence/cody-simd-100.log`.
-  A fresh C run is required before attributing a measured gain to SIMD.
+  The fresh C control above confirms a small gain for this fixed scene.
 - Flashed the S3 Debug verifier with all written hashes accepted. In the second
   80-second reset/capture, the actual PIE kernel passed 65,536 weight pairs and
   262,144 reference samples, then compared 30,267,144 live RGBA samples across

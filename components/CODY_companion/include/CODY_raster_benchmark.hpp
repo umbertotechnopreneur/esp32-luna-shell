@@ -22,6 +22,7 @@ struct RasterRunSummary {
     uint64_t transfer_us = 0;
     uint64_t jelly_us = 0;
     uint64_t vector_us = 0;
+    uint64_t preparation_us = 0;
     uint64_t interpolation_us = 0;
     uint64_t composition_us = 0;
     uint64_t sampled_pixels = 0;

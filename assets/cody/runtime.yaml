@@ -11,9 +11,9 @@ demo:
 benchmark:
   # Debug-only fixed route for comparable native raster captures; it never feeds a firmware snapshot.
   enabled: true
-  profile_blocks: false
+  profile_blocks: true
   # scalar = baseline, simd_verify = exact comparison, simd = performance run.
-  kernel: scalar
+  kernel: simd
   cloud_scale_percent: 100
 diagnostics:
   execution_timings: true

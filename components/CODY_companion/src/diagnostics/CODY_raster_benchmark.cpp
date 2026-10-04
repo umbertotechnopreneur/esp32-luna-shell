@@ -84,6 +84,7 @@ esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
     summary_.transfer_us += costs.transfer_us;
     summary_.jelly_us += jelly.total_us;
     summary_.vector_us += vector_us;
+    summary_.preparation_us += jelly.preparation_us;
     summary_.interpolation_us += jelly.interpolation_us;
     summary_.composition_us += jelly.blend_us;
     summary_.sampled_pixels += jelly.sampled_pixels;

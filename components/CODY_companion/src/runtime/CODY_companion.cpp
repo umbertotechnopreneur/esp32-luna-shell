@@ -637,7 +637,8 @@ esp_err_t stop_raster_benchmark(bool completed, const char *reason)
              static_cast<unsigned long long>(summary.vector_us / summary.frames),
              static_cast<unsigned>(CODY::RuntimeData::raster_benchmark_profile_blocks));
     if (CODY::RuntimeData::raster_benchmark_profile_blocks) {
-        ESP_LOGI(kTag, "BENCH detail interp_us=%llu compose_us=%llu sampled=%llu written=%llu",
+        ESP_LOGI(kTag, "BENCH detail prep_us=%llu interp_us=%llu compose_us=%llu sampled=%llu written=%llu",
+                 static_cast<unsigned long long>(summary.preparation_us),
                  static_cast<unsigned long long>(summary.interpolation_us),
                  static_cast<unsigned long long>(summary.composition_us),
                  static_cast<unsigned long long>(summary.sampled_pixels),

@@ -107,6 +107,9 @@ void check_kernel_identity()
     require(run.begin(kEntry) == ESP_OK, "begin SIMD identity run");
     CODY::JellyRasterProfile profile;
     profile.kernel = CODY::JellyRasterKernel::Simd;
+    profile.preparation_us = 130;
+    profile.interpolation_us = 210;
+    profile.blend_us = 90;
     profile.vectorized_pixels = 480;
     profile.scalar_tail_pixels = 1;
     profile.zero_footprint_pixels = 19;
@@ -120,6 +123,8 @@ void check_kernel_identity()
                        500, profile, 0) == ESP_ERR_INVALID_STATE, "reject verification frame in timing run");
     const auto &summary = run.summary();
     require(summary.frames == 1 && summary.kernel == CODY::JellyRasterKernel::Simd &&
+            summary.preparation_us == 130 && summary.interpolation_us == 210 &&
+            summary.composition_us == 90 &&
             summary.vectorized_pixels == 480 && summary.scalar_tail_pixels == 1 &&
             summary.zero_footprint_pixels == 19 && summary.verified_samples == 0,
             "rejected backend changes cannot contaminate counters or identity");
