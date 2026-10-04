@@ -1,0 +1,31 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "cody-codex-plugin",
+  "version": "0.1.0",
+  "description": "Discover and pair a Cody device on the local network from Codex.",
+  "author": {
+    "name": "Umberto Giacobbi"
+  },
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "Cody's Codex Plugin",
+        "shortDescription": "Pair Cody with Codex on the local network.",
+        "longDescription": "Discover Cody devices, match the six-character code shown on the physical display, and retain one authenticated local PC identity.",
+        "developerName": "Umberto Giacobbi",
+        "category": "Developer Tools",
+        "capabilities": [
+          "Interactive",
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Discover Cody devices on my local network.",
+          "Pair Cody using the six-character code shown on its display.",
+          "Show the current Cody connection status."
+        ],
+        "brandColor": "#28A9F7"
+      }
+    }
+  }
+}
