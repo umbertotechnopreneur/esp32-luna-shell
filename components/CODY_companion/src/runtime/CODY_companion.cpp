@@ -370,6 +370,17 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
 }
 
 // rig_visible: The current frame really renders the evaluated character.
+bool main_companion_view_active(bool rig_visible)
+{
+    // The automatic clock greeting is the ordinary idle companion, not an
+    // onboarding route. Its retained SceneFrame must not disable interactions.
+    const bool routine_main = s_state.routine_scene && s_state.scene.valid &&
+        s_state.scene.definition != nullptr && s_state.scene.definition->id == CODY::SceneId::Greeting;
+    return rig_visible && CODY::lifecycle_is_resting(s_state.lifecycle) &&
+        (!s_state.scene.valid || routine_main) && !s_state.resume_scene_pending;
+}
+
+// rig_visible: The current frame really renders the evaluated character.
 // Scene permission depends on semantic route/pose identity, independently of character size.
 CODY::PersonalityPresentation personality_presentation(bool rig_visible)
 {
@@ -379,18 +390,20 @@ CODY::PersonalityPresentation personality_presentation(bool rig_visible)
     if (s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep) {
         return CODY::PersonalityPresentation::Sleep;
     }
-    // The automatic clock greeting is the ordinary idle companion, not an
-    // onboarding route. Its retained SceneFrame must not disable interactions.
-    const bool routine_main = s_state.routine_scene && s_state.scene.valid &&
-        s_state.scene.definition != nullptr && s_state.scene.definition->id == CODY::SceneId::Greeting;
-    const bool main_view = CODY::lifecycle_is_resting(s_state.lifecycle) &&
-        (!s_state.scene.valid || routine_main) && !s_state.resume_scene_pending;
-    if (!main_view) {
+    if (!main_companion_view_active(rig_visible)) {
         return CODY::PersonalityPresentation::Disabled;
     }
     const bool sleeping_pose = s_state.expression_override &&
         s_state.requested_expression == CODY::ExpressionId::Sleeping;
     return sleeping_pose ? CODY::PersonalityPresentation::Sleep : CODY::PersonalityPresentation::Main;
+}
+
+// No parameters: use the current route, including boots that skip first-run Greeting 04.
+bool measured_readout_route_active()
+{
+    // Pairing is retained across boots. Its ordinary main view still owns a
+    // measurement window even when the onboarding greeting was never entered.
+    return s_state.greeting_entered || main_companion_view_active(s_state.rig_visible);
 }
 
 // No parameters: derive visible feedback from the independently completed SD write.
@@ -1754,7 +1767,7 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
             s_state.frame_rate = {};
         }
     }
-    if (!s_state.greeting_entered && !s_state.raster_benchmark_active) {
+    if (!measured_readout_route_active() && !s_state.raster_benchmark_active) {
         return ESP_OK;
     }
     ++s_state.rig_frame_count;
@@ -2012,7 +2025,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             s_benchmark.reset();
         }
         if constexpr (kRenderDiagnosticsEnabled) {
-            if ((s_state.raster_benchmark_active || (s_state.greeting_entered && s_state.debug_readout_enabled)) &&
+            if ((s_state.raster_benchmark_active || (measured_readout_route_active() && s_state.debug_readout_enabled)) &&
                 !footer_blocks_readout) {
                 const esp_err_t readout_error = CODY::prepare_debug_readout(
                     s_state.frame_rate, timings.started_us, debug_readout
@@ -2215,7 +2228,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return frame.finish({feedback_error, false, 0});
         }
     }
-    const bool frame_readout_visible = !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && s_state.greeting_entered &&
+    const bool frame_readout_visible = !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && measured_readout_route_active() &&
         s_state.debug_readout_enabled && presentation.content_visible && !footer_blocks_readout &&
         (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     // Fade a bounded palette once, not 466x466 boot pixels or the physical

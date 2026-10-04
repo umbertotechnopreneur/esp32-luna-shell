@@ -13,7 +13,20 @@ and referenced architecture/artifact records.
   Added bounded contact-start/exclusion/release logs for actual acquired input
   so scene suppression and incomplete/rejected strokes can be distinguished.
   The raw touch failure remains unresolved; driver acceptance/recovery has not
-  been relaxed. Static integration reviewed; final validation/deployment pending.
+  been relaxed. The real routine-Greeting geometry host integration check passed
+  (gesture, happiness, channel admission and actual heart raster), then Debug
+  `26dd7866` built successfully and flashed on COM10 with verified hashes.
+  Image size: 4,007,344 bytes; app partition 73% free. Physical recognition remains
+  open; see `caress-greeting-*` command/capture logs in the protected build evidence.
+
+- Enabled the existing measured Debug HUD in the main companion view after
+  retained pairing, including the automatic clock greeting. FPS counting,
+  text preparation and raster composition share the same route admission.
+  Main-view sleeping-face selection remains eligible; original onboarding,
+  footer, benchmark and session-preference guards are retained. CPU1/CPU2 use
+  existing canonical per-core runtime measurements without new polling, and
+  the upper battery/Wi-Fi/clock overlay is unchanged. Static review complete;
+  this increment is not yet built or deployed.
 
 - Investigated the reported caress freeze on device firmware `99342b7a`:
   the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,
@@ -31,9 +44,10 @@ and referenced architecture/artifact records.
   Initial check attempts retained a missing compiler environment and that stale
   expectation in their command logs; MSVC developer environment was restored.
   Checks ran through the public CLI. Evidence and command logs are under
-  `artifacts/build-cody-companion-debug/evidence/caress-*`; current host reports
-  are in `artifacts/checks/cody-personality/` and `artifacts/checks/cody-runtime/`.
-  No firmware source fix, new build, new flash or simulator launch was performed.
+  `artifacts/build-cody-companion-debug/evidence/caress-*`; transient host reports
+  under `artifacts/checks/` were removed by the subsequent authorized build cleanup.
+  That diagnostic checkpoint changed no firmware; the later Greeting fix and
+  build/flash are recorded above. The simulator remained closed.
 
 - Integrated remote main `649cbc7f` into `feat/personality-icons`, preserving
   petting, happiness, symbol arbitration and the Studio DPI/renderer changes.

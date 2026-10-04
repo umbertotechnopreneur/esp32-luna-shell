@@ -23,7 +23,9 @@ older host/build/flash evidence does not validate the current combined image.
   or silently relax driver acceptance. Source review found that the automatic
   idle greeting retained a SceneFrame and incorrectly excluded carezze; the
   narrowly scoped Greeting admission fix and contact-boundary diagnostics are
-  implemented, pending final validation and device deployment. Evidence lives under
+  implemented, host integration passed and Debug `26dd7866` was built/flashed
+  on COM10. Physical recognition remains under observation; the first new contact
+  was excluded (`drag=0`, x339/y354) during a wake. Evidence lives under
   `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
 
 - [ ] After fresh command-specific authorization, run the pure host
