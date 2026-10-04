@@ -179,12 +179,13 @@ requires explicit Retry; there is no automatic allocation/retry loop. Payloads a
 QR modules are wiped when retired and are never written to logs, HTTP or files.
 Snapshot-read/render failures still propagate their original errors.
 
-## Deferred validation
+## Validation status
 
-The Cody-only QR manifest requires the normal reviewed dependency-lock update
-through `scripts/device.ps1 update-lock -Profile cody-companion -BuildMode Debug
--BuildDir artifacts/build-cody-companion-debug` before building. Do not bypass the
-canonical lock comparison. Tests/build/flash require the user's explicit approvals.
+The Cody-only QR manifest remains subject to the canonical dependency-lock
+comparison. Any required reviewed lock update goes through
+`scripts/device.ps1 update-lock -Profile cody-companion -BuildMode Debug
+-BuildDir artifacts/build-cody-companion-debug`; never bypass that comparison.
+Tests/build/flash require the user's explicit approvals.
 The scene asset generator completed for eight scenes. This source preparation
 is not firmware, simulator or physical-device validation.
 The rounded navigation/swipe/entrance/open-eye increment likewise has no new
@@ -203,6 +204,11 @@ the requirement that a successful write cannot activate the renderer selection.
 The host suites also cover 32 preview contracts, 15 response tests and a
 500-tick native/Python response fixture. Their settings fixture has no real NVS
 driver and does not establish hardware write timing or asynchronous UI behavior.
+The same authorized sequence built firmware revision `0295963d` with ESP-IDF
+6.0.2, profile `cody-companion`, Debug and eight jobs. The app image is
+3,550,736 bytes, with 76% of the app partition free. The flash on COM10 completed
+with verified data hashes and a hard reset. The flash's incremental build also
+passed; no monitor, capture, visual inspection or leak-soak check was performed.
 Pending runtime checks:
 repeated success/failure/retry, an eight-digit error code, busy navigation, route
 reset during NVS work, rotation during a gesture, completed-frame ownership,

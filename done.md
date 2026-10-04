@@ -12,6 +12,10 @@
 - [x] Run the explicitly authorized snapshot-integrity, cody-native,
   cody-runtime, cody-response (15 tests) and cody-poc (32 tests) checks. Hardware
   async races, memory growth and visual behavior are not proven by these checks.
+- [x] Build revision `0295963d` using ESP-IDF 6.0.2, Cody Debug and eight jobs,
+  then flash COM10: 3,550,736-byte app, 76% free app partition, verified data
+  hashes and hard reset. The flash's incremental build passed too. No monitor,
+  capture or physical UI/leak-soak check was requested or run.
 
 ## Shared white Cody QR pages (2026-10-04)
 

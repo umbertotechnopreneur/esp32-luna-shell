@@ -14,6 +14,9 @@ authorization.
   (15 tests) and cody-poc (32 tests) passed. Actual C++ host fault injection
   covers persistence errors/retry and display-owned activation; async UI races
   and repeated-entry memory behavior remain unverified on the device.
+  Revision `0295963d` subsequently built in Debug with eight jobs and flashed
+  successfully on COM10 (3,550,736-byte app, verified hashes and hard reset).
+  No monitor, capture or physical UI/leak-soak observation was performed.
   See `docs/architecture/cody-onboarding.md`.
 
 - [ ] After fresh authorization, validate the shared white QR pages: installation
