@@ -49,6 +49,7 @@ static bool fragmented_heap;
 static bool fail_second_allocation;
 static bool first_used;
 static bool second_used;
+static size_t second_largest_block = 21504;
 static bool panel_ready = true;
 static bool token;
 static bool drop_completion;
@@ -196,13 +197,16 @@ static size_t heap_caps_get_largest_free_block(uint32_t capabilities)
         return first_used ? 0 : BSP_DISPLAY_DMA_ALIGNED_BYTES(BSP_DISPLAY_DMA_ROW_BYTES * available_rows) +
             BSP_DISPLAY_DMA_HEADROOM_BYTES;
     }
-    if (fragmented_heap) { return first_used && second_used ? 0 : 21504; }
+    if (fragmented_heap) {
+        if (first_used && second_used) { return 0; }
+        return first_used ? second_largest_block : 21504;
+    }
     return first_used ? 0 : 60000;
 }
 // capabilities: Same flags as the production largest-block query.
 static size_t heap_caps_get_free_size(uint32_t capabilities)
 {
-    (void)capabilities;
+    if (available_slots == 1) { return heap_caps_get_largest_free_block(capabilities); }
     return 60000 - (first_used ? 14912 : 0) - (second_used ? 14912 : 0);
 }
 // capabilities: Same flags as the production aggregate query.
@@ -245,6 +249,7 @@ static void reset_fixture(void)
     available_slots = 2;
     available_rows = 16;
     fragmented_heap = fail_second_allocation = first_used = second_used = false;
+    second_largest_block = 21504;
     releases = 0;
     now_us = 1000;
     submission_error = ESP_OK;
@@ -258,33 +263,40 @@ static void *borrow(void)
     assert(bytes == BSP_DISPLAY_DMA_ROW_BYTES * available_rows);
     return pixels;
 }
-// fragmented: Force the actual allocator to obtain two disjoint 14.9-KiB blocks.
-static void normal_pipeline(bool fragmented)
+// fragmented: Force the actual allocator to obtain two disjoint internal blocks.
+// tight_second: Reproduce the device's 12.8-KiB second block and require shorter dual slots.
+static void normal_pipeline(bool fragmented, bool tight_second)
 {
     reset_fixture();
     fragmented_heap = fragmented;
+    if (tight_second) {
+        second_largest_block = 12800;
+        available_rows = 12;
+    }
     assert(bsp_display_frame_begin(500) == ESP_OK);
     assert((display_frame.lease.second_data != NULL) == fragmented);
     void *first = borrow();
-    memset(first, 0x37, 16 * BSP_DISPLAY_DMA_ROW_BYTES);
-    assert(bsp_display_frame_submit_rgb565(0, 0, 466, 16, first) == ESP_OK);
+    const int rows = (int)available_rows;
+    memset(first, 0x37, available_rows * BSP_DISPLAY_DMA_ROW_BYTES);
+    assert(bsp_display_frame_submit_rgb565(0, 0, 466, rows, first) == ESP_OK);
     void *second = borrow();
     assert(second != first && dma_active);
-    memset(second, 0xA9, 16 * BSP_DISPLAY_DMA_ROW_BYTES);
+    memset(second, 0xA9, available_rows * BSP_DISPLAY_DMA_ROW_BYTES);
     advance_time(4600);
     assert(!dma_active && !payload_changed);
-    assert(bsp_display_frame_submit_rgb565(0, 16, 466, 32, second) == ESP_OK);
+    assert(bsp_display_frame_submit_rgb565(0, rows, 466, rows * 2, second) == ESP_OK);
     assert(borrow() == first && dma_active);
-    memset(first, 0xD4, 16 * BSP_DISPLAY_DMA_ROW_BYTES);
-    assert(bsp_display_frame_submit_rgb565(0, 32, 466, 48, first) == ESP_OK);
+    memset(first, 0xD4, available_rows * BSP_DISPLAY_DMA_ROW_BYTES);
+    assert(bsp_display_frame_submit_rgb565(0, rows * 2, 466, rows * 3, first) == ESP_OK);
     bsp_display_frame_result_t result;
     int64_t end_started = now_us;
     assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK);
     assert(now_us - end_started == 2400 && !dma_active && !payload_changed);
-    assert(result.buffer_count == 2 && result.transfer_rows == 16 && result.rectangles == 3);
+    assert(result.buffer_count == 2 && result.transfer_rows == available_rows && result.rectangles == 3);
     assert(result.completion_wait_us == 4800 && result.completion_error == ESP_OK);
-    assert(result.retained_dma_bytes == 0 && releases == (fragmented ? 2U : 1U) && lock_depth == 0);
-    puts(fragmented ? "PASS fragmented heap: two disjoint slots, overlap, immutable payload, final drain" :
+    assert(result.retained_dma_bytes == 0 && releases == (tight_second ? 4U : (fragmented ? 2U : 1U)) && lock_depth == 0);
+    puts(tight_second ? "PASS 12.8-KiB second block keeps two 12-row slots, overlap and safe final drain" :
+         fragmented ? "PASS fragmented heap: two disjoint slots, overlap, immutable payload, final drain" :
                       "PASS contiguous double-slot overlap, alternation, immutable payload, final drain");
 }
 // No parameters: low-memory degradation preserves ownership and reports actual capacity.
@@ -405,16 +417,17 @@ static void partial_allocation(void)
     fail_second_allocation = true;
     assert(bsp_display_frame_begin(500) == ESP_OK);
     assert(display_frame.lease.buffer_count == 1 && display_frame.lease.second_data == NULL);
-    assert(releases == 1 && first_used && !second_used);
+    assert(releases == 8 && first_used && !second_used);
     bsp_display_frame_result_t result;
-    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && releases == 2);
+    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && releases == 9);
     puts("PASS failed second allocation frees partial ownership before single-slot admission");
 }
 // No parameters: run the actual driver lifetime contracts without a device or fabricated sensors.
 int main(void)
 {
-    normal_pipeline(false);
-    normal_pipeline(true);
+    normal_pipeline(false, false);
+    normal_pipeline(true, false);
+    normal_pipeline(true, true);
     single_slot();
     renderer_failure();
     quarantined_failure(false);

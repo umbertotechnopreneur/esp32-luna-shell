@@ -23,6 +23,12 @@ and referenced architecture/artifact records.
   Expanded the host suite to execute the real allocator and fragmented cases.
   The original host raster/benchmark suites and initial BSP lifetime suite passed;
   this allocator correction and its device performance remain pending.
+- A second device capture exposed a 12,800-byte largest block after the first
+  preferred slot, so two full slots still could not fit. Native allocation now
+  tries shorter even-row dual slots before one-slot degradation, preserving
+  aggregate headroom. Allocation-degradation logs are bounded at powers of two.
+  Added an actual-allocator host case matching the observed second-block size.
+  This capacity correction awaits final host/build/device validation.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host

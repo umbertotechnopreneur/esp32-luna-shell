@@ -117,8 +117,9 @@ retain their original completion guarantee and drain prior frame DMA first.
 
 The two preferred slots total 29,824 internal DMA bytes, matching the previous
 32-row slot budget. Native frames can obtain two independently aligned 14,912-byte
-blocks when no contiguous 29,824-byte block fits. Aggregate and per-block headroom
-still apply, and a failed second allocation releases the first before degrading.
+blocks when no contiguous 29,824-byte block fits. If the second block is smaller,
+try shorter paired-row slots while preserving 4,096 bytes of aggregate headroom.
+A failed second allocation releases the first before retrying or degrading.
 The GUI pipeline retains its contiguous allocation. The allocator may return one slot or fewer rows under memory
 pressure; that mode waits before lending the active slot again. Actual slot/row
 counts, completion error and retained bytes are published by the display owner
