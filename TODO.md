@@ -29,10 +29,12 @@ older host/build/flash evidence does not validate the current combined image.
   New optimization source needs explicitly authorized final checks/build/device
   comparison; no performance improvement has yet been verified.
 - [ ] Validate the finite raster baseline on `feat/simd-perf-opt`: run the new
-  `cody-raster-benchmark` suite, then authorized firmware build/device captures.
-  Compare coarse/detail at 50/75/100 percent, confirm nonzero fixed payload,
-  full-window p95, first-run entry, touch/PWR/Sleep interruption and policy/look
-  restoration. Test disabled benchmark, non-Pearl and Release builds explicitly.
+  `cody-raster-benchmark` suite and repeated device comparisons. `4ac6c812`
+  passed Debug build/flash and one 100% coarse capture: fixed 63,000-pixel payload,
+  684 frames, full-window p95 57,611 us, first-run entry and normal completion
+  with policy/look restoration and deferred greeting. Compare coarse/detail at
+  50/75/100 percent and exercise touch/PWR/Sleep interruption. Test disabled
+  benchmark, non-Pearl and Release builds explicitly.
   Add deterministic animated work and C/SIMD A/B only after trustworthy timings;
   include packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

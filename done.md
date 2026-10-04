@@ -7,6 +7,24 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Built and flashed raster baseline `4ac6c812` with ESP-IDF 6.0.2, Debug, eight
+  jobs and COM10 at 460800 baud; all written hashes verified. App: 3,721,952
+  bytes, 75% partition free. Matching ELF SHA256:
+  `ecce55a8922eaffe430db7531c2084f9c2618b29c8fa3decf8c1b956a7d7bf97`.
+  The completed 80-second reset/capture contains one boot and no captured panic
+  or reboot. Fixed Ready/Pearl Mist at 100%, coarse profiling, produced 684
+  measured frames in the 40-second window, each submitting 63,000 pixels:
+  mean 56,922 us, p95 57,611 us, max 58,605 us, all 684 over the 40 ms budget.
+  Stage means: geometry 2,781 us, raster 40,886 us, transfer 12,243 us;
+  artwork subsets: jelly 37,080 us, vector face 3,003 us. Logged steady FPS was
+  about 17.0--17.2, with worker-core CPU around 85--86%. The run completed,
+  restored the transient standby override/look and entered the deferred greeting.
+  Minimum logged worker free stack: 3,440 of 12,288 bytes. SD initialization
+  timed out three times and unrelated long log records were truncated; these
+  conditions remain part of this baseline. Host contracts, interruption cases,
+  other sizes/detail mode and SIMD gains remain unverified. Evidence and exact
+  ELF/bin are retained under
+  `artifacts/build-cody-companion-debug/evidence/cody-4ac6c812*`.
 - Reworked the temporary raster benchmark in `feat/simd-perf-opt` (source review
   only): worker-owned Debug/Pearl entry, forced fixed Ready redraw, 5-second warmup
   and 40-second measurement, core-1 affinity, bounded PSRAM full-run p95 and
