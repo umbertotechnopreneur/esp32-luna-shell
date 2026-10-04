@@ -48,6 +48,13 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   break/resume and silence-until controls. Base the first flow on user-started
   sessions; optional PC activity needs a separate consent/integration decision
   and does not establish fatigue or health.
+- [ ] Explore independent finite states for activity, rest/drink/meal reminders,
+  mood and short reactions, with one stable latest-cue selector. Host session
+  identity/activity/liveness must establish actual counted time; disconnection
+  is Unknown. Consider one combined rest/drink invitation after a configurable
+  120-minute active session, with snooze/acknowledgement/quiet rules. Preserve
+  existing motion-driven stress and battery-driven fatigue causes. See
+  [Personality behavior](docs/architecture/cody/personality-behavior.md).
 - [ ] Choose rig antialiasing/tessellation/dirty-region policy from target
   timings; extend validity-aware environmental composition while retaining
   shared palette, independent face channels and time-based animation.
