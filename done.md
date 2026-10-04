@@ -7,6 +7,13 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Debug `143fdb22` built with eight jobs and flashed to COM10 / ESP32-S3
+  `a4:cb:8f:db:42:d8`. Esptool verified written data and reset the board.
+  Application: 3,755,536 bytes, 75 percent of the app partition free. Includes
+  greeting C, regenerated mouth/tongue/QR assets and corrected Retry teardown.
+  No tests, simulator or post-flash monitor ran; physical behavior remains
+  unverified. ELF/BIN hashes and transcript are preserved in
+  `artifacts/build-cody-companion-debug/evidence/cody-143fdb22-deploy.md`.
 - Prepared three private vocal greetings with ffmpeg and explicit read-only
   source recipes. The owner selected C (`cody-hello-murmur`) for the boot cue;
   A/B and chime-only remain configurable. Shared authoring helpers pin source
@@ -16,15 +23,15 @@ and referenced architecture/artifact records.
   canonical-clock/quiet-policy changes. Local asset generation and independent
   static review completed. On 2026-10-04 the owner confirmed purchased perpetual
   commercial-use licences for the SFX packages; the selected PCM/WAV and matching
-  manifest are now included in the asset checkpoint. Firmware build/flash,
-  physical acoustics and updated host checks remain unverified.
+  manifest are now included in the asset checkpoint. Debug build/flash completed
+  as `143fdb22`; physical acoustics and updated host checks remain unverified.
 - Mouth source refresh: widened the shared lip controls 18 percent, reused the
   existing breathing phase for opening/width motion and added a coral tongue
   clipped against the evaluated mouth. Native and host coverage intersect the
   same geometric spans. Fixed budgets are 200 points, 62 cubics, 16 paths and
   124 debug tangents; existing raster arrays/worker stack are unchanged.
   Source implementation, independent review and rig/jelly regeneration are
-  complete. Build/flash, physical appearance and timing remain pending.
+  complete and deployed as `143fdb22`. Physical appearance and timing remain pending.
 - QR copy now distinguishes installation (`Scan to install`) from the live
   session (`Scan to pair`, `Scan me in the app.`). Install/session routes share
   compact cloud placement; actual 40/25-pixel font cells govern title/caption
@@ -40,8 +47,8 @@ and referenced architecture/artifact records.
   Removed that future admission from teardown; next Start retains strict
   reservation/preflight and its original error. Cancel now retains the failed
   attempt's cause alongside the actual cleanup result, allowing clean Retry
-  navigation to 05. Source integration reviewed; this correction is not yet
-  built/flashed. Capture starts after the original Pair Cody failure, so its
+  navigation to 05. Source integration reviewed and deployed as `143fdb22`;
+  physical Retry remains unverified. Capture starts after the original Pair Cody failure, so its
   exact startup stage is not established:
   `artifacts/build-cody-companion-debug/evidence/cody-9fde2b48-pairing-before-reset.log`.
 - Passive monitoring of `d766e08c` recorded wake input followed by failed BLE
