@@ -64,13 +64,14 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Commit previous geometry only on success and erase both old/new bounds.
 - CO5300 QSPI cannot safely use direct PSRAM DMA here. Bounded internal bounce
   strips preserve completion ownership; smaller tiles must not create unbounded
-  deferred touch work. Reserve BLE contiguous headroom before Wi-Fi.
+  deferred touch work. Protect the BLE startup budget before Wi-Fi.
   [Mitigations](docs/architecture/display-touch-runtime.md),
   [rendering](docs/architecture/cody/rendering.md).
-- On Cody, reserve the BLE controller's contiguous DMA lease before SD/display
-  fragmentation, then drain and briefly park frame-owned display DMA during
-  Wi-Fi/BLE startup. Keep BLE's free-space and largest-block preflight strict;
-  aggregate free RAM alone does not prove a controller-sized block exists.
+- On Cody, reserve the BLE DMA budget before SD/display startup, then drain
+  and briefly park frame-owned display DMA during Wi-Fi/BLE startup. Keep
+  aggregate and per-block admission distinct. Do not infer a malloc size from
+  an address offset: controller 51d9dfd's EMI `addmi ...,30720` is not a 30-KiB
+  allocation. The old monolithic guard itself rejected healthy SDK restarts.
   Explicit Pair must drain before telemetry teardown too. Capture deliberate
   frame parking under its lock: re-reading a quickly reopened gate can turn a
   harmless parked admission into a terminal renderer failure.

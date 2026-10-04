@@ -7,12 +7,22 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Corrected false monolithic BLE admission: SDK 51d9dfd EMI uses separate
+  allocations; `0x7800` in the inspected routine is an address offset, not a
+  malloc size. Preserve the 34,816-byte aggregate budget with four 8-KiB chunks
+  and one 2-KiB chunk, all-or-nothing acquisition and real SDK error handling.
+  No SDK patch/allocation hook or Wi-Fi buffer reduction. Build/flash pending;
+  tests are not authorized.
+
 - Lifetime BLE DMA ownership: one static 34,816-byte reserve survives standby
   and pre-controller failures. After actual SDK teardown Cody parks display DMA
   and rearms the budget; cleanup and reservation errors have separate outcomes
   and canonical pairing fields, so clean Retry/known-off standby remain valid
   if a future budget cannot be restored. Limits and Wi-Fi configuration stay
-  unchanged. Build/flash and physical pairing confirmation are pending.
+  unchanged. Debug `a19e0093` built/flashed successfully, but physical Pair
+  reproduced `0x101`. Its complete boot capture proved SDK startup succeeds;
+  after first clean standby teardown the monolithic rearm fails with 97,443
+  bytes free and largest 21,504. The chunked correction above follows this evidence.
 
 - Captured explicit Pair failure on main `a154b677`: the 34,816-byte internal
   DMA hold failed with 70,955 bytes free but largest block 21,504, before manager

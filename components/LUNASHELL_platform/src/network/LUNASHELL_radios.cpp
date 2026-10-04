@@ -37,7 +37,7 @@
 static const char *TAG = "LUNASHELL_radios";
 static std::recursive_mutex s_radios_init_mutex;
 #if CONFIG_BT_CONTROLLER_ENABLED
-// One lifetime owner retains the contiguous block whenever it has not been
+// One lifetime owner retains the chunked DMA budget whenever it has not been
 // handed to the controller. Standby and failed admission must not free it.
 static LUNASHELL::radio_memory::BleControllerDmaReservation s_deferred_ble_dma;
 #endif
@@ -1412,7 +1412,7 @@ static esp_err_t run_watched_radio_operation(
     );
 }
 
-// No parameters: hold the controller's contiguous DMA block before SD and display startup.
+// No parameters: hold the controller startup budget before SD and display startup.
 esp_err_t LUNASHELL_radios_reserve_startup_dma(void)
 {
 #if CONFIG_BT_CONTROLLER_ENABLED

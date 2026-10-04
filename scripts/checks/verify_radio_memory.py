@@ -36,24 +36,28 @@ def main() -> None:
 
     require(
         memory,
-        "kBleControllerDmaReservationBytes = 0x7800",
-        "BLE controller DMA contract",
+        "kBleControllerDmaHoldBytes = 34 * 1024",
+        "aggregate BLE DMA startup budget",
     )
     require(
         memory,
-        "kBleControllerDmaReservationBytes + 4096",
-        "BLE controller DMA startup lease",
+        "kBleControllerDmaChunkBytes = 8 * 1024",
+        "bounded chunks instead of one fictitious 30-KiB allocation",
     )
     require(
         memory,
-        "heap_caps_malloc(\n        kBleControllerDmaHoldBytes",
-        "BLE controller DMA lease allocation",
+        "chunk_bytes, kBleControllerDmaCaps",
+        "BLE controller DMA chunk allocation",
     )
     require(
         memory,
-        "kBleControllerDmaHeadroomBytes = 4096",
-        "BLE controller DMA headroom",
+        "reservation = std::move(pending)",
+        "all-or-nothing reservation publication",
     )
+    require(memory, "pending.reset();", "partial reservation cleanup")
+    require(memory, "largest_block < kBleControllerDmaChunkBytes",
+            "startup contiguous-block policy")
+    require(memory, "free_bytes < required_free", "aggregate budget admission")
     require(
         radios,
         "reserveBleControllerDma(ble_controller_dma)",
@@ -99,8 +103,8 @@ def main() -> None:
 
     print(
         "radio memory static verification: PASS "
-        "(0x7800-byte BLE DMA requirement with startup cushion, "
-        "fail-fast preflight, "
+        "(34-KiB aggregate BLE DMA budget in bounded chunks, "
+        "fail-fast budget admission, "
         "bounded Wi-Fi buffers, two BLE activities, MAC/BB retention disabled)"
     )
 

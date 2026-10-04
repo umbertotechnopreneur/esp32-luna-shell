@@ -95,15 +95,19 @@ initialize radios, query SDK Wi-Fi or perform synchronous manager cleanup.
 Explicit Pair drains and temporarily parks native display DMA before stopping
 telemetry or acquiring the controller lease. The gate stays closed through
 Wi-Fi/manager initialization and controller startup, then reopens on success or
-failure without changing the separate standby gate. Admission still requires a
-34,816-byte contiguous hold, a 30,720-byte controller block and 4,096-byte free
-headroom. Compact `Pairing DMA` records show actual free/largest blocks at each
-boundary; insufficient memory remains a real error, not successful pairing.
-One static owner retains the 34,816-byte lease across standby and every failure
+failure without changing the separate standby gate. A 34,816-byte aggregate
+budget is held as four 8-KiB chunks plus one 2-KiB chunk, allocated all-or-nothing.
+The old single 30-KiB controller-block claim is unsupported by the inspected EMI
+routine: its `0x7800` is an address offset. That guard rejected Pair before the SDK ran. The 8-KiB largest-block
+policy covers the configured controller context and separate 4-KiB stacks but
+does not prove every vendor allocation or SDK initialization will succeed.
+Compact `Pairing DMA` records show actual free/largest blocks at each boundary;
+insufficient memory and SDK failures remain real errors, not successful pairing.
+One static owner retains this budget across standby and every failure
 before controller handoff. It is released only immediately before controller
 initialization. Cody parks display DMA during radio/session closure, then reclaims
-the lease after the SDK confirms an idle controller. Repeated reserve calls reuse
-the held block. This is a lifetime budget, not a second allocation while the
+the chunks after the SDK confirms an idle controller. Repeated reserve calls reuse
+the held chunks. This is a lifecycle budget, not a second allocation while the
 controller is already using its exchange memory.
 
 Radio closure returns `cleanup_error` and `dma_reservation_error` separately.

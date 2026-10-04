@@ -31,11 +31,12 @@ older host/build/flash evidence does not validate the current combined image.
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
-  Passive `7e45bf32` capture confirmed wake/Pair failure after display drain:
-  DMA free 96,243 bytes, largest block 21,504, required hold 34,816; no reboot
-  observed. Verify the lifetime reserve survives standby, first Pair, Cancel,
+  `a19e0093` boot capture confirmed SDK BLE startup succeeds, but first standby
+  rearm fails solely at the application's monolithic reserve (97,443 bytes
+  free, largest 21,504). Verify the corrected chunked budget survives standby, first Pair, Cancel,
   real SDK teardown and another Pair, reaching the actual session QR. Check
-  separate cleanup/reservation errors without lowering admission limits.
+  separate cleanup/reservation errors and actual SDK results; the old 30-KiB
+  contiguous requirement is not supported by the inspected SDK allocation path.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.

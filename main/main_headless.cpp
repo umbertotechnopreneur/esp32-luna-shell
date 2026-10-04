@@ -150,8 +150,8 @@ extern "C" void app_main(void)
     startup_watch.progress("initial hardware snapshot");
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
-    // Hold the BLE controller's contiguous DMA block before SD/display startup
-    // can fragment it; radios_init transfers the same lease into Wi-Fi startup.
+    // Protect the BLE DMA startup budget before SD/display allocations;
+    // radios_init retains these chunks through Wi-Fi startup.
     ESP_ERROR_CHECK(LUNASHELL_radios_reserve_startup_dma());
     startup_watch.progress("BLE controller DMA reservation");
 #endif
