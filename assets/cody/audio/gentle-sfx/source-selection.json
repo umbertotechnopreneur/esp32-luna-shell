@@ -1,0 +1,135 @@
+{
+  "schema_version": 1,
+  "archive_root": "C:/Users/umber/OneDrive/Archivio/Dixion/Sfx",
+  "sample_rate_hz": 16000,
+  "target_peak_dbfs": -26.0,
+  "audition_gap_ms": 2000,
+  "licensing": {
+    "status": "unverified",
+    "scope": "Local private listening candidates only.",
+    "restriction": "Do not commit the generated audio or redistribute it in firmware, downloads or public packages until the original sample licences have been verified."
+  },
+  "selection_method": "Highest-energy fixed-length excerpt within the explicit source window, sampled every 5 ms; the generated manifest records the actual trim.",
+  "cues": [
+    {
+      "id": "cody-eye-close",
+      "intent": "A tiny softened pop for the occasional deliberate eye-close gesture.",
+      "source": "SONY Loops/Home & Office/Cork Pop Quiet.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 620,
+      "duration_ms": 200,
+      "highpass_hz": 70,
+      "lowpass_hz": 1200,
+      "fade_in_ms": 20,
+      "fade_out_ms": 70
+    },
+    {
+      "id": "cody-soft-rustle",
+      "intent": "A small material movement while Cody settles into a waiting pose.",
+      "source": "SONY Loops/Home & Office/Paper Rustle Sweetener.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 500,
+      "highpass_hz": 100,
+      "lowpass_hz": 1600,
+      "fade_in_ms": 45,
+      "fade_out_ms": 120
+    },
+    {
+      "id": "cody-page-nudge",
+      "intent": "A short shuffle for one visible fidget during a long wait.",
+      "source": "SONY Loops/Home & Office/Paper Movement Sweetener.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 420,
+      "highpass_hz": 100,
+      "lowpass_hz": 1400,
+      "fade_in_ms": 40,
+      "fade_out_ms": 100
+    },
+    {
+      "id": "cody-cloth-settle",
+      "intent": "A low-passed cloth fragment for a small body settle.",
+      "source": "SONY Loops/Home & Office/Cloth Rip.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 900,
+      "duration_ms": 350,
+      "highpass_hz": 100,
+      "lowpass_hz": 1000,
+      "fade_in_ms": 50,
+      "fade_out_ms": 120
+    },
+    {
+      "id": "cody-pencil-thought",
+      "intent": "A brief textured writing gesture accompanying a thoughtful pose.",
+      "source": "SONY Loops/Home & Office/Quill Writing Movement.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 450,
+      "highpass_hz": 120,
+      "lowpass_hz": 1600,
+      "fade_in_ms": 45,
+      "fade_out_ms": 100
+    },
+    {
+      "id": "cody-doodle",
+      "intent": "A second writing texture for an occasional idle activity variation.",
+      "source": "SONY Loops/Vintage Cartoon/Foley/Pen Writing 01.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 550,
+      "highpass_hz": 120,
+      "lowpass_hz": 1800,
+      "fade_in_ms": 55,
+      "fade_out_ms": 130
+    },
+    {
+      "id": "cody-water-drift",
+      "intent": "A soft water texture for a slow, isolated presence gesture.",
+      "source": "SONY Loops/Home & Office/Bath Water Movement.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 720,
+      "highpass_hz": 100,
+      "lowpass_hz": 1400,
+      "fade_in_ms": 90,
+      "fade_out_ms": 160
+    },
+    {
+      "id": "cody-tiny-bubble",
+      "intent": "One softened liquid pop for a small inquisitive movement.",
+      "source": "SONY Loops/Vintage Cartoon/Hits & Tones/Wet Squoosh Pop 01.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 4900,
+      "duration_ms": 240,
+      "highpass_hz": 70,
+      "lowpass_hz": 1200,
+      "fade_in_ms": 25,
+      "fade_out_ms": 90
+    },
+    {
+      "id": "cody-idle-murmur",
+      "intent": "A short mechanical hum swell suggesting quiet presence.",
+      "source": "SONY Loops/Home & Office/Machine Low Hum.wav",
+      "source_window_start_ms": 1000,
+      "source_window_end_ms": 6000,
+      "duration_ms": 650,
+      "highpass_hz": 70,
+      "lowpass_hz": 650,
+      "fade_in_ms": 140,
+      "fade_out_ms": 180
+    },
+    {
+      "id": "cody-small-stretch",
+      "intent": "A softened small motor fragment accompanying a rare stretch gesture.",
+      "source": "SONY Loops/Home & Office/Motor Servo Small.wav",
+      "source_window_start_ms": 0,
+      "source_window_end_ms": 6000,
+      "duration_ms": 600,
+      "highpass_hz": 100,
+      "lowpass_hz": 900,
+      "fade_in_ms": 100,
+      "fade_out_ms": 150
+    }
+  ]
+}
