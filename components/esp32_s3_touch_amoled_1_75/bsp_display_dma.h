@@ -41,6 +41,7 @@
 
 typedef struct {
     uint8_t *data;
+    uint8_t *second_data;
     size_t slot_stride_bytes;
     size_t buffer_count;
     size_t transfer_rows;
@@ -48,6 +49,10 @@ typedef struct {
     bool emergency;
 } bsp_display_dma_lease_t;
 
+// lease: Owned DMA pipeline, contiguous or two separately allocated native slots.
+// slot: Storage traversal index below lease->buffer_count, never a domain identity.
+// Returns NULL for an absent lease or invalid slot; never lends outside owned memory.
+uint8_t *bsp_display_dma_slot(const bsp_display_dma_lease_t *lease, size_t slot);
 // lease: Pipeline whose DMA completion has already been proven by the caller.
 void bsp_display_release_dma_pipeline(bsp_display_dma_lease_t *lease);
 // source_row_bytes: Packed bytes per panel row.

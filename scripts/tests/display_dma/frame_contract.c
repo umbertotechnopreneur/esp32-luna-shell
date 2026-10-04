@@ -8,6 +8,11 @@
 #define CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY 1
 #define CONFIG_LUNASHELL_BUILD_ENABLE_UI 0
 #define IRAM_ATTR
+#define DMA_ATTR _Alignas(64)
+#define __attribute__(attribute)
+#define MALLOC_CAP_DMA 1U
+#define MALLOC_CAP_INTERNAL 2U
+#define MALLOC_CAP_8BIT 4U
 #define __ATOMIC_ACQUIRE 0
 #define __ATOMIC_RELEASE 0
 #define __atomic_load_n(pointer, order) (*(pointer))
@@ -16,6 +21,7 @@
 #define pdFALSE 0
 #define pdMS_TO_TICKS(ms) (ms)
 #define ESP_LOGE(...) host_log(__VA_ARGS__)
+#define ESP_LOGW(...) host_log(__VA_ARGS__)
 typedef void *TaskHandle_t;
 typedef void *SemaphoreHandle_t;
 typedef void *esp_lcd_panel_io_handle_t;
@@ -31,14 +37,18 @@ static bsp_display_dma_lease_t display_dma_fault_lease;
 static uint32_t display_dma_retained_bytes;
 static SemaphoreHandle_t display_completion = (void *)1;
 static void *panel_handle = (void *)2;
-static uint8_t pool[32768];
+static _Alignas(64) uint8_t pool[32768];
+static _Alignas(64) uint8_t second_pool[32768];
 static TaskHandle_t current_task = (void *)3;
 static int64_t now_us;
 static unsigned lock_depth;
 static unsigned releases;
-static unsigned requested_slots;
 static size_t available_slots = 2;
 static size_t available_rows = 16;
+static bool fragmented_heap;
+static bool fail_second_allocation;
+static bool first_used;
+static bool second_used;
 static bool panel_ready = true;
 static bool token;
 static bool drop_completion;
@@ -102,7 +112,26 @@ static BaseType_t xSemaphoreTake(SemaphoreHandle_t semaphore, TickType_t ticks);
 // pixels: Borrowed memory retained unchanged until simulated hardware completion.
 static esp_err_t esp_lcd_panel_draw_bitmap(void *panel, int x_start, int y_start,
                                          int x_end, int y_end, const void *pixels);
+// capabilities: Real allocator's required internal/DMA/byte-access capabilities.
+static size_t heap_caps_get_largest_free_block(uint32_t capabilities);
+// capabilities: Required allocation capabilities, unchanged by the host boundary.
+static size_t heap_caps_get_free_size(uint32_t capabilities);
+// capabilities: Required allocation capabilities, used only by emergency logging.
+static size_t heap_caps_get_minimum_free_size(uint32_t capabilities);
+// alignment: Actual requested alignment, checked against the production budget.
+// bytes: Actual allocation size, retained per modeled block.
+// capabilities: Actual internal DMA requirement, never a PSRAM allocation.
+static void *heap_caps_aligned_alloc(size_t alignment, size_t bytes, uint32_t capabilities);
+// allocation: Owned block, never released while the simulated peripheral still reads it.
+static void heap_caps_free(void *allocation);
+// allocation: Host pointer checked only as an SDK capability boundary.
+static bool esp_ptr_internal(const void *allocation) { return allocation != NULL; }
+// allocation: Host pointer checked only as an SDK capability boundary.
+static bool esp_ptr_dma_capable(const void *allocation) { return allocation != NULL; }
 
+#define TAG DMA_OWNER_TAG
+#include "dma_owner_under_test.inc"
+#undef TAG
 #include "driver_under_test.inc"
 
 // pixels: Byte sequence whose immutability is checked at hardware retirement.
@@ -159,29 +188,46 @@ static esp_err_t esp_lcd_panel_draw_bitmap(void *panel, int x_start, int y_start
     dma_completes_at_us = now_us + 2400;
     return submission_error;
 }
-// source_row_bytes: Actual production frame request, checked against the physical row.
-// maximum_transfer_rows: Frame request must use the 16-row budget, not 32 rows per slot.
-// preferred_buffer_count: Production always requests two slots; fixture can degrade to one.
-// out_lease: Receives deterministic internal storage without a real allocator.
-esp_err_t bsp_display_acquire_dma_pipeline(size_t source_row_bytes, size_t maximum_transfer_rows,
-                                         size_t preferred_buffer_count, bsp_display_dma_lease_t *out_lease)
+// capabilities: Production internal/DMA/byte-access flags; fixture models only those blocks.
+static size_t heap_caps_get_largest_free_block(uint32_t capabilities)
 {
-    assert(source_row_bytes == BSP_DISPLAY_DMA_ROW_BYTES);
-    assert(maximum_transfer_rows == BSP_DISPLAY_STANDALONE_FRAME_SLOT_HEIGHT);
-    requested_slots = (unsigned)preferred_buffer_count;
-    *out_lease = (bsp_display_dma_lease_t){
-        .data = pool, .slot_stride_bytes = BSP_DISPLAY_DMA_ALIGNED_BYTES(source_row_bytes * available_rows),
-        .buffer_count = available_slots, .transfer_rows = available_rows, .heap_owned = true,
-    };
-    return ESP_OK;
+    assert(capabilities == (MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (available_slots == 1) {
+        return first_used ? 0 : BSP_DISPLAY_DMA_ALIGNED_BYTES(BSP_DISPLAY_DMA_ROW_BYTES * available_rows) +
+            BSP_DISPLAY_DMA_HEADROOM_BYTES;
+    }
+    if (fragmented_heap) { return first_used && second_used ? 0 : 21504; }
+    return first_used ? 0 : 60000;
 }
-// lease: Model release must never see a buffer still owned by physical DMA.
-void bsp_display_release_dma_pipeline(bsp_display_dma_lease_t *lease)
+// capabilities: Same flags as the production largest-block query.
+static size_t heap_caps_get_free_size(uint32_t capabilities)
 {
-    if (lease->data == NULL) { return; }
+    (void)capabilities;
+    return 60000 - (first_used ? 14912 : 0) - (second_used ? 14912 : 0);
+}
+// capabilities: Same flags as the production aggregate query.
+static size_t heap_caps_get_minimum_free_size(uint32_t capabilities)
+{
+    return heap_caps_get_free_size(capabilities);
+}
+// alignment: Actual requested alignment, retained by each modeled block.
+// bytes: Requested production size; the fake fragmented heap cannot hold a full 32-row block.
+// capabilities: Actual internal DMA requirement, never changed to PSRAM by the test.
+static void *heap_caps_aligned_alloc(size_t alignment, size_t bytes, uint32_t capabilities)
+{
+    assert(alignment == 64 && bytes <= sizeof(pool));
+    assert(bytes <= heap_caps_get_largest_free_block(capabilities));
+    if (!first_used) { first_used = true; return pool; }
+    if (!second_used && !fail_second_allocation) { second_used = true; return second_pool; }
+    return NULL;
+}
+// allocation: Actual owner release; block state is checked before it is returned to the heap.
+static void heap_caps_free(void *allocation)
+{
     assert(!dma_active && !payload_changed);
+    if (allocation == pool) { assert(first_used); first_used = false; }
+    else { assert(allocation == second_pool && second_used); second_used = false; }
     ++releases;
-    *lease = (bsp_display_dma_lease_t){0};
 }
 // No parameters: an explicit virtual reset is the only way to discard quarantine.
 static void reset_fixture(void)
@@ -198,6 +244,7 @@ static void reset_fixture(void)
     current_task = (void *)3;
     available_slots = 2;
     available_rows = 16;
+    fragmented_heap = fail_second_allocation = first_used = second_used = false;
     releases = 0;
     now_us = 1000;
     submission_error = ESP_OK;
@@ -211,11 +258,13 @@ static void *borrow(void)
     assert(bytes == BSP_DISPLAY_DMA_ROW_BYTES * available_rows);
     return pixels;
 }
-// No parameters: verify overlap, alternation, payload preservation and last-strip retirement.
-static void normal_pipeline(void)
+// fragmented: Force the actual allocator to obtain two disjoint 14.9-KiB blocks.
+static void normal_pipeline(bool fragmented)
 {
     reset_fixture();
-    assert(bsp_display_frame_begin(500) == ESP_OK && requested_slots == 2);
+    fragmented_heap = fragmented;
+    assert(bsp_display_frame_begin(500) == ESP_OK);
+    assert((display_frame.lease.second_data != NULL) == fragmented);
     void *first = borrow();
     memset(first, 0x37, 16 * BSP_DISPLAY_DMA_ROW_BYTES);
     assert(bsp_display_frame_submit_rgb565(0, 0, 466, 16, first) == ESP_OK);
@@ -234,8 +283,9 @@ static void normal_pipeline(void)
     assert(now_us - end_started == 2400 && !dma_active && !payload_changed);
     assert(result.buffer_count == 2 && result.transfer_rows == 16 && result.rectangles == 3);
     assert(result.completion_wait_us == 4800 && result.completion_error == ESP_OK);
-    assert(result.retained_dma_bytes == 0 && releases == 1 && lock_depth == 0);
-    puts("PASS double-slot raster overlap, alternation, immutable DMA payload, final drain");
+    assert(result.retained_dma_bytes == 0 && releases == (fragmented ? 2U : 1U) && lock_depth == 0);
+    puts(fragmented ? "PASS fragmented heap: two disjoint slots, overlap, immutable payload, final drain" :
+                      "PASS contiguous double-slot overlap, alternation, immutable payload, final drain");
 }
 // No parameters: low-memory degradation preserves ownership and reports actual capacity.
 static void single_slot(void)
@@ -269,6 +319,7 @@ static void renderer_failure(void)
 static void quarantined_failure(bool queue_error)
 {
     reset_fixture();
+    fragmented_heap = true;
     assert(bsp_display_frame_begin(10) == ESP_OK);
     void *first = borrow();
     if (queue_error) { submission_error = ESP_FAIL; }
@@ -280,6 +331,7 @@ static void quarantined_failure(bool queue_error)
     assert(bsp_display_frame_end(ESP_OK, &result) == expected);
     assert(result.completion_error == expected && display_dma_faulted && dma_active);
     assert(result.retained_dma_bytes == 29824 && display_dma_fault_lease.data == pool);
+    assert(display_dma_fault_lease.second_data == second_pool && first_used && second_used);
     assert(display_frame.lease.data == NULL && releases == 0 && lock_depth == 0);
     assert(bsp_display_frame_begin(500) == ESP_ERR_INVALID_STATE);
     puts(queue_error ? "PASS uncertain SDK submission retains both slots until reset" :
@@ -332,6 +384,7 @@ static void invalid_inputs(void)
 static void synchronous_interleave(void)
 {
     reset_fixture();
+    fragmented_heap = true;
     assert(bsp_display_frame_begin(500) == ESP_OK);
     assert(bsp_display_frame_submit_rgb565(0, 0, 466, 16, borrow()) == ESP_OK);
     uint8_t *second = borrow();
@@ -341,13 +394,27 @@ static void synchronous_interleave(void)
                                   BSP_DISPLAY_RGB565_BYTE_ORDER_NATIVE) == ESP_OK);
     assert(!payload_changed && !dma_active && pool[0] == 0x12 && pool[1] == 0x34);
     bsp_display_frame_result_t result;
-    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && releases == 1);
+    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && releases == 2);
     puts("PASS synchronous/native-order interleave retires DMA before conversion/reuse");
+}
+// No parameters: partial allocation is released before admitting a safe one-slot lease.
+static void partial_allocation(void)
+{
+    reset_fixture();
+    fragmented_heap = true;
+    fail_second_allocation = true;
+    assert(bsp_display_frame_begin(500) == ESP_OK);
+    assert(display_frame.lease.buffer_count == 1 && display_frame.lease.second_data == NULL);
+    assert(releases == 1 && first_used && !second_used);
+    bsp_display_frame_result_t result;
+    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && releases == 2);
+    puts("PASS failed second allocation frees partial ownership before single-slot admission");
 }
 // No parameters: run the actual driver lifetime contracts without a device or fabricated sensors.
 int main(void)
 {
-    normal_pipeline();
+    normal_pipeline(false);
+    normal_pipeline(true);
     single_slot();
     renderer_failure();
     quarantined_failure(false);
@@ -355,5 +422,6 @@ int main(void)
     deadline_and_irq_fault();
     invalid_inputs();
     synchronous_interleave();
+    partial_allocation();
     return 0;
 }

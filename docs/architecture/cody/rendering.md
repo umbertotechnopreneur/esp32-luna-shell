@@ -116,7 +116,10 @@ releasing memory, ending the watchdog or committing geometry. Synchronous writes
 retain their original completion guarantee and drain prior frame DMA first.
 
 The two preferred slots total 29,824 internal DMA bytes, matching the previous
-32-row slot budget. The allocator may return one slot or fewer rows under memory
+32-row slot budget. Native frames can obtain two independently aligned 14,912-byte
+blocks when no contiguous 29,824-byte block fits. Aggregate and per-block headroom
+still apply, and a failed second allocation releases the first before degrading.
+The GUI pipeline retains its contiguous allocation. The allocator may return one slot or fewer rows under memory
 pressure; that mode waits before lending the active slot again. Actual slot/row
 counts, completion error and retained bytes are published by the display owner
 in the canonical frame snapshot and copied into `DMA` diagnostic records. The
@@ -183,9 +186,10 @@ budget has the same value; neither establishes a measured frame rate or CPU
 reduction.
 
 `scripts/device.ps1 check -Check display-dma` extracts and executes the production
-native BSP frame, synchronous write and completion callback functions against a
+native BSP frame, allocator, synchronous write and completion callback functions against a
 deterministic host transport. It checks payload immutability, slot alternation,
-single-slot degradation, final/failed-frame drain, uncertain SDK submission,
+fragmented two-slot allocation, partial-allocation cleanup, single-slot degradation,
+final/failed-frame drain, uncertain SDK submission,
 missing/duplicate completion, deadline and ownership rejection, and synchronous
 interleaving. Source integration checks require watchdog retirement after DMA and
 geometry commit after frame end. This validates ownership control flow, not the

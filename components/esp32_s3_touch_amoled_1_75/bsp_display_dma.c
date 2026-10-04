@@ -54,11 +54,27 @@ void bsp_display_release_dma_pipeline(
         return;
     }
     if (lease->heap_owned) {
+        if (lease->second_data != NULL) {
+            heap_caps_free(lease->second_data);
+        }
         heap_caps_free(lease->data);
     } else if (lease->emergency) {
         display_dma_emergency_in_use = false;
     }
     *lease = (bsp_display_dma_lease_t){0};
+}
+
+// lease: Owned pipeline, whose optional second native slot may be noncontiguous.
+// slot: Zero-based storage traversal index, bounded by the actual allocation.
+uint8_t *bsp_display_dma_slot(const bsp_display_dma_lease_t *lease, size_t slot)
+{
+    if (lease == NULL || lease->data == NULL || slot >= lease->buffer_count) {
+        return NULL;
+    }
+    if (slot == 1U && lease->second_data != NULL) {
+        return lease->second_data;
+    }
+    return lease->data + slot * lease->slot_stride_bytes;
 }
 
 // UI flushes and standalone frames may request two transient slots.
@@ -131,6 +147,41 @@ esp_err_t bsp_display_acquire_dma_pipeline(
             (unsigned long)largest_block
         );
     }
+
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // Native frames need independent DMA slots, not one contiguous frame buffer.
+    // BLE/startup fragmentation must not force synchronous rendering when two
+    // smaller internal blocks fit with the same aggregate headroom and budget.
+    if (preferred_buffer_count == BSP_DISPLAY_DMA_PIPELINE_DEPTH &&
+        largest_block >= full_slot_stride_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES &&
+        heap_caps_get_free_size(capabilities) >= full_pipeline_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
+        uint8_t *first_slot = heap_caps_aligned_alloc(
+            BSP_DISPLAY_DMA_ALIGNMENT, full_slot_stride_bytes, capabilities);
+        if (first_slot != NULL) {
+            largest_block = heap_caps_get_largest_free_block(capabilities);
+            uint8_t *second_slot = NULL;
+            if (largest_block >= full_slot_stride_bytes + BSP_DISPLAY_DMA_HEADROOM_BYTES) {
+                second_slot = heap_caps_aligned_alloc(
+                    BSP_DISPLAY_DMA_ALIGNMENT, full_slot_stride_bytes, capabilities);
+            }
+            if (second_slot != NULL) {
+                *out_lease = (bsp_display_dma_lease_t){
+                    .data = first_slot,
+                    .second_data = second_slot,
+                    .slot_stride_bytes = full_slot_stride_bytes,
+                    .buffer_count = BSP_DISPLAY_DMA_PIPELINE_DEPTH,
+                    .transfer_rows = maximum_transfer_rows,
+                    .heap_owned = true,
+                };
+                ++display_dma_dual_slot_count;
+                return ESP_OK;
+            }
+            heap_caps_free(first_slot);
+        }
+        ESP_LOGW(TAG, "Separate native DMA slots unavailable: slot=%lu largest=%lu; trying a smaller pipeline",
+            (unsigned long)full_slot_stride_bytes, (unsigned long)largest_block);
+    }
+#endif
 
     if (preferred_buffer_count > 1U) {
         largest_block = heap_caps_get_largest_free_block(capabilities);

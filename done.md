@@ -15,6 +15,14 @@ and referenced architecture/artifact records.
   canonically. Added an actual-BSP host ownership/fault suite through `device.ps1`
   and integrated final drain into frame timing. Source review completed; host,
   firmware and physical measurements for this increment remain pending.
+- The first DMA capture completed safely but obtained only one 16-row slot:
+  internal heap fragmentation prevented the contiguous preferred allocation.
+  Added native-only independent slot allocation with unchanged aggregate budget
+  and headroom. A partial second allocation is freed before explicit degradation;
+  both independent blocks remain owned by quarantine on ambiguous DMA failure.
+  Expanded the host suite to execute the real allocator and fragmented cases.
+  The original host raster/benchmark suites and initial BSP lifetime suite passed;
+  this allocator correction and its device performance remain pending.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host

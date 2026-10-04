@@ -84,6 +84,10 @@ def prepare_source(output: Path) -> dict:
             ("ESP_ERR_NO_MEM", 0x101), ("ESP_ERR_INVALID_ARG", 0x102),
             ("ESP_ERR_INVALID_STATE", 0x103), ("ESP_ERR_INVALID_SIZE", 0x104),
             ("ESP_ERR_NOT_SUPPORTED", 0x106), ("ESP_ERR_TIMEOUT", 0x107))) + "\n", encoding="utf-8")
+    dma = (bsp_path.parent / "bsp_display_dma.c").read_text(encoding="utf-8")
+    (output / "dma_owner_under_test.inc").write_text(dma, encoding="utf-8")
+    for name in ("sdkconfig.h", "esp_attr.h", "esp_heap_caps.h", "esp_memory_utils.h", "esp_log.h"):
+        (stub.parent / name).write_text("#pragma once\n", encoding="utf-8")
     platform = (ROOT / "components/LUNASHELL_platform/src/display/LUNASHELL_display_runtime.cpp").read_text(encoding="utf-8")
     end = function_text(platform, 'extern "C" esp_err_t LUNASHELL_display_frame_end(')
     if end.index("bsp_display_frame_end(") >= end.index("LUNASHELL_liveness_watch_end("):
@@ -98,6 +102,7 @@ def prepare_source(output: Path) -> dict:
     if loop.index("frame.finish(") >= loop.index("*s_resources.previous_rig ="):
         raise ValueError("Reference geometry is committed before frame retirement")
     return {"production_source_sha256": hashlib.sha256(bsp.encode()).hexdigest(),
+            "production_allocator_sha256": hashlib.sha256(dma.encode()).hexdigest(),
             "executed_functions": list(signatures),
             "integration": ["watchdog spans DMA drain", "idle slot reborrow before raster",
                             "reference geometry committed after frame retirement"]}

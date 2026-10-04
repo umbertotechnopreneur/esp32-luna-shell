@@ -3792,6 +3792,7 @@ esp_err_t bsp_touch_read_point(bsp_touch_point_t *point)
 }
 
 // budget_ms: Complete-frame limit, independent of the number of strips.
+// Exception: Returns real lock/readiness/allocation errors without admitting a partial lease.
 esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -3951,8 +3952,7 @@ esp_err_t bsp_display_frame_buffer(void **pixels, size_t *capacity_bytes)
         ESP_LOGE(TAG, "Frame buffer unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    *pixels = display_frame.lease.data +
-        display_frame.render_slot * display_frame.lease.slot_stride_bytes;
+    *pixels = bsp_display_dma_slot(&display_frame.lease, display_frame.render_slot);
     *capacity_bytes = BSP_DISPLAY_DMA_ROW_BYTES * display_frame.lease.transfer_rows;
     return ESP_OK;
 #else
@@ -3975,8 +3975,7 @@ esp_err_t bsp_display_frame_submit_rgb565(
     if (deadline_error != ESP_OK) {
         return deadline_error;
     }
-    const uint8_t *expected = display_frame.lease.data == NULL ? NULL :
-        display_frame.lease.data + display_frame.render_slot * display_frame.lease.slot_stride_bytes;
+    const uint8_t *expected = bsp_display_dma_slot(&display_frame.lease, display_frame.render_slot);
     if (pixels == NULL || pixels != expected || x_start < 0 || y_start < 0 ||
         x_end > BSP_LCD_H_RES || y_end > BSP_LCD_V_RES ||
         x_start >= x_end || y_start >= y_end ||
@@ -4022,6 +4021,7 @@ esp_err_t bsp_display_frame_submit_rgb565(
 
 // frame_error: First failure from geometry, raster or a completed transfer.
 // result: Nonnull output; a failed completion never becomes a successful frame.
+// Exception: Preserves render/deadline/DMA errors while releasing only a proven-idle lease.
 esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_t *result)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
@@ -4158,12 +4158,16 @@ static esp_err_t bsp_display_write_rgb565_internal(
     const int64_t deadline_us = in_frame ? display_frame.deadline_us
         : esp_timer_get_time() + (int64_t)BSP_DISPLAY_DIRECT_TRANSFER_TIMEOUT_MS * 1000;
     const uint8_t *source = (const uint8_t *)pixels;
-    const bool source_in_slot = !clear_black &&
+    const bool source_in_first_slot = !clear_black &&
         (uintptr_t)source >= (uintptr_t)lease->data &&
         (uintptr_t)source < (uintptr_t)lease->data +
-            lease->slot_stride_bytes * lease->buffer_count;
-    if (source_in_slot && (!in_frame ||
-        ((uintptr_t)source - (uintptr_t)lease->data) % lease->slot_stride_bytes != 0 ||
+            lease->slot_stride_bytes;
+    const uint8_t *second_slot = bsp_display_dma_slot(lease, 1U);
+    const bool source_in_second_slot = !clear_black && second_slot != NULL &&
+        (uintptr_t)source >= (uintptr_t)second_slot &&
+        (uintptr_t)source < (uintptr_t)second_slot + lease->slot_stride_bytes;
+    if ((source_in_first_slot || source_in_second_slot) && (!in_frame ||
+        (source != lease->data && source != second_slot) ||
         (size_t)(y_end - y_start) > lease->transfer_rows)) {
         if (!in_frame) {
             bsp_display_release_dma_pipeline(lease);
