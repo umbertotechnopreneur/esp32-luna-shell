@@ -180,3 +180,13 @@ and referenced architecture/artifact records.
   Both were verified/flashed on COM8; previews/captures are under
   `artifacts/leg-*`. Latest physical UI, acoustics, levels 1/2, PWR,
   persistence/rotation and disabled-RTC summary remain open.
+
+## Cody service documentation — 2026-10-04
+
+- Created the ten-page English CCP Service Atlas with discovery/pairing,
+  persistence, 100-PC identity filtering, liveness and security-boundary diagrams.
+  Added Umberto Giacobbi and hello@umbertogiacobbi.biz to all five Cody PDFs,
+  visibly and in metadata. All ten new pages and 58 historical footers were
+  visually reviewed; historical page bodies remain pixel-identical at 96 DPI.
+  No runtime, LAN or physical-device validation was performed for this document.
+  [Artifact and preservation record](docs/planning/2026-10-04-ccp-service-atlas.md).
