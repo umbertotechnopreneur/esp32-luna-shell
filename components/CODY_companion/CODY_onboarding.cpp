@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -9,11 +10,13 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY_jelly.hpp"
+#include "CODY_look_screen.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "scene_data.hpp"
 #include "navigation_data.hpp"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "qrcode.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -28,27 +31,16 @@ constexpr uint16_t kQrSide = 270;
 constexpr uint16_t kQrQuietModules = 4;
 constexpr uint16_t kQrLeft = 98;
 constexpr uint16_t kQrTop = 147;
-constexpr uint16_t kBlueTop = 0x765E; // Authored #75CBF3 anchor.
-constexpr uint16_t kBlueBottom = 0x34FC; // Authored #359FE7 anchor.
-constexpr uint16_t kLookNeutralTop = 0x2946;
-constexpr uint16_t kLookNeutralBottom = 0x18C4;
 constexpr uint16_t kCaptionWidth = 232;
 constexpr CODY2D::Rect kForwardBounds{396, 203, 60, 60};
 constexpr CODY2D::Rect kBackBounds{10, 203, 60, 60};
-constexpr CODY2D::Rect kLookListViewport{117, 226, 232, 146};
-constexpr CODY2D::Rect kLookItemBase{117, 226, 220, 38};
-constexpr uint16_t kLookItemStep = 44;
-constexpr uint16_t kLookScrollBarLeft = 343;
-constexpr uint16_t kLookScrollBarWidth = 4;
-constexpr uint16_t kLookDragThreshold = 5;
-constexpr size_t kLookItemCapacity = 8;
 constexpr int64_t kHelloReadableHoldUs = 1000000;
 using PairState = LUNASHELL::PairingSessionState;
 
 enum class Route : uint8_t {
     None, Hello04, Invitation05, Install06, Scan06Bis, Pairing07, Failed08, Online09, Look11
 };
-enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel };
+enum class Work : uint8_t { InstallQr, SessionQr, Start, Retry, Cancel, SaveLook };
 enum class NavigationDirection : uint8_t { Previous, Next };
 enum class OnboardingAction : uint8_t { None, ShowQr, PairCody, Cancel, Retry, Continue, Done };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -62,15 +54,13 @@ struct Command {
     uint32_t generation = 0;
     uint32_t attempt = 0;
     uint32_t session = 0;
+    LUNASHELL::CharacterLookSaveSnapshot look_save{};
 };
 struct Result {
     Command command{};
     esp_err_t error = ESP_OK;
+    esp_err_t publication_error = ESP_OK;
     QrModules qr{};
-};
-struct LookItem {
-    const char *id = nullptr;
-    CODY2D::CapsuleControl control{};
 };
 struct ContentView {
     CODY2D::TextLine lines[3]{};
@@ -81,15 +71,11 @@ struct ContentView {
     OnboardingAction action_id = OnboardingAction::None;
     QrModules qr{};
     char error_text[32]{};
-    LookItem look_items[kLookItemCapacity]{};
-    const char *selected_look_id = nullptr;
-    uint8_t look_count = 0;
-    uint16_t look_scroll = 0;
-    bool look_list_visible = false;
 };
 ContentView s_view;
 Route s_route = Route::None;
 uint32_t s_generation = 1;
+uint32_t s_look_request_id = 0; // Never reset with a route; late writes keep their identity.
 uint32_t s_revision = 0;
 uint32_t s_navigation_revision = 0;
 uint32_t s_attempt = 0;
@@ -98,15 +84,12 @@ bool s_command_pending = false;
 bool s_cancel_to_install = false;
 bool s_pairing_owned = false;
 bool s_online_link = false;
+bool s_online_presentation_current = false;
 int64_t s_hello_completed_at_us = -1;
 int64_t s_last_pairing_change_us = -1;
 esp_err_t s_visible_error = ESP_OK;
 Work s_failed_work = Work::Start;
 bool s_local_failure = false;
-bool s_look_touch_active = false;
-bool s_look_touch_dragged = false;
-int16_t s_look_touch_start_y = 0;
-uint16_t s_look_scroll_start = 0;
 bool s_swipe_active = false;
 CODY2D::Point s_swipe_start{};
 CODY2D::Point s_swipe_last{};
@@ -175,10 +158,27 @@ esp_err_t encode_qr(const char *payload, QrModules &qr)
 }
 
 // command: Typed action and attempt/session identities acquired by the route owner.
-// result: Original operation result and optional bounded QR modules.
+// result: Original operation result, separate snapshot publication error and optional QR.
+// Exception: The result retains every persistence, snapshot and radio failure.
 void execute_command(const Command &command, Result &result)
 {
     result.command = command;
+    if (command.work == Work::SaveLook) {
+#if CODY_ENABLE_PEARL_JELLY
+        result.error = persist_jelly_skin(command.look_save.requested_id);
+#else
+        result.error = ESP_ERR_NOT_SUPPORTED;
+#endif
+        auto completed = command.look_save;
+        completed.state = result.error == ESP_OK
+            ? LUNASHELL::CharacterLookSaveSnapshot::State::Saved
+            : LUNASHELL::CharacterLookSaveSnapshot::State::Failed;
+        completed.error = result.error;
+        completed.completed_at_us = esp_timer_get_time();
+        result.publication_error =
+            LUNASHELL::DeviceSnapshotService::instance().reportCharacterLookSave(completed);
+        return;
+    }
     if (command.work == Work::InstallQr) {
         result.error = encode_qr(kInstallUrl, result.qr);
         return;
@@ -221,7 +221,8 @@ void execute_command(const Command &command, Result &result)
     result.error = LUNASHELL_pairing_request(action, command.attempt);
 }
 
-// context: Unused; one worker exclusively owns library callbacks and mailbox results.
+// context: Unused; one worker owns blocking radio, QR and preference operations.
+// Exception: Operation and publication errors remain separate in the result mailbox.
 void action_worker(void *context)
 {
     (void)context;
@@ -233,10 +234,11 @@ void action_worker(void *context)
         }
         Result completed{};
         execute_command(s_command, completed);
-        if (completed.error != ESP_OK) {
-            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
+        if (completed.error != ESP_OK || completed.publication_error != ESP_OK) {
+            ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed: operation=%s publication=%s",
                 to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
-                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
+                static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error),
+                esp_err_to_name(completed.publication_error));
         }
         s_result = completed;
         wipe(&completed, sizeof(completed));
@@ -256,6 +258,47 @@ esp_err_t enqueue(Work work, uint32_t attempt, uint32_t session = 0)
     s_command = {work, s_generation, attempt, session};
     s_command_pending = true;
     ++s_navigation_revision;
+    s_work_busy.store(true, std::memory_order_release);
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
+// scene: Active selector whose previous selection stays visible during the write.
+// id: Flash-owned catalog ID from a real tap; copied into bounded request storage.
+// Exception: Returns the real admission, preparation or snapshot publication error.
+esp_err_t enqueue_look_save(SceneFrame &scene, const char *id)
+{
+    if (s_worker == nullptr || s_work_busy.load(std::memory_order_acquire) ||
+        s_look_request_id == UINT32_MAX || id == nullptr) {
+        ESP_LOGE(kTag, "Look worker admission rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    Command command;
+    command.work = Work::SaveLook;
+    command.generation = s_generation;
+    auto &operation = command.look_save;
+    const size_t length = std::strlen(id);
+    if (length == 0 || length >= sizeof(operation.requested_id)) {
+        ESP_LOGE(kTag, "Look ID length rejected: %u (%s)",
+                 static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    std::memcpy(operation.requested_id, id, length + 1U);
+    operation.request_id = s_look_request_id + 1U;
+    operation.state = LUNASHELL::CharacterLookSaveSnapshot::State::Saving;
+    operation.started_at_us = esp_timer_get_time();
+    esp_err_t error = begin_look_save(scene, id, operation.request_id);
+    if (error != ESP_OK) {
+        return error;
+    }
+    error = LUNASHELL::DeviceSnapshotService::instance().reportCharacterLookSave(operation);
+    if (error != ESP_OK) {
+        return error;
+    }
+    s_look_request_id = operation.request_id;
+    s_command = command;
+    s_command_pending = true;
+    scene.content.control_revision = ++s_navigation_revision;
     s_work_busy.store(true, std::memory_order_release);
     xTaskNotifyGive(s_worker);
     return ESP_OK;
@@ -308,158 +351,6 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     return ESP_OK;
 }
 
-// No parameters: maximum list displacement that still ends on the last authored row.
-uint16_t look_scroll_limit()
-{
-    if (s_view.look_count == 0) {
-        return 0;
-    }
-    const uint32_t content_bottom = kLookItemBase.y +
-        static_cast<uint32_t>(s_view.look_count - 1U) * kLookItemStep + kLookItemBase.height;
-    const uint32_t viewport_bottom = kLookListViewport.y + kLookListViewport.height;
-    return content_bottom > viewport_bottom
-        ? static_cast<uint16_t>(content_bottom - viewport_bottom) : 0;
-}
-
-// No parameters: build the fixed-capacity list from stable catalog IDs and current preference.
-// Exception: Returns the real catalog, font or unsupported-renderer error.
-esp_err_t prepare_look_list()
-{
-#if !CODY_ENABLE_PEARL_JELLY
-    ESP_LOGE(kTag, "Screen 11 requires the authored jelly look catalog (%s)",
-             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    const size_t count = jelly_skin_count();
-    if (count == 0 || count > kLookItemCapacity) {
-        ESP_LOGE(kTag, "Screen 11 look count rejected: %u (%s)",
-                 static_cast<unsigned>(count), esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    JellySkinSelection selected;
-    esp_err_t error = selected_jelly_skin(selected);
-    if (error != ESP_OK) {
-        return error;
-    }
-    s_view.look_list_visible = true;
-    s_view.look_count = static_cast<uint8_t>(count);
-    s_view.selected_look_id = selected.id;
-    for (size_t index = 0; index < count; ++index) {
-        JellySkinSelection entry;
-        error = jelly_skin_at(index, entry);
-        if (error != ESP_OK) {
-            return error;
-        }
-        const uint16_t row_top = kLookItemBase.y + static_cast<uint16_t>(index) * kLookItemStep;
-        auto &item = s_view.look_items[index];
-        item.id = entry.id;
-        item.control = {
-            {kLookItemBase.x, row_top, kLookItemBase.width, kLookItemBase.height},
-            {}, kLookNeutralTop, kLookNeutralBottom, true
-        };
-        const uint16_t caption_top = row_top +
-            (kLookItemBase.height - SceneData::body_font.height) / 2U;
-        error = prepare_caption(entry.display_name, caption_top, item.control.caption);
-        if (error != ESP_OK) {
-            return error;
-        }
-    }
-    return prepare_action(OnboardingAction::Done, true);
-#endif
-}
-
-// strip: Existing content-clipped tile retaining its original stride and byte order.
-// first_row: Logical y origin of the tile.
-// first_column: Logical x origin of the tile.
-// bounds: Full-canvas rectangle to intersect with this tile.
-// color: Native RGB565 fill color.
-// Exception: Returns the real destination-surface fill error.
-esp_err_t fill_canvas_rect(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column,
-                           CODY2D::Rect bounds, uint16_t color)
-{
-    const uint16_t top = std::max(first_row, bounds.y);
-    const uint16_t left = std::max(first_column, bounds.x);
-    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, bounds.y + bounds.height);
-    const uint16_t right = std::min<uint16_t>(first_column + strip.width, bounds.x + bounds.width);
-    if (right <= left || bottom <= top) {
-        return ESP_OK;
-    }
-    return CODY2D::fill_rect(strip,
-        {static_cast<uint16_t>(left - first_column), static_cast<uint16_t>(top - first_row),
-         static_cast<uint16_t>(right - left), static_cast<uint16_t>(bottom - top)}, color);
-}
-
-// view: Immutable prepared list, selection and bounded scroll position.
-// strip: Scene-content tile; rows are clipped again to the list viewport.
-// first_row: Logical y origin shared with touch coordinates.
-// first_column: Logical x origin shared with touch coordinates.
-// Exception: Returns the real invalid-state, surface or text drawing error.
-esp_err_t draw_look_list(const ContentView &view, CODY2D::Surface strip,
-                         uint16_t first_row, uint16_t first_column)
-{
-    if (!view.look_list_visible || view.look_count == 0 ||
-        view.look_count > kLookItemCapacity || view.selected_look_id == nullptr) {
-        if (!view.look_list_visible) {
-            return ESP_OK;
-        }
-        ESP_LOGE(kTag, "Look list draw state rejected: count=%u selected=%s (%s)",
-                 view.look_count, view.selected_look_id != nullptr ? view.selected_look_id : "<null>",
-                 esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
-    const uint16_t clipped_top = std::max(first_row, kLookListViewport.y);
-    const uint16_t clipped_left = std::max(first_column, kLookListViewport.x);
-    const uint16_t clipped_bottom = std::min<uint16_t>(first_row + strip.height,
-        kLookListViewport.y + kLookListViewport.height);
-    const uint16_t clipped_right = std::min<uint16_t>(first_column + strip.width,
-        kLookListViewport.x + kLookListViewport.width);
-    if (clipped_right <= clipped_left || clipped_bottom <= clipped_top) {
-        return ESP_OK;
-    }
-    const uint32_t offset = static_cast<uint32_t>(clipped_top - first_row) * strip.stride +
-        clipped_left - first_column;
-    CODY2D::Surface list_strip = strip;
-    list_strip.pixels += offset;
-    list_strip.width = clipped_right - clipped_left;
-    list_strip.height = clipped_bottom - clipped_top;
-    list_strip.pixel_capacity -= offset;
-    for (uint8_t index = 0; index < view.look_count; ++index) {
-        const auto &item = view.look_items[index];
-        if (item.id == nullptr || !item.control.caption.valid) {
-            ESP_LOGE(kTag, "Look row draw state rejected: row=%u id=%s caption=%u (%s)",
-                     index, item.id != nullptr ? item.id : "<null>", item.control.caption.valid,
-                     esp_err_to_name(ESP_ERR_INVALID_STATE));
-            return ESP_ERR_INVALID_STATE;
-        }
-        CODY2D::CapsuleControl row = item.control;
-        row.bounds.y = static_cast<uint16_t>(row.bounds.y - view.look_scroll);
-        row.caption.origin.y = static_cast<int16_t>(row.caption.origin.y - view.look_scroll);
-        row.caption.bounds.y = static_cast<uint16_t>(row.caption.bounds.y - view.look_scroll);
-        const bool selected = std::strcmp(item.id, view.selected_look_id) == 0;
-        row.top_color = selected ? kBlueTop : kLookNeutralTop;
-        row.bottom_color = selected ? kBlueBottom : kLookNeutralBottom;
-        row.caption.color = selected ? 0x0001 : 0xFFFF;
-        const esp_err_t error = CODY2D::draw_capsule_rows(
-            row, list_strip, clipped_top, clipped_left);
-        if (error != ESP_OK) {
-            return error;
-        }
-    }
-    const CODY2D::Rect track{kLookScrollBarLeft, kLookListViewport.y,
-        kLookScrollBarWidth, kLookListViewport.height};
-    esp_err_t error = fill_canvas_rect(list_strip, clipped_top, clipped_left, track, kLookNeutralBottom);
-    const uint16_t limit = look_scroll_limit();
-    const uint16_t thumb_height = limit == 0 ? kLookListViewport.height : 48;
-    const uint16_t thumb_range = kLookListViewport.height - thumb_height;
-    const uint16_t thumb_top = kLookListViewport.y +
-        (limit == 0 ? 0 : static_cast<uint16_t>(view.look_scroll * thumb_range / limit));
-    if (error == ESP_OK) {
-        error = fill_canvas_rect(list_strip, clipped_top, clipped_left,
-            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, kBlueTop);
-    }
-    return error;
-}
-
 // qr: Compact immutable module map from the encoder.
 // strip: Already clipped caller-owned content tile.
 // first_row: Logical y origin of the tile.
@@ -505,7 +396,7 @@ esp_err_t draw_qr_rows(const QrModules &qr, CODY2D::Surface strip,
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
-// Exception: Returns the first real QR, text or list drawing error.
+// Exception: Returns the first real QR or text drawing error.
 esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                        uint16_t first_row, uint16_t first_column)
 {
@@ -515,9 +406,6 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
     }
-    if (error == ESP_OK) {
-        error = draw_look_list(view, strip, first_row, first_column);
-    }
     return error;
 }
 
@@ -525,22 +413,15 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
 // Exception: Returns the scene-content validation error without replacing the frame.
 esp_err_t attach_content(SceneFrame &scene)
 {
+    if (s_route == Route::Look11) {
+        return attach_look_content(scene, s_navigation_revision);
+    }
     uint16_t preceding = scene.definition->title_visible ? scene.title.text.length : 0;
     for (uint8_t index = 0; index < s_view.line_count; ++index) {
         s_view.visible_characters[index] = scene_content_characters(scene, s_view.lines[index].text.length, preceding);
         preceding += s_view.lines[index].text.length;
     }
     const DamageRect controls[] = {{10, 203, 70, 263}, {396, 203, 456, 263}};
-    if (s_route == Route::Look11) {
-        SceneContent content;
-        content.bounds = {117, 226, 349, 436};
-        content.state = &s_view;
-        content.revision = ++s_revision;
-        content.control_revision = s_navigation_revision;
-        std::copy(std::begin(controls), std::end(controls), content.control_bounds);
-        content.draw_rows = draw_content;
-        return set_scene_content(scene, content);
-    }
     const uint16_t top = s_route == Route::Install06 || s_route == Route::Scan06Bis ? 150 :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
@@ -584,9 +465,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     case Route::Online09:
         identity = SceneId::Online;
         break;
-    case Route::Look11:
-        identity = SceneId::CodyLook;
-        break;
     default:
         ESP_LOGE(kTag, "Unknown content route %u (%s)", to_index(route), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -602,8 +480,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     }
     // QR state is retired on every departure, including cancellation and failure.
     wipe(&s_view, sizeof(s_view));
-    s_look_touch_active = false;
-    s_look_touch_dragged = false;
+    reset_look_screen();
     s_swipe_active = false;
     ++s_navigation_revision;
     s_route = route;
@@ -639,6 +516,9 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::None, false); // A current observation enables Retry/Cancel separately.
         }
     } else if (route == Route::Online09) {
+        // Returning from a child must re-evaluate the canonical connection,
+        // even if it was already offline before the child was opened.
+        s_online_presentation_current = false;
         error = prepare_caption("Wi-Fi connected", 350, s_view.lines[0]);
         s_view.line_count = 1;
 #if CODY_ENABLE_PEARL_JELLY
@@ -646,8 +526,6 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::Continue, true);
         }
 #endif
-    } else if (route == Route::Look11) {
-        error = prepare_look_list();
     }
     if (error == ESP_OK) {
         error = attach_content(prepared);
@@ -658,6 +536,59 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
     scene = prepared;
     ESP_LOGI(kTag, "Atlas route entered: %s", definition->name);
     return ESP_OK;
+}
+
+// scene: Active host frame, replaced only after the reusable selector is prepared.
+// navigation: Caller and Done targets chosen by this host, not by the selector.
+// Exception: Returns the original selector or navigation-control preparation error.
+esp_err_t enter_look_route(SceneFrame &scene, const LookNavigationContext &navigation)
+{
+    esp_err_t error = open_look_screen(scene, navigation);
+    if (error != ESP_OK) {
+        return error;
+    }
+    wipe(&s_view, sizeof(s_view));
+    s_route = Route::Look11;
+    s_swipe_active = false;
+    ++s_navigation_revision;
+    error = prepare_action(OnboardingAction::Done, true);
+    if (error == ESP_OK) {
+        error = attach_content(scene);
+    }
+    return error;
+}
+
+// destination: Explicit scene identity returned by a child screen.
+// scene: Host-owned frame to replace through its normal route initialization.
+// Exception: Rejects destinations this host does not implement; never guesses a route.
+esp_err_t enter_host_destination(SceneId destination, SceneFrame &scene)
+{
+    Route route;
+    switch (destination) {
+    case SceneId::PairInvitation:
+        route = Route::Invitation05;
+        break;
+    case SceneId::InstallApp:
+        route = Route::Install06;
+        break;
+    case SceneId::ScanToPair:
+        route = Route::Scan06Bis;
+        break;
+    case SceneId::Pairing:
+        route = Route::Pairing07;
+        break;
+    case SceneId::PairingFailed:
+        route = Route::Failed08;
+        break;
+    case SceneId::Online:
+        route = Route::Online09;
+        break;
+    default:
+        ESP_LOGE(kTag, "Unsupported host destination %u (%s)",
+                 static_cast<unsigned>(destination), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+        return ESP_ERR_NOT_SUPPORTED;
+    }
+    return enter_route(route, scene);
 }
 
 // scene: Current route that displays a real local action/preparation error.
@@ -699,10 +630,8 @@ void reset_onboarding()
     s_hello_completed_at_us = -1;
     s_local_failure = false;
     s_online_link = false;
-    s_look_touch_active = false;
-    s_look_touch_dragged = false;
-    s_look_touch_start_y = 0;
-    s_look_scroll_start = 0;
+    s_online_presentation_current = false;
+    reset_look_screen();
     s_swipe_active = false;
     s_swipe_route = Route::None;
     s_swipe_axis = GestureAxis::Undecided;
@@ -720,7 +649,8 @@ void begin_onboarding()
 // completed_scene: Last fully retired text; never advance from a failed/partial frame.
 // active_time_us: Existing animation time, excluding standby and pause.
 // changed: Receives whether scene geometry or content needs a new frame.
-// Exception: Returns the first real snapshot, command, route or content error.
+// Exception: Returns infrastructure/route errors; optional look-write failures remain
+// explicit operation results in the canonical snapshot and the reusable error view.
 esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene,
                             int64_t active_time_us, bool &changed)
 {
@@ -732,6 +662,41 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         wipe(&s_result, sizeof(s_result));
         s_result_ready.store(false, std::memory_order_release);
         s_work_busy.store(false, std::memory_order_release);
+    }
+    if (have_result && result.command.work == Work::SaveLook) {
+        if (result.publication_error != ESP_OK) {
+            return result.publication_error;
+        }
+        // Persistence is optional at this orchestrator boundary. The worker's real
+        // write result is already canonical; failed publication is still fatal.
+        if (result.error == ESP_OK) {
+#if CODY_ENABLE_PEARL_JELLY
+            const esp_err_t selection_error = select_jelly_skin(result.command.look_save.requested_id);
+            if (selection_error != ESP_OK) {
+                return selection_error;
+            }
+#else
+            ESP_LOGE(kTag, "Look completion without a renderer (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+            return ESP_ERR_NOT_SUPPORTED;
+#endif
+            changed = true;
+        } else {
+            ESP_LOGE(kTag, "Optional look write failed; display continues: request=%lu (%s)",
+                     static_cast<unsigned long>(result.command.look_save.request_id), esp_err_to_name(result.error));
+        }
+        if (result.command.generation == s_generation && s_route == Route::Look11) {
+            s_command_pending = false;
+            scene.content.control_revision = ++s_navigation_revision;
+            const auto completion = complete_look_save(scene, result.command.look_save.request_id, result.error);
+            if (completion.presentation_error != ESP_OK) {
+                return completion.presentation_error;
+            }
+            changed = true;
+        }
+        // A reset may retire the view while NVS is busy. The copied request and
+        // canonical outcome survive it; never resurrect a retired screen.
+        wipe(&result, sizeof(result));
+        return ESP_OK;
     }
     if (s_route == Route::None) {
         wipe(&result, sizeof(result));
@@ -938,10 +903,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                     error = attach_content(scene);
                 }
             }
-        } else if (s_route != Route::Online09 || online != s_online_link) {
+        } else if (s_route != Route::Online09 || !s_online_presentation_current || online != s_online_link) {
             changed = true;
             error = enter_route(Route::Online09, scene);
             s_online_link = online;
+            s_online_presentation_current = true;
             if (error == ESP_OK && !online) {
                 // TextSpan is borrowed by later frames, not copied by set_scene_title.
                 static constexpr char title[] = "No connection";
@@ -965,42 +931,6 @@ bool point_in_rect(CODY2D::Rect bounds, CODY2D::Point point)
 {
     return point.x >= bounds.x && point.y >= bounds.y &&
         point.x < bounds.x + bounds.width && point.y < bounds.y + bounds.height;
-}
-
-// scene: Current screen 11 frame whose preview must follow a successful selection.
-// point: Release point inside the list viewport after a tap-sized gesture.
-// Exception: Returns the real persistence or content-layout error without changing selection.
-esp_err_t select_look_at(SceneFrame &scene, CODY2D::Point point)
-{
-#if !CODY_ENABLE_PEARL_JELLY
-    ESP_LOGE(kTag, "Screen 11 selection requires the jelly renderer (%s)",
-             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
-    return ESP_ERR_NOT_SUPPORTED;
-#else
-    for (uint8_t index = 0; index < s_view.look_count; ++index) {
-        const auto &item = s_view.look_items[index];
-        if (item.id == nullptr) {
-            ESP_LOGE(kTag, "Screen 11 selection row %u has no stable ID (%s)",
-                     index, esp_err_to_name(ESP_ERR_INVALID_STATE));
-            return ESP_ERR_INVALID_STATE;
-        }
-        CODY2D::CapsuleControl target = item.control;
-        target.bounds.y = static_cast<uint16_t>(target.bounds.y - s_view.look_scroll);
-        if (!CODY2D::capsule_contains(target, point)) {
-            continue;
-        }
-        if (std::strcmp(item.id, s_view.selected_look_id) == 0) {
-            return ESP_OK;
-        }
-        const esp_err_t error = persist_jelly_skin(item.id);
-        if (error != ESP_OK) {
-            return error;
-        }
-        s_view.selected_look_id = item.id;
-        return attach_content(scene);
-    }
-    return ESP_OK;
-#endif
 }
 
 // No parameters: only routes with a real previous destination expose Back.
@@ -1028,7 +958,8 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return ESP_OK;
     }
     const bool cancel_hit = back_hit && s_view.action_id == OnboardingAction::Cancel;
-    if (s_command_pending || ((action_hit || cancel_hit) && !s_view.action.enabled)) {
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire) ||
+        ((action_hit || cancel_hit) && !s_view.action.enabled)) {
         return ESP_OK;
     }
     ScenePresentation presentation;
@@ -1040,7 +971,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return enter_route(Route::Invitation05, scene);
     }
     if ((back_hit || action_hit) && s_route == Route::Look11) {
-        return enter_route(Route::Online09, scene);
+        SceneId destination;
+        const esp_err_t error = look_exit_destination(back_hit ? LookExit::Back : LookExit::Done, destination);
+        return error == ESP_OK ? enter_host_destination(destination, scene) : error;
     }
     if (action_hit && s_route == Route::Invitation05) {
         esp_err_t error = enter_route(Route::Install06, scene);
@@ -1053,7 +986,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return ESP_OK;
     }
     if (action_hit && s_route == Route::Online09) {
-        return enter_route(Route::Look11, scene);
+        // This increment still returns to 09. Future setup/Settings hosts supply
+        // their own caller and Done destinations without changing the selector.
+        return enter_look_route(scene, {SceneId::Online, SceneId::Online});
     }
     LUNASHELL::ConnectivityObservation observation;
     const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
@@ -1120,8 +1055,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     }
     if (s_swipe_route != s_route || (s_swipe_active && s_swipe_rotation != rotation_degrees)) {
         s_swipe_active = false;
-        s_look_touch_active = false;
-        s_look_touch_dragged = false;
+        cancel_look_touch();
     }
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
@@ -1141,12 +1075,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         s_swipe_route = s_route;
         s_swipe_rotation = rotation_degrees;
         s_swipe_axis = GestureAxis::Undecided;
-        if (s_route == Route::Look11 && point_in_rect(kLookListViewport, point)) {
-            s_look_touch_active = true;
-            s_look_touch_dragged = false;
-            s_look_touch_start_y = point.y;
-            s_look_scroll_start = s_view.look_scroll;
-        }
     }
     if (pressed && s_swipe_active) {
         s_swipe_last = point;
@@ -1166,34 +1094,23 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         const int dy = s_swipe_last.y - s_swipe_start.y;
         if (s_swipe_axis == GestureAxis::Horizontal && std::abs(dx) >= 48 &&
             std::abs(dx) * 2 > std::abs(dy) * 3) {
-            s_look_touch_active = false;
-            s_look_touch_dragged = false;
+            cancel_look_touch();
             consumed = true;
             return activate_onboarding_navigation(scene,
                 dx < 0 ? NavigationDirection::Next : NavigationDirection::Previous);
         }
     }
-    if (s_route == Route::Look11 && s_look_touch_active) {
-        consumed = true;
-        if (pressed) {
-            const int displacement = s_look_touch_start_y - point.y;
-            if (std::abs(displacement) >= kLookDragThreshold || s_swipe_axis == GestureAxis::Horizontal) {
-                s_look_touch_dragged = true;
-            }
-            if (s_swipe_axis == GestureAxis::Horizontal) {
-                return ESP_OK;
-            }
-            const int scroll = std::clamp<int>(s_look_scroll_start + displacement, 0, look_scroll_limit());
-            if (scroll != s_view.look_scroll) {
-                s_view.look_scroll = static_cast<uint16_t>(scroll);
-                return attach_content(scene);
-            }
-            return ESP_OK;
+    if (s_route == Route::Look11) {
+        LookTouchResult result;
+        const esp_err_t error = handle_look_touch(scene, pressed ? point : s_swipe_last,
+            pressed, pressed_edge, s_swipe_axis == GestureAxis::Horizontal, result);
+        consumed = result.consumed;
+        if (error != ESP_OK) {
+            return error;
         }
-        s_look_touch_active = false;
-        const bool tap = !s_look_touch_dragged && point_in_rect(kLookListViewport, s_swipe_last);
-        s_look_touch_dragged = false;
-        return tap ? select_look_at(scene, s_swipe_last) : ESP_OK;
+        if (result.save_id != nullptr) {
+            return enqueue_look_save(scene, result.save_id);
+        }
     }
     return ESP_OK;
 }

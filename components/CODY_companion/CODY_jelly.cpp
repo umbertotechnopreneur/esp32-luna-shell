@@ -292,7 +292,7 @@ esp_err_t load_persisted_jelly_skin()
 }
 
 // id: Exact authored identity chosen from screen 11, never its visible row position.
-// Exception: The active texture changes only after the NVS write succeeds completely.
+// Exception: Returns the original NVS error; activation belongs to the display owner.
 esp_err_t persist_jelly_skin(const char *id)
 {
     if (id == nullptr) {
@@ -313,8 +313,9 @@ esp_err_t persist_jelly_skin(const char *id)
                  kSkinSettingKey, definition->key, esp_err_to_name(error));
         return error;
     }
-    s_selected_skin.store(definition->id, std::memory_order_release);
-    ESP_LOGI(kTag, "Look selected and persisted: id=%s name=%s%s", definition->key,
+    // The action worker must not mutate renderer selection. Its completion is
+    // applied by the display owner between frames via select_jelly_skin.
+    ESP_LOGI(kTag, "Look persisted: id=%s name=%s%s", definition->key,
              definition->display_name,
              definition->id == JellySkinCatalog::default_skin ? " default" : "");
     return ESP_OK;

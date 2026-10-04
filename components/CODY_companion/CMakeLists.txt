@@ -8,7 +8,7 @@ endif()
 
 set(cody_onboarding_sources "")
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
-    list(APPEND cody_onboarding_sources "CODY_onboarding.cpp")
+    list(APPEND cody_onboarding_sources "CODY_onboarding.cpp" "CODY_look_screen.cpp")
 endif()
 
 idf_component_register(

@@ -61,7 +61,8 @@ esp_err_t selected_jelly_skin(JellySkinSelection &selection);
 esp_err_t load_persisted_jelly_skin();
 
 // id: Exact authored ID selected by an explicit user action.
-// Exception: Returns the real validation/write error without changing the active skin.
+// Exception: Returns the real validation/write error; never changes the active skin.
+// The display owner calls select_jelly_skin only after a confirmed successful result.
 esp_err_t persist_jelly_skin(const char *id);
 
 // identity: Authored path whose vector surface is replaced by the pearl sprite.

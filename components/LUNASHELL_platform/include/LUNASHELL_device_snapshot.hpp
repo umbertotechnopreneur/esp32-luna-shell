@@ -608,6 +608,17 @@ struct CharacterTouchSnapshot : ComponentSnapshot {
     int64_t gesture_started_at_us = 0;
 };
 
+// Outcome of an optional, explicitly requested preference write, not sensor data.
+struct CharacterLookSaveSnapshot {
+    enum class State : uint8_t { NoAttempt, Saving, Saved, Failed };
+    State state = State::NoAttempt;
+    uint32_t request_id = 0;
+    char requested_id[64]{};
+    esp_err_t error = ESP_OK;
+    int64_t started_at_us = 0;
+    int64_t completed_at_us = 0;
+};
+
 struct DeviceSnapshot {
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
@@ -626,6 +637,7 @@ struct DeviceSnapshot {
     VoiceSnapshot voice;
     CharacterInteractionSnapshot character_interaction;
     CharacterTouchSnapshot character_touch;
+    CharacterLookSaveSnapshot character_look_save;
     RadioSnapshot radios;
     StorageSnapshot storage;
     DiagnosticsSettingsSnapshot diagnostics;
@@ -776,6 +788,9 @@ public:
     // sample: Body gesture derived from an acquired touch and the displayed geometry.
     // sampled_at_us: Original hardware report time; no synthetic release or freshening.
     esp_err_t reportCharacterTouch(const CharacterTouchSnapshot &sample, int64_t sampled_at_us);
+    // operation: Actual admitted write or its terminal result, including the original error.
+    // Exception: Returns publication/ordering errors; the write result remains in operation.error.
+    esp_err_t reportCharacterLookSave(const CharacterLookSaveSnapshot &operation);
     void reportWifi(const WifiSnapshot &wifi);
     // provisioning: Coherent lifecycle observation published by its sole owner.
     void reportProvisioning(const ProvisioningSnapshot &provisioning);

@@ -101,6 +101,61 @@ void log_snapshot_publication_failure(
 namespace LUNASHELL {
 using namespace snapshot_detail;
 
+// operation: Actual request or terminal write result; contains no sensor values or secrets.
+// Exception: Returns publication/ordering errors separately from the persisted operation error.
+esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSaveSnapshot &operation)
+{
+    using State = CharacterLookSaveSnapshot::State;
+    const int64_t now_us = esp_timer_get_time();
+    const size_t length = strnlen(operation.requested_id, sizeof(operation.requested_id));
+    const bool starting = operation.state == State::Saving;
+    const bool terminal = operation.state == State::Saved || operation.state == State::Failed;
+    if ((!starting && !terminal) || operation.request_id == 0 || length == 0 ||
+        length == sizeof(operation.requested_id) || operation.started_at_us <= 0 ||
+        operation.started_at_us > now_us ||
+        (starting && (operation.error != ESP_OK || operation.completed_at_us != 0)) ||
+        (terminal && (operation.completed_at_us < operation.started_at_us || operation.completed_at_us > now_us)) ||
+        (operation.state == State::Saved && operation.error != ESP_OK) ||
+        (operation.state == State::Failed && operation.error == ESP_OK)) {
+        ESP_LOGE(TAG, "Look save publication rejected: request=%lu state=%u (%s)",
+                 static_cast<unsigned long>(operation.request_id), static_cast<unsigned>(operation.state),
+                 esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t index = 0; index < length; ++index) {
+        const auto character = static_cast<unsigned char>(operation.requested_id[index]);
+        if (character < 32 || character > 126) {
+            ESP_LOGE(TAG, "Look save ID rejected: byte=%u value=%u (%s)",
+                     static_cast<unsigned>(index), static_cast<unsigned>(character),
+                     esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+    }
+    esp_err_t ordering_error = ESP_OK;
+    // snapshot: Canonical committed state, mutated only while its owner holds the lock.
+    const esp_err_t publication_error = update_snapshot([&](DeviceSnapshot &snapshot) {
+        const auto &previous = snapshot.character_look_save;
+        if (starting) {
+            if (previous.state == State::Saving || operation.request_id <= previous.request_id) {
+                ordering_error = ESP_ERR_INVALID_STATE;
+                return;
+            }
+        } else if (previous.state != State::Saving || previous.request_id != operation.request_id ||
+                   previous.started_at_us != operation.started_at_us ||
+                   std::strcmp(previous.requested_id, operation.requested_id) != 0) {
+            ordering_error = ESP_ERR_INVALID_STATE;
+            return;
+        }
+        snapshot.character_look_save = operation;
+    });
+    if (publication_error != ESP_OK || ordering_error != ESP_OK || operation.error != ESP_OK) {
+        ESP_LOGE(TAG, "Look save request=%lu: write=%s ordering=%s publication=%s",
+                 static_cast<unsigned long>(operation.request_id), esp_err_to_name(operation.error),
+                 esp_err_to_name(ordering_error), esp_err_to_name(publication_error));
+    }
+    return publication_error != ESP_OK ? publication_error : ordering_error;
+}
+
 // state: Confirmed AFE state, including optional startup failures.
 // error: Original operation error; a failed state never appears healthy.
 // detected_at_us: Confirmed Sophia event timestamp, zero for a heartbeat.
