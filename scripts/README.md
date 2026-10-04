@@ -36,8 +36,12 @@ never evaluated shell code:
 
 ```powershell
 .\scripts\device.ps1 check -Check cody-alpha -ToolArguments @('--previews')
+.\scripts\device.ps1 check -Check changed-secrets -ToolArguments @('--base-ref=origin/main')
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--screen', 'battery', '--capture', 'battery.png')
 ```
+
+The secret scan includes local checkpointed changes when `--base-ref` is supplied;
+it does not fetch the reference. Without it, only dirty/untracked files are scanned.
 
 The menu accepts extra arguments as a JSON string array. CLI failures propagate
 to the caller; the menu preserves the failure before offering another selection.

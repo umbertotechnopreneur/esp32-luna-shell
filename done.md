@@ -7,6 +7,25 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Checkpoint `f4cc7e97`: adopted Alpha terminology in active code/tools; boot
+  cues, runtime authoring and appearance assets have coordinated names. Persisted
+  keys, routes, skin IDs, parameter values, PCM/WAV and image bytes are unchanged.
+  Real tests, test doubles and synthetic-host labels remain truthful.
+- Final Cody validation on 2026-10-04: ESP-IDF 6.0.2 Debug/Release clean and
+  incremental builds and size passed with eight jobs. App binaries are 3,612,288
+  and 3,481,856 bytes respectively. All 21 focused host/static checks passed,
+  including 32 Alpha tests, 15 response tests, native raster/runtime contracts,
+  seven simulator groups, active-profile dependency/legacy closure, whitespace
+  and a 99-file changed-secret scan including local checkpoints. Eight host
+  captures were visually reviewed (four rotations, three boot states, greeting).
+  Native checks explicitly used Windows Python/MSVC; initial environment-selection
+  failures remain recorded. PDF binary attributes correct Git classification;
+  document bytes were not changed. A separate validation correction aligns the
+  Debug scene's brows with its declared Calm preset (`ef184a57`).
+  Evidence: `artifacts/build-validation-evidence/journey-20261004/`.
+  Global profile validation still fails on the missing `display-touch` canonical
+  lock; wake-word locks are also unresolved. No physical device, phone, flash,
+  LAN, CCP install/end-to-end session or runtime memory soak was validated.
 - Created the 14-page English Codex Connection Atlas with three ImageGen
   concept scenes, circular previews, visual flows and handwriting space on
   every page. All pages were rendered and visually reviewed; the PDF is mirrored

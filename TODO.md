@@ -89,7 +89,7 @@ older host/build/flash evidence does not validate the current combined image.
   CPU changes; asynchronous double-buffer DMA/multicore remain later stages.
   Existing narrow captures are not proof of the current image's target.
   [Rendering evidence](docs/architecture/cody/rendering.md).
-- [ ] Finish offline PoC physical checks: both boot cues' acoustics, real charge/
+- [ ] Finish Cody Alpha physical checks: both boot cues' acoustics, real charge/
   microphone response, snapshot cadence/board-axis signs, fatigue/stress/eye-tap
   recovery, contour slow/fast changes, facial alpha/overlays, touch alignment,
   native raster/transfer timings and Wi-Fi/BLE load. Host parity is not device
@@ -98,8 +98,9 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Platform, ownership and tooling
 
-- [ ] Validate integrated Debug/Release configuration/gates, both modes' requested
-  clean/incremental builds/size and simulator behavior. Separately verify real
+- [ ] Complete physical Debug/Release validation; Cody configuration/gates,
+  clean/incremental builds/size and host simulator checks passed on 2026-10-04.
+  Other firmware profiles are not covered by that result. Verify real
   Sleep presentation, dark Wake before panel fade, rejected-entry rollback,
   PWR/IMU/touch wake, USB reconnect, radios and complete-board current.
   For Release Deep-sleep cover QMI revision/CmdDone protocol, held IRQ recovery,
@@ -125,8 +126,9 @@ older host/build/flash evidence does not validate the current combined image.
   diagnostic failure ownership. Cover deliberate COM selection before ESP-IDF,
   numeric/COM equivalence, cancellation, unavailable/ambiguous ports and retained
   native errors. Physical serial behavior remains unverified.
-- [ ] Resolve/review affected `cody-companion` and `display-touch` locks after BSP
-  gates change; validate no-LVGL closure, UI/standalone builds and display-off
+- [ ] Resolve/review the missing `display-touch` canonical lock after BSP gates
+  change. The current Cody lock/native no-LVGL closure passed on 2026-10-04;
+  still validate other UI/standalone builds and display-off
   exclusion. Separately verify mandatory display/touch, rotations, DMA, standby
   and Wi-Fi/BLE coexistence.
 - [ ] Validate board-service corrections: shell-owned PWR, boot sampling,

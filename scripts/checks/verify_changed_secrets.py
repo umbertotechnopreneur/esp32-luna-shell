@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import argparse
 import subprocess
 from pathlib import Path
 
@@ -33,6 +34,8 @@ PATTERNS: tuple[tuple[str, re.Pattern[bytes]], ...] = (
 )
 
 
+# args: Literal Git arguments for a NUL-delimited file listing.
+# Raises subprocess.CalledProcessError when Git cannot resolve the requested listing.
 def git_paths(*args: str) -> set[Path]:
     result = subprocess.run(
         ["git", *args],
@@ -47,7 +50,9 @@ def git_paths(*args: str) -> set[Path]:
     }
 
 
-def changed_paths() -> list[Path]:
+# base_commit: Optional verified commit covering changes already checkpointed locally.
+# Raises subprocess.CalledProcessError for an unreadable index, worktree or comparison.
+def changed_paths(base_commit: str | None = None) -> list[Path]:
     paths = set()
     paths.update(git_paths("diff", "--name-only", "-z", "--diff-filter=ACMR"))
     paths.update(
@@ -56,13 +61,33 @@ def changed_paths() -> list[Path]:
         )
     )
     paths.update(git_paths("ls-files", "--others", "--exclude-standard", "-z"))
+    if base_commit is not None:
+        paths.update(git_paths(
+            "diff", "--name-only", "-z", "--diff-filter=ACMR", base_commit, "HEAD", "--"
+        ))
     return sorted(paths, key=lambda path: path.as_posix().casefold())
 
 
-def main() -> int:
+# reference: Caller-supplied revision, resolved to a commit before use as a diff argument.
+# Raises subprocess.CalledProcessError for an invalid or ambiguous revision.
+def resolve_base_commit(reference: str) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "--end-of-options", f"{reference}^{{commit}}"],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
+# argv: Optional CLI arguments; None reads the command line supplied by device.ps1.
+# Raises original Git and filesystem errors instead of claiming a successful empty scan.
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--base-ref", help="Also scan current files changed since this verified commit.")
+    args = parser.parse_args(argv)
+    base_commit = resolve_base_commit(args.base_ref) if args.base_ref else None
     findings: list[str] = []
     scanned = 0
-    for relative in changed_paths():
+    for relative in changed_paths(base_commit):
         path = ROOT / relative
         if not path.exists():
             continue
