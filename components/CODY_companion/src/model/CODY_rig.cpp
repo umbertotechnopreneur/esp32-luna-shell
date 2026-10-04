@@ -850,13 +850,16 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     }
     const int64_t artwork_started_us = stage_started_us;
 #if CODY_ENABLE_PEARL_JELLY
-    result = draw_jelly_rows(scene.jelly, strip, first_row, first_column);
+    if (profile != nullptr) {
+        profile->jelly.now_us = profile->now_us;
+    }
+    result = draw_jelly_rows(scene.jelly, strip, first_row, first_column,
+                             profile != nullptr ? &profile->jelly : nullptr);
     if (result != ESP_OK) {
         return result;
     }
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
-        profile->jelly_us += now_us - stage_started_us;
         stage_started_us = now_us;
     }
 #endif
@@ -900,6 +903,10 @@ esp_err_t draw_rig_rows(const RigScene &scene, CODY2D::Surface strip,
     if (profile != nullptr) {
         const int64_t now_us = profile->now_us();
         profile->vector_us += now_us - stage_started_us;
+#if CODY_ENABLE_PEARL_JELLY
+        // The pearl sprite replaces the body paths, so all remaining vector work is face work.
+        profile->face_us += now_us - stage_started_us;
+#endif
         profile->artwork_us += now_us - artwork_started_us;
         stage_started_us = now_us;
     }

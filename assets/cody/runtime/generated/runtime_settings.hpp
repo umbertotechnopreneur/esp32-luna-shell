@@ -2,10 +2,12 @@
 #include "CODY_demo.hpp"
 namespace CODY::RuntimeData {
 inline constexpr bool autostart = true;
+inline constexpr bool raster_benchmark_enabled = true;
+inline constexpr uint16_t raster_benchmark_cloud_scale_percent = 100U;
 inline constexpr auto execution_timings = true;
 inline constexpr auto mirror_to_sd_when_available = true;
 inline constexpr auto report_interval_ms = 2000;
-inline constexpr auto frame_budget_us = 33333;
+inline constexpr auto frame_budget_us = 40000;
 inline constexpr int ready_volume_percent = 100;
 inline constexpr int eyes_open_volume_percent = 100;
 inline constexpr int sample_rate_hz = 22050;

@@ -19,6 +19,7 @@ namespace {
 constexpr char kTag[] = "CODY_jelly";
 constexpr int32_t kFixedOne = 65536;
 constexpr uint16_t kCanvasSize = 466;
+constexpr uint16_t kProfileBlockPixels = 16;
 constexpr char kSkinSettingKey[] = "cody_skin";
 static_assert(std::size(JellyData::rows) == 33);
 static_assert(JellyData::width > 1 && JellyData::height > 1);
@@ -482,9 +483,16 @@ esp_err_t deform_jelly_face(RigScene &scene)
 // first_row: Logical tile y origin, independent of the framebuffer's row stride.
 // first_column: Logical tile x origin, preserving identical samples across tile splits.
 // Exception: Returns the original surface error or rejects invalid geometry and skin identity.
+// profile: Optional execution clock and block-level accounting for this sprite pass.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
-                         uint16_t first_row, uint16_t first_column)
+                         uint16_t first_row, uint16_t first_column,
+                         JellyRasterProfile *profile)
 {
+    if (profile != nullptr && profile->now_us == nullptr) {
+        ESP_LOGE(kTag, "Jelly profile clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const int64_t jelly_started_us = profile != nullptr ? profile->now_us() : 0;
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
     if (surface_error != ESP_OK) {
         return surface_error;
@@ -510,6 +518,7 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         if (left >= right) {
             continue;
         }
+        const int64_t preparation_started_us = profile != nullptr ? profile->now_us() : 0;
         const int32_t source_y = std::clamp<int32_t>(mapping.source_y, 0, (JellyData::height - 1) * kFixedOne);
         const uint32_t source_row = static_cast<uint32_t>(source_y) >> 16U;
         const uint32_t next_row = std::min(source_row + 1U, static_cast<uint32_t>(JellyData::height - 1));
@@ -518,21 +527,59 @@ esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
         const auto *lower = pixels + next_row * JellyData::width;
         int32_t source_x = mapping.source_x + (left - mapping.left) * mapping.source_step;
         auto *destination = strip.pixels + (row - first_row) * strip.stride + left - first_column;
-        for (uint16_t column = left; column < right; ++column) {
-            const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
-            // Zero alpha is the identity over every RGB565 background. Advance
-            // both cursors without reading or rewriting that destination pixel.
-            if ((sample >> 24U) != 0) {
-                // Alpha blending uses native channels even when the tile is ready for the panel.
+        if (profile == nullptr) {
+            for (uint16_t column = left; column < right; ++column) {
+                const uint32_t sample = sample_rgba(source_x, upper, lower, vertical_weight);
+                // Zero alpha is the identity over every RGB565 background. Advance
+                // both cursors without reading or rewriting that destination pixel.
+                if ((sample >> 24U) != 0) {
+                    const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
+                        *destination, strip.byte_order
+                    );
+                    const uint16_t blended_color = blend_rgba(sample, native_destination);
+                    *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+                }
+                ++destination;
+                source_x += mapping.source_step;
+            }
+            continue;
+        }
+        profile->preparation_us += profile->now_us() - preparation_started_us;
+        for (uint16_t column = left; column < right;) {
+            const uint16_t block_pixels = std::min<uint16_t>(kProfileBlockPixels, right - column);
+            const int64_t block_preparation_started_us = profile->now_us();
+            std::array<uint32_t, kProfileBlockPixels> samples{};
+            profile->preparation_us += profile->now_us() - block_preparation_started_us;
+            const int64_t interpolation_started_us = profile->now_us();
+            for (uint16_t offset = 0; offset < block_pixels; ++offset) {
+                samples[offset] = sample_rgba(source_x, upper, lower, vertical_weight);
+                source_x += mapping.source_step;
+            }
+            profile->interpolation_us += profile->now_us() - interpolation_started_us;
+            const int64_t blend_started_us = profile->now_us();
+            for (uint16_t offset = 0; offset < block_pixels; ++offset) {
+                const uint32_t sample = samples[offset];
+                if ((sample >> 24U) == 0) {
+                    ++profile->transparent_pixels;
+                    ++destination;
+                    continue;
+                }
                 const uint16_t native_destination = CODY2D::rgb565_stored_to_native(
                     *destination, strip.byte_order
                 );
                 const uint16_t blended_color = blend_rgba(sample, native_destination);
                 *destination = CODY2D::rgb565_native_to_stored(blended_color, strip.byte_order);
+                ++profile->blended_pixels;
+                ++destination;
             }
-            ++destination;
-            source_x += mapping.source_step;
+            profile->blend_us += profile->now_us() - blend_started_us;
+            profile->sampled_pixels += block_pixels;
+            ++profile->timed_blocks;
+            column = static_cast<uint16_t>(column + block_pixels);
         }
+    }
+    if (profile != nullptr) {
+        profile->total_us += profile->now_us() - jelly_started_us;
     }
     return ESP_OK;
 }

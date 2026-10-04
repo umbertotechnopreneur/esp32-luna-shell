@@ -8,11 +8,15 @@ demo:
     - {id: contour_fast, duration_seconds: 7, face: ready, amplitude: 0.65, speed: 1.4}
     - {id: sleepy, duration_seconds: 5, face: waking, amplitude: 0.15, speed: 0.2}
     - {id: awake, duration_seconds: 5, face: ready, amplitude: 0.3, speed: 0.5}
+benchmark:
+  # Debug-only fixed route for comparable native raster captures; it never feeds a firmware snapshot.
+  enabled: true
+  cloud_scale_percent: 100
 diagnostics:
   execution_timings: true
   mirror_to_sd_when_available: true
   report_interval_ms: 2000
-  frame_budget_us: 33333
+  frame_budget_us: 40000
 audio:
   # Match the one shared ES8311/ES7210 I2S clock, including active diagnostics.
   sample_rate_hz: 22050

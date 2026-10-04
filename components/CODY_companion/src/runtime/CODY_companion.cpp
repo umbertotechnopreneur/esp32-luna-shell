@@ -178,6 +178,7 @@ struct CompanionState {
 #endif
     bool rig_visible = false;
     bool rig_debug = false;
+    bool raster_benchmark_active = false;
     bool animation_paused = false;
     CODY::NavigationVisibility navigation_visibility{};
     CODY::StatusOverlay status_overlay{};
@@ -993,6 +994,24 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (s_resources.rig == nullptr) {
         return ESP_ERR_INVALID_STATE;
     }
+    if (s_state.raster_benchmark_active) {
+        CODY::Transform placement = CODY::Data::placement;
+        placement.scale *= static_cast<float>(CODY::RuntimeData::raster_benchmark_cloud_scale_percent) / 100.f;
+        CODY::ContourState contour = CODY::make_contour_state();
+        const esp_err_t geometry_error = CODY::evaluate_rig(
+            CODY::Data::ready, placement, *s_resources.rig, &contour, s_state.face_follows_body
+        );
+        if (geometry_error != ESP_OK) {
+            return geometry_error;
+        }
+        // This route is an authored fixed pose. It neither reads nor publishes synthetic sensors.
+        s_state.contour = contour;
+        s_state.face = CODY::Data::ready;
+        s_state.response_frame.face = CODY::Data::ready;
+        s_state.response_frame.transform = placement;
+        s_state.animation_sampled_us = frame_started_us;
+        return ESP_OK;
+    }
     const int64_t animation_delta_us = resume_animation || s_state.animation_sampled_us == 0
         ? 0 : frame_started_us - s_state.animation_sampled_us;
     const float animation_delta_ms = static_cast<float>(animation_delta_us) / 1000.f;
@@ -1306,10 +1325,26 @@ void log_completed_frame(const FrameTimings &timings, const CompletedFrameLog &l
         timings.dirty_rectangles, timings.rasterized_tiles, timings.visited_tiles);
     // Substages are part of artwork, not extra work. Keep microseconds and a
     // separate short record so the sink's 255-byte limit cannot hide the split.
-    ESP_LOGI(kTag, "ART us jelly=%lld vector=%lld total=%lld",
-        static_cast<long long>(timings.raster_profile.jelly_us),
+    const auto &jelly = timings.raster_profile.jelly;
+    const uint64_t interpolation_ns_per_pixel = jelly.sampled_pixels == 0 ? 0 :
+        static_cast<uint64_t>(jelly.interpolation_us) * 1000U / jelly.sampled_pixels;
+    const uint64_t blend_ns_per_pixel = jelly.blended_pixels == 0 ? 0 :
+        static_cast<uint64_t>(jelly.blend_us) * 1000U / jelly.blended_pixels;
+    ESP_LOGI(kTag, "ART us jelly=%lld prep=%lld interp=%lld blend=%lld face=%lld vector=%lld total=%lld",
+        static_cast<long long>(jelly.total_us),
+        static_cast<long long>(jelly.preparation_us),
+        static_cast<long long>(jelly.interpolation_us),
+        static_cast<long long>(jelly.blend_us),
+        static_cast<long long>(timings.raster_profile.face_us),
         static_cast<long long>(timings.raster_profile.vector_us),
         static_cast<long long>(timings.raster_profile.artwork_us));
+    ESP_LOGI(kTag, "JELLY px=%lu/%lu/%lu ns_px=%llu/%llu blocks=%lu",
+        static_cast<unsigned long>(jelly.sampled_pixels),
+        static_cast<unsigned long>(jelly.transparent_pixels),
+        static_cast<unsigned long>(jelly.blended_pixels),
+        static_cast<unsigned long long>(interpolation_ns_per_pixel),
+        static_cast<unsigned long long>(blend_ns_per_pixel),
+        static_cast<unsigned long>(jelly.timed_blocks));
 }
 
 // plan: Frame-local damage coverage, before any tile is rasterized.
@@ -1958,6 +1993,7 @@ esp_err_t enter_animation_demo()
     // Start with the character artwork; the lateral overlay control still
     // exposes the complete rig when the user wants to inspect its geometry.
     s_state.rig_debug = false;
+    s_state.raster_benchmark_active = CODY::RuntimeData::raster_benchmark_enabled;
     s_state.animation_paused = false;
     s_state.animation_elapsed_us = 0;
     s_state.contour = CODY::make_contour_state();
@@ -1970,7 +2006,12 @@ esp_err_t enter_animation_demo()
     s_state.frame_rate = {};
     s_benchmark.reset();
     s_state.frame_dirty.store(true, std::memory_order_release);
-    ESP_LOGI(kTag, "Animation demo entered: %s; authored targets and real snapshot stimuli", CODY::Data::character_name);
+    if (s_state.raster_benchmark_active) {
+        ESP_LOGI(kTag, "SIMD benchmark entered: static Ready, scale=%u%%, 40ms budget",
+                 static_cast<unsigned>(CODY::RuntimeData::raster_benchmark_cloud_scale_percent));
+    } else {
+        ESP_LOGI(kTag, "Animation demo entered: %s; authored targets and real snapshot stimuli", CODY::Data::character_name);
+    }
     return ESP_OK;
 }
 
@@ -2806,6 +2847,7 @@ extern "C" esp_err_t CODY_companion_boot_completed(void)
 }
 
 // Automatic route entry is configurable; ready-frame completion remains a prerequisite.
+// Exception: Returns the real display-lock or state error.
 extern "C" esp_err_t CODY_companion_demo_start(void)
 {
     if (!CODY::RuntimeData::autostart) {
@@ -2825,8 +2867,8 @@ extern "C" esp_err_t CODY_companion_demo_start(void)
     if (s_state.rig_visible) {
         return ESP_OK; // A real touch may already have entered while startup finishes.
     }
-    if (s_state.onboarding.effective_first_boot) {
-        // The first-boot scene has priority over optional automatic demo routing.
+    if (s_state.onboarding.effective_first_boot && !CODY::RuntimeData::raster_benchmark_enabled) {
+        // The first-boot scene has priority except on the temporary fixed raster route.
         return ESP_OK;
     }
     s_demo_requested.store(true, std::memory_order_release);

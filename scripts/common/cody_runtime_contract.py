@@ -31,7 +31,7 @@ def number(value, lower, upper, label):
 # Raises ValueError or OSError for invalid authoring or unreadable assets.
 def load_settings(path):
     settings = yaml.load(path.read_text(encoding="utf-8"), Loader=RigLoader)
-    fields(settings, ("schema", "demo", "diagnostics", "audio"), "runtime")
+    fields(settings, ("schema", "demo", "benchmark", "diagnostics", "audio"), "runtime")
     if settings["schema"] != "cody.runtime.v1":
         raise ValueError("Unsupported runtime schema")
     demo = settings["demo"]
@@ -50,6 +50,13 @@ def load_settings(path):
         number(step["speed"], 0, 2, "demo.speed")
     if seen != identities:
         raise ValueError("All five named demo phases are required")
+    benchmark = settings["benchmark"]
+    fields(benchmark, ("enabled", "cloud_scale_percent"), "benchmark")
+    if type(benchmark["enabled"]) is not bool:
+        raise ValueError("benchmark.enabled: boolean required")
+    if type(benchmark["cloud_scale_percent"]) is not int:
+        raise ValueError("benchmark.cloud_scale_percent: integer required")
+    number(benchmark["cloud_scale_percent"], 50, 150, "benchmark.cloud_scale_percent")
     diagnostics = settings["diagnostics"]
     fields(diagnostics, ("execution_timings", "mirror_to_sd_when_available", "report_interval_ms", "frame_budget_us"), "diagnostics")
     for name in ("execution_timings", "mirror_to_sd_when_available"):

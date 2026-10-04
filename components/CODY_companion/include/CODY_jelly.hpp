@@ -40,6 +40,20 @@ struct JellyFrame {
     bool valid = false;
 };
 
+// Execution clock and counters for one completed sprite pass. All times include
+// the fixed benchmark block preparation and never represent a per-pixel timer.
+struct JellyRasterProfile {
+    int64_t (*now_us)() = nullptr;
+    int64_t total_us = 0;
+    int64_t preparation_us = 0;
+    int64_t interpolation_us = 0;
+    int64_t blend_us = 0;
+    uint32_t sampled_pixels = 0;
+    uint32_t transparent_pixels = 0;
+    uint32_t blended_pixels = 0;
+    uint32_t timed_blocks = 0;
+};
+
 // No parameters: number of authored skins available to a future selection screen.
 size_t jelly_skin_count();
 
@@ -81,9 +95,11 @@ esp_err_t deform_jelly_face(RigScene &scene);
 // strip: Writable native RGB565 tile, with explicit stride and capacity.
 // first_row: Logical top of the tile before shared display rotation.
 // first_column: Logical left of the tile; sampling is independent of tile boundaries.
+// profile: Optional fixed-block counters and timings, accumulated only after successful work.
 // Exception: Returns the real surface, frame, bounds or skin identity error.
 esp_err_t draw_jelly_rows(const JellyFrame &frame, CODY2D::Surface strip,
-                         uint16_t first_row, uint16_t first_column);
+                         uint16_t first_row, uint16_t first_column,
+                         JellyRasterProfile *profile = nullptr);
 
 // previous: Last successfully presented mapping.
 // current: Next successfully prepared mapping.

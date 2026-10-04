@@ -148,11 +148,24 @@ Debug stage benchmarks count 128 completed frames per overlay mode, then report
 mean, lower-middle median, nearest-rank p95, maximum, population deviation and
 budget misses after releasing the lock. Partial/paused diagnostic frames are not
 animation evidence. DMA wait is blocked elapsed time, not CPU work; stage medians
-do not sum into a frame percentile. Current 40-ms jelly scheduling is a target,
-not proof of 25 FPS or a CPU reduction. `ART us jelly/vector/total` separates
-sprite work from vector paths in microseconds; both are included in artwork,
-not added to it. Vector paths are facial features with Pearl enabled, but also
-include the body in the native renderer. Transparent-footprint/alpha skips are
-source-only optimization stage 1; exact-output checks and device gains are pending.
+do not sum into a frame percentile. The Pearl target is 40 ms (25 FPS), and its
+budget has the same value; neither establishes a measured frame rate or CPU
+reduction.
+
+`assets/cody/runtime.yaml` has a temporary Debug fixed raster route. With
+`benchmark.enabled: true`, it bypasses first-run routing after boot and repeatedly
+draws the authored Ready pose at `benchmark.cloud_scale_percent`; it does not read,
+alter or publish a synthetic snapshot. Run one capture per scale (for example 70,
+100 and 130), with the same firmware, rotation, board state and 30--60-second
+duration. Restore `enabled: false` before ordinary Cody validation.
+
+The `ART` record reports total jelly work plus block preparation, interpolation,
+blending and face/vector work in microseconds. `px` is
+sampled/transparent/composited; `ns_px` is interpolation per sampled pixel and
+blending per composited pixel. Sampling and composition are timed in 16-pixel
+blocks, so their timestamps include the temporary sample-buffer preparation rather
+than one timer call per pixel. All substage values remain within `artwork_us`, and
+must not be summed with it. Transparent-footprint/alpha skips are source-only
+optimization stage 1; exact-output checks and device gains are pending.
 Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.
