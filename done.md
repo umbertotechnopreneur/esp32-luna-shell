@@ -13,11 +13,20 @@ and referenced architecture/artifact records.
   coverage added 2,496 bytes at that depth. Raised only the PSRAM worker stack
   to 12 KiB, preserving the requested artwork and internal DMA headroom, and
   added Debug minimum-free-stack logging sampled at most every two seconds.
-  Source correction only until its build/flash and passive capture are recorded.
   Evidence: `artifacts/build-cody-companion-debug/evidence/cody-dd9f05d8-reboot-loop.log`.
 - Removed the boot website branding together with its layout, fade clock,
   raster layer and damage cache. Sleeping/Waking/Ready and first-setup timing
   remain unchanged; this does not remove attribution from the planning PDFs.
+- Built/flashed correction `d766e08c` (eight jobs, Debug, COM10, verified writes).
+  App: 3,715,104 bytes, 75% partition free; matching ELF SHA256 starts `70961649e`.
+  The first capture stopped after 43 seconds with a closed host serial stream,
+  not a captured firmware panic. The following 100-second capture completed:
+  one boot, no panic/reboot and successful inactivity standby/radio teardown.
+  Cody's measured minimum free stack was 3,524 bytes (peak used 8,764/12,288).
+  Steady screen 05 ran about 24.4 FPS with sampled artwork around 14 ms and
+  geometry around 3 ms; this is a narrow baseline, not a full-scene guarantee.
+  Repeated wake/visual/audio/storage checks remain open. Retained ELF and logs:
+  `artifacts/build-cody-companion-debug/evidence/cody-d766e08c*`.
 - The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
   block before display startup and parked display frames during radio startup.
   It passed an eight-job Debug build, flash and short capture, but a later

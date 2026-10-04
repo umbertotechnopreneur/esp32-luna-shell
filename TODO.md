@@ -8,10 +8,6 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Build/flash the PSRAM-stack correction and capture boot through standby:
-  `dd9f05d8` produced 28 confirmed Cody worker stack overflows in 100 seconds;
-  the coverage call chain exhausted its 8 KiB budget. Check the new 12 KiB
-  worker's measured minimum free bytes and retain matching ELF/log evidence.
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and
@@ -21,7 +17,17 @@ older host/build/flash evidence does not validate the current combined image.
   60-second standby/wake
   cycles. Confirm no contiguous-DMA preflight rejection, teardown panic or
   stale failed-wake trace is misreported as a new failure. The 2026-10-04 log
-  proves the prior firmware still rebooted.
+  proves the prior firmware still rebooted; corrected `d766e08c` completed one
+  100-second boot/standby capture without panic. Repeated wake cycles remain open.
+- [ ] Investigate the interrupted 130-second capture: COM10's stream closed
+  after 43 seconds without a captured panic. The following 100-second capture
+  completed; the first USB/host interruption's cause remains unidentified.
+- [ ] Optimize the raster in separate checkpoints, preserving exact output:
+  transparent jelly work first, then Coverage/span preparation, then SIMD only
+  for measured common kernels. Separate jelly and face timings before ranking
+  gains; current screen-05 artwork is about 14 ms, not a blending-only measure.
+  New optimization source needs explicitly authorized final checks/build/device
+  comparison; no performance improvement has yet been verified.
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy
   Back/Done, route reset during writes, rotated touch, canonical errors and
   bounded memory across repeated entries. Host persistence faults are covered;
