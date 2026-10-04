@@ -1,6 +1,6 @@
 #pragma once
 #include "CODY_demo.hpp"
-namespace CODY::PocData {
+namespace CODY::RuntimeData {
 inline constexpr bool autostart = true;
 inline constexpr auto execution_timings = true;
 inline constexpr auto mirror_to_sd_when_available = true;
@@ -17,4 +17,4 @@ inline constexpr DemoStep steps[] = {
     {DemoPhase::Sleepy, 5000U, {{0.35f, 0.35f, 0.0f, 0.0f, 0.06f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.15f, 0.2f},
     {DemoPhase::Awake, 5000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.15f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.3f, 0.5f},
 };
-} // namespace CODY::PocData
+} // namespace CODY::RuntimeData

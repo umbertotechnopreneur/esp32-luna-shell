@@ -10,7 +10,7 @@ and service APIs; does not admit LVGL. Public contracts remain in `include/`.
 | [src/model](src/model/README.md) | Rig, expressions and snapshot-driven response |
 | [src/rendering](src/rendering/README.md) | Pearl compositing and damage planning |
 | [src/diagnostics](src/diagnostics/README.md) | HUD, status, screenshots and accounting |
-| [src/demos](src/demos/README.md) | Authored animation and PoC bindings |
+| [src/demos](src/demos/README.md) | Authored animation bindings |
 
 Assets stay under `assets/cody`; generated resources are versioned firmware
 inputs. See [Cody architecture](../../docs/architecture/cody/README.md) for behavior

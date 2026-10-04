@@ -1,4 +1,4 @@
-"""Explicit host-only Cody PoC checks and preview artifacts; never accesses firmware or hardware."""
+"""Explicit host-only Cody Alpha checks and preview artifacts; never accesses firmware or hardware."""
 
 from __future__ import annotations
 
@@ -673,7 +673,15 @@ class RigContractTests(unittest.TestCase):
             now_us = int(time.perf_counter() * 1_000_000)
             window.navigation_visibility.interact(now_us - window.navigation_visibility.fade_us - 1000)
             window.touch(SimpleNamespace(x=x, y=y))
-            self.assertEqual(window.debug.get(), not initial_debug)
+            self.assertFalse(overlay['visible_by_default'])
+            self.assertEqual(window.debug.get(), initial_debug)
+            # Only Screenshot is exposed on-device; desktop inspector toggles remain separate.
+            screenshot = next(control for control in window.renderer.navigation['controls']
+                              if control['id'] == 'screenshot')
+            self.assertTrue(screenshot['visible_by_default'])
+            x, y = window.layout.to_canvas(*screenshot['icon_center'], window.display_rotation)
+            window.touch(SimpleNamespace(x=x, y=y))
+            self.assertIn('host preview does not emulate storage', window.info.cget('text'))
             window.preset('sleep')
             self.assertEqual([value.get() for value in window.values][:2],[0,0])
             x, y = window.layout.to_canvas(40, 233, window.display_rotation)
@@ -794,14 +802,14 @@ def previews(output,renderer):
             'gif_duration_ms':24000,'gif_playback_fps':25,'firmware_performance':'UNMEASURED','native_raster_parity':'NOT VERIFIED'}
 
 
-# No parameters: run only the focused PoC host package explicitly requested by the user.
+# No parameters: run only the focused Alpha host package explicitly requested by the user.
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--previews',action='store_true')
     args=parser.parse_args()
     result=unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.loadTestsFromTestCase(RigContractTests))
     if not result.wasSuccessful(): raise SystemExit(1)
-    output=ROOT/'artifacts/cody-poc'; output.mkdir(parents=True,exist_ok=True)
+    output=ROOT/'artifacts/cody-alpha'; output.mkdir(parents=True,exist_ok=True)
     report={'host_checks_passed':result.testsRun,'firmware_build':'NOT RUN','hardware':'NOT ACCESSED'}
     if args.previews:
         render_report=previews(output,CodyRenderer())

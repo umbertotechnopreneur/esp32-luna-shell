@@ -27,7 +27,7 @@ from scripts.common.cody_response import (  # noqa: E402
 )
 from scripts.common.cody_response_contract import Axis, validate_response_config  # noqa: E402
 from scripts.common.cody_navigation import load_navigation, control_contains, NavigationVisibility  # noqa: E402
-from scripts.common.cody_poc_contract import load_settings, demo_targets  # noqa: E402
+from scripts.common.cody_runtime_contract import load_settings, demo_targets  # noqa: E402
 from cody_stimuli import SyntheticStimulusSource  # noqa: E402
 from cody_coverage import FULL_COVERAGE, coverage_mask  # noqa: E402
 from cody_cloud_material import paint_cloud_material  # noqa: E402
@@ -200,7 +200,7 @@ class CodyRenderer:
     # navigation_visible: Scene policy; hidden controls have no raster footprint.
     # background_rgb565: Explicit scene background, or the authored plain-rig palette color.
     # Raises ValueError for an invalid opacity, coverage policy or unsupported blend target.
-    # Raises OSError for unreadable experimental PNG artwork.
+    # Raises OSError for unreadable alternate PNG artwork.
     def draw_scene(self, scene, debug=True, selected=None, guide=False, *, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, navigation_visible=True, background_rgb565=None):
         if sum((material_study, png_mesh_study, self.jelly_study_enabled)) > 1:
             raise ValueError('Choose only one cloud rendering study')
@@ -381,7 +381,7 @@ class CodyRenderer:
     # mesh_overlay: Show triangle topology rather than just the painted result.
     # scene_elapsed_ms: Active intro/typewriter time, independent of the shared rig clock.
     # Raises ValueError for an unknown screen or invalid rig values.
-    # Raises OSError for unreadable experimental PNG artwork.
+    # Raises OSError for unreadable alternate PNG artwork.
     def render(self, screen, values, transform, debug=True, selected=None, guide=False, rotation=0, *, contour=None, outline=False, rest_outline=False, response_frame=None, material_study=False, png_mesh_study=False, mesh_overlay=False, scene_elapsed_ms=0):
         if screen not in SCREEN_NAMES:
             raise ValueError(f"Unknown Cody screen: {screen}")
@@ -496,7 +496,7 @@ class CodyWindow:
     def __init__(self, root, renderer, args):
         self.root, self.renderer = root, renderer
         self.jelly_study = renderer.jelly_study_enabled
-        preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Rig PoC'
+        preview_name = 'PEARL JELLY / HOST ONLY' if self.jelly_study else 'Cody Alpha'
         self.root.title(f"{renderer.rig['character']['name']} / {preview_name} / SYNTHETIC")
         self.screen = tk.StringVar(value=args.screen)
         self.rotation = tk.IntVar(value=args.rotation)
@@ -517,7 +517,7 @@ class CodyWindow:
         self.response_config = deepcopy(renderer.rig["response"])
         self.response_state = make_response_state(self.response_config)
         self.stimulus_source = SyntheticStimulusSource()
-        self.poc_settings = load_settings(ROOT / "assets/cody/poc.yaml")
+        self.runtime_settings = load_settings(ROOT / "assets/cody/runtime.yaml")
         self.demo_enabled = tk.BooleanVar(value=False)
         self.response_frame = None
         self.motion_overlay = tk.BooleanVar(value=not self.jelly_study)
@@ -746,7 +746,7 @@ class CodyWindow:
     # Raises OSError or RuntimeError if Windows cannot play the existing asset.
     def preview_cue(self, cue):
         import winsound
-        path = ROOT / "assets/cody/poc/generated" / f"cody-{cue}.wav"
+        path = ROOT / "assets/cody/runtime/generated" / f"cody-{cue}.wav"
         winsound.PlaySound(str(path), winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
 
     # self: Preview controller publishing explicit activity through the synthetic snapshot owner.
@@ -1190,7 +1190,7 @@ class CodyWindow:
             if self.previous_animation_screen != screen:
                 self.face_state = list(face_targets)
         elif self.demo_enabled.get() and screen == Screen.RIG:
-            _, face_targets, targets = demo_targets(self.poc_settings, self.renderer.rig, self.elapsed_ms)
+            _, face_targets, targets = demo_targets(self.runtime_settings, self.renderer.rig, self.elapsed_ms)
         self.face_state = advance_face(
             self.renderer.rig, self.face_state, face_targets, active_ms
         )
@@ -1390,9 +1390,9 @@ def main(argv=None):
     parser.add_argument('--cloud-material-study', action='store_true',
                         help='Capture a host-only soft cloud material study; not firmware rendering parity')
     parser.add_argument('--cloud-png-mesh-study', action='store_true',
-                        help='Capture the painted PNG/triangle experiment; GIF output shows synthetic lobe motion')
+                        help='Capture the painted PNG/triangle appearance study; GIF output shows synthetic lobe motion')
     parser.add_argument('--cloud-jelly-study', action='store_true',
-                        help='Pearlescent scanline experiment: interactive preview, PNG or synthetic GIF')
+                        help='Pearlescent scanline appearance study: interactive preview, PNG or synthetic GIF')
     parser.add_argument('--mesh-overlay', action='store_true',
                         help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)

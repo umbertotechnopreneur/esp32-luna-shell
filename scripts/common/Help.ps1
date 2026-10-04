@@ -76,8 +76,8 @@ function Show-DeviceHelp {
     }
 
     Write-DeviceHelpSection -Title 'CHECKS' -Icon '🧪' -Width $width -Color Green
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 check -Check cody-poc' -Description 'Run exactly the selected check. Default identifier: cody-poc.' -Width $width
-    Write-DeviceHelpEntry -Syntax "Device.ps1 check -Check cody-poc -ToolArguments @('--previews')" -Description 'Pass literal tool-specific tokens from a PowerShell session.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 check -Check cody-alpha' -Description 'Run exactly the selected check. Default identifier: cody-alpha.' -Width $width
+    Write-DeviceHelpEntry -Syntax "Device.ps1 check -Check cody-alpha -ToolArguments @('--previews')" -Description 'Pass literal tool-specific tokens from a PowerShell session.' -Width $width
     foreach ($category in (Get-DeviceToolCatalog 'checks' | Group-Object Category)) {
         Write-DeviceHelpSection -Title $category.Name -Icon '🧪' -Width $width -Color Green -Subsection
         foreach ($tool in $category.Group) {

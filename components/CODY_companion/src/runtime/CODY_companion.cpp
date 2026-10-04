@@ -28,7 +28,7 @@
 #include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
-#include "poc_settings.hpp"
+#include "runtime_settings.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_sleep_blue.hpp"
 #include "cody_waking_blue.hpp"
@@ -54,7 +54,7 @@ constexpr uint16_t kPanelHeight = 466;
 constexpr uint16_t kTouchPollRows = 32;
 constexpr uint16_t kPaletteLimit = 64;
 constexpr bool kRenderDiagnosticsEnabled = LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled;
-constexpr bool kExecutionTimingsEnabled = kRenderDiagnosticsEnabled && CODY::PocData::execution_timings;
+constexpr bool kExecutionTimingsEnabled = kRenderDiagnosticsEnabled && CODY::RuntimeData::execution_timings;
 // Touch IRQs wake immediately. Release polls only the functional display gate
 // at 1 Hz on static/paused routes and in standby, instead of refreshing diagnostics.
 constexpr uint32_t kSamplePeriodMs = kRenderDiagnosticsEnabled ? 50U : 1000U;
@@ -1049,7 +1049,7 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
     if (s_state.animation_paused) {
         // Paused HUD refreshes are not animation samples or frame-budget misses.
         should_log = s_state.last_timing_log_us == 0 || completed_us - s_state.last_timing_log_us >=
-            CODY::PocData::report_interval_ms * 1000LL;
+            CODY::RuntimeData::report_interval_ms * 1000LL;
         if (should_log) {
             const esp_err_t transfer_error =
                 read_completed_transfer_profile(timings.started_us, log.transfer);
@@ -1070,10 +1070,10 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
         return error;
     }
     if (s_state.last_timing_log_us != 0 && completed_us - s_state.last_timing_log_us <
-        CODY::PocData::report_interval_ms * 1000LL) {
+        CODY::RuntimeData::report_interval_ms * 1000LL) {
         return ESP_OK;
     }
-    error = s_benchmark.summarize(mode, CODY::PocData::frame_budget_us, log.distribution);
+    error = s_benchmark.summarize(mode, CODY::RuntimeData::frame_budget_us, log.distribution);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Completed frame statistics failed: %s", esp_err_to_name(error));
         return error;
@@ -2566,7 +2566,7 @@ extern "C" esp_err_t CODY_companion_boot_completed(void)
 // Automatic route entry is configurable; ready-frame completion remains a prerequisite.
 extern "C" esp_err_t CODY_companion_demo_start(void)
 {
-    if (!CODY::PocData::autostart) {
+    if (!CODY::RuntimeData::autostart) {
         return ESP_OK;
     }
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);

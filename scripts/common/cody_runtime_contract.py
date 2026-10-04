@@ -1,4 +1,4 @@
-"""Strict shared authoring boundary for the firmware and host PoC demo."""
+"""Strict shared authoring boundary for firmware and host runtime settings."""
 from pathlib import Path
 import math
 import yaml
@@ -27,13 +27,13 @@ def number(value, lower, upper, label):
     return value
 
 
-# path: Repository-owned canonical PoC YAML.
+# path: Repository-owned canonical runtime YAML.
 # Raises ValueError or OSError for invalid authoring or unreadable assets.
 def load_settings(path):
     settings = yaml.load(path.read_text(encoding="utf-8"), Loader=RigLoader)
-    fields(settings, ("schema", "demo", "diagnostics", "audio"), "poc")
-    if settings["schema"] != "cody.poc.v1":
-        raise ValueError("Unsupported PoC schema")
+    fields(settings, ("schema", "demo", "diagnostics", "audio"), "runtime")
+    if settings["schema"] != "cody.runtime.v1":
+        raise ValueError("Unsupported runtime schema")
     demo = settings["demo"]
     fields(demo, ("autostart", "steps"), "demo")
     if type(demo["autostart"]) is not bool or not isinstance(demo["steps"], list):
@@ -62,7 +62,7 @@ def load_settings(path):
     audio = settings["audio"]
     fields(audio, ("sample_rate_hz", "ready_duration_seconds", "eyes_open_duration_seconds", "ready_volume_percent", "eyes_open_volume_percent"), "audio")
     if type(audio["sample_rate_hz"]) is not int or audio["sample_rate_hz"] != 22050:
-        raise ValueError("PoC cues must match the shared 22050 Hz codec/diagnostic clock")
+        raise ValueError("Boot cues must match the shared 22050 Hz codec/diagnostic clock")
     number(audio["ready_duration_seconds"], .05, .5, "audio.ready_duration_seconds")
     number(audio["eyes_open_duration_seconds"], 1, 1.8, "audio.eyes_open_duration_seconds")
     for name in ("ready_volume_percent", "eyes_open_volume_percent"):

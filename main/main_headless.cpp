@@ -16,7 +16,7 @@
 #include "LUNASHELL_platform.h"
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 #include "CODY_companion.h"
-#include "CODY_poc.h"
+#include "CODY_boot_cues.h"
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API
 #include "LUNASHELL_http_server.hpp"
@@ -83,7 +83,7 @@ public:
     void progress(const char *stage) const
     {
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-        CODY_poc_boot_checkpoint(stage);
+        CODY_boot_cues_boot_checkpoint(stage);
 #endif
         const esp_err_t result = LUNASHELL_liveness_watch_progress(
             LUNASHELL_LIVENESS_STARTUP
@@ -139,7 +139,7 @@ extern "C" void app_main(void)
     ESP_LOGI(kTag, "Firmware boot");
     ESP_LOGI(kTag, "Build profile: standalone hardware runtime without the UI backend");
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    ESP_ERROR_CHECK(CODY_poc_prepare_boot());
+    ESP_ERROR_CHECK(CODY_boot_cues_prepare_boot());
 #endif
 
     ESP_ERROR_CHECK(LUNASHELL_hardware_init());
@@ -203,7 +203,7 @@ extern "C" void app_main(void)
     startup_watch.progress("power-management service");
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    report_optional_startup_failure("diagnostics SD mirror", CODY_poc_configure_diagnostics());
+    report_optional_startup_failure("diagnostics SD mirror", CODY_boot_cues_configure_diagnostics());
     ESP_ERROR_CHECK(CODY_companion_boot_midpoint());
     startup_watch.progress("Cody local-services boot checkpoint");
 #endif
@@ -261,9 +261,9 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(startup_watch.finish());
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
-    CODY_poc_boot_checkpoint("ready frame / mandatory startup complete");
+    CODY_boot_cues_boot_checkpoint("ready frame / mandatory startup complete");
     ESP_ERROR_CHECK(CODY_companion_demo_start());
-    ESP_ERROR_CHECK(CODY_poc_play_eyes_open());
+    ESP_ERROR_CHECK(CODY_boot_cues_play_eyes_open());
 #endif
     ESP_LOGI(kTag, "Standalone hardware startup completed");
 }

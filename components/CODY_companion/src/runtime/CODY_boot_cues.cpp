@@ -1,5 +1,5 @@
-#include "CODY_poc.h"
-#include "poc_settings.hpp"
+#include "CODY_boot_cues.h"
+#include "runtime_settings.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "esp_timer.h"
@@ -14,7 +14,7 @@ extern const uint8_t eyes_open_start[] asm("_binary_cody_eyes_open_start");
 extern const uint8_t eyes_open_end[] asm("_binary_cody_eyes_open_end");
 }
 namespace {
-constexpr char kTag[] = "CODY_poc";
+constexpr char kTag[] = "CODY_boot_cues";
 int64_t s_boot_started_us = 0;
 int64_t s_stage_started_us = 0;
 
@@ -38,10 +38,10 @@ esp_err_t pcm_view(const uint8_t *first, const uint8_t *last,
 } // namespace
 
 // No parameters: validate flash-owned boot sound; defer playback until trusted time is published.
-extern "C" esp_err_t CODY_poc_prepare_boot(void)
+extern "C" esp_err_t CODY_boot_cues_prepare_boot(void)
 {
     if (s_boot_started_us != 0) {
-        ESP_LOGE(kTag, "Duplicate PoC boot preparation: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        ESP_LOGE(kTag, "Duplicate boot cue preparation: %s", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
     s_boot_started_us = esp_timer_get_time();
@@ -58,10 +58,10 @@ extern "C" esp_err_t CODY_poc_prepare_boot(void)
 }
 
 // stage: Real completed startup operation, logged to console before the optional SD mirror.
-extern "C" void CODY_poc_boot_checkpoint(const char *stage)
+extern "C" void CODY_boot_cues_boot_checkpoint(const char *stage)
 {
     const int64_t now_us = esp_timer_get_time();
-    if (CODY::PocData::execution_timings) {
+    if (CODY::RuntimeData::execution_timings) {
         ESP_LOGI(kTag, "TIMING boot stage=\"%s\" stage_us=%lld elapsed_us=%lld", stage,
             static_cast<long long>(now_us - s_stage_started_us),
             static_cast<long long>(now_us - s_boot_started_us));
@@ -71,7 +71,7 @@ extern "C" void CODY_poc_boot_checkpoint(const char *stage)
 
 // No parameters: report published SD availability without changing saved log policy.
 // Returns the original canonical snapshot error if this observation fails.
-extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
+extern "C" esp_err_t CODY_boot_cues_configure_diagnostics(void)
 {
     LUNASHELL::MotionPowerObservation observation;
     const esp_err_t read_error =
@@ -83,13 +83,13 @@ extern "C" esp_err_t CODY_poc_configure_diagnostics(void)
     // Timing diagnostics are independent of the user's saved SD preference.
     // In particular, Release must not persistently turn logging off at boot.
     ESP_LOGI(kTag, "Diagnostics timings=%u; published SD availability=%u; saved storage log policy retained",
-        static_cast<unsigned>(CODY::PocData::execution_timings),
+        static_cast<unsigned>(CODY::RuntimeData::execution_timings),
         static_cast<unsigned>(observation.storage_available));
     return ESP_OK; // The snapshot read completed; no filesystem operation was attempted.
 }
 
 // No parameters: completed boot plays bounded cues only when canonical quiet policy permits.
-extern "C" esp_err_t CODY_poc_play_eyes_open(void)
+extern "C" esp_err_t CODY_boot_cues_play_eyes_open(void)
 {
     LUNASHELL::ClockSnapshot clock;
     const esp_err_t observation_error =
@@ -103,7 +103,7 @@ extern "C" esp_err_t CODY_poc_play_eyes_open(void)
         const char *reason = policy == LUNASHELL::ClockCuePolicy::QuietHours ? "quiet hours" :
             policy == LUNASHELL::ClockCuePolicy::TimeUnavailable ? "time unavailable/stale" : "settings unavailable";
         ESP_LOGI(kTag, "Boot cues deliberately suppressed: %s; saved codec volume unchanged", reason);
-        CODY_poc_boot_checkpoint("boot cues suppressed by routine policy");
+        CODY_boot_cues_boot_checkpoint("boot cues suppressed by routine policy");
         return ESP_OK;
     }
     const int16_t *samples = nullptr;
@@ -111,7 +111,7 @@ extern "C" esp_err_t CODY_poc_play_eyes_open(void)
     esp_err_t error = pcm_view(audio_ready_start, audio_ready_end, samples, count);
     if (error == ESP_OK) {
         error = LUNASHELL_audio_play_pcm16(samples, count,
-            CODY::PocData::sample_rate_hz, CODY::PocData::ready_volume_percent);
+            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::ready_volume_percent);
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Audio-ready cue failed: %s", esp_err_to_name(error));
@@ -120,11 +120,11 @@ extern "C" esp_err_t CODY_poc_play_eyes_open(void)
     error = pcm_view(eyes_open_start, eyes_open_end, samples, count);
     if (error == ESP_OK) {
         error = LUNASHELL_audio_play_pcm16(samples, count,
-            CODY::PocData::sample_rate_hz, CODY::PocData::eyes_open_volume_percent);
+            CODY::RuntimeData::sample_rate_hz, CODY::RuntimeData::eyes_open_volume_percent);
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Eyes-open cue failed: %s", esp_err_to_name(error));
     }
-    CODY_poc_boot_checkpoint("eyes-open audio cue");
+    CODY_boot_cues_boot_checkpoint("eyes-open audio cue");
     return error;
 }

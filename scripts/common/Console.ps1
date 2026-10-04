@@ -30,7 +30,7 @@ function Get-DeviceFirmwarePresentation {
 function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Group) {
     $descriptions = @{
         checks = @{
-            'cody-poc' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Cody PoC contracts and optional preview artifacts.' }
+            'cody-alpha' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Cody Alpha contracts and optional preview artifacts.' }
             'cody-native' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Compile the portable C++ renderer and compare geometry with Python.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
             'cody-runtime' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Native response, demo, statistics and original boot-cue checks.' }
@@ -64,7 +64,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
         }
         generators = @{
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }
-            'cody-poc' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate PoC settings and the two original synthesized boot cues.' }
+            'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }
             'cody-jelly' = @{ Category = 'Cody assets'; Emoji = '☁️'; Description = 'Package the pearl sprite and simulator bindings as flash-owned data.' }
             'cody-scenes' = @{ Category = 'Cody assets'; Emoji = '🎬'; Description = 'Bake cloud/title scenes and glyphs; requires --font-path.' }
             'package-cody-boot' = @{ Category = 'Cody assets'; Emoji = '🌅'; Description = 'Convert existing boot images into indexed RGB565 firmware resources.' }

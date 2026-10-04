@@ -419,7 +419,7 @@ def contour_surface_points(rig, contour, points, body_points):
 
 
 # rig: Authored outline metadata and the already checked parent/path graph.
-# Raises ValueError when contour controls could move a facial point or exceed PoC bounds.
+# Raises ValueError when contour controls could move a facial point or exceed authored bounds.
 def validate_contour_definition(rig):
     contour = rig["contour"]
     expected = {"fullness": (-1, 1), "amplitude": (0, 1), "speed": (0, 2), "phase_spread": (0, 1)}
@@ -477,7 +477,7 @@ def validate_contour_definition(rig):
         if not 0 < limit <= .12:
             raise ValueError(f"Invalid contour excursion limit: {lobe['point']}")
         if not 0 <= fullness <= .06 or not 0 <= wave <= .06 or fullness + wave > limit:
-            raise ValueError(f"Contour displacement exceeds the authored PoC bound: {lobe['point']}")
+            raise ValueError(f"Contour displacement exceeds the authored bound: {lobe['point']}")
         phase = finite(lobe["phase_turns"], lobe["point"])
         if not 0 <= phase < 1 or phase <= previous_phase:
             raise ValueError(f"Contour phase offsets must increase around the perimeter: {lobe['point']}")
@@ -648,7 +648,7 @@ def evaluate(rig, values, transform, contour=None):
         raise ValueError("Transform requires x, y and uniform scale")
     x, y, scale = [finite(v, "transform") for v in transform]
     if not 0 <= x < 466 or not 0 <= y < 466 or not 20 <= scale <= 200:
-        raise ValueError(f"Transform outside PoC limits: {transform}")
+        raise ValueError(f"Transform outside authored limits: {transform}")
     channels = {channel["name"]: value for channel, value in zip(rig["channels"], values)}
     breathing_scale = 1 + .018 * channels["breath"]
     local = {}

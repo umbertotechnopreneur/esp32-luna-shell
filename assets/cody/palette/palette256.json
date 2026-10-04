@@ -1,6 +1,6 @@
 {
   "name": "Cody shared OOBE palette v3",
-  "purpose": "Shared palette for the Cody rig PoC and its host preview; original boot images retain their independent indexed palettes.",
+  "purpose": "Shared palette for the Cody rig Alpha and its host preview; original boot images retain their independent indexed palettes.",
   "schema_version": 1,
   "slot_count": 256,
   "native_word_format": "RGB565",

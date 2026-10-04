@@ -8,7 +8,7 @@
       "cpp_id": "PearlMist",
       "symbol": "pearl_mist",
       "display_name": "Pearl Mist",
-      "source": "assets/cody/experiments/jelly-scanline/jelly-body-master.png"
+      "source": "assets/cody/appearance/jelly-scanline/jelly-body-master.png"
     },
     {
       "id": "cody.skin.aurora_veil.v1",
@@ -16,7 +16,7 @@
       "cpp_id": "AuroraVeil",
       "symbol": "aurora_veil",
       "display_name": "Aurora Veil",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png"
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png"
     },
     {
       "id": "cody.skin.cosmic_stardust.v1",
@@ -24,7 +24,7 @@
       "cpp_id": "CosmicStardust",
       "symbol": "cosmic_stardust",
       "display_name": "Cosmic Stardust",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_cosmic_stardust_v1.png"
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_cosmic_stardust_v1.png"
     },
     {
       "id": "cody.skin.enchanted_mosaic.v1",
@@ -32,7 +32,7 @@
       "cpp_id": "EnchantedMosaic",
       "symbol": "enchanted_mosaic",
       "display_name": "Enchanted Mosaic",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_enchanted_mosaic_v1.png"
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_enchanted_mosaic_v1.png"
     },
     {
       "id": "cody.skin.dreamwave.v1",
@@ -40,7 +40,7 @@
       "cpp_id": "Dreamwave",
       "symbol": "dreamwave",
       "display_name": "Dreamwave",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_dreamwave_ribbons_v1.png"
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_dreamwave_ribbons_v1.png"
     }
   ]
 }

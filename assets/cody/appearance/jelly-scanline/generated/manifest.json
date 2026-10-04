@@ -1,9 +1,9 @@
 {
-  "catalog": "assets/cody/experiments/jelly-scanline/skins.json",
-  "catalog_sha256": "174130c6369ff53963ca94f95447cce10402042b4db027a36d902d8c242c19e0",
+  "catalog": "assets/cody/appearance/jelly-scanline/skins.json",
+  "catalog_sha256": "266a0f738d8a9eec5565afc67164f730f24a537e2cd9195d4dbbd857aaa02c04",
   "default_id": "cody.skin.pearl_mist.v1",
   "alpha_sha256": "c3d4715f4fc20642bf1dbba307203a9adcf0060a75230f7491245641ec2d7713",
-  "skin_sha256": "0743adc9625a7e15005ffd2242ed0595eae0dbe0182d7b6ce250b6ed49f7cd33",
+  "skin_sha256": "6435a6954111fb42d6be12eabc31a4b78ed78ef8c6f9b7983dedeb54cc9ca649",
   "source_crop": [
     28,
     206,
@@ -21,7 +21,7 @@
       "enum_value": 1,
       "cpp_id": "PearlMist",
       "display_name": "Pearl Mist",
-      "source": "assets/cody/experiments/jelly-scanline/jelly-body-master.png",
+      "source": "assets/cody/appearance/jelly-scanline/jelly-body-master.png",
       "source_sha256": "3b3c429cdf2a22098a652ff8e7048dfae09d22f47c5bb1cd63afbf5369b43cd3",
       "texture_sha256": "a6e47046262166cd8cb708b11480eb80df3a94a4925d084917db6fcc699f4cfc"
     },
@@ -30,7 +30,7 @@
       "enum_value": 2,
       "cpp_id": "AuroraVeil",
       "display_name": "Aurora Veil",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png",
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_azure_lilac_gradient_v1.png",
       "source_sha256": "3fffdd2a33c598abc61ddbe5edf29e7626bbf9faea49157a904b1fa22e752385",
       "texture_sha256": "e0b1db915093149b650e19b2d2352afe009a1ef1c9ecc339afaec2ec6a9311dc"
     },
@@ -39,7 +39,7 @@
       "enum_value": 3,
       "cpp_id": "CosmicStardust",
       "display_name": "Cosmic Stardust",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_cosmic_stardust_v1.png",
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_cosmic_stardust_v1.png",
       "source_sha256": "8ccfe50e4b754557e8b59736f853788793e6350ea9413c05de9cde6b3bbc6b2f",
       "texture_sha256": "3aafc1e87e09656fe04bf11556ad3ef44c0b5fc8bb4ac4ad0fe8c1ad58196f13"
     },
@@ -48,7 +48,7 @@
       "enum_value": 4,
       "cpp_id": "EnchantedMosaic",
       "display_name": "Enchanted Mosaic",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_enchanted_mosaic_v1.png",
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_enchanted_mosaic_v1.png",
       "source_sha256": "f1f46743a89737ab1ac622c04893c7494ac3e567d5413cd36224cc7355360749",
       "texture_sha256": "552c8535eaa03f475e36e74e3902017e3e7d9befc505a898c2967259a09284b6"
     },
@@ -57,7 +57,7 @@
       "enum_value": 5,
       "cpp_id": "Dreamwave",
       "display_name": "Dreamwave",
-      "source": "assets/cody/experiments/jelly-scanline/skins/cody_skin_dreamwave_ribbons_v1.png",
+      "source": "assets/cody/appearance/jelly-scanline/skins/cody_skin_dreamwave_ribbons_v1.png",
       "source_sha256": "15ed614523e2b0fa9f23a6044ae1005c1a03632864cf379087db3ac8433192bd",
       "texture_sha256": "47cb066a23010b7299d700d3e2faed2d56a6fc6a11b378d7ff96d8204fc48d78"
     }

@@ -1,4 +1,4 @@
-"""Opt-in PNG/triangle experiment. CPU software preview, not firmware parity."""
+"""Opt-in PNG/triangle appearance study. CPU software preview, not firmware parity."""
 
 from __future__ import annotations
 
@@ -59,8 +59,8 @@ class PngMeshStudy:
     # Raises OSError for unreadable artwork and ValueError for incompatible artwork/rig.
     def __init__(self, root, rig):
         if rig['character']['id'] != 'cody' or rig['root_point'] != 'center':
-            raise ValueError('The experimental PNG is authored specifically for the Cody cloud skin')
-        path = root / 'assets/cody/experiments/png-mesh/cloud-body-master.png'
+            raise ValueError('The alternate PNG is authored specifically for the Cody cloud skin')
+        path = root / 'assets/cody/appearance/png-mesh/cloud-body-master.png'
         with Image.open(path) as source:
             if source.mode != 'RGBA':
                 raise ValueError(f'PNG mesh artwork requires genuine RGBA transparency: {path}')

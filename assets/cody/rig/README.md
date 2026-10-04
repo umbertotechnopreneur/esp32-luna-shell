@@ -32,7 +32,7 @@ Asset preparation does not execute firmware or prove pixel/performance parity.
 
 `-CloudMaterialStudy` and `-CloudPngMeshStudy` are opt-in host-only studies;
 their visual output is not a native implementation claim. The
-[PNG mesh study](../experiments/png-mesh/README.md) retains its own provenance.
+[PNG mesh study](../appearance/png-mesh/README.md) retains its own provenance.
 Current rig, response, AA, pearl and memory contracts are in
 [rendering](../../../docs/architecture/cody/rendering.md); open evidence is in
 [TODO](../../../TODO.md).

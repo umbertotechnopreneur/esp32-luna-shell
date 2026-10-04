@@ -10,7 +10,7 @@ import wave
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
-from scripts.common.cody_poc_contract import demo_targets, load_settings
+from scripts.common.cody_runtime_contract import demo_targets, load_settings
 from scripts.common.cody_response import (
     InputOrigin, MicrophoneSample, PlaybackSample, PowerSample, ResponseInputs,
     SampleHealth, SampleStamp, advance_response, compose_response, make_response_state,
@@ -109,14 +109,14 @@ def compare_response(observed):
     assert observed[460]["closure"] < .5 and observed[480]["annoyance"] < .4
 
 
-# settings: Strict PoC authoring source with explicit cue durations and demo identities.
+# settings: Strict Alpha authoring source with explicit cue durations and demo identities.
 # Raises AssertionError or filesystem errors for mismatched generated assets.
 def check_assets(settings):
     rig, palette = load_contract()
     sample_rate_hz = settings["audio"]["sample_rate_hz"]
-    generated = ROOT / "assets/cody/poc/generated"
+    generated = ROOT / "assets/cody/runtime/generated"
     manifest = json.loads((generated / "manifest.json").read_text())
-    assert manifest["source_sha256"] == text_source_hash(ROOT / "assets/cody/poc.yaml")
+    assert manifest["source_sha256"] == text_source_hash(ROOT / "assets/cody/runtime.yaml")
     hashes = []
     for cue, duration_key in (("audio_ready", "ready_duration_seconds"), ("eyes_open", "eyes_open_duration_seconds")):
         raw = (generated / f"cody-{cue}.pcm16le").read_bytes()
@@ -147,23 +147,23 @@ def main(argv=None):
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "failed", "hardware": "NOT ACCESSED", "firmware": "NOT BUILT"}
     try:
-        settings = load_settings(ROOT / "assets/cody/poc.yaml")
+        settings = load_settings(ROOT / "assets/cody/runtime.yaml")
         check_assets(settings)
         check_boundaries()
         check_typewriter_audio_source(ROOT)
         compiler = resolve_compiler(args.compiler)
         includes = ("scripts/tests/cody_native", "components/CODY2D/include", "components/CODY_companion/include",
                     "components/LUNASHELL_platform/include",
-                    "assets/cody/rig/generated", "assets/cody/poc/generated",
-                    "assets/cody/experiments/jelly-scanline/generated")
-        sources = ("scripts/tests/cody_native/poc_runtime.cpp", "components/CODY2D/src/CODY2D.cpp",
+                    "assets/cody/rig/generated", "assets/cody/runtime/generated",
+                    "assets/cody/appearance/jelly-scanline/generated")
+        sources = ("scripts/tests/cody_native/runtime_contract.cpp", "components/CODY2D/src/CODY2D.cpp",
                        "scripts/tests/cody_native/host_settings.cpp",
                        "components/CODY2D/src/CODY2D_paths.cpp", "components/CODY_companion/src/model/CODY_rig.cpp",
                        "components/CODY_companion/src/model/CODY_response.cpp", "components/CODY_companion/src/demos/CODY_demo.cpp",
                        "components/CODY_companion/src/diagnostics/CODY_benchmark.cpp", "components/CODY_companion/src/rendering/CODY_damage.cpp",
                        "components/CODY_companion/src/rendering/CODY_jelly.cpp",
-                       "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
-        executable = output / "poc-runtime.exe"
+                       "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
+        executable = output / "runtime-contract.exe"
         command = compile_command(compiler, includes, sources, executable,
                                   definitions=("CODY_ENABLE_PEARL_JELLY=1",))
         run_stage(command, output, "compile")

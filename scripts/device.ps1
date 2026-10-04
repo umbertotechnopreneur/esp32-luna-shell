@@ -47,7 +47,7 @@ param(
     [switch]$MeshOverlay,
     [string]$PythonExecutable,
     [string]$Skin,
-    [string]$Check = 'cody-poc',
+    [string]$Check = 'cody-alpha',
     [string]$Generator = 'cody-rig',
     [string[]]$ToolArguments = @()
 )

@@ -15,7 +15,7 @@ CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO=n
 CONFIG_LUNASHELL_BUILD_ENABLE_WIFI=y
 CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH=y
 CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING=y
-# The local rig PoC has no HTTP or companion integration route.
+# HTTP selection belongs to the later connectivity feature defaults.
 CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=n
 
 # Keep the measured motion, power and codec services for the companion.

@@ -14,8 +14,8 @@ sys.path.insert(0, str(ROOT / 'simulator/windows'))
 from scripts.common.cody_rig_contract import load_contract, enum_identifier
 from cody_jelly_scanline import JellyScanlineStudy, native_texture_colors
 
-OUTPUT = ROOT / 'assets/cody/experiments/jelly-scanline/generated'
-CATALOG = ROOT / 'assets/cody/experiments/jelly-scanline/skins.json'
+OUTPUT = ROOT / 'assets/cody/appearance/jelly-scanline/generated'
+CATALOG = ROOT / 'assets/cody/appearance/jelly-scanline/skins.json'
 
 
 # value: Finite coordinate or normalized binding weight from the loaded contract.
@@ -120,7 +120,7 @@ def main():
     if len(set(row_ids)) != len(row_ids):
         raise ValueError('Ambiguous jelly C++ row identity')
     width, height = study.texture.size
-    master_path = ROOT / 'assets/cody/experiments/jelly-scanline/jelly-body-master.png'
+    master_path = ROOT / 'assets/cody/appearance/jelly-scanline/jelly-body-master.png'
     with Image.open(master_path) as master:
         if master.mode != 'RGBA':
             raise ValueError(f'Canonical jelly master must be RGBA: {master_path}')

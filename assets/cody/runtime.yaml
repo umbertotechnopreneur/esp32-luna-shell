@@ -1,5 +1,5 @@
-# Build-time settings for the hardware PoC; no fabricated firmware observations.
-schema: cody.poc.v1
+# Build-time settings for the hardware Alpha; no fabricated firmware observations.
+schema: cody.runtime.v1
 demo:
   autostart: true
   steps:

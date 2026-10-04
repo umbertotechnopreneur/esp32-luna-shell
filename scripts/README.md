@@ -35,7 +35,7 @@ See [build modes](../docs/architecture/firmware-build-modes.md).
 never evaluated shell code:
 
 ```powershell
-.\scripts\device.ps1 check -Check cody-poc -ToolArguments @('--previews')
+.\scripts\device.ps1 check -Check cody-alpha -ToolArguments @('--previews')
 .\scripts\device.ps1 simulator-luna -ToolArguments @('--screen', 'battery', '--capture', 'battery.png')
 ```
 

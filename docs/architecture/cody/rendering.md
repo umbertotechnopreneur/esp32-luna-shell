@@ -22,7 +22,7 @@ contour smoothing/breath/blink phase also survive preset changes and pause. Vect
 drawing, debug geometry and semantic hit testing consume the same evaluated pose.
 
 The active native jelly finish derives from approved concept 08 in
-`assets/cody/experiments/jelly-scanline/`. Five skins share the crop
+`assets/cody/appearance/jelly-scanline/`. Five skins share the crop
 `(28,206,1229,1082)`, matched alpha, 320×233 premultiplied RGBA8 and RGB565-quantized
 color with 8-bit alpha. Pearl Mist, Aurora Veil, Cosmic Stardust, Enchanted Mosaic
 and Dreamwave use stable IDs in `skins.json` and shared bindings, not duplicated
@@ -141,7 +141,7 @@ inputs that never enter firmware snapshots. Responsive layout/input use one curr
 presented transform; resizing does not advance animation time. Pillow rasterization
 and host timing are not native pixel/performance parity. The jelly study mirrors
 the implemented native path; opt-in material/PNG-mesh studies remain host
-experiments, not firmware feasibility evidence. Simulator execution is validation
+appearance studies, not firmware feasibility evidence. Simulator execution is validation
 and still requires explicit request.
 
 Debug stage benchmarks count 128 completed frames per overlay mode, then report

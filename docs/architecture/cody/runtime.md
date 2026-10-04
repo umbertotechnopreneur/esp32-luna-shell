@@ -106,7 +106,7 @@ already-true `changed` flag and does not attach mutable state on every tile.
 ## Optional audio
 
 Boot cues are original procedural `audio-ready` (0.18 s) and `eyes-open` (1.3 s),
-authored in `assets/cody/poc.yaml` and stored in flash. Preparation validates the
+authored in `assets/cody/runtime.yaml` and stored in flash. Preparation validates the
 flash PCM; both playback operations are deferred until completed boot reads the
 trusted-clock policy. The base assets use 22,050 Hz and authored volume 100; the
 optional voice-AFE feature has its separate matched-rate configuration. Shared

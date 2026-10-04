@@ -19,7 +19,7 @@ One current viewport transform aligns preview and mouse input; resizing does not
 advance animation time. Desktop annotations are inspector UI, not firmware text.
 
 `-CloudJellyStudy` previews the native pearl approach; face-follow starts enabled.
-`-CloudMaterialStudy` and `-CloudPngMeshStudy` are separate host-only experiments.
+`-CloudMaterialStudy` and `-CloudPngMeshStudy` are separate host-only appearance studies.
 They are mutually exclusive material choices, not alternate firmware fallbacks.
 PNG is preferable to GIF for judging subtle colors. Fixed synthetic GIF timelines
 are not recorded sensor replay or rendering benchmarks.

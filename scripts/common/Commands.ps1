@@ -143,7 +143,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         'simulator-luna' { Invoke-HostTool (Join-Path $ProjectRoot 'simulator/windows/lunashell_simulator.py') $Options.ToolArguments $Options.PythonExecutable }
         'package-simulator' { Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/package-simulator.ps1') @() '' }
         'check' {
-            $name = if ($Options.Check) { $Options.Check } else { 'cody-poc' }
+            $name = if ($Options.Check) { $Options.Check } else { 'cody-alpha' }
             $tool = Find-DeviceTool 'checks' $name
             Invoke-HostTool $tool.Path $Options.ToolArguments $Options.PythonExecutable
         }

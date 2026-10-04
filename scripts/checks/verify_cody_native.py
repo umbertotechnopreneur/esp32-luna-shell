@@ -45,7 +45,7 @@ def main(argv=None) -> None:
         include_dirs = ("scripts/tests/cody_native", "components/CODY2D/include",
                         "components/LUNASHELL_platform/include", "assets/cody/scenes/generated",
                         "components/CODY_companion/include", "assets/cody/rig/generated",
-                        "assets/cody/experiments/jelly-scanline/generated")
+                        "assets/cody/appearance/jelly-scanline/generated")
         sources = ("scripts/tests/cody_native/raster_contract.cpp", "scripts/tests/scene_standby_policy.cpp",
                    "components/CODY2D/src/CODY2D.cpp",
                    "scripts/tests/cody_native/host_settings.cpp",
@@ -58,7 +58,7 @@ def main(argv=None) -> None:
                    "components/CODY_companion/src/model/CODY_expression_catalog.cpp",
                    "assets/cody/scenes/generated/scene_font.cpp",
                    "assets/cody/scenes/generated/scene_body_font.cpp",
-                   "assets/cody/experiments/jelly-scanline/generated/cody_jelly_data.cpp")
+                   "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
         command = compile_command(compiler, include_dirs, sources, executable,
                                   definitions=("CODY_ENABLE_PEARL_JELLY=1",))
         report["compiler"] = compiler

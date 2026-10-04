@@ -3,7 +3,7 @@
 #include "CODY_response.hpp"
 #include "CODY_damage.hpp"
 #include "cloud_rig_data.hpp"
-#include "poc_settings.hpp"
+#include "runtime_settings.hpp"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -18,7 +18,7 @@ namespace {
 void require(bool condition, const char *message)
 {
     if (!condition) {
-        std::fprintf(stderr, "Native PoC failure: %s\n", message);
+        std::fprintf(stderr, "Native runtime failure: %s\n", message);
         std::exit(1);
     }
 }
@@ -215,7 +215,7 @@ void demo_contracts()
     CODY::ContourControls contour{};
     CODY::DemoPhase phase{};
     int64_t elapsed_us = 0;
-    for (const auto &step : CODY::PocData::steps) {
+    for (const auto &step : CODY::RuntimeData::steps) {
         require(CODY::demo_targets(elapsed_us, face, contour, phase) == ESP_OK && phase == step.identity,
                 "demo phase identity or boundary differs");
         require(face[CODY::FaceChannel::EyeLeft] == step.face[CODY::FaceChannel::EyeLeft] &&
@@ -223,7 +223,7 @@ void demo_contracts()
         elapsed_us += step.duration_ms * 1000LL;
     }
     require(CODY::demo_targets(elapsed_us, face, contour, phase) == ESP_OK &&
-            phase == CODY::PocData::steps[0].identity, "demo cycle did not wrap");
+            phase == CODY::RuntimeData::steps[0].identity, "demo cycle did not wrap");
     require(CODY::demo_targets(-1, face, contour, phase) == ESP_ERR_INVALID_ARG,
             "negative demo time accepted");
 }
@@ -334,6 +334,9 @@ void damage_contracts()
                     CODY::draw_rig_rows(scene, expected_frame, 0, current_debug, selected, nullptr, paused) == ESP_OK &&
                     CODY::rig_damage_bounds(scene, current_debug, current_bounds) == ESP_OK,
                     "reference geometry/raster failed");
+            // Hidden debug controls may make Pause/Resume visually unchanged.
+            // The full reference framebuffer determines whether a transfer is needed.
+            const bool reference_changed = expected != host_panel;
             regions.rectangles[0] = previous_bounds;
             regions.rectangles[1] = current_bounds;
             regions.count = 2;
@@ -372,10 +375,10 @@ void damage_contracts()
             }
             require(host_panel == expected && previous == expected,
                     "partial updates differ from the complete actual rig framebuffer");
-            if (scenario == Scenario::Unchanged || scenario == Scenario::PauseHold) {
-                require(submitted_pixels == 0, "unchanged frame submitted a rectangle");
-            } else if (scenario == Scenario::Initial || scenario == Scenario::Invalidate) {
+            if (scenario == Scenario::Initial || scenario == Scenario::Invalidate) {
                 require(submitted_pixels == frame_pixels, "invalid cache skipped canvas pixels");
+            } else if (!reference_changed) {
+                require(submitted_pixels == 0, "unchanged reference frame submitted a rectangle");
             } else {
                 require(submitted_pixels > 0 && submitted_pixels < frame_pixels,
                         "face update did not use actual changed regions");

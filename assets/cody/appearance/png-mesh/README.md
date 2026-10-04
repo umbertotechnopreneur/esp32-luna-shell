@@ -1,6 +1,6 @@
-# Painted cloud / triangle-mesh experiment
+# Painted cloud / triangle-mesh appearance study
 
-This opt-in Windows simulator experiment replaces only the cloud body and its
+This opt-in Windows simulator appearance study replaces only the cloud body and its
 four vector relief paths. The existing face, navigation, firmware and sensor
 consumers remain unchanged. This is not a device-ready texture renderer.
 
@@ -54,7 +54,7 @@ is deliberately stationary so local deformation is visible. It uses legal
 authored contour inputs (amplitude 1, fullness +/-0.8), not recorded IMU samples
 or the production response engine. A four-phase full-color pose sheet is saved
 beside it. `-AtMs` and `-SafeGuide` are not accepted for this fixed GIF timeline.
-The opt-in experiment currently supports capture mode only.
+The opt-in appearance study currently supports capture mode only.
 
 Only authorized visual preview captures and static source review were performed.
 No automated tests, firmware configure/build/flash, live sensors or performance

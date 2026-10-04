@@ -1,4 +1,4 @@
-"""Generate strict PoC settings and two original, compact synthesized boot cues."""
+"""Generate strict runtime settings and two original, compact synthesized boot cues."""
 from pathlib import Path
 import hashlib
 import json
@@ -10,7 +10,7 @@ import wave
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_rig_contract import load_contract
-from scripts.common.cody_poc_contract import load_settings
+from scripts.common.cody_runtime_contract import load_settings
 from scripts.common.asset_provenance import text_source_hash
 
 
@@ -50,13 +50,13 @@ def synthesize(settings, cue):
 # No parameters: generate core assets in flash-owned source folders; reports stay in artifacts.
 # Raises original authoring, contract and filesystem errors.
 def main():
-    source = ROOT / "assets/cody/poc.yaml"
+    source = ROOT / "assets/cody/runtime.yaml"
     settings = load_settings(source)
     rig, _ = load_contract()
-    generated = ROOT / "assets/cody/poc/generated"
+    generated = ROOT / "assets/cody/runtime/generated"
     generated.mkdir(parents=True, exist_ok=True)
     names = {"breathe": "Breathe", "contour_slow": "ContourSlow", "contour_fast": "ContourFast", "sleepy": "Sleepy", "awake": "Awake"}
-    lines = ['#pragma once', '#include "CODY_demo.hpp"', 'namespace CODY::PocData {']
+    lines = ['#pragma once', '#include "CODY_demo.hpp"', 'namespace CODY::RuntimeData {']
     lines.append(f"inline constexpr bool autostart = {str(settings['demo']['autostart']).lower()};")
     for name in ("execution_timings", "mirror_to_sd_when_available", "report_interval_ms", "frame_budget_us"):
         value = settings["diagnostics"][name]
@@ -73,8 +73,8 @@ def main():
             raise ValueError(f"Unknown named face target: {step['face']}")
         channels = ', '.join(f"{float(value):.9g}f" if float(value) % 1 else f"{int(value)}.0f" for value in presets[step["face"]])
         lines.append(f"    {{DemoPhase::{names[step['id']]}, {round(step['duration_seconds'] * 1000)}U, {{{{{channels}}}}}, {float(step['amplitude'])}f, {float(step['speed'])}f}},")
-    lines.extend(['};', '} // namespace CODY::PocData', ''])
-    (generated / "poc_settings.hpp").write_text('\n'.join(lines), encoding="utf-8")
+    lines.extend(['};', '} // namespace CODY::RuntimeData', ''])
+    (generated / "runtime_settings.hpp").write_text('\n'.join(lines), encoding="utf-8")
     manifest = {"schema": settings["schema"], "source_sha256": text_source_hash(source), "cues": {}}
     for cue in ("audio_ready", "eyes_open"):
         pcm = synthesize(settings, cue)
@@ -94,7 +94,7 @@ def main():
             "origin": "original procedural synthesis",
         }
     (generated / "manifest.json").write_text(json.dumps(manifest, indent=2) + '\n', encoding="utf-8")
-    print(f"Generated PoC settings and original cues: {generated}")
+    print(f"Generated runtime settings and original cues: {generated}")
 
 
 if __name__ == '__main__':

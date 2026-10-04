@@ -72,7 +72,7 @@ class JellyScanlineStudy:
         if rig['character']['id'] != 'cody' or rig['root_point'] != 'center':
             raise ValueError('The pearlescent jelly sprite is authored for the Cody cloud')
         self.rig = rig
-        path = root / 'assets/cody/experiments/jelly-scanline/jelly-body-master.png'
+        path = root / 'assets/cody/appearance/jelly-scanline/jelly-body-master.png'
         with Image.open(path) as source:
             if source.mode != 'RGBA' or source.getchannel('A').getextrema() != (0, 255):
                 raise ValueError(f'Jelly artwork needs genuine transparent and opaque RGBA pixels: {path}')

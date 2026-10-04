@@ -1,5 +1,5 @@
 #include "CODY_demo.hpp"
-#include "poc_settings.hpp"
+#include "runtime_settings.hpp"
 
 namespace CODY {
 // elapsed_us: Monotonic active animation time, never a synthetic hardware sample.
@@ -8,12 +8,12 @@ namespace CODY {
 // phase: Receives the current authored phase on success.
 esp_err_t demo_targets(int64_t elapsed_us, Channels &face, ContourControls &contour, DemoPhase &phase)
 {
-    if (elapsed_us < 0 || PocData::cycle_ms == 0) {
+    if (elapsed_us < 0 || RuntimeData::cycle_ms == 0) {
         return ESP_ERR_INVALID_ARG;
     }
     const uint64_t elapsed_ms = static_cast<uint64_t>(elapsed_us) / 1000U;
-    uint32_t phase_ms = elapsed_ms % PocData::cycle_ms;
-    for (const DemoStep &step : PocData::steps) {
+    uint32_t phase_ms = elapsed_ms % RuntimeData::cycle_ms;
+    for (const DemoStep &step : RuntimeData::steps) {
         if (phase_ms < step.duration_ms) {
             face = step.face;
             contour = contour_defaults();
