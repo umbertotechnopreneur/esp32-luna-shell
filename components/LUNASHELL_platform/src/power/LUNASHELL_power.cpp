@@ -743,12 +743,21 @@ esp_err_t set_lvgl_standby(bool standby)
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_UI && \
     (CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH)
 // standby: Whether to stop or restore the radios selected by the standalone profile.
+// Exception: Hardware teardown failures block standby; a separate budget failure stays published.
 esp_err_t set_standalone_wireless_standby(bool standby)
 {
     esp_err_t result = ESP_ERR_NOT_SUPPORTED;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
     if (standby) {
-        result = LUNASHELL_radios_stop();
+        const auto closure = LUNASHELL_radios_stop();
+        result = closure.cleanup_error;
+        if (closure.dma_reservation_error != ESP_OK) {
+            // Known-off hardware is safe for standby/degraded wake. The radio
+            // owner publishes the budget error; the next Start must admit it anew.
+            ESP_LOGE(kTag, "Standalone BLE standby reserve unavailable (%s); cleanup=%s",
+                     esp_err_to_name(closure.dma_reservation_error),
+                     esp_err_to_name(closure.cleanup_error));
+        }
     } else {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
         result = LUNASHELL_radios_init();
@@ -784,10 +793,14 @@ esp_err_t set_motion_wake_standby(bool standby)
 // stopping them releases the Wi-Fi/BLE stacks and wake never restarts them
 // without a new explicit Settings action.
 #if CONFIG_LUNASHELL_BUILD_ENABLE_UI
+// No parameters: stop radio hardware and keep memory-budget failure explicit.
+// Exception: Return the original teardown or reservation error.
 esp_err_t stop_radios_for_standby()
 {
     record_standby_trace(StandbyTracePhase::RadiosStopping, ESP_OK);
-    const esp_err_t error = LUNASHELL_radios_stop();
+    const auto closure = LUNASHELL_radios_stop();
+    const esp_err_t error = closure.cleanup_error != ESP_OK ?
+        closure.cleanup_error : closure.dma_reservation_error;
     if (error == ESP_ERR_NOT_SUPPORTED) {
         record_standby_trace(StandbyTracePhase::RadiosStopped, error);
         ESP_LOGI(

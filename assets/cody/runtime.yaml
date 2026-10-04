@@ -18,5 +18,8 @@ audio:
   sample_rate_hz: 22050
   ready_duration_seconds: 0.18
   eyes_open_duration_seconds: 1.3
+  # Keep the original chime; append this explicitly selected licensed greeting.
+  # Other catalog IDs or 'none' preserve the alternatives without a fallback.
+  eyes_open_hello: cody-hello-murmur
   ready_volume_percent: 100
   eyes_open_volume_percent: 100

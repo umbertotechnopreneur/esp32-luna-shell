@@ -672,6 +672,8 @@ void writePairingSession(LUNASHELL::HttpJsonWriter &json, const LUNASHELL::Pairi
         static_cast<long long>(pairing.changed_at_us),
         static_cast<long long>(pairing.deadline_at_us));
     (void)json.quoted(esp_err_to_name(pairing.cleanup_error));
+    (void)json.raw(",\"dma_reservation_error\":");
+    (void)json.quoted(esp_err_to_name(pairing.dma_reservation_error));
     (void)json.raw("}");
 }
 

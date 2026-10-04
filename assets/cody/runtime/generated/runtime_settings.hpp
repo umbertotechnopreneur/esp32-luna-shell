@@ -11,10 +11,10 @@ inline constexpr int eyes_open_volume_percent = 100;
 inline constexpr int sample_rate_hz = 22050;
 inline constexpr uint32_t cycle_ms = 29000U;
 inline constexpr DemoStep steps[] = {
-    {DemoPhase::Breathe, 5000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.15f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.12f, 0.25f},
-    {DemoPhase::ContourSlow, 7000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.15f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.65f, 0.15f},
-    {DemoPhase::ContourFast, 7000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.15f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.65f, 1.4f},
-    {DemoPhase::Sleepy, 5000U, {{0.35f, 0.35f, 0.0f, 0.0f, 0.06f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.15f, 0.2f},
-    {DemoPhase::Awake, 5000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.15f, 0.0f, 1.0f, 1.0f, 1.2f, 1.0f}}, 0.3f, 0.5f},
+    {DemoPhase::Breathe, 5000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.04f, 0.0f, 0.72f, 1.0f, 1.0f, 0.58f}}, 0.12f, 0.25f},
+    {DemoPhase::ContourSlow, 7000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.04f, 0.0f, 0.72f, 1.0f, 1.0f, 0.58f}}, 0.65f, 0.15f},
+    {DemoPhase::ContourFast, 7000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.04f, 0.0f, 0.72f, 1.0f, 1.0f, 0.58f}}, 0.65f, 1.4f},
+    {DemoPhase::Sleepy, 5000U, {{0.35f, 0.35f, 0.0f, 0.0f, 0.34f, 0.0f, 0.5f, 1.0f, 1.0f, 0.58f}}, 0.15f, 0.2f},
+    {DemoPhase::Awake, 5000U, {{1.0f, 1.0f, 0.0f, 0.0f, 0.04f, 0.0f, 0.72f, 1.0f, 1.0f, 0.58f}}, 0.3f, 0.5f},
 };
 } // namespace CODY::RuntimeData

@@ -674,6 +674,7 @@ esp_err_t advance_response(const ResponseConfig &config, const ResponseState &st
 // rotation: Clockwise cardinal orientation of the physical presentation.
 // animate_rhythm: Whether the composed face includes breathing and blinking.
 // frame: Receives controls and the same root transform used by artwork and overlays.
+// Exception: Returns the real state, channel, contour or placement validation error.
 esp_err_t compose_response(const ResponseConfig &config, const ResponseState &state,
                           const Channels &base_face, const ContourControls &base_contour,
                           Transform placement, uint16_t rotation, bool animate_rhythm,
@@ -753,7 +754,7 @@ esp_err_t compose_response(const ResponseConfig &config, const ResponseState &st
         for (const auto eye : {FaceChannel::EyeLeft, FaceChannel::EyeRight}) {
             result.face[eye] *= 1 - blink;
         }
-        mouth += (1 - mouth) * .08f * (.5f + .5f * breathing);
+        apply_mouth_breathing(result.face, breathing);
         auto &breath = result.face[FaceChannel::Breath];
         breath += (1 - std::fabs(breath)) * breathing;
     }

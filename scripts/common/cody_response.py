@@ -604,7 +604,7 @@ def logical_vector(x, y, rotation):
 # animate_rhythm: Whether breath/blink are included in the composed face.
 # Raises ValueError for invalid base controls or placement.
 def compose_response(rig, state, base_face, base_contour, placement, rotation, animate_rhythm=True):
-    from scripts.common.cody_rig_contract import validate_channels, validate_contour_values
+    from scripts.common.cody_rig_contract import apply_mouth_breathing, validate_channels, validate_contour_values
     validate_channels(rig, base_face)
     validate_contour_values(rig, base_contour)
     validate_response_state(state)
@@ -645,8 +645,7 @@ def compose_response(rig, state, base_face, base_contour, placement, rotation, a
         blink = .5 - .5 * math.cos(math.tau * state.blink_elapsed_ms / 280) if state.blink_elapsed_ms < 280 else 0
         for eye in (FaceChannel.EYE_LEFT, FaceChannel.EYE_RIGHT):
             face[eye] *= 1 - blink
-        mouth = FaceChannel.MOUTH_OPEN
-        face[mouth] += (1 - face[mouth]) * .08 * (.5 + .5 * breathing)
+        apply_mouth_breathing(face, breathing)
         breath = FaceChannel.BREATH
         face[breath] += (1 - abs(face[breath])) * breathing
 

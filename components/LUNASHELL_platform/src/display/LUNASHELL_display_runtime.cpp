@@ -151,9 +151,18 @@ extern "C" esp_err_t LUNASHELL_display_runtime_set_startup_quiescent(bool quiesc
 }
 
 // budget_ms: Total budget for one standalone frame, including geometry and raster work.
-extern "C" esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms)
+// parked: Receives a deliberate healthy-runtime gate rejection, not a later gate query.
+// Exception: Retains lock/readiness/frame errors; only gate closure is parked.
+extern "C" esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms, bool *parked)
 {
+    if (parked == nullptr) {
+        return log_operation_result("Frame admission output", ESP_ERR_INVALID_ARG);
+    }
+    *parked = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    if (budget_ms == 0 || budget_ms > kDisplayLockTimeoutMs) {
+        return log_operation_result("Frame admission budget", ESP_ERR_INVALID_ARG);
+    }
     const int64_t lock_started_us = esp_timer_get_time();
     const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
     if (lock_error != ESP_OK) {
@@ -161,10 +170,17 @@ extern "C" esp_err_t LUNASHELL_display_frame_begin(uint32_t budget_ms)
         return log_operation_result("Frame lock", lock_error);
     }
     const uint32_t lock_wait_us = static_cast<uint32_t>(esp_timer_get_time() - lock_started_us);
-    if (!LUNASHELL_display_runtime_writes_allowed() ||
-        s_frame_owner.load(std::memory_order_acquire) != nullptr) {
+    if (!s_runtime_ready.load(std::memory_order_acquire) ||
+        !bsp_display_is_ready() || s_frame_owner.load(std::memory_order_acquire) != nullptr) {
         bsp_display_unlock();
         return log_operation_result("Frame begin state", ESP_ERR_INVALID_STATE);
+    }
+    if (!LUNASHELL_display_runtime_writes_allowed()) {
+        // Preserve this admission decision even if the radio owner reopens
+        // the gate before the renderer handles the rejected frame.
+        *parked = true;
+        bsp_display_unlock();
+        return ESP_ERR_INVALID_STATE;
     }
     const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(LUNASHELL_LIVENESS_DISPLAY);
     if (watch_error != ESP_OK) {

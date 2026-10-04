@@ -17,7 +17,7 @@ in [runtime](runtime.md).
 | 07, current attempt ReadyToScan + QR encoded | Remain 07 / Scan to pair + session QR |
 | Credentials / Connecting / Completing | Retire QR; type actual progress in 07 |
 | 07, Cancel | Wipe QR and await confirmed closure, then 06 |
-| 05 / 06 / 07, 30 active seconds without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
+| 05 / 06 after 30 active seconds, or 07 after 90 active seconds, without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
 | Timeout-returned 04, fresh tap after confirmed clean closure | Resume at 05; no boot sequence is replayed |
 | Failed / TimedOut / presentation error | 08 / actual error and gated Retry |
 | 08, Retry after clean terminal failure | Return to 05; Show QR and Pair Cody admit the next attempt |
@@ -80,8 +80,10 @@ it. Release compiles out its scene definition, text and atlas mapping and enters
 ## Backend admission and QR ownership
 
 The standalone connectivity layer compiles the HTTP server without GUI dependencies.
-Boot initializes saved-profile Wi-Fi, retains the controller DMA reservation and
-initializes the async pairing owner; it does not advertise BLE or open a session.
+Boot initializes saved-profile Wi-Fi and the async pairing owner. Without saved
+credentials it retains the controller DMA reservation until explicit Pair Cody;
+with credentials it transfers that lease to BLE telemetry. Boot does not open a
+provisioning session in the Cody profile.
 Consumers use `LUNASHELL_platform.h` and the canonical snapshot, either
 `DeviceSnapshot.radios.pairing` or `readConnectivityObservation`.
 
@@ -89,6 +91,34 @@ Consumers use `LUNASHELL_platform.h` and the canonical snapshot, either
 typed START/RETRY/CANCEL. `ESP_OK` means admitted, never Online or Cancelled. Keep
 the attempt ID in route context to reject delayed events; display code does not
 initialize radios, query SDK Wi-Fi or perform synchronous manager cleanup.
+
+Explicit Pair drains and temporarily parks native display DMA before stopping
+telemetry or acquiring the controller lease. The gate stays closed through
+Wi-Fi/manager initialization and controller startup, then reopens on success or
+failure without changing the separate standby gate. A 34,816-byte aggregate
+budget is held as four 8-KiB chunks plus one 2-KiB chunk, allocated all-or-nothing.
+The old single 30-KiB controller-block claim is unsupported by the inspected EMI
+routine: its `0x7800` is an address offset. That guard rejected Pair before the SDK ran. The 8-KiB largest-block
+policy covers the configured controller context and separate 4-KiB stacks but
+does not prove every vendor allocation or SDK initialization will succeed.
+Compact `Pairing DMA` records show actual free/largest blocks at each boundary;
+insufficient memory and SDK failures remain real errors, not successful pairing.
+One static owner retains this budget across standby and every failure
+before controller handoff. It is released only immediately before controller
+initialization. Cody parks display DMA during radio/session closure, then reclaims
+the chunks after the SDK confirms an idle controller. Repeated reserve calls reuse
+the held chunks. This is a lifecycle budget, not a second allocation while the
+controller is already using its exchange memory.
+
+Radio closure returns `cleanup_error` and `dma_reservation_error` separately.
+An allocation failure remains published in BLE and pairing snapshots, but does
+not misreport a closed manager as still open or prevent clean Retry navigation.
+Known-off radios may enter standby with that explicit budget error; the next
+Start must pass strict admission again. Failed or uncertain hardware cleanup
+never attempts reallocation. NimBLE host allocations use PSRAM; the controller
+DMA block remains internal. Frame admission captures deliberate parking under
+the display lock so a fast gate reopening cannot terminate Cody.
+
 Published states are Idle, Starting, ReadyToScan, Connecting, Completing, Online,
 Cancelling, Cancelled, Failed and TimedOut. Check validity/health/staleness before
 interpretation. A valid degraded failure remains displayable with its real error.
@@ -118,14 +148,17 @@ Stored SSID, BLE connection, credentials, DHCP initiation or action admission
 never establish Online. See [connectivity/pairing](../connectivity-pairing.md) for
 the acquisition, worker and cleanup implementation.
 
-A fixed-capacity screen policy gives 05, 06 and 07 their separate 30-second
-inactivity return. It uses the awake route clock: pausing animation does not pause
+A fixed-capacity screen policy gives 05 and 06 a 30-second inactivity return;
+real pairing 07 allows 90 seconds, including time spent entering the phone's
+Wi-Fi password. It uses the awake route clock: pausing animation does not pause
 inactivity, while standby and the lifecycle wake sequence consume no timeout time.
 Fresh presses, actual contact
 movement/releases and canonical progress in the current attempt refresh it;
 animation, typewriter prefixes, IMU movement and repeated unchanged snapshots
-do not. This policy does not write settings or change the five-minute backend
-deadline or the scenes' 60-second standby overrides.
+do not. Genuine progress also reanchors 07's 90-second standby override so the
+previous 60-second policy cannot interrupt the wait. Ordinary touch refreshes
+standby through its existing owner. This policy does not write settings or change
+the five-minute backend deadline; 05 and 06 retain 60-second standby overrides.
 
 The timeout retires the route generation and wipes the displayed QR before showing
 the existing `Hi, I'm Cody!` Greeting scene. Its normal teletype remains paused when

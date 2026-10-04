@@ -69,10 +69,13 @@ profile-specific silicon-sleep policy remain in
 
 Every authored scene supplies `standby_override_seconds`: zero inherits the saved
 user timeout, a positive value replaces it only for the active scene. Invitation
-05, installation 06 and pairing 07 use 60 seconds; the unused scan definition does
-too. Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
+05 and installation 06 use 60 seconds; real pairing 07 uses 90 seconds. The unused
+scan definition, Online 09, Debug-only 39, 10, 36 and 12-15 use 60 seconds. Hello 04, error 08
 and look 11 inherit. Scene entry supplies a fresh
-inactivity baseline and touch refreshes it. Departure/parking clears the override.
+inactivity baseline and touch refreshes it. Genuine canonical progress in the
+current pairing attempt also refreshes its 90-second anchor without fabricating
+a touch event. Repeated unchanged snapshots do not refresh it.
+Departure/parking clears the override.
 This never writes NVS or extends the backend's five-minute pairing deadline.
 
 Standby retains the active route. In particular, wake from screen 09 returns to
@@ -111,8 +114,16 @@ already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
 
-Boot cues are original procedural `audio-ready` (0.18 s) and `eyes-open` (1.3 s),
-authored in `assets/cody/runtime.yaml` and stored in flash. Preparation validates the
+Boot cues start with original procedural `audio-ready` (0.18 s) and `eyes-open`
+chime (1.3 s), authored in `assets/cody/runtime.yaml` and stored in flash. The explicit
+`audio.eyes_open_hello` selector currently appends `cody-hello-murmur`: 100 ms of
+silence and a 650-ms private vocal, for about 2.05 seconds / 90,412 bytes in the
+same eyes-open PCM asset. Other catalog voices and `none` (chime only) remain
+available; invalid identity, missing source or source/rendered hash mismatch fails
+preparation rather than substituting a sound. Only the selected voice is embedded.
+See [boot greeting authoring](../../../assets/cody/audio/boot-hello/README.md) for
+the ffmpeg recipe and owner-confirmed perpetual commercial-use licence provenance.
+Preparation validates the
 flash PCM; completed boot requires a verified canonical clock before applying
 the quiet-hours policy. An unavailable/stale clock admits one pending boot request,
 not a playback completion. The existing companion worker checks only that pending
@@ -149,8 +160,8 @@ stack + 2,400-byte transport scratch + small fixed state, not measured linked-im
 RAM. Speaker loudness/gentleness remains a listening check. The separate ten
 [archive cue candidates](../../../assets/cody/audio/gentle-sfx/README.md) exist only
 as private `artifacts/audio/cody-gentle-sfx/` previews/audition/manifest. They are
-not firmware or automatic cues; redistribution rights and perceptual review are
-unconfirmed.
+not firmware or automatic cues. Perpetual commercial-use licences were confirmed
+by the owner on 2026-10-04; perceptual review is pending.
 
 ## Device diagnostics
 

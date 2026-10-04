@@ -105,6 +105,10 @@ instruction file; do not add parallel agent or Copilot contracts.
 
 ## Artifacts and checkpoints
 
+- For every user-requested PDF revision, append a final "Errata and corrections"
+  page with the revision date, a concise list of changes and affected original
+  page/screen IDs. Preserve earlier errata and unrelated pages; apply this rule
+  to any PDF in scope, including documents stored outside the repository.
 - Keep firmware/simulator build output, generated build state, logs, captures,
   reports, temporary files and local simulator environments under `artifacts/`,
   not root build trees.

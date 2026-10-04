@@ -11,7 +11,7 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import font as tkfont, ttk
 
-from PIL import Image, ImageDraw, ImageFont, ImageTk
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -111,8 +111,10 @@ class CodyRenderer:
     # slots: Ordered inclusive palette ramp.
     # opacity: Quantized source-over opacity, from zero through 255.
     # antialiasing: Explicit coverage policy; disabled keeps the original Pillow fill.
+    # clip_vertices: Optional evaluated containing polygon, in the same warped coordinates.
     # Raises ValueError for an invalid opacity, coverage policy or polygon.
-    def fill(self, image, vertices, slots, opacity=255, antialiasing=FillAntialiasing.DISABLED):
+    def fill(self, image, vertices, slots, opacity=255, antialiasing=FillAntialiasing.DISABLED,
+             clip_vertices=None):
         if type(opacity) is not int or not 0 <= opacity <= 255:
             raise ValueError(f"Invalid polygon opacity: {opacity}")
         antialiasing = FillAntialiasing(antialiasing)
@@ -120,14 +122,18 @@ class CodyRenderer:
             return
         uses_coverage = antialiasing == FillAntialiasing.COVERAGE
         first, last = slots
-        if first == last and opacity == 255 and not uses_coverage:
+        if first == last and opacity == 255 and not uses_coverage and clip_vertices is None:
             ImageDraw.Draw(image).polygon(vertices, fill=self.paint(image, first))
             return
         if uses_coverage:
-            mask = coverage_mask(vertices, (SIZE, SIZE))
+            mask = coverage_mask(vertices, (SIZE, SIZE), clip_vertices)
         else:
             mask = Image.new("L", (SIZE, SIZE))
             ImageDraw.Draw(mask).polygon(vertices, fill=255)
+            if clip_vertices is not None:
+                containing_mask = Image.new("L", (SIZE, SIZE))
+                ImageDraw.Draw(containing_mask).polygon(clip_vertices, fill=255)
+                mask = ImageChops.multiply(mask, containing_mask)
         top = min(y for _, y in vertices)
         bottom = max(y for _, y in vertices)
         ramp = self.indexed(first)
@@ -219,6 +225,7 @@ class CodyRenderer:
                 raise ValueError("Invalid scene background RGB565")
             image = Image.new("RGB", (SIZE, SIZE), rgb565(background_rgb565))
         surface_paths = set(self.rig['contour'].get('surface_paths', []))
+        paths_by_name = {path["definition"]["name"]: path for path in scene["paths"]}
         for path in scene["paths"]:
             if not path["visible"]:
                 continue
@@ -258,7 +265,9 @@ class CodyRenderer:
                 for x, y in (path["vertices"][0], path["vertices"][-1]):
                     draw.ellipse((x-radius, y-radius, x+radius, y+radius), fill=color)
             else:
-                self.fill(image, path["vertices"], definition["paint"], opacity, antialiasing)
+                containing = paths_by_name.get(definition["clip"])
+                clip_vertices = containing["vertices"] if containing is not None else None
+                self.fill(image, path["vertices"], definition["paint"], opacity, antialiasing, clip_vertices)
         draw = ImageDraw.Draw(image)
         metrics = self.rig["style"]["debug_metrics"]
         colors = {name: self.paint(image, slot) for name, slot in self.rig["style"]["debug"].items()}

@@ -67,10 +67,33 @@ older host/build/flash evidence does not validate the current combined image.
   Interrupt-WDT during wake. Corrections were built/flashed as `9fde2b48`;
   repeated wake cycles
   and degraded-radio error/recovery publication remain unverified.
-- [ ] Verify screen 05/06/07 returns to Welcome after 30 awake seconds without
+- [ ] Verify 05/06 return to Welcome after 30 awake seconds and real pairing 07
+  after 90 awake seconds without
   real touch/pairing progress, including animation pause, standby, late worker
   results, cancellation errors and a fresh tap to restart. Verify deferred boot
   audio when the canonical clock becomes trusted, quiet hours and standby races.
+- [ ] Capture the first renderer termination in the intermittent wake failure.
+  `bb8fd327` was healthy at 204 s and already DISPLAY-error/INVALID_ARG at 314 s;
+  the missing interval prevents cause attribution. The reset/reproduction log
+  records clean standby at 64 s and touch wake at 179 s, confirmed by the owner.
+  Do not treat that single success as a fix or hide terminal errors with restart.
+- [ ] Investigate intermittent SD transport after warm resets/reinsertion:
+  `bb8fd327` and an early `0a4f1b87` boot timed out during card OCR before FAT.
+  After a full power cycle with the same readable card, the canonical snapshot
+  reported mounted=yes, card-response=verified, attempts=1 and
+  format-attempted=no; the owner confirmed a saved PWR screenshot. Reproduce the
+  intermittent failure before changing the SD driver or its mount policy.
+- [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
+  chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
+  repeat. A/B/chime-only authoring alternatives remain available.
+- [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
+  `a19e0093` boot capture confirmed SDK BLE startup succeeds, but first standby
+  rearm fails solely at the application's monolithic reserve (97,443 bytes
+  free, largest 21,504). Debug `bb8fd327` now reaches the real session QR (owner
+  confirmed), restores BLE after standby, rearms after inactivity closure and
+  starts a second session. Verify explicit Cancel/Retry and repeated cycles. Check
+  separate cleanup/reservation errors and actual SDK results; the old 30-KiB
+  contiguous requirement is not supported by the inspected SDK allocation path.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.
@@ -92,11 +115,15 @@ older host/build/flash evidence does not validate the current combined image.
   Check white-theme contrast, integer modules/quiet zones, circle clipping,
   translucent edges and all rotations; confirm real phone scans.
   [Pairing](docs/architecture/cody/onboarding.md).
+- [ ] Physically confirm regenerated scene assets: `Scan to install` on 06
+  and `Scan to pair` / `Scan me in the app.` with the actual session QR inside
+  07. Verify title/caption separation, white theme and shared compact cloud.
 - [ ] Validate connectivity end to end: first pairing, actual failure reasons,
   Retry/new QR, Back/Cancel during Start/connect, timeout, DHCP, BLE telemetry
   handoff, standby, persisted-profile reboot and explicitly enabled authenticated
   HTTP on the actual LAN.
-- [ ] Validate transient 60-second pairing standby overrides without changing
+- [ ] Validate transient 60-second invitation/install and 90-second real-pairing
+  standby overrides without changing
   configured settings; confirm dim suppression and timeout restoration on exit.
   Exercise software Sleep -> Wake -> Ready with retained route, text/entrance
   clocks, paused expression/geometry and backend changes while asleep.
@@ -118,6 +145,10 @@ older host/build/flash evidence does not validate the current combined image.
   Check measured HUD validity, native renderer/face-follow selection and old/new
   text/artwork damage.
   [Runtime and scenes](docs/architecture/cody/runtime.md).
+- [ ] Verify regenerated rig/jelly assets and wider breathing mouth/tongue across
+  every expression, all cloud sizes, overlays and pearl warp. Confirm closed
+  poses stay tongue-free, clipped coverage has no leaks and the 12 KiB worker
+  retains measured headroom; source review alone establishes none of these.
 - [ ] Validate rounded graphite navigation and touch-only Debug reveal/fades,
   swipe versus drag/vertical-scroll ownership, rotated cancellation and repeated
   press/release. Cover real Back/overlay input and power transitions on both Cody

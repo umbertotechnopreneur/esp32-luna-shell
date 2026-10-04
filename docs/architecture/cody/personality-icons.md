@@ -240,5 +240,9 @@ hardware operation has been performed. Readability, physical clearance, FPS,
 stack/codec contention and Sleep behavior remain unverified on the device.
 
 The isolated worktree is `E:\ESP32 Luna Cody Emotions`, branch
-`feat/personality-icons`, originally based on `290b6da3`. Newer main changes and
-the independent renderer optimization worktree have not been merged here.
+`feat/personality-icons`, originally based on `290b6da3`. Remote main at
+`4d026d13` was integrated on 2026-10-05, including mouth/tongue breathing,
+the authored boot greeting, pairing timing and BLE/display DMA ownership fixes.
+The combined worker preserves atomic parked-frame classification alongside
+the happiness clock and transient heart cancellation. The independent renderer
+optimization worktree remains separate. Combined validation is recorded above.

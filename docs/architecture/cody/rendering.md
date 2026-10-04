@@ -21,6 +21,18 @@ preset changes; zero amplitude/fullness preserves the source outline. Face and
 contour smoothing/breath/blink phase also survive preset changes and pause. Vector
 drawing, debug geometry and semantic hit testing consume the same evaluated pose.
 
+The shared lip control points are 18 percent wider, preserving each preset's
+relative width and opening. The existing breathing clock now closes and opens
+the mouth around that preset and adds a small width pulse; it does not add a
+timer or acquire measurements. A coral-pink tongue is a separate authored fill
+under the same mouth anchor and width/opening channels. It appears at opening
+0.28 and above, keeping Calm, Focused, Embarrassed and Worried tongue-free during
+their normal breath cycle. Sleeping and Afraid retain their narrower mouths.
+The tongue clips against the evaluated lip at each raster sample, so both paths
+follow the same pearl deformation. Optional authored clip ownership requires an
+earlier independent filled path; nested clips and overflowing combined geometry
+are rejected.
+
 The active native jelly finish derives from approved concept 08 in
 `assets/cody/appearance/jelly-scanline/`. Five skins share the crop
 `(28,206,1229,1082)`, matched alpha, 320×233 premultiplied RGBA8 and RGB565-quantized
@@ -128,6 +140,11 @@ cache; avoiding a framebuffer is an ownership/memory choice, not a measured gain
 These are authored payload/structure budgets, not a current linked-image size or
 measured free-heap/high-water result. Fonts have no Unicode ranges, TTF runtime or
 heap-owned text. Ordinary scenes add fixed state, not a framebuffer/render task.
+The tongue brings the authored rig to 200 points, 62 cubics and 16 paths; point
+storage is bounded at 200 and the debug tangent cache at 124. Clipped fills share
+the existing 256-intersection scratch between subject and containing polygon,
+without an additional raster array or mask allocation. Runtime stack, timing and
+physical appearance after this mouth change remain unverified.
 Texture data, five catalog entries and core graphics stay available without SD.
 Optional action/audio worker budgets are in [onboarding](onboarding.md) and
 [runtime](runtime.md); flash capacity cannot substitute for internal RAM.

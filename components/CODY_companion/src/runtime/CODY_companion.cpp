@@ -1659,14 +1659,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     if (worker_trace != nullptr) {
         timings.worker = *worker_trace;
     }
-    if (!LUNASHELL_display_runtime_writes_allowed()) {
-        return {ESP_ERR_INVALID_STATE, renderer_is_parked(), 0};
-    }
+    bool admission_parked = false;
     timings.frame_begin_started_us = esp_timer_get_time();
-    const esp_err_t lock_error = LUNASHELL_display_frame_begin(kFrameBudgetMs);
+    const esp_err_t lock_error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &admission_parked);
     timings.frame_begin_completed_us = esp_timer_get_time();
     if (lock_error != ESP_OK) {
-        return {lock_error, renderer_is_parked(), 0};
+        return {lock_error, admission_parked, 0};
     }
     StandaloneFrameOnExit frame;
     // Retain the companion's state lock while the completed-frame result is recorded.
@@ -2997,27 +2995,37 @@ void companion_worker(void *context)
             fail_consumer("PWR capture timeline", capture_timeline_error, false);
             break;
         }
-        const esp_err_t happiness_error = update_worker_happiness();
+        // Gate closure and its healthy parked classification belong to one
+        // locked observation; a fast failed Pair must not terminate the worker.
+        const esp_err_t admission_lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+        if (admission_lock_error != ESP_OK) {
+            fail_consumer("Display admission lock", admission_lock_error, false);
+            break;
+        }
+        const bool display_available = LUNASHELL_display_runtime_writes_allowed();
+        const bool display_parked = !display_available && renderer_is_parked();
+        // The same admission snapshot owns the independent mood clock. A brief
+        // radio DMA drain must rebase it without replaying a parked caress later.
+        const esp_err_t happiness_error = advance_happiness_clock_locked(esp_timer_get_time(),
+            display_available && s_state.lifecycle.phase != CODY::LifecyclePhase::Sleep);
         if (happiness_error != ESP_OK) {
+            bsp_display_unlock();
             fail_consumer("Happiness owner update", happiness_error, false);
             break;
         }
-        if (!LUNASHELL_display_runtime_writes_allowed()) {
+        if (display_parked) {
             suspend_optional_personality_audio(true);
-            if (!renderer_is_parked()) {
+            cancel_transient_affection();
+        }
+        const esp_err_t audio_error = display_parked
+            ? set_companion_typewriter_suspended(true) : ESP_OK;
+        bsp_display_unlock();
+        if (!display_available) {
+            if (!display_parked) {
                 fail_consumer("Display readiness", ESP_ERR_INVALID_STATE, false);
                 break;
             }
             parked = true;
-            const esp_err_t audio_lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
-            if (audio_lock_error != ESP_OK) {
-                fail_consumer("Parked typewriter lock", audio_lock_error, false);
-                break;
-            }
-            const esp_err_t audio_error = set_companion_typewriter_suspended(true);
-            cancel_transient_affection();
-            s_state.happiness_sampled_at_us = 0;
-            bsp_display_unlock();
             if (audio_error != ESP_OK) {
                 fail_consumer("Parked typewriter audio", audio_error, false);
                 break;
