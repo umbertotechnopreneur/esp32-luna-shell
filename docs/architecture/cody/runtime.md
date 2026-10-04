@@ -143,16 +143,20 @@ Debug FPS uses completed frames over real elapsed time. CPU1/core0 and CPU2/core
 come from canonical idle/IPC measurements with their own timestamps; invalid or
 stale data shows unavailable, never an estimated/clamped value. Measurement
 windows begin after startup at 04. The HUD preference is session-scoped under the
-display lock, also gated by scene `readout_visible`; Release excludes it.
+display lock and gated by scene `readout_visible`. Authored scenes admit the HUD
+unless a visible bottom action occupies its area; Release excludes it.
 
-Only the Debug Screenshot button is currently exposed: upper-center `(233,47)`,
-44-pixel circular target, revealed by touch, 5-second inactivity, 330-ms fades.
-A reveal-only touch cannot trigger it. Pause/Skeleton are hidden/non-interactive;
-route navigation and battery/date/radio chrome have separate ownership. A
-screenshot allocates an on-demand 466×466 RGB565 PSRAM buffer (434,312 bytes),
-then the SD owner writes an atomic top-down 24-bit BMP under
-`LUNASHELL/screenshots/`. This is not a persistent renderer framebuffer; absent
-or unhealthy storage returns its real error and never causes formatting.
+The Debug Screenshot touch control is hidden and non-interactive. A short PWR
+press while Cody is active starts a session-enabled 3, 2, 1 countdown; the
+session flag defaults on and can be changed through the Cody runtime API. Each
+number lasts one second after its frame retires. Cody clears the overlay in a
+completed frame before requesting the capture, so the numeral is absent from
+the saved image. The existing on-demand 466×466 RGB565 PSRAM buffer (434,312
+bytes) transfers to the SD owner, which writes an atomic top-down 24-bit BMP
+under `LUNASHELL/screenshots/`. The overlay reports SAVING, SAVED, or FAILED
+from the actual asynchronous result. An original 200-ms shutter cue is queued
+to a separate audio worker after the capture frame; quiet hours suppress it.
+Absent or unhealthy SD storage returns its real error and never causes formatting.
 
 The CST9217 path retains 8-bit panel commands, 2-ms address-write settling/configuration
 before IRQ registration and real zero-contact release reports. ISR work is only

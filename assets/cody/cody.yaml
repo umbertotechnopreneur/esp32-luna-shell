@@ -25,7 +25,7 @@ style:
     - cloud.level.63
     cheek:
     - coral.level.00
-    - coral.level.00
+    - coral.level.09
     ink:
     - fixed.ink
     - fixed.ink
@@ -157,7 +157,7 @@ channels:
 - name: mouth_open
   minimum: 0
   maximum: 1
-  default: 0.15
+  default: 0.04
 - name: breath
   minimum: -1
   maximum: 1
@@ -165,7 +165,7 @@ channels:
 - name: mouth_width
   minimum: 0.5
   maximum: 1.6
-  default: 1
+  default: 0.72
 - name: nose_size
   minimum: 0.5
   maximum: 1.6
@@ -173,11 +173,11 @@ channels:
 - name: cheek_size
   minimum: 0.4
   maximum: 1.8
-  default: 1.2
+  default: 1
 - name: cheek_opacity
   minimum: 0
   maximum: 1
-  default: 1
+  default: 0.58
 # Shape and opacity controls compose with the original six facial channels.
 # Scale only descendants; the named anchor remains fixed in the face.
 face_transition_seconds: 0.18
@@ -269,6 +269,7 @@ path_opacity:
   cheek.left: cheek_opacity
   cheek.right: cheek_opacity
 expression_presets:
+  # The small smile and soft blush are the resting face used by Idle 16.
   calm:
     eye_left: 1
     eye_right: 1
@@ -276,54 +277,109 @@ expression_presets:
     brow_right: 0
     mouth_open: 0.04
     breath: 0
-    mouth_width: 1
+    mouth_width: 0.72
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
+  curious:
+    eye_left: 1
+    eye_right: 1
+    brow_left: -0.45
+    brow_right: 0.05
+    mouth_open: 0.3
+    breath: 0
+    mouth_width: 0.5
+    nose_size: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
   happy:
     eye_left: 1
     eye_right: 1
-    brow_left: 0.15
-    brow_right: 0.15
-    mouth_open: 0.65
+    brow_left: -0.15
+    brow_right: -0.15
+    mouth_open: 0.7
     breath: 0
-    mouth_width: 1.1
+    mouth_width: 1.05
     nose_size: 1
-    cheek_size: 1.25
-    cheek_opacity: 1
+    cheek_size: 1.08
+    cheek_opacity: 0.68
+  focused:
+    eye_left: 0.9
+    eye_right: 0.9
+    brow_left: 0.62
+    brow_right: 0.62
+    mouth_open: 0.02
+    breath: 0
+    mouth_width: 0.62
+    nose_size: 1
+    cheek_size: 0.95
+    cheek_opacity: 0.52
   sleeping:
     eye_left: 0
     eye_right: 0
     brow_left: 0
     brow_right: 0
-    mouth_open: 0.22
+    mouth_open: 0.38
     breath: 0
-    mouth_width: 0.65
+    mouth_width: 0.5
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.55
   drowsy:
     eye_left: 0.35
     eye_right: 0.35
     brow_left: 0
     brow_right: 0
-    mouth_open: 0.22
+    mouth_open: 0.34
     breath: 0
-    mouth_width: 0.65
+    mouth_width: 0.5
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
+  stressed:
+    eye_left: 0.48
+    eye_right: 0.48
+    brow_left: 0.36
+    brow_right: 0.36
+    mouth_open: 0
+    breath: 0
+    mouth_width: 0.5
+    nose_size: 1
+    cheek_size: 1
+    cheek_opacity: 0.62
   embarrassed:
     eye_left: 0.65
     eye_right: 0.65
-    brow_left: 0.3
-    brow_right: 0.3
+    brow_left: -0.15
+    brow_right: -0.15
     mouth_open: 0.12
     breath: 0
-    mouth_width: 0.8
+    mouth_width: 0.68
     nose_size: 1
-    cheek_size: 1.5
-    cheek_opacity: 0.85
+    cheek_size: 1.08
+    cheek_opacity: 0.76
+  worried:
+    eye_left: 1
+    eye_right: 1
+    brow_left: -0.55
+    brow_right: -0.55
+    mouth_open: 0.14
+    breath: 0
+    mouth_width: 0.55
+    nose_size: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
+  afraid:
+    eye_left: 1
+    eye_right: 1
+    brow_left: -0.9
+    brow_right: -0.9
+    mouth_open: 0.42
+    breath: 0
+    mouth_width: 0.5
+    nose_size: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
 # Shape controls affect only the outline anchors and their child handles.
 # Speed is cycles/second; phase is integrated, never recomputed from elapsed * speed.
 contour:
@@ -953,6 +1009,7 @@ points:
   delta:
   - 0.0
   - 0.0
+# At openness zero each eye keeps a deeper, narrow U lid; the full-open contour is unchanged.
 - name: eye.left
   position:
   - -0.3
@@ -986,33 +1043,33 @@ points:
 - name: eye.left.p2
   position:
   - -0.051362482
-  - 0.006374539
+  - 0.015
   parent: eye.left
   role: handle
   channel: eye_left
   delta:
   - 0.0
-  - -0.13237453887293593
+  - -0.141
 - name: eye.left.p3
   position:
   - 0.0
-  - 0.014
+  - 0.025
   parent: eye.left
   role: knot
   channel: eye_left
   delta:
   - 0.0
-  - -0.14
+  - -0.151
 - name: eye.left.p4
   position:
   - 0.051362482
-  - 0.006374539
+  - 0.015
   parent: eye.left
   role: handle
   channel: eye_left
   delta:
   - 0.0
-  - -0.13237453887293593
+  - -0.141
 - name: eye.left.p5
   position:
   - 0.093
@@ -1046,33 +1103,33 @@ points:
 - name: eye.left.p8
   position:
   - 0.051362482
-  - 0.028374539
+  - 0.038
   parent: eye.left
   role: handle
   channel: eye_left
   delta:
   - 0.0
-  - 0.09762546112706405
+  - 0.088
 - name: eye.left.p9
   position:
   - 0.0
-  - 0.036
+  - 0.045
   parent: eye.left
   role: knot
   channel: eye_left
   delta:
   - 0.0
-  - 0.09
+  - 0.081
 - name: eye.left.p10
   position:
   - -0.051362482
-  - 0.028374539
+  - 0.038
   parent: eye.left
   role: handle
   channel: eye_left
   delta:
   - 0.0
-  - 0.09762546112706405
+  - 0.088
 - name: eye.left.p11
   position:
   - -0.093
@@ -1296,33 +1353,33 @@ points:
 - name: eye.right.p2
   position:
   - -0.051362482
-  - 0.006374539
+  - 0.015
   parent: eye.right
   role: handle
   channel: eye_right
   delta:
   - 0.0
-  - -0.13237453887293593
+  - -0.141
 - name: eye.right.p3
   position:
   - 0.0
-  - 0.014
+  - 0.025
   parent: eye.right
   role: knot
   channel: eye_right
   delta:
   - 0.0
-  - -0.14
+  - -0.151
 - name: eye.right.p4
   position:
   - 0.051362482
-  - 0.006374539
+  - 0.015
   parent: eye.right
   role: handle
   channel: eye_right
   delta:
   - 0.0
-  - -0.13237453887293593
+  - -0.141
 - name: eye.right.p5
   position:
   - 0.093
@@ -1356,33 +1413,33 @@ points:
 - name: eye.right.p8
   position:
   - 0.051362482
-  - 0.028374539
+  - 0.038
   parent: eye.right
   role: handle
   channel: eye_right
   delta:
   - 0.0
-  - 0.09762546112706405
+  - 0.088
 - name: eye.right.p9
   position:
   - 0.0
-  - 0.036
+  - 0.045
   parent: eye.right
   role: knot
   channel: eye_right
   delta:
   - 0.0
-  - 0.09
+  - 0.081
 - name: eye.right.p10
   position:
   - -0.051362482
-  - 0.028374539
+  - 0.038
   parent: eye.right
   role: handle
   channel: eye_right
   delta:
   - 0.0
-  - 0.09762546112706405
+  - 0.088
 - name: eye.right.p11
   position:
   - -0.093
@@ -1703,6 +1760,7 @@ points:
   delta:
   - 0.0
   - 0.0
+# The upper lip rounds as the mouth opens, while the quiet face keeps its smile.
 - name: mouth
   position:
   - 0
@@ -1732,7 +1790,7 @@ points:
   channel: mouth_open
   delta:
   - 0
-  - 0
+  - -0.15
 - name: mouth.p2
   position:
   - 0.08
@@ -1742,7 +1800,7 @@ points:
   channel: mouth_open
   delta:
   - 0
-  - 0
+  - -0.15
 - name: mouth.p3
   position:
   - 0.14
@@ -2431,6 +2489,7 @@ paths:
   - body.shadow.right.close
 - name: cheek.left
   paint: cheek
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
@@ -2440,6 +2499,7 @@ paths:
   - cheek.left.curve.3
 - name: cheek.right
   paint: cheek
+  antialiasing: coverage
   stroke: 0
   visible: null
   curves:
@@ -2522,31 +2582,31 @@ boot_channels:
     eye_right: 0
     brow_left: 0
     brow_right: 0
-    mouth_open: 0
+    mouth_open: 0.38
     breath: 0
-    mouth_width: 1
+    mouth_width: 0.5
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.55
   waking:
     eye_left: 0.35
     eye_right: 0.35
     brow_left: 0
     brow_right: 0
-    mouth_open: 0.06
+    mouth_open: 0.34
     breath: 0
-    mouth_width: 1
+    mouth_width: 0.5
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.58
   ready:
     eye_left: 1
     eye_right: 1
     brow_left: 0
     brow_right: 0
-    mouth_open: 0.15
+    mouth_open: 0.04
     breath: 0
-    mouth_width: 1
+    mouth_width: 0.72
     nose_size: 1
-    cheek_size: 1.2
-    cheek_opacity: 1
+    cheek_size: 1
+    cheek_opacity: 0.58

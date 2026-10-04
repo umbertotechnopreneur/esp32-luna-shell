@@ -16,7 +16,7 @@
     "motion.acceleration",
     "power.charge"
   ],
-  "source_sha256": "3ba9cd7d03a869b257171fbec44a5003080d61c5d465497f32c5d5b02d89fd5c",
-  "palette_sha256": "7c8a142366eafc53dca69de7e5b4665b91d58aa18bc43f78c0799e439fc037bf",
-  "navigation_sha256": "268ff12964034a2322155b93f825235592239ef3bb2fe0e36851d3bee2b99a3b"
+  "source_sha256": "38eae82101fe993212fb4a6a5a6288a372e87779698ca63df05fe0960ba596f1",
+  "palette_sha256": "f932f74355a4a325e2651f4eb6a59cbc4e674d8c382cc3931c375fd20c8e96ca",
+  "navigation_sha256": "b01bf693826947913dff928b6bf42d4f52a8892ecede77a3613b8563bec6a05c"
 }

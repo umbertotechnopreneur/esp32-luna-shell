@@ -16,10 +16,12 @@
 namespace LUNASHELL::radio_memory {
 
 // ESP32-S3 controller build 51d9dfd requests one 0x7800-byte contiguous
-// internal DMA block while initializing its exchange memory. Keep that block
-// intact while Wi-Fi allocates its long-lived DMA buffers; otherwise the
-// controller asserts internally instead of returning ESP_ERR_NO_MEM.
+// internal DMA block while initializing its exchange memory. Hold a larger
+// lease across Wi-Fi startup: concurrent allocations took 1 KiB from the
+// released block in an observed boot, leaving the controller short.
 inline constexpr size_t kBleControllerDmaReservationBytes = 0x7800;
+inline constexpr size_t kBleControllerDmaHoldBytes =
+    kBleControllerDmaReservationBytes + 4096;
 inline constexpr size_t kBleControllerDmaHeadroomBytes = 4096;
 inline constexpr uint32_t kBleControllerDmaCaps =
     MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA;
@@ -34,6 +36,8 @@ struct HeapCapsDeleter {
 using BleControllerDmaReservation =
     std::unique_ptr<uint8_t, HeapCapsDeleter>;
 
+// reservation: Receives the oversized DMA lease held until BLE controller startup.
+// Exception: Returns the real allocation failure; never claims a partial lease.
 inline esp_err_t reserveBleControllerDma(
     BleControllerDmaReservation &reservation
 )
@@ -44,7 +48,7 @@ inline esp_err_t reserveBleControllerDma(
     }
 
     auto *allocation = static_cast<uint8_t *>(heap_caps_malloc(
-        kBleControllerDmaReservationBytes,
+        kBleControllerDmaHoldBytes,
         kBleControllerDmaCaps
     ));
     if (allocation == nullptr) {
@@ -58,7 +62,7 @@ inline esp_err_t reserveBleControllerDma(
             "free=%lu largest=%lu required=%lu (%s)",
             static_cast<unsigned long>(free_bytes),
             static_cast<unsigned long>(largest_block),
-            static_cast<unsigned long>(kBleControllerDmaReservationBytes),
+            static_cast<unsigned long>(kBleControllerDmaHoldBytes),
             esp_err_to_name(ESP_ERR_NO_MEM)
         );
         return ESP_ERR_NO_MEM;
@@ -68,7 +72,7 @@ inline esp_err_t reserveBleControllerDma(
     ESP_LOGI(
         "LUNASHELL_radio_mem",
         "BLE controller DMA reservation held across Wi-Fi startup: %lu bytes",
-        static_cast<unsigned long>(kBleControllerDmaReservationBytes)
+        static_cast<unsigned long>(kBleControllerDmaHoldBytes)
     );
 #else
     (void)reservation;

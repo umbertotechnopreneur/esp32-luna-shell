@@ -421,6 +421,7 @@ esp_err_t attach_look_content(SceneFrame &scene, uint32_t control_revision)
     content.state = &s_view;
     content.revision = ++s_revision;
     content.control_revision = control_revision;
+    content.bottom_action_visible = true;
     content.visible_characters = prefixes.visible_characters;
     content.text_generation = s_view.text_generation;
     content.control_bounds[1] = {kDoneBounds.x, kDoneBounds.y,

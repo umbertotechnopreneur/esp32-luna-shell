@@ -21,6 +21,7 @@ constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = (kGlyphColumns + 1) * kGlyphScale;
 constexpr uint16_t kTextWhitesmoke = 0xF7BE; // RGB565 encoding of #F5F5F5.
+constexpr uint16_t kTextBlack = 0x0000;
 
 enum class ProcessorId : uint8_t {
     Cpu1,
@@ -219,8 +220,10 @@ esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
 // strip: Destination owned by the companion renderer; no font or GUI allocation occurs.
 // first_row: Logical strip origin, mapped through the same cardinal rotation as Cody.
 // first_column: Logical x origin of the compact strip, leaving text positions unchanged.
+// background_rgb565: Authored scene background, white or dark on current scenes.
 esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
-                                CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+                                CODY2D::Surface strip, uint16_t first_row,
+                                uint16_t first_column, uint16_t background_rgb565)
 {
     const esp_err_t surface_error = CODY2D::validate_surface(strip);
     if (surface_error != ESP_OK) {
@@ -232,9 +235,8 @@ esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(
-        kTextWhitesmoke, strip.byte_order
-    );
+    const uint16_t text_color = background_rgb565 == 0xFFFF ? kTextBlack : kTextWhitesmoke;
+    const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(text_color, strip.byte_order);
     const esp_err_t fps_error =
         draw_line_rows(
             readout.frame_rate, kFrameRateTop, strip, first_row, first_column,

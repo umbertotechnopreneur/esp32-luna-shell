@@ -1,9 +1,9 @@
 {
   "images": [
     {
-      "source": "assets/cody/boot/cody-sleep-blue.png",
-      "symbol": "sleeping_blue",
-      "source_sha256": "ad4d5641afac2eb932293083960f02511eb47d16fde8e8a04cfdf21db7c1c764",
+      "source": "assets/cody/boot/cody-sleep-pearl.png",
+      "symbol": "sleeping_pearl",
+      "source_sha256": "d2504588b1800c502c2db02fdf66733d53df97f2828a8081bc789dcfb61a28bf",
       "source_dimensions": [
         1254,
         1254
@@ -12,15 +12,15 @@
       "height": 466,
       "encoding": "row-indexed-rle-rgb565",
       "run_format": "uint16 little-endian pixel count, uint8 palette index",
-      "palette_colors": 33,
+      "palette_colors": 54,
       "black_palette_index": 0,
-      "rle_bytes": 26289,
-      "resource_data_bytes": 28223
+      "rle_bytes": 58617,
+      "resource_data_bytes": 60593
     },
     {
-      "source": "assets/cody/boot/cody-waking-blue.png",
-      "symbol": "waking_blue",
-      "source_sha256": "035b41fb6b175824901c754cd16559b5335e24799d196267c13327970e4c61bc",
+      "source": "assets/cody/boot/cody-waking-pearl.png",
+      "symbol": "waking_pearl",
+      "source_sha256": "e2ce3f1efe15d993fa30d1b0725b838826bcbf93c665c1794ae5f746bb85b1cc",
       "source_dimensions": [
         1254,
         1254
@@ -29,15 +29,15 @@
       "height": 466,
       "encoding": "row-indexed-rle-rgb565",
       "run_format": "uint16 little-endian pixel count, uint8 palette index",
-      "palette_colors": 37,
+      "palette_colors": 51,
       "black_palette_index": 0,
-      "rle_bytes": 30072,
-      "resource_data_bytes": 32014
+      "rle_bytes": 57867,
+      "resource_data_bytes": 59837
     },
     {
-      "source": "assets/cody/boot/cody-ready-blue.png",
-      "symbol": "ready_blue",
-      "source_sha256": "b10116084b917cfc7d2700ef4a3187ba0cf50e2e7cc5c675a47da391f0ba3979",
+      "source": "assets/cody/boot/cody-ready-pearl.png",
+      "symbol": "ready_pearl",
+      "source_sha256": "5f3e50e8499db9f5683186243767a3517830dd6a775fd8617fbec803e2b16d6c",
       "source_dimensions": [
         1254,
         1254
@@ -46,13 +46,13 @@
       "height": 466,
       "encoding": "row-indexed-rle-rgb565",
       "run_format": "uint16 little-endian pixel count, uint8 palette index",
-      "palette_colors": 34,
+      "palette_colors": 53,
       "black_palette_index": 0,
-      "rle_bytes": 29091,
-      "resource_data_bytes": 31027
+      "rle_bytes": 58803,
+      "resource_data_bytes": 60777
     }
   ],
-  "resource_data_bytes": 91264,
+  "resource_data_bytes": 181207,
   "renderer_strip_rows": 8,
   "renderer_strip_bytes": 7456,
   "note": "Source encoding sizes only; compiled firmware size and hardware behavior are unverified."

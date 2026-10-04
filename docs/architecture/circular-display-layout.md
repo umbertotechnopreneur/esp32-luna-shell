@@ -22,7 +22,7 @@ file or a dependency on the Luna GUI.
 | Back center | (40, 233), at the middle-left / 9 o'clock position |
 | Existing Luna right navigation slot | Origin (396, 203), 60 x 60, center (426, 233) |
 | Cody Debug Pause/Play | Authored at center (158, 47), currently hidden and non-interactive |
-| Cody Debug Screenshot | Center (233, 47), circular radius 22, bounds [211,255) x [25,69) |
+| Cody capture countdown | Center overlay bounds [153,313) x [174,292); no touch target |
 | Cody Debug Skeleton | Authored at center (308, 47), currently hidden and non-interactive |
 | Cody status overlay | Date/time left at x=110; battery, Wi-Fi and Bluetooth right at y=37–58 |
 
@@ -38,14 +38,17 @@ and Cancel on 07. These routes hide the lateral chevrons and their hit targets;
 06 still accepts a previous-route swipe. The footer bounds are (113, 390),
 240 x 40, with every corner inside the occupied circular chord.
 
-The Cody Debug view currently exposes only the icon-only Screenshot control in
-the upper-center circle. Pause/Play and Skeleton retain their stable authored
-identities but set `visible_by_default` false, which disables both raster and
-hit testing. The source
+The Cody Debug Screenshot control is hidden and non-interactive. Pause/Play and
+Skeleton retain their stable authored identities but set `visible_by_default`
+false, which disables both raster and hit testing. The source
 `assets/cody/navigation.json` generates the native table and supplies the
 simulator geometry; rendering and hit testing share the exact visible circle.
-The target stays above the central safe square and within the circle's local chord.
-The physical owner maps the same targets through all cardinal rotations. The
+The Screenshot identity remains in that authored table only because the current
+navigation schema requires all four historical identities; no camera button or
+touch action is exposed at runtime.
+The remaining authored Debug targets stay above the central safe square and
+within the circle's local chord. The physical owner maps them through all
+cardinal rotations. The
 debug-view Back remains at its canonical position but `visible_by_default` is
 false, disabling paint and touch together. Route-specific OOBE Back/Cancel
 remains a separate control.
@@ -57,21 +60,19 @@ orange in the middle range, green when healthy and cyan with a white charging
 glyph while charging. All text and icon row masks are compile-time glyphs kept
 in firmware flash rodata. The component contains no LVGL or Brookesia
 dependency and reads only one coherent `DeviceSnapshotService` projection. The
-status layer is composed before the Screenshot control, so that control remains
-visually and interactively above it.
-Both layers use the same touch-activity opacity: touch reveals them and five
-seconds without activity starts the same 330-ms fade. Release firmware omits
-the Debug controls but retains the post-first-boot informational layer.
+status layer and remaining Debug controls use the same touch-activity opacity:
+touch reveals them and five seconds without activity starts the same 330-ms
+fade. Release firmware omits the Debug controls but retains the post-first-boot
+informational layer.
 
-The Screenshot control is visible/interactable only in Debug firmware, not
-Release. Five seconds without touch starts a 330-ms fade-out. Touch reveals it
-with a 330-ms fade-in; a press on a hidden/fading button reveals it without
-activating the action. Screenshot forces one complete native composition into
-a temporary 466 x 466 RGB565 PSRAM buffer, then transfers ownership to the SD
-service. That owner publishes a top-down 24-bit BMP atomically under
-`LUNASHELL/screenshots/`; existing mirrored logs remain under
-`LUNASHELL/logs/`. The camera is amber while capture/write is active, teal on
-success, and red after a real failure.
+A short PWR press while Cody is active and its runtime capture flag is enabled
+shows a centered 3, 2, 1 countdown. Its [153,313) x [174,292) panel sits in
+the central safe square. After a complete overlay-free frame retires, screenshot
+capture forces one complete native composition into temporary 466 x 466 RGB565
+PSRAM, then transfers ownership to the SD service. The owner publishes a
+top-down 24-bit BMP atomically under `LUNASHELL/screenshots/`; mirrored logs
+remain under `LUNASHELL/logs/`. The panel then reports SAVING, SAVED, or FAILED
+from the real storage result.
 
 ## Rounded space
 

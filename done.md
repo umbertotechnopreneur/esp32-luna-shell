@@ -7,15 +7,26 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
-- Fixed the Cody Debug reboot loop on COM10: reserve the BLE controller's
-  30,720-byte internal DMA block before display startup, then briefly drain and
-  park display frames while Wi-Fi and BLE take ownership. An eight-job Debug
-  build and verified flash passed. A passive capture showed continuous rendering
-  past 45 seconds of uptime; a reset capture reached Wi-Fi ready, BLE ready,
-  completed startup and the pairing route without another reboot over 20 seconds.
-  The SD card still times out as an optional peripheral. Evidence:
-  `artifacts/build-cody-companion-debug/cody-boot-verified.log`. No host suite,
-  phone pairing or prolonged memory soak was run for this fix.
+- The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
+  block before display startup and parked display frames during radio startup.
+  It passed an eight-job Debug build, flash and short capture, but a later
+  100-second capture exposed intermittent BLE DMA preflight failure and a
+  separate NimBLE teardown panic at standby. The short capture was not proof
+  that the reboot loop was fixed. Evidence: `artifacts/serial/cody-standby-wake-20261004.log`.
+- Added a larger held BLE startup lease and ordered NimBLE stop/deinit so the
+  host cannot free its dynamic context before the stop caller finishes. These
+  source changes remain unbuilt and unflashed; repeated cold boot and
+  standby/wake behavior are open in TODO.md.
+- Authored distinct Worried (06) and Afraid (08) faces from the planning atlas,
+  kept the white 06 QR layout, routed 08 Retry back to 05 only after confirmed
+  cleanup, and enabled the Debug FPS/CPU HUD on authored scenes without visible
+  bottom actions. These scene and routing changes have source review only.
+- Refined the full atlas face catalog and softened Cody's cheeks. Replaced the
+  blue boot source frames with Imagegen pearl Sleeping/Waking/Ready frames,
+  packaged as flash-owned indexed assets. Added session-controlled PWR capture
+  with a retired-frame 3, 2, 1 countdown, SD result feedback and an original
+  shutter cue; the old touch camera control is hidden. These changes have only
+  static source review, not a build, simulator run, flash or device check.
 - Created the English A5 front/back CCP pairing quick-start leaflet in Obsidian
   and `docs/Cody/`, with the proposed ZIP/local-marketplace installation path,
   display-code pairing, ten-second Idle flow, atlas illustrations and note lines.

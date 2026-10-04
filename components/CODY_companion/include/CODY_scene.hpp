@@ -55,6 +55,8 @@ struct SceneContent {
     uint32_t revision = 0;
     DamageRect control_bounds[2]{};
     uint32_t control_revision = 0;
+    // A drawn bottom action reserves the HUD area even when its action is disabled.
+    bool bottom_action_visible = false;
     // Captured body/button prefix count; completed frames never read mutable route state.
     uint16_t visible_characters = 0;
     // Stable while a prefix types; replacing or scrolling text starts a new baseline.

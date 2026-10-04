@@ -26,6 +26,8 @@ def require(text: str, fragment: str, source: str) -> None:
         raise AssertionError(f"{fragment!r} missing from {source}")
 
 
+# No parameters: inspect the bounded radio startup contract without device access.
+# Raises AssertionError when a required source invariant is absent.
 def main() -> None:
     memory = read("components/LUNASHELL_platform/src/network/LUNASHELL_radio_memory.hpp")
     radios = read("components/LUNASHELL_platform/src/network/LUNASHELL_radios.cpp")
@@ -36,6 +38,16 @@ def main() -> None:
         memory,
         "kBleControllerDmaReservationBytes = 0x7800",
         "BLE controller DMA contract",
+    )
+    require(
+        memory,
+        "kBleControllerDmaReservationBytes + 4096",
+        "BLE controller DMA startup lease",
+    )
+    require(
+        memory,
+        "heap_caps_malloc(\n        kBleControllerDmaHoldBytes",
+        "BLE controller DMA lease allocation",
     )
     require(
         memory,
@@ -87,7 +99,8 @@ def main() -> None:
 
     print(
         "radio memory static verification: PASS "
-        "(0x7800-byte BLE DMA reservation, fail-fast preflight, "
+        "(0x7800-byte BLE DMA requirement with startup cushion, "
+        "fail-fast preflight, "
         "bounded Wi-Fi buffers, two BLE activities, MAC/BB retention disabled)"
     )
 

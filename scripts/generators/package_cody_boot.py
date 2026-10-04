@@ -139,9 +139,9 @@ const CODY2D::IndexedRleImage {symbol}{{
 # Raises OSError for asset I/O errors and ValueError for an unsupported source.
 def main() -> None:
     images = [
-        package_image("cody-sleep-blue.png", "cody_sleep_blue", "sleeping_blue"),
-        package_image("cody-waking-blue.png", "cody_waking_blue", "waking_blue"),
-        package_image("cody-ready-blue.png", "cody_ready_blue", "ready_blue"),
+        package_image("cody-sleep-pearl.png", "cody_sleep_pearl", "sleeping_pearl"),
+        package_image("cody-waking-pearl.png", "cody_waking_pearl", "waking_pearl"),
+        package_image("cody-ready-pearl.png", "cody_ready_pearl", "ready_pearl"),
     ]
     total_bytes = sum(image["resource_data_bytes"] for image in images)
     manifest = {

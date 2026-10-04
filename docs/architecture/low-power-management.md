@@ -162,8 +162,12 @@ bound. An unknown press start, failed/stale sample or early release cannot
 trigger reset; recovery requires a fresh release. A key held before initialization
 does not retrigger software resets. The PMIC's earlier long IRQ now waits for
 release to enter standby, leaving the owner running until the 3-second reset.
-Short PWR taps still toggle standby. BOOT's existing 3-second restart uses the
-same log-drain helper.
+In Cody, an active short PWR tap starts the 3, 2, 1 screenshot countdown while
+its session flag is enabled by default. The Cody worker refreshes PWR activity
+during the countdown and save so inactivity cannot enter standby mid-capture.
+Disabling that flag restores the active short-tap standby behavior. A short PWR
+tap in software standby still wakes in one press. The 3-second PWR and BOOT
+restart paths retain their log-drain behavior.
 An acquired current PWR hold inhibits automatic inactivity sleep so Release
 cannot park the power worker in the middle of this gesture.
 

@@ -633,15 +633,15 @@ inline constexpr PointDefinition points[] = {
     {PointId::EyeLeft, "eye.left", -0.300000000f, -0.040000000f, 0.000000000f, 0.000000000f, PointId::Center, FaceChannel::None, PointRole::Anchor},
     {PointId::EyeLeftP0, "eye.left.p0", -0.093000000f, -0.011000000f, 0.000000000f, 0.011000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
     {PointId::EyeLeftP1, "eye.left.p1", -0.093000000f, -0.011000000f, 0.000000000f, -0.058587879f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
-    {PointId::EyeLeftP2, "eye.left.p2", -0.051362482f, 0.006374539f, 0.000000000f, -0.132374539f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
-    {PointId::EyeLeftP3, "eye.left.p3", 0.000000000f, 0.014000000f, 0.000000000f, -0.140000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
-    {PointId::EyeLeftP4, "eye.left.p4", 0.051362482f, 0.006374539f, 0.000000000f, -0.132374539f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
+    {PointId::EyeLeftP2, "eye.left.p2", -0.051362482f, 0.015000000f, 0.000000000f, -0.141000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
+    {PointId::EyeLeftP3, "eye.left.p3", 0.000000000f, 0.025000000f, 0.000000000f, -0.151000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
+    {PointId::EyeLeftP4, "eye.left.p4", 0.051362482f, 0.015000000f, 0.000000000f, -0.141000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
     {PointId::EyeLeftP5, "eye.left.p5", 0.093000000f, -0.011000000f, 0.000000000f, -0.058587879f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
     {PointId::EyeLeftP6, "eye.left.p6", 0.093000000f, -0.011000000f, 0.000000000f, 0.011000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
     {PointId::EyeLeftP7, "eye.left.p7", 0.093000000f, 0.011000000f, 0.000000000f, 0.058587879f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
-    {PointId::EyeLeftP8, "eye.left.p8", 0.051362482f, 0.028374539f, 0.000000000f, 0.097625461f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
-    {PointId::EyeLeftP9, "eye.left.p9", 0.000000000f, 0.036000000f, 0.000000000f, 0.090000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
-    {PointId::EyeLeftP10, "eye.left.p10", -0.051362482f, 0.028374539f, 0.000000000f, 0.097625461f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
+    {PointId::EyeLeftP8, "eye.left.p8", 0.051362482f, 0.038000000f, 0.000000000f, 0.088000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
+    {PointId::EyeLeftP9, "eye.left.p9", 0.000000000f, 0.045000000f, 0.000000000f, 0.081000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Knot},
+    {PointId::EyeLeftP10, "eye.left.p10", -0.051362482f, 0.038000000f, 0.000000000f, 0.088000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
     {PointId::EyeLeftP11, "eye.left.p11", -0.093000000f, 0.011000000f, 0.000000000f, 0.058587879f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Handle},
     {PointId::EyeLeftShine, "eye.left.shine", 0.027000000f, 0.020000000f, 0.000000000f, -0.064000000f, PointId::EyeLeft, FaceChannel::EyeLeft, PointRole::Anchor},
     {PointId::EyeLeftShineP0, "eye.left.shine.p0", -0.026000000f, 0.000000000f, 0.000000000f, 0.000000000f, PointId::EyeLeftShine, FaceChannel::EyeLeft, PointRole::Knot},
@@ -664,15 +664,15 @@ inline constexpr PointDefinition points[] = {
     {PointId::EyeRight, "eye.right", 0.300000000f, -0.040000000f, 0.000000000f, 0.000000000f, PointId::Center, FaceChannel::None, PointRole::Anchor},
     {PointId::EyeRightP0, "eye.right.p0", -0.093000000f, -0.011000000f, 0.000000000f, 0.011000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
     {PointId::EyeRightP1, "eye.right.p1", -0.093000000f, -0.011000000f, 0.000000000f, -0.058587879f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
-    {PointId::EyeRightP2, "eye.right.p2", -0.051362482f, 0.006374539f, 0.000000000f, -0.132374539f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
-    {PointId::EyeRightP3, "eye.right.p3", 0.000000000f, 0.014000000f, 0.000000000f, -0.140000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
-    {PointId::EyeRightP4, "eye.right.p4", 0.051362482f, 0.006374539f, 0.000000000f, -0.132374539f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
+    {PointId::EyeRightP2, "eye.right.p2", -0.051362482f, 0.015000000f, 0.000000000f, -0.141000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
+    {PointId::EyeRightP3, "eye.right.p3", 0.000000000f, 0.025000000f, 0.000000000f, -0.151000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
+    {PointId::EyeRightP4, "eye.right.p4", 0.051362482f, 0.015000000f, 0.000000000f, -0.141000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
     {PointId::EyeRightP5, "eye.right.p5", 0.093000000f, -0.011000000f, 0.000000000f, -0.058587879f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
     {PointId::EyeRightP6, "eye.right.p6", 0.093000000f, -0.011000000f, 0.000000000f, 0.011000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
     {PointId::EyeRightP7, "eye.right.p7", 0.093000000f, 0.011000000f, 0.000000000f, 0.058587879f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
-    {PointId::EyeRightP8, "eye.right.p8", 0.051362482f, 0.028374539f, 0.000000000f, 0.097625461f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
-    {PointId::EyeRightP9, "eye.right.p9", 0.000000000f, 0.036000000f, 0.000000000f, 0.090000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
-    {PointId::EyeRightP10, "eye.right.p10", -0.051362482f, 0.028374539f, 0.000000000f, 0.097625461f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
+    {PointId::EyeRightP8, "eye.right.p8", 0.051362482f, 0.038000000f, 0.000000000f, 0.088000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
+    {PointId::EyeRightP9, "eye.right.p9", 0.000000000f, 0.045000000f, 0.000000000f, 0.081000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Knot},
+    {PointId::EyeRightP10, "eye.right.p10", -0.051362482f, 0.038000000f, 0.000000000f, 0.088000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
     {PointId::EyeRightP11, "eye.right.p11", -0.093000000f, 0.011000000f, 0.000000000f, 0.058587879f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Handle},
     {PointId::EyeRightShine, "eye.right.shine", 0.027000000f, 0.020000000f, 0.000000000f, -0.064000000f, PointId::EyeRight, FaceChannel::EyeRight, PointRole::Anchor},
     {PointId::EyeRightShineP0, "eye.right.shine.p0", -0.026000000f, 0.000000000f, 0.000000000f, 0.000000000f, PointId::EyeRightShine, FaceChannel::EyeRight, PointRole::Knot},
@@ -707,8 +707,8 @@ inline constexpr PointDefinition points[] = {
     {PointId::NoseP11, "nose.p11", -0.036000000f, 0.012702549f, 0.000000000f, 0.000000000f, PointId::Nose, FaceChannel::None, PointRole::Handle},
     {PointId::Mouth, "mouth", 0.000000000f, 0.270000000f, 0.000000000f, 0.000000000f, PointId::Center, FaceChannel::None, PointRole::Anchor},
     {PointId::MouthP0, "mouth.p0", -0.140000000f, -0.040000000f, 0.000000000f, 0.000000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Knot},
-    {PointId::MouthP1, "mouth.p1", -0.080000000f, 0.020000000f, 0.000000000f, 0.000000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
-    {PointId::MouthP2, "mouth.p2", 0.080000000f, 0.020000000f, 0.000000000f, 0.000000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
+    {PointId::MouthP1, "mouth.p1", -0.080000000f, 0.020000000f, 0.000000000f, -0.150000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
+    {PointId::MouthP2, "mouth.p2", 0.080000000f, 0.020000000f, 0.000000000f, -0.150000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
     {PointId::MouthP3, "mouth.p3", 0.140000000f, -0.040000000f, 0.000000000f, 0.000000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Knot},
     {PointId::MouthP4, "mouth.p4", 0.110000000f, 0.040000000f, 0.000000000f, 0.055000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
     {PointId::MouthP5, "mouth.p5", 0.060000000f, 0.070000000f, 0.000000000f, 0.130000000f, PointId::Mouth, FaceChannel::MouthOpen, PointRole::Handle},
@@ -828,8 +828,8 @@ inline constexpr PathDefinition paths[] = {
     {PathId::BodyShadowCrown, "body.shadow.crown", CurveId::BodyShadowCrownSweep, 3, ColorId::CloudShadowLevel00, ColorId::CloudFoldCoolLevel07, 0.000000000f, FaceChannel::None, FaceChannel::None, CODY2D::FillAntialiasing::Coverage},
     {PathId::BodyShadowLeft, "body.shadow.left", CurveId::BodyShadowLeftSweep, 3, ColorId::CloudLevel32, ColorId::CloudLevel63, 0.000000000f, FaceChannel::None, FaceChannel::None, CODY2D::FillAntialiasing::Coverage},
     {PathId::BodyShadowRight, "body.shadow.right", CurveId::BodyShadowRightSweep, 3, ColorId::CloudLevel32, ColorId::CloudLevel63, 0.000000000f, FaceChannel::None, FaceChannel::None, CODY2D::FillAntialiasing::Coverage},
-    {PathId::CheekLeft, "cheek.left", CurveId::CheekLeftCurve0, 4, ColorId::CoralLevel00, ColorId::CoralLevel00, 0.000000000f, FaceChannel::None, FaceChannel::CheekOpacity, CODY2D::FillAntialiasing::Disabled},
-    {PathId::CheekRight, "cheek.right", CurveId::CheekRightCurve0, 4, ColorId::CoralLevel00, ColorId::CoralLevel00, 0.000000000f, FaceChannel::None, FaceChannel::CheekOpacity, CODY2D::FillAntialiasing::Disabled},
+    {PathId::CheekLeft, "cheek.left", CurveId::CheekLeftCurve0, 4, ColorId::CoralLevel00, ColorId::CoralLevel09, 0.000000000f, FaceChannel::None, FaceChannel::CheekOpacity, CODY2D::FillAntialiasing::Coverage},
+    {PathId::CheekRight, "cheek.right", CurveId::CheekRightCurve0, 4, ColorId::CoralLevel00, ColorId::CoralLevel09, 0.000000000f, FaceChannel::None, FaceChannel::CheekOpacity, CODY2D::FillAntialiasing::Coverage},
     {PathId::EyeLeft, "eye.left", CurveId::EyeLeftCurve0, 4, ColorId::FixedInk, ColorId::FixedInk, 0.000000000f, FaceChannel::None, FaceChannel::None, CODY2D::FillAntialiasing::Disabled},
     {PathId::EyeLeftShine, "eye.left.shine", CurveId::EyeLeftShineCurve0, 4, ColorId::FixedHighlight, ColorId::FixedHighlight, 0.000000000f, FaceChannel::EyeLeft, FaceChannel::None, CODY2D::FillAntialiasing::Disabled},
     {PathId::BrowLeft, "brow.left", CurveId::BrowLeftCurve0, 1, ColorId::FixedInk, ColorId::FixedInk, 0.042000000f, FaceChannel::None, FaceChannel::None, CODY2D::FillAntialiasing::Disabled},
@@ -1051,18 +1051,23 @@ inline constexpr EntityDefinition entities[] = {
 inline constexpr float channel_min[] = {0.000000000f, 0.000000000f, -1.000000000f, -1.000000000f, 0.000000000f, -1.000000000f, 0.500000000f, 0.500000000f, 0.400000000f, 0.000000000f};
 inline constexpr float channel_max[] = {1.000000000f, 1.000000000f, 1.000000000f, 1.000000000f, 1.000000000f, 1.000000000f, 1.600000000f, 1.600000000f, 1.800000000f, 1.000000000f};
 inline constexpr const char *channel_names[] = {"eye_left", "eye_right", "brow_left", "brow_right", "mouth_open", "breath", "mouth_width", "nose_size", "cheek_size", "cheek_opacity"};
-inline constexpr Channels sleep = {{0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
-inline constexpr Channels waking = {{0.350000000f, 0.350000000f, 0.000000000f, 0.000000000f, 0.060000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
-inline constexpr Channels ready = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.150000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
+inline constexpr Channels sleep = {{0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 0.380000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.550000000f}};
+inline constexpr Channels waking = {{0.350000000f, 0.350000000f, 0.000000000f, 0.000000000f, 0.340000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
+inline constexpr Channels ready = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 0.720000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
 namespace ExpressionPresets {
-inline constexpr Channels Calm = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
-inline constexpr Channels Happy = {{1.000000000f, 1.000000000f, 0.150000000f, 0.150000000f, 0.650000000f, 0.000000000f, 1.100000000f, 1.000000000f, 1.250000000f, 1.000000000f}};
-inline constexpr Channels Sleeping = {{0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 0.220000000f, 0.000000000f, 0.650000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
-inline constexpr Channels Drowsy = {{0.350000000f, 0.350000000f, 0.000000000f, 0.000000000f, 0.220000000f, 0.000000000f, 0.650000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
-inline constexpr Channels Embarrassed = {{0.650000000f, 0.650000000f, 0.300000000f, 0.300000000f, 0.120000000f, 0.000000000f, 0.800000000f, 1.000000000f, 1.500000000f, 0.850000000f}};
+inline constexpr Channels Calm = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 0.720000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
+inline constexpr Channels Curious = {{1.000000000f, 1.000000000f, -0.450000000f, 0.050000000f, 0.300000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
+inline constexpr Channels Happy = {{1.000000000f, 1.000000000f, -0.150000000f, -0.150000000f, 0.700000000f, 0.000000000f, 1.050000000f, 1.000000000f, 1.080000000f, 0.680000000f}};
+inline constexpr Channels Focused = {{0.900000000f, 0.900000000f, 0.620000000f, 0.620000000f, 0.020000000f, 0.000000000f, 0.620000000f, 1.000000000f, 0.950000000f, 0.520000000f}};
+inline constexpr Channels Sleeping = {{0.000000000f, 0.000000000f, 0.000000000f, 0.000000000f, 0.380000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.550000000f}};
+inline constexpr Channels Drowsy = {{0.350000000f, 0.350000000f, 0.000000000f, 0.000000000f, 0.340000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
+inline constexpr Channels Stressed = {{0.480000000f, 0.480000000f, 0.360000000f, 0.360000000f, 0.000000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.620000000f}};
+inline constexpr Channels Embarrassed = {{0.650000000f, 0.650000000f, -0.150000000f, -0.150000000f, 0.120000000f, 0.000000000f, 0.680000000f, 1.000000000f, 1.080000000f, 0.760000000f}};
+inline constexpr Channels Worried = {{1.000000000f, 1.000000000f, -0.550000000f, -0.550000000f, 0.140000000f, 0.000000000f, 0.550000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
+inline constexpr Channels Afraid = {{1.000000000f, 1.000000000f, -0.900000000f, -0.900000000f, 0.420000000f, 0.000000000f, 0.500000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
 }  // namespace ExpressionPresets
-inline constexpr size_t expression_preset_count = 5;
-inline constexpr Channels defaults = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.150000000f, 0.000000000f, 1.000000000f, 1.000000000f, 1.200000000f, 1.000000000f}};
+inline constexpr size_t expression_preset_count = 10;
+inline constexpr Channels defaults = {{1.000000000f, 1.000000000f, 0.000000000f, 0.000000000f, 0.040000000f, 0.000000000f, 0.720000000f, 1.000000000f, 1.000000000f, 0.580000000f}};
 inline constexpr float face_transition_seconds = 0.180000000f;
 inline constexpr ContourControls contour_defaults = {{0.000000000f, 0.350000000f, 0.200000000f, 1.000000000f}};
 inline constexpr float contour_min[] = {-1.000000000f, 0.000000000f, 0.000000000f, 0.000000000f};

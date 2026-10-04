@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <initializer_list>
+#include <iterator>
 #include <new>
 
 #include "CODY2D.hpp"
@@ -25,14 +26,15 @@
 #include "CODY_lifecycle.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_screenshot.hpp"
+#include "CODY_capture_sound.hpp"
 #include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
 #include "runtime_settings.hpp"
 #include "cloud_rig_data.hpp"
-#include "cody_sleep_blue.hpp"
-#include "cody_waking_blue.hpp"
-#include "cody_ready_blue.hpp"
+#include "cody_sleep_pearl.hpp"
+#include "cody_waking_pearl.hpp"
+#include "cody_ready_pearl.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_platform.h"
@@ -75,11 +77,16 @@ constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kLifecyclePreparationTimeoutMs = 3000;
 constexpr uint32_t kBrandingFadeDurationUs = 300000;
 constexpr int64_t kStatusRefreshUs = 1000000;
+constexpr int64_t kCaptureStepUs = 1000000;
+constexpr int64_t kCaptureFeedbackUs = 2000000;
+constexpr int64_t kCaptureActivityRefreshUs = 250000;
+constexpr CODY::DamageRect kCaptureOverlayBounds{153, 174, 313, 292};
 constexpr char kStartupBranding[] = "umbertogiacobbi.biz";
 constexpr uint16_t kStartupBrandingTop = 348;
 constexpr uint16_t kWhitesmoke = 0xF7BE; // #F5F5F5 quantized to RGB565.
 
 enum class BrandingPhase : uint8_t { Visible, FadingOut, Hidden };
+enum class CaptureVisual : uint8_t { None, Three, Two, One, Saving, Saved, Failed };
 
 enum class StartState : uint32_t {
     Idle,
@@ -156,6 +163,10 @@ uint8_t s_cached_branding_opacity = 0;
 CODY::StatusOverlay s_cached_status_overlay;
 bool s_cached_status_visible = false;
 CODY::ScreenshotState s_cached_screenshot_state = CODY::ScreenshotState::Idle;
+CaptureVisual s_cached_capture_visual = CaptureVisual::None;
+std::atomic<bool> s_power_screenshot_enabled{true};
+std::atomic<bool> s_capture_sequence_active{false};
+std::atomic<bool> s_capture_request_pending{false};
 CODY::SceneFrame s_cached_scene;
 struct CompanionState {
     // After startup, non-atomic changes use the display lock. Only the worker reads its schedule outside it.
@@ -175,6 +186,13 @@ struct CompanionState {
     bool animation_paused = false;
     CODY::NavigationVisibility navigation_visibility{};
     CODY::StatusOverlay status_overlay{};
+    uint8_t capture_digit = 0;
+    int64_t capture_digit_shown_at_us = 0;
+    int64_t capture_activity_at_us = 0;
+    int64_t capture_feedback_shown_at_us = 0;
+    bool capture_clear_pending = false;
+    bool capture_feedback_visible = false;
+    esp_err_t capture_request_error = ESP_OK;
     int64_t status_sampled_at_us = 0;
 #if CONFIG_LUNASHELL_CODY_FACE_FOLLOWS_BODY
     bool face_follows_body = true;
@@ -213,6 +231,219 @@ struct CompanionState {
     CODY::FrameRateMeasurement frame_rate{};
 };
 CompanionState s_state;
+
+// No parameters: derive visible feedback from the independently completed SD write.
+CaptureVisual capture_visual()
+{
+    if (s_state.capture_digit == 3U) return CaptureVisual::Three;
+    if (s_state.capture_digit == 2U) return CaptureVisual::Two;
+    if (s_state.capture_digit == 1U) return CaptureVisual::One;
+    if (!s_state.capture_feedback_visible) return CaptureVisual::None;
+    if (s_state.capture_request_error != ESP_OK) return CaptureVisual::Failed;
+    switch (CODY::screenshot_state()) {
+    case CODY::ScreenshotState::Saving: return CaptureVisual::Saving;
+    case CODY::ScreenshotState::Saved: return CaptureVisual::Saved;
+    case CODY::ScreenshotState::Failed: return CaptureVisual::Failed;
+    case CODY::ScreenshotState::Idle:
+    case CODY::ScreenshotState::Capturing: return CaptureVisual::None;
+    }
+    return CaptureVisual::None;
+}
+
+// strip: Current compact display tile in panel byte order.
+// first_row: Logical top of the tile.
+// first_column: Logical left of the tile.
+// rectangle: Complete-canvas fill bounds, clipped to the tile.
+// color: Native RGB565 fill color.
+// Exception: Returns the actual raster error.
+esp_err_t fill_capture_rect(CODY2D::Surface strip, uint16_t first_row,
+                            uint16_t first_column, CODY2D::Rect rectangle,
+                            uint16_t color)
+{
+    const uint16_t left = std::max<uint16_t>(first_column, rectangle.x);
+    const uint16_t top = std::max<uint16_t>(first_row, rectangle.y);
+    const uint16_t right = std::min<uint16_t>(first_column + strip.width,
+                                             rectangle.x + rectangle.width);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height,
+                                              rectangle.y + rectangle.height);
+    if (left >= right || top >= bottom) {
+        return ESP_OK;
+    }
+    return CODY2D::fill_rect(strip,
+        {static_cast<uint16_t>(left - first_column),
+         static_cast<uint16_t>(top - first_row),
+         static_cast<uint16_t>(right - left),
+         static_cast<uint16_t>(bottom - top)}, color);
+}
+
+// visual: Retired countdown or asynchronous storage state.
+// line: Prepared only for one of the three feedback words.
+// Exception: Returns the actual text-layout error.
+esp_err_t prepare_capture_feedback(CaptureVisual visual, CODY2D::TextLine &line)
+{
+    const char *label = nullptr;
+    uint16_t color = kWhitesmoke;
+    switch (visual) {
+    case CaptureVisual::Saving: label = "SAVING"; color = 0xF5A9; break;
+    case CaptureVisual::Saved: label = "SAVED"; color = 0x26F8; break;
+    case CaptureVisual::Failed: label = "FAILED"; color = 0xF9CB; break;
+    default: return ESP_OK;
+    }
+    const uint16_t length = static_cast<uint16_t>(std::strlen(label));
+    const auto &font = CODY::SceneData::title_font;
+    const uint16_t width = static_cast<uint16_t>((length - 1U) * font.advance + font.width);
+    return CODY2D::prepare_text_line(font, {label, length},
+        {static_cast<int16_t>((kPanelWidth - width) / 2U), 213}, color, line);
+}
+
+// visual: Current countdown digit or truthful storage result.
+// feedback_line: Prepared feedback text, or null for a countdown digit.
+// strip: Current compact display tile.
+// first_row: Logical top of the tile.
+// first_column: Logical left of the tile.
+// Exception: Returns the actual raster or text error.
+esp_err_t draw_capture_overlay(CaptureVisual visual,
+                               const CODY2D::TextLine *feedback_line,
+                               CODY2D::Surface strip, uint16_t first_row,
+                               uint16_t first_column)
+{
+    if (visual == CaptureVisual::None) {
+        return ESP_OK;
+    }
+    esp_err_t error = fill_capture_rect(strip, first_row, first_column,
+        {kCaptureOverlayBounds.left, kCaptureOverlayBounds.top,
+         static_cast<uint16_t>(kCaptureOverlayBounds.right - kCaptureOverlayBounds.left),
+         static_cast<uint16_t>(kCaptureOverlayBounds.bottom - kCaptureOverlayBounds.top)},
+        0x1082);
+    if (error != ESP_OK) return error;
+    if (feedback_line != nullptr && feedback_line->valid) {
+        return CODY2D::draw_text_rows(*feedback_line, feedback_line->text.length,
+                                      strip, first_row, first_column);
+    }
+    constexpr CODY2D::Rect segments[] = {
+        {207, 190, 52, 8}, {259, 198, 8, 29}, {259, 234, 8, 29},
+        {207, 263, 52, 8}, {199, 234, 8, 29}, {199, 198, 8, 29},
+        {207, 226, 52, 8},
+    };
+    const bool visible[] = {
+        visual != CaptureVisual::One,
+        true,
+        visual != CaptureVisual::Two,
+        visual != CaptureVisual::One,
+        visual == CaptureVisual::Two,
+        false,
+        visual != CaptureVisual::One,
+    };
+    for (size_t index = 0; index < std::size(segments); ++index) {
+        if (!visible[index]) continue;
+        error = fill_capture_rect(strip, first_row, first_column,
+                                  segments[index], kWhitesmoke);
+        if (error != ESP_OK) return error;
+    }
+    return ESP_OK;
+}
+
+// No parameters: advance only after each numeral has a retired visible frame.
+// Exception: Returns the real display-lock failure.
+esp_err_t advance_capture_timeline()
+{
+    const esp_err_t lock_error = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (lock_error != ESP_OK) return lock_error;
+    const int64_t now_us = esp_timer_get_time();
+    if (!LUNASHELL_display_runtime_writes_allowed()) {
+        // A real standby/park cancels the visual request. The power owner keeps
+        // its own wake and three-second hold behavior.
+        s_capture_request_pending.store(false, std::memory_order_release);
+        s_capture_sequence_active.store(false, std::memory_order_release);
+        s_state.capture_digit = 0;
+        s_state.capture_clear_pending = false;
+        s_state.capture_feedback_visible = false;
+        s_state.capture_feedback_shown_at_us = 0;
+        bsp_display_unlock();
+        return ESP_OK;
+    }
+    if (s_capture_request_pending.exchange(false, std::memory_order_acq_rel)) {
+        s_state.capture_digit = 3U;
+        s_state.capture_digit_shown_at_us = 0;
+        s_state.capture_clear_pending = false;
+        s_state.capture_feedback_shown_at_us = 0;
+        s_state.capture_feedback_visible = false;
+        s_state.capture_request_error = ESP_OK;
+        s_state.frame_dirty.store(true, std::memory_order_release);
+    }
+    if (s_state.capture_digit != 0U && s_state.capture_digit_shown_at_us > 0 &&
+        now_us - s_state.capture_digit_shown_at_us >= kCaptureStepUs) {
+        if (s_state.capture_digit == 1U) {
+            s_state.capture_digit = 0U;
+            s_state.capture_clear_pending = true;
+        } else {
+            --s_state.capture_digit;
+        }
+        s_state.capture_digit_shown_at_us = 0;
+        s_state.frame_dirty.store(true, std::memory_order_release);
+    }
+    const CaptureVisual visual = capture_visual();
+    // Storage completes on another task. Wake even a paused/static scene when
+    // its async result changes, otherwise SAVING can remain painted forever.
+    if (visual != s_cached_capture_visual) {
+        s_state.frame_dirty.store(true, std::memory_order_release);
+    }
+    if (s_state.capture_feedback_visible &&
+        (visual == CaptureVisual::Saved || visual == CaptureVisual::Failed) &&
+        s_state.capture_feedback_shown_at_us > 0 &&
+        now_us - s_state.capture_feedback_shown_at_us >= kCaptureFeedbackUs) {
+        s_state.capture_feedback_visible = false;
+        s_state.capture_feedback_shown_at_us = 0;
+        s_state.frame_dirty.store(true, std::memory_order_release);
+    }
+    if ((s_capture_sequence_active.load(std::memory_order_acquire) ||
+         s_state.capture_feedback_visible) &&
+        now_us - s_state.capture_activity_at_us >= kCaptureActivityRefreshUs) {
+        LUNASHELL_power_manager_note_power_activity();
+        s_state.capture_activity_at_us = now_us;
+    }
+    bsp_display_unlock();
+    return ESP_OK;
+}
+
+// claimed: Set true when Cody's enabled runtime flag consumes this active PWR tap.
+// Exception: Returns the real renderer or capture-admission error without entering standby.
+esp_err_t handle_active_power_short_press(bool *claimed)
+{
+    if (claimed == nullptr) {
+        ESP_LOGE(kTag, "PWR consumer output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    *claimed = s_power_screenshot_enabled.load(std::memory_order_acquire);
+    if (!*claimed) return ESP_OK;
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running || !LUNASHELL_display_runtime_writes_allowed()) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "PWR capture unavailable during renderer transition (%s)",
+                 esp_err_to_name(error));
+        return error;
+    }
+    bool available = false;
+    if (!s_capture_sequence_active.compare_exchange_strong(
+            available, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
+        ESP_LOGW(kTag, "PWR capture ignored while countdown/capture/save is active");
+        return ESP_OK;
+    }
+    const auto screenshot = CODY::screenshot_state();
+    if (screenshot == CODY::ScreenshotState::Capturing ||
+        screenshot == CODY::ScreenshotState::Saving) {
+        s_capture_sequence_active.store(false, std::memory_order_release);
+        ESP_LOGW(kTag, "PWR capture ignored while screenshot owner is busy");
+        return ESP_OK;
+    }
+    s_capture_request_pending.store(true, std::memory_order_release);
+    s_state.frame_dirty.store(true, std::memory_order_release);
+    LUNASHELL_power_manager_note_power_activity();
+    ESP_LOGI(kTag, "PWR capture countdown requested");
+    return ESP_OK;
+}
+
 struct PausedSceneModel {
     CODY::Channels face{};
     CODY::ResponseState response{};
@@ -587,11 +818,11 @@ const CODY2D::IndexedRleImage *boot_asset_for(BootPhase phase)
 {
     switch (phase) {
     case BootPhase::Sleeping:
-        return &CODY_asset::sleeping_blue;
+        return &CODY_asset::sleeping_pearl;
     case BootPhase::Waking:
-        return &CODY_asset::waking_blue;
+        return &CODY_asset::waking_pearl;
     case BootPhase::Ready:
-        return &CODY_asset::ready_blue;
+        return &CODY_asset::ready_pearl;
     default:
         ESP_LOGE(kTag, "Unknown boot phase rejected: %lu (%s)",
                  static_cast<unsigned long>(phase), esp_err_to_name(ESP_ERR_INVALID_STATE));
@@ -1244,13 +1475,16 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     CODY::DebugReadout debug_readout{};
     CODY::DirtyPlan dirty_plan;
     const bool frame_debug = s_state.rig_debug;
+    const bool footer_blocks_readout = s_state.scene.valid &&
+        s_state.scene.content.bottom_action_visible;
     if (s_state.rig_visible) {
         if (resume_animation) {
             s_state.frame_rate = {};
             s_benchmark.reset();
         }
         if constexpr (kRenderDiagnosticsEnabled) {
-            if (s_state.greeting_entered && s_state.debug_readout_enabled) {
+            if (s_state.greeting_entered && s_state.debug_readout_enabled &&
+                !footer_blocks_readout) {
                 const esp_err_t readout_error = CODY::prepare_debug_readout(
                     s_state.frame_rate, timings.started_us, debug_readout
                 );
@@ -1362,9 +1596,23 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     }
     const bool screenshot_capture_active = screenshot_capture.pixels != nullptr;
     const CODY::ScreenshotState frame_screenshot_state = CODY::screenshot_state();
+    const CaptureVisual frame_capture_visual = capture_visual();
+    CODY2D::TextLine capture_feedback_line{};
+    if (frame_capture_visual == CaptureVisual::Saving ||
+        frame_capture_visual == CaptureVisual::Saved ||
+        frame_capture_visual == CaptureVisual::Failed) {
+        const esp_err_t feedback_error = prepare_capture_feedback(
+            frame_capture_visual, capture_feedback_line);
+        if (feedback_error != ESP_OK) {
+            if (screenshot_capture_active) {
+                (void)CODY::finish_screenshot_capture(screenshot_capture, feedback_error);
+            }
+            return frame.finish({feedback_error, false, 0});
+        }
+    }
     const uint8_t branding_opacity = startup_branding_opacity();
     const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
-        s_state.debug_readout_enabled && presentation.content_visible &&
+        s_state.debug_readout_enabled && presentation.content_visible && !footer_blocks_readout &&
         (!s_state.scene.valid || s_state.scene.definition->readout_visible);
     // Fade a bounded palette once, not 466x466 boot pixels or the physical
     // backlight setting. The immutable source asset remains untouched.
@@ -1449,6 +1697,9 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (plan_error == ESP_OK && frame_navigation_visible &&
             s_cached_screenshot_state != frame_screenshot_state) {
             plan_error = include_control_damage(dirty_plan, CODY::RigControl::Screenshot);
+        }
+        if (plan_error == ESP_OK && s_cached_capture_visual != frame_capture_visual) {
+            plan_error = CODY::include_damage(dirty_plan, kCaptureOverlayBounds);
         }
     }
     timings.damage_us = esp_timer_get_time() - damage_started_us;
@@ -1541,13 +1792,18 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                 }
                 if (result == ESP_OK && frame_readout_visible) {
                     result = CODY::draw_debug_readout_rows(
-                        debug_readout, strip, damage.top, damage.left
+                        debug_readout, strip, damage.top, damage.left, scene_background
                     );
                 }
             } else {
                 // Boot assets invalidate the entire canvas, so their decoder
                 // still receives full-width rows with no horizontal crop.
                 result = CODY2D::decode_rows(boot_image, damage.top, strip);
+            }
+            if (result == ESP_OK) {
+                result = draw_capture_overlay(frame_capture_visual,
+                    capture_feedback_line.valid ? &capture_feedback_line : nullptr,
+                    strip, damage.top, damage.left);
             }
             timings.raster_us += esp_timer_get_time() - raster_started_us;
             if (result == ESP_OK && screenshot_capture_active) {
@@ -1623,6 +1879,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_status_overlay = s_state.status_overlay;
         s_cached_status_visible = frame_status_visible;
         s_cached_screenshot_state = frame_screenshot_state;
+        s_cached_capture_visual = frame_capture_visual;
         s_cached_scene = s_state.scene;
         s_cached_scene_visible = frame_scene_visible;
         const esp_err_t audio_error = notify_completed_typewriter(s_cached_scene, presentation);
@@ -1726,8 +1983,6 @@ enum class TouchAction : uint8_t {
     ReturnToIdle,
     ToggleOverlay,
     TogglePause,
-    SaveScreenshot,
-    ScreenshotBusy,
     SelectPoint,
 };
 
@@ -1750,12 +2005,8 @@ TouchAction classify_rig_touch(const LUNASHELL_touch_point_t &point)
         return TouchAction::ToggleOverlay;
     case CODY::RigControl::Pause:
         return TouchAction::TogglePause;
-    case CODY::RigControl::Screenshot: {
-        const CODY::ScreenshotState state = CODY::screenshot_state();
-        return state == CODY::ScreenshotState::Capturing ||
-            state == CODY::ScreenshotState::Saving
-            ? TouchAction::ScreenshotBusy : TouchAction::SaveScreenshot;
-    }
+    case CODY::RigControl::Screenshot:
+        return TouchAction::None;
     case CODY::RigControl::None:
         break;
     }
@@ -1814,10 +2065,9 @@ esp_err_t apply_scene_requests()
                 s_state.frame_dirty.store(true, std::memory_order_release);
             }
         }
-        if constexpr (kRenderDiagnosticsEnabled) {
-            if (CODY::screenshot_state() != s_cached_screenshot_state) {
-                s_state.frame_dirty.store(true, std::memory_order_release);
-            }
+        if (s_state.capture_feedback_visible &&
+            capture_visual() != s_cached_capture_visual) {
+            s_state.frame_dirty.store(true, std::memory_order_release);
         }
         bool route_changed = false;
         const esp_err_t route_error = CODY::update_onboarding(
@@ -2175,15 +2425,6 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.selected_point = CODY::kNoPoint;
                 s_state.last_timing_log_us = 0;
                 ESP_LOGI(kTag, "Rig geometry overlay=%u", s_state.rig_debug);
-            } else if (action == TouchAction::SaveScreenshot) {
-                const esp_err_t screenshot_error = CODY::request_screenshot();
-                if (screenshot_error != ESP_OK) {
-                    return screenshot_error;
-                }
-                ESP_LOGI(kTag, "On-demand screenshot admitted by touch=(%u,%u)",
-                         point.x, point.y);
-            } else if (action == TouchAction::ScreenshotBusy) {
-                ESP_LOGW(kTag, "Screenshot touch ignored while capture/write is active");
             } else if (action == TouchAction::SelectPoint) {
                 const esp_err_t selection_error = CODY::nearest_rig_point(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)}, 12, s_state.selected_point);
@@ -2200,8 +2441,7 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
                 s_state.scene.intro_phase == CODY::SceneIntroPhase::Complete;
             if (interactive_scene && !s_state.animation_paused && s_state.rig_frame_count != 0 &&
                 action != TouchAction::ReturnToIdle && action != TouchAction::ToggleOverlay &&
-                action != TouchAction::TogglePause && action != TouchAction::SaveScreenshot &&
-                action != TouchAction::ScreenshotBusy) {
+                action != TouchAction::TogglePause) {
                 CODY::EyeId eye = CODY::EyeId::None;
                 const esp_err_t hit_error = CODY::hit_test_eye(*s_resources.rig,
                     {static_cast<float>(point.x), static_cast<float>(point.y)},
@@ -2318,6 +2558,9 @@ void companion_worker(void *context)
             wait_ms = remaining_us > 0 ?
                 static_cast<uint32_t>((remaining_us + 999) / 1000) : 1;
         }
+        if (s_capture_sequence_active.load(std::memory_order_acquire)) {
+            wait_ms = std::min<uint32_t>(wait_ms, 100U);
+        }
         worker_trace.requested_wait_ms = wait_ms;
         worker_trace.wait_started_us = esp_timer_get_time();
         const esp_err_t wait_error = LUNASHELL_touch_wait_for_report(wait_ms);
@@ -2342,6 +2585,11 @@ void companion_worker(void *context)
         const esp_err_t lifecycle_error = apply_lifecycle_requests();
         if (lifecycle_error != ESP_OK) {
             fail_consumer("Atlas lifecycle request", lifecycle_error, false);
+            break;
+        }
+        const esp_err_t capture_timeline_error = advance_capture_timeline();
+        if (capture_timeline_error != ESP_OK) {
+            fail_consumer("PWR capture timeline", capture_timeline_error, false);
             break;
         }
         if (!LUNASHELL_display_runtime_writes_allowed()) {
@@ -2378,6 +2626,8 @@ void companion_worker(void *context)
         worker_trace.draw_requested_us = esp_timer_get_time();
         worker_trace.scheduled_us = s_state.rig_visible && s_state.next_frame_us > 0
             ? s_state.next_frame_us : worker_trace.draw_requested_us;
+        const bool clearing_countdown = s_state.capture_clear_pending;
+        const bool capturing_frame = CODY::screenshot_state() == CODY::ScreenshotState::Capturing;
         const DrawResult draw = draw_companion_frame(parked, nullptr, &worker_trace);
         if (draw.parked) {
             ESP_LOGW(kTag, "Redraw parked during power transition: %s",
@@ -2390,6 +2640,43 @@ void companion_worker(void *context)
             break;
         }
         s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
+        if (s_state.capture_digit != 0U &&
+            s_state.capture_digit_shown_at_us == 0 &&
+            s_cached_capture_visual == capture_visual()) {
+            s_state.capture_digit_shown_at_us = esp_timer_get_time();
+        }
+        if (clearing_countdown) {
+            // The first no-overlay frame has now retired; its successor may be captured.
+            s_state.capture_clear_pending = false;
+            const esp_err_t request_error = CODY::request_screenshot();
+            if (request_error != ESP_OK) {
+                s_state.capture_request_error = request_error;
+                s_state.capture_feedback_visible = true;
+                ESP_LOGE(kTag, "PWR screenshot admission failed (%s)",
+                         esp_err_to_name(request_error));
+            }
+            s_state.frame_dirty.store(true, std::memory_order_release);
+        }
+        if (capturing_frame) {
+            s_state.capture_feedback_visible = true;
+            s_state.frame_dirty.store(true, std::memory_order_release);
+            const auto screenshot = CODY::screenshot_state();
+            if (screenshot == CODY::ScreenshotState::Saving ||
+                screenshot == CODY::ScreenshotState::Saved) {
+                const esp_err_t sound_error = CODY::notify_capture_sound();
+                if (sound_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Captured frame shutter cue unavailable (%s)",
+                             esp_err_to_name(sound_error));
+                }
+            }
+        }
+        if (s_state.capture_feedback_visible &&
+            (s_cached_capture_visual == CaptureVisual::Saved ||
+             s_cached_capture_visual == CaptureVisual::Failed) &&
+            s_state.capture_feedback_shown_at_us == 0) {
+            s_state.capture_feedback_shown_at_us = esp_timer_get_time();
+            s_capture_sequence_active.store(false, std::memory_order_release);
+        }
         // An animation request is complete only after the final panel transfer,
         // never after geometry evaluation or a partial strip update.
         if (s_state.lifecycle_request != 0 &&
@@ -2422,19 +2709,19 @@ extern "C" esp_err_t CODY_companion_start(void)
         return result;
     }
     const esp_err_t asset_error = validate_boot_asset(
-        CODY_asset::sleeping_blue, "Sleeping boot asset"
+        CODY_asset::sleeping_pearl, "Sleeping boot asset"
     );
     if (asset_error != ESP_OK) {
         return fail_consumer("Boot asset validation", asset_error, false);
     }
     const esp_err_t waking_asset_error = validate_boot_asset(
-        CODY_asset::waking_blue, "Waking boot asset"
+        CODY_asset::waking_pearl, "Waking boot asset"
     );
     if (waking_asset_error != ESP_OK) {
         return fail_consumer("Waking boot asset validation", waking_asset_error, false);
     }
     const esp_err_t ready_asset_error = validate_boot_asset(
-        CODY_asset::ready_blue, "Ready boot asset"
+        CODY_asset::ready_pearl, "Ready boot asset"
     );
     if (ready_asset_error != ESP_OK) {
         return fail_consumer("Ready boot asset validation", ready_asset_error, false);
@@ -2471,6 +2758,10 @@ extern "C" esp_err_t CODY_companion_start(void)
     }
     s_typewriter_audio_prepared = true;
 #endif
+    const esp_err_t capture_sound_error = CODY::prepare_capture_sound();
+    if (capture_sound_error != ESP_OK) {
+        return fail_consumer("Shutter audio preparation", capture_sound_error, false);
+    }
     if (s_state.onboarding.effective_first_boot) {
         const esp_err_t action_worker_error = CODY::onboarding_service_init();
         if (action_worker_error != ESP_OK) {
@@ -2534,6 +2825,12 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (lifecycle_error != ESP_OK) {
         release_companion_resources();
         return fail_consumer("Display lifecycle owner registration", lifecycle_error, false);
+    }
+    const esp_err_t power_capture_error =
+        LUNASHELL_power_manager_register_short_press(handle_active_power_short_press);
+    if (power_capture_error != ESP_OK) {
+        release_companion_resources();
+        return fail_consumer("PWR capture owner registration", power_capture_error, false);
     }
     s_start_state.store(StartState::Running, std::memory_order_release);
     TaskHandle_t worker = nullptr;
@@ -2677,6 +2974,41 @@ extern "C" esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled)
     return ESP_OK;
 }
 
+// enabled: Session flag for active PWR countdowns; an admitted capture completes.
+// Exception: Returns the real renderer state error.
+extern "C" esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled)
+{
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "PWR screenshot flag change rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    s_power_screenshot_enabled.store(enabled, std::memory_order_release);
+    ESP_LOGI(kTag, "PWR screenshot flag=%u (session preference)", static_cast<unsigned>(enabled));
+    return ESP_OK;
+}
+
+// enabled: Receives the current session flag on success only.
+// Exception: Returns invalid argument or the real renderer state error.
+extern "C" esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled)
+{
+    if (enabled == nullptr) {
+        ESP_LOGE(kTag, "PWR screenshot flag output rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const StartState state = s_start_state.load(std::memory_order_acquire);
+    if (state != StartState::Running) {
+        const esp_err_t error = state == StartState::Failed
+            ? s_terminal_error.load(std::memory_order_acquire) : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "PWR screenshot flag read rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    *enabled = s_power_screenshot_enabled.load(std::memory_order_acquire);
+    return ESP_OK;
+}
+
 // enabled: Runtime preference applied by the worker under the shared display/state lock.
 extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
 {
@@ -2767,6 +3099,22 @@ extern "C" esp_err_t CODY_companion_set_face_deformation(bool enabled)
     ESP_LOGE("CODY_companion", "Face deformation=%u rejected: consumer excluded (%s)",
              static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
+}
+
+// enabled: Requested PWR preference; this profile excludes the Cody consumer.
+extern "C" esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled)
+{
+    ESP_LOGE("CODY_companion", "PWR screenshot flag=%u rejected: consumer excluded (%s)",
+             static_cast<unsigned>(enabled), esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// enabled: Output remains untouched because this profile has no Cody consumer.
+extern "C" esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled)
+{
+    const esp_err_t error = enabled == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+    ESP_LOGE("CODY_companion", "PWR screenshot flag read rejected (%s)", esp_err_to_name(error));
+    return error;
 }
 
 // enabled: Output stays untouched because this profile cannot own a face preference.

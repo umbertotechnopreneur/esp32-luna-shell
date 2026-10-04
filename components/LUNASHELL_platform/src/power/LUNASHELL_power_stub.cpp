@@ -14,12 +14,25 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// callback: Unsupported active PWR consumer in a profile without power inputs.
+extern "C" esp_err_t LUNASHELL_power_manager_register_short_press(
+    LUNASHELL_power_short_press_callback_t callback)
+{
+    (void)callback;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_power_manager_init(void)
 {
     return ESP_ERR_NOT_SUPPORTED;
 }
 
 extern "C" void LUNASHELL_power_manager_note_activity(void)
+{
+}
+
+// No parameters: excluded power profile has no active countdown policy.
+extern "C" void LUNASHELL_power_manager_note_power_activity(void)
 {
 }
 

@@ -174,16 +174,16 @@
     }
   ],
   "existing_boot_packaging": {
-    "generator": "E:\\ESP32 Cody Companion\\scripts\\package_cody_boot.py",
-    "manifest": "E:\\ESP32 Cody Companion\\assets\\cody\\boot\\generated\\manifest.json",
+    "generator": "scripts/generators/package_cody_boot.py",
+    "manifest": "assets/cody/boot/generated/manifest.json",
     "policy": "Independent per-asset palettes capped at 64 colors, with black at index 0.",
     "observed_manifest_counts": {
-      "sleeping_blue": 33,
-      "waking_blue": 37,
-      "ready_blue": 34
+      "sleeping_pearl": 54,
+      "waking_pearl": 51,
+      "ready_pearl": 53
     },
     "source_png_policy": "Source PNG files remain unchanged full-color image assets; they are not indexed with this shared palette.",
-    "integration_status": "Design only: no palette replacement, shared-palette re-encoding, consumer changes, or firmware validation."
+    "integration_status": "Pearl boot assets use independent indexed palettes and are wired into the firmware source; this shared-palette design is not integrated. Firmware build and device validation remain unverified."
   },
   "entries": [
     {

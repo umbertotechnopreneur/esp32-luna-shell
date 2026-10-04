@@ -35,6 +35,13 @@ esp_err_t CODY_companion_set_debug_readout_enabled(bool enabled);
 // enabled: Non-null output receiving the current session preference on success only.
 esp_err_t CODY_companion_get_debug_readout_enabled(bool *enabled);
 
+// enabled: Session flag for active short-PWR screenshot countdowns; Cody defaults on.
+// Disabled mode restores the original active short-PWR standby behavior.
+esp_err_t CODY_companion_set_power_screenshot_enabled(bool enabled);
+
+// enabled: Receives the current session flag on success only.
+esp_err_t CODY_companion_get_power_screenshot_enabled(bool *enabled);
+
 // enabled: Follow the pearl body's row deformation when true; keep the independent face when false.
 // Session-scoped preference: queues geometry for the worker, without advancing paused animation.
 // Returns the real lock/state error, or ESP_ERR_NOT_SUPPORTED when pearl jelly is not compiled in.

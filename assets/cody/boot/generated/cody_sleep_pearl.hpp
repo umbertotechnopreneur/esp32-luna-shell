@@ -3,5 +3,5 @@
 #include "CODY2D.hpp"
 
 namespace CODY_asset {
-extern const CODY2D::IndexedRleImage sleeping_blue;
+extern const CODY2D::IndexedRleImage sleeping_pearl;
 }

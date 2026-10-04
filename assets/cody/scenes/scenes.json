@@ -13,10 +13,10 @@
       "cloud": { "x": 233, "y": 225, "scale": 130 },
       "face": {
         "eye_left": 1, "eye_right": 1,
-        "brow_left": 0.15, "brow_right": 0.15,
-        "mouth_open": 0.65, "breath": 0,
-        "mouth_width": 1.1, "nose_size": 1,
-        "cheek_size": 1.25, "cheek_opacity": 1
+        "brow_left": -0.15, "brow_right": -0.15,
+        "mouth_open": 0.7, "breath": 0,
+        "mouth_width": 1.05, "nose_size": 1,
+        "cheek_size": 1.08, "cheek_opacity": 0.68
       },
       "title": { "text": "Hi, I'm Cody!", "top": 348, "color_rgb565": 65535, "character_interval_ms": 70, "visible": true },
       "navigation_visible": false,
@@ -29,9 +29,9 @@
       "entrance": { "from": { "x": 233, "y": 225, "scale": 130 }, "move_ms": 1000, "text_delay_ms": 300 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 105, "scale": 65 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "Let's pair", "top": 185, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "install-app", "identity": 3,
@@ -40,9 +40,9 @@
       "entrance": { "from": { "x": 233, "y": 94, "scale": 58 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 94, "scale": 58 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.55, "brow_right": -0.55, "mouth_open": 0.14, "breath": 0, "mouth_width": 0.55, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Get pairing app", "top": 74, "color_rgb565": 0, "character_interval_ms": 45, "visible": false },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "scan-to-pair", "identity": 4,
@@ -51,9 +51,9 @@
       "entrance": { "from": { "x": 233, "y": 38, "scale": 22 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 38, "scale": 22 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Link your phone", "top": 74, "color_rgb565": 0, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "pairing", "identity": 5,
@@ -62,9 +62,9 @@
       "entrance": { "from": { "x": 233, "y": 80, "scale": 46 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 80, "scale": 46 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Pairing...", "top": 131, "color_rgb565": 0, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "pairing-failed", "identity": 6,
@@ -73,9 +73,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 0.65, "eye_right": 0.65, "brow_left": 0.3, "brow_right": 0.3, "mouth_open": 0.12, "breath": 0, "mouth_width": 0.8, "nose_size": 1, "cheek_size": 1.5, "cheek_opacity": 0.85 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.9, "brow_right": -0.9, "mouth_open": 0.42, "breath": 0, "mouth_width": 0.5, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Try again", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "online", "identity": 7,
@@ -84,9 +84,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "You're online.", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "cody-look", "identity": 8,
@@ -95,9 +95,9 @@
       "entrance": { "from": { "x": 233, "y": 172, "scale": 44 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 172, "scale": 44 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "Cody's look", "top": 78, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "debug-text", "identity": 9,
@@ -106,9 +106,9 @@
       "entrance": { "from": { "x": 233, "y": 64, "scale": 30 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 64, "scale": 30 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Debug details", "top": 104, "color_rgb565": 63422, "character_interval_ms": 0, "visible": false },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "make-it-yours", "identity": 10,
@@ -117,9 +117,9 @@
       "entrance": { "from": { "x": 233, "y": 92, "scale": 42 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 92, "scale": 42 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Make it yours", "top": 146, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "settings", "identity": 11,
@@ -128,9 +128,9 @@
       "entrance": { "from": { "x": 233, "y": 92, "scale": 42 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 92, "scale": 42 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Settings", "top": 146, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "connect-codex", "identity": 12,
@@ -139,9 +139,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "Connect Codex", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "setup-complete", "identity": 13,
@@ -150,9 +150,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "You're all set.", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "looking-for-pc", "identity": 14,
@@ -161,9 +161,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 1, "nose_size": 1, "cheek_size": 1.2, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0, "brow_right": 0, "mouth_open": 0.04, "breath": 0, "mouth_width": 0.72, "nose_size": 1, "cheek_size": 1, "cheek_opacity": 0.58 },
       "title": { "text": "Looking for PC", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     },
     {
       "id": "connected", "identity": 15,
@@ -172,9 +172,9 @@
       "entrance": { "from": { "x": 233, "y": 160, "scale": 105 }, "move_ms": 0, "text_delay_ms": 0 },
       "intro": { "bitmap_fade_out_ms": 0, "cloud_fade_in_ms": 0 },
       "cloud": { "x": 233, "y": 160, "scale": 105 },
-      "face": { "eye_left": 1, "eye_right": 1, "brow_left": 0.15, "brow_right": 0.15, "mouth_open": 0.65, "breath": 0, "mouth_width": 1.1, "nose_size": 1, "cheek_size": 1.25, "cheek_opacity": 1 },
+      "face": { "eye_left": 1, "eye_right": 1, "brow_left": -0.15, "brow_right": -0.15, "mouth_open": 0.7, "breath": 0, "mouth_width": 1.05, "nose_size": 1, "cheek_size": 1.08, "cheek_opacity": 0.68 },
       "title": { "text": "Connected", "top": 305, "color_rgb565": 65535, "character_interval_ms": 45, "visible": true },
-      "navigation_visible": false, "readout_visible": false
+      "navigation_visible": false, "readout_visible": true
     }
   ]
 }

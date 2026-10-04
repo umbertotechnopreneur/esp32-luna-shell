@@ -81,6 +81,7 @@ TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
 std::atomic<LUNASHELL_display_lifecycle_callback_t> s_display_lifecycle_callback{nullptr};
+std::atomic<LUNASHELL_power_short_press_callback_t> s_short_press_callback{nullptr};
 std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
@@ -2247,14 +2248,33 @@ esp_err_t handle_power_key_events(
         return ESP_OK;
     }
 
-    ESP_LOGI(
-        kTag,
-        "PWR short press: toggling standby (count=%lu)",
-        static_cast<unsigned long>(short_presses)
-    );
     if ((short_presses & 1U) == 0U) {
         return ESP_OK;
     }
+    if (s_state == LUNASHELL::DeviceOperatingState::Active) {
+        const auto callback = s_short_press_callback.load(std::memory_order_acquire);
+        if (callback != nullptr) {
+            bool claimed = false;
+            const esp_err_t callback_error = callback(&claimed);
+            if (claimed) {
+                // An admitted countdown is activity, including on dimmed displays.
+                // The idle policy runs later in this same power loop.
+                s_last_activity_at_us = esp_timer_get_time();
+                if (callback_error != ESP_OK) {
+                    ESP_LOGE(kTag, "Active PWR consumer rejected press (%s)",
+                             esp_err_to_name(callback_error));
+                }
+                return callback_error;
+            }
+            if (callback_error != ESP_OK) {
+                ESP_LOGE(kTag, "Active PWR consumer failed without claiming press (%s)",
+                         esp_err_to_name(callback_error));
+                return callback_error;
+            }
+        }
+    }
+    ESP_LOGI(kTag, "PWR short press: toggling standby (count=%lu)",
+             static_cast<unsigned long>(short_presses));
     return set_standby(
         s_state != LUNASHELL::DeviceOperatingState::Standby,
         LUNASHELL::DeviceStateReason::PowerButton
@@ -3000,6 +3020,15 @@ extern "C" void LUNASHELL_power_manager_note_activity(void)
     s_activity_sequence.fetch_add(1, std::memory_order_release);
 }
 
+// No parameters: keep a visible PWR countdown active under the existing idle policy.
+extern "C" void LUNASHELL_power_manager_note_power_activity(void)
+{
+    s_activity_at_us.store(esp_timer_get_time(), std::memory_order_relaxed);
+    s_activity_reason.store(LUNASHELL::DeviceStateReason::PowerButton,
+                            std::memory_order_relaxed);
+    s_activity_sequence.fetch_add(1, std::memory_order_release);
+}
+
 // seconds: Scene inactivity interval; zero immediately restores configured policy.
 // Exception: Returns ESP_ERR_INVALID_STATE until the canonical power owner is initialized.
 extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t seconds)
@@ -3018,6 +3047,25 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_scene_standby_override(uint32_t
     // the device from this consumer callback while the power owner awaits Sleep.
     ESP_LOGI(kTag, "Scene standby override: %lu s, entered_at=%lld us; settings unchanged",
              static_cast<unsigned long>(seconds), static_cast<long long>(entered_at_us));
+    return ESP_OK;
+}
+
+// callback: One nonblocking active PWR consumer; standby and long-hold remain power-owned.
+extern "C" esp_err_t LUNASHELL_power_manager_register_short_press(
+    LUNASHELL_power_short_press_callback_t callback)
+{
+    if (callback == nullptr || s_initialized.load(std::memory_order_acquire)) {
+        const esp_err_t error = callback == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(kTag, "PWR short-press registration rejected (%s)", esp_err_to_name(error));
+        return error;
+    }
+    LUNASHELL_power_short_press_callback_t expected = nullptr;
+    if (!s_short_press_callback.compare_exchange_strong(
+            expected, callback, std::memory_order_release, std::memory_order_acquire)) {
+        ESP_LOGE(kTag, "Duplicate PWR short-press consumer rejected (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
     return ESP_OK;
 }
 

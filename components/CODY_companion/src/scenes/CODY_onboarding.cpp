@@ -118,6 +118,7 @@ uint32_t s_attempt = 0;
 uint32_t s_session = 0;
 bool s_command_pending = false;
 bool s_cancel_to_install = false;
+bool s_retry_to_invitation = false; // 08 requested cleanup; only confirmed Cancelled may enter 05.
 bool s_pairing_owned = false;
 bool s_online_link = false;
 bool s_online_presentation_current = false;
@@ -634,6 +635,7 @@ esp_err_t attach_content(SceneFrame &scene)
         s_route == Route::Pairing07 ? kSessionQrBounds.y :
         s_route == Route::Invitation05 ? 230 : 346;
     SceneContent content;
+    content.bottom_action_visible = uses_footer_action() && s_view.action_visible;
     // The debug page uses the wider middle chord; normal setup routes keep the
     // QR/footer union used by their existing controls.
     content.bounds = s_route == Route::DebugText
@@ -648,7 +650,7 @@ esp_err_t attach_content(SceneFrame &scene)
     content.text_generation = s_text_generation;
     if (s_route == Route::DebugText) {
         // Full-screen dismissal belongs to the route owner, not an invisible control.
-    } else if (uses_footer_action()) {
+    } else if (uses_footer_action() && s_view.action_visible) {
         content.control_bounds[1] = {kFooterBounds.x, kFooterBounds.y,
             static_cast<uint16_t>(kFooterBounds.x + kFooterBounds.width),
             static_cast<uint16_t>(kFooterBounds.y + kFooterBounds.height)};
@@ -814,7 +816,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         error = prepare_caption(s_view.error_text, 348, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::None, false); // A current observation enables Retry/Cancel separately.
+            error = prepare_action(OnboardingAction::Retry, false); // The current observation gates retry or cleanup.
         }
     } else if (route == Route::Online09) {
         // Returning from a child must re-evaluate the canonical connection,
@@ -855,10 +857,10 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
         const char *message = s_codex_code[0] == '\0'
             ? "Preparing secure code"
             : "Enter code in Codex";
-        error = prepare_caption(message, 350, s_view.lines[0]);
+        error = prepare_caption(message, 346, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK && s_codex_code[0] != '\0') {
-            error = prepare_caption(s_codex_code, 380, s_view.lines[1]);
+            error = prepare_caption(s_codex_code, 373, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -871,20 +873,20 @@ esp_err_t enter_route(Route route, SceneFrame &scene)
             error = prepare_action(OnboardingAction::LetsGo, true);
         }
     } else if (route == Route::LookingForPc14) {
-        error = prepare_caption("Looking for paired PC", 350, s_view.lines[0]);
+        error = prepare_caption("Looking for paired PC", 346, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("Authenticated search", 380, s_view.lines[1]);
+            error = prepare_caption("Authenticated search", 373, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::None, false);
         }
     } else if (route == Route::Connected15) {
-        error = prepare_caption("Codex PC found", 350, s_view.lines[0]);
+        error = prepare_caption("Codex PC found", 346, s_view.lines[0]);
         s_view.line_count = 1;
         if (error == ESP_OK) {
-            error = prepare_caption("CCP is ready", 380, s_view.lines[1]);
+            error = prepare_caption("CCP is ready", 373, s_view.lines[1]);
             s_view.line_count = 2;
         }
         if (error == ESP_OK) {
@@ -1093,6 +1095,7 @@ void reset_onboarding()
     s_command_pending = false;
     s_pairing_owned = false;
     s_cancel_to_install = false;
+    s_retry_to_invitation = false;
     s_attempt = 0;
     s_session = 0;
     s_last_pairing_change_us = -1;
@@ -1281,6 +1284,11 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         scene.content.control_revision = ++s_navigation_revision;
         changed = true;
         if (result.error != ESP_OK) {
+            if (result.command.work == Work::Cancel && s_retry_to_invitation) {
+                // Admission failed, so a requested return to 05 has no confirmed cleanup.
+                s_retry_to_invitation = false;
+                s_cancel_to_install = false;
+            }
             const bool codex_work = result.command.work == Work::CodexStart ||
                 result.command.work == Work::CodexCopyCode ||
                 result.command.work == Work::CodexDiscover;
@@ -1432,57 +1440,88 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         }
         return ESP_OK;
     }
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::Cancel) {
+        // Keep the rejected cleanup visible until another explicit Retry is pressed.
+        return ESP_OK;
+    }
     if (pairing.changed_at_us != s_last_pairing_change_us) {
         changed = true;
         s_last_pairing_change_us = pairing.changed_at_us;
         if (pairing.state == PairState::Cancelled) {
+            const bool return_to_invitation = s_retry_to_invitation;
             s_pairing_owned = false;
             s_cancel_to_install = false;
-            error = enter_route(Route::Install06, scene);
-            if (error == ESP_OK) {
+            s_retry_to_invitation = false;
+            error = enter_route(return_to_invitation ? Route::Invitation05 : Route::Install06, scene);
+            if (error == ESP_OK && !return_to_invitation) {
                 error = enqueue(Work::InstallQr, 0);
             }
         } else if ((pairing.state == PairState::Failed || pairing.state == PairState::TimedOut) &&
                    !s_command_pending) {
+            s_retry_to_invitation = false;
+            s_cancel_to_install = false;
             s_local_failure = false;
             error = show_error(scene, pairing.cleanup_error != ESP_OK ? pairing.cleanup_error : pairing.last_error);
             if (error == ESP_OK) {
-                const bool can_retry = pairing.cleanup_error == ESP_OK;
-                const bool can_cancel = pairing.state == PairState::Failed && !can_retry;
-                error = prepare_action(can_retry ? OnboardingAction::Retry : can_cancel ? OnboardingAction::Cancel : OnboardingAction::None,
-                    (can_retry || can_cancel) && !s_command_pending);
+                // Retry returns to 05; failed cleanup first retries the typed Cancel operation.
+                const bool can_return_or_close = pairing.cleanup_error == ESP_OK ||
+                    pairing.state == PairState::Failed;
+                error = prepare_action(OnboardingAction::Retry, can_return_or_close);
                 if (error == ESP_OK) {
                     error = attach_content(scene);
                 }
             }
         } else if (pairing.state == PairState::Connecting || pairing.state == PairState::Completing ||
-                   pairing.state == PairState::Cancelling || pairing.state == PairState::Starting) {
-            if (s_route != Route::Pairing07) {
-                error = enter_route(Route::Pairing07, scene);
-            }
-            if (error == ESP_OK) {
-                error = prepare_action(OnboardingAction::Cancel, !s_command_pending &&
-                    pairing.state != PairState::Cancelling && pairing.state != PairState::Completing);
+                    pairing.state == PairState::Cancelling || pairing.state == PairState::Starting) {
+            if (s_retry_to_invitation) {
+                // Keep the failure view until the canonical owner confirms Cancelled.
+                error = prepare_action(OnboardingAction::Retry, false);
                 if (error == ESP_OK) {
-                    const char *message = pairing.state == PairState::Connecting ? "Connecting to Wi-Fi" :
-                        pairing.state == PairState::Completing ? "Finishing setup" :
-                        pairing.state == PairState::Cancelling ? "Closing pairing" : "Starting Bluetooth";
-                    error = show_pairing_progress(scene, message);
+                    error = attach_content(scene);
+                }
+            } else {
+                if (s_route != Route::Pairing07) {
+                    error = enter_route(Route::Pairing07, scene);
+                }
+                if (error == ESP_OK) {
+                    error = prepare_action(OnboardingAction::Cancel, !s_command_pending &&
+                        pairing.state != PairState::Cancelling && pairing.state != PairState::Completing);
+                    if (error == ESP_OK) {
+                        const char *message = pairing.state == PairState::Connecting ? "Connecting to Wi-Fi" :
+                            pairing.state == PairState::Completing ? "Finishing setup" :
+                            pairing.state == PairState::Cancelling ? "Closing pairing" : "Starting Bluetooth";
+                        error = show_pairing_progress(scene, message);
+                    }
                 }
             }
         } else if (pairing.state == PairState::Idle) {
             // A confirmed closed session may follow owner-controlled standby.
             // Never keep rendering the previous attempt's device QR.
-            s_pairing_owned = false;
-            s_cancel_to_install = false;
-            error = enter_route(Route::Install06, scene);
-            if (error == ESP_OK) {
-                error = enqueue(Work::InstallQr, 0);
+            if (s_retry_to_invitation) {
+                s_retry_to_invitation = false;
+                s_cancel_to_install = false;
+                error = show_error(scene, ESP_ERR_INVALID_STATE);
+                if (error == ESP_OK) {
+                    error = prepare_action(OnboardingAction::Retry, true);
+                }
+                if (error == ESP_OK) {
+                    error = attach_content(scene);
+                }
+            } else {
+                s_pairing_owned = false;
+                s_cancel_to_install = false;
+                error = enter_route(Route::Install06, scene);
+                if (error == ESP_OK) {
+                    error = enqueue(Work::InstallQr, 0);
+                }
             }
         }
         if (error != ESP_OK) {
             return error;
         }
+    }
+    if (s_retry_to_invitation) {
+        return error;
     }
     if (s_route != Route::Failed08 && pairing.state == PairState::ReadyToScan &&
         pairing.provisioning_session_id != s_session &&
@@ -1674,54 +1713,100 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         }
         return enter_codex_idle(scene);
     }
+    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::InstallQr) {
+        // The installation QR is local; no pairing session was started by this work.
+        s_local_failure = false;
+        return enter_route(Route::Invitation05, scene);
+    }
     LUNASHELL::ConnectivityObservation observation;
     const esp_err_t observation_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
     if (observation_error != ESP_OK) {
         return observation_error;
     }
     const auto &pairing = observation.radios.pairing;
-    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::InstallQr) {
-        esp_err_t error = enter_route(Route::Install06, scene);
-        if (error == ESP_OK) {
-            error = enqueue(Work::InstallQr, 0);
-        }
-        return error == ESP_OK ? ESP_OK : show_error(scene, error);
-    }
-    if (s_route == Route::Failed08 && s_local_failure &&
-        s_failed_work == Work::CompleteFirstBoot) {
-        esp_err_t error = enter_route(Route::Pairing07, scene);
-        if (error == ESP_OK) {
-            error = prepare_action(OnboardingAction::None, false);
-        }
-        if (error == ESP_OK) {
-            error = show_pairing_progress(scene, "Saving setup");
-        }
-        if (error == ESP_OK) {
-            error = enqueue(Work::CompleteFirstBoot, pairing.attempt_id);
-        }
-        return error == ESP_OK ? ESP_OK : show_error(scene, error);
-    }
     if (!pairing.data_valid || pairing.data_stale) {
         return show_error(scene, pairing.last_error != ESP_OK ? pairing.last_error : ESP_ERR_INVALID_STATE);
     }
-    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::SessionQr &&
-        pairing.state == PairState::ReadyToScan && pairing.attempt_id == s_attempt) {
-        esp_err_t error = enqueue(Work::SessionQr, s_attempt, pairing.provisioning_session_id);
-        if (error == ESP_OK) {
-            error = enter_route(Route::Pairing07, scene);
-        }
-        return error == ESP_OK ? ESP_OK : show_error(scene, error);
-    }
-    Work work = Work::Cancel;
-    if (s_route == Route::Failed08 && s_local_failure && s_failed_work == Work::Cancel) {
-        work = Work::Cancel; // Retry a rejected cancellation, not a second Start.
-    } else if (s_route == Route::Install06) {
-        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut ? Work::Retry : Work::Start;
-    } else if (s_route == Route::Failed08 && pairing.cleanup_error == ESP_OK) {
-        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut ? Work::Retry : Work::Start;
-    }
     if (s_pairing_owned && pairing.attempt_id != s_attempt) {
         return show_error(scene, ESP_ERR_INVALID_STATE);
+    }
+    if (s_route == Route::Failed08) {
+        if (s_local_failure && s_failed_work == Work::CompleteFirstBoot) {
+            // Pairing already succeeded. Retry only the failed local write;
+            // restarting an Online session would make the user pair again.
+            if (!s_pairing_owned || pairing.state != PairState::Online) {
+                return show_error(scene, ESP_ERR_INVALID_STATE);
+            }
+            s_local_failure = false;
+            esp_err_t retry_error = enter_route(Route::Pairing07, scene);
+            if (retry_error == ESP_OK) {
+                retry_error = prepare_action(OnboardingAction::None, false);
+            }
+            if (retry_error == ESP_OK) {
+                retry_error = show_pairing_progress(scene, "Saving setup");
+            }
+            if (retry_error == ESP_OK) {
+                retry_error = enqueue(Work::CompleteFirstBoot, pairing.attempt_id);
+            }
+            if (retry_error != ESP_OK) {
+                s_local_failure = true;
+                s_failed_work = Work::CompleteFirstBoot;
+                const esp_err_t display_error = show_error(scene, retry_error);
+                if (display_error != ESP_OK) {
+                    return display_error;
+                }
+                const esp_err_t action_error = prepare_action(OnboardingAction::Retry, true);
+                return action_error == ESP_OK ? attach_content(scene) : action_error;
+            }
+            return ESP_OK;
+        }
+        const bool active_session = pairing.state == PairState::Starting ||
+            pairing.state == PairState::ReadyToScan || pairing.state == PairState::Connecting ||
+            pairing.state == PairState::Completing;
+        const bool failed_cleanup = pairing.state == PairState::Failed && pairing.cleanup_error != ESP_OK;
+        if (pairing.state == PairState::Cancelling) {
+            const esp_err_t action_error = prepare_action(OnboardingAction::Retry, false);
+            return action_error == ESP_OK ? attach_content(scene) : action_error;
+        }
+        if (active_session || failed_cleanup) {
+            if (!s_pairing_owned) {
+                return show_error(scene, ESP_ERR_INVALID_STATE);
+            }
+            // A retry from 08 is navigation intent. Close the owned session first.
+            const esp_err_t cancel_error = enqueue(Work::Cancel, pairing.attempt_id);
+            if (cancel_error != ESP_OK) {
+                s_local_failure = true;
+                s_failed_work = Work::Cancel;
+                return show_error(scene, cancel_error);
+            }
+            s_local_failure = false;
+            s_retry_to_invitation = true;
+            s_cancel_to_install = true;
+            const esp_err_t action_error = prepare_action(OnboardingAction::Retry, false);
+            return action_error == ESP_OK ? attach_content(scene) : action_error;
+        }
+        if (pairing.cleanup_error != ESP_OK) {
+            return show_error(scene, pairing.cleanup_error);
+        }
+        const bool clean_terminal = pairing.state == PairState::Idle ||
+            pairing.state == PairState::Cancelled || pairing.state == PairState::Failed ||
+            pairing.state == PairState::TimedOut || pairing.state == PairState::Online;
+        if (!clean_terminal) {
+            return show_error(scene, ESP_ERR_INVALID_STATE);
+        }
+        // Clean terminal attempts can be left in place. Pair Cody on 06 later
+        // selects START or RETRY from the canonical state after Show QR on 05.
+        s_pairing_owned = false;
+        s_cancel_to_install = false;
+        s_retry_to_invitation = false;
+        s_local_failure = false;
+        s_session = 0;
+        return enter_route(Route::Invitation05, scene);
+    }
+    Work work = Work::Cancel;
+    if (s_route == Route::Install06) {
+        work = pairing.state == PairState::Failed || pairing.state == PairState::TimedOut
+            ? Work::Retry : Work::Start;
     }
     s_cancel_to_install = work == Work::Cancel;
     const esp_err_t request_error = enqueue(work, pairing.attempt_id);

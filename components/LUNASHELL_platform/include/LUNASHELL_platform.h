@@ -202,8 +202,18 @@ esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
 
+// claimed: Set true when this active PWR press belongs to the registered consumer.
+// The callback only queues work; it must not wait for display, audio, or storage.
+typedef esp_err_t (*LUNASHELL_power_short_press_callback_t)(bool *claimed);
+// callback: Single active-state PWR consumer, registered before power startup.
+esp_err_t LUNASHELL_power_manager_register_short_press(
+    LUNASHELL_power_short_press_callback_t callback
+);
+
 /** Record activity without blocking the touch or UI callback. */
 void LUNASHELL_power_manager_note_activity(void);
+/** Refresh the active PWR countdown without blocking or changing persisted timeouts. */
+void LUNASHELL_power_manager_note_power_activity(void);
 
 // seconds: Transient scene inactivity seconds; zero restores the configured timeout.
 // Positive overrides start on scene entry and defer display dimming until standby.

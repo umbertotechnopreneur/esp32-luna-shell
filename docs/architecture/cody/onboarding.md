@@ -17,8 +17,9 @@ in [runtime](runtime.md).
 | 07, current attempt ReadyToScan + QR encoded | Remain 07 / Scan to pair + session QR |
 | Credentials / Connecting / Completing | Retire QR; type actual progress in 07 |
 | 07, Cancel | Wipe QR and await confirmed closure, then 06 |
-| Failed / TimedOut / presentation error | 08 / actual error and gated Retry/Cancel |
-| 08, admitted clean Retry | Immediately 07 for the new attempt |
+| Failed / TimedOut / presentation error | 08 / actual error and gated Retry |
+| 08, Retry after clean terminal failure | Return to 05; Show QR and Pair Cody admit the next attempt |
+| 08, Retry with an active session or failed cleanup | Request typed Cancel, keep 08 visible, then return to 05 only after clean Cancelled |
 | Online + healthy current Wi-Fi association/IP | Persist and read back `cody_firstboot=false` |
 | Persisted handoff + BLE advertising restored, Debug | 39 / Pairing debug; any awake tap dismisses |
 | Persisted handoff + BLE advertising restored, Release | Skip 39 and enter 09 directly |
@@ -37,12 +38,20 @@ in [runtime](runtime.md).
 blink, breath, IMU and elastic touch response continue. No content action is
 admitted during movement/wait.
 
-06 is white, hides its heading, places Cody at `(233,94,58)` and shows an
+06 is white, hides its heading, places Cody's worried face at `(233,94,58)` and shows an
 installation QR of 240×240 at `(113,140)`. Scale 58 is smaller than 05's final 65.
 05/06 use Show QR / Pair Cody blue footers at `(113,390,240,40)` and neither draws
 nor hit-tests lateral controls. The inherited installation payload is
 `https://play.google.com/store/apps/details?id=com.espressif.provble`; it is not a
 credential and does not start BLE.
+
+08 uses the separate afraid expression: open eyes, inward-raised worried brows and
+a narrow open mouth. Its only footer label is Retry. A failed installation QR
+returns to 05 without radio cleanup because that work starts no session. A clean
+terminal pairing attempt also returns to 05 without starting another attempt.
+The new attempt begins only when Pair Cody is pressed again on 06.
+If pairing is already Online and only the local first-boot write failed, Retry
+retries that write on 07 instead of starting another BLE pairing attempt.
 
 07 enters on action admission, not radio success. Its white scene places Cody at
 `(233,80,46)` above title y=131. ReadyToScan types Scan to pair and displays the
@@ -95,10 +104,14 @@ resampled bitmap. QR encoding errors remain visible and require explicit retry.
 The pinned QR dependency is `espressif/qrcode` `0.1.0~2`; dependency-lock updates
 remain explicit reviewed platform workflows, not silent resolver changes.
 
-The backend has a five-minute deadline. Retry requires successful cleanup;
-`cleanup_error` is separate from the attempt failure. If closure failed, show it
-and allow explicit Cancel to retry cleanup; a poisoned manager stays blocked.
-Cancel wipes the displayed QR immediately but navigation waits for Cancelled.
+The backend has a five-minute deadline. A new pairing attempt requires successful
+cleanup; `cleanup_error` is separate from the attempt failure. If 08 still owns an
+active session or cleanup failed, Retry requests the typed Cancel operation and
+stays disabled on 08 until the canonical state confirms clean Cancelled. A failed
+closure remains visible with its real error and can be retried explicitly; an
+uncancellable state remains blocked rather than presenting a false return to 05.
+Cancel on 07 wipes the displayed QR immediately but navigation waits for Cancelled
+and then returns to 06.
 Stored SSID, BLE connection, credentials, DHCP initiation or action admission
 never establish Online. See [connectivity/pairing](../connectivity-pairing.md) for
 the acquisition, worker and cleanup implementation.

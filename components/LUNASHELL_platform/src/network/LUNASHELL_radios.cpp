@@ -109,6 +109,8 @@ static StaticSemaphore_t s_refresh_stop_ack_storage;
 static SemaphoreHandle_t s_refresh_stop_ack;
 static bool s_refresh_stop_requested;
 static bool s_ble_stop_requested;
+static bool s_ble_stop_call_in_progress;
+static bool s_ble_host_exiting;
 
 static bool has_fresh_data(const LUNASHELL::ComponentSnapshot &component)
 {
@@ -538,6 +540,8 @@ static const struct ble_gatt_svc_def s_LUNASHELL_services[] = {
 
 static esp_err_t start_ble_advertising(void);
 
+// event: NimBLE GAP event that may request an advertising restart.
+// arg: Unused callback context.
 static int ble_gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
@@ -554,32 +558,41 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
             }
             publish_ble_snapshot();
         } else {
+            bool restart_advertising = false;
             {
                 std::lock_guard<std::mutex> guard(s_ble_state_mutex);
                 s_ble_advertising = false;
+                restart_advertising = !s_ble_stop_requested;
             }
-            const esp_err_t advertising_error = start_ble_advertising();
-            if (advertising_error != ESP_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "BLE: advertising recovery after failed connection "
-                    "failed (%s)",
-                    esp_err_to_name(advertising_error)
-                );
+            if (restart_advertising) {
+                const esp_err_t advertising_error = start_ble_advertising();
+                if (advertising_error != ESP_OK) {
+                    ESP_LOGE(
+                        TAG,
+                        "BLE: advertising recovery after failed connection "
+                        "failed (%s)",
+                        esp_err_to_name(advertising_error)
+                    );
+                }
             }
         }
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         {
-            std::lock_guard<std::mutex> guard(s_ble_state_mutex);
-            s_ble_connected = false;
-            s_ble_advertising = false;
-            s_connection_handle = BLE_HS_CONN_HANDLE_NONE;
-            ++s_disconnection_count;
-        }
-        publish_ble_snapshot();
-        ESP_LOGI(TAG, "BLE: disconnected, restarting advertising");
-        {
+            bool restart_advertising = false;
+            {
+                std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+                s_ble_connected = false;
+                s_ble_advertising = false;
+                s_connection_handle = BLE_HS_CONN_HANDLE_NONE;
+                ++s_disconnection_count;
+                restart_advertising = !s_ble_stop_requested;
+            }
+            publish_ble_snapshot();
+            if (!restart_advertising) {
+                break;
+            }
+            ESP_LOGI(TAG, "BLE: disconnected, restarting advertising");
             const esp_err_t advertising_error = start_ble_advertising();
             if (advertising_error != ESP_OK) {
                 ESP_LOGE(
@@ -593,17 +606,21 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
         {
+            bool restart_advertising = false;
             {
                 std::lock_guard<std::mutex> guard(s_ble_state_mutex);
                 s_ble_advertising = false;
+                restart_advertising = !s_ble_stop_requested;
             }
-            const esp_err_t advertising_error = start_ble_advertising();
-            if (advertising_error != ESP_OK) {
-                ESP_LOGE(
-                    TAG,
-                    "BLE: advertising restart failed (%s)",
-                    esp_err_to_name(advertising_error)
-                );
+            if (restart_advertising) {
+                const esp_err_t advertising_error = start_ble_advertising();
+                if (advertising_error != ESP_OK) {
+                    ESP_LOGE(
+                        TAG,
+                        "BLE: advertising restart failed (%s)",
+                        esp_err_to_name(advertising_error)
+                    );
+                }
             }
         }
         break;
@@ -613,11 +630,16 @@ static int ble_gap_event(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
+// No parameters: begin advertising only while the BLE host is active.
+// Exception: Returns an explicit stop rejection or the NimBLE setup/start error.
 static esp_err_t start_ble_advertising(void)
 {
     uint8_t address_type = 0;
     {
         std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        if (s_ble_stop_requested || s_ble_host_exiting) {
+            return ESP_ERR_INVALID_STATE;
+        }
         address_type = s_ble_address_type;
     }
 
@@ -731,12 +753,30 @@ static void ble_on_sync(void)
     }
 }
 
+// arg: Unused FreeRTOS task context.
 static void ble_host_task(void *arg)
 {
     (void)arg;
     nimble_port_run();
 
+    {
+        std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        s_ble_host_exiting = true;
+    }
     stop_refresh_snapshot_task();
+    // NimBLE's dynamic stop event belongs to nimble_port_stop until it returns.
+    // Deinitializing here earlier frees that event while the caller still uses it.
+    while (true) {
+        bool stop_call_in_progress = false;
+        {
+            std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+            stop_call_in_progress = s_ble_stop_call_in_progress;
+        }
+        if (!stop_call_in_progress) {
+            break;
+        }
+        vTaskDelay(1);
+    }
     const esp_err_t cleanup_error = nimble_port_deinit();
     bool stop_requested = false;
     esp_err_t runtime_error = cleanup_error;
@@ -746,7 +786,6 @@ static void ble_host_task(void *arg)
         runtime_error = cleanup_error == ESP_OK
                             ? ESP_ERR_INVALID_STATE
                             : cleanup_error;
-        s_ble_host_task_handle = nullptr;
         s_ble_initializing = false;
         s_ble_initialized = false;
         s_ble_host_synced = false;
@@ -762,6 +801,13 @@ static void ble_host_task(void *arg)
         s_ble_stop_requested = false;
     }
     publish_ble_snapshot(runtime_error);
+    {
+        std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        // The stop waiter must not admit a new host until the retired host has
+        // published its final state; otherwise this can overwrite wake's Ready.
+        s_ble_host_task_handle = nullptr;
+        s_ble_host_exiting = false;
+    }
     if (stop_requested && cleanup_error == ESP_OK) {
         ESP_LOGI(TAG, "BLE telemetry lifecycle stopped by explicit user action");
     } else {
@@ -833,6 +879,8 @@ static esp_err_t fail_ble_initialization_after_port(
     return returned_error;
 }
 
+// No parameters: stop the NimBLE host before allowing its dynamic context to be freed.
+// Exception: Returns the original stop, cleanup, or timeout error.
 static esp_err_t stop_ble_telemetry()
 {
     std::lock_guard<std::mutex> lifecycle_guard(s_ble_lifecycle_mutex);
@@ -847,13 +895,24 @@ static esp_err_t stop_ble_telemetry()
             ESP_LOGE(TAG, "BLE stop rejected while initialization is active");
             return ESP_ERR_INVALID_STATE;
         }
+        if (s_ble_host_exiting) {
+            ESP_LOGE(TAG, "BLE stop rejected while host cleanup is active");
+            return s_ble_runtime_error == ESP_OK
+                       ? ESP_ERR_INVALID_STATE
+                       : s_ble_runtime_error;
+        }
         if (!s_ble_initialized && s_ble_host_task_handle == nullptr) {
             return ESP_OK;
         }
         s_ble_stop_requested = true;
+        s_ble_stop_call_in_progress = true;
     }
 
     const int stop_result = nimble_port_stop();
+    {
+        std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+        s_ble_stop_call_in_progress = false;
+    }
     if (stop_result != 0) {
         {
             std::lock_guard<std::mutex> guard(s_ble_state_mutex);
@@ -895,6 +954,8 @@ static esp_err_t stop_ble_telemetry()
     return ESP_ERR_TIMEOUT;
 }
 
+// No parameters: initialize NimBLE telemetry for the current radio lifecycle.
+// Exception: Returns the original initialization or cleanup error.
 extern "C" esp_err_t LUNASHELL_ble_init(void)
 {
     std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
@@ -924,6 +985,8 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
         s_ble_initialization_attempted = true;
         s_ble_initializing = true;
         s_ble_cleanup_poisoned = false;
+        s_ble_host_exiting = false;
+        s_ble_stop_call_in_progress = false;
         s_ble_initialization_result = ESP_ERR_INVALID_STATE;
     }
 
