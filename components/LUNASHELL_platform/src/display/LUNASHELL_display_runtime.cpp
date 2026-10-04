@@ -24,6 +24,7 @@ namespace {
 constexpr char kTag[] = "LUNASHELL_display_runtime";
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
 std::atomic_bool s_writes_suspended{false};
+std::atomic_bool s_startup_quiescent{false};
 std::atomic_bool s_runtime_ready{false};
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
 std::atomic<TaskHandle_t> s_frame_owner{nullptr};
@@ -96,7 +97,8 @@ extern "C" bool LUNASHELL_display_runtime_writes_allowed(void)
 {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     return s_runtime_ready.load(std::memory_order_acquire) &&
-           !s_writes_suspended.load(std::memory_order_acquire);
+           !s_writes_suspended.load(std::memory_order_acquire) &&
+           !s_startup_quiescent.load(std::memory_order_acquire);
 #else
     return false;
 #endif
@@ -127,6 +129,24 @@ extern "C" esp_err_t LUNASHELL_display_runtime_set_suspended(bool suspended)
 #else
     (void)suspended;
     return log_operation_result("Standalone display quiescence", ESP_ERR_NOT_SUPPORTED);
+#endif
+}
+
+// quiescent: Block only startup DMA contention; leave the power write gate unchanged.
+extern "C" esp_err_t LUNASHELL_display_runtime_set_startup_quiescent(bool quiescent)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
+    // A retired frame has released its transient DMA lease before this lock opens.
+    const esp_err_t result = bsp_display_lock(kDisplayLockTimeoutMs);
+    if (result != ESP_OK) {
+        return log_operation_result("Startup display quiescence lock", result);
+    }
+    s_startup_quiescent.store(quiescent, std::memory_order_release);
+    bsp_display_unlock();
+    return ESP_OK;
+#else
+    (void)quiescent;
+    return log_operation_result("Startup display quiescence", ESP_ERR_NOT_SUPPORTED);
 #endif
 }
 

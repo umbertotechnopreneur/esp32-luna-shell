@@ -63,6 +63,10 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   deferred touch work. Reserve BLE contiguous headroom before Wi-Fi.
   [Mitigations](docs/architecture/display-touch-runtime.md),
   [rendering](docs/architecture/cody/rendering.md).
+- On Cody, reserve the BLE controller's contiguous DMA lease before SD/display
+  fragmentation, then drain and briefly park frame-owned display DMA during
+  Wi-Fi/BLE startup. Keep BLE's free-space and largest-block preflight strict;
+  aggregate free RAM alone does not prove a controller-sized block exists.
 
 ## Power, wake and audio
 

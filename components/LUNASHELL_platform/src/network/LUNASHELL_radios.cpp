@@ -1352,6 +1352,37 @@ static esp_err_t run_watched_radio_operation(
     );
 }
 
+// No parameters: hold the controller's contiguous DMA block before SD and display startup.
+esp_err_t LUNASHELL_radios_reserve_startup_dma(void)
+{
+#if CONFIG_BT_CONTROLLER_ENABLED
+    std::lock_guard<std::recursive_mutex> radios_guard(s_radios_init_mutex);
+    if (esp_bt_controller_get_status() != ESP_BT_CONTROLLER_STATUS_IDLE) {
+        ESP_LOGE(TAG, "Early BLE DMA reservation rejected: controller already active (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_deferred_ble_dma) {
+        return ESP_OK;
+    }
+
+    log_radio_heap_checkpoint("before early BLE DMA reservation");
+    const esp_err_t result =
+        LUNASHELL::radio_memory::reserveBleControllerDma(s_deferred_ble_dma);
+    if (result != ESP_OK) {
+        LUNASHELL::DeviceSnapshotService::instance().reportBle(false, result);
+        return result;
+    }
+    log_radio_heap_checkpoint("after early BLE DMA reservation");
+    return ESP_OK;
+#else
+    ESP_LOGE(TAG, "Early BLE DMA reservation unavailable: controller disabled (%s)",
+             esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// No parameters: start both radios with the early DMA reservation when available.
 esp_err_t LUNASHELL_radios_init(void)
 {
     return run_watched_radio_operation("startup", radios_init_impl);

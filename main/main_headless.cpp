@@ -148,6 +148,13 @@ extern "C" void app_main(void)
     // optional observations with real errors. NTP can establish UTC later.
     report_optional_startup_failure("initial hardware snapshot", LUNASHELL_hardware_refresh("boot"));
     startup_watch.progress("initial hardware snapshot");
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
+    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+    // Hold the BLE controller's contiguous DMA block before SD/display startup
+    // can fragment it; radios_init transfers the same lease into Wi-Fi startup.
+    ESP_ERROR_CHECK(LUNASHELL_radios_reserve_startup_dma());
+    startup_watch.progress("BLE controller DMA reservation");
+#endif
     // Start the optional SD owner before display/Cody startup can fail. Its
     // worker mounts asynchronously and replays the logger's bounded boot buffer.
     report_optional_startup_failure("removable storage", LUNASHELL_storage_init());
@@ -209,7 +216,20 @@ extern "C" void app_main(void)
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    ESP_ERROR_CHECK(LUNASHELL_radios_init());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    // Prevent Cody's next transient display lease from consuming the BLE
+    // controller block while Wi-Fi allocates and BLE takes ownership.
+    ESP_ERROR_CHECK(LUNASHELL_display_runtime_set_startup_quiescent(true));
+#endif
+    const esp_err_t radios_error = LUNASHELL_radios_init();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    const esp_err_t display_resume_error =
+        LUNASHELL_display_runtime_set_startup_quiescent(false);
+#endif
+    ESP_ERROR_CHECK(radios_error);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
+    ESP_ERROR_CHECK(display_resume_error);
+#endif
 #else
     report_optional_startup_failure("Wi-Fi/BLE", LUNASHELL_radios_init());
 #endif

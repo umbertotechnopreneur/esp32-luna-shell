@@ -16,6 +16,16 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// No parameters: radio-less profiles cannot reserve BLE controller DMA.
+extern "C" esp_err_t LUNASHELL_radios_reserve_startup_dma(void)
+{
+    LUNASHELL::DeviceSnapshotService::instance().reportBle(
+        false,
+        ESP_ERR_NOT_SUPPORTED
+    );
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_radios_init(void)
 {
     LUNASHELL::WifiSnapshot wifi{};

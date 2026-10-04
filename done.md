@@ -7,6 +7,15 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Fixed the Cody Debug reboot loop on COM10: reserve the BLE controller's
+  30,720-byte internal DMA block before display startup, then briefly drain and
+  park display frames while Wi-Fi and BLE take ownership. An eight-job Debug
+  build and verified flash passed. A passive capture showed continuous rendering
+  past 45 seconds of uptime; a reset capture reached Wi-Fi ready, BLE ready,
+  completed startup and the pairing route without another reboot over 20 seconds.
+  The SD card still times out as an optional peripheral. Evidence:
+  `artifacts/build-cody-companion-debug/cody-boot-verified.log`. No host suite,
+  phone pairing or prolonged memory soak was run for this fix.
 - Created the English A5 front/back CCP pairing quick-start leaflet in Obsidian
   and `docs/Cody/`, with the proposed ZIP/local-marketplace installation path,
   display-code pairing, ten-second Idle flow, atlas illustrations and note lines.

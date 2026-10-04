@@ -301,6 +301,10 @@ esp_err_t LUNASHELL_display_runtime_init(void);
 // suspended: Whether standalone rectangle writes must remain blocked.
 esp_err_t LUNASHELL_display_runtime_set_suspended(bool suspended);
 
+/** Drain the active frame and temporarily block new DMA leases during startup. */
+// quiescent: True while another startup owner needs contiguous internal DMA memory.
+esp_err_t LUNASHELL_display_runtime_set_startup_quiescent(bool quiescent);
+
 /** Query initialized standalone write availability without copying a full snapshot. */
 bool LUNASHELL_display_runtime_writes_allowed(void);
 
@@ -513,6 +517,8 @@ void LUNASHELL_performance_mode_get_status(
     LUNASHELL_performance_mode_status_t *status
 );
 
+/** Reserve BLE controller DMA before other startup owners fragment internal RAM. */
+esp_err_t LUNASHELL_radios_reserve_startup_dma(void);
 /**
  * Start the Wi-Fi station lifecycle and BLE advertising with a
  * device-scoped name.
