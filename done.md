@@ -11,8 +11,12 @@ and referenced architecture/artifact records.
   allocations; `0x7800` in the inspected routine is an address offset, not a
   malloc size. Preserve the 34,816-byte aggregate budget with four 8-KiB chunks
   and one 2-KiB chunk, all-or-nothing acquisition and real SDK error handling.
-  No SDK patch/allocation hook or Wi-Fi buffer reduction. Build/flash pending;
-  tests are not authorized.
+  No SDK patch/allocation hook or Wi-Fi buffer reduction. Debug `bb8fd327`
+  built with eight jobs and flashed to COM10 with verified write hashes.
+  The owner confirmed the real pairing QR. The passive log records healthy
+  BLE wake, provisioning startup, clean inactivity closure with budget rearm,
+  then a second provisioning startup without `ESP_ERR_NO_MEM`. Phone credential
+  transfer/DHCP remain unverified; no tests or simulator were run.
 
 - Lifetime BLE DMA ownership: one static 34,816-byte reserve survives standby
   and pre-controller failures. After actual SDK teardown Cody parks display DMA

@@ -33,8 +33,9 @@ older host/build/flash evidence does not validate the current combined image.
 - [ ] Verify clean Retry from 08 returns to 05 after the teardown/admission split.
   `a19e0093` boot capture confirmed SDK BLE startup succeeds, but first standby
   rearm fails solely at the application's monolithic reserve (97,443 bytes
-  free, largest 21,504). Verify the corrected chunked budget survives standby, first Pair, Cancel,
-  real SDK teardown and another Pair, reaching the actual session QR. Check
+  free, largest 21,504). Debug `bb8fd327` now reaches the real session QR (owner
+  confirmed), restores BLE after standby, rearms after inactivity closure and
+  starts a second session. Verify explicit Cancel/Retry and repeated cycles. Check
   separate cleanup/reservation errors and actual SDK results; the old 30-KiB
   contiguous requirement is not supported by the inspected SDK allocation path.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
