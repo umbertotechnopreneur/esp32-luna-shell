@@ -14,8 +14,10 @@ and referenced architecture/artifact records.
   flashed to COM10 with verified hashes and booted with the matching ELF identity.
   Source assertions updated but not run; physical 90-second behavior is pending.
   Saved Wi-Fi credentials reconnect with DHCP and SNTP in this boot capture.
-  SD still times out before FAT after the owner's reinsertion; no format was
-  performed. Ordinary idle standby completes at 64.697 s with BLE budget rearm.
+  SD initially timed out before FAT after reinsertion; after the owner's full
+  power cycle, the snapshot reported mounted=yes and card-response=verified on
+  attempt 1, without formatting. The owner confirmed a saved PWR screenshot.
+  Ordinary idle standby completes at 64.697 s with BLE budget rearm.
   Evidence: `artifacts/build-cody-companion-debug/evidence/cody-0a4f1b8-deploy.md`.
 - Captured the intermittent wake complaint: the earlier renderer had already
   stopped with INVALID_ARG before standby was requested; the first terminating

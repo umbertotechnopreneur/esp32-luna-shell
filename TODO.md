@@ -33,14 +33,12 @@ older host/build/flash evidence does not validate the current combined image.
   the missing interval prevents cause attribution. The reset/reproduction log
   records clean standby at 64 s and touch wake at 179 s, confirmed by the owner.
   Do not treat that single success as a fix or hide terminal errors with restart.
-- [ ] Resolve removable-SD transport before screenshot persistence: `bb8fd327`
-  repeatedly times out in `sdmmc_card_init`/OCR, before card identity and FAT;
-  both FRESULT fields remain -1. The owner showed existing log files on Windows
-  and reinserted the readable SD; `0a4f1b87` still has the same OCR timeout after
-  restart. No responding card/FormatRequired state has been verified on-device;
-  nothing was formatted. Cody currently has no exposed format control. Diagnose
-  the board/card transport, then use identity-bound one-shot authorization only
-  for a verified missing filesystem; confirm an actual saved BMP afterward.
+- [ ] Investigate intermittent SD transport after warm resets/reinsertion:
+  `bb8fd327` and an early `0a4f1b87` boot timed out during card OCR before FAT.
+  After a full power cycle with the same readable card, the canonical snapshot
+  reported mounted=yes, card-response=verified, attempts=1 and
+  format-attempted=no; the owner confirmed a saved PWR screenshot. Reproduce the
+  intermittent failure before changing the SD driver or its mount policy.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.
