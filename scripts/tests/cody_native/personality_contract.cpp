@@ -355,6 +355,90 @@ PettingZone slow_stroke(const RigScene &scene, PettingState &state, int64_t at_u
     return zone;
 }
 
+// No parameters: the authored automatic Greeting geometry connects a real crown stroke to a visible heart.
+// Exception: Host framebuffer allocation may throw std::bad_alloc.
+void check_routine_greeting_caress()
+{
+    // This is the automatic Greeting's authored placement, not the full-size idle preset.
+    // Main permission is supplied explicitly: this portable fixture does not execute firmware routing.
+    const Transform greeting_transform{233.f, 225.f, 130.f};
+    RigScene scene;
+    require(evaluate_rig(Data::defaults, greeting_transform, scene) == ESP_OK,
+            "automatic Greeting130 evaluates the actual authored cloud geometry");
+    const auto crown = scene.world[to_index(PointId::LobeCrown)];
+    const auto left_eye = scene.world[to_index(PointId::EyeLeft)];
+    const auto right_eye = scene.world[to_index(PointId::EyeRight)];
+    const float eye_line = left_eye.y < right_eye.y ? left_eye.y : right_eye.y;
+    const float upper_limit = eye_line - scene.scale * PettingConfig::upper_margin_per_scale;
+    const float stroke_y = (crown.y + upper_limit) * .5f;
+    const float stroke_start_x = crown.x - 16.f;
+    require(crown.y < stroke_y && stroke_y < upper_limit,
+            "Greeting stroke lies between the real crown and protected eye band");
+
+    PettingState contact;
+    HappinessState happiness;
+    require(initialize_happiness(PersonalityData::happiness, happiness) == ESP_OK,
+            "Greeting interaction initializes the authored session mood");
+    unsigned recognized = 0;
+    PersonalityCue desired = PersonalityCue::None;
+    for (unsigned index = 0; index <= 8; ++index) {
+        const CODY2D::Vec2 point{stroke_start_x + index * 4.f, stroke_y};
+        bool inside_body = false;
+        require(hit_test_body(scene, point, inside_body) == ESP_OK && inside_body,
+                "every acquired Greeting crown stroke point lies inside the actual cloud body");
+        PettingZone zone{};
+        require(observe_petting(scene, point, true, index == 0,
+                    1000000 + static_cast<int64_t>(index) * 100000,
+                    contact, zone) == ESP_OK,
+                "actual Greeting crown stroke accepts bounded100ms acquired reports");
+        if (zone != PettingZone::None) {
+            ++recognized;
+            require(zone == PettingZone::AboveEyes,
+                    "actual Greeting crown stroke dispatches the anatomical upper caress");
+            require(apply_happiness_event(PersonalityData::happiness,
+                        PettingConfig::event, happiness) == ESP_OK,
+                    "recognized Greeting caress applies the authored typed mood event");
+            bool release_affection = false;
+            require(select_personality_target(PersonalityCue::None, false, true,
+                        desired, release_affection) == ESP_OK &&
+                        desired == PersonalityCue::Affection && !release_affection,
+                    "recognized Greeting caress selects a live heart on an empty channel");
+        }
+    }
+    require(recognized == 1 && happiness.happiness == 60 && happiness.decay_remainder_us == 0,
+            "one real Greeting stroke increases initial happiness50 to60 exactly once");
+
+    CodySize size{};
+    require(cody_size_for_scale(greeting_transform.scale, size) == ESP_OK && size == CodySize::Greeting,
+            "automatic Greeting130 uses its actual typed character size");
+    PersonalityContext context;
+    context.presentation = PersonalityPresentation::Main;
+    context.nominal_scale = greeting_transform.scale;
+    PersonalityLag lag;
+    PersonalityFrame frame;
+    for (const int64_t elapsed_us : {int64_t{0}, int64_t{300000}, int64_t{400000}}) {
+        require(prepare_personality_frame(scene, desired, size, context,
+                    elapsed_us, false, false, exclusions, 2, lag, frame) == ESP_OK,
+                "actual Greeting130 caress prepares the bounded main-view heart transition");
+        require(frame.status != PersonalityPresentationStatus::BlockedByLayout,
+                "actual Greeting130 heart clears the cloud, circle and reserved status bounds");
+    }
+    require(frame.cue == PersonalityCue::Affection && frame.opacity == 255 &&
+                frame.status == PersonalityPresentationStatus::Visible,
+            "actual Greeting130 heart is fully visible after300ms stability and400ms fade");
+    constexpr uint16_t background = 0x3186;
+    std::vector<uint16_t> pixels(466 * 466, background);
+    const CODY2D::Surface canvas{pixels.data(), 466, 466, 466,
+                               static_cast<uint32_t>(pixels.size())};
+    require(draw_personality_rows(frame, canvas, 0, 0) == ESP_OK,
+            "actual Greeting130 heart paints its flash-backed sprite");
+    bool painted = false;
+    for (const uint16_t pixel : pixels) {
+        painted = painted || pixel != background;
+    }
+    require(painted, "visible Greeting caress heart changes actual RGB565 pixels");
+}
+
 // No parameters: actual production gesture logic rejects accidental contacts and duplicate reactions.
 void check_petting()
 {
@@ -879,6 +963,7 @@ void check_wellbeing()
 } // namespace
 
 // No parameters: runs only when explicitly authorized through the public check CLI.
+// Exception: Host framebuffer allocations may throw std::bad_alloc.
 int main()
 {
     std::printf("{\"samples\":[");
@@ -888,6 +973,7 @@ int main()
     check_rejection_and_sizes();
     check_dirty_and_raster();
     check_petting();
+    check_routine_greeting_caress();
     check_happiness();
     check_symbol_arbitration();
     check_battery_hysteresis();

@@ -20,7 +20,10 @@ older host/build/flash evidence does not validate the current combined image.
   but showed no icon. Host personality/runtime checks passed; real contact
   timing, scene eligibility and the first rejected controller packet remain
   unresolved. Do not treat a missing recognition log as proof of a layout fault
-  or silently relax driver acceptance. Evidence lives under
+  or silently relax driver acceptance. Source review found that the automatic
+  idle greeting retained a SceneFrame and incorrectly excluded carezze; the
+  narrowly scoped Greeting admission fix and contact-boundary diagnostics are
+  implemented, pending final validation and device deployment. Evidence lives under
   `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
 
 - [ ] After fresh command-specific authorization, run the pure host

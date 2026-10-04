@@ -1,8 +1,10 @@
 # Cody personality channel
 
 Cody displays one manga symbol in the main character view or the full-size Sleep
-presentation. Onboarding, greetings, settings, QR, boot and small-header scenes
-disable the channel. Scene permission is independent of `CodySize`: the ten
+presentation. The automatic clock greeting during Idle belongs to the main
+companion view and permits symbols and carezze. Explicit onboarding/greeting
+routes, settings, QR, boot and small-header scenes disable the channel.
+Scene permission is independent of `CodySize`: the ten
 stable size identities and scalable masters remain available, while Micro still
 suppresses symbols. All skins use the same fourteen fixed-palette masters.
 
@@ -172,7 +174,8 @@ contention and PCM drain behavior remain unmeasured.
 
 ## Petting experiment
 
-The normal Main presentation recognizes a slow continuous drag within the
+The normal Main presentation, including the automatic clock greeting while
+Idle, recognizes a slow continuous drag within the
 displayed body above the eyes or below the mouth. Regions follow the evaluated
 face/body, in the existing logical touch coordinates. Shared thresholds are
 authored in `assets/cody/personality.yaml` and emitted into
@@ -204,6 +207,11 @@ heart fade-out before the Sleep fade-in; hidden or parked contacts do not replay
 Normal release ends the contact while the accepted heart
 can finish. Debug skeleton mode does not recognize petting. Body drag still
 uses its existing canonical publication and deformation response.
+
+Contact diagnostics record admission at press and the recognizer state at
+release, without per-move logging. `Mood caress` proves recognition; the next
+message distinguishes a requested heart from an occupied-channel suppression.
+`Personality layout blocked` reports nonfatal layout suppression separately.
 
 The Windows source supports the same synthetic pointer flow in the normal Rig
 view, with Debug geometry disabled and symbol selection None. The existing

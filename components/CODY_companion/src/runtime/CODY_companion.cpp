@@ -379,8 +379,12 @@ CODY::PersonalityPresentation personality_presentation(bool rig_visible)
     if (s_state.lifecycle.phase == CODY::LifecyclePhase::Sleep) {
         return CODY::PersonalityPresentation::Sleep;
     }
+    // The automatic clock greeting is the ordinary idle companion, not an
+    // onboarding route. Its retained SceneFrame must not disable interactions.
+    const bool routine_main = s_state.routine_scene && s_state.scene.valid &&
+        s_state.scene.definition != nullptr && s_state.scene.definition->id == CODY::SceneId::Greeting;
     const bool main_view = CODY::lifecycle_is_resting(s_state.lifecycle) &&
-        !s_state.scene.valid && !s_state.resume_scene_pending;
+        (!s_state.scene.valid || routine_main) && !s_state.resume_scene_pending;
     if (!main_view) {
         return CODY::PersonalityPresentation::Disabled;
     }
@@ -2838,6 +2842,9 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
         }
     }
     if (!s_state.body_drag_active) {
+        if (pressed_edge) {
+            ESP_LOGI(kTag, "Caress contact excluded: drag=0 x=%u y=%u", point.x, point.y);
+        }
         CODY::cancel_petting(s_state.petting);
         return ESP_OK;
     }
@@ -2851,7 +2858,23 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
     }
     const bool petting_allowed = personality_presentation(true) == CODY::PersonalityPresentation::Main &&
         !s_state.animation_paused && !s_state.rig_debug && !s_state.resume_scene_pending;
+    if (pressed_edge) {
+        ESP_LOGI(kTag, "Caress contact start: allowed=%u presentation=%u paused=%u debug=%u x=%u y=%u",
+            static_cast<unsigned>(petting_allowed), static_cast<unsigned>(personality_presentation(true)),
+            static_cast<unsigned>(s_state.animation_paused), static_cast<unsigned>(s_state.rig_debug),
+            point.x, point.y);
+    }
     if (petting_allowed) {
+        if (!point.pressed && s_state.petting.contact_active) {
+            // Observe before the recognizer clears the released contact. These
+            // are actual acquired timestamps/coordinates, not synthetic samples.
+            const auto &contact = s_state.petting;
+            ESP_LOGI(kTag, "Caress contact end: zone=%u triggered=%u rejected=%u duration_us=%lld path_px=%.1f",
+                static_cast<unsigned>(contact.zone), static_cast<unsigned>(contact.triggered),
+                static_cast<unsigned>(contact.rejected),
+                static_cast<long long>(point.sample_timestamp_us - contact.started_at_us),
+                static_cast<double>(contact.path_pixels));
+        }
         CODY::PettingZone zone{};
         const esp_err_t petting_error = CODY::observe_petting(*s_resources.rig,
             {static_cast<float>(point.x), static_cast<float>(point.y)}, point.pressed,

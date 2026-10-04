@@ -7,6 +7,14 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Corrected source admission for the automatic Idle clock greeting: its retained
+  Greeting SceneFrame no longer disables the main personality channel or
+  petting. Explicit onboarding greetings and other routes remain excluded.
+  Added bounded contact-start/exclusion/release logs for actual acquired input
+  so scene suppression and incomplete/rejected strokes can be distinguished.
+  The raw touch failure remains unresolved; driver acceptance/recovery has not
+  been relaxed. Static integration reviewed; final validation/deployment pending.
+
 - Investigated the reported caress freeze on device firmware `99342b7a`:
   the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,
   while periodic firmware snapshots continued. Source review establishes that
