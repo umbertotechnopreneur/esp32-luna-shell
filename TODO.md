@@ -35,8 +35,12 @@ older host/build/flash evidence does not validate the current combined image.
   with policy/look restoration and deferred greeting. Compare coarse/detail at
   50/75/100 percent and exercise touch/PWR/Sleep interruption. Test disabled
   benchmark, non-Pearl and Release builds explicitly.
-  Add deterministic animated work and C/SIMD A/B only after trustworthy timings;
-  include packing/alignment/tails and confirm gains in the full UI. Device clock,
+  Validate the implemented S3 interpolation kernel: `simd_verify` first checks
+  65,536 weight combinations and then compares live RGBA samples; `simd` and
+  `scalar` are separate timing captures. Host model, assembly build and target
+  execution are pending. Device/COM access now requires renewed user approval.
+  Add deterministic animated work after trustworthy timings; include
+  packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.
   [Benchmark contract](docs/architecture/cody/rendering.md).
 - [ ] Validate asynchronous look selection: save success/failure/retry, busy

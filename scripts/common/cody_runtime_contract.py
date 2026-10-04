@@ -51,12 +51,18 @@ def load_settings(path):
     if seen != identities:
         raise ValueError("All five named demo phases are required")
     benchmark = settings["benchmark"]
-    fields(benchmark, ("enabled", "profile_blocks", "cloud_scale_percent"), "benchmark")
+    fields(benchmark, ("enabled", "profile_blocks", "kernel", "cloud_scale_percent"), "benchmark")
     for name in ("enabled", "profile_blocks"):
         if type(benchmark[name]) is not bool:
             raise ValueError(f"benchmark.{name}: boolean required")
     if benchmark["profile_blocks"] and not benchmark["enabled"]:
         raise ValueError("benchmark.profile_blocks requires benchmark.enabled")
+    if benchmark["kernel"] not in ("scalar", "simd", "simd_verify"):
+        raise ValueError("benchmark.kernel: expected scalar, simd or simd_verify")
+    if benchmark["kernel"] != "scalar" and not benchmark["enabled"]:
+        raise ValueError("benchmark.kernel: SIMD experiments require benchmark.enabled")
+    if benchmark["kernel"] == "simd_verify" and benchmark["profile_blocks"]:
+        raise ValueError("benchmark.kernel: verification and detailed timing are separate experiments")
     if type(benchmark["cloud_scale_percent"]) is not int:
         raise ValueError("benchmark.cloud_scale_percent: integer required")
     number(benchmark["cloud_scale_percent"], 50, 100, "benchmark.cloud_scale_percent")

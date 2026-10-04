@@ -30,6 +30,7 @@
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
 #include "CODY_raster_benchmark.hpp"
+#include "CODY_jelly_simd.hpp"
 #include "runtime_settings.hpp"
 #include "cloud_rig_data.hpp"
 #include "cody_sleep_pearl.hpp"
@@ -187,6 +188,7 @@ struct CompanionState {
     bool raster_benchmark_resume_greeting = false;
     uint32_t raster_benchmark_revision = 0;
     const char *raster_benchmark_previous_skin = nullptr;
+    CODY::JellyRasterKernel raster_benchmark_previous_kernel = CODY::JellyRasterKernel::Scalar;
     bool animation_paused = false;
     CODY::NavigationVisibility navigation_visibility{};
     CODY::StatusOverlay status_overlay{};
@@ -562,7 +564,7 @@ esp_err_t apply_scene_standby_policy(const CODY::SceneFrame &scene)
 
 // completed: True only after the entire measurement interval and successful final summary.
 // reason: Explicit end/interrupt source, retained in the diagnostic log.
-// Exception: Returns real policy/skin restoration errors; never silently resumes failed cleanup.
+// Exception: Returns policy/skin/kernel restoration or verification errors without claiming completion.
 esp_err_t stop_raster_benchmark(bool completed, const char *reason)
 {
     if (!s_state.raster_benchmark_active) {
@@ -582,6 +584,10 @@ esp_err_t stop_raster_benchmark(bool completed, const char *reason)
         ESP_LOGE(kTag, "BENCH skin restore failed: reason=%s (%s)", reason, esp_err_to_name(skin_error));
         return skin_error;
     }
+    const esp_err_t kernel_error = CODY::select_jelly_raster_kernel(s_state.raster_benchmark_previous_kernel);
+    if (kernel_error != ESP_OK) {
+        return kernel_error;
+    }
 #endif
     s_state.raster_benchmark_active = false;
     s_state.raster_benchmark_previous_skin = nullptr;
@@ -598,6 +604,20 @@ esp_err_t stop_raster_benchmark(bool completed, const char *reason)
     if (!completed) {
         ESP_LOGW(kTag, "BENCH interrupted reason=%s n=%lu; no completed baseline",
                  reason, static_cast<unsigned long>(summary.frames));
+        return ESP_OK;
+    }
+    if (summary.kernel == CODY::JellyRasterKernel::SimdVerify) {
+        if (summary.verified_samples == 0 || summary.vectorized_pixels == 0) {
+            ESP_LOGE(kTag, "BENCH verification rejected: no compared SIMD samples (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_STATE));
+            return ESP_ERR_INVALID_STATE;
+        }
+        ESP_LOGI(kTag, "BENCH verification complete n=%lu compared=%llu vectorized=%llu tail=%llu zero=%llu; timings excluded",
+                 static_cast<unsigned long>(summary.frames),
+                 static_cast<unsigned long long>(summary.verified_samples),
+                 static_cast<unsigned long long>(summary.vectorized_pixels),
+                 static_cast<unsigned long long>(summary.scalar_tail_pixels),
+                 static_cast<unsigned long long>(summary.zero_footprint_pixels));
         return ESP_OK;
     }
     ESP_LOGI(kTag, "BENCH complete n=%lu window_us=%lld pixels=%lu budget_us=%lu missed=%lu",
@@ -623,11 +643,17 @@ esp_err_t stop_raster_benchmark(bool completed, const char *reason)
                  static_cast<unsigned long long>(summary.sampled_pixels),
                  static_cast<unsigned long long>(summary.composited_pixels));
     }
+    if (summary.kernel == CODY::JellyRasterKernel::Simd) {
+        ESP_LOGI(kTag, "BENCH SIMD vectorized=%llu tail=%llu zero=%llu; packing included in frame/jelly time",
+                 static_cast<unsigned long long>(summary.vectorized_pixels),
+                 static_cast<unsigned long long>(summary.scalar_tail_pixels),
+                 static_cast<unsigned long long>(summary.zero_footprint_pixels));
+    }
     return ESP_OK;
 }
 
 // No parameters: enter once after boot animations settle, under the shared display lock.
-// Exception: Returns real profile, policy, skin, clock or allocation-state errors.
+// Exception: Returns real profile, policy, skin, kernel verification, clock or allocation-state errors.
 esp_err_t begin_raster_benchmark()
 {
     if (!kRasterBenchmarkEnabled || s_resources.raster_benchmark == nullptr ||
@@ -647,6 +673,7 @@ esp_err_t begin_raster_benchmark()
         return error;
     }
     s_state.raster_benchmark_previous_skin = previous.id;
+    s_state.raster_benchmark_previous_kernel = CODY::selected_jelly_raster_kernel();
 #endif
     error = LUNASHELL_power_manager_set_scene_standby_override(
         CODY::RasterBenchmarkRun::kStandbyOverrideSeconds);
@@ -659,6 +686,20 @@ esp_err_t begin_raster_benchmark()
     error = CODY::select_jelly_skin("cody.skin.pearl_mist.v1");
     if (error != ESP_OK) {
         return error;
+    }
+    error = CODY::select_jelly_raster_kernel(CODY::RuntimeData::raster_benchmark_kernel);
+    if (error != ESP_OK) {
+        return error;
+    }
+    ESP_LOGI(kTag, "BENCH kernel=%s; mode=%s",
+             CODY::jelly_raster_kernel_name(CODY::RuntimeData::raster_benchmark_kernel),
+             CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify
+                 ? "pixel-verification-no-performance-result" : "timing");
+    if (CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify) {
+        error = CODY::verify_jelly_simd_kernel();
+        if (error != ESP_OK) {
+            return error;
+        }
     }
 #endif
     error = s_resources.raster_benchmark->begin(esp_timer_get_time());
@@ -1391,6 +1432,10 @@ esp_err_t record_completed_frame(const FrameTimings &timings, CompletedFrameLog 
             timings.raster_profile.jelly, timings.raster_profile.vector_us);
         if (sample_error != ESP_OK) {
             return sample_error;
+        }
+        if (CODY::RuntimeData::raster_benchmark_kernel == CODY::JellyRasterKernel::SimdVerify) {
+            // Comparing both implementations perturbs this run. Never publish PERF/STAGE as a baseline.
+            return ESP_OK;
         }
         if (s_resources.raster_benchmark->phase() == CODY::RasterRunPhase::Warmup) {
             return ESP_OK;

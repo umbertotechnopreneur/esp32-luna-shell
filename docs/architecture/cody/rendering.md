@@ -198,7 +198,7 @@ Use separate repeated captures at scales 50, 75 and 100 (the accepted range is
 50--100). After changing YAML, regenerate through
 `scripts/device.ps1 generate -Generator cody-runtime-assets`. A completed run is
 identified by `BENCH complete`; allow for normal boot plus the 45-second run.
-Restore both benchmark booleans to `false` and regenerate before ordinary UI
+Restore both benchmark booleans to `false`, set `kernel: scalar`, and regenerate before ordinary UI
 validation. This fixed-pose workload is the first raster baseline; a repeatable
 animated workload and confirmation in the full UI remain open.
 
@@ -206,10 +206,58 @@ The opt-in `scripts/device.ps1 check -Check cody-raster-benchmark` suite compile
 the portable session with Pearl disabled, exercises finite-window/full-p95/error
 contracts, then runs `cody-native`, including reference pixel parity for the
 unprofiled, coarse and block loops across all textures, fractional samples, clipped
-tiles, RGB565 orders, backgrounds, guards and partial blocks. This suite does not
+tiles, RGB565 orders, backgrounds, guards and partial blocks. It then repeats the
+native contracts with an explicit host SIMD arithmetic model, exercising the real
+packer, kernel dispatch, odd tails, alignment and injected mismatch rejection.
+That model does not execute or validate ESP32-S3 instructions. This suite does not
 compile the firmware worker or prove device behavior. Its execution, firmware
 builds and physical captures still require explicit authorization under AGENTS.md.
 Transparent-footprint/alpha skips remain source-only optimization stage 1;
-exact-output execution and device gains are pending. No SIMD kernel is enabled.
+exact-output execution and device gains are pending.
+
+The experimental ESP32-S3 kernel is selected only inside the benchmark with
+`benchmark.kernel`. Ordinary startup/UI and benchmark exit retain their previous
+scalar implementation. `scalar` selects the existing fused C sampler, `simd`
+selects the PIE assembly sampler for timing, and `simd_verify` selects an explicit
+verification run. Unsupported selections return an error; they never silently
+substitute C. The current authored configuration selects `simd_verify`, with
+block timing disabled. It has not been built or run on hardware.
+
+The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
+in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in
+40-bit QACC lanes. Each of the two horizontal lerps and the final vertical lerp
+starts with 128 and shifts by eight, preserving the original separate rounding
+steps. The maximum accumulator value is 65,408 and the extracted channel is at
+most 255, so the signed 16-bit extraction cannot saturate valid inputs. These
+instructions and alignment semantics come from Espressif's
+[ESP32-S3 TRM, chapter 1](https://documentation.espressif.com/esp32-s3_technical_reference_manual_en.pdf).
+
+Aligned scratch is owned by one row invocation: eight 48-byte pairs, 64 bytes of
+output and 32 bytes of constants (480 bytes of data, excluding compiler spills).
+The C packer gathers only clamped in-bounds texels; SIMD loads never address the
+flash texture or panel buffer directly. Full pairs write eight aligned bytes;
+the odd last pixel uses the original C sampler. Entire zero-footprint blocks
+skip interpolation exactly. RGB565 composition and byte swapping remain the
+original code. Packing, call overhead, tails and composition are all included in
+the coarse jelly/frame duration; detailed `prep` additionally includes gathering.
+SIMD uses task-owned CP3 state through the IDF port, without disabling interrupts
+or writing CPENABLE. The benchmark worker remains pinned to core 1. Actual ABI,
+instruction execution, stack headroom and speed still need target validation.
+
+`simd_verify` first checks the actual kernel against independent per-channel C
+arithmetic over all 256x256 weight combinations and four distinct pixel
+footprints (262,144 samples), including zero-count, output guards and immutable
+input checks. It then compares every live RGBA sample before composition during
+the fixed route. Any difference returns `ESP_ERR_INVALID_RESPONSE`; the frame
+is rejected rather than replaced with scalar output. Successful completion
+requires nonzero compared and vectorized counts and logs `BENCH verification
+complete`. PERF/STAGE timing results are suppressed during this run, because
+running both implementations would contaminate a performance comparison.
+
+After an explicitly authorized verification passes, change only `kernel: simd`
+for a separately authorized timing capture with detail disabled, then compare
+with a fresh `scalar` run under identical conditions. Keep the distinction between
+source-level arithmetic bounds, host-model contracts and executed S3 evidence;
+none is interchangeable with another. No SIMD gain has yet been measured.
 Physical motion/rotation, long-run buffer
 retirement, high-water memory and the intermittent display/touch stop remain open.

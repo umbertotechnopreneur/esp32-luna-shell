@@ -35,8 +35,10 @@ def compare_geometry(fixture: dict) -> None:
 def main(argv=None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler", help="Existing host clang++, g++ or cl; nothing is installed")
+    parser.add_argument("--simd-model", action="store_true",
+                        help="Exercise firmware packing/dispatch with a host arithmetic model, not S3 assembly")
     args = parser.parse_args(argv)
-    output = ROOT / "artifacts/checks/cody-native"
+    output = ROOT / ("artifacts/checks/cody-native-simd-model" if args.simd_model else "artifacts/checks/cody-native")
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "failed", "scope": "portable C++ and Python geometry; hardware unverified"}
     try:
@@ -59,13 +61,19 @@ def main(argv=None) -> None:
                    "assets/cody/scenes/generated/scene_font.cpp",
                    "assets/cody/scenes/generated/scene_body_font.cpp",
                    "assets/cody/appearance/jelly-scanline/generated/cody_jelly_data.cpp")
-        command = compile_command(compiler, include_dirs, sources, executable,
-                                  definitions=("CODY_ENABLE_PEARL_JELLY=1",))
+        definitions = ("CODY_ENABLE_PEARL_JELLY=1",)
+        if args.simd_model:
+            sources += ("scripts/tests/cody_native/jelly_simd_model.cpp",
+                        "components/CODY_companion/src/diagnostics/CODY_jelly_simd_validation.cpp")
+            definitions += ("CODY_JELLY_SIMD_AVAILABLE=1",)
+            report["scope"] = "portable renderer and SIMD packing/model; actual S3 instructions unverified"
+        command = compile_command(compiler, include_dirs, sources, executable, definitions=definitions)
         report["compiler"] = compiler
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "native")
         compare_geometry(json.loads(native.stdout))
         report["status"] = "passed"
+        report["simd_backend"] = "host arithmetic model" if args.simd_model else "excluded"
         report["contracts"] = ["RGB565 alpha rounding", "stride guards", "invalid geometry",
                                "analytic AA rectangle and concave coverage", "AA opacity, cap gradients and tile seams",
                                "scene invalidation", "culling and strip parity", "native/Python ready geometry",

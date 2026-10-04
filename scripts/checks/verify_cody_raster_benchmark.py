@@ -35,10 +35,13 @@ def main(argv=None) -> None:
         run_stage(command, output, "compile-session")
         run_stage([str(executable)], output, "session")
         verify_cody_native.main(["--compiler", compiler])
+        verify_cody_native.main(["--compiler", compiler, "--simd-model"])
         report["contracts"] = ["non-Pearl shared profile compilation", "warmup and window boundaries",
                                "full-run p95 beyond 128 frames", "25 FPS missed budget",
                                "invalid/empty/interrupted runs", "fixed payload and capacity rejection",
-                               "native renderer contracts including profiled/fused pixel parity"]
+                               "native renderer contracts including profiled/fused pixel parity",
+                               "SIMD packing/model reference pixels, alignment, tails and mismatch rejection",
+                               "65536 weight combinations in the host model; actual S3 instructions unverified"]
         report["status"] = "passed"
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"

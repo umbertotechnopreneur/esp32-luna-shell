@@ -100,6 +100,31 @@ void check_rejection()
             "empty window cannot complete");
 }
 
+// No parameters: one timed population must never mix scalar, SIMD and verification frames.
+void check_kernel_identity()
+{
+    CODY::RasterBenchmarkRun run;
+    require(run.begin(kEntry) == ESP_OK, "begin SIMD identity run");
+    CODY::JellyRasterProfile profile;
+    profile.kernel = CODY::JellyRasterKernel::Simd;
+    profile.vectorized_pixels = 480;
+    profile.scalar_tail_pixels = 1;
+    profile.zero_footprint_pixels = 19;
+    require(run.record(kMeasureStart, kMeasureStart + 1000, {100, 500, 100, 1000},
+                       500, profile, 0) == ESP_OK, "establish SIMD population");
+    profile.kernel = CODY::JellyRasterKernel::Scalar;
+    require(run.record(kMeasureStart + 2000, kMeasureStart + 3000, {100, 500, 100, 1000},
+                       500, profile, 0) == ESP_ERR_INVALID_STATE, "reject scalar frame in SIMD run");
+    profile.kernel = CODY::JellyRasterKernel::SimdVerify;
+    require(run.record(kMeasureStart + 4000, kMeasureStart + 5000, {100, 500, 100, 1000},
+                       500, profile, 0) == ESP_ERR_INVALID_STATE, "reject verification frame in timing run");
+    const auto &summary = run.summary();
+    require(summary.frames == 1 && summary.kernel == CODY::JellyRasterKernel::Simd &&
+            summary.vectorized_pixels == 480 && summary.scalar_tail_pixels == 1 &&
+            summary.zero_footprint_pixels == 19 && summary.verified_samples == 0,
+            "rejected backend changes cannot contaminate counters or identity");
+}
+
 // No parameters: bounded storage must fail visibly instead of silently truncating p95.
 void check_capacity()
 {
@@ -124,6 +149,7 @@ int main()
     check_window();
     check_full_distribution();
     check_rejection();
+    check_kernel_identity();
     check_capacity();
     return failures == 0 ? 0 : 1;
 }

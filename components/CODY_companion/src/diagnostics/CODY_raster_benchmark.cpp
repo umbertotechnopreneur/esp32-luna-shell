@@ -35,9 +35,9 @@ bool RasterBenchmarkRun::due(int64_t now_us) const
 // completed_us: Measured end before statistics and log output.
 // costs: Nonoverlapping elapsed stages and complete pipeline duration.
 // pixels: Fixed payload count for the forced static-artwork redraw.
-// jelly: Detailed counters only if that explicitly selected experiment is active.
+// jelly: Backend identity, coarse counters and optional detailed block timings.
 // vector_us: Time spent on vector artwork in the same frame.
-// Exception: Rejects invalid intervals, changing payload, or bounded storage exhaustion.
+// Exception: Rejects invalid intervals, changing payload/backend, or bounded storage exhaustion.
 esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
                                      const FrameCosts &costs, uint32_t pixels,
                                      const JellyRasterProfile &jelly, int64_t vector_us)
@@ -59,9 +59,11 @@ esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
         completed_us > started_us_ + kWarmupUs + kMeasurementUs) {
         return ESP_OK;
     }
-    if (pixels == 0 || (summary_.frames != 0 && pixels != summary_.pixels_per_frame)) {
-        ESP_LOGE(kTag, "Workload changed: pixels=%lu expected=%lu (%s)",
+    if (pixels == 0 || (summary_.frames != 0 &&
+        (pixels != summary_.pixels_per_frame || jelly.kernel != summary_.kernel))) {
+        ESP_LOGE(kTag, "Workload changed: pixels=%lu expected=%lu kernel=%u expected=%u (%s)",
                  static_cast<unsigned long>(pixels), static_cast<unsigned long>(summary_.pixels_per_frame),
+                 static_cast<unsigned>(jelly.kernel), static_cast<unsigned>(summary_.kernel),
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
@@ -71,6 +73,7 @@ esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
         return ESP_ERR_NO_MEM;
     }
     phase_ = RasterRunPhase::Measuring;
+    summary_.kernel = jelly.kernel;
     frame_times_[summary_.frames++] = costs.total_us;
     summary_.pixels_per_frame = pixels;
     summary_.missed += costs.total_us > kBudgetUs ? 1U : 0U;
@@ -85,6 +88,10 @@ esp_err_t RasterBenchmarkRun::record(int64_t started_us, int64_t completed_us,
     summary_.composition_us += jelly.blend_us;
     summary_.sampled_pixels += jelly.sampled_pixels;
     summary_.composited_pixels += jelly.blended_pixels;
+    summary_.verified_samples += jelly.verified_samples;
+    summary_.vectorized_pixels += jelly.vectorized_pixels;
+    summary_.scalar_tail_pixels += jelly.scalar_tail_pixels;
+    summary_.zero_footprint_pixels += jelly.zero_footprint_pixels;
     return ESP_OK;
 }
 

@@ -10,6 +10,7 @@ namespace CODY {
 enum class RasterRunPhase : uint8_t { Inactive, Warmup, Measuring, Complete, Interrupted };
 
 struct RasterRunSummary {
+    JellyRasterKernel kernel = JellyRasterKernel::Scalar;
     uint32_t frames = 0;
     uint32_t pixels_per_frame = 0;
     uint32_t missed = 0;
@@ -25,6 +26,10 @@ struct RasterRunSummary {
     uint64_t composition_us = 0;
     uint64_t sampled_pixels = 0;
     uint64_t composited_pixels = 0;
+    uint64_t verified_samples = 0;
+    uint64_t vectorized_pixels = 0;
+    uint64_t scalar_tail_pixels = 0;
+    uint64_t zero_footprint_pixels = 0;
 };
 
 // Firmware allocates this bounded run in PSRAM. No per-frame allocation or logging.

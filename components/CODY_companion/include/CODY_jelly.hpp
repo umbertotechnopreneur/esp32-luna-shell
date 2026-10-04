@@ -8,6 +8,16 @@
 
 namespace CODY {
 
+// kernel: Explicit backend selection; verification compares RGBA before composition.
+// Exception: Rejects unavailable SIMD or an unknown enum; never substitutes the C backend.
+esp_err_t select_jelly_raster_kernel(JellyRasterKernel kernel);
+// No parameters: immutable value copied once per draw under the display owner's lock.
+JellyRasterKernel selected_jelly_raster_kernel();
+// No parameters: whether this build links the ESP32-S3 kernel (or the explicit host model).
+bool jelly_simd_available();
+// kernel: Typed backend name retained in benchmark evidence.
+const char *jelly_raster_kernel_name(JellyRasterKernel kernel);
+
 struct RigScene;
 enum class PathId : uint16_t;
 

@@ -56,10 +56,13 @@ def main():
     generated = ROOT / "assets/cody/runtime/generated"
     generated.mkdir(parents=True, exist_ok=True)
     names = {"breathe": "Breathe", "contour_slow": "ContourSlow", "contour_fast": "ContourFast", "sleepy": "Sleepy", "awake": "Awake"}
-    lines = ['#pragma once', '#include "CODY_demo.hpp"', 'namespace CODY::RuntimeData {']
+    lines = ['#pragma once', '#include "CODY_demo.hpp"', '#include "CODY_raster_profile.hpp"',
+             'namespace CODY::RuntimeData {']
     lines.append(f"inline constexpr bool autostart = {str(settings['demo']['autostart']).lower()};")
     lines.append(f"inline constexpr bool raster_benchmark_enabled = {str(settings['benchmark']['enabled']).lower()};")
     lines.append(f"inline constexpr bool raster_benchmark_profile_blocks = {str(settings['benchmark']['profile_blocks']).lower()};")
+    kernels = {"scalar": "Scalar", "simd": "Simd", "simd_verify": "SimdVerify"}
+    lines.append(f"inline constexpr JellyRasterKernel raster_benchmark_kernel = JellyRasterKernel::{kernels[settings['benchmark']['kernel']]};")
     lines.append(f"inline constexpr uint16_t raster_benchmark_cloud_scale_percent = {settings['benchmark']['cloud_scale_percent']}U;")
     for name in ("execution_timings", "mirror_to_sd_when_available", "report_interval_ms", "frame_budget_us"):
         value = settings["diagnostics"][name]

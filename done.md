@@ -7,6 +7,20 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Implemented an opt-in ESP32-S3 PIE bilinear sampler (source review only):
+  two RGBA pixels per eight 16-bit lanes, 40-bit accumulation with the same three
+  rounded lerps, aligned row scratch, unchanged RGB565 composition and scalar
+  odd tails. Explicit `scalar`, `simd_verify` and `simd` benchmark selections
+  preserve backend identity and restore the ordinary scalar path on exit.
+  Added an independently computed 256x256-weight/guard contract and live sample
+  comparisons for `simd_verify`; this mode suppresses performance summaries.
+  Extended host contracts with a labeled arithmetic model, packer/byte-order/
+  clipping/tail checks and deliberate mismatch injection. Generated configuration
+  selects verification, not a claimed fast path. Tests, build and S3 execution
+  of this increment have not run; no speed or target parity is claimed.
+  The preceding `5947db83` detail-only flash command was cancelled during CMake
+  reconfiguration, before flashing, when the user withdrew COM access. No build/
+  flasher processes remained. Last verified device image remains `4ac6c812`.
 - Built and flashed raster baseline `4ac6c812` with ESP-IDF 6.0.2, Debug, eight
   jobs and COM10 at 460800 baud; all written hashes verified. App: 3,721,952
   bytes, 75% partition free. Matching ELF SHA256:
