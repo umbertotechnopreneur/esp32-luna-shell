@@ -11,8 +11,8 @@ damage/DMA contract and [onboarding](onboarding.md) for route gates.
 Cold boot or software reset follows Sleeping 01 → Waking 02 → Ready 03. The animated
 character fades in over 2 seconds, then Waking and Ready receive 4 seconds each.
 Real startup checkpoints gate advancement: a service wait does not consume the
-next phase's active duration. `umbertogiacobbi.biz` appears at y=348 and fades out
-during Ready's last 300 ms; the startup phases do not show the Debug HUD.
+next phase's active duration. Startup shows only Cody, with no website branding
+or branding fade; the startup phases do not show the Debug HUD.
 
 Effective first setup enters Hello 04 with Happy and `Hi, I'm Cody!` at
 `(233,225,130)`. Its 13 characters use 70 ms each; after the complete text has
@@ -55,7 +55,7 @@ retained route, reconcile the canonical pairing/Wi-Fi state. A BLE session close
 while asleep must not resurrect its old QR. Rebase the IMU response baseline.
 
 Cold boot/reset still uses normal startup and first-boot policy. Actual deep sleep
-resets RAM and starts Wake 35B → Idle 16 rather than cold-boot branding/introduction;
+resets RAM and starts Wake 35B → Idle 16 rather than the cold-boot introduction;
 there is no persisted route-resume contract. The power implementation and
 profile-specific silicon-sleep policy remain in
 [low-power management](../low-power-management.md) and

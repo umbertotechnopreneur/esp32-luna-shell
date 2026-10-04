@@ -8,12 +8,16 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Validate the flashed `dd9f05d8` face/pearl-boot/PWR-capture image:
+- [ ] Build/flash the PSRAM-stack correction and capture boot through standby:
+  `dd9f05d8` produced 28 confirmed Cody worker stack overflows in 100 seconds;
+  the coverage call chain exhausted its 8 KiB budget. Check the new 12 KiB
+  worker's measured minimum free bytes and retain matching ELF/log evidence.
+- [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and
   screen 08 Retry on the physical display. The Debug build and flash passed;
   physical behavior remains unverified.
-- [ ] Capture repeated cold boots of flashed `dd9f05d8` and at least two full
+- [ ] Capture repeated cold boots of the corrected image and at least two full
   60-second standby/wake
   cycles. Confirm no contiguous-DMA preflight rejection, teardown panic or
   stale failed-wake trace is misreported as a new failure. The 2026-10-04 log
@@ -50,7 +54,7 @@ older host/build/flash evidence does not validate the current combined image.
   completed-frame reveal only, no clicks on scrolling/replacement/resume,
   bounded notifications, quiet/time/volume gating, excluded-audio profiles,
   retained real audio errors, cancellation and physical loudness.
-- [ ] Review scene entrance, Ready/branding/greeting retirement, Happy/open eyes,
+- [ ] Review scene entrance, Ready/greeting retirement, Happy/open eyes,
   independent breath/blink, eye taps and elastic drag. Exercise expression
   selection/rejected keys, pause, software standby and all cardinal rotations.
   Check measured HUD validity, native renderer/face-follow selection and old/new

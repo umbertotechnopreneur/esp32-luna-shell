@@ -9,7 +9,6 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <initializer_list>
 #include <iterator>
 #include <new>
 
@@ -62,9 +61,10 @@ constexpr bool kExecutionTimingsEnabled = kRenderDiagnosticsEnabled && CODY::Run
 constexpr uint32_t kSamplePeriodMs = kRenderDiagnosticsEnabled ? 50U : 1000U;
 constexpr uint32_t kStandbySamplePeriodMs = kRenderDiagnosticsEnabled ? 200U : 1000U;
 constexpr uint32_t kDisplayLockTimeoutMs = 1000;
-// Coverage rows add bounded raster scratch; retain room for the display owner
-// and error paths on this PSRAM-backed worker stack.
-constexpr uint32_t kWorkerStackBytes = 8192;
+// dd9f05d8's Debug worker/frame/coverage call chain alone occupied 8,176 bytes.
+// Keep headroom for nested helpers and register spills without spending internal RAM.
+constexpr uint32_t kWorkerStackBytes = 12288;
+constexpr int64_t kWorkerStackSamplePeriodUs = 2000000;
 // Target the requested 25 FPS cadence; the HUD still reports measured throughput.
 #if CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY
 constexpr uint32_t kRigFramePeriodMs = 40;
@@ -75,17 +75,13 @@ constexpr uint32_t kPausedReadoutPeriodMs = 1000;
 // This is a failure deadline, not an FPS claim; real frame cost still needs measurement.
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kLifecyclePreparationTimeoutMs = 3000;
-constexpr uint32_t kBrandingFadeDurationUs = 300000;
 constexpr int64_t kStatusRefreshUs = 1000000;
 constexpr int64_t kCaptureStepUs = 1000000;
 constexpr int64_t kCaptureFeedbackUs = 2000000;
 constexpr int64_t kCaptureActivityRefreshUs = 250000;
 constexpr CODY::DamageRect kCaptureOverlayBounds{153, 174, 313, 292};
-constexpr char kStartupBranding[] = "umbertogiacobbi.biz";
-constexpr uint16_t kStartupBrandingTop = 348;
 constexpr uint16_t kWhitesmoke = 0xF7BE; // #F5F5F5 quantized to RGB565.
 
-enum class BrandingPhase : uint8_t { Visible, FadingOut, Hidden };
 enum class CaptureVisual : uint8_t { None, Three, Two, One, Saving, Saved, Failed };
 
 enum class StartState : uint32_t {
@@ -159,7 +155,6 @@ bool s_cached_readout_visible = false;
 bool s_cached_navigation_visible = false;
 bool s_cached_scene_visible = false;
 uint8_t s_cached_navigation_opacity = 0;
-uint8_t s_cached_branding_opacity = 0;
 CODY::StatusOverlay s_cached_status_overlay;
 bool s_cached_status_visible = false;
 CODY::ScreenshotState s_cached_screenshot_state = CODY::ScreenshotState::Idle;
@@ -215,9 +210,6 @@ struct CompanionState {
     bool deep_sleep_wake = false;
     CODY::ExpressionId requested_expression = CODY::ExpressionId::Calm;
     bool expression_override = false;
-    BrandingPhase branding_phase = BrandingPhase::Visible;
-    uint32_t branding_fade_elapsed_us = 0;
-    CODY2D::TextLine branding{};
     bool greeting_entered = false;
     bool routine_greeting_pending = true;
     bool routine_scene = false;
@@ -636,45 +628,6 @@ esp_err_t notify_completed_typewriter(const CODY::SceneFrame &scene,
     return ESP_OK;
 }
 
-// line: Receives the immutable ASCII branding layout after circle/coverage validation.
-esp_err_t prepare_startup_branding(CODY2D::TextLine &line)
-{
-    const auto &font = CODY::SceneData::title_font;
-    constexpr uint16_t length = sizeof(kStartupBranding) - 1U;
-    const uint32_t width = (length - 1U) * font.advance + font.width;
-    if (width >= kPanelWidth) {
-        ESP_LOGE(kTag, "Startup branding width rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    const int32_t left = (kPanelWidth - width) / 2U;
-    const int32_t right = left + width - 1;
-    const int32_t bottom = kStartupBrandingTop + font.height - 1;
-    for (const int32_t x : {left, right}) {
-        for (const int32_t y : {static_cast<int32_t>(kStartupBrandingTop), bottom}) {
-            const int32_t dx = x - 233;
-            const int32_t dy = y - 233;
-            if (dx * dx + dy * dy >= 233 * 233) {
-                ESP_LOGE(kTag, "Startup branding leaves circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-                return ESP_ERR_INVALID_SIZE;
-            }
-        }
-    }
-    return CODY2D::prepare_text_line(font, {kStartupBranding, length},
-        {static_cast<int16_t>(left), static_cast<int16_t>(kStartupBrandingTop)}, kWhitesmoke, line);
-}
-
-// No parameters: the current frame owns the validated active-time fade clock.
-uint8_t startup_branding_opacity()
-{
-    if (s_state.branding_phase == BrandingPhase::Visible) {
-        return 255;
-    }
-    if (s_state.branding_phase == BrandingPhase::Hidden) {
-        return 0;
-    }
-    return static_cast<uint8_t>(255U - s_state.branding_fade_elapsed_us * 255U / kBrandingFadeDurationUs);
-}
-
 // Adopt one successfully acquired BSP lock. Failed acquisition never creates this guard.
 class DisplayUnlockOnExit final {
 public:
@@ -980,11 +933,12 @@ esp_err_t routine_greeting_title(LUNASHELL::RoutinePeriod period, CODY2D::TextSp
 // clock: Canonical time and validated configuration, never a direct sensor read.
 // lifecycle: Existing phase; routines cannot wake the device or interrupt boot/Sleep/Wake.
 // scene: Caller-owned next frame; the immutable generic layout is reused, not cloned.
+// Exception: Returns the real routine identity or scene preparation failure.
 esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
                                  const CODY::LifecycleState &lifecycle, CODY::SceneFrame &scene)
 {
     if (s_state.boot_phase != BootPhase::Ready || lifecycle.phase != CODY::LifecyclePhase::Idle ||
-        s_state.branding_phase != BrandingPhase::Hidden || s_greeting_scheduled.load(std::memory_order_acquire)) {
+        s_greeting_scheduled.load(std::memory_order_acquire)) {
         return ESP_OK;
     }
     if (!clock.preferences_valid || !clock.routines_enabled) {
@@ -1033,6 +987,7 @@ esp_err_t update_routine_greeting(const LUNASHELL::ClockSnapshot &clock,
 
 // frame_started_us: Real timestamp sampled while the display lock is held.
 // resume_animation: Exclude standby time from both independent animation clocks.
+// Exception: Returns the original snapshot, lifecycle, scene or rig evaluation failure.
 esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_animation)
 {
     if (s_resources.rig == nullptr) {
@@ -1170,23 +1125,6 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     }
     s_state.contour = next_contour;
     s_state.lifecycle = next_lifecycle;
-    if (s_state.branding_phase == BrandingPhase::Visible &&
-        s_state.boot_phase == BootPhase::Ready &&
-        ((next_lifecycle.phase == CODY::LifecyclePhase::BootReady &&
-          next_lifecycle.phase_elapsed_us >= CODY::kBootReadyUs - kBrandingFadeDurationUs) ||
-         CODY::lifecycle_is_resting(next_lifecycle))) {
-        // Retire branding during the final Ready hold, not as an extra delay
-        // before screen 04. A saved opt-out uses the same startup presentation.
-        s_state.branding_phase = BrandingPhase::FadingOut;
-        s_state.branding_fade_elapsed_us = 0;
-    }
-    if (s_state.branding_phase == BrandingPhase::FadingOut) {
-        s_state.branding_fade_elapsed_us = static_cast<uint32_t>(std::min<int64_t>(
-            kBrandingFadeDurationUs, s_state.branding_fade_elapsed_us + animation_delta_us));
-        if (s_state.branding_fade_elapsed_us == kBrandingFadeDurationUs) {
-            s_state.branding_phase = BrandingPhase::Hidden;
-        }
-    }
     s_state.scene = next_scene;
     s_state.face = next_face;
     log_response_source(CODY::StimulusId::MotionAcceleration, s_state.response.motion_status,
@@ -1402,6 +1340,7 @@ CODY::RigControlState screenshot_control_state(CODY::ScreenshotState state)
 // resume_animation: Skip parked time when restarting the animation clocks after standby.
 // deferred_log: Startup's outer recursive lock defers output until that owner releases it.
 // worker_trace: Optional timings captured by the worker before it enters the frame owner.
+// Exception: Retains the original frame, state, raster or transfer failure in DrawResult.
 DrawResult draw_companion_frame(bool resume_animation = false,
                                 CompletedFrameReport *deferred_log = nullptr,
                                 const FrameTimings::WorkerLoopTrace *worker_trace = nullptr)
@@ -1610,7 +1549,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             return frame.finish({feedback_error, false, 0});
         }
     }
-    const uint8_t branding_opacity = startup_branding_opacity();
     const bool frame_readout_visible = kRenderDiagnosticsEnabled && s_state.greeting_entered &&
         s_state.debug_readout_enabled && presentation.content_visible && !footer_blocks_readout &&
         (!s_state.scene.valid || s_state.scene.definition->readout_visible);
@@ -1661,12 +1599,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
               (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
                std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0)))) {
             plan_error = CODY::include_damage(dirty_plan, CODY::debug_readout_damage_bounds());
-        }
-        if (plan_error == ESP_OK && s_cached_branding_opacity != branding_opacity) {
-            const auto &bounds = s_state.branding.bounds;
-            plan_error = CODY::include_damage(dirty_plan, {bounds.x, bounds.y,
-                static_cast<uint16_t>(bounds.x + bounds.width),
-                static_cast<uint16_t>(bounds.y + bounds.height)});
         }
         if (plan_error == ESP_OK && s_cached_navigation_visible != frame_navigation_visible) {
             plan_error = include_control_damage(
@@ -1784,12 +1716,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
                         kExecutionTimingsEnabled ? &timings.raster_profile : nullptr
                     );
                 }
-                if (result == ESP_OK && branding_opacity != 0) {
-                    CODY2D::TextLine branding = s_state.branding;
-                    branding.color = CODY2D::fade_rgb565_to_black(branding.color, branding_opacity);
-                    result = CODY2D::draw_text_rows(branding, branding.text.length,
-                        strip, damage.top, damage.left);
-                }
                 if (result == ESP_OK && frame_readout_visible) {
                     result = CODY::draw_debug_readout_rows(
                         debug_readout, strip, damage.top, damage.left, scene_background
@@ -1873,7 +1799,6 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_cached_selected_point = s_state.selected_point;
         s_cached_readout = debug_readout;
         s_cached_readout_visible = frame_readout_visible;
-        s_cached_branding_opacity = branding_opacity;
         s_cached_navigation_visible = frame_navigation_visible;
         s_cached_navigation_opacity = navigation_opacity;
         s_cached_status_overlay = s_state.status_overlay;
@@ -2044,6 +1969,7 @@ esp_err_t enter_animation_demo()
 }
 
 // No parameters: the existing worker owns both startup intents and the scene transition.
+// Exception: Returns the real lock, onboarding, policy or scene preparation failure.
 esp_err_t apply_scene_requests()
 {
     {
@@ -2116,15 +2042,6 @@ esp_err_t apply_scene_requests()
     }
     if (greeting_due) {
         if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
-            return ESP_OK;
-        }
-        if (s_state.branding_phase == BrandingPhase::Visible) {
-            s_state.branding_phase = BrandingPhase::FadingOut;
-            s_state.branding_fade_elapsed_us = 0;
-            s_state.frame_dirty.store(true, std::memory_order_release);
-            return ESP_OK;
-        }
-        if (s_state.branding_phase == BrandingPhase::FadingOut) {
             return ESP_OK;
         }
         const CODY::AtlasScreenDefinition *screen = nullptr;
@@ -2229,6 +2146,7 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
 }
 
 // No parameters: only the existing worker may change the lifecycle and its clocks.
+// Exception: Returns the real display-lock, standby-policy or expression failure.
 esp_err_t apply_lifecycle_requests()
 {
     const uint32_t request = s_lifecycle_request.load(std::memory_order_acquire);
@@ -2276,7 +2194,6 @@ esp_err_t apply_lifecycle_requests()
             return face_error;
         }
     }
-    s_state.branding_phase = BrandingPhase::Hidden;
     s_state.rig_visible = true;
     s_state.rig_debug = false;
     s_state.animation_paused = false;
@@ -2537,11 +2454,37 @@ TouchPollResult sample_touch()
             route_error};
 }
 
+// minimum_free_bytes: Smallest measured headroom of this PSRAM-backed worker.
+// sampled_at_us: Last diagnostic sampling time; scanning is bounded to 0.5 Hz.
+void report_worker_stack_headroom(uint32_t &minimum_free_bytes, int64_t &sampled_at_us)
+{
+    if constexpr (!kRenderDiagnosticsEnabled) {
+        return;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    if (sampled_at_us != 0 && now_us - sampled_at_us < kWorkerStackSamplePeriodUs) {
+        return;
+    }
+    sampled_at_us = now_us;
+    // The supported ESP-IDF Xtensa port returns bytes, not generic FreeRTOS words.
+    // This runs only in the worker after a complete draw, never on startup's stack.
+    const uint32_t free_bytes = static_cast<uint32_t>(uxTaskGetStackHighWaterMark(nullptr));
+    if (free_bytes < minimum_free_bytes) {
+        minimum_free_bytes = free_bytes;
+        ESP_LOGI(kTag, "STACK worker=CODY_companion budget=%luB min_free=%luB peak_used=%luB",
+            static_cast<unsigned long>(kWorkerStackBytes),
+            static_cast<unsigned long>(minimum_free_bytes),
+            static_cast<unsigned long>(kWorkerStackBytes - minimum_free_bytes));
+    }
+}
+
 // context: Unused; this single worker owns the boot/debug route and animation clock.
 void companion_worker(void *context)
 {
     (void)context;
     bool parked = false;
+    uint32_t minimum_stack_free_bytes = kWorkerStackBytes;
+    int64_t stack_sampled_at_us = 0;
     for (;;) {
         const int64_t now_us = esp_timer_get_time();
         FrameTimings::WorkerLoopTrace worker_trace{};
@@ -2639,6 +2582,7 @@ void companion_worker(void *context)
             fail_consumer("Companion frame redraw", draw.error, false);
             break;
         }
+        report_worker_stack_headroom(minimum_stack_free_bytes, stack_sampled_at_us);
         s_rendered_revision.store(draw.completed_revision, std::memory_order_release);
         if (s_state.capture_digit != 0U &&
             s_state.capture_digit_shown_at_us == 0 &&
@@ -2695,6 +2639,7 @@ void companion_worker(void *context)
 }  // namespace
 
 // Start the single companion owner; a failed stage keeps its original error.
+// Exception: Returns the original startup failure and publishes the failed stage.
 extern "C" esp_err_t CODY_companion_start(void)
 {
     StartState expected = StartState::Idle;
@@ -2792,12 +2737,6 @@ extern "C" esp_err_t CODY_companion_start(void)
     s_resources.rig_debug_strokes = new (debug_stroke_storage) CODY::RigDebugStrokeCache{};
     s_state.rig_visible = true;
     s_state.deep_sleep_wake = esp_reset_reason() == ESP_RST_DEEPSLEEP;
-    s_state.branding_phase = s_state.deep_sleep_wake ? BrandingPhase::Hidden : BrandingPhase::Visible;
-    const esp_err_t branding_error = prepare_startup_branding(s_state.branding);
-    if (branding_error != ESP_OK) {
-        release_companion_resources();
-        return fail_consumer("Startup branding", branding_error, false);
-    }
     s_state.lifecycle = s_state.deep_sleep_wake
         ? CODY::LifecycleState{CODY::LifecyclePhase::Wake, 0} : CODY::LifecycleState{};
     s_state.contour = CODY::make_contour_state();

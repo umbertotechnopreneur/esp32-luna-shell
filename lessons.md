@@ -54,6 +54,10 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
 - Bound logger/scratch together and publish raw heap/block/allocation failures.
   Allocation-failure hooks must neither allocate nor log. Use bounded arithmetic;
   long active clocks need an explicitly wide, saturating representation.
+- Coverage antialiasing adds nested raster scratch even for small cheeks. Cody's
+  compiled worker/frame/coverage chain reached 8,176 bytes and overflowed an
+  8 KiB worker while startup's 12 KiB main stack still drew successfully.
+  Budget the full call chain and retain measured worker headroom in Debug.
 - A frame owns its transient internal DMA lease and watchdog from geometry to
   completion. Quarantine uncertain DMA completion even after deadline; a partial
   frame invalidates comparison history. Endian conversion consumes native pixels.

@@ -7,6 +7,17 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Captured 28 deterministic `CODY_companion` stack overflows in 100 seconds
+  after flashing `dd9f05d8`. The matching ELF shows the worker/frame/coverage
+  call chain alone needs 8,176 bytes against an 8,192-byte stack; enabling cheek
+  coverage added 2,496 bytes at that depth. Raised only the PSRAM worker stack
+  to 12 KiB, preserving the requested artwork and internal DMA headroom, and
+  added Debug minimum-free-stack logging sampled at most every two seconds.
+  Source correction only until its build/flash and passive capture are recorded.
+  Evidence: `artifacts/build-cody-companion-debug/evidence/cody-dd9f05d8-reboot-loop.log`.
+- Removed the boot website branding together with its layout, fade clock,
+  raster layer and damage cache. Sleeping/Waking/Ready and first-setup timing
+  remain unchanged; this does not remove attribution from the planning PDFs.
 - The earlier Cody BLE startup mitigation reserved a 30,720-byte internal DMA
   block before display startup and parked display frames during radio startup.
   It passed an eight-job Debug build, flash and short capture, but a later
