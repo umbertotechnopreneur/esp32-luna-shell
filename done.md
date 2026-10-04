@@ -12,21 +12,30 @@ and referenced architecture/artifact records.
   It passed an eight-job Debug build, flash and short capture, but a later
   100-second capture exposed intermittent BLE DMA preflight failure and a
   separate NimBLE teardown panic at standby. The short capture was not proof
-  that the reboot loop was fixed. Evidence: `artifacts/serial/cody-standby-wake-20261004.log`.
+  that the reboot loop was fixed. Evidence preserved before flash cleanup:
+  `artifacts/build-cody-companion-debug/evidence/cody-standby-wake-20261004.log`.
 - Added a larger held BLE startup lease and ordered NimBLE stop/deinit so the
   host cannot free its dynamic context before the stop caller finishes. These
-  source changes remain unbuilt and unflashed; repeated cold boot and
+  source changes were built and flashed in `dd9f05d8`; repeated cold boot and
   standby/wake behavior are open in TODO.md.
 - Authored distinct Worried (06) and Afraid (08) faces from the planning atlas,
   kept the white 06 QR layout, routed 08 Retry back to 05 only after confirmed
   cleanup, and enabled the Debug FPS/CPU HUD on authored scenes without visible
-  bottom actions. These scene and routing changes have source review only.
+  bottom actions. These changes were built and flashed in `dd9f05d8`; current
+  physical display and pairing checks remain open.
 - Refined the full atlas face catalog and softened Cody's cheeks. Replaced the
   blue boot source frames with Imagegen pearl Sleeping/Waking/Ready frames,
   packaged as flash-owned indexed assets. Added session-controlled PWR capture
   with a retired-frame 3, 2, 1 countdown, SD result feedback and an original
-  shutter cue; the old touch camera control is hidden. These changes have only
-  static source review, not a build, simulator run, flash or device check.
+  shutter cue; the old touch camera control is hidden. These changes were built
+  and flashed in `dd9f05d8`; no current simulator or physical behavior check ran.
+- Built `dd9f05d8` Cody Debug with ESP-IDF 6.0.2 and eight jobs, then flashed
+  COM10 at 460800 baud. Bootloader, partition table and 3,715,936-byte app
+  passed written-data hash verification; the device was reset after flash.
+  The app partition retains 75% free space. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-dd9f05d8-flash.log`.
+  No additional test suite or serial capture was run; successful flashing
+  does not establish reboot-loop, standby/wake, graphics or audio behavior.
 - Created the English A5 front/back CCP pairing quick-start leaflet in Obsidian
   and `docs/Cody/`, with the proposed ZIP/local-marketplace installation path,
   display-code pairing, ten-second Idle flow, atlas illustrations and note lines.

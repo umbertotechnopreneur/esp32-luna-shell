@@ -8,13 +8,13 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] With explicit approval, build the combined face/pearl-boot/PWR-capture
-  image and validate countdown timing, overlay-free BMP, original shutter cue,
+- [ ] Validate the flashed `dd9f05d8` face/pearl-boot/PWR-capture image:
+  countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and
-  screen 08 Retry on the physical display. No current source review proves the
-  firmware compiles or behaves correctly on hardware.
-- [ ] Build and flash the BLE startup-lease and NimBLE teardown changes, then
-  capture repeated cold boots and at least two full 60-second standby/wake
+  screen 08 Retry on the physical display. The Debug build and flash passed;
+  physical behavior remains unverified.
+- [ ] Capture repeated cold boots of flashed `dd9f05d8` and at least two full
+  60-second standby/wake
   cycles. Confirm no contiguous-DMA preflight rejection, teardown panic or
   stale failed-wake trace is misreported as a new failure. The 2026-10-04 log
   proves the prior firmware still rebooted.
