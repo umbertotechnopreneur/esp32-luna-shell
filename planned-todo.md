@@ -5,6 +5,14 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
 
 ## Cody product
 
+- [ ] Explore three nontechnical product directions: everyday memory ("Remind
+  me to..."), reviewed dictation to Codex/other supported AI destinations, and
+  a considerate desk companion (focus sessions, break suggestions, snooze and
+  temporary silence). Home automation is outside this exploration scope.
+  The expanded macro/subfunctions, relative effort and exploration sequence are
+  in the Obsidian `Cody Companion.md` product note, section
+  "Product exploration priorities - 4 October 2026". These are ideas, not
+  activated development or release commitments.
 - [ ] Finish English circular screen 10 preferences and make it the normal
   first-setup caller for implemented screen 11. Keep manual 0/180 orientation,
   auto-rotation, shake-to-wake and sound separate and validity-aware.
@@ -13,10 +21,19 @@ activated; authorization still follows [AGENTS.md](AGENTS.md).
   canonical time. Schedule Deep-sleep wake through the existing power/timer
   owner; external RTC INT is not directly connected to ESP.
   [RTC](docs/architecture/cody/clock.md).
+  Begin exploration with one-time reminders, countdown, snooze and a daily
+  overview; named lists, quick notes and recurrence are later candidates.
 - [ ] Build the post-CCP1 companion session/event transport for context/status/
   messages and confirmed responses; authenticated commissioning/liveness and
   diagnostics HTTP are not that transport. Add push-to-talk, PC transcription/
   confirmation/session targeting and precomputed cues; credentials stay on the PC.
+  Explore one configured AI destination, draft preview, append/start-again and
+  explicit Send/Cancel first. Wake word and multiple destinations follow the
+  dependable first flow; dispatch, acknowledgement and task completion differ.
+- [ ] Explore explicit focus timers and gentle break suggestions, with "later",
+  break/resume and silence-until controls. Base the first flow on user-started
+  sessions; optional PC activity needs a separate consent/integration decision
+  and does not establish fatigue or health.
 - [ ] Choose rig antialiasing/tessellation/dirty-region policy from target
   timings; extend validity-aware environmental composition while retaining
   shared palette, independent face channels and time-based animation.
