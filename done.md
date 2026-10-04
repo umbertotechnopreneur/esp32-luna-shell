@@ -7,6 +7,13 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Measured the S3 `simd` kernel on the same fixed 100% Pearl Mist route for 40
+  seconds: 697 frames, 63,000 submitted pixels each, frame mean 55,846 us and
+  full-run p95 56,495 us. Jelly mean 35,880 us; 31,434,700 pixels used SIMD,
+  139,400 used scalar tails and 11,567,412 skipped all-zero footprints. All
+  697 frames exceeded the 40 ms budget. Evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-simd-100.log`.
+  A fresh C run is required before attributing a measured gain to SIMD.
 - Flashed the S3 Debug verifier with all written hashes accepted. In the second
   80-second reset/capture, the actual PIE kernel passed 65,536 weight pairs and
   262,144 reference samples, then compared 30,267,144 live RGBA samples across

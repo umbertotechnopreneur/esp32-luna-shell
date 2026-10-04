@@ -223,7 +223,9 @@ verification run. Unsupported selections return an error; they never silently
 substitute C. The current authored configuration selects `simd_verify`, with
 block timing disabled. The 2026-10-05 S3 run passed both the exhaustive weight
 contract and a completed 489-frame live comparison at 100% scale. The selected
-configuration is now `simd` for a separate timing capture; its result is pending.
+configuration is now `scalar` for the fresh timing control. The separate
+`simd` run recorded 697 frames at 100% scale with mean 55,846 us, p95 56,495
+us and jelly mean 35,880 us; a fresh C comparison remains pending.
 
 The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
 in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in

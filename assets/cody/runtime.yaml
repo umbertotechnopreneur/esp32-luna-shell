@@ -13,7 +13,7 @@ benchmark:
   enabled: true
   profile_blocks: false
   # scalar = baseline, simd_verify = exact comparison, simd = performance run.
-  kernel: simd
+  kernel: scalar
   cloud_scale_percent: 100
 diagnostics:
   execution_timings: true
