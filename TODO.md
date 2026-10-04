@@ -8,12 +8,12 @@ older host/build/flash evidence does not validate the current combined image.
 
 ## Cody integration and release gates
 
-- [ ] Validate native DMA strip overlap on the exclusive device: two 16-row slots,
-  unchanged 29,824-byte preferred DMA budget, final-transfer/watchdog retirement,
-  actual slot-count reporting and reset-required quarantine on uncertain completion.
-  Run the actual-BSP host ownership suite and native raster contracts, then measure
-  the fixed 100% SIMD route against 40 ms and leave normal firmware with benchmark
-  disabled. Physical animation/touch/PWR appearance requires owner confirmation.
+- [ ] Confirm normal-UI animation, touch/PWR capture and repeated rotation/standby
+  wake cycles with native DMA overlap on the physical display. Actual-BSP host
+  lifetime/allocator contracts and the fixed 100% device run passed on the DMA
+  branch: two 12-row slots, mean 45,828 us, p95 46,667 us, 842/842 over 40 ms.
+  Raster remains about 35.1 ms; DMA overlap does not achieve the target alone.
+  Verify the normal benchmark-disabled image after its final flash.
 - [ ] Validate the current face/pearl-boot/PWR-capture image:
   countdown timing, overlay-free BMP, original shutter cue,
   SD absent/failure feedback, Debug HUD placement, screen 04 open eyes and

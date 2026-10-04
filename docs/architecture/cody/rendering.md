@@ -196,6 +196,20 @@ interleaving. Source integration checks require watchdog retirement after DMA an
 geometry commit after frame end. This validates ownership control flow, not the
 physical SPI peripheral, display appearance or measured performance.
 
+The 2026-10-05 100% device window on the DMA branch completed 842 frames at the
+same 63,000-pixel payload. The full connected firmware admitted two 12-row slots,
+22,400 bytes total: mean 45,828 us, nearest-rank p95 46,667 us, maximum 47,607 us.
+All frames still exceeded 40 ms. Its earlier automatic one-slot run measured
+51,542 us mean and 52,139 us p95. Raster costs were effectively unchanged
+(35,086 versus 35,112 us); transfer-stage time fell from 12,508 to 6,761 us.
+The 5,714-us mean gain therefore comes from transport overlap. CPU percentage
+is not reduced by this result; faster frame throughput can increase utilization.
+Evidence resides in the DMA worktree's
+`artifacts/build-cody-companion-debug/evidence/dma{,-adaptive}-benchmark-100.log`.
+These windows establish performance on the fixed route, not physical animation,
+touch latency or visual correctness in all routes. Normal UI verification remains
+separate.
+
 `assets/cody/runtime.yaml` selects a temporary fixed raster benchmark only when
 Debug execution timings and the native Pearl renderer are enabled. The worker
 enters once after boot reaches Idle, independently of ordinary demo routing.

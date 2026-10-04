@@ -7,28 +7,34 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
-- Implemented native frame DMA overlap with two borrowed 16-row slots and at most
-  one outstanding color transfer. The renderer reborrows before each tile; frame
-  end drains DMA before releasing the lease, ending the watchdog and committing
-  geometry. Synchronous callers drain before reuse. Uncertain submission/completion
-  retains the entire lease until reset; real capacity and DMA error are published
-  canonically. Added an actual-BSP host ownership/fault suite through `device.ps1`
-  and integrated final drain into frame timing. Source review completed; host,
-  firmware and physical measurements for this increment remain pending.
-- The first DMA capture completed safely but obtained only one 16-row slot:
-  internal heap fragmentation prevented the contiguous preferred allocation.
-  Added native-only independent slot allocation with unchanged aggregate budget
-  and headroom. A partial second allocation is freed before explicit degradation;
-  both independent blocks remain owned by quarantine on ambiguous DMA failure.
-  Expanded the host suite to execute the real allocator and fragmented cases.
-  The original host raster/benchmark suites and initial BSP lifetime suite passed;
-  this allocator correction and its device performance remain pending.
-- A second device capture exposed a 12,800-byte largest block after the first
-  preferred slot, so two full slots still could not fit. Native allocation now
-  tries shorter even-row dual slots before one-slot degradation, preserving
-  aggregate headroom. Allocation-degradation logs are bounded at powers of two.
-  Added an actual-allocator host case matching the observed second-block size.
-  This capacity correction awaits final host/build/device validation.
+- Implemented native frame DMA overlap on `codex/cody-dma-double-buffer`: reborrow
+  idle storage before every dirty tile, keep at most one color DMA outstanding,
+  drain the final transfer before freeing memory, ending the watchdog and
+  committing geometry. Synchronous writes drain earlier DMA before reuse.
+  Native allocation prefers two 16-row slots within the previous 29,824-byte
+  budget; fragmented heaps may use independent blocks and shorter even rows,
+  retaining 4,096 bytes of aggregate headroom. Partial allocations are released
+  before degradation; uncertain DMA retains the complete lease until reset.
+  Actual capacity/completion error is published in the canonical frame snapshot.
+- Actual-BSP frame/callback/synchronous/allocator host contracts pass, including
+  the observed 12,800-byte second block, partial allocation, one-slot degradation,
+  payload immutability, lost/duplicate completion, failure drain and quarantine.
+  Native raster, SIMD model and finite benchmark contracts pass. Debug builds and
+  flash/hash verification pass through `device.ps1` with eight jobs. Evidence is
+  under the DMA worktree's `artifacts/build-cody-companion-debug/evidence/`, with
+  host reports in `host-checks/` and `display-dma-adaptive-host/`.
+- Fixed 100% SIMD device run at `a01aed4`: two 12-row slots (22,400 total DMA
+  bytes), 842 frames, identical 63,000-pixel payload, mean 45,828 us, p95 46,667 us,
+  maximum 47,607 us and 842/842 misses at 40 ms. The earlier one-slot run on the
+  same combined Cody source completed 753 frames: mean 51,542 us, p95 52,139 us,
+  maximum 52,726 us. DMA overlap recovers 5,714 us mean and 5,472 us p95;
+  raster stays 35,086 versus 35,112 us, transfer falls 12,508 to 6,761 us.
+  Evidence: `dma-benchmark-100.log` and `dma-adaptive-benchmark-100.log`.
+  No display completion/quarantine failure or panic was captured; normal idle
+  standby drained the renderer and rearmed the BLE reserve. SD transport timeouts
+  and I2S disable diagnostics were also observed, matching existing open issues.
+  Benchmark autostart/detail have been restored to false; final ordinary-image
+  Debug/Release verification, flash and boot capture remain pending.
 - Integrated the selected 16-pixel SIMD and transparent row/block skips with
   current main's pairing, standby, mouth and boot-audio changes. Ordinary S3
   Pearl rendering now starts on SIMD in Debug and Release; portable host
