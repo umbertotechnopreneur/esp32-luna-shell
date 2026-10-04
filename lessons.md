@@ -98,6 +98,11 @@ validation. [AGENTS.md](AGENTS.md) owns policy; [TODO.md](TODO.md) owns open wor
   Native USB does not survive Light-sleep; CPU sleep figures are not board
   current. Powered GPS/shared rails prevent claimed Backup savings; verify
   codec shutdown physically. Retain the measured 80 MHz floor pending PWR tests.
+- Radio aggregate free RAM does not prove a wake can reacquire the contiguous
+  BLE controller block. Graphical wake may continue only after a failed optional
+  radio restore is cleaned to a known-off state; preserve the real error. Never
+  call ESP logging inside touch critical sections: even filtered logs can take
+  the SDK log-level mutex and corrupt/block FreeRTOS event-list operations.
 - RTC oscillator-stop remains unavailable until trusted write/readback. LC76G
   I2C control timing/terminal ACK parsing and bounded failed-read backoff matter
   to shared-lock responsiveness. Polling slower alone does not power down IMU.

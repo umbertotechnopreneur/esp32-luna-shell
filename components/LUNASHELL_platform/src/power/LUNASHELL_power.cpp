@@ -187,6 +187,17 @@ struct StandbyResourceStatus {
     bool unsupported = false;
 };
 
+struct OptionalResumeErrors {
+    esp_err_t storage = ESP_OK;
+    esp_err_t wireless = ESP_OK;
+
+    // No parameters: retain the first optional failure in restoration order.
+    esp_err_t first_error() const
+    {
+        return storage != ESP_OK ? storage : wireless;
+    }
+};
+
 struct StandbyResourceState {
     StandbyResourceStatus full_snapshots;
     StandbyResourceStatus ui_sampling;
@@ -207,6 +218,8 @@ struct StandbyResourceState {
 };
 
 StandbyResourceState s_standby_resources;
+// Routine activity must not erase a radio restore failure before actual recovery.
+std::atomic<esp_err_t> s_wireless_resume_error{ESP_OK};
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
 std::atomic<uint32_t> s_light_sleep_cycle_count{0};
 std::atomic<uint32_t> s_light_sleep_total_ms{0};
@@ -489,6 +502,8 @@ void publish_inputs()
 // error: Real transition or settings error published with the current power state.
 void publish_power(esp_err_t error)
 {
+    const esp_err_t publication_error = error != ESP_OK ? error :
+        s_wireless_resume_error.load(std::memory_order_acquire);
     const SceneStandbyRequest scene_request = read_scene_standby_request();
     const uint32_t screen_idle_seconds = LUNASHELL::power_policy::scene_standby_timeout_seconds(
         s_screen_idle_timeout_seconds.load(std::memory_order_acquire), scene_request.policy);
@@ -507,8 +522,35 @@ void publish_power(esp_err_t error)
         screen_idle_seconds,
         s_transition_sequence,
         s_last_activity_at_us,
-        error
+        publication_error
     );
+}
+
+// radios: Already acquired canonical lifecycle data, never a new radio or sensor read.
+void reconcile_wireless_resume_error(const LUNASHELL::RadioSnapshot &radios)
+{
+    if (s_wireless_resume_error.load(std::memory_order_acquire) == ESP_OK) {
+        return;
+    }
+    const auto ready = [](const LUNASHELL::ComponentSnapshot &component) {
+        return component.health == LUNASHELL::DeviceHealth::Ready &&
+            component.data_valid && !component.data_stale &&
+            component.last_error == ESP_OK;
+    };
+    (void)ready;
+    (void)radios;
+    bool restored = true;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    restored = ready(radios.wifi) && radios.wifi.started;
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
+    restored = restored && ready(radios.ble);
+#endif
+    if (restored) {
+        s_wireless_resume_error.store(ESP_OK, std::memory_order_release);
+        ESP_LOGI(kTag, "Optional wireless restore error cleared by verified canonical recovery");
+        publish_power(ESP_OK);
+    }
 }
 
 ButtonEvent poll_button(
@@ -888,9 +930,11 @@ esp_err_t transition_standby_resource(
 // Require every mandatory resource to have a known lifecycle state.
 // target: Whether every selected resource must be in standby or active.
 // allow_storage_degraded: Whether an explicitly optional SD failure may remain visible.
+// allow_wireless_degraded: Whether a failed radio restore was followed by a verified stop.
 bool standby_resources_match_target(
     bool target,
-    bool allow_storage_degraded
+    bool allow_storage_degraded,
+    bool allow_wireless_degraded
 )
 {
     const auto matches = [target](const StandbyResourceStatus &status) {
@@ -899,6 +943,17 @@ bool standby_resources_match_target(
     };
     const bool storage_matches =
         allow_storage_degraded || matches(s_standby_resources.storage);
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_UI && \
+    (CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH)
+    const auto &wireless = s_standby_resources.wireless;
+    // A degraded active device may retain known-stopped radios, never an
+    // uncertain partial initialization or an unconfirmed cleanup result.
+    const bool wireless_matches = matches(wireless) ||
+        (!target && allow_wireless_degraded && wireless.consistent &&
+         wireless.applied && !wireless.unsupported);
+#else
+    (void)allow_wireless_degraded;
+#endif
     const bool audio_target = audio_standby_target(target);
     const auto audio_matches = [audio_target](const StandbyResourceStatus &status) {
         return status.unsupported || (status.consistent && status.applied == audio_target);
@@ -923,7 +978,7 @@ bool standby_resources_match_target(
            matches(s_standby_resources.lvgl_paused) &&
 #else
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
-           matches(s_standby_resources.wireless) &&
+           wireless_matches &&
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
            matches(s_standby_resources.standalone_display) &&
@@ -1010,8 +1065,13 @@ esp_err_t suspend_standby_resources(bool best_effort)
         }
     }
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
-    step("Standalone wireless services", s_standby_resources.wireless,
-         set_standalone_wireless_standby);
+    if (best_effort || first_error == ESP_OK) {
+        // Pairing can restart radios after a degraded wake. Reassert the stop
+        // through their owner rather than trusting the previous power cache.
+        s_standby_resources.wireless.consistent = false;
+        step("Standalone wireless services", s_standby_resources.wireless,
+             set_standalone_wireless_standby);
+    }
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY && !CONFIG_LUNASHELL_BUILD_ENABLE_UI
     step("Standalone rectangle writes", s_standby_resources.standalone_display,
@@ -1036,7 +1096,7 @@ esp_err_t suspend_standby_resources(bool best_effort)
     }
 #endif
     refresh_audio_suspend_flag();
-    if (!standby_resources_match_target(true, false)) {
+    if (!standby_resources_match_target(true, false, false)) {
         ESP_LOGE(
             kTag,
             "Standby resource recovery ended with an inconsistent state"
@@ -1050,16 +1110,14 @@ esp_err_t suspend_standby_resources(bool best_effort)
 
 // Restore producers before exposing the panel and preserve the first failure.
 // best_effort: Whether rollback should continue after preserving the first failure.
-// optional_storage_error: Receives the real SD error if optional storage cannot resume.
+// optional_errors: Receives real optional SD/radio failures, separate from mandatory recovery.
 esp_err_t resume_standby_resources(
     bool best_effort,
-    esp_err_t *optional_storage_error = nullptr
+    OptionalResumeErrors &optional_errors
 )
 {
     esp_err_t first_error = ESP_OK;
-    if (optional_storage_error != nullptr) {
-        *optional_storage_error = ESP_OK;
-    }
+    optional_errors = {};
     const auto step = [&](const char *name,
                           StandbyResourceStatus &state,
                           StandbyTransition transition) {
@@ -1107,9 +1165,7 @@ esp_err_t resume_standby_resources(
             LUNASHELL_storage_set_power_suspended
         );
         if (storage_error != ESP_OK) {
-            if (optional_storage_error != nullptr) {
-                *optional_storage_error = storage_error;
-            }
+            optional_errors.storage = storage_error;
             ESP_LOGW(
                 kTag,
                 "Wake continues with optional storage unavailable (%s)",
@@ -1148,8 +1204,33 @@ esp_err_t resume_standby_resources(
         "Wake leaves Wi-Fi and BLE stopped; restart remains an explicit Settings action"
     );
 #elif CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || CONFIG_LUNASHELL_BUILD_ENABLE_BLUETOOTH
-    step("Standalone wireless services", s_standby_resources.wireless,
-         set_standalone_wireless_standby);
+    if (best_effort || first_error == ESP_OK) {
+        const esp_err_t radio_error = transition_standby_resource(
+            "Standalone wireless services", false, s_standby_resources.wireless,
+            set_standalone_wireless_standby);
+        if (radio_error == ESP_OK) {
+            s_wireless_resume_error.store(ESP_OK, std::memory_order_release);
+        }
+        if (radio_error != ESP_OK) {
+            optional_errors.wireless = radio_error;
+            // Initialization can fail after starting only one radio. Establish
+            // a known stopped state before allowing Cody to wake without it.
+            const esp_err_t cleanup_error = transition_standby_resource(
+                "Standalone wireless services cleanup", true,
+                s_standby_resources.wireless, set_standalone_wireless_standby);
+            if (cleanup_error != ESP_OK) {
+                if (first_error == ESP_OK) {
+                    first_error = cleanup_error;
+                }
+                ESP_LOGE(kTag, "Optional radio restore failed (%s); cleanup failed (%s)",
+                         esp_err_to_name(radio_error), esp_err_to_name(cleanup_error));
+            } else {
+                s_wireless_resume_error.store(radio_error, std::memory_order_release);
+                ESP_LOGW(kTag, "Wake continues with radios verified stopped; restore error=%s",
+                         esp_err_to_name(radio_error));
+            }
+        }
+    }
 #endif
     // Restore the standalone frame while dark, then expose it. A previous sleep
     // pose must never flash on screen before the consumer can prepare Wake.
@@ -1189,10 +1270,9 @@ esp_err_t resume_standby_resources(
         first_error = transition_display_resource(false);
     }
     refresh_audio_suspend_flag();
-    const bool storage_degraded =
-        optional_storage_error != nullptr &&
-        *optional_storage_error != ESP_OK;
-    if (!standby_resources_match_target(false, storage_degraded)) {
+    const bool storage_degraded = optional_errors.storage != ESP_OK;
+    const bool wireless_degraded = optional_errors.wireless != ESP_OK;
+    if (!standby_resources_match_target(false, storage_degraded, wireless_degraded)) {
         ESP_LOGE(
             kTag,
             "Active resource recovery ended with an inconsistent mandatory state"
@@ -1664,26 +1744,27 @@ esp_err_t set_standby(
                 StandbyTracePhase::EntryFailed,
                 transition_error
             );
-            esp_err_t optional_storage_error = ESP_OK;
+            OptionalResumeErrors optional_errors;
             const esp_err_t rollback_error =
-                resume_standby_resources(true, &optional_storage_error);
+                resume_standby_resources(true, optional_errors);
             if (rollback_error == ESP_OK) {
                 s_state = LUNASHELL::DeviceOperatingState::Active;
                 s_display_stage =
                     LUNASHELL::UiHardwareSnapshot::DisplayPowerMode::Active;
                 const esp_err_t recovery_publication_error =
-                    optional_storage_error != ESP_OK
-                        ? optional_storage_error
+                    optional_errors.first_error() != ESP_OK
+                        ? optional_errors.first_error()
                         : transition_error;
                 publish_power(recovery_publication_error);
                 ESP_LOGE(
                     kTag,
                     "Standby entry failed; active state restored "
-                    "(transition=%s storage=%s)",
+                    "(transition=%s storage=%s wireless=%s)",
                     esp_err_to_name(transition_error),
-                    optional_storage_error == ESP_OK
+                    optional_errors.storage == ESP_OK
                         ? "ready"
-                        : esp_err_to_name(optional_storage_error)
+                        : esp_err_to_name(optional_errors.storage),
+                    esp_err_to_name(optional_errors.wireless)
                 );
                 return transition_error;
             }
@@ -1771,10 +1852,10 @@ esp_err_t set_standby(
     s_state = LUNASHELL::DeviceOperatingState::Waking;
     s_reason = reason;
     publish_power(ESP_OK);
-    esp_err_t optional_storage_error = ESP_OK;
+    OptionalResumeErrors optional_errors;
     record_standby_trace(StandbyTracePhase::ResourcesResuming, ESP_OK);
     const esp_err_t transition_error =
-        resume_standby_resources(false, &optional_storage_error);
+        resume_standby_resources(false, optional_errors);
     if (transition_error != ESP_OK) {
         record_standby_trace(
             StandbyTracePhase::WakeFailed,
@@ -1803,10 +1884,10 @@ esp_err_t set_standby(
             "Standby rollback after wake failure failed (%s)",
             esp_err_to_name(rollback_error)
         );
-        esp_err_t recovery_storage_error = ESP_OK;
+        OptionalResumeErrors recovery_optional_errors;
         esp_err_t recovery_publication_error = transition_error;
         const esp_err_t recovery_error =
-            resume_standby_resources(true, &recovery_storage_error);
+            resume_standby_resources(true, recovery_optional_errors);
         if (recovery_error == ESP_OK) {
             s_state = LUNASHELL::DeviceOperatingState::Active;
             s_display_stage =
@@ -1825,16 +1906,17 @@ esp_err_t set_standby(
 #endif
             record_standby_trace(
                 StandbyTracePhase::Awake,
-                recovery_storage_error
+                recovery_optional_errors.first_error()
             );
-            if (recovery_storage_error != ESP_OK) {
-                recovery_publication_error = recovery_storage_error;
+            if (recovery_optional_errors.first_error() != ESP_OK) {
+                recovery_publication_error = recovery_optional_errors.first_error();
                 ESP_LOGE(
                     kTag,
-                    "Active recovery completed with optional storage "
-                    "unavailable (transition=%s storage=%s)",
+                    "Active recovery completed with optional resources "
+                    "unavailable (transition=%s storage=%s wireless=%s)",
                     esp_err_to_name(transition_error),
-                    esp_err_to_name(recovery_storage_error)
+                    esp_err_to_name(recovery_optional_errors.storage),
+                    esp_err_to_name(recovery_optional_errors.wireless)
                 );
             }
         } else {
@@ -1863,8 +1945,9 @@ esp_err_t set_standby(
         standby_ended_at_us
     );
 #endif
-    publish_power(optional_storage_error);
-    record_standby_trace(StandbyTracePhase::Awake, optional_storage_error);
+    const esp_err_t optional_error = optional_errors.first_error();
+    publish_power(optional_error);
+    record_standby_trace(StandbyTracePhase::Awake, optional_error);
     if constexpr (LUNASHELL::build_mode::kDevelopmentDiagnosticsEnabled) {
         s_deferred_standby_trace_report_at_us =
             esp_timer_get_time() + kDeferredStandbyTraceReportDelayUs;
@@ -1873,14 +1956,15 @@ esp_err_t set_standby(
     }
     ESP_LOGI(
         kTag,
-        "Device awake: reason=%s sequence=%lu storage=%s",
+        "Device awake: reason=%s sequence=%lu storage=%s wireless=%s",
         device_state_reason_name(reason),
         static_cast<unsigned long>(s_transition_sequence),
-        optional_storage_error == ESP_OK
+        optional_errors.storage == ESP_OK
             ? "ready"
-            : esp_err_to_name(optional_storage_error)
+            : esp_err_to_name(optional_errors.storage),
+        esp_err_to_name(optional_errors.wireless)
     );
-    return optional_storage_error;
+    return optional_error;
 }
 
 // imu: Original valid, fresh measured sample from the canonical snapshot owner.
@@ -2497,6 +2581,7 @@ void power_task(void *argument)
 
         const LUNASHELL::DeviceSnapshot snapshot =
             LUNASHELL::DeviceSnapshotService::instance().snapshot();
+        reconcile_wireless_resume_error(snapshot.radios);
         const auto &key = snapshot.input;
         const int64_t key_now_us = esp_timer_get_time();
         const bool key_current = key.power_button.data_valid && !key.power_button.data_stale &&
@@ -2553,7 +2638,7 @@ void power_task(void *argument)
                 if (wake_error != ESP_OK) {
                     ESP_LOGE(
                         kTag,
-                        "IMU wake failed (%s)",
+                        "IMU wake reported an error (%s)",
                         esp_err_to_name(wake_error)
                     );
                 }
@@ -2596,7 +2681,7 @@ void power_task(void *argument)
             // not a measured touch contact; acquisition publishes the actual sample.
             const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::Touch);
             if (wake_error != ESP_OK) {
-                ESP_LOGE(kTag, "Touch IRQ wake failed (%s)", esp_err_to_name(wake_error));
+                ESP_LOGE(kTag, "Touch IRQ wake reported an error (%s)", esp_err_to_name(wake_error));
             }
         }
 #endif
@@ -2638,7 +2723,7 @@ void power_task(void *argument)
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(false, activity_reason);
                 if (wake_error != ESP_OK) {
-                    ESP_LOGE(kTag, "Input activity wake failed (%s)", esp_err_to_name(wake_error));
+                    ESP_LOGE(kTag, "Input activity wake reported an error (%s)", esp_err_to_name(wake_error));
                 }
             }
             if (s_state == LUNASHELL::DeviceOperatingState::Active) {
@@ -3313,7 +3398,7 @@ extern "C" esp_err_t LUNASHELL_power_enter_deep_sleep(uint64_t wake_after_us)
     if (!LUNASHELL::build_mode::kDeepSleepOnStandbyEnabled ||
         s_state != LUNASHELL::DeviceOperatingState::Standby ||
         xTaskGetCurrentTaskHandle() != s_task ||
-        !standby_resources_match_target(true, false)) {
+        !standby_resources_match_target(true, false, false)) {
         ESP_LOGE(kTag, "Deep-sleep rejected: requires Release and confirmed standby on the power owner (%s)",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;

@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstring>
 #include <iterator>
+#include <limits>
 #include <new>
 
 #include "CODY2D.hpp"
@@ -26,6 +27,7 @@
 #include "CODY_settings.hpp"
 #include "CODY_screenshot.hpp"
 #include "CODY_capture_sound.hpp"
+#include "CODY_boot_cues.h"
 #include "CODY_status_overlay.hpp"
 #include "scene_data.hpp"
 #include "CODY_benchmark.hpp"
@@ -203,6 +205,8 @@ struct CompanionState {
     std::atomic<bool> frame_dirty{false};
     int64_t animation_elapsed_us = 0;
     int64_t animation_sampled_us = 0;
+    int64_t onboarding_elapsed_us = 0;
+    int64_t onboarding_sampled_us = 0;
     CODY::ContourState contour{};
     CODY::Channels face{};
     CODY::LifecycleState lifecycle{};
@@ -1984,11 +1988,24 @@ esp_err_t apply_scene_requests()
             return route_lock_error;
         }
         const DisplayUnlockOnExit route_lock;
-        if (!CODY::lifecycle_is_resting(s_state.lifecycle)) {
+        if (!CODY::lifecycle_is_resting(s_state.lifecycle) ||
+            !LUNASHELL_display_runtime_writes_allowed()) {
             // Keep both the current route and any action-worker result intact
             // until Wake finishes. No hidden scene consumes or loses a mailbox.
+            s_state.onboarding_sampled_us = 0;
             return ESP_OK;
         }
+        // Inactivity is awake time, independent of the Debug animation pause.
+        // Reset sampling while hidden so a long standby never expires a route.
+        const int64_t onboarding_now_us = esp_timer_get_time();
+        if (s_state.onboarding_sampled_us > 0 &&
+            onboarding_now_us >= s_state.onboarding_sampled_us) {
+            const int64_t delta_us = onboarding_now_us - s_state.onboarding_sampled_us;
+            const int64_t remaining_us = std::numeric_limits<int64_t>::max() -
+                s_state.onboarding_elapsed_us;
+            s_state.onboarding_elapsed_us += std::min(delta_us, remaining_us);
+        }
+        s_state.onboarding_sampled_us = onboarding_now_us;
         if (kRenderDiagnosticsEnabled || !s_state.onboarding.effective_first_boot) {
             const int64_t now_us = esp_timer_get_time();
             // No startup priming: only real touch reveals shared status/debug chrome.
@@ -2003,7 +2020,8 @@ esp_err_t apply_scene_requests()
         }
         bool route_changed = false;
         const esp_err_t route_error = CODY::update_onboarding(
-            s_state.scene, s_cached_scene, s_state.animation_elapsed_us, route_changed);
+            s_state.scene, s_cached_scene, s_state.animation_elapsed_us,
+            s_state.onboarding_elapsed_us, route_changed);
         if (route_error != ESP_OK) {
             return route_error;
         }
@@ -2251,6 +2269,15 @@ esp_err_t prepare_display_lifecycle(bool sleeping)
 esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
 {
     const bool pressed_edge = point.pressed && !s_state.touch_pressed;
+    if (!s_state.resume_scene_pending && s_state.boot_phase == BootPhase::Ready &&
+        LUNASHELL_display_runtime_writes_allowed() && CODY::lifecycle_is_resting(s_state.lifecycle)) {
+        const esp_err_t activity_error = CODY::observe_onboarding_touch_activity(
+            {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)},
+            point.pressed, pressed_edge, s_state.onboarding_elapsed_us);
+        if (activity_error != ESP_OK) {
+            return activity_error;
+        }
+    }
     bool reveal_only = false;
     const bool chrome_eligible = s_state.rig_visible &&
         CODY::lifecycle_is_resting(s_state.lifecycle) &&
@@ -2285,7 +2312,8 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         bool consumed = false;
         const esp_err_t route_error = CODY::handle_onboarding_touch(
             s_state.scene, {static_cast<int16_t>(point.x), static_cast<int16_t>(point.y)},
-            point.pressed, pressed_edge, s_state.rendered_rotation_degrees, consumed);
+            point.pressed, pressed_edge,
+            s_state.rendered_rotation_degrees, consumed);
         if (route_error != ESP_OK) {
             return route_error;
         }
@@ -2560,6 +2588,9 @@ void companion_worker(void *context)
             }
             continue;
         }
+        // A pending boot sound can observe trusted time even on a static/paused route.
+        // The cue owner bounds this canonical-only check; terminal requests do no work.
+        CODY_boot_cues_observe_pending();
         const uint32_t revision = LUNASHELL_display_runtime_content_revision();
         const bool paused_release_frame = s_state.animation_paused && !kRenderDiagnosticsEnabled;
         if (!parked && s_state.rig_visible &&

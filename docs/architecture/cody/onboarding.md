@@ -17,6 +17,8 @@ in [runtime](runtime.md).
 | 07, current attempt ReadyToScan + QR encoded | Remain 07 / Scan to pair + session QR |
 | Credentials / Connecting / Completing | Retire QR; type actual progress in 07 |
 | 07, Cancel | Wipe QR and await confirmed closure, then 06 |
+| 05 / 06 / 07, 30 active seconds without touch or genuine pairing progress | Return immediately to 04 / Welcome; retire old presentation work and close the owned attempt asynchronously |
+| Timeout-returned 04, fresh tap after confirmed clean closure | Resume at 05; no boot sequence is replayed |
 | Failed / TimedOut / presentation error | 08 / actual error and gated Retry |
 | 08, Retry after clean terminal failure | Return to 05; Show QR and Pair Cody admit the next attempt |
 | 08, Retry with an active session or failed cleanup | Request typed Cancel, keep 08 visible, then return to 05 only after clean Cancelled |
@@ -115,6 +117,27 @@ and then returns to 06.
 Stored SSID, BLE connection, credentials, DHCP initiation or action admission
 never establish Online. See [connectivity/pairing](../connectivity-pairing.md) for
 the acquisition, worker and cleanup implementation.
+
+A fixed-capacity screen policy gives 05, 06 and 07 their separate 30-second
+inactivity return. It uses the awake route clock: pausing animation does not pause
+inactivity, while standby and the lifecycle wake sequence consume no timeout time.
+Fresh presses, actual contact
+movement/releases and canonical progress in the current attempt refresh it;
+animation, typewriter prefixes, IMU movement and repeated unchanged snapshots
+do not. This policy does not write settings or change the five-minute backend
+deadline or the scenes' 60-second standby overrides.
+
+The timeout retires the route generation and wipes the displayed QR before showing
+the existing `Hi, I'm Cody!` Greeting scene. Its normal teletype remains paused when
+Debug stops animation; its route inactivity clock is separate. This returned Welcome
+stays visible until a fresh tap. A detached cleanup context retains only the old attempt identity:
+an outstanding admission result can identify the attempt to cancel, but late QR,
+progress and first-boot results cannot restore their old route or start a new
+first-boot completion write. Running worker operations retain ownership until they
+actually exit. New navigation remains blocked until canonical clean closure and
+the bounded action mailbox has drained. Cancellation admission is not closure;
+an actual cancellation or cleanup failure remains visible on 08 with its real
+error and explicit Retry.
 
 ## Reusable look selector 11
 

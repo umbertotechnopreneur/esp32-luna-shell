@@ -18,7 +18,14 @@ older host/build/flash evidence does not validate the current combined image.
   cycles. Confirm no contiguous-DMA preflight rejection, teardown panic or
   stale failed-wake trace is misreported as a new failure. The 2026-10-04 log
   proves the prior firmware still rebooted; corrected `d766e08c` completed one
-  100-second boot/standby capture without panic. Repeated wake cycles remain open.
+  100-second boot/standby capture without panic, but the later passive monitor
+  exposed repeated BLE contiguous-DMA rejection and a touch critical-section
+  Interrupt-WDT during wake. Source corrections exist; repeated wake cycles
+  and degraded-radio error/recovery publication remain unverified.
+- [ ] Verify screen 05/06/07 returns to Welcome after 30 awake seconds without
+  real touch/pairing progress, including animation pause, standby, late worker
+  results, cancellation errors and a fresh tap to restart. Verify deferred boot
+  audio when the canonical clock becomes trusted, quiet hours and standby races.
 - [ ] Investigate the interrupted 130-second capture: COM10's stream closed
   after 43 seconds without a captured panic. The following 100-second capture
   completed; the first USB/host interruption's cause remains unidentified.

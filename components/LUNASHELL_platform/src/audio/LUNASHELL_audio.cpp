@@ -802,6 +802,7 @@ esp_err_t reject_playback(const char *operation, esp_err_t error,
 // sample_count: Exact number of samples to write.
 // sample_rate_hz: Actual requested output sample rate.
 // volume_percent: Codec output volume in 0..100.
+// Exception: Returns original standby, codec, format or snapshot publication errors.
 extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     const int16_t *samples,
     size_t sample_count,
@@ -849,6 +850,15 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
     }
     if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
         return reject_playback("Playback mutex acquisition", ESP_ERR_TIMEOUT, sample_rate_hz, volume_percent);
+    }
+
+    // Standby may have won this mutex after the initialization fast path returned.
+    // Playback cannot reopen a suspended or indeterminate route under that owner.
+    if (s_standby.load(std::memory_order_acquire) ||
+        s_audio_state_poisoned.load(std::memory_order_acquire)) {
+        audio_unlock(mutex);
+        return reject_playback("Playback lifecycle ownership", ESP_ERR_INVALID_STATE,
+            sample_rate_hz, volume_percent);
     }
 
     error = configure_speaker_stream(sample_rate_hz);

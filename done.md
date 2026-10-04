@@ -7,6 +7,24 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Passive monitoring of `d766e08c` recorded wake input followed by failed BLE
+  DMA reservation (34,816 bytes required; largest block about 21-22 KiB), then
+  rollback to standby. A later Interrupt-WDT backtrace enters the log mutex
+  from CST9217's point logging inside a critical section. Preserved evidence:
+  `artifacts/build-cody-companion-debug/evidence/cody-d766e08c-wake-failures-20261004.log`.
+  Removed that logging in the reproducible vendor patch. Standalone graphical
+  wake now accepts a radio failure only after confirmed shutdown, preserves the
+  original error until verified recovery and still rejects uncertain cleanup.
+- Added a bounded 30-second awake-inactivity policy for 05/06/07 returning to
+  Welcome 04 without replaying boot. Real touch/pairing progress refreshes it;
+  animation pause does not stop the timeout, standby does. Detached cancellation
+  blocks new pairing and rejects late route promotion. Returned Welcome waits
+  for a fresh tap, keeping the normal typewriter presentation.
+- Boot audio now waits for verified canonical time instead of permanently
+  suppressing that boot's cue when RTC is invalid. A single temporary 4 KiB
+  PSRAM worker respects quiet hours/active state, with pending-only 1 Hz reads
+  and real playback/error publication. These changes have static review only;
+  build, flash and physical confirmation are not claimed here.
 - Captured 28 deterministic `CODY_companion` stack overflows in 100 seconds
   after flashing `dd9f05d8`. The matching ELF shows the worker/frame/coverage
   call chain alone needs 8,176 bytes against an 8,192-byte stack; enabling cheek

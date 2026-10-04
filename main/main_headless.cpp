@@ -283,7 +283,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
     CODY_boot_cues_boot_checkpoint("ready frame / mandatory startup complete");
     ESP_ERROR_CHECK(CODY_companion_demo_start());
-    ESP_ERROR_CHECK(CODY_boot_cues_play_eyes_open());
+    report_optional_startup_failure("Cody boot audio", CODY_boot_cues_play_eyes_open());
 #endif
     ESP_LOGI(kTag, "Standalone hardware startup completed");
 }
