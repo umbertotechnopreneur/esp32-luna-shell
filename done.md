@@ -7,6 +7,14 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-05
 
+- Flashed the S3 Debug verifier with all written hashes accepted. In the second
+  80-second reset/capture, the actual PIE kernel passed 65,536 weight pairs and
+  262,144 reference samples, then compared 30,267,144 live RGBA samples across
+  489 measured frames without a mismatch. The benchmark finished, restored the
+  scalar renderer and excluded contaminated timing data. The first capture was
+  interrupted by touch after 229 measured frames; neither capture reported a
+  panic. Evidence: `artifacts/build-cody-companion-debug/evidence/cody-simd-verify-2.log`.
+  This proves observed parity for the fixed workload, not a performance gain.
 - Built `0883de76` as ESP32-S3 Cody Debug with ESP-IDF 6.0.2 and eight jobs.
   The S3 assembly and C++ validation source compiled; the final ELF links
   `cody_jelly_bilinear_s3`. App image: 3,725,904 bytes, 75% partition free;

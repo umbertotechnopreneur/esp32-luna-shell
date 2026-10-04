@@ -38,8 +38,9 @@ older host/build/flash evidence does not validate the current combined image.
   Validate the implemented S3 interpolation kernel: `simd_verify` first checks
   65,536 weight combinations and then compares live RGBA samples; `simd` and
   `scalar` are separate timing captures. The S3 Debug build and corrected MSVC
-  host suite passed. Execute the actual S3 kernel and compare frames on target;
-  host arithmetic-model success is not hardware instruction parity.
+  host suite passed. The S3 verification run compared 30,267,144 live samples
+  across 489 measured frames with no mismatch. Capture independent `simd` and
+  fresh `scalar` timings under the same workload; no speed gain is established.
   Add deterministic animated work after trustworthy timings; include
   packing/alignment/tails and confirm gains in the full UI. Device clock,
   radio state, logging overhead and complete cleanup remain validation concerns.

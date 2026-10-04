@@ -221,8 +221,9 @@ scalar implementation. `scalar` selects the existing fused C sampler, `simd`
 selects the PIE assembly sampler for timing, and `simd_verify` selects an explicit
 verification run. Unsupported selections return an error; they never silently
 substitute C. The current authored configuration selects `simd_verify`, with
-block timing disabled. It built successfully for S3 on 2026-10-05; it has not
-run on hardware.
+block timing disabled. The 2026-10-05 S3 run passed both the exhaustive weight
+contract and a completed 489-frame live comparison at 100% scale. The selected
+configuration is now `simd` for a separate timing capture; its result is pending.
 
 The kernel widens packed RGBA8 texels with ZIP and computes two pixels at a time
 in eight 16-bit lanes. Unsigned multiply-accumulate retains each weighted sum in
