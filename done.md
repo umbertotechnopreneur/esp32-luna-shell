@@ -7,6 +7,12 @@ and referenced architecture/artifact records.
 
 ## Cody and connectivity — 2026-10-02 to 2026-10-04
 
+- Created the English A5 front/back CCP pairing quick-start leaflet in Obsidian
+  and `docs/Cody/`, with the proposed ZIP/local-marketplace installation path,
+  display-code pairing, ten-second Idle flow, atlas illustrations and note lines.
+  Both pages were rendered and visually inspected. No ZIP release, plugin
+  install/runtime, firmware, LAN or hardware validation is claimed.
+  [Artifact record](docs/planning/2026-10-04-ccp-pairing-quickstart.md).
 - Checkpoint `f4cc7e97`: adopted Alpha terminology in active code/tools; boot
   cues, runtime authoring and appearance assets have coordinated names. Persisted
   keys, routes, skin IDs, parameter values, PCM/WAV and image bytes are unchanged.
