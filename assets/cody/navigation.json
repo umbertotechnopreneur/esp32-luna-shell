@@ -8,6 +8,8 @@
      "shape": "circle", "center": [40, 233], "radius": 30},
     {"id": "pause", "identity": 3, "visible_by_default": true,
      "shape": "circle", "center": [158, 47], "radius": 22},
+    {"id": "screenshot", "identity": 4, "visible_by_default": true,
+     "shape": "circle", "center": [233, 47], "radius": 22},
     {"id": "overlay", "identity": 2, "visible_by_default": true,
      "shape": "circle", "center": [308, 47], "radius": 22}
   ]

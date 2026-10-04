@@ -4,7 +4,12 @@ import math
 from pathlib import Path
 from scripts.common.cody_rig_contract import read_json
 
-CONTROL_IDENTITIES = {"back": (1, "Back"), "overlay": (2, "Overlay"), "pause": (3, "Pause")}
+CONTROL_IDENTITIES = {
+    "back": (1, "Back"),
+    "overlay": (2, "Overlay"),
+    "pause": (3, "Pause"),
+    "screenshot": (4, "Screenshot"),
+}
 
 
 # root: Checkout containing the canonical navigation source, not runtime observations.

@@ -6794,6 +6794,35 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+// observation: Receives a coherent, aged projection for informational UI chrome.
+// The renderer never samples the PMU, system clock or Wi-Fi driver through this path.
+esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
+    DeviceStatusObservation &observation
+) const
+{
+    DeviceStatusObservation copy;
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "device status read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Device status observation lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    copy.battery = s_snapshot.battery;
+    copy.clock = s_snapshot.clock;
+    copy.wifi = s_snapshot.radios.wifi;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("device status read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Device status observation release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.battery, now_us, ttl_us);
+    age_measured_sample(copy.clock, now_us, ttl_us);
+    observation = copy;
+    return ESP_OK;
+}
+
 // frame: Receives the last completed display operation, never a new driver read.
 // Its measured flag, original error and completion timestamp travel with the values.
 esp_err_t DeviceSnapshotService::readDisplayFrameObservation(DisplayFrameSnapshot &frame) const

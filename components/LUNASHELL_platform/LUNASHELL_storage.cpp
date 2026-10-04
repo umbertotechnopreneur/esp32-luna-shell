@@ -7,8 +7,17 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cerrno>
+#include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <mutex>
+
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "bsp/esp-bsp.h"
 #include "esp_heap_caps.h"
@@ -45,6 +54,21 @@ constexpr EventBits_t kWorkerQuiescentBit =
     static_cast<EventBits_t>(1U << 0);
 constexpr EventBits_t kWorkerResumeCompleteBit =
     static_cast<EventBits_t>(1U << 1);
+constexpr uint16_t kScreenshotWidth = 466;
+constexpr uint16_t kScreenshotHeight = 466;
+constexpr size_t kBmpHeaderBytes = 54;
+constexpr size_t kBmpConversionPixels = 128;
+
+struct ScreenshotWriteRequest {
+    uint16_t *pixels = nullptr;
+    uint16_t width = 0;
+    uint16_t height = 0;
+    uint16_t stride = 0;
+    bool byte_swapped = false;
+    uint32_t capture_id = 0;
+    LUNASHELL_screenshot_completion_t completion = nullptr;
+    void *context = nullptr;
+};
 
 std::mutex s_storage_mutex;
 std::mutex s_power_transition_mutex;
@@ -74,6 +98,206 @@ bool s_space_refresh_tick_valid;
 TickType_t s_last_space_refresh_tick;
 uint32_t s_last_space_write_sequence;
 bool s_space_refresh_requested;
+ScreenshotWriteRequest s_screenshot_request;
+bool s_screenshot_pending;
+bool s_screenshot_active;
+
+// destination: Writable little-endian byte range.
+// value: Unsigned 16-bit value to encode.
+void write_little_endian_16(uint8_t *destination, uint16_t value)
+{
+    destination[0] = static_cast<uint8_t>(value & 0xFFU);
+    destination[1] = static_cast<uint8_t>(value >> 8U);
+}
+
+// destination: Writable little-endian byte range.
+// value: Unsigned 32-bit value to encode.
+void write_little_endian_32(uint8_t *destination, uint32_t value)
+{
+    destination[0] = static_cast<uint8_t>(value & 0xFFU);
+    destination[1] = static_cast<uint8_t>((value >> 8U) & 0xFFU);
+    destination[2] = static_cast<uint8_t>((value >> 16U) & 0xFFU);
+    destination[3] = static_cast<uint8_t>(value >> 24U);
+}
+
+// path: Exact storage-owner directory to create or verify.
+// Exception: Returns ESP_FAIL and logs the original errno when the path is unusable.
+esp_err_t ensure_screenshot_directory(const char *path)
+{
+    if (mkdir(path, 0775) == 0) {
+        return ESP_OK;
+    }
+    const int mkdir_errno = errno;
+    if (mkdir_errno != EEXIST) {
+        ESP_LOGE(TAG, "SD screenshot directory '%s' failed: errno=%d (%s)",
+                 path, mkdir_errno, esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    struct stat status = {};
+    const int stat_result = stat(path, &status);
+    if (stat_result != 0 || !S_ISDIR(status.st_mode)) {
+        const int stat_errno = stat_result != 0 ? errno : ENOTDIR;
+        ESP_LOGE(TAG, "SD screenshot path '%s' is not a directory: errno=%d (%s)",
+                 path, stat_errno, esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    return ESP_OK;
+}
+
+// file: Open screenshot temporary file.
+// data: Readable bytes to append.
+// size: Exact byte count required for success.
+// operation: Bounded stage name included in failure logs.
+// Exception: Returns ESP_FAIL and logs the original errno or short-write state.
+esp_err_t write_screenshot_bytes(FILE *file, const void *data, size_t size,
+                                 const char *operation)
+{
+    const size_t written = std::fwrite(data, 1, size, file);
+    if (written == size) {
+        return ESP_OK;
+    }
+    const int write_errno = errno;
+    const int stream_error = std::ferror(file);
+    ESP_LOGE(TAG, "SD screenshot %s failed: errno=%d ferror=%d written=%u requested=%u (%s)",
+             operation, write_errno, stream_error, static_cast<unsigned>(written),
+             static_cast<unsigned>(size),
+             esp_err_to_name(ESP_FAIL));
+    return ESP_FAIL;
+}
+
+// request: Storage-owner screenshot request with a complete RGB565 frame.
+// Exception: Returns the real directory, file, write, flush, sync or rename failure.
+esp_err_t write_screenshot_file(const ScreenshotWriteRequest &request)
+{
+    char app_directory[96] = {};
+    char screenshot_directory[128] = {};
+    char temporary_path[192] = {};
+    char final_path[192] = {};
+    const long long timestamp_us = static_cast<long long>(esp_timer_get_time());
+    const int app_length = std::snprintf(
+        app_directory, sizeof(app_directory), "%s/LUNASHELL", BSP_SD_MOUNT_POINT
+    );
+    const int directory_length = std::snprintf(
+        screenshot_directory, sizeof(screenshot_directory), "%s/screenshots", app_directory
+    );
+    const int final_length = std::snprintf(
+        final_path, sizeof(final_path), "%s/CODY-%013lld-%06lu.bmp",
+        screenshot_directory, timestamp_us, static_cast<unsigned long>(request.capture_id)
+    );
+    const int temporary_length = std::snprintf(
+        temporary_path, sizeof(temporary_path), "%s/.CODY-%013lld-%06lu.tmp",
+        screenshot_directory, timestamp_us, static_cast<unsigned long>(request.capture_id)
+    );
+    if (app_length <= 0 || static_cast<size_t>(app_length) >= sizeof(app_directory) ||
+        directory_length <= 0 || static_cast<size_t>(directory_length) >= sizeof(screenshot_directory) ||
+        final_length <= 0 || static_cast<size_t>(final_length) >= sizeof(final_path) ||
+        temporary_length <= 0 || static_cast<size_t>(temporary_length) >= sizeof(temporary_path)) {
+        ESP_LOGE(TAG, "SD screenshot path formatting failed (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    esp_err_t result = ensure_screenshot_directory(app_directory);
+    if (result == ESP_OK) {
+        result = ensure_screenshot_directory(screenshot_directory);
+    }
+    if (result != ESP_OK) {
+        return result;
+    }
+
+    errno = 0;
+    const int descriptor = open(temporary_path, O_WRONLY | O_CREAT | O_EXCL, 0644);
+    if (descriptor < 0) {
+        const int open_errno = errno;
+        ESP_LOGE(TAG, "SD screenshot temporary file '%s' failed: errno=%d (%s)",
+                 temporary_path, open_errno, esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    FILE *file = fdopen(descriptor, "wb");
+    if (file == nullptr) {
+        const int stream_errno = errno;
+        close(descriptor);
+        unlink(temporary_path);
+        ESP_LOGE(TAG, "SD screenshot stream failed: errno=%d (%s)",
+                 stream_errno, esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+
+    const uint32_t row_bytes = (static_cast<uint32_t>(request.width) * 3U + 3U) & ~3U;
+    const uint32_t image_bytes = row_bytes * request.height;
+    std::array<uint8_t, kBmpHeaderBytes> header{};
+    header[0] = 'B';
+    header[1] = 'M';
+    write_little_endian_32(header.data() + 2, static_cast<uint32_t>(kBmpHeaderBytes) + image_bytes);
+    write_little_endian_32(header.data() + 10, static_cast<uint32_t>(kBmpHeaderBytes));
+    write_little_endian_32(header.data() + 14, 40U);
+    write_little_endian_32(header.data() + 18, request.width);
+    write_little_endian_32(
+        header.data() + 22,
+        static_cast<uint32_t>(-static_cast<int32_t>(request.height))
+    );
+    write_little_endian_16(header.data() + 26, 1U);
+    write_little_endian_16(header.data() + 28, 24U);
+    write_little_endian_32(header.data() + 34, image_bytes);
+    result = write_screenshot_bytes(file, header.data(), header.size(), "header write");
+
+    std::array<uint8_t, kBmpConversionPixels * 3U> converted{};
+    const std::array<uint8_t, 3> padding{};
+    for (uint16_t row = 0; result == ESP_OK && row < request.height; ++row) {
+        const uint16_t *source = request.pixels + static_cast<size_t>(row) * request.stride;
+        for (uint16_t first = 0; first < request.width; first += kBmpConversionPixels) {
+            const uint16_t count = std::min<uint16_t>(
+                kBmpConversionPixels, request.width - first
+            );
+            for (uint16_t index = 0; index < count; ++index) {
+                uint16_t native = source[first + index];
+                if (request.byte_swapped) {
+                    native = static_cast<uint16_t>((native >> 8U) | (native << 8U));
+                }
+                const uint8_t red = static_cast<uint8_t>((((native >> 11U) & 0x1FU) * 255U + 15U) / 31U);
+                const uint8_t green = static_cast<uint8_t>((((native >> 5U) & 0x3FU) * 255U + 31U) / 63U);
+                const uint8_t blue = static_cast<uint8_t>(((native & 0x1FU) * 255U + 15U) / 31U);
+                converted[index * 3U] = blue;
+                converted[index * 3U + 1U] = green;
+                converted[index * 3U + 2U] = red;
+            }
+            result = write_screenshot_bytes(
+                file, converted.data(), static_cast<size_t>(count) * 3U, "pixel write"
+            );
+            if (result != ESP_OK) {
+                break;
+            }
+        }
+        const size_t padding_bytes = row_bytes - static_cast<uint32_t>(request.width) * 3U;
+        if (result == ESP_OK && padding_bytes != 0) {
+            result = write_screenshot_bytes(file, padding.data(), padding_bytes, "row padding");
+        }
+    }
+    if (result == ESP_OK && std::fflush(file) != 0) {
+        ESP_LOGE(TAG, "SD screenshot flush failed: errno=%d (%s)", errno, esp_err_to_name(ESP_FAIL));
+        result = ESP_FAIL;
+    }
+    if (result == ESP_OK && fsync(fileno(file)) != 0) {
+        ESP_LOGE(TAG, "SD screenshot sync failed: errno=%d (%s)", errno, esp_err_to_name(ESP_FAIL));
+        result = ESP_FAIL;
+    }
+    if (std::fclose(file) != 0 && result == ESP_OK) {
+        ESP_LOGE(TAG, "SD screenshot close failed: errno=%d (%s)", errno, esp_err_to_name(ESP_FAIL));
+        result = ESP_FAIL;
+    }
+    if (result == ESP_OK && rename(temporary_path, final_path) != 0) {
+        ESP_LOGE(TAG, "SD screenshot publish '%s' failed: errno=%d (%s)",
+                 final_path, errno, esp_err_to_name(ESP_FAIL));
+        result = ESP_FAIL;
+    }
+    if (result != ESP_OK) {
+        if (unlink(temporary_path) != 0 && errno != ENOENT) {
+            ESP_LOGE(TAG, "SD screenshot temporary cleanup failed: errno=%d", errno);
+        }
+        return result;
+    }
+    ESP_LOGI(TAG, "SD screenshot saved: %s", final_path);
+    return ESP_OK;
+}
 
 esp_err_t logger_watch_begin()
 {
@@ -1124,6 +1348,7 @@ void wait_for_storage_notification(TickType_t timeout_ticks)
     (void)ulTaskNotifyTake(pdTRUE, timeout_ticks);
 }
 
+// argument: Unused FreeRTOS task context.
 // Own SD/FatFs polling and park indefinitely while power is suspended.
 void storage_task(void *argument)
 {
@@ -1134,8 +1359,13 @@ void storage_task(void *argument)
         bool terminal_failure = false;
         bool waiting_for_format_authorization = false;
         bool power_suspended = false;
+        bool performance_suspended = false;
         bool power_resume_requested = false;
         bool force_space_refresh = false;
+        bool have_screenshot = false;
+        bool screenshot_allowed = false;
+        esp_err_t screenshot_rejection = ESP_ERR_INVALID_STATE;
+        ScreenshotWriteRequest screenshot;
         (void)xEventGroupClearBits(
             s_storage_events,
             kWorkerQuiescentBit
@@ -1145,6 +1375,7 @@ void storage_task(void *argument)
             mounted = s_mounted;
             terminal_failure = s_terminal_failure;
             power_suspended = s_power_suspended;
+            performance_suspended = s_performance_suspended;
             power_resume_requested = s_power_resume_requested;
             waiting_for_format_authorization =
                 s_waiting_for_format_authorization;
@@ -1153,6 +1384,55 @@ void storage_task(void *argument)
                 force_space_refresh = true;
                 s_space_refresh_requested = false;
             }
+            if (s_screenshot_pending) {
+                screenshot = s_screenshot_request;
+                s_screenshot_request = {};
+                s_screenshot_pending = false;
+                s_screenshot_active = true;
+                have_screenshot = true;
+                screenshot_allowed = mounted && !terminal_failure && !power_suspended &&
+                    !performance_suspended && s_last_mount_report.mounted &&
+                    s_last_mount_report.card_response_verified &&
+                    !s_last_mount_report.poisoned;
+                if (!screenshot_allowed && !mounted && s_last_mount_report.error != ESP_OK) {
+                    screenshot_rejection = s_last_mount_report.error;
+                }
+            }
+        }
+
+        if (have_screenshot) {
+            esp_err_t screenshot_error = screenshot_rejection;
+            if (screenshot_allowed) {
+                screenshot_error = run_watched_storage_io(
+                    LUNASHELL_LIVENESS_STORAGE,
+                    "screenshot write",
+                    [&screenshot]() { return write_screenshot_file(screenshot); }
+                );
+            } else {
+                ESP_LOGE(
+                    TAG,
+                    "SD screenshot rejected by owner: mounted=%u standby=%u performance=%u terminal=%u (%s)",
+                    static_cast<unsigned>(mounted),
+                    static_cast<unsigned>(power_suspended),
+                    static_cast<unsigned>(performance_suspended),
+                    static_cast<unsigned>(terminal_failure),
+                    esp_err_to_name(screenshot_error)
+                );
+            }
+            heap_caps_free(screenshot.pixels);
+            {
+                std::lock_guard<std::mutex> lock(s_storage_mutex);
+                s_screenshot_active = false;
+                if (screenshot_error == ESP_OK) {
+                    s_space_refresh_requested = true;
+                }
+            }
+            screenshot.completion(
+                screenshot.capture_id,
+                screenshot_error,
+                screenshot.context
+            );
+            continue;
         }
 
         if (power_resume_requested) {
@@ -1627,6 +1907,86 @@ extern "C" esp_err_t LUNASHELL_storage_set_logger_mirror(bool enabled)
         enabled ? "enabled" : "disabled"
     );
     return aggregate;
+}
+
+// pixels: Heap-owned complete frame; ownership transfers only after successful queueing.
+// width: Visible frame width in pixels.
+// height: Visible frame height in pixels.
+// stride: Source row stride in RGB565 pixels.
+// byte_swapped: True when source words use panel byte order.
+// capture_id: Caller-owned monotonic identity returned to completion.
+// completion: Non-blocking completion invoked by the storage owner.
+// context: Opaque caller value returned unchanged to completion.
+// Exception: Returns the real state, geometry or owner-notification failure.
+extern "C" esp_err_t LUNASHELL_storage_queue_screenshot_rgb565(
+    uint16_t *pixels, uint16_t width, uint16_t height, uint16_t stride,
+    bool byte_swapped, uint32_t capture_id,
+    LUNASHELL_screenshot_completion_t completion, void *context
+)
+{
+    if (pixels == nullptr || width != kScreenshotWidth || height != kScreenshotHeight ||
+        stride < width || capture_id == 0 || completion == nullptr) {
+        ESP_LOGE(
+            TAG,
+            "SD screenshot request rejected: pixels=%p size=%ux%u stride=%u id=%lu callback=%u (%s)",
+            pixels,
+            static_cast<unsigned>(width),
+            static_cast<unsigned>(height),
+            static_cast<unsigned>(stride),
+            static_cast<unsigned long>(capture_id),
+            static_cast<unsigned>(completion != nullptr),
+            esp_err_to_name(ESP_ERR_INVALID_ARG)
+        );
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    std::lock_guard<std::mutex> lock(s_storage_mutex);
+    if (s_storage_task == nullptr || !s_mounted || s_terminal_failure ||
+        s_power_suspended || s_performance_suspended ||
+        !s_last_mount_report.mounted || !s_last_mount_report.card_response_verified ||
+        s_last_mount_report.poisoned) {
+        const esp_err_t error = !s_mounted && s_last_mount_report.error != ESP_OK
+            ? s_last_mount_report.error : ESP_ERR_INVALID_STATE;
+        ESP_LOGE(
+            TAG,
+            "SD screenshot queue rejected: owner=%u mounted=%u standby=%u performance=%u terminal=%u verified=%u poisoned=%u (%s)",
+            static_cast<unsigned>(s_storage_task != nullptr),
+            static_cast<unsigned>(s_mounted),
+            static_cast<unsigned>(s_power_suspended),
+            static_cast<unsigned>(s_performance_suspended),
+            static_cast<unsigned>(s_terminal_failure),
+            static_cast<unsigned>(s_last_mount_report.card_response_verified),
+            static_cast<unsigned>(s_last_mount_report.poisoned),
+            esp_err_to_name(error)
+        );
+        return error;
+    }
+    if (s_screenshot_pending || s_screenshot_active) {
+        ESP_LOGE(TAG, "SD screenshot queue already occupied (%s)",
+                 esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+
+    s_screenshot_request = {
+        .pixels = pixels,
+        .width = width,
+        .height = height,
+        .stride = stride,
+        .byte_swapped = byte_swapped,
+        .capture_id = capture_id,
+        .completion = completion,
+        .context = context,
+    };
+    s_screenshot_pending = true;
+    if (xTaskNotifyGive(s_storage_task) != pdPASS) {
+        s_screenshot_request = {};
+        s_screenshot_pending = false;
+        ESP_LOGE(TAG, "Notifying SD owner for screenshot failed (%s)",
+                 esp_err_to_name(ESP_ERR_TIMEOUT));
+        return ESP_ERR_TIMEOUT;
+    }
+    ESP_LOGI(TAG, "SD screenshot queued: capture=%lu", static_cast<unsigned long>(capture_id));
+    return ESP_OK;
 }
 
 extern "C" esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended)

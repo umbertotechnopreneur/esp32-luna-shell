@@ -6,6 +6,12 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh explicit authorization, build and exercise the standalone
+  Cody status/capture chrome: post-first-boot battery/date/time/Wi-Fi semantics,
+  shared touch fade, three Debug hit targets, 0/90/180/270 mapping, and atomic
+  BMP output under `LUNASHELL/screenshots/`. Cover missing/removed/full SD,
+  concurrent log mirroring, Performance Mode, standby and PSRAM-allocation
+  failure; no build, automated test, simulator or hardware check has run yet.
 - [ ] After fresh explicit authorization, validate offline SD logging and native
   USB readback: build the updated Cody profile; observe boot with the cable
   connected and monitor closed; compare current/previous downloads and CRCs;

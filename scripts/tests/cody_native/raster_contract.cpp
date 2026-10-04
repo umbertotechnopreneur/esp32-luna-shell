@@ -639,9 +639,11 @@ void check_navigation_visibility_contract()
     require(CODY::rig_control_at({40, 233}) == CODY::RigControl::None,
             "Back remains defined but hidden and non-interactive by default");
     require(CODY::rig_control_at({160, 52}) == CODY::RigControl::Pause,
-            "Pause uses its shared upper-left annular target");
+            "Pause uses its shared upper-left target");
+    require(CODY::rig_control_at({233, 47}) == CODY::RigControl::Screenshot,
+            "Screenshot uses its independent upper-center target");
     require(CODY::rig_control_at({306, 52}) == CODY::RigControl::Overlay,
-            "Skeleton toggle uses its shared upper-right annular target");
+            "Skeleton toggle uses its shared upper-right target");
     require(CODY::rig_control_at({426, 233}) == CODY::RigControl::None,
             "old lateral skeleton target cannot activate");
     CODY::NavigationVisibility visibility;

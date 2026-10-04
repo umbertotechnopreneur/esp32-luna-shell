@@ -18,6 +18,8 @@ idf_component_register(
         "CODY_lifecycle.cpp"
         "CODY_expression_catalog.cpp"
         "CODY_settings.cpp"
+        "CODY_screenshot.cpp"
+        "CODY_status_overlay.cpp"
         "CODY_debug_hud.cpp"
         "CODY_damage.cpp"
         "CODY_dirty_plan.cpp"

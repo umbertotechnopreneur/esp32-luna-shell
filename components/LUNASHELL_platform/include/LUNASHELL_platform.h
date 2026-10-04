@@ -258,6 +258,36 @@ esp_err_t LUNASHELL_storage_set_performance_suspended(bool suspended);
  */
 esp_err_t LUNASHELL_storage_set_power_suspended(bool suspended);
 
+/** Completion runs on the storage-owner task after it releases the pixel buffer. */
+typedef void (*LUNASHELL_screenshot_completion_t)(
+    uint32_t capture_id,
+    esp_err_t error,
+    void *context
+);
+
+/**
+ * Queue one complete standalone RGB565 frame for an atomic BMP write.
+ *
+ * pixels: Heap-owned complete frame; ownership transfers only on ESP_OK.
+ * width: Visible frame width in pixels.
+ * height: Visible frame height in pixels.
+ * stride: Source row stride in RGB565 pixels.
+ * byte_swapped: True when source words use the panel's byte order.
+ * capture_id: Caller-owned monotonic identity returned to completion.
+ * completion: Required non-blocking completion callback on the storage task.
+ * context: Opaque caller value returned unchanged to completion.
+ */
+esp_err_t LUNASHELL_storage_queue_screenshot_rgb565(
+    uint16_t *pixels,
+    uint16_t width,
+    uint16_t height,
+    uint16_t stride,
+    bool byte_swapped,
+    uint32_t capture_id,
+    LUNASHELL_screenshot_completion_t completion,
+    void *context
+);
+
 /** Initialize the standalone display and touch drivers without the UI backend. */
 esp_err_t LUNASHELL_display_runtime_init(void);
 

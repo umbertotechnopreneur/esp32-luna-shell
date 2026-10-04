@@ -87,6 +87,11 @@ struct RtcSnapshot : ComponentSnapshot {
 struct ClockSnapshot : ComponentSnapshot {
     int64_t utc_epoch_seconds = 0;
     uint16_t local_minute = 0;
+    uint16_t local_year = 0;
+    uint8_t local_month = 0;
+    uint8_t local_day = 0;
+    uint8_t local_weekday = 0;
+    uint8_t local_second = 0;
     ClockTimezone timezone = ClockTimezone::Utc;
     bool preferences_valid = false;
     bool routines_enabled = false;
@@ -648,6 +653,14 @@ struct ConnectivityObservation {
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
 
+// A small coherent projection for informational chrome in either renderer.
+// Calendar fields are published by the clock owner; consumers never read live time.
+struct DeviceStatusObservation {
+    BatterySnapshot battery;
+    ClockSnapshot clock;
+    WifiSnapshot wifi;
+};
+
 struct MotionPowerObservation {
     bool storage_available = false;
     BatterySnapshot battery;
@@ -689,6 +702,9 @@ public:
     DeviceSnapshot snapshot() const;
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Receives battery, local calendar and Wi-Fi from one canonical lock.
+    // No hardware read, live-clock read or renderer-specific cache is introduced here.
+    esp_err_t readDeviceStatusObservation(DeviceStatusObservation &observation) const;
     // processor: Receives current/aged CPU fields under the canonical snapshot lock.
     // This read never samples FreeRTOS directly or starts another telemetry cache.
     esp_err_t readProcessorObservation(ProcessorSnapshot &processor) const;

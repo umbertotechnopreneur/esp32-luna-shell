@@ -554,3 +554,17 @@ retained reset diagnostics, and worker stack margins remain hardware tests in
 - Added append-only atlas addendum A02: planning page 24 and navigation page 14.
   All earlier pages render identically at 96 DPI. Firmware build, simulator,
   automated tests and device behavior remain unverified.
+
+## Cody native status and screenshot chrome (2026-10-04)
+
+- Reverted the attempted LVGL/Brookesia battery/date/time/Wi-Fi extension and
+  replaced it with an independent `CODY2D` status component. Post-first-boot
+  status is sourced only from the canonical snapshot, uses semantic colors,
+  sits below Debug controls and shares their touch-activity fade.
+- Added a third upper Debug control with a camera identity. An admitted request
+  forces one complete native composition into temporary PSRAM, then the storage
+  owner writes an atomic top-down BMP to `LUNASHELL/screenshots/`; mirrored logs
+  remain separate in `LUNASHELL/logs/`.
+- Updated the canonical navigation source, generated table, native contract
+  fixtures and Windows preview icon. Build, automated tests, simulator execution,
+  SD writes and physical-device behavior remain unverified by instruction.
