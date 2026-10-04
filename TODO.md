@@ -6,6 +6,14 @@ authorization.
 
 ## Current integration
 
+- [ ] After fresh explicit authorization, validate the Cody look-selector
+  extraction and asynchronous save: success/failure/retry, busy Back/Done,
+  route reset during a write, rotation during touch, original error visibility
+  in the canonical snapshot, and bounded memory across repeated entries.
+  Include the added snapshot-integrity source guards. Implementation received
+  static review only; no build, tests, simulator or hardware checks ran.
+  See `docs/architecture/cody-onboarding.md`.
+
 - [ ] After fresh authorization, validate the shared white QR pages: installation
   versus live-session payload, larger integer modules, quiet zone, dark title/
   caption contrast, circle clipping, all cardinal rotations, translucent pearl

@@ -1176,8 +1176,51 @@ def test_diagnostic_reuse_requires_successful_commits() -> None:
     )
 
 
+# No parameters: inspect optional look-save ownership without running firmware or NVS.
+# Raises AssertionError or a source-read error when a required boundary regresses.
+def verify_cody_look_source_contract() -> None:
+    component = ROOT / "components" / "CODY_companion"
+    onboarding = (component / "CODY_onboarding.cpp").read_text(encoding="utf-8")
+    look = (component / "CODY_look_screen.cpp").read_text(encoding="utf-8")
+    jelly = (component / "CODY_jelly.cpp").read_text(encoding="utf-8")
+    reports = (ROOT / "components/LUNASHELL_platform/LUNASHELL_snapshot_reports.cpp").read_text(encoding="utf-8")
+    header = (ROOT / "components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp").read_text(encoding="utf-8")
+
+    require_contains(onboarding, 'static constexpr char title[] = "No connection";', "offline title lifetime")
+    require("persist_jelly_skin(" not in look, "reusable look view performs blocking persistence")
+    touch = function_text(onboarding, "esp_err_t handle_onboarding_touch(", "onboarding touch")
+    require("persist_jelly_skin(" not in touch, "touch path waits for NVS")
+    require_contains(touch, "enqueue_look_save(scene, result.save_id)", "touch save admission")
+    execute = function_text(onboarding, "void execute_command(", "action worker")
+    require_contains(execute, "persist_jelly_skin(command.look_save.requested_id)", "worker persistence")
+    require_contains(execute, "reportCharacterLookSave(completed)", "terminal write publication")
+    require("select_jelly_skin(" not in execute, "worker mutates display-owned selection")
+
+    persist = function_text(jelly, "esp_err_t persist_jelly_skin(", "look persistence")
+    require("s_selected_skin.store" not in persist, "persistence changes renderer selection before completion")
+    update = function_text(onboarding, "esp_err_t update_onboarding(", "onboarding update")
+    require_order(update, "result.command.work == Work::SaveLook", "s_route == Route::None", "retired-view completion")
+    require_contains(update, "return result.publication_error;", "failed publication remains fatal")
+    require_contains(update, "result.command.generation == s_generation", "stale view rejection")
+    require_contains(update, "complete_look_save(", "optional save error presentation")
+
+    require_contains(header, "CharacterLookSaveSnapshot character_look_save;", "canonical operation result")
+    reporter = function_text(reports, "esp_err_t DeviceSnapshotService::reportCharacterLookSave(", "look reporter")
+    require_contains(reporter, "snapshot.character_look_save = operation;", "original result preservation")
+    require_contains(reporter, "previous.request_id != operation.request_id", "completion identity")
+    require_contains(reporter, "operation.error", "real write error")
+    require_contains(look, "LookSaveCompletion result{save_error, ESP_OK};", "separate operation/presentation errors")
+    require_contains(look, "request_id != s_view.pending_request_id", "late UI completion rejection")
+    require_contains(look, "destination = s_view.navigation.caller;", "caller-based Back")
+    require_contains(look, "destination = s_view.navigation.done;", "independent Done destination")
+    require_contains(look, 'prepare_caption("Tap a look to retry", 408, s_view.hint)', "explicit retry guidance")
+
+
+# No parameters: run only through the explicitly authorized public check command.
+# Raises the original contract failure; does not access physical hardware.
 def main() -> int:
     verify_source_contract()
+    verify_cody_look_source_contract()
     test_transaction_visibility()
     test_ttl_expiry()
     test_ttl_tracks_full_snapshot_cadence()
@@ -1190,7 +1233,7 @@ def main() -> int:
         "snapshot integrity verification: PASS "
         "(transaction visibility, cadence-aware completion TTL, recovery, one-shot Diagnostic reuse, "
         "success-only metadata caches, dynamic telemetry, stream quiescence, "
-        "heap-hook safety)"
+        "heap-hook safety, optional look-save source ownership)"
     )
     return 0
 

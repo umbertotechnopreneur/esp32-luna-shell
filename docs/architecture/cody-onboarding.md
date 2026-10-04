@@ -46,8 +46,9 @@ catalog preset are changed together, preserving the compile-time identity contra
 | Online plus currently valid Wi-Fi association and IP | 09 / You're online. |
 | 09, Continue | 11 / Cody's look (screen 10 preferences remain separate work) |
 | 11, vertical drag | Scroll the fixed-capacity look list only |
-| 11, tap a look | Persist its stable ID and update the live Cody preview |
-| 11, Back or Done | Return to 09 without discarding the selected look |
+| 11, tap a look | Queue one stable-ID write; retain the previous preview until success |
+| 11, write fails | Keep the previous selection, display the real error and allow an explicit retry |
+| 11, Back or Done | Follow the supplied caller/Done destinations (both currently 09); wait while saving |
 
 06 uses **Get pairing app**; 06-bis uses **Link your phone**. Both have the same
 white background, black title at y=74, tiny live Cody at `(233,38,22)`, and a
@@ -82,16 +83,52 @@ parameters. The visible names are Pearl Mist, Aurora Veil, Cosmic Stardust,
 Enchanted Mosaic and Dreamwave. Pearl Mist remains the first-boot default.
 
 Rows retain the catalog's stable IDs across reordering. A tap writes the exact
-ID to the `cody_skin` user setting before changing the active texture; a failed
-write leaves the previous selection and preview intact. Only a genuinely absent
-key creates and persists the Pearl Mist default. Read/type/storage errors and an
+ID to the `cody_skin` user setting through the existing action worker before
+changing the active texture; a failed write leaves the previous selection and
+preview intact. Only a genuinely absent key creates and persists the Pearl Mist
+default. Read/type/storage errors and an
 unknown saved ID remain startup errors and are never repaired silently.
 
 The list has a bounded fixed capacity, a visible scroll thumb and no momentum.
 A drag changes only the list offset; a tap-sized release selects one row. The
 same logical geometry is used for drawing and touch after the display owner's
 rotation mapping. Back remains the separate left-side chevron. Done returns to
-the current caller; future Settings can reuse the same screen and IDs.
+the configured completion destination; Back returns to the caller. Future Settings
+can supply the same destination for both, while setup can supply different ones.
+
+### Reusable selector and optional persistence
+
+`CODY_look_screen` owns the bounded eight-row view, clipping, scroll/tap state,
+selection, retained status text and the `LookNavigationContext`. Its API prepares
+the same generated scene and emits a stable-ID save intent; it has no worker,
+NVS call, per-frame allocation or host-specific return route. The onboarding host
+supplies both `caller` and `done` and resolves the returned `SceneId` through its
+normal route entry. The current 09 -> 11 -> 09 flow is preserved. Screens 10 and
+36, setup completion policy and a general navigation stack are not implemented.
+Returning to 09 invalidates its presentation cache so even an already-offline
+caller is rebuilt from the next canonical connectivity observation.
+
+One copied request occupies the existing action mailbox. `Saving...` and dimmed
+lateral controls remain visible while the worker waits for settings. No second
+save or navigation is admitted until its result is consumed. The worker persists
+only; the display owner calls `select_jelly_skin` after success, between retired
+frames, then updates the selector. It never changes skin midway through a frame.
+
+Preference persistence is explicitly optional at the onboarding orchestration
+boundary. `persist_jelly_skin` returns the original error. The worker publishes
+`DeviceSnapshot.character_look_save` with the stable ID, monotonic request ID,
+Saving/Saved/Failed state, original error and real start/completion timestamps.
+This is an operation result, not a measured sensor sample. Failed writes show
+`Error: 0x...` and `Tap a look to retry` while retaining the previous selection.
+The original write failure and any error drawing that result remain separate;
+snapshot-publication, identity and renderer failures are still fatal.
+
+View reset retires its generation, not an already-running storage operation.
+Requests own their copied IDs, terminal results are still published, and a
+successful write is applied between frames without reopening a retired selector.
+The no-connection title has static storage; status buffers belong to the active
+view, while labels and scene definitions borrow immutable flash data. All view
+mutations remain under the existing display ownership between complete frames.
 
 ## Ownership, memory and reusable pieces
 
@@ -120,9 +157,10 @@ the current caller; future Settings can reuse the same screen and IDs.
   battery/date/time chrome; that status implementation is not included here.
 - Logical drawing and acquired touch share the existing rotation owner. The cloud
   remains animated/reactive at each authored scale; QR modules are never warped.
-- One static 4-KiB action-worker stack moves Start/Retry/Cancel admission and QR
-  encoding off the display worker. Radio lifecycle/init/cleanup stays with the
-  existing pairing owner. A single-slot release/acquire mailbox has no per-frame
+- One static 4-KiB action-worker stack moves Start/Retry/Cancel admission, QR
+  encoding and explicit look writes off the display worker. Radio lifecycle,
+  initialization and cleanup stay with the existing pairing owner. A single-slot
+  release/acquire mailbox has no per-frame
   allocations or unbounded action queue.
 - Version-10 QR modules fit in **407 bytes**, with a four-module white quiet zone
   and integer pixel scaling in a 270x270 logical area. No RGB QR framebuffer exists.
@@ -156,3 +194,11 @@ and symbol quiet-zone readability, actual app scans, white-theme dirty redraw an
 Debug fade still require authorized simulator/device checks. Pending-command
 changes also advance the separate control revision, so dimmed lateral controls
 are repainted when admission/QR work completes.
+
+The selector extraction, explicit caller/Done context and asynchronous preference
+write have static source review only. Source regression guards were added to the
+existing snapshot-integrity check but have not been executed. Pending checks:
+repeated success/failure/retry, an eight-digit error code, busy navigation, route
+reset during NVS work, rotation during a gesture, completed-frame ownership,
+canonical result ordering, and no RAM growth across repeated entries. None of
+these runtime properties is claimed as validated on host or hardware.
