@@ -822,11 +822,19 @@ def verify_source_contract() -> None:
             "ESP_ERROR_CHECK(LUNASHELL_memory_telemetry_init());"
         )
         logger_init_index = entry_source.index(
-            "ESP_ERROR_CHECK(LUNASHELL_logger_init());"
+            "const esp_err_t logger_error = LUNASHELL_logger_init();"
         )
         require(
             telemetry_init_index < logger_init_index,
             f"{entry_name} must register heap telemetry before the logger",
+        )
+        logger_startup = entry_source[logger_init_index:]
+        require(
+            "ESP_ERROR_CHECK(LUNASHELL_logger_init());" not in entry_source and
+            "if (logger_error != ESP_OK)" in logger_startup and
+            "failure.query_error = logger_error;" in logger_startup and
+            "reportLoggerCapture(failure)" in logger_startup,
+            f"{entry_name} must retain and publish an optional logger failure without aborting startup",
         )
 
     callback_name = registration.group(1)
