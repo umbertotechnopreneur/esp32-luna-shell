@@ -8,6 +8,20 @@ below are historical provenance only: the explicitly requested full local cleanu
 on 2026-10-05 removed the earlier untracked evidence before the current build and
 flash logs were regenerated.
 
+## Cody atlas documentation revision — 2026-10-06
+
+- Updated both requested Obsidian atlases and their `docs/Cody` mirrors: Manga
+  Status has 24 pages, Navigation has 23. Preserved all 18/19 prior pages,
+  including earlier errata, and appended final dated corrections with original
+  page/screen references. Covered stronger mouth breathing, corrected Whistle,
+  icon placement/sizes/fades/SFX, caress/eye/tap behavior, idle scheduling,
+  returning-device boot and Windows fake audio/UI/branding.
+- Generated and visually reviewed all ten new pages through the public generator
+  CLI and Poppler. The document generator checks original decoded page streams
+  remain unchanged. Review images, source backups and hash manifest are under
+  `artifacts/pdf-review/cody-documentation-2026-10-06/`. This document review does
+  not constitute automated firmware tests, a new build/flash or physical evidence.
+
 ## Tap, manga cues and Windows fake audio — 2026-10-06
 
 - Added independent physical tap feedback, manga symbols 20% larger, 400-ms

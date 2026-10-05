@@ -74,6 +74,16 @@ atlases. Their original pages/addenda are retained, and each revised PDF ends
 with dated **Errata and corrections**. Repository copies are under `docs/Cody`;
 the requested originals remain in the Cody Companion Obsidian atlas folder.
 
+The requested 2026-10-06 revision supersedes the older mouth values and invalid
+Whistle width. Manga pages 19-23 illustrate the current breathing endpoints,
+fourteen cue/SFX identities, icon sizes, touch and idle gestures; page 24 contains
+dated errata. Navigation pages 20-22 cover the shorter paired-device boot,
+interaction/idle rules and Windows fake audio/UI; page 23 contains dated errata.
+All prior pages and earlier corrections are preserved. Artwork is generated
+from the current Windows rig or original assets and is labelled synthetic;
+it is not a device capture. The PDF revision identifies the flashed checkpoint
+separately from the newer mouth/Whistle implementation awaiting build/flash.
+
 After static source review, the requested public CLI flash compiled checkpoint
 `09ea3b70` with ESP-IDF 6.0.2 and eight jobs, then wrote it on COM10 with all three
 hash checks passing and a final reset. No tests, standalone size check, simulator,

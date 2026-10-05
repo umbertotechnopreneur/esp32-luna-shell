@@ -24,7 +24,8 @@ Returning devices with validated first-boot false receive one four-second
 random Affection or Joy request on entering Idle, using the existing icon and
 completed-frame SFX owner. Urgent symbols and real interactions retain priority;
 hidden requests are dropped. No pairing or credential keys are rewritten by this
-presentation change. PDF boot-sequence revision awaits the user's approval.
+presentation change. The requested 2026-10-06 Navigation Atlas revision documents
+this boot sequence, with earlier pages retained and dated errata appended.
 
 `cody_firstboot` is a validated persisted boolean. Only a genuinely absent key
 logs and persists the default `true`; invalid type/value or storage failure stops
