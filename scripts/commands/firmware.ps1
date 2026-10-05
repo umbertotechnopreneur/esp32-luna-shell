@@ -237,6 +237,7 @@ if ($profileCatalog.schema_version -ne 1) {
     throw "Unsupported firmware profile catalog schema: $($profileCatalog.schema_version)"
 }
 . (Join-Path $PSScriptRoot '../common/BuildMode.ps1')
+. (Join-Path $PSScriptRoot '../common/WakeWord.ps1')
 $modeSelection = Resolve-FirmwareBuildMode -Catalog $profileCatalog `
     -BuildMode $BuildMode -ExplicitSelection ($PSBoundParameters.ContainsKey('BuildMode'))
 $BuildMode = $modeSelection.Name
@@ -309,6 +310,8 @@ function Resolve-ProfileCatalogPath([string]$RelativePath) {
     return $resolvedPath
 }
 
+Assert-WakeWordVariant -Variant $SelectedProfileVariant -Feature $Feature
+$FeaturePartitionPath = Get-FirmwareFeaturePartitionPath -ProjectRoot $ProjectRoot -Feature $Feature
 $SelectedSdkconfigDefaults = @(
     $SelectedProfileVariant.defaults |
         ForEach-Object { Resolve-ProfileCatalogPath "$_" }
@@ -352,18 +355,27 @@ if ($null -ne $BoardModules -and $Profile -eq "ui-minimal" -and
     [System.IO.File]::WriteAllLines($overlayPath, $overlay)
     $SelectedSdkconfigDefaults += $overlayPath
 }
+# Every selected feature declares its layout and master flag before IDF's
+# partition/model generators run. Feature-off commands never visit model assets.
+$featureOverlayDirectory = Resolve-ArtifactPath '' 'artifacts/feature-config'
+$null = New-Item -ItemType Directory -Path $featureOverlayDirectory -Force
+$featureOverlayPath = Join-Path $featureOverlayDirectory "$ProfileBuildKey.defaults"
+$featurePartitionRelativePath = [IO.Path]::GetRelativePath($ProjectRoot, $FeaturePartitionPath).Replace('\', '/')
+$featureOverlay = @(
+    "CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD=$(if ($Feature -eq 'wake-word') { 'y' } else { 'n' })"
+    'CONFIG_PARTITION_TABLE_CUSTOM=y'
+    ('CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="{0}"' -f $featurePartitionRelativePath)
+)
 if ($Feature -eq "wake-word") {
     # ESP-SR's packer resolves this string from its own working directory.
     # Generate an absolute, portable-to-this-checkout path rather than hardcode E:.
-    $wakeModelDirectory = (Resolve-ProfileCatalogPath "assets/wake-word/models") -replace '\\', '/'
-    $wakeOverlayDirectory = Resolve-ArtifactPath '' "artifacts/wake-word"
-    $null = New-Item -ItemType Directory -Path $wakeOverlayDirectory -Force
-    $wakeOverlayPath = Join-Path $wakeOverlayDirectory "$ProfileBuildKey.defaults"
-    [System.IO.File]::WriteAllLines($wakeOverlayPath, @(
+    $wakeModelDirectory = Get-ReviewedWakeWordModelDirectory -ProjectRoot $ProjectRoot
+    $featureOverlay += @(
         ('CONFIG_ESP_SR_EXTERNAL_MODEL_PATH="{0}"' -f $wakeModelDirectory)
-    ))
-    $SelectedSdkconfigDefaults += $wakeOverlayPath
+    )
 }
+[System.IO.File]::WriteAllLines($featureOverlayPath, $featureOverlay)
+$SelectedSdkconfigDefaults += $featureOverlayPath
 if ($SelectedSdkconfigDefaults.Count -eq 0) {
     throw "Firmware profile variant has no SDKCONFIG defaults: $ProfileBuildKey"
 }
@@ -1096,6 +1108,10 @@ function Get-DependencyLockUpdateCommand([string]$RequestedBuildDir) {
     )
 }
 
+# RequestedBuildDir owns the selected dependency state under artifacts/.
+# AllowMissingCanonical admits only an explicitly requested initial resolution.
+# RefreshFromResolver requests a fresh resolver result instead of copying a canonical lock.
+# Throws for missing or feature-incompatible canonical dependencies.
 function Initialize-WorkingDependencyLock(
     [string]$RequestedBuildDir,
     [bool]$AllowMissingCanonical,
@@ -1113,6 +1129,8 @@ function Initialize-WorkingDependencyLock(
         return
     }
     if (Test-Path -LiteralPath $ProfileCanonicalDependencyLockPath -PathType Leaf) {
+        Assert-WakeWordDependencyLock -LockText (Get-Content -Raw -LiteralPath $ProfileCanonicalDependencyLockPath) `
+            -Feature $Feature
         Copy-Item -LiteralPath $ProfileCanonicalDependencyLockPath `
             -Destination $workingLock -Force
         return
@@ -1129,6 +1147,8 @@ function Initialize-WorkingDependencyLock(
     }
 }
 
+# RequestedBuildDir owns the selected working dependency closure.
+# Throws on missing, leaked or changed dependencies; never repairs a lock implicitly.
 function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
     $workingLock = Get-WorkingDependencyLockPath $RequestedBuildDir
     foreach ($requiredLock in @(
@@ -1142,6 +1162,7 @@ function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
             )
         }
     }
+    Assert-WakeWordDependencyLock -LockText (Get-Content -Raw -LiteralPath $workingLock) -Feature $Feature
     $canonicalHash = (
         Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
             -Algorithm SHA256
@@ -1162,11 +1183,14 @@ function Assert-WorkingDependencyLock([string]$RequestedBuildDir) {
     }
 }
 
+# RequestedBuildDir owns the newly resolved lock requested explicitly through update-lock.
+# Throws on missing or feature-incompatible dependencies before publishing the canonical lock.
 function Publish-WorkingDependencyLock([string]$RequestedBuildDir) {
     $workingLock = Get-WorkingDependencyLockPath $RequestedBuildDir
     if (-not (Test-Path -LiteralPath $workingLock -PathType Leaf)) {
         throw "ESP-IDF did not produce a dependency lock: $workingLock"
     }
+    Assert-WakeWordDependencyLock -LockText (Get-Content -Raw -LiteralPath $workingLock) -Feature $Feature
     $canonicalDirectory = Split-Path -Parent $ProfileCanonicalDependencyLockPath
     if (-not (Test-Path -LiteralPath $canonicalDirectory -PathType Container)) {
         $null = New-Item -ItemType Directory -Path $canonicalDirectory
@@ -1246,6 +1270,7 @@ function Invoke-ProfileConfiguration(
         -B $RequestedBuildDir `
         "-DSDKCONFIG=$ProfileSdkconfigPath" `
         "-DLUNASHELL_BUILD_MODE=$BuildMode" `
+        "-DLUNASHELL_BUILD_FEATURE=$Feature" `
         "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
         "-DIDF_TARGET=esp32s3" `
         reconfigure 2>&1 | ForEach-Object { Write-Host "$_" }
@@ -1255,6 +1280,8 @@ function Invoke-ProfileConfiguration(
     Assert-BoardSdkconfig
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) -BuildMode $BuildMode
+    Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
+        -ProjectRoot $ProjectRoot -Feature $Feature
 }
 
 # No parameters: fingerprint the selected profile, mode, defaults and generated configuration.
@@ -1292,6 +1319,8 @@ function Get-SdkconfigDefaultsState {
     }
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
+    Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) `
+        -ProjectRoot $ProjectRoot -Feature $Feature
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()
@@ -1310,6 +1339,7 @@ function Get-SdkconfigDefaultsState {
         Get-FileHash -LiteralPath $ProfileCanonicalDependencyLockPath `
             -Algorithm SHA256
     ).Hash.ToLowerInvariant()
+    $partitionHash = (Get-FileHash -LiteralPath $FeaturePartitionPath -Algorithm SHA256).Hash.ToLowerInvariant()
     return [pscustomobject]@{
         Files = @($activeDefaults)
         Signature = (
@@ -1322,6 +1352,7 @@ function Get-SdkconfigDefaultsState {
                 "catalog|$catalogHash"
                 $boardConfigEntry
                 "dependency_lock|$dependencyLockHash"
+                "partition_table|$partitionHash"
             ) +
             $signatureEntries +
             "sdkconfig|$sdkconfigHash"
@@ -1408,6 +1439,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
             -B $RequestedBuildDir `
             "-DSDKCONFIG=$ProfileSdkconfigPath" `
             "-DLUNASHELL_BUILD_MODE=$BuildMode" `
+            "-DLUNASHELL_BUILD_FEATURE=$Feature" `
             "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $RequestedBuildDir)" `
             reconfigure
         if ($LASTEXITCODE -ne 0) {
@@ -1439,6 +1471,7 @@ function Invoke-ProjectBuild([string]$RequestedBuildDir) {
 # Throws on build, port, flash, lock or SDKCONFIG errors; restores the serial target environment.
 function Invoke-ProjectFlash([string]$RequestedBuildDir, [bool]$WaitForReconnect = $false) {
     Invoke-ProjectBuild $RequestedBuildDir
+    Assert-WakeWordFlashImages -BuildDirectory $RequestedBuildDir -Feature $Feature
     $flashPort = Normalize-PortName $Port
     Stop-StaleMonitorProcesses $flashPort
     if ($WaitForReconnect) { $flashPort = Wait-ForPort $flashPort $WaitSeconds }
@@ -1495,6 +1528,7 @@ try {
         $BuildDir,
         "-DSDKCONFIG=$ProfileSdkconfigPath",
         "-DLUNASHELL_BUILD_MODE=$BuildMode",
+        "-DLUNASHELL_BUILD_FEATURE=$Feature",
         "-DLUNASHELL_DEPENDENCIES_LOCK=$(Get-WorkingDependencyLockPath $BuildDir)"
     )
 

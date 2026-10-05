@@ -711,6 +711,14 @@ flash logs were regenerated.
   Locks, full firmware closure and physical behavior remain open.
   [Wake-on-word](docs/architecture/wake-on-word.md).
 
+- 2026-10-05 wake-word revision: made the AFE an internal dependency of the sole
+  opt-in flag, excluded disabled voice source/stubs/hooks/publication, added
+  wrapper/CMake gates for partition/model/dependency/flash admission, and pinned
+  acquisition/fetch/internal ESP-SR to CPU0 away from Cody/Luna rendering on CPU1.
+  Reduced the behavior to settled software-standby wake only, rejecting old
+  events; removed active-word Cody interaction. Implementation/static review
+  only; locks, compilation, tests/scans and physical evidence remain pending.
+
 ## Recorded validation boundaries
 
 - Authorized rig/response/native/Tk host checks passed at their checkpoints,

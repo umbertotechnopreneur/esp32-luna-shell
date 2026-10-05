@@ -32,6 +32,23 @@ set(
     COMPONENT_DIRS
     "$ENV{IDF_PATH}/components;$ENV{LUNASHELL_PROFILE_COMPONENT_DIRS}"
 )
+if(NOT DEFINED LUNASHELL_BUILD_FEATURE OR
+   NOT LUNASHELL_BUILD_FEATURE MATCHES "^(none|distance|wake-word)$")
+    message(FATAL_ERROR "Explicit firmware feature is missing; use scripts/device.ps1")
+endif()
+set(_wake_word_selected OFF)
+if(LUNASHELL_BUILD_FEATURE STREQUAL "wake-word")
+    set(_wake_word_selected ON)
+    if(NOT "espressif__esp-sr" IN_LIST COMPONENTS)
+        message(FATAL_ERROR "Wake word requires explicit ESP-SR component admission")
+    endif()
+else()
+    foreach(_profile_component IN LISTS COMPONENTS)
+        if(_profile_component MATCHES "(^|__)(esp-sr|esp-dsp|dl_fft)$")
+            message(FATAL_ERROR "Disabled wake word rejected component before model discovery: ${_profile_component}")
+        endif()
+    endforeach()
+endif()
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 if(NOT DEFINED LUNASHELL_BUILD_MODE OR
@@ -54,6 +71,25 @@ idf_build_set_property(
     "${LUNASHELL_DEPENDENCIES_LOCK}"
 )
 project(esp32_luna_shell)
+
+if((CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD AND NOT _wake_word_selected) OR
+   (_wake_word_selected AND NOT CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD) OR
+   (CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_AFE AND NOT CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD))
+    message(FATAL_ERROR "Wake word, its internal AFE and the public feature selector must agree")
+endif()
+if(_wake_word_selected)
+    set(_feature_partition_table "config/partitions/wake-word.csv")
+else()
+    set(_feature_partition_table "partitions.csv")
+endif()
+if(NOT CONFIG_PARTITION_TABLE_CUSTOM OR
+   NOT CONFIG_PARTITION_TABLE_CUSTOM_FILENAME STREQUAL _feature_partition_table)
+    message(FATAL_ERROR "Selected feature requires its reviewed partition table: ${_feature_partition_table}")
+endif()
+partition_table_get_partition_info(_wake_model_size "--partition-name model" "size")
+if(NOT _wake_word_selected AND (_wake_model_size OR CONFIG_ESP_SR_EXTERNAL_MODEL_PATH OR CONFIG_MODEL_IN_FLASH))
+    message(FATAL_ERROR "Disabled wake word cannot reserve or pack recognition models")
+endif()
 
 if(LUNASHELL_BUILD_MODE STREQUAL "Debug")
     if(NOT CONFIG_LUNASHELL_BUILD_MODE_DEBUG OR CONFIG_LUNASHELL_BUILD_MODE_RELEASE)
@@ -107,7 +143,18 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD)
        NOT CONFIG_ESP_SR_EXTERNAL_MODEL_PATH)
         message(FATAL_ERROR "Wake word requires AFE and the reviewed internal-flash model path")
     endif()
-    partition_table_get_partition_info(_wake_model_size "--partition-name model" "size")
+    if(CONFIG_FREERTOS_UNICORE OR NOT CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS OR
+       NOT CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING)
+        message(FATAL_ERROR "The wake-word trial requires dual cores and software standby listening")
+    endif()
+    if(CONFIG_LUNASHELL_BUILD_ENABLE_UI AND
+       (NOT CONFIG_BROOKESIA_GUI_LVGL_DISPLAY_SOURCE_TASK_CORE_ID EQUAL 1 OR
+        NOT CONFIG_LV_DRAW_SW_DRAW_UNIT_CNT EQUAL 1))
+        message(FATAL_ERROR "Wake word requires the Luna LVGL renderer on CPU1 with one software draw unit")
+    endif()
+    if(NOT CONFIG_ESP_SR_EXTERNAL_MODEL_PATH STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}/assets/wake-word/models")
+        message(FATAL_ERROR "Wake word model path must belong to the selected checkout")
+    endif()
     if(NOT _wake_model_size OR _wake_model_size LESS 524288)
         message(FATAL_ERROR "Wake word requires an internal model partition of at least 512 KiB")
     endif()
@@ -153,6 +200,9 @@ endif()
 # matching the upstream System Super example integration.
 idf_build_get_property(brookesia_build_components BUILD_COMPONENTS)
 foreach(brookesia_component ${brookesia_build_components})
+    if(NOT _wake_word_selected AND brookesia_component MATCHES "(^|__)(esp-sr|esp-dsp|dl_fft)$")
+        message(FATAL_ERROR "Disabled wake word rejected recognition dependency: ${brookesia_component}")
+    endif()
     if(brookesia_component MATCHES "brookesia")
         set(brookesia_library "__idf_${brookesia_component}")
         if(TARGET ${brookesia_library})

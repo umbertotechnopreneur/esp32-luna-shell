@@ -31,8 +31,10 @@ namespace {
 
 const char *TAG = "LUNASHELL_audio";
 constexpr uint32_t AUDIO_LOCK_TIMEOUT_MS = 5000;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 constexpr uint32_t VOICE_SAMPLE_RATE_HZ = 16000;
 constexpr size_t VOICE_REFERENCE_CHUNK_SAMPLES = VOICE_SAMPLE_RATE_HZ / 50U;
+#endif
 esp_codec_dev_handle_t s_speaker;
 esp_codec_dev_handle_t s_microphone;
 uint32_t s_speaker_sample_rate_hz;
@@ -455,7 +457,9 @@ esp_err_t restore_stream_state(const AudioStreamState &state)
     return error;
 }
 
-// Prepare the 16 kHz duplex route while the caller owns the audio mutex.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// No parameters: prepare the 16 kHz route while the caller owns the audio mutex.
+// Exception: Returns the original lifecycle, stream or codec policy error.
 esp_err_t prepare_voice_route_locked()
 {
     if (s_audio_state_poisoned.load(std::memory_order_acquire) ||
@@ -531,6 +535,8 @@ esp_err_t prepare_voice_route_locked()
     }
     return error;
 }
+
+#endif
 
 }  // namespace
 
@@ -742,9 +748,14 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
 {
     size_t offset = 0;
     while (offset < sample_count) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         const bool voice_afe_active = LUNASHELL_voice_afe_running();
         const size_t chunk_limit = voice_afe_active ? VOICE_REFERENCE_CHUNK_SAMPLES : sample_rate_hz / 50U;
+#else
+        const size_t chunk_limit = sample_rate_hz / 50U;
+#endif
         const size_t chunk_samples = std::min(chunk_limit, sample_count - offset);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
         if (voice_afe_active) {
             const esp_err_t reference_error = LUNASHELL_voice_afe_push_speaker_pcm16(
                 samples + offset, chunk_samples, sample_rate_hz);
@@ -753,6 +764,7 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
                 return reference_error;
             }
         }
+#endif
         const int write_result = esp_codec_dev_write(s_speaker,
             const_cast<int16_t *>(samples + offset), chunk_samples * sizeof(int16_t));
         if (write_result != ESP_CODEC_DEV_OK) {
@@ -835,6 +847,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         );
         return reject_playback("Playback volume", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (LUNASHELL_voice_afe_running() && sample_rate_hz != VOICE_SAMPLE_RATE_HZ) {
         ESP_LOGE(
             TAG,
@@ -843,6 +856,7 @@ extern "C" esp_err_t LUNASHELL_audio_play_pcm16(
         );
         return reject_playback("Playback AFE format", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
     }
+#endif
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) {
         return reject_playback("Playback initialization", error, sample_rate_hz, volume_percent);
@@ -1055,6 +1069,11 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
 #endif
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// samples: Caller-owned destination for real interleaved microphone PCM16.
+// frame_count: Number of frames per channel to read.
+// channel_count: Enabled acquisition topology, validated by the audio owner.
+// Exception: Returns the original capture error without substituting samples.
 extern "C" esp_err_t LUNASHELL_audio_capture_voice_pcm16(
     int16_t *samples,
     size_t frame_count,
@@ -1071,6 +1090,7 @@ extern "C" esp_err_t LUNASHELL_audio_capture_voice_pcm16(
 }
 
 // Reconfigure the active base route for the AFE-owned 16 kHz stream.
+// Exception: Returns the original initialization, mutex or route failure.
 extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
 {
     esp_err_t error = LUNASHELL_audio_init();
@@ -1101,6 +1121,8 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
     }
     return error;
 }
+
+#endif
 
 // Suspend or restore codec streams and I2S as one reversible transition.
 // standby: Clears unplayed taps while the existing owner quiesces/restores its transport.
@@ -1179,6 +1201,7 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
         return ESP_OK;
     }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     const bool voice_route_requested = LUNASHELL_voice_afe_running();
     const bool resume_speaker = voice_route_requested
         ? LUNASHELL_AUDIO_HAS_OUTPUT
@@ -1188,6 +1211,12 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
         ? LUNASHELL_audio_input_channel_count() > 0
         : s_pre_standby_stream_state_valid &&
               s_pre_standby_stream_state.microphone_open;
+#else
+    const bool resume_speaker = s_pre_standby_stream_state_valid &&
+        s_pre_standby_stream_state.speaker_open;
+    const bool resume_microphone = s_pre_standby_stream_state_valid &&
+        s_pre_standby_stream_state.microphone_open;
+#endif
     error = bsp_audio_set_transport_standby(
         false,
         resume_speaker,
@@ -1196,9 +1225,12 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
     if (error == ESP_OK) {
         s_standby.store(false, std::memory_order_release);
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     if (error == ESP_OK && voice_route_requested) {
         error = prepare_voice_route_locked();
-    } else if (error == ESP_OK && s_pre_standby_stream_state_valid) {
+    } else
+#endif
+    if (error == ESP_OK && s_pre_standby_stream_state_valid) {
         error = restore_stream_state(s_pre_standby_stream_state);
     }
     if (error != ESP_OK &&
@@ -1229,7 +1261,11 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
         ESP_LOGI(
             TAG,
             "Audio I2S transport resumed: route=%s",
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
             voice_route_requested ? "voice" : "restored"
+#else
+            "restored"
+#endif
         );
     } else {
         ESP_LOGE(
