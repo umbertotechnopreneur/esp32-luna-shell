@@ -614,11 +614,13 @@ def apply_mouth_breathing(values, breathing):
     inhalation = .5 + .5 * breathing
     exhalation = 1 - inhalation
     mouth = FaceChannel.MOUTH_OPEN
-    reopening = .16 + .06 * max(0, 1 - values[mouth] / .14)
-    values[mouth] *= 1 - .35 * exhalation
+    reopening = .16 + .08 * max(0, 1 - values[mouth] / .14)
+    values[mouth] *= 1 - .75 * exhalation
     values[mouth] += (1 - values[mouth]) * reopening * inhalation
     width = FaceChannel.MOUTH_WIDTH
-    values[width] += (1.6 - values[width]) * .045 * inhalation
+    # Match the native rig's canonical width interval without clipping rejected inputs.
+    values[width] -= (values[width] - .5) * .18 * exhalation
+    values[width] += (1.6 - values[width]) * .18 * inhalation
 
 
 # base: Independent semantic face channels, accessed through FaceChannel.

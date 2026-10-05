@@ -4,12 +4,14 @@ Screen 16 retains the same route and front-facing character. Breathing is the
 continuous base presentation; Yawn, Whistle and Greeting are short artistic
 accents, identified by `IdleSceneId`, never navigation indices or sensor values.
 
-The mouth shares the existing breathing clock. Exhalation removes 35 percent of
-the current opening and inhalation adds 16-22 percent of the remaining range.
+The mouth shares the existing breathing clock. Exhalation removes 75 percent of
+the current opening and inhalation adds 16-24 percent of the remaining range.
 The extra reopening boost fades out by the Worried base opening, preserving the
-quiet expressions' existing tongue threshold. A
-4.5-percent width pulse accompanies inhalation. A zero-opening Stressed preset
-therefore reaches 0.22 during inhalation even without measured motion. The
+quiet expressions' existing tongue threshold. Width moves 18 percent toward its
+authored minimum on exhalation and 18 percent toward its maximum on inhalation.
+The thinner rest lip visibly closes into a smile; the tongue follows the lower
+lip and remains clipped to the mouth. A zero-opening Stressed preset therefore
+reaches 0.24 during inhalation even without measured motion. The
 selected expression, contour timing, skin and tongue clipping remain composed
 through the same evaluated rig.
 

@@ -45,6 +45,13 @@ flash logs were regenerated.
   Changed that target to the rig's authored minimum, retaining strict renderer
   validation. Firmware rebuild/flash and formal regression checks of this
   correction remain unperformed; the earlier flashed image is still `de9b8b18`.
+- Increased normal mouth breathing on request: 75% relative closure on
+  exhalation, a stronger reopening for closed expressions and 18% width motion
+  toward authored endpoints. Changed the rest lip to a thin smile and shifted
+  its clipped tongue with the lower lip. Native and Python equations match;
+  the generated rig was refreshed through `device.ps1 generate -Generator
+  cody-rig`. Quiet/Worried retain the authored 0.28 tongue threshold. Formal
+  checks and firmware compilation/flash of this change remain unperformed.
 - Authorized final checks: `storage-logger` and `radio-memory` passed.
   `cody-native` stopped before compilation because the host compiler was absent
   from PATH; installed MSVC was subsequently found. `snapshot-integrity` failed

@@ -15,10 +15,14 @@ every open physical observation below remains open.
 
 - [ ] Observe the updated tap, icon sound admission, 20% size increase and
   400-ms fades on the device; build/flash alone cannot establish these behaviors.
+- [ ] Compile/validate and load the newer Whistle-width correction and stronger
+  mouth breathing when requested. The flashed device still has `de9b8b18`;
+  thinner lip geometry, matched tongue and native/Python breathing changes are
+  implemented and the rig regenerated, without formal checks or firmware build.
 - [ ] Execute/listen to the Windows fake audio path when explicitly authorized:
   tap, each visible manga identity, whistle, greeting glyphs, generated boot
   cues, cancellation and retained playback errors. DLL compilation passed;
-  interactive playback remains unobserved.
+  interactive startup has been observed; listening remains unverified.
 - [ ] Validate the source corrections for palette text provenance and native
   float32 idle clocks after fresh exact-command authorization. The last
   `cody-personality` and `cody-runtime` runs failed before those corrections.
