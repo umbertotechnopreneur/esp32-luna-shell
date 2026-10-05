@@ -485,7 +485,7 @@ class CodyRenderer:
                 if self.personality_painter is None:
                     self.personality_painter = PersonalityPainter(self.root, self.rig)
                 # Reserve the native status layer even while its touch opacity is zero.
-                exclusions = [(10, 203, 70, 263), (106, 37, 362, 58)]
+                exclusions = [(10, 203, 70, 263), (122, 32, 365, 64)]
                 presentation = PersonalityPresentation.DISABLED
                 if screen == Screen.RIG:
                     presentation = PersonalityPresentation.SLEEP if personality_sleep else PersonalityPresentation.MAIN

@@ -171,9 +171,12 @@ stale data shows unavailable, never an estimated/clamped value. Measurement
 windows begin after startup at 04 or in the ordinary main companion view when
 retained pairing skips that first-run greeting. The automatic Idle clock greeting
 and a manually selected sleeping face in the main view remain eligible. The
-two centered rows below Cody show `FPS` at y398 and `CPU1`/`CPU2` at y419;
-the existing battery, Wi-Fi and clock overlay stays above the character, and
-personality icons keep their independent anchor above the cloud. The CPU values
+five compact rows below the routine title show FPS/CPU, IPv4, free internal
+RAM/PSRAM, SD presence/access and free space. The upper overlay uses a quieter
+date, larger `HH:MM` without seconds and consistent battery, Wi-Fi and Bluetooth
+icons. Because this board has no card-detect pin, the SD row distinguishes a
+verified card response from `SD UNCONFIRMED`. Personality icons keep their
+independent anchor above the cloud. The CPU values
 represent total busy time per core, including tasks other than Cody. No extra
 sensor polling is introduced. The HUD preference is session-scoped under the
 display lock and gated by scene `readout_visible`. Authored scenes admit the HUD

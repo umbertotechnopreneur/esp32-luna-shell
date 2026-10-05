@@ -24,7 +24,7 @@ file or a dependency on the Luna GUI.
 | Cody Debug Pause/Play | Authored at center (158, 47), currently hidden and non-interactive |
 | Cody capture countdown | Center overlay bounds [153,313) x [174,292); no touch target |
 | Cody Debug Skeleton | Authored at center (308, 47), currently hidden and non-interactive |
-| Cody status overlay | Date/time left at x=110; battery, Wi-Fi and Bluetooth right at y=37–58 |
+| Cody status overlay | Date at (122,32), HH:MM at (122,47); battery, Wi-Fi and Bluetooth at y=43–64 |
 
 The 60-pixel Back fits entirely to the left of the square: its right exclusive
 edge is x=70, leaving three pixels before x=73. Its left extreme is x=10,
@@ -53,9 +53,10 @@ debug-view Back remains at its canonical position but `visible_by_default` is
 false, disabling paint and touch together. Route-specific OOBE Back/Cancel
 remains a separate control.
 
-After first boot, Cody's standalone status component renders canonical local
-English date/time on the left and battery percentage, Wi-Fi field strength and
-Bluetooth activity on the right. Battery is gray when absent, red when low,
+After first boot, Cody's standalone status component renders a quiet English date
+and larger local `HH:MM` on the left; seconds are intentionally omitted. Battery,
+Wi-Fi and Bluetooth use a consistent two-pixel visual weight on the right. Battery
+is gray when absent, red when low,
 orange in the middle range, green when healthy and cyan with a white charging
 glyph while charging. All text and icon row masks are compile-time glyphs kept
 in firmware flash rodata. The component contains no LVGL or Brookesia
@@ -64,6 +65,12 @@ status layer and remaining Debug controls use the same touch-activity opacity:
 touch reveals them and five seconds without activity starts the same 330-ms
 fade. Release firmware omits the Debug controls but retains the post-first-boot
 informational layer.
+
+Debug firmware can add five centered one-pixel-scale rows below the routine title:
+measured FPS with CPU1/CPU2, IPv4 address, free internal RAM and PSRAM, confirmed
+SD presence/access, and measured SD free space. These rows consume y=390–445 and
+read only one coherent canonical diagnostic projection. A board without a card
+detect signal reports `SD UNCONFIRMED`, never a fabricated physical absence.
 
 A short PWR press while Cody is active and its runtime capture flag is enabled
 shows a centered 3, 2, 1 countdown. Its [153,313) x [174,292) panel sits in

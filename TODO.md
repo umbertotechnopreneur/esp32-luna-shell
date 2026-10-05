@@ -18,14 +18,20 @@ older host/build/flash evidence does not validate the current combined image.
   touch/display and normal inactivity standby without the reported error or a
   recognized `Mood caress` event. The user reports a later stroke did not freeze
   but showed no icon. Host personality/runtime checks passed; real contact
-  timing, scene eligibility and the first rejected controller packet remain
-  unresolved. Do not treat a missing recognition log as proof of a layout fault
+  timing and the first rejected controller packet remain unresolved. Do not
+  treat a missing recognition log as proof of a layout fault
   or silently relax driver acceptance. Source review found that the automatic
   idle greeting retained a SceneFrame and incorrectly excluded carezze; the
   narrowly scoped Greeting admission fix and contact-boundary diagnostics are
   implemented, host integration passed and Debug `26dd7866` was built/flashed
-  on COM10. Physical recognition remains under observation; the first new contact
-  was excluded (`drag=0`, x339/y354) during a wake. Evidence lives under
+  on COM10. Debug `3898f3d2` also enables the measured main-screen HUD; the user
+  confirms it is visible. Acquired Main contacts are now admitted, but captured
+  strokes lasted about 127/451/167 ms and ended rejected, with no heart trigger.
+  These are below the configured 500-ms minimum. Typed first-rejection diagnostics
+  now distinguish zone exit, speed, acquisition gap and every other recognizer
+  guard, but require a new physical capture. Verify a continuous slower in-body
+  stroke and its synchronized Affection SFX;
+  do not claim icon performance from the HUD-only baseline. Evidence lives under
   `artifacts/build-cody-companion-debug/evidence/caress-*.log`.
 
 - [ ] After fresh command-specific authorization, run the pure host
@@ -93,7 +99,11 @@ older host/build/flash evidence does not validate the current combined image.
   After a full power cycle with the same readable card, the canonical snapshot
   reported mounted=yes, card-response=verified, attempts=1 and
   format-attempted=no; the owner confirmed a saved PWR screenshot. Reproduce the
-  intermittent failure before changing the SD driver or its mount policy.
+  intermittent failure before changing the SD driver or its mount policy. The
+  board uses `SDMMC_SLOT_NO_CD`, so no presence GPIO can remove the card. A pending
+  source fix releases the storage worker from power suspension after a clean
+  transient wake failure so its existing retry/backoff can run, while preserving
+  the original error. Validate mount, standby, wake, retry, access and free space.
 - [ ] Confirm flashed boot greeting C acoustics on `143fdb22`,
   chime-to-voice timing, trusted-clock/quiet policy and no ordinary standby-wake
   repeat. A/B/chime-only authoring alternatives remain available.

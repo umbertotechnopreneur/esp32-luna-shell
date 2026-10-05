@@ -14,9 +14,12 @@ constexpr int64_t kMeasurementWindowUs = 1000000;
 constexpr int64_t kReadoutFreshnessUs = 2000000;
 constexpr uint16_t kPanelSize = 466;
 constexpr uint16_t kPanelCenter = 233;
-constexpr uint16_t kFrameRateTop = 398;
-constexpr uint16_t kProcessorTop = 419;
-constexpr uint16_t kGlyphScale = 2;
+constexpr uint16_t kPerformanceTop = 390;
+constexpr uint16_t kNetworkTop = 402;
+constexpr uint16_t kMemoryTop = 414;
+constexpr uint16_t kStorageStateTop = 426;
+constexpr uint16_t kStorageFreeTop = 438;
+constexpr uint16_t kGlyphScale = 1;
 constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = (kGlyphColumns + 1) * kGlyphScale;
@@ -50,14 +53,23 @@ constexpr MonoGlyph kGlyphs[] = {
     {'8', {0x36, 0x49, 0x49, 0x49, 0x36}},
     {'9', {0x06, 0x49, 0x49, 0x29, 0x1E}},
     {'A', {0x7E, 0x11, 0x11, 0x11, 0x7E}},
+    {'B', {0x7F, 0x49, 0x49, 0x49, 0x36}},
     {'C', {0x3E, 0x41, 0x41, 0x41, 0x22}},
     {'D', {0x7F, 0x41, 0x41, 0x22, 0x1C}},
     {'E', {0x7F, 0x49, 0x49, 0x49, 0x41}},
     {'F', {0x7F, 0x09, 0x09, 0x09, 0x01}},
+    {'I', {0x00, 0x41, 0x7F, 0x41, 0x00}},
+    {'K', {0x7F, 0x08, 0x14, 0x22, 0x41}},
+    {'L', {0x7F, 0x40, 0x40, 0x40, 0x40}},
+    {'M', {0x7F, 0x02, 0x0C, 0x02, 0x7F}},
     {'N', {0x7F, 0x02, 0x04, 0x08, 0x7F}},
+    {'O', {0x3E, 0x41, 0x41, 0x41, 0x3E}},
     {'P', {0x7F, 0x09, 0x09, 0x09, 0x06}},
+    {'R', {0x7F, 0x09, 0x19, 0x29, 0x46}},
     {'S', {0x46, 0x49, 0x49, 0x49, 0x31}},
+    {'T', {0x01, 0x01, 0x7F, 0x01, 0x01}},
     {'U', {0x3F, 0x40, 0x40, 0x40, 0x3F}},
+    {'V', {0x1F, 0x20, 0x40, 0x20, 0x1F}},
 };
 
 // character: One of the bounded diagnostic alphabet's ASCII characters.
@@ -89,12 +101,110 @@ void format_processor(const LUNASHELL::ProcessorSnapshot &processor,
         std::snprintf(destination, capacity, "%u%%",
                       static_cast<unsigned>(core.utilization_percent));
     } else {
-        std::snprintf(destination, capacity, "N/A");
+        std::snprintf(destination, capacity, "%s", processor.data_stale ? "STALE" : "UNAVAILABLE");
     }
 }
 
+// component: Published validity, health and original acquisition error.
+bool current_component(const LUNASHELL::ComponentSnapshot &component)
+{
+    return component.health == LUNASHELL::DeviceHealth::Ready &&
+           component.last_error == ESP_OK && component.data_valid && !component.data_stale;
+}
+
+// address: Fixed canonical IPv4 field; malformed or unterminated content is rejected.
+bool valid_ipv4(const char (&address)[16])
+{
+    unsigned value = 0;
+    unsigned digits = 0;
+    unsigned octets = 0;
+    for (size_t index = 0; index < sizeof(address); ++index) {
+        const char character = address[index];
+        if (character >= '0' && character <= '9') {
+            value = value * 10 + static_cast<unsigned>(character - '0');
+            ++digits;
+            if (digits > 3 || value > 255) {
+                return false;
+            }
+            continue;
+        }
+        if (digits == 0) {
+            return false;
+        }
+        if (character == '\0') {
+            return octets == 3;
+        }
+        if (character != '.' || octets >= 3) {
+            return false;
+        }
+        ++octets;
+        digits = 0;
+        value = 0;
+    }
+    return false;
+}
+
+// observation: One canonical diagnostics projection with owner-provided validity.
+// readout: Receives IP, free memory and storage lines without new acquisition.
+// Exception: Rejects malformed IPv4 or inconsistent current storage capacities with ESP_ERR_INVALID_RESPONSE.
+esp_err_t format_device_details(const LUNASHELL::DiagnosticsObservation &observation,
+                               DebugReadout &readout)
+{
+    const LUNASHELL::WifiSnapshot &wifi = observation.wifi;
+    if (current_component(wifi) && wifi.connected && wifi.ip_acquired) {
+        if (!valid_ipv4(wifi.ip_address)) {
+            ESP_LOGE(kTag, "Canonical Wi-Fi IP rejected: malformed IPv4 (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        std::snprintf(readout.network, sizeof(readout.network), "IP %s", wifi.ip_address);
+    } else if (wifi.data_stale) {
+        std::snprintf(readout.network, sizeof(readout.network), "IP STALE");
+    } else if (current_component(wifi) && !wifi.ip_acquired) {
+        std::snprintf(readout.network, sizeof(readout.network), "IP NO IP");
+    }
+
+    const LUNASHELL::MemorySnapshot &memory = observation.memory;
+    if (current_component(memory)) {
+        std::snprintf(readout.memory, sizeof(readout.memory), "RAM FREE %luK PSRAM %luK",
+                      static_cast<unsigned long>(memory.internal_free_bytes / 1024),
+                      static_cast<unsigned long>(memory.psram_free_bytes / 1024));
+    } else if (memory.data_stale) {
+        std::snprintf(readout.memory, sizeof(readout.memory), "RAM STALE PSRAM STALE");
+    }
+
+    const LUNASHELL::StorageSnapshot &storage = observation.storage;
+    const bool accessible = current_component(storage) && storage.mounted &&
+        storage.card_response_verified && !storage.poisoned &&
+        storage.cleanup_complete && storage.cleanup_error == ESP_OK &&
+        storage.mount_outcome == LUNASHELL::StorageMountOutcome::Mounted;
+    if (storage.data_stale) {
+        std::snprintf(readout.storage_state, sizeof(readout.storage_state),
+                      "SD STALE ACCESS UNAVAILABLE");
+        std::snprintf(readout.storage_free, sizeof(readout.storage_free), "SD FREE STALE");
+    } else if (accessible) {
+        const bool coherent_space = storage.capacity_bytes > 0 &&
+            storage.filesystem_total_bytes > 0 &&
+            storage.filesystem_total_bytes <= storage.capacity_bytes &&
+            storage.free_bytes <= storage.filesystem_total_bytes;
+        if (!coherent_space) {
+            ESP_LOGE(kTag, "Canonical SD space rejected: inconsistent capacities (%s)",
+                     esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
+            return ESP_ERR_INVALID_RESPONSE;
+        }
+        std::snprintf(readout.storage_state, sizeof(readout.storage_state), "SD PRESENT ACCESS OK");
+        std::snprintf(readout.storage_free, sizeof(readout.storage_free), "SD FREE %lluMIB",
+                      static_cast<unsigned long long>(storage.free_bytes / (1024ULL * 1024ULL)));
+    } else if (storage.card_response_verified) {
+        // A verified card response proves presence even when FAT is inaccessible.
+        std::snprintf(readout.storage_state, sizeof(readout.storage_state), "SD PRESENT NO ACCESS");
+    }
+    // No card response is inconclusive on a board with no card-detect signal.
+    return ESP_OK;
+}
+
 // text: Bounded, null-terminated diagnostic text, already prepared for this frame.
-// top: First text row, entirely below the [73,393) central safe square.
+// top: First text row below the automatic greeting title.
 // strip: Valid compact destination tile with its own width and stride.
 // first_row: Logical origin used to clip glyphs across strip boundaries.
 // first_column: Logical x origin used to clip glyphs without moving their layout.
@@ -108,7 +218,7 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
         return ESP_OK;
     }
     const size_t length = std::strlen(text);
-    if (length == 0 || length > 32) {
+    if (length == 0 || length > 60) {
         ESP_LOGE(kTag, "Diagnostic text length rejected: %u", static_cast<unsigned>(length));
         return ESP_ERR_INVALID_SIZE;
     }
@@ -117,7 +227,7 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
     const int half_width = kPanelCenter - left;
     const int lowest_offset = bottom - 1 - kPanelCenter;
     // At this bottom edge the chord is narrowest. Its corners bound all rows.
-    if (top < 393 || left < 0 ||
+    if (top < kPerformanceTop || left < 0 ||
         half_width * half_width + lowest_offset * lowest_offset >= kPanelCenter * kPanelCenter) {
         ESP_LOGE(kTag, "Diagnostic text exceeds circular layout: width=%d top=%u", width, top);
         return ESP_ERR_INVALID_SIZE;
@@ -160,8 +270,8 @@ esp_err_t draw_line_rows(const char *text, uint16_t top,
 // No parameters: keep invalidation tied to the same layout constants as drawing.
 DamageRect debug_readout_damage_bounds()
 {
-    return {0, kFrameRateTop, kPanelSize,
-        static_cast<uint16_t>(kProcessorTop + kGlyphRows * kGlyphScale)};
+    return {0, kPerformanceTop, kPanelSize,
+        static_cast<uint16_t>(kStorageFreeTop + kGlyphRows * kGlyphScale)};
 }
 
 // measurement: Counters for successfully completed frames, reset on route entry/resume.
@@ -189,15 +299,16 @@ void record_frame_rate(FrameRateMeasurement &measurement,
 
 // measurement: Completed-frame timing, never the requested 33 ms schedule.
 // now_us: Observation time for FPS freshness.
-// readout: One immutable text pair for the current complete redraw.
+// readout: One immutable diagnostic text block for the current complete redraw.
+// Exception: Returns original canonical read errors or rejects inconsistent current values.
 esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
                                int64_t now_us, DebugReadout &readout)
 {
-    LUNASHELL::ProcessorSnapshot processor;
+    LUNASHELL::DiagnosticsObservation observation;
     const esp_err_t snapshot_error =
-        LUNASHELL::DeviceSnapshotService::instance().readProcessorObservation(processor);
+        LUNASHELL::DeviceSnapshotService::instance().readDiagnosticsObservation(observation);
     if (snapshot_error != ESP_OK) {
-        ESP_LOGE(kTag, "Canonical processor observation failed (%s)", esp_err_to_name(snapshot_error));
+        ESP_LOGE(kTag, "Canonical diagnostics observation failed (%s)", esp_err_to_name(snapshot_error));
         return snapshot_error;
     }
     DebugReadout next;
@@ -207,16 +318,20 @@ esp_err_t prepare_debug_readout(const FrameRateMeasurement &measurement,
                       static_cast<unsigned long>(measurement.frames_per_second_tenths / 10),
                       static_cast<unsigned long>(measurement.frames_per_second_tenths % 10));
     }
-    char cpu1[8];
-    char cpu2[8];
-    format_processor(processor, ProcessorId::Cpu1, cpu1, sizeof(cpu1));
-    format_processor(processor, ProcessorId::Cpu2, cpu2, sizeof(cpu2));
+    char cpu1[12];
+    char cpu2[12];
+    format_processor(observation.processor, ProcessorId::Cpu1, cpu1, sizeof(cpu1));
+    format_processor(observation.processor, ProcessorId::Cpu2, cpu2, sizeof(cpu2));
     std::snprintf(next.processors, sizeof(next.processors), "CPU1 %s CPU2 %s", cpu1, cpu2);
+    const esp_err_t details_error = format_device_details(observation, next);
+    if (details_error != ESP_OK) {
+        return details_error;
+    }
     readout = next;
     return ESP_OK;
 }
 
-// readout: Shared prepared text, with unavailable measurements visibly labelled N/A.
+// readout: Shared prepared text, with unavailable measurements visibly labelled.
 // strip: Destination owned by the companion renderer; no font or GUI allocation occurs.
 // first_row: Logical strip origin, mapped through the same cardinal rotation as Cody.
 // first_column: Logical x origin of the compact strip, leaving text positions unchanged.
@@ -237,18 +352,28 @@ esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
     }
     const uint16_t text_color = background_rgb565 == 0xFFFF ? kTextBlack : kTextWhitesmoke;
     const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(text_color, strip.byte_order);
-    const esp_err_t fps_error =
-        draw_line_rows(
-            readout.frame_rate, kFrameRateTop, strip, first_row, first_column,
-            stored_text_color
+    char performance[60];
+    std::snprintf(performance, sizeof(performance), "%s %s", readout.frame_rate, readout.processors);
+    struct TextLine {
+        const char *text;
+        uint16_t top;
+    };
+    const TextLine lines[] = {
+        {performance, kPerformanceTop},
+        {readout.network, kNetworkTop},
+        {readout.memory, kMemoryTop},
+        {readout.storage_state, kStorageStateTop},
+        {readout.storage_free, kStorageFreeTop},
+    };
+    for (const TextLine &line : lines) {
+        const esp_err_t draw_error = draw_line_rows(
+            line.text, line.top, strip, first_row, first_column, stored_text_color
         );
-    if (fps_error != ESP_OK) {
-        return fps_error;
+        if (draw_error != ESP_OK) {
+            return draw_error;
+        }
     }
-    return draw_line_rows(
-        readout.processors, kProcessorTop, strip, first_row, first_column,
-        stored_text_color
-    );
+    return ESP_OK;
 }
 
 }  // namespace CODY

@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <vector>
 
 namespace {
@@ -17,7 +18,7 @@ using namespace CODY;
 int failures = 0;
 int assertions = 0;
 bool first_sample = true;
-constexpr DamageRect exclusions[] = {{10, 203, 70, 263}, {106, 37, 362, 58}};
+constexpr DamageRect exclusions[] = {{10, 203, 70, 263}, {122, 32, 365, 64}};
 
 // condition: Independent observable behavior required from the production source.
 // message: Contract description retained in the failed-stage log.
@@ -407,6 +408,8 @@ void check_routine_greeting_caress()
     }
     require(recognized == 1 && happiness.happiness == 60 && happiness.decay_remainder_us == 0,
             "one real Greeting stroke increases initial happiness50 to60 exactly once");
+    require(contact.rejection == PettingRejection::None && contact.rejected_at_us == 0,
+            "recognized real Greeting stroke contains no invented rejection diagnostics");
 
     CodySize size{};
     require(cody_size_for_scale(greeting_transform.scale, size) == ESP_OK && size == CodySize::Greeting,
@@ -437,6 +440,30 @@ void check_routine_greeting_caress()
         painted = painted || pixel != background;
     }
     require(painted, "visible Greeting caress heart changes actual RGB565 pixels");
+
+    PettingState rejected_contact;
+    PettingZone rejected_zone{};
+    const CODY2D::Vec2 first_point{stroke_start_x, stroke_y};
+    const CODY2D::Vec2 rapid_point{stroke_start_x + 8.f, stroke_y};
+    require(observe_petting(scene, first_point, true, true, 2000000,
+                rejected_contact, rejected_zone) == ESP_OK &&
+                observe_petting(scene, rapid_point, true, false, 2001000,
+                rejected_contact, rejected_zone) == ESP_OK &&
+                rejected_contact.rejection == PettingRejection::TooFast &&
+                rejected_contact.rejected_at_us == 2001000 &&
+                rejected_contact.rejected_speed_valid && rejected_contact.rejected_body_hit,
+            "actual Greeting rapid segment retains its first measured rejection");
+    const auto original_rejection = rejected_contact;
+    require(observe_petting(scene, {20, 20}, true, false, 2401000,
+                rejected_contact, rejected_zone) == ESP_OK &&
+                rejected_contact.rejection == original_rejection.rejection &&
+                rejected_contact.rejected_at_us == original_rejection.rejected_at_us &&
+                rejected_contact.rejected_point.x == rapid_point.x &&
+                rejected_contact.rejected_point.y == rapid_point.y &&
+                rejected_contact.rejected_sample_gap_us == 1000 &&
+                rejected_contact.rejected_speed_pixels_per_second ==
+                    original_rejection.rejected_speed_pixels_per_second,
+            "later outside-body gap does not overwrite the real Greeting first rejection");
 }
 
 // No parameters: actual production gesture logic rejects accidental contacts and duplicate reactions.
@@ -451,6 +478,10 @@ void check_petting()
     petting_sample(scene, state, 248, 150, 1800000, false);
     require(slow_stroke(scene, state, 2000000, 290) == PettingZone::None,
             "second contact during cooldown is suppressed");
+    require(state.rejection == PettingRejection::Cooldown && state.rejected_at_us == 2000000 &&
+                state.rejected_zone == PettingZone::BelowMouth && state.rejected_body_hit &&
+                !state.rejected_speed_valid,
+            "cooldown records its initial anatomical contact without inventing segment speed");
     require(slow_stroke(scene, state, 8000000, 290) == PettingZone::BelowMouth,
             "lower-body stroke works after cooldown");
     state = {};
@@ -460,35 +491,111 @@ void check_petting()
     state = {};
     petting_sample(scene, state, 220, 150, 1000000, true, true);
     petting_sample(scene, state, 270, 150, 1050000);
-    require(state.rejected, "fast swipe rejects the whole contact");
+    require(state.rejected && state.rejection == PettingRejection::TooFast &&
+                state.rejected_at_us == 1050000 && state.rejected_sample_gap_us == 50000 &&
+                state.rejected_point.x == 270 && state.rejected_point.y == 150 &&
+                state.rejected_zone == PettingZone::AboveEyes && state.rejected_body_hit &&
+                state.rejected_speed_valid && state.rejected_speed_pixels_per_second == 1000.f,
+            "fast swipe retains the real point, interval, anatomical zone and measured1000px/s speed");
     state = {};
     petting_sample(scene, state, 220, 150, 1000000, true, true);
     petting_sample(scene, state, 221, 150, 1002000);
     petting_sample(scene, state, 222, 150, 1004000);
-    require(state.rejected, "dense small reports cannot disguise a fast swipe through jitter filtering");
+    require(state.rejected && state.rejection == PettingRejection::TooFast &&
+                state.rejected_sample_gap_us == 2000 &&
+                state.rejected_speed_pixels_per_second == 500.f,
+            "dense reports diagnose speed across the accumulated jitter-filter segment");
     state = {};
     require(slow_stroke(scene, state, 1000000, 230) == PettingZone::None,
             "face middle band excludes petting");
+    require(state.rejection == PettingRejection::FaceBand && state.rejected_at_us == 1000000 &&
+                state.rejected_body_hit && state.rejected_zone == PettingZone::None &&
+                !state.rejected_speed_valid,
+            "face-band exclusion remains distinct from an outside-body contact");
     state = {};
     require(slow_stroke(scene, state, 1000000, 80) == PettingZone::None,
             "stroke outside actual body excludes petting");
+    require(state.rejection == PettingRejection::OutsideBody && !state.rejected_body_hit &&
+                state.rejected_at_us == 1000000 && state.rejected_point.y == 80,
+            "initial outside-body rejection preserves its first actual point and timestamp");
     state = {};
     petting_sample(scene, state, 220, 150, 1000000, true, true);
     petting_sample(scene, state, 224, 150, 1400000);
-    require(state.rejected, "missing acquisition interval rejects contact");
+    require(state.rejected && state.rejection == PettingRejection::SampleGap &&
+                state.rejected_sample_gap_us == 400000 && state.rejected_at_us == 1400000 &&
+                !state.rejected_speed_valid,
+            "missing acquisition interval records400ms gap before any speed evaluation");
     state = {};
     petting_sample(scene, state, 220, 150, 1000000, true, true);
     petting_sample(scene, state, 224, 150, 1100000);
     cancel_petting(state);
     require(petting_sample(scene, state, 248, 150, 1200000) == PettingZone::None &&
-            !state.contact_active, "route rotation or park cancellation cannot resume an old contact");
+            !state.contact_active && state.rejection == PettingRejection::None,
+            "route rotation or park cancellation clears diagnostics and cannot resume an old contact");
     state = {};
     petting_sample(scene, state, 220, 150, 1000000, true, true);
     for (int index = 1; index <= 8; ++index) {
         require(petting_sample(scene, state, 220.f + index % 2, 150,
                                1000000 + index * 100000) == PettingZone::None,
-                "stationary noisy contact never becomes a caress");
+                 "stationary noisy contact never becomes a caress");
     }
+
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 150, 1000000);
+    require(state.rejection == PettingRejection::NonMonotonic && state.rejected_sample_gap_us == 0 &&
+                state.rejected_at_us == 1000000 && !state.rejected_speed_valid,
+            "duplicate acquisition timestamp is explicitly diagnosed before dividing by elapsed time");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 150, 999999);
+    require(state.rejection == PettingRejection::NonMonotonic && state.rejected_sample_gap_us == -1 &&
+                state.rejected_at_us == 999999,
+            "backward acquisition timestamp retains the actual negative interval");
+
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    for (int index = 1; index <= 31; ++index) {
+        petting_sample(scene, state, 220, 150, 1000000 + index * 100000);
+    }
+    require(state.rejection == PettingRejection::MaxDuration && state.rejected_at_us == 4100000 &&
+                state.rejected_sample_gap_us == 100000 && !state.rejected_speed_valid,
+            "continuous stationary samples distinguish maximum duration from a missing-report gap");
+
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 290, 1100000);
+    require(state.rejection == PettingRejection::ZoneChanged &&
+                state.zone == PettingZone::AboveEyes && state.rejected_zone == PettingZone::BelowMouth &&
+                state.rejected_body_hit && !state.rejected_speed_valid,
+            "anatomical zone crossing retains original and observed zones before speed classification");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 230, 1100000);
+    require(state.rejection == PettingRejection::FaceBand && state.rejected_body_hit,
+            "entering the protected face band is distinct from crossing between eligible zones");
+    state = {};
+    petting_sample(scene, state, 220, 150, 1000000, true, true);
+    petting_sample(scene, state, 224, 80, 1100000);
+    require(state.rejection == PettingRejection::OutsideBody && !state.rejected_body_hit,
+            "leaving the actual body is distinct from a protected face-band exclusion");
+    petting_sample(scene, state, 224, 80, 1200000, false);
+    require(!state.contact_active && state.rejection == PettingRejection::None &&
+                state.rejected_at_us == 0 && !state.rejected_speed_valid,
+            "acquired release clears the finished contact's rejection evidence");
+
+    const PettingRejection reasons[] = {PettingRejection::None, PettingRejection::OutsideBody,
+        PettingRejection::FaceBand, PettingRejection::Cooldown, PettingRejection::NonMonotonic,
+        PettingRejection::SampleGap, PettingRejection::MaxDuration, PettingRejection::ZoneChanged,
+        PettingRejection::TooFast};
+    const char *names[] = {"None", "OutsideBody", "FaceBand", "Cooldown", "NonMonotonic",
+        "SampleGap", "MaxDuration", "ZoneChanged", "TooFast"};
+    for (size_t index = 0; index < std::size(reasons); ++index) {
+        require(std::strcmp(petting_rejection_name(reasons[index]), names[index]) == 0,
+                "every typed rejection has its own exact bounded ASCII diagnostic name");
+    }
+    require(std::strcmp(petting_rejection_name(static_cast<PettingRejection>(255)), "Invalid") == 0,
+            "unknown rejection identity is never silently presented as no rejection");
 }
 // No parameters: portable arbitration checks the single canonical-admitted latest target.
 void check_symbol_arbitration()

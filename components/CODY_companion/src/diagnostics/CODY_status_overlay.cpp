@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "LUNASHELL_clock.hpp"
@@ -16,18 +17,22 @@ constexpr uint16_t kPanelSize = 466;
 constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = 6;
-constexpr uint16_t kDateLeft = 110;
-constexpr uint16_t kDateTop = 37;
-constexpr uint16_t kTimeLeft = 130;
-constexpr uint16_t kTimeTop = 49;
-constexpr uint16_t kBatteryLeft = 270;
-constexpr uint16_t kBatteryTop = 43;
-constexpr uint16_t kBatteryTextLeft = 294;
-constexpr uint16_t kBatteryTextTop = 45;
-constexpr uint16_t kWifiLeft = 326;
-constexpr uint16_t kWifiTop = 43;
-constexpr uint16_t kBluetoothLeft = 351;
-constexpr uint16_t kBluetoothTop = 40;
+constexpr uint16_t kDateLeft = 122;
+constexpr uint16_t kDateTop = 32;
+constexpr uint16_t kTimeLeft = kDateLeft;
+constexpr uint16_t kTimeTop = 47;
+constexpr uint16_t kBatteryLeft = 236;
+constexpr uint16_t kBatteryTop = 46;
+constexpr uint16_t kBatteryTextLeft = 270;
+constexpr uint16_t kBatteryTextTop = 50;
+constexpr uint16_t kWifiLeft = 314;
+constexpr uint16_t kWifiTop = 45;
+constexpr uint16_t kBluetoothLeft = 352;
+constexpr uint16_t kBluetoothTop = 43;
+constexpr uint16_t kDateLight = 0xA577; // Quiet slate #a4adb8 on the dark scene.
+constexpr uint16_t kDateDark = 0x63B1;  // Slate #64748b on the white scene.
+constexpr uint16_t kTimeLight = 0xE75E; // Pearl #e4eaf2 on the dark scene.
+constexpr uint16_t kTimeDark = 0x3A2A;  // Ink #384454 on the white scene.
 constexpr uint16_t kReady = 0x3E8A;   // #39d353 green in native RGB565.
 constexpr uint16_t kWarning = 0xF5A9; // #f0b44d in native RGB565.
 constexpr uint16_t kMissing = 0xEA6B; // #eb4d5c in native RGB565.
@@ -45,34 +50,41 @@ struct MonoGlyph {
 struct IconGlyph {
     uint8_t width;
     uint8_t height;
-    uint32_t rows[17];
+    uint32_t rows[21];
 };
 
 constexpr IconGlyph kBatteryGlyph = {
-    22, 12,
+    26, 16,
     {
-        0x0007FFFF, 0x00040001, 0x00040001, 0x00040001,
-        0x003C0001, 0x003C0001, 0x003C0001, 0x003C0001,
-        0x00040001, 0x00040001, 0x00040001, 0x0007FFFF,
+        0x001FFFFC, 0x003FFFFE, 0x00600003, 0x00600003,
+        0x00600003, 0x03E00003, 0x03E00003, 0x03E00003,
+        0x03E00003, 0x03E00003, 0x03E00003, 0x00600003,
+        0x00600003, 0x00600003, 0x003FFFFE, 0x001FFFFC,
     },
 };
 
 constexpr IconGlyph kChargeGlyph = {
-    7, 9,
-    {0x10, 0x18, 0x1C, 0x0E, 0x7F, 0x38, 0x1C, 0x0C, 0x04},
+    9, 12,
+    {0x060, 0x070, 0x038, 0x03C, 0x01E, 0x1FF,
+     0x0FF, 0x078, 0x03C, 0x01C, 0x00C, 0x004},
 };
 
 constexpr IconGlyph kWifiGlyphs[] = {
-    {17, 13, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x380, 0x380, 0x100}},
-    {17, 13, {0, 0, 0, 0, 0, 0x7C0, 0x1830, 0x2008, 0x1010, 0, 0x380, 0x380, 0x100}},
-    {17, 13, {0xFE0, 0x3018, 0x4004, 0x8002, 0, 0x7C0, 0x1830, 0x2008, 0x1010, 0, 0x380, 0x380, 0x100}},
+    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+              0xE00, 0x1F00, 0x1F00, 0xE00}},
+    {21, 17, {0, 0, 0, 0, 0, 0, 0, 0x3F80, 0xFFE0,
+              0x1C070, 0x38038, 0x18030, 0, 0xE00, 0x1F00, 0x1F00, 0xE00}},
+    {21, 17, {0xFFE0, 0x3FFF8, 0x7803C, 0xE000E, 0x1C0007, 0xC0006, 0,
+              0x3F80, 0xFFE0, 0x1C070, 0x38038, 0x18030, 0,
+              0xE00, 0x1F00, 0x1F00, 0xE00}},
 };
 
 constexpr IconGlyph kBluetoothGlyph = {
-    11, 17,
+    13, 21,
     {
-        0x020, 0x060, 0x0A0, 0x130, 0x222, 0x124, 0x0A8, 0x070, 0x020,
-        0x070, 0x0A8, 0x124, 0x222, 0x130, 0x0A0, 0x060, 0x020,
+        0x060, 0x0E0, 0x1E0, 0x360, 0x660, 0xC66, 0x66C,
+        0x378, 0x1F0, 0x0E0, 0x060, 0x0E0, 0x1F0, 0x378,
+        0x66C, 0xC66, 0x660, 0x360, 0x1E0, 0x0E0, 0x060,
     },
 };
 
@@ -226,18 +238,28 @@ void draw_icon_glyph(const IconGlyph &glyph, int left, int top,
 // text: Bounded null-terminated status text.
 // left: Logical x coordinate of the first glyph.
 // top: Logical y coordinate of the first glyph row.
+// scale: One for metadata or two for the current HH:MM clock.
 // strip: Validated compact RGB565 target.
 // first_row: Logical y origin of the compact target.
 // first_column: Logical x origin of the compact target.
 // stored_color: Color already encoded for the target byte order.
 // Exception: Returns an unsupported-glyph or invalid-size error.
-esp_err_t draw_text(const char *text, int left, int top, CODY2D::Surface strip,
+esp_err_t draw_text(const char *text, int left, int top, uint8_t scale, CODY2D::Surface strip,
                     uint16_t first_row, uint16_t first_column, uint16_t stored_color)
 {
     const size_t length = std::strlen(text);
-    if (length == 0 || length > 15) {
+    if (length == 0 || length > 15 || scale < 1 || scale > 2) {
         ESP_LOGE(kTag, "Status text length rejected: %u (%s)",
                  static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const int right = left + static_cast<int>((length * kCharacterAdvance - 1) * scale) - 1;
+    const int bottom = top + kGlyphRows * scale - 1;
+    const int farthest_x = std::max(std::abs(left - 233), std::abs(right - 233));
+    const int farthest_y = std::max(std::abs(top - 233), std::abs(bottom - 233));
+    if (farthest_x * farthest_x + farthest_y * farthest_y >= 233 * 233) {
+        ESP_LOGE(kTag, "Status text exceeds circular layout: x=%d y=%d scale=%u (%s)",
+                 left, top, static_cast<unsigned>(scale), esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     for (size_t index = 0; index < length; ++index) {
@@ -251,9 +273,13 @@ esp_err_t draw_text(const char *text, int left, int top, CODY2D::Surface strip,
         for (uint16_t column = 0; column < kGlyphColumns; ++column) {
             for (uint16_t row = 0; row < kGlyphRows; ++row) {
                 if ((glyph->columns[column] & (1U << row)) != 0) {
-                    put_pixel(strip, first_row, first_column,
-                              left + static_cast<int>(index * kCharacterAdvance) + column,
-                              top + row, stored_color);
+                    for (uint8_t dy = 0; dy < scale; ++dy) {
+                        for (uint8_t dx = 0; dx < scale; ++dx) {
+                            put_pixel(strip, first_row, first_column,
+                                left + static_cast<int>((index * kCharacterAdvance + column) * scale) + dx,
+                                top + row * scale + dy, stored_color);
+                        }
+                    }
                 }
             }
         }
@@ -279,16 +305,16 @@ void draw_battery(const StatusOverlay &overlay, CODY2D::Surface strip,
         constexpr int interior_width = 15;
         const int fill_width =
             (overlay.battery_percent * interior_width + 99) / 100;
-        for (int y = 2; y <= 9; ++y) {
+        for (int y = 4; y <= 11; ++y) {
             for (int x = 0; x < fill_width; ++x) {
-                put_pixel(strip, first_row, first_column, kBatteryLeft + 2 + x,
+                put_pixel(strip, first_row, first_column, kBatteryLeft + 4 + x,
                           kBatteryTop + y, stored_color);
             }
         }
     }
     if (overlay.battery_charging) {
         draw_icon_glyph(
-            kChargeGlyph, kBatteryLeft + 7, kBatteryTop + 1,
+            kChargeGlyph, kBatteryLeft + 7, kBatteryTop + 2,
             strip, first_row, first_column, charge_color
         );
     }
@@ -343,7 +369,9 @@ esp_err_t format_number(char *destination, size_t capacity, const char *format, 
 // No parameters: return the complete half-open footprint shared by damage planning.
 DamageRect status_overlay_damage_bounds()
 {
-    return {106, 37, 362, 58};
+    return {kDateLeft, kDateTop,
+        static_cast<uint16_t>(kBluetoothLeft + kBluetoothGlyph.width),
+        static_cast<uint16_t>(kBluetoothTop + kBluetoothGlyph.height)};
 }
 
 // observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.
@@ -408,10 +436,9 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
             kMonths[clock.local_month - 1], static_cast<unsigned>(clock.local_year)
         );
         const int time_written = std::snprintf(
-            next.time, sizeof(next.time), "%02u:%02u:%02u",
+            next.time, sizeof(next.time), "%02u:%02u",
             static_cast<unsigned>(clock.local_minute / 60),
-            static_cast<unsigned>(clock.local_minute % 60),
-            static_cast<unsigned>(clock.local_second)
+            static_cast<unsigned>(clock.local_minute % 60)
         );
         if (date_written <= 0 || static_cast<size_t>(date_written) >= sizeof(next.date) ||
             time_written <= 0 || static_cast<size_t>(time_written) >= sizeof(next.time)) {
@@ -439,7 +466,7 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
     const auto &wifi = observation.wifi;
     next.wifi_tone = component_tone(wifi);
     if (wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
-        wifi.data_valid) {
+        wifi.data_valid && !wifi.data_stale) {
         if (!wifi.started || !wifi.credentials_configured) {
             next.wifi_tone = StatusTone::Muted;
         } else if (wifi.connected && wifi.ip_acquired) {
@@ -459,7 +486,7 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
     const auto &bluetooth = observation.ble;
     next.bluetooth_tone = component_tone(bluetooth);
     if (bluetooth.health == LUNASHELL::DeviceHealth::Ready &&
-        bluetooth.last_error == ESP_OK && bluetooth.data_valid) {
+        bluetooth.last_error == ESP_OK && bluetooth.data_valid && !bluetooth.data_stale) {
         next.bluetooth_active = true;
         next.bluetooth_tone = bluetooth.connected
             ? StatusTone::Ready : StatusTone::Active;
@@ -517,8 +544,16 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
         return ESP_OK;
     }
 
+    const bool white_background = background_rgb565 == 0xFFFF;
+    const uint16_t date_color = CODY2D::rgb565_native_to_stored(
+        CODY2D::blend_rgb565(white_background ? kDateDark : kDateLight, background_rgb565, opacity),
+        strip.byte_order
+    );
+    // Neutral pearl gives a valid clock hierarchy; errors retain their semantic color.
+    const uint16_t clock_ink = overlay.clock_tone == StatusTone::Ready
+        ? (white_background ? kTimeDark : kTimeLight) : tone_color(overlay.clock_tone);
     const uint16_t clock_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(tone_color(overlay.clock_tone), background_rgb565, opacity),
+        CODY2D::blend_rgb565(clock_ink, background_rgb565, opacity),
         strip.byte_order
     );
     const uint16_t battery_color = CODY2D::rgb565_native_to_stored(
@@ -538,12 +573,12 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
     );
 
     esp_err_t result = draw_text(
-        overlay.date, kDateLeft, kDateTop,
-        strip, first_row, first_column, clock_color
+        overlay.date, kDateLeft, kDateTop, 1,
+        strip, first_row, first_column, date_color
     );
     if (result == ESP_OK) {
         result = draw_text(
-            overlay.time, kTimeLeft, kTimeTop,
+            overlay.time, kTimeLeft, kTimeTop, overlay.clock_tone == StatusTone::Ready ? 2 : 1,
             strip, first_row, first_column, clock_color
         );
     }
@@ -552,7 +587,7 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
     }
     draw_battery(overlay, strip, first_row, first_column, battery_color, charge_color);
     if (overlay.battery[0] != '\0') {
-        result = draw_text(overlay.battery, kBatteryTextLeft, kBatteryTextTop,
+        result = draw_text(overlay.battery, kBatteryTextLeft, kBatteryTextTop, 1,
                            strip, first_row, first_column, battery_color);
         if (result != ESP_OK) {
             return result;

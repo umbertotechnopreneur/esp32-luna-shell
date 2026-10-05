@@ -6865,6 +6865,39 @@ esp_err_t DeviceSnapshotService::readProcessorObservation(ProcessorSnapshot &pro
     return ESP_OK;
 }
 
+// observation: Coherent diagnostics projection, with original measurement timestamps.
+// Exception: Returns the original snapshot lock or release error without publishing a partial copy.
+esp_err_t DeviceSnapshotService::readDiagnosticsObservation(
+    DiagnosticsObservation &observation
+) const
+{
+    DiagnosticsObservation copy;
+    const esp_err_t lock_error =
+        take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "diagnostics snapshot read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Diagnostics snapshot read failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    copy.wifi = s_snapshot.radios.wifi;
+    copy.memory = s_snapshot.memory;
+    copy.processor = s_snapshot.processor;
+    copy.storage = s_snapshot.storage;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("diagnostics snapshot read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Diagnostics snapshot release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.memory, now_us, ttl_us);
+    age_measured_sample(copy.processor, now_us, ttl_us);
+    // Wi-Fi is event-owned rather than a periodically acquired numeric sample.
+    // FAT space is acquired every 60 seconds, independently of sensor cadence.
+    age_measured_sample(copy.storage, now_us, 90LL * 1000000LL);
+    observation = copy;
+    return ESP_OK;
+}
+
 // observation: Receives a coherent, aged projection of the single canonical snapshot.
 // The renderer must never hold a second measurement cache or trigger a driver read.
 esp_err_t DeviceSnapshotService::readMotionPowerObservation(

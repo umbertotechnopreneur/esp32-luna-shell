@@ -24,9 +24,29 @@ and referenced architecture/artifact records.
   text preparation and raster composition share the same route admission.
   Main-view sleeping-face selection remains eligible; original onboarding,
   footer, benchmark and session-preference guards are retained. CPU1/CPU2 use
-  existing canonical per-core runtime measurements without new polling, and
-  the upper battery/Wi-Fi/clock overlay is unchanged. Static review complete;
-  this increment is not yet built or deployed.
+  existing canonical per-core runtime measurements without new polling. The
+  prepared next increment adds IPv4, free internal RAM/PSRAM and truthful SD
+  presence/access/free-space rows, plus a quieter date, larger `HH:MM` without
+  seconds and more legible battery/Wi-Fi/Bluetooth icons. Static review complete;
+  Debug `3898f3d2` built successfully (4,007,536-byte image, 73% app partition
+  free) and flashed on COM10 with verified hashes. The user confirmed seeing
+  FPS/CPU below Cody. The `caress-main-hud-device-20261005.log` capture records
+  ordinary main-view throughput around 16-18 FPS and total core0 usage around
+  75-80%, with core1 usually rounding to 0%. These samples do not establish
+  heart-icon cost: no Affection trigger was captured. Real acquired contacts
+  reached Main admission but ended rejected, with durations of about 127 ms,
+  451 ms and 167 ms, below the configured 500-ms minimum. The specific earlier
+  rejection cause was not published; contact timing alone cannot explain every
+  rejected gesture. SFX-on-appearance is already enabled in the YAML/runtime;
+  heart playback remains physically unverified until the icon is admitted.
+
+- Added typed first-rejection evidence for physical caresses without changing
+  gesture thresholds, plus one-shot SFX disposition logging at the first retired
+  visible icon. Added a clean transient SD-resume gate that releases power
+  suspension for the existing owner retry/backoff while preserving the original
+  error and keeping the logger mirror disabled. The board explicitly uses
+  `SDMMC_SLOT_NO_CD`; no card-presence GPIO participates. These latest changes
+  have static integration only pending merge, final checks, build and device proof.
 
 - Investigated the reported caress freeze on device firmware `99342b7a`:
   the first capture attached after a retained touch `ESP_ERR_INVALID_RESPONSE`,

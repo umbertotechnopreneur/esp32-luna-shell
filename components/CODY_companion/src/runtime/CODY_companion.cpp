@@ -697,6 +697,9 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     }
     CODY::PersonalityAudioStatus status{};
     const esp_err_t error = CODY::notify_personality_audio(current.cue, status);
+    ESP_LOGI(kTag, "Personality sound: cue=%u disposition=%u sequence=%lu error=%s",
+        static_cast<unsigned>(current.cue), static_cast<unsigned>(status.state),
+        static_cast<unsigned long>(status.request_sequence), esp_err_to_name(error));
     if (error != ESP_OK) {
         log_optional_personality_error(error);
     }
@@ -2280,7 +2283,11 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             (s_cached_readout_visible != frame_readout_visible ||
              (frame_readout_visible &&
               (std::strcmp(s_cached_readout.frame_rate, debug_readout.frame_rate) != 0 ||
-               std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0)))) {
+               std::strcmp(s_cached_readout.processors, debug_readout.processors) != 0 ||
+               std::strcmp(s_cached_readout.network, debug_readout.network) != 0 ||
+               std::strcmp(s_cached_readout.memory, debug_readout.memory) != 0 ||
+               std::strcmp(s_cached_readout.storage_state, debug_readout.storage_state) != 0 ||
+               std::strcmp(s_cached_readout.storage_free, debug_readout.storage_free) != 0)))) {
             plan_error = CODY::include_damage(dirty_plan, CODY::debug_readout_damage_bounds());
         }
         if (plan_error == ESP_OK && s_cached_navigation_visible != frame_navigation_visible) {
@@ -2882,18 +2889,36 @@ esp_err_t publish_body_gesture(const LUNASHELL_touch_point_t &point, bool presse
             // Observe before the recognizer clears the released contact. These
             // are actual acquired timestamps/coordinates, not synthetic samples.
             const auto &contact = s_state.petting;
-            ESP_LOGI(kTag, "Caress contact end: zone=%u triggered=%u rejected=%u duration_us=%lld path_px=%.1f",
+            ESP_LOGI(kTag, "Caress contact end: zone=%u triggered=%u rejected=%u cause=%s duration_us=%lld path_px=%.1f",
                 static_cast<unsigned>(contact.zone), static_cast<unsigned>(contact.triggered),
                 static_cast<unsigned>(contact.rejected),
+                CODY::petting_rejection_name(contact.rejection),
                 static_cast<long long>(point.sample_timestamp_us - contact.started_at_us),
                 static_cast<double>(contact.path_pixels));
         }
         CODY::PettingZone zone{};
+        const bool previously_rejected = !pressed_edge && s_state.petting.rejected;
         const esp_err_t petting_error = CODY::observe_petting(*s_resources.rig,
             {static_cast<float>(point.x), static_cast<float>(point.y)}, point.pressed,
             pressed_edge, point.sample_timestamp_us, s_state.petting, zone);
         if (petting_error != ESP_OK) {
             return petting_error;
+        }
+        if (s_state.petting.rejected && !previously_rejected) {
+            const auto &contact = s_state.petting;
+            ESP_LOGI(kTag, "Caress rejected: cause=%s zone=%u next_zone=%u body=%u at=%lld gap_us=%lld",
+                CODY::petting_rejection_name(contact.rejection), static_cast<unsigned>(contact.zone),
+                static_cast<unsigned>(contact.rejected_zone), static_cast<unsigned>(contact.rejected_body_hit),
+                static_cast<long long>(contact.rejected_at_us),
+                static_cast<long long>(contact.rejected_sample_gap_us));
+            char speed[24] = "N/A";
+            if (contact.rejected_speed_valid) {
+                std::snprintf(speed, sizeof(speed), "%.1f",
+                    static_cast<double>(contact.rejected_speed_pixels_per_second));
+            }
+            ESP_LOGI(kTag, "Caress rejection geometry: x=%.1f y=%.1f scale=%.1f speed=%s path_px=%.1f",
+                static_cast<double>(contact.rejected_point.x), static_cast<double>(contact.rejected_point.y),
+                static_cast<double>(contact.contact_scale), speed, static_cast<double>(contact.path_pixels));
         }
         if (zone != CODY::PettingZone::None) {
             // Mood belongs to the recognized interaction, even if another symbol suppresses the heart.

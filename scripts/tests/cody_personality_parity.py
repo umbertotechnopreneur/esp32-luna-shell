@@ -27,7 +27,7 @@ def compare_personality_fixture(root, fixture):
     points = {point["name"]: point for point in rig["points"]}
     rest_lobe_span = (points["lobe.upper_right"]["position"][0] -
                       points["lobe.upper_left"]["position"][0])
-    exclusions = [(106, 37, 362, 58), (10, 203, 70, 263)]
+    exclusions = [(122, 32, 365, 64), (10, 203, 70, 263)]
     required = {"cue", "opacity", "status", "left", "top", "right", "bottom", "phase", "desired",
                 "x", "y", "width", "height"}
     geometry_fields = {"x", "y", "width", "height"}

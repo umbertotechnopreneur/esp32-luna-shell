@@ -1341,6 +1341,20 @@ esp_err_t poll_mounted_card(bool force_space_refresh = false)
     return logger_error;
 }
 
+// resume_error: Original failed card validation, never replaced by retry eligibility.
+// Caller holds s_storage_mutex; only a clean transient unmount can resume probing.
+bool failed_power_resume_can_retry_locked(esp_err_t resume_error)
+{
+    const LUNASHELL::StorageMountReport &report = s_last_mount_report;
+    return card_transport_error_is_explicitly_transient(resume_error) &&
+        report.stage == LUNASHELL::StorageMountStage::RuntimeStatus &&
+        report.error == resume_error &&
+        !s_mounted && !report.mounted && !s_terminal_failure &&
+        report.cleanup_complete && report.cleanup_error == ESP_OK &&
+        !report.poisoned && !s_logger_mirror_enabled &&
+        !report.logger_mirror_enabled;
+}
+
 // Mark every notification wait as quiescent for synchronous power handoff.
 void wait_for_storage_notification(TickType_t timeout_ticks)
 {
@@ -1350,6 +1364,7 @@ void wait_for_storage_notification(TickType_t timeout_ticks)
 
 // argument: Unused FreeRTOS task context.
 // Own SD/FatFs polling and park indefinitely while power is suspended.
+// Exception: Publishes original I/O/resume failures; retry eligibility never clears them.
 void storage_task(void *argument)
 {
     (void)argument;
@@ -1460,6 +1475,18 @@ void storage_task(void *argument)
                     } else {
                         publish_mount_report_locked(s_last_mount_report);
                     }
+                } else if (failed_power_resume_can_retry_locked(resume_error)) {
+                    // The device is waking, but the medium remains unavailable.
+                    // A clean transient unmount has already stopped the mirror;
+                    // release only the power gate so the existing mount/backoff
+                    // path can run. Keep the published failure and resume result.
+                    s_power_suspended = false;
+                    ESP_LOGW(
+                        TAG,
+                        "SD wake validation failed (%s); clean transient unmount "
+                        "permits owner retry with mirroring disabled",
+                        esp_err_to_name(resume_error)
+                    );
                 }
                 s_power_resume_requested = false;
                 s_power_resume_error = resume_error;
